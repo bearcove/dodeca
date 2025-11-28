@@ -1,6 +1,6 @@
 [package]
 name = "fontcull"
-version = "1.0.0"
+version = "1.0.2"
 edition = "2024"
 authors = ["Amos Wenger <amos@bearcove.eu>"]
 description = "Subset fonts based on actual glyph usage from web pages"
