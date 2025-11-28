@@ -3,4 +3,27 @@ name = "fontcull"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["klippa"]
+klippa = ["dep:klippa", "dep:skrifa", "dep:write-fonts", "dep:read-fonts", "dep:woff"]
+
 [dependencies]
+chromiumoxide = { version = "0.7", features = ["tokio-runtime"] }
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
+glob = "0.3"
+eyre = "0.6"
+color-eyre = "0.6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures = "0.3"
+url = "2"
+
+# klippa backend (optional)
+klippa = { git = "https://github.com/googlefonts/fontations", optional = true }
+skrifa = { git = "https://github.com/googlefonts/fontations", optional = true }
+write-fonts = { git = "https://github.com/googlefonts/fontations", optional = true }
+read-fonts = { git = "https://github.com/googlefonts/fontations", optional = true }
+woff = { version = "0.6", optional = true }
