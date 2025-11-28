@@ -33,3 +33,8 @@ skrifa = { git = "https://github.com/googlefonts/fontations", optional = true }
 write-fonts = { git = "https://github.com/googlefonts/fontations", optional = true }
 read-fonts = { git = "https://github.com/googlefonts/fontations", optional = true }
 woff = { version = "0.6", optional = true }
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"
