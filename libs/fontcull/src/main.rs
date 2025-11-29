@@ -186,10 +186,38 @@ async fn spider_page(page: &Page, limit: usize) -> Result<Vec<String>> {
         (() => {
             const links = Array.from(document.querySelectorAll('a[href]'));
             const currentOrigin = window.location.origin;
+
+            // Normalize URL for deduplication
+            const normalizeUrl = (url) => {
+                try {
+                    const parsed = new URL(url);
+                    // Remove trailing slash from pathname (except for root)
+                    if (parsed.pathname !== '/' && parsed.pathname.endsWith('/')) {
+                        parsed.pathname = parsed.pathname.slice(0, -1);
+                    }
+                    // Remove fragment (hash) to avoid duplicate content crawling
+                    parsed.hash = '';
+                    // Sort search params for consistent ordering
+                    parsed.searchParams.sort();
+                    return parsed.toString();
+                } catch (e) {
+                    return url;
+                }
+            };
+
+            const normalizedUrls = new Set();
             return links
                 .map(a => a.href)
                 .filter(href => href.startsWith(currentOrigin))
-                .filter((v, i, a) => a.indexOf(v) === i);
+                .filter(href => {
+                    const normalized = normalizeUrl(href);
+                    if (normalizedUrls.has(normalized)) {
+                        return false;
+                    }
+                    normalizedUrls.add(normalized);
+                    return true;
+                })
+                .map(href => normalizeUrl(href));
         })()
     "#;
 
