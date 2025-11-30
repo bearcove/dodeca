@@ -1,0 +1,23 @@
+[package]
+name = "fontcull-klippa"
+version = "0.1.0"
+description = "Subsetting a font file according to provided input. (Vendored fork for fontcull)"
+readme = "README.md"
+categories = ["text-processing"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/fasterthanlime/fontcull"
+rust-version = "1.82"
+
+[dependencies]
+clap = { version = "4.5.4", features = ["derive"] }
+fnv = "1.0.7"
+hashbrown = "0.15.1"
+regex = "1.10.4"
+fontcull-skrifa = { version = "0.39.0", path = "../fontcull-skrifa" }
+thiserror = "1.0.58"
+fontcull-write-fonts = { version = "0.44.1", path = "../fontcull-write-fonts", features = ["read"] }
+
+[dev-dependencies]
+diff = "0.1.13"
+tempdir = "0.3.7"

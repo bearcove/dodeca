@@ -11,7 +11,7 @@ categories = ["command-line-utilities", "web-programming"]
 
 [features]
 default = ["klippa"]
-klippa = ["dep:klippa", "dep:skrifa", "dep:write-fonts", "dep:read-fonts", "dep:woff"]
+klippa = ["dep:fontcull-klippa", "dep:fontcull-skrifa", "dep:fontcull-write-fonts", "dep:fontcull-read-fonts", "dep:woff"]
 
 [dependencies]
 chromiumoxide = { version = "0.7", features = ["tokio-runtime"] }
@@ -27,11 +27,11 @@ serde_json = "1"
 futures = "0.3"
 url = "2"
 
-# klippa backend (optional)
-klippa = { git = "https://github.com/googlefonts/fontations", optional = true }
-skrifa = { git = "https://github.com/googlefonts/fontations", optional = true }
-write-fonts = { git = "https://github.com/googlefonts/fontations", optional = true }
-read-fonts = { git = "https://github.com/googlefonts/fontations", optional = true }
+# klippa backend (optional, vendored from googlefonts/fontations)
+fontcull-klippa = { version = "0.1.0", path = "vendored/fontcull-klippa", optional = true }
+fontcull-skrifa = { version = "0.39.0", path = "vendored/fontcull-skrifa", optional = true }
+fontcull-write-fonts = { version = "0.44.1", path = "vendored/fontcull-write-fonts", optional = true }
+fontcull-read-fonts = { version = "0.36.0", path = "vendored/fontcull-read-fonts", optional = true }
 woff = { version = "0.6", optional = true }
 
 # The profile that 'dist' will build with

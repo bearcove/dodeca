@@ -683,14 +683,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
-name = "font-types"
-version = "0.10.1"
-source = "git+https://github.com/googlefonts/fontations#38e7270af551f36428b090cecc1a4eeee21d2fad"
-dependencies = [
- "bytemuck",
-]
-
-[[package]]
 name = "fontcull"
 version = "1.0.3"
 dependencies = [
@@ -698,19 +690,66 @@ dependencies = [
  "clap",
  "color-eyre",
  "eyre",
+ "fontcull-klippa",
+ "fontcull-read-fonts",
+ "fontcull-skrifa",
+ "fontcull-write-fonts",
  "futures",
  "glob",
- "klippa",
- "read-fonts",
  "serde",
  "serde_json",
- "skrifa",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "url",
  "woff",
- "write-fonts",
+]
+
+[[package]]
+name = "fontcull-font-types"
+version = "0.10.1"
+dependencies = [
+ "bytemuck",
+]
+
+[[package]]
+name = "fontcull-klippa"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "fnv",
+ "fontcull-skrifa",
+ "fontcull-write-fonts",
+ "hashbrown 0.15.5",
+ "regex",
+ "thiserror",
+]
+
+[[package]]
+name = "fontcull-read-fonts"
+version = "0.36.0"
+dependencies = [
+ "bytemuck",
+ "fontcull-font-types",
+]
+
+[[package]]
+name = "fontcull-skrifa"
+version = "0.39.0"
+dependencies = [
+ "bytemuck",
+ "fontcull-read-fonts",
+]
+
+[[package]]
+name = "fontcull-write-fonts"
+version = "0.44.1"
+dependencies = [
+ "fontcull-font-types",
+ "fontcull-read-fonts",
+ "indexmap",
+ "kurbo",
+ "log",
 ]
 
 [[package]]
@@ -1160,20 +1199,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "klippa"
-version = "0.1.0"
-source = "git+https://github.com/googlefonts/fontations#38e7270af551f36428b090cecc1a4eeee21d2fad"
-dependencies = [
- "clap",
- "fnv",
- "hashbrown 0.15.5",
- "regex",
- "skrifa",
- "thiserror",
- "write-fonts",
-]
-
-[[package]]
 name = "kurbo"
 version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1460,15 +1485,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "read-fonts"
-version = "0.36.0"
-source = "git+https://github.com/googlefonts/fontations#38e7270af551f36428b090cecc1a4eeee21d2fad"
-dependencies = [
- "bytemuck",
- "font-types",
-]
-
-[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1676,15 +1692,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7664a098b8e616bdfcc2dc0e9ac44eb231eedf41db4e9fe95d8d32ec728dedad"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "skrifa"
-version = "0.39.0"
-source = "git+https://github.com/googlefonts/fontations#38e7270af551f36428b090cecc1a4eeee21d2fad"
-dependencies = [
- "bytemuck",
- "read-fonts",
 ]
 
 [[package]]
@@ -2377,18 +2384,6 @@ checksum = "c3d61720725e0f4bc536c1483b2d09f62469ea9dead6b03bad70dbfea649d90e"
 dependencies = [
  "cc",
  "libc",
-]
-
-[[package]]
-name = "write-fonts"
-version = "0.44.1"
-source = "git+https://github.com/googlefonts/fontations#38e7270af551f36428b090cecc1a4eeee21d2fad"
-dependencies = [
- "font-types",
- "indexmap",
- "kurbo",
- "log",
- "read-fonts",
 ]
 
 [[package]]

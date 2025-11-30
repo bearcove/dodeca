@@ -1,11 +1,11 @@
 use std::path::PathBuf;
 
 use color_eyre::eyre::{Context, Result};
-use klippa::{Plan, SubsetFlags, subset_font};
-use read_fonts::collections::IntSet;
-use skrifa::{FontRef, GlyphId};
+use fontcull_klippa::{Plan, SubsetFlags, subset_font};
+use fontcull_read_fonts::collections::IntSet;
+use fontcull_skrifa::{FontRef, GlyphId};
+use fontcull_write_fonts::types::{NameId, Tag};
 use woff::version2::compress;
-use write_fonts::types::{NameId, Tag};
 
 /// Subset a font using klippa (pure Rust, no external dependencies)
 pub fn subset_with_klippa(
