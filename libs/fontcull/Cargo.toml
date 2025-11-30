@@ -1,3 +1,13 @@
+[workspace]
+members = [
+    ".",
+    "vendored/fontcull-font-types",
+    "vendored/fontcull-read-fonts",
+    "vendored/fontcull-write-fonts",
+    "vendored/fontcull-skrifa",
+    "vendored/fontcull-klippa",
+]
+
 [package]
 name = "fontcull"
 version = "1.0.3"
