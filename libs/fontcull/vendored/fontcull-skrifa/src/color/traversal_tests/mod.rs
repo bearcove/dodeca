@@ -262,7 +262,7 @@ fn colrv1_traversal_test(
     settings: &[(&str, f32)],
     required_format: crate::color::ColorGlyphFormat,
 ) {
-    let colr_font = font_test_data::COLRV0V1_VARIABLE;
+    let colr_font = fontcull_font_test_data::COLRV0V1_VARIABLE;
     let font = FontRef::new(colr_font).unwrap();
 
     let location = font.axes().location(settings);
@@ -305,7 +305,7 @@ fn colrv1_traversal_test(
                 .expect("Writing to file failed.")
         });
     } else {
-        let expected = font_test_data::colrv1_json::expected(set_name, settings);
+        let expected = fontcull_font_test_data::colrv1_json::expected(set_name, settings);
         let mut lines = io::BufReader::new(expected.as_bytes()).lines();
         for dump in paint_dumps_iter {
             match lines.next() {

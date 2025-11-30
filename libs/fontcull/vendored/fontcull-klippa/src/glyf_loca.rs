@@ -372,7 +372,7 @@ mod test {
     #[test]
     fn test_subset_simple_glyph_trim_padding() {
         let plan = Plan::default();
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
 
         let loca = font.loca(None).unwrap();
         let glyf = font.glyf().unwrap();
@@ -392,7 +392,7 @@ mod test {
     #[test]
     fn test_subset_composite_glyph_trim_padding() {
         let mut plan = Plan::default();
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
 
         let loca = font.loca(None).unwrap();
         let glyf = font.glyf().unwrap();

@@ -6,7 +6,7 @@ include!("../../generated/generated_head.rs");
 mod tests {
     use super::*;
     use crate::{FontRef, TableProvider};
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
 
     #[test]
     fn smoke_text() {
@@ -31,7 +31,7 @@ mod tests {
 
     #[test]
     fn flags() {
-        let head = FontRef::new(font_test_data::TINOS_SUBSET)
+        let head = FontRef::new(fontcull_font_test_data::TINOS_SUBSET)
             .unwrap()
             .head()
             .unwrap();

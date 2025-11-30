@@ -389,7 +389,7 @@ impl<'a> NamedInstanceCollection<'a> {
 mod tests {
     use super::*;
     use crate::MetadataProvider as _;
-    use font_test_data::VAZIRMATN_VAR;
+    use fontcull_font_test_data::VAZIRMATN_VAR;
     use fontcull_read_fonts::FontRef;
     use std::str::FromStr;
 

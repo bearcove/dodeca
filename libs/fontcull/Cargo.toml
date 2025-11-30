@@ -2,6 +2,7 @@
 members = [
     ".",
     "vendored/fontcull-font-types",
+    "vendored/fontcull-font-test-data",
     "vendored/fontcull-read-fonts",
     "vendored/fontcull-write-fonts",
     "vendored/fontcull-skrifa",

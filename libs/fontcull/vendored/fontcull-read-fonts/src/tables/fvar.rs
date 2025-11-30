@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn axes() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let fvar = font.fvar().unwrap();
         assert_eq!(fvar.axis_count(), 1);
         let wght = &fvar.axes().unwrap().first().unwrap();
@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn instances() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let fvar = font.fvar().unwrap();
         assert_eq!(fvar.instance_count(), 9);
         // There are 9 instances equally spaced from 100.0 to 900.0
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn normalize() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let fvar = font.fvar().unwrap();
         let axis = fvar.axes().unwrap().first().unwrap();
         let values = [100.0, 220.0, 250.0, 400.0, 650.0, 900.0];
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn user_to_normalized() {
-        let font = FontRef::from_index(font_test_data::VAZIRMATN_VAR, 0).unwrap();
+        let font = FontRef::from_index(fontcull_font_test_data::VAZIRMATN_VAR, 0).unwrap();
         let fvar = font.fvar().unwrap();
         let avar = font.avar().ok();
         let wght = Tag::new(b"wght");
@@ -252,7 +252,7 @@ mod tests {
 
     #[test]
     fn avar2() {
-        let font = FontRef::new(font_test_data::AVAR2_CHECKER).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::AVAR2_CHECKER).unwrap();
         let avar = font.avar().ok();
         let fvar = font.fvar().unwrap();
         let avar_axis = Tag::new(b"AVAR");
@@ -280,7 +280,7 @@ mod tests {
     #[test]
     fn avar2_no_panic_with_wrong_size_coords_array() {
         // this font has 2 axes
-        let font = FontRef::new(font_test_data::AVAR2_CHECKER).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::AVAR2_CHECKER).unwrap();
         let avar = font.avar().ok();
         let fvar = font.fvar().unwrap();
         // output array too small

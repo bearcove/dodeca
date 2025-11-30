@@ -6,7 +6,7 @@ include!("../../generated/generated_base.rs");
 
 #[cfg(test)]
 mod tests {
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
     use fontcull_font_types::MajorMinor;
 
     use super::*;

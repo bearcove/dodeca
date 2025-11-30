@@ -123,7 +123,7 @@ pub static DEFAULT_GLYPH_NAMES: [&str; 258] = [
 #[cfg(test)]
 mod tests {
     use super::*;
-    use font_test_data::{bebuffer::BeBuffer, post as test_data};
+    use fontcull_font_test_data::{bebuffer::BeBuffer, post as test_data};
 
     #[test]
     fn test_post() {

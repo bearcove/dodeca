@@ -388,7 +388,7 @@ const EXPERT_SUBSET_CHARSET: &[u16] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
 
     #[test]
     fn iso_adobe_charset() {

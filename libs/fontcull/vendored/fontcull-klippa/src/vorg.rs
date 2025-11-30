@@ -53,7 +53,7 @@ fn serialize(
 #[cfg(test)]
 mod test {
     use super::*;
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
     use fontcull_skrifa::raw::{FontData, FontRead};
     #[test]
     fn test_subset_vorg() {
@@ -93,7 +93,7 @@ mod test {
         assert_eq!(s.start_serialize(), Ok(()));
 
         // unrelated font, font is actually unused in subset() method
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
 
         //builder is also not used
         let mut builder = FontBuilder::default();

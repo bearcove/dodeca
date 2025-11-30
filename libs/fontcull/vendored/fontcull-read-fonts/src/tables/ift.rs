@@ -333,7 +333,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use font_test_data::ift as test_data;
+    use fontcull_font_test_data::ift as test_data;
 
     // TODO(garretrieger) - more tests (as functionality is implemented):
     // - Test where entryIndex array has len 0 (eg. all glyphs map to 0)

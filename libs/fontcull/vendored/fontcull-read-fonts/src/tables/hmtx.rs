@@ -41,12 +41,12 @@ pub(super) fn side_bearing(
 mod tests {
     use super::*;
     use crate::{FontRef, TableProvider};
-    use font_test_data::{be_buffer, bebuffer::BeBuffer};
+    use fontcull_font_test_data::{be_buffer, bebuffer::BeBuffer};
 
     /// Test case where "long metric" array is short
     #[test]
     fn trimmed_advances() {
-        let font = FontRef::new(font_test_data::CBDT).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CBDT).unwrap();
         let hmtx = font.hmtx().unwrap();
         assert!(
             !hmtx.left_side_bearings().is_empty(),
@@ -85,7 +85,7 @@ mod tests {
 
     #[test]
     fn metrics() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let hmtx = font.hmtx().unwrap();
         let expected = [(908, 100), (1336, 29), (1336, 29), (633, 57)];
         for (i, (advance, lsb)) in expected.into_iter().enumerate() {

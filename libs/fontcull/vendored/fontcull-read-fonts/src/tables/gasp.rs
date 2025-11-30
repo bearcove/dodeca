@@ -4,7 +4,7 @@ include!("../../generated/generated_gasp.rs");
 
 #[cfg(test)]
 mod tests {
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
 
     use super::*;
 

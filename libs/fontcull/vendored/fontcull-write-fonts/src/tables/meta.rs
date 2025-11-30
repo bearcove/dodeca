@@ -145,7 +145,7 @@ impl FromObjRef<fontcull_read_fonts::tables::meta::DataMapRecord> for DataMapRec
 mod tests {
 
     use super::*;
-    use font_test_data::meta as test_data;
+    use fontcull_font_test_data::meta as test_data;
 
     #[test]
     fn convert_from_read() {

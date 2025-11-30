@@ -408,7 +408,7 @@ mod tests {
     /// ASCII digit glyphs.
     #[test]
     fn capture_digit_styles() {
-        let font = FontRef::new(font_test_data::AHEM).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::AHEM).unwrap();
         let shaper = Shaper::new(&font, ShaperMode::Nominal);
         let num_glyphs = font.maxp().unwrap().num_glyphs() as u32;
         let style_map = GlyphStyleMap::new(num_glyphs, &shaper);
@@ -529,7 +529,7 @@ mod tests {
             (96, Some(("Adlam", true))),
             (97, Some(("Adlam", false))),
         ];
-        check_styles(font_test_data::AUTOHINT_CMAP, ShaperMode::Nominal, expected);
+        check_styles(fontcull_font_test_data::AUTOHINT_CMAP, ShaperMode::Nominal, expected);
     }
 
     #[test]
@@ -552,7 +552,7 @@ mod tests {
             (8, Some(("Latin small capitals from capitals", false))),
         ];
         check_styles(
-            font_test_data::NOTOSERIF_AUTOHINT_SHAPING,
+            fontcull_font_test_data::NOTOSERIF_AUTOHINT_SHAPING,
             ShaperMode::BestEffort,
             expected,
         );

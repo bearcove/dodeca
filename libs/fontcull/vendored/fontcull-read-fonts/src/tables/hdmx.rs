@@ -112,7 +112,7 @@ impl<'a> SomeRecord<'a> for DeviceRecord<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use font_test_data::{be_buffer, bebuffer::BeBuffer};
+    use fontcull_font_test_data::{be_buffer, bebuffer::BeBuffer};
 
     #[test]
     fn read_hdmx() {

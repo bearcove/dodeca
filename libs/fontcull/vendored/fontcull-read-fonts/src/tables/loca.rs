@@ -137,7 +137,7 @@ impl<'a> std::fmt::Debug for Loca<'a> {
 
 #[cfg(test)]
 mod tests {
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
     use types::Scalar;
 
     use super::Loca;

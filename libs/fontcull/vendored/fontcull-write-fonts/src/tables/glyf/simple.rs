@@ -648,7 +648,7 @@ mod tests {
 
     #[test]
     fn read_write_simple() {
-        let font = FontRef::new(font_test_data::SIMPLE_GLYF).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::SIMPLE_GLYF).unwrap();
         let loca = font.loca(None).unwrap();
         let glyf = font.glyf().unwrap();
         let read_glyf::Glyph::Simple(orig) =
@@ -672,7 +672,7 @@ mod tests {
 
     #[test]
     fn round_trip_simple() {
-        let font = FontRef::new(font_test_data::SIMPLE_GLYF).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::SIMPLE_GLYF).unwrap();
         let loca = font.loca(None).unwrap();
         let glyf = font.glyf().unwrap();
         let read_glyf::Glyph::Simple(orig) =
@@ -698,7 +698,7 @@ mod tests {
 
     #[test]
     fn round_trip_multi_contour() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let loca = font.loca(None).unwrap();
         let glyf = font.glyf().unwrap();
         let read_glyf::Glyph::Simple(orig) =

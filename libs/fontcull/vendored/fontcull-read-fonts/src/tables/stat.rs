@@ -44,7 +44,7 @@ mod tests {
 
     #[test]
     fn smoke_test() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let table = font.stat().unwrap();
         assert_eq!(table.design_axis_count(), 1);
         let axis_record = &table.design_axes().unwrap()[0];

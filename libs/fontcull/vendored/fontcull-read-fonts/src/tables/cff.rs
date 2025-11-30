@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn read_noto_serif_display_cff() {
-        let font = FontRef::new(font_test_data::NOTO_SERIF_DISPLAY_TRIMMED).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTO_SERIF_DISPLAY_TRIMMED).unwrap();
         let cff = font.cff().unwrap();
         assert_eq!(cff.header().major(), 1);
         assert_eq!(cff.header().minor(), 0);
@@ -197,14 +197,14 @@ mod tests {
     #[test]
     fn glyph_names() {
         test_glyph_names(
-            font_test_data::NOTO_SERIF_DISPLAY_TRIMMED,
+            fontcull_font_test_data::NOTO_SERIF_DISPLAY_TRIMMED,
             &[".notdef", "i", "j", "k", "l"],
         );
     }
 
     #[test]
     fn icons_glyph_names() {
-        test_glyph_names(font_test_data::MATERIAL_ICONS_SUBSET, &[".notdef", "_10k"]);
+        test_glyph_names(fontcull_font_test_data::MATERIAL_ICONS_SUBSET, &[".notdef", "_10k"]);
     }
 
     fn test_glyph_names(font_data: &[u8], expected_names: &[&str]) {

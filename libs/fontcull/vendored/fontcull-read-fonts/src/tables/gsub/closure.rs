@@ -1017,7 +1017,7 @@ mod tests {
     use crate::{FontRef, TableProvider};
 
     use super::*;
-    use font_test_data::closure as test_data;
+    use fontcull_font_test_data::closure as test_data;
 
     struct GlyphMap {
         to_gid: HashMap<&'static str, GlyphId>,
@@ -1203,7 +1203,7 @@ mod tests {
 
     #[test]
     fn closure_ignore_unreachable_glyphs() {
-        let font = FontRef::new(font_test_data::closure::CONTEXT_ONLY_REACHABLE).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::closure::CONTEXT_ONLY_REACHABLE).unwrap();
         let gsub = font.gsub().unwrap();
         let glyph_map = GlyphMap::new(test_data::CONTEXT_ONLY_REACHABLE_GLYPHS);
         let result = compute_closure(&gsub, &glyph_map, &["a", "b", "c", "d", "e", "f", "period"]);
@@ -1225,7 +1225,7 @@ mod tests {
 
     #[test]
     fn collect_all_features() {
-        let font = FontRef::new(font_test_data::closure::CONTEXTUAL).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::closure::CONTEXTUAL).unwrap();
         let gsub = font.gsub().unwrap();
         let ret = gsub
             .collect_features(&IntSet::all(), &IntSet::all(), &IntSet::all())
@@ -1237,7 +1237,7 @@ mod tests {
 
     #[test]
     fn collect_all_features_with_feature_filter() {
-        let font = FontRef::new(font_test_data::closure::CONTEXTUAL).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::closure::CONTEXTUAL).unwrap();
         let gsub = font.gsub().unwrap();
 
         let mut feature_tags = IntSet::empty();
@@ -1252,7 +1252,7 @@ mod tests {
 
     #[test]
     fn collect_all_features_with_script_filter() {
-        let font = FontRef::new(font_test_data::closure::CONTEXTUAL).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::closure::CONTEXTUAL).unwrap();
         let gsub = font.gsub().unwrap();
 
         let mut script_tags = IntSet::empty();

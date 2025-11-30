@@ -709,12 +709,12 @@ enum ProcessLookupError {
 #[cfg(test)]
 mod tests {
     use super::{super::style, *};
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
     use raw::{FontData, FontRead};
 
     #[test]
     fn small_caps_subst() {
-        let font = FontRef::new(font_test_data::NOTOSERIF_AUTOHINT_SHAPING).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIF_AUTOHINT_SHAPING).unwrap();
         let shaper = Shaper::new(&font, ShaperMode::BestEffort);
         let style = &style::STYLE_CLASSES[style::StyleClass::LATN_C2SC];
         let mut cluster_shaper = shaper.cluster_shaper(style);
@@ -727,7 +727,7 @@ mod tests {
 
     #[test]
     fn small_caps_nominal() {
-        let font = FontRef::new(font_test_data::NOTOSERIF_AUTOHINT_SHAPING).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIF_AUTOHINT_SHAPING).unwrap();
         let shaper = Shaper::new(&font, ShaperMode::Nominal);
         let style = &style::STYLE_CLASSES[style::StyleClass::LATN_C2SC];
         let mut cluster_shaper = shaper.cluster_shaper(style);
@@ -740,7 +740,7 @@ mod tests {
 
     #[test]
     fn exceed_max_depth() {
-        let font = FontRef::new(font_test_data::NOTOSERIF_AUTOHINT_SHAPING).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIF_AUTOHINT_SHAPING).unwrap();
         let shaper = Shaper::new(&font, ShaperMode::BestEffort);
         let style = &style::STYLE_CLASSES[style::StyleClass::LATN];
         // Build a lookup chain exceeding our max depth
@@ -768,7 +768,7 @@ mod tests {
 
     #[test]
     fn dont_cycle_forever() {
-        let font = FontRef::new(font_test_data::NOTOSERIF_AUTOHINT_SHAPING).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIF_AUTOHINT_SHAPING).unwrap();
         let shaper = Shaper::new(&font, ShaperMode::BestEffort);
         let style = &style::STYLE_CLASSES[style::StyleClass::LATN];
         // Build a lookup chain that cycles; 0 calls 1 which calls 0

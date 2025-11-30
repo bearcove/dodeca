@@ -287,7 +287,7 @@ fn find_glyph_and_point_count(
 mod tests {
     use std::collections::HashMap;
 
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
 
     use super::*;
     use crate::{FontRef, TableProvider};
@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn vazirmatn_var_a() {
-        let gvar = FontRef::new(font_test_data::VAZIRMATN_VAR)
+        let gvar = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR)
             .unwrap()
             .gvar()
             .unwrap();
@@ -447,7 +447,7 @@ mod tests {
 
     #[test]
     fn vazirmatn_var_agrave() {
-        let gvar = FontRef::new(font_test_data::VAZIRMATN_VAR)
+        let gvar = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR)
             .unwrap()
             .gvar()
             .unwrap();
@@ -471,7 +471,7 @@ mod tests {
 
     #[test]
     fn vazirmatn_var_grave() {
-        let gvar = FontRef::new(font_test_data::VAZIRMATN_VAR)
+        let gvar = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR)
             .unwrap()
             .gvar()
             .unwrap();
@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn phantom_point_deltas() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         #[rustfmt::skip]
         let a_cases = [
             // (coords, deltas)
@@ -580,7 +580,7 @@ mod tests {
     #[test]
     fn follow_use_my_metrics() {
         // Load the font and required tables
-        let font = FontRef::new(font_test_data::gvar::USE_MY_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::gvar::USE_MY_METRICS).unwrap();
         let glyf = font.glyf().unwrap();
         let loca = font.loca(None).unwrap();
         let post = font.post().unwrap();

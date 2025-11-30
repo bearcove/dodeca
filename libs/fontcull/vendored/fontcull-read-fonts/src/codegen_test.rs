@@ -21,7 +21,7 @@ pub mod offsets_arrays {
     include!("../generated/generated_test_offsets_arrays.rs");
 
     #[cfg(test)]
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
 
     pub struct VarSizeDummy<'a> {
         #[allow(dead_code)]
@@ -189,7 +189,7 @@ pub mod count_all {
 
 pub mod conditions {
     #[cfg(test)]
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
     use fontcull_font_types::MajorMinor;
 
     include!("../generated/generated_test_conditions.rs");

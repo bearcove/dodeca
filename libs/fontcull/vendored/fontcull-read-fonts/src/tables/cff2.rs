@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn read_example_cff2_table() {
-        let cff2 = Cff2::read(FontData::new(font_test_data::cff2::EXAMPLE)).unwrap();
+        let cff2 = Cff2::read(FontData::new(fontcull_font_test_data::cff2::EXAMPLE)).unwrap();
         assert_eq!(cff2.header().major_version(), 2);
         assert_eq!(cff2.header().minor_version(), 0);
         assert_eq!(cff2.header().header_size(), 5);
@@ -70,7 +70,7 @@ mod tests {
 
     #[test]
     fn read_cantarell() {
-        let font = FontRef::new(font_test_data::CANTARELL_VF_TRIMMED).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CANTARELL_VF_TRIMMED).unwrap();
         let cff2 = font.cff2().unwrap();
         assert_eq!(cff2.header().major_version(), 2);
         assert_eq!(cff2.header().minor_version(), 0);

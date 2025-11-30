@@ -854,7 +854,7 @@ mod tests {
 
     #[test]
     fn simple_glyph() {
-        let font = FontRef::new(font_test_data::COLR_GRADIENT_RECT).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::COLR_GRADIENT_RECT).unwrap();
         let loca = font.loca(None).unwrap();
         let glyf = font.glyf().unwrap();
         let glyph = loca.get_glyf(GlyphId::new(0), &glyf).unwrap().unwrap();
@@ -901,7 +901,7 @@ mod tests {
 
     #[test]
     fn simple_glyph_overlapping_contour_flag() {
-        let gids_with_overlap: Vec<_> = all_glyphs(font_test_data::VAZIRMATN_VAR)
+        let gids_with_overlap: Vec<_> = all_glyphs(fontcull_font_test_data::VAZIRMATN_VAR)
             .enumerate()
             .filter_map(|(gid, glyph)| match glyph {
                 Some(Glyph::Simple(glyph)) if glyph.has_overlapping_contours() => Some(gid),
@@ -915,7 +915,7 @@ mod tests {
 
     #[test]
     fn composite_glyph_overlapping_contour_flag() {
-        let gids_components_with_overlap: Vec<_> = all_glyphs(font_test_data::VAZIRMATN_VAR)
+        let gids_components_with_overlap: Vec<_> = all_glyphs(fontcull_font_test_data::VAZIRMATN_VAR)
             .enumerate()
             .filter_map(|(gid, glyph)| match glyph {
                 Some(Glyph::Composite(glyph)) => Some((gid, glyph)),
@@ -1023,7 +1023,7 @@ mod tests {
 
     #[test]
     fn cubic_glyf() {
-        let font = FontRef::new(font_test_data::CUBIC_GLYF).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CUBIC_GLYF).unwrap();
         let loca = font.loca(None).unwrap();
         let glyf = font.glyf().unwrap();
         let glyph = loca.get_glyf(GlyphId::new(2), &glyf).unwrap().unwrap();

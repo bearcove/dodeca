@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn read_sample() {
-        let font = FontRef::new(font_test_data::SIMPLE_GLYF).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::SIMPLE_GLYF).unwrap();
         let table = font.os2().unwrap();
         assert_eq!(table.version(), 4);
     }

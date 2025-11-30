@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn cbdt_metadata() {
-        let font = FontRef::new(font_test_data::CBDT).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CBDT).unwrap();
         let strikes = font.bitmap_strikes();
 
         assert!(matches!(strikes.0, StrikesKind::Cbdt(_)));
@@ -401,7 +401,7 @@ mod tests {
 
     #[test]
     fn cbdt_glyph_metrics() {
-        let font = FontRef::new(font_test_data::CBDT).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CBDT).unwrap();
         let strike_0 = font.bitmap_strikes().get(0).unwrap();
 
         let zero = strike_0.get(GlyphId::new(0)).unwrap();
@@ -427,7 +427,7 @@ mod tests {
 
     #[test]
     fn cbdt_glyph_selection() {
-        let font = FontRef::new(font_test_data::CBDT).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CBDT).unwrap();
         let strikes = font.bitmap_strikes();
 
         let g1 = strikes
@@ -453,7 +453,7 @@ mod tests {
 
     #[test]
     fn sbix_metadata() {
-        let font = FontRef::new(font_test_data::NOTO_HANDWRITING_SBIX).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTO_HANDWRITING_SBIX).unwrap();
         let strikes = font.bitmap_strikes();
 
         assert!(matches!(strikes.0, StrikesKind::Sbix(_, _)));
@@ -464,7 +464,7 @@ mod tests {
 
     #[test]
     fn sbix_glyph_metrics() {
-        let font = FontRef::new(font_test_data::NOTO_HANDWRITING_SBIX).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTO_HANDWRITING_SBIX).unwrap();
         let strike_0 = font.bitmap_strikes().get(0).unwrap();
 
         let g0 = strike_0.get(GlyphId::new(7)).unwrap();

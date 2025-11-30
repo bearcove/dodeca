@@ -32,7 +32,7 @@ mod test {
     #[test]
     fn test_nameid_closure() {
         let mut plan = Plan::default();
-        let font = FontRef::new(font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
 
         let fvar = font.fvar().unwrap();
         fvar.collect_name_ids(&mut plan);

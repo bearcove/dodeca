@@ -371,14 +371,14 @@ mod tests {
 
     #[test]
     fn read_cjk_0x6868() {
-        let font = FontRef::new(font_test_data::varc::CJK_6868).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::varc::CJK_6868).unwrap();
         let table = font.varc().unwrap();
         table.coverage().unwrap(); // should have coverage
     }
 
     #[test]
     fn identify_all_conditional_types() {
-        let font = FontRef::new(font_test_data::varc::CONDITIONALS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::varc::CONDITIONALS).unwrap();
         let table = font.varc().unwrap();
 
         // We should have all 5 condition types in order
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn read_condition_format1_axis_range() {
-        let font = FontRef::new(font_test_data::varc::CONDITIONALS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::varc::CONDITIONALS).unwrap();
         let table = font.varc().unwrap();
         let Some(Condition::Format1AxisRange(condition)) =
             table.conditions().find(|c| c.format() == 1)
@@ -410,7 +410,7 @@ mod tests {
 
     #[test]
     fn read_condition_format2_variable_value() {
-        let font = FontRef::new(font_test_data::varc::CONDITIONALS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::varc::CONDITIONALS).unwrap();
         let table = font.varc().unwrap();
         let Some(Condition::Format2VariableValue(condition)) =
             table.conditions().find(|c| c.format() == 2)
@@ -423,7 +423,7 @@ mod tests {
 
     #[test]
     fn read_condition_format3_and() {
-        let font = FontRef::new(font_test_data::varc::CONDITIONALS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::varc::CONDITIONALS).unwrap();
         let table = font.varc().unwrap();
         let Some(Condition::Format3And(condition)) = table.conditions().find(|c| c.format() == 3)
         else {
@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn read_condition_format4_or() {
-        let font = FontRef::new(font_test_data::varc::CONDITIONALS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::varc::CONDITIONALS).unwrap();
         let table = font.varc().unwrap();
         let Some(Condition::Format4Or(condition)) = table.conditions().find(|c| c.format() == 4)
         else {
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn read_condition_format5_negate() {
-        let font = FontRef::new(font_test_data::varc::CONDITIONALS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::varc::CONDITIONALS).unwrap();
         let table = font.varc().unwrap();
         let Some(Condition::Format5Negate(condition)) =
             table.conditions().find(|c| c.format() == 5)
@@ -477,7 +477,7 @@ mod tests {
 
     #[test]
     fn read_axis_indices_list() {
-        let font = FontRef::new(font_test_data::varc::CONDITIONALS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::varc::CONDITIONALS).unwrap();
         let table = font.varc().unwrap();
         assert_eq!(table.axis_indices_count().unwrap(), 2);
         assert_eq!(
@@ -488,7 +488,7 @@ mod tests {
 
     #[test]
     fn read_glyph_6868() {
-        let font = FontRef::new(font_test_data::varc::CJK_6868).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::varc::CJK_6868).unwrap();
         let gid = font.cmap().unwrap().map_codepoint(0x6868_u32).unwrap();
         let table = font.varc().unwrap();
         let idx = table.coverage().unwrap().get(gid).unwrap();
@@ -634,7 +634,7 @@ mod tests {
 
     #[test]
     fn read_multivar_store_region_list() {
-        let font = FontRef::new(font_test_data::varc::CJK_6868).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::varc::CJK_6868).unwrap();
         let table = font.varc().unwrap();
         let varstore = table.multi_var_store().unwrap().unwrap();
         let regions = varstore.region_list().unwrap().regions();
@@ -673,7 +673,7 @@ mod tests {
 
     #[test]
     fn read_multivar_store_delta_sets() {
-        let font = FontRef::new(font_test_data::varc::CJK_6868).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::varc::CJK_6868).unwrap();
         let table = font.varc().unwrap();
         let varstore = table.multi_var_store().unwrap().unwrap();
         assert_eq!(

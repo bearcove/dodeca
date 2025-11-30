@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn script_index_for_tag() {
-        let font = FontRef::new(font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
         let gsub_scripts = font.gsub().unwrap().script_list().unwrap();
         let ordered_scripts = [b"DFLT", b"cyrl", b"grek", b"hebr", b"latn"];
         for (index, tag) in ordered_scripts.into_iter().enumerate() {
@@ -302,7 +302,7 @@ mod tests {
 
     #[test]
     fn select_scripts_from_unicode() {
-        let font = FontRef::new(font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
         let gsub_scripts = font.gsub().unwrap().script_list().unwrap();
         // We know Hebrew is available
         let hebr = gsub_scripts
@@ -334,7 +334,7 @@ mod tests {
     #[test]
     fn script_list_get() {
         const LATN: Tag = Tag::new(b"latn");
-        let font = FontRef::new(font_test_data::CANTARELL_VF_TRIMMED).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CANTARELL_VF_TRIMMED).unwrap();
         let gsub = font.gsub().unwrap();
         let script_list = gsub.script_list().unwrap();
         let latn_script_index = script_list.index_for_tag(LATN).unwrap();
@@ -346,7 +346,7 @@ mod tests {
     #[test]
     fn script_lang_sys_helpers() {
         const TRK: Tag = Tag::new(b"TRK ");
-        let font = FontRef::new(font_test_data::CANTARELL_VF_TRIMMED).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CANTARELL_VF_TRIMMED).unwrap();
         let gsub = font.gsub().unwrap();
         let script_list = gsub.script_list().unwrap();
         let script = script_list.get(1).unwrap();
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn feature_index_for_tag() {
-        let font = FontRef::new(font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
         let gsub = font.gsub().unwrap();
         let script_list = gsub.script_list().unwrap();
         let feature_list = gsub.feature_list().unwrap();

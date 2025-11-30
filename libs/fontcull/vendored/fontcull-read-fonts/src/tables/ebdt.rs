@@ -41,7 +41,7 @@ mod tests {
 
     #[test]
     fn read_eblc_3_ebdt_2() {
-        let font = FontRef::new(font_test_data::EMBEDDED_BITMAPS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::EMBEDDED_BITMAPS).unwrap();
         let eblc = font.eblc().unwrap();
         let ebdt = font.ebdt().unwrap();
         let size = &eblc.bitmap_sizes()[0];
@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn read_eblc_2_ebdt_5() {
-        let font = FontRef::new(font_test_data::EMBEDDED_BITMAPS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::EMBEDDED_BITMAPS).unwrap();
         let eblc = font.eblc().unwrap();
         let ebdt = font.ebdt().unwrap();
         let size = &eblc.bitmap_sizes()[1];

@@ -866,7 +866,7 @@ mod tests {
     #[test]
     fn classdef_get_format2() {
         let classdef = ClassDef::read(FontData::new(
-            font_test_data::gdef::MARKATTACHCLASSDEF_TABLE,
+            fontcull_font_test_data::gdef::MARKATTACHCLASSDEF_TABLE,
         ))
         .unwrap();
         assert!(matches!(classdef, ClassDef::Format2(..)));

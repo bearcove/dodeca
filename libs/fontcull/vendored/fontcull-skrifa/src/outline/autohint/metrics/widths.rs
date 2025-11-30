@@ -112,7 +112,7 @@ mod tests {
         // Expected data produced by internal routines in FreeType. Scraped
         // from a debugger
         check_widths(
-            font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS,
+            fontcull_font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS,
             super::StyleClass::HEBR,
             [
                 (
@@ -140,7 +140,7 @@ mod tests {
         // Expected data produced by internal routines in FreeType. Scraped
         // from a debugger
         check_widths(
-            font_test_data::CANTARELL_VF_TRIMMED,
+            fontcull_font_test_data::CANTARELL_VF_TRIMMED,
             super::StyleClass::LATN,
             [
                 (
@@ -168,7 +168,7 @@ mod tests {
         // Expected data produced by internal routines in FreeType. Scraped
         // from a debugger
         check_widths(
-            font_test_data::NOTOSERIFTC_AUTOHINT_METRICS,
+            fontcull_font_test_data::NOTOSERIFTC_AUTOHINT_METRICS,
             super::StyleClass::HANI,
             [
                 (

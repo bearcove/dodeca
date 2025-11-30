@@ -260,7 +260,7 @@ impl<'a> SubsetTable<'a> for SubstitutionSubtables<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use font_test_data::closure as test_data;
+    use fontcull_font_test_data::closure as test_data;
     use fontcull_write_fonts::read::{types::NameId, FontRef, TableProvider};
 
     #[test]

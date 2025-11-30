@@ -410,7 +410,7 @@ impl FixedScaleFactor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use font_test_data::{NOTO_SANS_JP_CFF, SIMPLE_GLYF, VAZIRMATN_VAR};
+    use fontcull_font_test_data::{NOTO_SANS_JP_CFF, SIMPLE_GLYF, VAZIRMATN_VAR};
     use fontcull_read_fonts::FontRef;
 
     #[test]

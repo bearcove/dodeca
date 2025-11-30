@@ -152,7 +152,7 @@ impl<'a> FontRead<'a> for SegmentMaps<'a> {
 #[cfg(test)]
 mod tests {
 
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
 
     use super::*;
     use crate::{FontRef, TableProvider};
@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn segment_maps() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let avar = font.avar().unwrap();
         assert_eq!(avar.axis_count(), 1);
         let expected_segment_maps = &[vec![
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn piecewise_linear() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let avar = font.avar().unwrap();
         let segment_map = avar.axis_segment_maps().get(0).unwrap().unwrap();
         let coords = [-1.0, -0.5, 0.0, 0.5, 1.0];
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn avar2() {
-        let font = FontRef::new(font_test_data::AVAR2_CHECKER).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::AVAR2_CHECKER).unwrap();
         let avar = font.avar().unwrap();
         assert_eq!(avar.version(), MajorMinor::VERSION_2_0);
         assert!(avar.axis_index_map_offset().is_some());

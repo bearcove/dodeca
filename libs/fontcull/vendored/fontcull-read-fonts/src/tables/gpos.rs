@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn pair_pos2_values_match_value_records() {
-        let data = FontData::new(font_test_data::gpos::PAIRPOSFORMAT2);
+        let data = FontData::new(fontcull_font_test_data::gpos::PAIRPOSFORMAT2);
         let table = PairPosFormat2::read(data).unwrap();
         let class1_count = table.class1_count();
         let class2_count = table.class2_count();

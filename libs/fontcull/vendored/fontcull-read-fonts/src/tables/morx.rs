@@ -215,7 +215,7 @@ mod tests {
 
     #[test]
     fn parse_chain_flags_features() {
-        let font = FontRef::new(font_test_data::morx::FOUR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::morx::FOUR).unwrap();
         let morx = font.morx().unwrap();
         let chain = morx.chains().iter().next().unwrap().unwrap();
         assert_eq!(chain.default_flags(), 1);
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn parse_rearrangement() {
-        let font = FontRef::new(font_test_data::morx::FOUR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::morx::FOUR).unwrap();
         let morx = font.morx().unwrap();
         let chain = morx.chains().iter().next().unwrap().unwrap();
         let subtable = chain.subtables().iter().next().unwrap().unwrap();
@@ -241,7 +241,7 @@ mod tests {
 
     #[test]
     fn parse_contextual() {
-        let font = FontRef::new(font_test_data::morx::EIGHTEEN).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::morx::EIGHTEEN).unwrap();
         let morx = font.morx().unwrap();
         let chain = morx.chains().iter().next().unwrap().unwrap();
         let subtable = chain.subtables().iter().next().unwrap().unwrap();
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn parse_ligature() {
-        let font = FontRef::new(font_test_data::morx::FORTY_ONE).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::morx::FORTY_ONE).unwrap();
         let morx = font.morx().unwrap();
         let chain = morx.chains().iter().next().unwrap().unwrap();
         let subtable = chain.subtables().iter().next().unwrap().unwrap();
@@ -295,7 +295,7 @@ mod tests {
 
     #[test]
     fn parse_non_contextual() {
-        let font = FontRef::new(font_test_data::morx::ONE).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::morx::ONE).unwrap();
         let morx = font.morx().unwrap();
         let chain = morx.chains().iter().next().unwrap().unwrap();
         let subtable = chain.subtables().iter().next().unwrap().unwrap();
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn parse_insertion() {
-        let font = FontRef::new(font_test_data::morx::THIRTY_FOUR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::morx::THIRTY_FOUR).unwrap();
         let morx = font.morx().unwrap();
         let chain = morx.chains().iter().next().unwrap().unwrap();
         let subtable = chain.subtables().iter().next().unwrap().unwrap();

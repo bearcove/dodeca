@@ -710,16 +710,16 @@ mod tests {
     #[test]
     fn outline_glyph_formats() {
         let font_format_pairs = [
-            (font_test_data::VAZIRMATN_VAR, OutlineGlyphFormat::Glyf),
+            (fontcull_font_test_data::VAZIRMATN_VAR, OutlineGlyphFormat::Glyf),
             (
-                font_test_data::CANTARELL_VF_TRIMMED,
+                fontcull_font_test_data::CANTARELL_VF_TRIMMED,
                 OutlineGlyphFormat::Cff2,
             ),
             (
-                font_test_data::NOTO_SERIF_DISPLAY_TRIMMED,
+                fontcull_font_test_data::NOTO_SERIF_DISPLAY_TRIMMED,
                 OutlineGlyphFormat::Cff,
             ),
-            (font_test_data::COLRV0V1_VARIABLE, OutlineGlyphFormat::Glyf),
+            (fontcull_font_test_data::COLRV0V1_VARIABLE, OutlineGlyphFormat::Glyf),
         ];
         for (font_data, format) in font_format_pairs {
             assert_eq!(
@@ -732,30 +732,30 @@ mod tests {
     #[test]
     fn vazirmatin_var() {
         compare_glyphs(
-            font_test_data::VAZIRMATN_VAR,
-            font_test_data::VAZIRMATN_VAR_GLYPHS,
+            fontcull_font_test_data::VAZIRMATN_VAR,
+            fontcull_font_test_data::VAZIRMATN_VAR_GLYPHS,
         );
     }
 
     #[test]
     fn cantarell_vf() {
         compare_glyphs(
-            font_test_data::CANTARELL_VF_TRIMMED,
-            font_test_data::CANTARELL_VF_TRIMMED_GLYPHS,
+            fontcull_font_test_data::CANTARELL_VF_TRIMMED,
+            fontcull_font_test_data::CANTARELL_VF_TRIMMED_GLYPHS,
         );
     }
 
     #[test]
     fn noto_serif_display() {
         compare_glyphs(
-            font_test_data::NOTO_SERIF_DISPLAY_TRIMMED,
-            font_test_data::NOTO_SERIF_DISPLAY_TRIMMED_GLYPHS,
+            fontcull_font_test_data::NOTO_SERIF_DISPLAY_TRIMMED,
+            fontcull_font_test_data::NOTO_SERIF_DISPLAY_TRIMMED_GLYPHS,
         );
     }
 
     #[test]
     fn overlap_flags() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let outlines = font.outline_glyphs();
         let glyph_count = font.maxp().unwrap().num_glyphs();
         // GID 2 is a composite glyph with the overlap bit on a component
@@ -989,12 +989,12 @@ mod tests {
     fn always_get_closing_lines() {
         // <https://github.com/googlefonts/fontations/pull/818/files#r1521188624>
         let period = draw_commands(
-            font_test_data::INTERPOLATE_THIS,
+            fontcull_font_test_data::INTERPOLATE_THIS,
             PERIOD,
             Size::unscaled().into(),
         );
         let comma = draw_commands(
-            font_test_data::INTERPOLATE_THIS,
+            fontcull_font_test_data::INTERPOLATE_THIS,
             COMMA,
             Size::unscaled().into(),
         );
@@ -1013,12 +1013,12 @@ mod tests {
     fn triangle_and_square_retain_compatibility() {
         // <https://github.com/googlefonts/fontations/pull/818/files#r1521188624>
         let period = drawn_points(
-            font_test_data::INTERPOLATE_THIS,
+            fontcull_font_test_data::INTERPOLATE_THIS,
             PERIOD,
             Size::unscaled().into(),
         );
         let comma = drawn_points(
-            font_test_data::INTERPOLATE_THIS,
+            fontcull_font_test_data::INTERPOLATE_THIS,
             COMMA,
             Size::unscaled().into(),
         );
@@ -1089,7 +1089,7 @@ mod tests {
     fn starting_off_curve_walk_backwards_like_freetype() {
         assert_walked_backwards_like_freetype(
             &STARTING_OFF_CURVE_POINTS,
-            font_test_data::STARTING_OFF_CURVE,
+            fontcull_font_test_data::STARTING_OFF_CURVE,
         );
     }
 
@@ -1097,7 +1097,7 @@ mod tests {
     fn mostly_off_curve_walk_backwards_like_freetype() {
         assert_walked_backwards_like_freetype(
             &MOSTLY_OFF_CURVE_POINTS,
-            font_test_data::MOSTLY_OFF_CURVE,
+            fontcull_font_test_data::MOSTLY_OFF_CURVE,
         );
     }
 
@@ -1105,7 +1105,7 @@ mod tests {
     fn starting_off_curve_walk_forwards_like_hbdraw() {
         assert_walked_forwards_like_harfbuzz(
             &STARTING_OFF_CURVE_POINTS,
-            font_test_data::STARTING_OFF_CURVE,
+            fontcull_font_test_data::STARTING_OFF_CURVE,
         );
     }
 
@@ -1113,7 +1113,7 @@ mod tests {
     fn mostly_off_curve_walk_forwards_like_hbdraw() {
         assert_walked_forwards_like_harfbuzz(
             &MOSTLY_OFF_CURVE_POINTS,
-            font_test_data::MOSTLY_OFF_CURVE,
+            fontcull_font_test_data::MOSTLY_OFF_CURVE,
         );
     }
 
@@ -1212,7 +1212,7 @@ mod tests {
 
     #[test]
     fn draw_icon_freetype_style_at_default() {
-        let font = FontRef::new(font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
         assert_glyph_path_start_with(
             &font,
             MATERIAL_SYMBOL_GID_MAIL_AT_DEFAULT,
@@ -1228,7 +1228,7 @@ mod tests {
 
     #[test]
     fn draw_icon_harfbuzz_style_at_default() {
-        let font = FontRef::new(font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
         assert_glyph_path_start_with(
             &font,
             MATERIAL_SYMBOL_GID_MAIL_AT_DEFAULT,
@@ -1244,7 +1244,7 @@ mod tests {
 
     #[test]
     fn draw_icon_freetype_style_off_default() {
-        let font = FontRef::new(font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
         assert_glyph_path_start_with(
             &font,
             MATERIAL_SYMBOL_GID_MAIL_OFF_DEFAULT,
@@ -1260,7 +1260,7 @@ mod tests {
 
     #[test]
     fn draw_icon_harfbuzz_style_off_default() {
-        let font = FontRef::new(font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
         assert_glyph_path_start_with(
             &font,
             MATERIAL_SYMBOL_GID_MAIL_OFF_DEFAULT,
@@ -1280,7 +1280,7 @@ mod tests {
 
     #[test]
     fn draw_nonuniform_scale_component_freetype() {
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
         assert_glyph_path_start_with(
             &font,
             GLYF_COMPONENT_GID_NON_UNIFORM_SCALE,
@@ -1298,7 +1298,7 @@ mod tests {
 
     #[test]
     fn draw_nonuniform_scale_component_harfbuzz() {
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
         assert_glyph_path_start_with(
             &font,
             GLYF_COMPONENT_GID_NON_UNIFORM_SCALE,
@@ -1316,7 +1316,7 @@ mod tests {
 
     #[test]
     fn draw_scaled_component_offset_freetype() {
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
         assert_glyph_path_start_with(
             &font,
             GLYF_COMPONENT_GID_SCALED_COMPONENT_OFFSET,
@@ -1331,7 +1331,7 @@ mod tests {
 
     #[test]
     fn draw_no_scaled_component_offset_freetype() {
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
         assert_glyph_path_start_with(
             &font,
             GLYF_COMPONENT_GID_NO_SCALED_COMPONENT_OFFSET,
@@ -1343,7 +1343,7 @@ mod tests {
 
     #[test]
     fn draw_scaled_component_offset_harfbuzz() {
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
         assert_glyph_path_start_with(
             &font,
             GLYF_COMPONENT_GID_SCALED_COMPONENT_OFFSET,
@@ -1358,7 +1358,7 @@ mod tests {
 
     #[test]
     fn draw_no_scaled_component_offset_harfbuzz() {
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
         assert_glyph_path_start_with(
             &font,
             GLYF_COMPONENT_GID_NO_SCALED_COMPONENT_OFFSET,
@@ -1374,7 +1374,7 @@ mod tests {
     #[test]
     #[cfg(feature = "spec_next")]
     fn draw_cubic() {
-        let font = FontRef::new(font_test_data::CUBIC_GLYF).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CUBIC_GLYF).unwrap();
         assert_glyph_path_start_with(
             &font,
             CUBIC_GLYPH,
@@ -1398,7 +1398,7 @@ mod tests {
     /// <https://github.com/googlefonts/fontations/issues/936>
     #[test]
     fn tthint_with_subset() {
-        let font = FontRef::new(font_test_data::TTHINT_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::TTHINT_SUBSET).unwrap();
         let glyphs = font.outline_glyphs();
         let hinting = HintingInstance::new(
             &glyphs,
@@ -1416,7 +1416,7 @@ mod tests {
 
     #[test]
     fn empty_glyph_advance_unhinted() {
-        let font = FontRef::new(font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
         let outlines = font.outline_glyphs();
         let coords = [NormalizedCoord::from_f32(0.5)];
         let gid = font.charmap().map(' ').unwrap();
@@ -1434,7 +1434,7 @@ mod tests {
 
     #[test]
     fn empty_glyph_advance_hinted() {
-        let font = FontRef::new(font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
         let outlines = font.outline_glyphs();
         let coords = [NormalizedCoord::from_f32(0.5)];
         let hinter = HintingInstance::new(
@@ -1458,7 +1458,7 @@ mod tests {
     /// fractional_size_hinting flag
     #[test]
     fn fractional_size_hinting_matters() {
-        let font = FontRef::from_index(font_test_data::TINOS_SUBSET, 0).unwrap();
+        let font = FontRef::from_index(fontcull_font_test_data::TINOS_SUBSET, 0).unwrap();
         let mut outlines = font.outline_glyphs();
         let instance = HintingInstance::new(
             &outlines,

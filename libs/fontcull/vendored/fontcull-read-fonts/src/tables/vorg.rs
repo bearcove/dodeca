@@ -24,7 +24,7 @@ mod tests {
 
     #[test]
     fn vertical_origins() {
-        let font = FontRef::new(font_test_data::VORG).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VORG).unwrap();
         let vorg = font.vorg().unwrap();
         // Glyphs 1 and 3 have entries while 0 and 2 use the default value
         // of 880

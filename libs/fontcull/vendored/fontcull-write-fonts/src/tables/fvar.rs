@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn round_trip() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let read_testdata = font.fvar().unwrap();
 
         let fvar = Fvar::from_table_ref(&read_testdata);

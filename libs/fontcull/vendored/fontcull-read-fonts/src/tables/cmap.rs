@@ -967,21 +967,21 @@ impl Iterator for NonDefaultUvsIter<'_> {
 
 #[cfg(test)]
 mod tests {
-    use font_test_data::{be_buffer, bebuffer::BeBuffer};
+    use fontcull_font_test_data::{be_buffer, bebuffer::BeBuffer};
 
     use super::*;
     use crate::{FontRef, GlyphId, TableProvider};
 
     #[test]
     fn map_codepoints() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let cmap = font.cmap().unwrap();
         assert_eq!(cmap.map_codepoint('A'), Some(GlyphId::new(1)));
         assert_eq!(cmap.map_codepoint('À'), Some(GlyphId::new(2)));
         assert_eq!(cmap.map_codepoint('`'), Some(GlyphId::new(3)));
         assert_eq!(cmap.map_codepoint('B'), None);
 
-        let font = FontRef::new(font_test_data::SIMPLE_GLYF).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::SIMPLE_GLYF).unwrap();
         let cmap = font.cmap().unwrap();
         assert_eq!(cmap.map_codepoint(' '), Some(GlyphId::new(1)));
         assert_eq!(cmap.map_codepoint(0xE_u32), Some(GlyphId::new(2)));
@@ -1034,7 +1034,7 @@ mod tests {
     #[test]
     fn map_variants() {
         use super::MapVariant::*;
-        let font = FontRef::new(font_test_data::CMAP14_FONT1).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CMAP14_FONT1).unwrap();
         let cmap = font.cmap().unwrap();
         let cmap14 = find_cmap14(&cmap).unwrap();
         let selector = '\u{e0100}';
@@ -1054,7 +1054,7 @@ mod tests {
     #[test]
     #[cfg(feature = "std")]
     fn cmap14_closure_glyphs() {
-        let font = FontRef::new(font_test_data::CMAP14_FONT1).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CMAP14_FONT1).unwrap();
         let cmap = font.cmap().unwrap();
         let mut unicodes = IntSet::empty();
         unicodes.insert(0x4e08_u32);
@@ -1071,7 +1071,7 @@ mod tests {
 
     #[test]
     fn cmap4_iter() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let cmap4 = find_cmap4(&font.cmap().unwrap()).unwrap();
         let mut count = 0;
         for (codepoint, glyph_id) in cmap4.iter() {
@@ -1079,7 +1079,7 @@ mod tests {
             count += 1;
         }
         assert_eq!(count, 4);
-        let font = FontRef::new(font_test_data::SIMPLE_GLYF).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::SIMPLE_GLYF).unwrap();
         let cmap4 = find_cmap4(&font.cmap().unwrap()).unwrap();
         let mut count = 0;
         for (codepoint, glyph_id) in cmap4.iter() {
@@ -1091,7 +1091,7 @@ mod tests {
 
     #[test]
     fn cmap4_iter_explicit_notdef() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let cmap4 = find_cmap4(&font.cmap().unwrap()).unwrap();
         let mut notdef_count = 0;
         for (_, glyph_id) in cmap4.iter() {
@@ -1149,7 +1149,7 @@ mod tests {
 
     #[test]
     fn cmap6_map() {
-        let font = FontRef::new(font_test_data::CMAP6).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CMAP6).unwrap();
         let cmap = font.cmap().unwrap();
         let CmapSubtable::Format6(cmap6) = cmap.subtable(0).unwrap() else {
             panic!("should be a format 6 subtable");
@@ -1166,7 +1166,7 @@ mod tests {
 
     #[test]
     fn cmap6_iter() {
-        let font = FontRef::new(font_test_data::CMAP6).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CMAP6).unwrap();
         let cmap = font.cmap().unwrap();
         let CmapSubtable::Format6(cmap6) = cmap.subtable(0).unwrap() else {
             panic!("should be a format 6 subtable");
@@ -1182,7 +1182,7 @@ mod tests {
 
     #[test]
     fn cmap10_map() {
-        let font = FontRef::new(font_test_data::CMAP10).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CMAP10).unwrap();
         let cmap = font.cmap().unwrap();
         let CmapSubtable::Format10(cmap10) = cmap.subtable(0).unwrap() else {
             panic!("should be a format 10 subtable");
@@ -1199,7 +1199,7 @@ mod tests {
 
     #[test]
     fn cmap10_iter() {
-        let font = FontRef::new(font_test_data::CMAP10).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CMAP10).unwrap();
         let cmap = font.cmap().unwrap();
         let CmapSubtable::Format10(cmap10) = cmap.subtable(0).unwrap() else {
             panic!("should be a format 10 subtable");
@@ -1213,7 +1213,7 @@ mod tests {
 
     #[test]
     fn cmap12_iter() {
-        let font = FontRef::new(font_test_data::CMAP12_FONT1).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CMAP12_FONT1).unwrap();
         let cmap12 = find_cmap12(&font.cmap().unwrap()).unwrap();
         let mut count = 0;
         for (codepoint, glyph_id) in cmap12.iter() {
@@ -1291,7 +1291,7 @@ mod tests {
 
     #[test]
     fn cmap12_iter_glyph_limit() {
-        let font = FontRef::new(font_test_data::CMAP12_FONT1).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CMAP12_FONT1).unwrap();
         let cmap12 = find_cmap12(&font.cmap().unwrap()).unwrap();
         let mut limits = CmapIterLimits::default_for_font(&font);
         // Ensure we obey the glyph count limit.
@@ -1397,7 +1397,7 @@ mod tests {
 
     #[test]
     fn cmap14_iter() {
-        let font = FontRef::new(font_test_data::CMAP14_FONT1).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CMAP14_FONT1).unwrap();
         let cmap14 = find_cmap14(&font.cmap().unwrap()).unwrap();
         let mut count = 0;
         for (codepoint, selector, mapping) in cmap14.iter() {
@@ -1443,7 +1443,7 @@ mod tests {
     /// enthusiasm for non-ascending ranges that enabled it
     #[test]
     fn cmap4_bad_data() {
-        let buf = font_test_data::cmap::repetitive_cmap4();
+        let buf = fontcull_font_test_data::cmap::repetitive_cmap4();
         let cmap4 = Cmap4::read(FontData::new(buf.as_slice())).unwrap();
 
         // we should have unique, ascending codepoints, not duplicates and overlaps
@@ -1503,7 +1503,7 @@ mod tests {
 
     #[test]
     fn best_subtable_full() {
-        let font = FontRef::new(font_test_data::VORG).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VORG).unwrap();
         let cmap = font.cmap().unwrap();
         let (index, record, _) = cmap.best_subtable().unwrap();
         assert_eq!(
@@ -1514,7 +1514,7 @@ mod tests {
 
     #[test]
     fn best_subtable_bmp() {
-        let font = FontRef::new(font_test_data::CMAP12_FONT1).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CMAP12_FONT1).unwrap();
         let cmap = font.cmap().unwrap();
         let (index, record, _) = cmap.best_subtable().unwrap();
         assert_eq!(
@@ -1525,7 +1525,7 @@ mod tests {
 
     #[test]
     fn best_subtable_symbol() {
-        let font = FontRef::new(font_test_data::CMAP4_SYMBOL_PUA).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CMAP4_SYMBOL_PUA).unwrap();
         let cmap = font.cmap().unwrap();
         let (index, record, _) = cmap.best_subtable().unwrap();
         assert!(record.is_symbol());
@@ -1537,7 +1537,7 @@ mod tests {
 
     #[test]
     fn uvs_subtable() {
-        let font = FontRef::new(font_test_data::CMAP14_FONT1).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CMAP14_FONT1).unwrap();
         let cmap = font.cmap().unwrap();
         let (index, _) = cmap.uvs_subtable().unwrap();
         assert_eq!(index, 0);

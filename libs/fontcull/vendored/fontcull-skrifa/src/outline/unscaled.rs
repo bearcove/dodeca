@@ -245,7 +245,7 @@ mod tests {
 
     #[test]
     fn read_glyf_outline() {
-        let font = FontRef::new(font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
         let glyph = font.outline_glyphs().get(GlyphId::new(5)).unwrap();
         let mut outline = UnscaledOutlineBuf::<32>::new();
         glyph
@@ -293,7 +293,7 @@ mod tests {
     #[test]
     #[cfg(feature = "spec_next")]
     fn read_cubic_glyf_outline() {
-        let font = FontRef::new(font_test_data::CUBIC_GLYF).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CUBIC_GLYF).unwrap();
         let glyph = font.outline_glyphs().get(GlyphId::new(2)).unwrap();
         let mut outline = UnscaledOutlineBuf::<32>::new();
         glyph
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn read_cff_outline() {
-        let font = FontRef::new(font_test_data::CANTARELL_VF_TRIMMED).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CANTARELL_VF_TRIMMED).unwrap();
         let glyph = font.outline_glyphs().get(GlyphId::new(2)).unwrap();
         let mut outline = UnscaledOutlineBuf::<32>::new();
         glyph
@@ -356,7 +356,7 @@ mod tests {
 
     #[test]
     fn find_vertical_extrema() {
-        let font = FontRef::new(font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::MATERIAL_SYMBOLS_SUBSET).unwrap();
         let glyph = font.outline_glyphs().get(GlyphId::new(5)).unwrap();
         let mut outline = UnscaledOutlineBuf::<32>::new();
         glyph

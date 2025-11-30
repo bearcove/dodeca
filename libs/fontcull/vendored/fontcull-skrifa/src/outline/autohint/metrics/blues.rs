@@ -768,7 +768,7 @@ mod tests {
 
     #[test]
     fn latin_blues() {
-        let font = FontRef::new(font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
         let shaper = Shaper::new(&font, ShaperMode::Nominal);
         let style = &style::STYLE_CLASSES[super::StyleClass::LATN];
         let blues = super::compute_default_blues(&shaper, &[], style);
@@ -822,7 +822,7 @@ mod tests {
 
     #[test]
     fn hebrew_long_blues() {
-        let font = FontRef::new(font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
         let shaper = Shaper::new(&font, ShaperMode::Nominal);
         // Hebrew triggers "long" blue code path
         let style = &style::STYLE_CLASSES[super::StyleClass::HEBR];
@@ -857,7 +857,7 @@ mod tests {
 
     #[test]
     fn cjk_blues() {
-        let font = FontRef::new(font_test_data::NOTOSERIFTC_AUTOHINT_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIFTC_AUTOHINT_METRICS).unwrap();
         let shaper = Shaper::new(&font, ShaperMode::Nominal);
         let style = &style::STYLE_CLASSES[super::StyleClass::HANI];
         let blues = super::compute_cjk_blues(&shaper, &[], style);
@@ -883,7 +883,7 @@ mod tests {
 
     #[test]
     fn c2sc_shaped_blues() {
-        let font = FontRef::new(font_test_data::NOTOSERIF_AUTOHINT_SHAPING).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIF_AUTOHINT_SHAPING).unwrap();
         let shaper = Shaper::new(&font, ShaperMode::BestEffort);
         let style = &style::STYLE_CLASSES[super::StyleClass::LATN_C2SC];
         let blues = super::compute_default_blues(&shaper, &[], style);

@@ -312,7 +312,7 @@ mod tests {
         // Note: expected values scraped from a FreeType debugging
         // session
         let scaled_metrics = make_scaled_metrics(
-            font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS,
+            fontcull_font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS,
             StyleClass::HEBR,
         );
         // Check scale and deltas
@@ -348,7 +348,7 @@ mod tests {
         // Note: expected values scraped from a FreeType debugging
         // session
         let scaled_metrics = make_scaled_metrics(
-            font_test_data::NOTOSERIFTC_AUTOHINT_METRICS,
+            fontcull_font_test_data::NOTOSERIFTC_AUTOHINT_METRICS,
             StyleClass::HANI,
         );
         // Check scale and deltas

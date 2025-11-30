@@ -2,7 +2,7 @@ use types::{GlyphId16, MajorMinor};
 
 use super::*;
 use crate::tables::layout::{ClassDefFormat2, DeltaFormat, DeviceOrVariationIndex};
-use font_test_data::gdef as test_data;
+use fontcull_font_test_data::gdef as test_data;
 
 #[test]
 fn gdef_header() {

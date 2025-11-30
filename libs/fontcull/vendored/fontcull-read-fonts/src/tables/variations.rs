@@ -1619,14 +1619,14 @@ pub(crate) fn item_delta(
 
 #[cfg(test)]
 mod tests {
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
 
     use super::*;
     use crate::{FontRef, TableProvider};
 
     #[test]
     fn ivs_regions() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let hvar = font.hvar().expect("missing HVAR table");
         let ivs = hvar
             .item_variation_store()
@@ -1808,7 +1808,7 @@ mod tests {
     /// reasonable margin of the same in fixed point.
     #[test]
     fn ivs_float_deltas_nearly_match_fixed_deltas() {
-        let font = FontRef::new(font_test_data::COLRV0V1_VARIABLE).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::COLRV0V1_VARIABLE).unwrap();
         let axis_count = font.fvar().unwrap().axis_count() as usize;
         let colr = font.colr().unwrap();
         let ivs = colr.item_variation_store().unwrap().unwrap();
@@ -1894,7 +1894,7 @@ mod tests {
     // Dense accumulator should match iterator
     #[test]
     fn accumulate_dense() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let gvar = font.gvar().unwrap();
         let gvar_data = gvar.glyph_variation_data(GlyphId::new(1)).unwrap().unwrap();
         let mut count = 0;
@@ -1923,7 +1923,7 @@ mod tests {
     // Sparse accumulator should match iterator
     #[test]
     fn accumulate_sparse() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let gvar = font.gvar().unwrap();
         let gvar_data = gvar.glyph_variation_data(GlyphId::new(2)).unwrap().unwrap();
         let mut count = 0;

@@ -830,7 +830,7 @@ mod tests {
             (633, Edge::DONE),
         ];
         check_edges(
-            font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS,
+            fontcull_font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS,
             GlyphId::new(9),
             style::StyleClass::HEBR,
             &expected_h_edges,
@@ -863,7 +863,7 @@ mod tests {
             (799, Edge::ROUND),
         ];
         check_edges(
-            font_test_data::NOTOSERIFTC_AUTOHINT_METRICS,
+            fontcull_font_test_data::NOTOSERIFTC_AUTOHINT_METRICS,
             GlyphId::new(9),
             style::StyleClass::HANI,
             &expected_h_edges,

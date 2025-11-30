@@ -1,5 +1,5 @@
 use super::*;
-use font_test_data::layout as test_data;
+use fontcull_font_test_data::layout as test_data;
 
 #[test]
 fn example_1_scripts() {

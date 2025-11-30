@@ -39,7 +39,7 @@ impl FdSelect<'_> {
 
 #[cfg(test)]
 mod tests {
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
 
     use super::{FdSelect, GlyphId};
     use crate::FontRead;

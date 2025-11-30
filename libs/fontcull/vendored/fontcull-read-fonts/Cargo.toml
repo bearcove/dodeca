@@ -30,6 +30,7 @@ core_maths = { version = "0.1", optional = true }
 bytemuck = "1.13.1"
 
 [dev-dependencies]
+fontcull-font-test-data = { version = "0.6.1", path = "../fontcull-font-test-data" }
 criterion = "0.3.0"
 rand = "0.8.5"
 serde_json = "1.0"

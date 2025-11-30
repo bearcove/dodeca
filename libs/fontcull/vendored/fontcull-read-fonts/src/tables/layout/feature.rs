@@ -23,7 +23,7 @@ mod tests {
 
     #[test]
     fn feature_list_get() {
-        let font = FontRef::new(font_test_data::NOTOSERIF_AUTOHINT_SHAPING).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIF_AUTOHINT_SHAPING).unwrap();
         let gsub = font.gsub().unwrap();
         let feature_list = gsub.feature_list().unwrap();
         assert_eq!(feature_list.get(0).unwrap().tag, Tag::new(b"c2sc"));

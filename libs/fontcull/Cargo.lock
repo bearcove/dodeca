@@ -869,6 +869,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fontcull-font-test-data"
+version = "0.6.1"
+dependencies = [
+ "fontcull-font-types",
+]
+
+[[package]]
 name = "fontcull-font-types"
 version = "0.10.1"
 dependencies = [
@@ -884,6 +891,7 @@ dependencies = [
  "clap 4.5.53",
  "diff",
  "fnv",
+ "fontcull-font-test-data",
  "fontcull-skrifa",
  "fontcull-write-fonts",
  "hashbrown 0.15.5",
@@ -899,6 +907,7 @@ dependencies = [
  "bytemuck",
  "core_maths",
  "criterion",
+ "fontcull-font-test-data",
  "fontcull-font-types",
  "rand 0.8.5",
  "serde",
@@ -911,6 +920,7 @@ version = "0.39.0"
 dependencies = [
  "bytemuck",
  "core_maths",
+ "fontcull-font-test-data",
  "fontcull-read-fonts",
  "kurbo",
  "pretty_assertions",
@@ -926,6 +936,7 @@ dependencies = [
  "diff",
  "dot2",
  "env_logger",
+ "fontcull-font-test-data",
  "fontcull-font-types",
  "fontcull-read-fonts",
  "indexmap",

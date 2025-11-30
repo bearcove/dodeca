@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn synthesize_for_empty_names() {
-        let mut post_data = font_test_data::post::SIMPLE.to_vec();
+        let mut post_data = fontcull_font_test_data::post::SIMPLE.to_vec();
         // last name in this post data is "hola" so pop 5 bytes and then
         // push a 0 to simulate an empty name
         post_data.truncate(post_data.len() - 5);
@@ -326,7 +326,7 @@ mod tests {
 
     #[test]
     fn cff_glyph_names() {
-        let font = FontRef::new(font_test_data::NOTO_SERIF_DISPLAY_TRIMMED).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTO_SERIF_DISPLAY_TRIMMED).unwrap();
         let names = GlyphNames::new(&font);
         assert_eq!(names.source(), GlyphNameSource::Cff);
         let expected_names = [".notdef", "i", "j", "k", "l"];
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn post_glyph_names() {
-        let font = FontRef::new(font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
         let names = GlyphNames::new(&font);
         let expected_names = [
             ".notdef",
@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn post_glyph_names_partial() {
-        let font = FontRef::new(font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
         let mut names = GlyphNames::new(&font);
         let Inner::Post(_, len) = &mut names.inner else {
             panic!("it's a post table!");

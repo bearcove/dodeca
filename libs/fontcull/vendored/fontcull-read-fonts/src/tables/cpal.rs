@@ -9,7 +9,7 @@ mod tests {
 
     #[test]
     fn read_sample() {
-        let font = FontRef::new(font_test_data::COLR_GRADIENT_RECT).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::COLR_GRADIENT_RECT).unwrap();
         let table = font.cpal().unwrap();
         assert_eq!(table.version(), 0);
         assert_eq!(table.num_palette_entries(), 2);

@@ -1,5 +1,5 @@
 use super::*;
-use font_test_data::gsub as test_data;
+use fontcull_font_test_data::gsub as test_data;
 
 #[test]
 fn singlesubstformat1() {

@@ -574,7 +574,7 @@ mod tests {
 
     #[test]
     fn has_colrv1_glyph_test() {
-        let colr_font = font_test_data::COLRV0V1_VARIABLE;
+        let colr_font = fontcull_font_test_data::COLRV0V1_VARIABLE;
         let font = FontRef::new(colr_font).unwrap();
         let get_colrv1_glyph = |codepoint: &[char]| {
             font.charmap().map(codepoint[0]).and_then(|glyph_id| {
@@ -613,7 +613,7 @@ mod tests {
 
     #[test]
     fn paintcolrglyph_cycle_test() {
-        let colr_font = font_test_data::COLRV0V1_VARIABLE;
+        let colr_font = fontcull_font_test_data::COLRV0V1_VARIABLE;
         let font = FontRef::new(colr_font).unwrap();
         let cycle_glyph_id = font.charmap().map(PAINTCOLRGLYPH_CYCLE[0]).unwrap();
         let colrv1_glyph = font
@@ -632,7 +632,7 @@ mod tests {
 
     #[test]
     fn no_cliplist_test() {
-        let colr_font = font_test_data::COLRV1_NO_CLIPLIST;
+        let colr_font = fontcull_font_test_data::COLRV1_NO_CLIPLIST;
         let font = FontRef::new(colr_font).unwrap();
         let cycle_glyph_id = GlyphId::new(1);
         let colrv1_glyph = font
@@ -650,7 +650,7 @@ mod tests {
 
     #[test]
     fn colrv0_no_bbox_test() {
-        let colr_font = font_test_data::COLRV0V1;
+        let colr_font = fontcull_font_test_data::COLRV0V1;
         let font = FontRef::new(colr_font).unwrap();
         let colrv0_glyph_id = GlyphId::new(168);
         let colrv0_glyph = font
@@ -665,7 +665,7 @@ mod tests {
     #[test]
     fn cpal_test() {
         use crate::color::Color;
-        let cpal_font = font_test_data::COLRV0V1;
+        let cpal_font = fontcull_font_test_data::COLRV0V1;
         let font = FontRef::new(cpal_font).unwrap();
         let palettes = font.color_palettes();
         assert_eq!(palettes.len(), 3);

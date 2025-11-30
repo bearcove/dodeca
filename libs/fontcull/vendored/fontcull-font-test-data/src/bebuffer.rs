@@ -1,6 +1,6 @@
 //! small utilities used in tests
 
-use font_types::Scalar;
+use fontcull_font_types::Scalar;
 use std::collections::HashMap;
 
 /// A convenience type for generating a buffer of big-endian bytes.

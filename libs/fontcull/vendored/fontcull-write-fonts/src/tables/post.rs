@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn roundtrip() {
-        use font_test_data::post as test_data;
+        use fontcull_font_test_data::post as test_data;
 
         let table = Post::read(test_data::SIMPLE.into()).unwrap();
         let dumped = crate::dump_table(&table).unwrap();

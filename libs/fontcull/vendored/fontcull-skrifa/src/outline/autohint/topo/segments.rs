@@ -591,7 +591,7 @@ mod tests {
 
     #[test]
     fn horizontal_segments() {
-        let font = FontRef::new(font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
         let glyphs = font.outline_glyphs();
         let glyph = glyphs.get(GlyphId::new(8)).unwrap();
         let mut outline = Outline::default();
@@ -703,7 +703,7 @@ mod tests {
 
     #[test]
     fn vertical_segments() {
-        let font = FontRef::new(font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
         let glyphs = font.outline_glyphs();
         let glyph = glyphs.get(GlyphId::new(8)).unwrap();
         let mut outline = Outline::default();
@@ -791,7 +791,7 @@ mod tests {
 
     #[test]
     fn cjk_horizontal_segments() {
-        let font = FontRef::new(font_test_data::NOTOSERIFTC_AUTOHINT_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIFTC_AUTOHINT_METRICS).unwrap();
         let glyphs = font.outline_glyphs();
         let glyph = glyphs.get(GlyphId::new(9)).unwrap();
         let mut outline = Outline::default();
@@ -915,7 +915,7 @@ mod tests {
 
     #[test]
     fn cjk_vertical_segments() {
-        let font = FontRef::new(font_test_data::NOTOSERIFTC_AUTOHINT_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIFTC_AUTOHINT_METRICS).unwrap();
         let glyphs = font.outline_glyphs();
         let glyph = glyphs.get(GlyphId::new(9)).unwrap();
         let mut outline = Outline::default();

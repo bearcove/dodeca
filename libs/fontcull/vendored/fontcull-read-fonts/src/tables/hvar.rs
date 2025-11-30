@@ -50,7 +50,7 @@ mod tests {
 
     #[test]
     fn advance_deltas() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let hvar = font.hvar().unwrap();
         let gid_a = GlyphId::new(1);
         assert_eq!(
@@ -87,7 +87,7 @@ mod tests {
 
     #[test]
     fn advance_deltas_from_hvar_with_truncated_adv_index_map() {
-        let font = FontRef::new(font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
         let maxp = font.maxp().unwrap();
         let num_glyphs = maxp.num_glyphs();
         let hvar = font.hvar().unwrap();

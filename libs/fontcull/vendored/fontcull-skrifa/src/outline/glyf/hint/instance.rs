@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn scaled_cvar_cvt() {
-        let font = FontRef::new(font_test_data::CVAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CVAR).unwrap();
         let outlines = Outlines::new(&font).unwrap();
         let mut instance = HintInstance::default();
         let coords = [0.5, -0.5].map(F2Dot14::from_f32);

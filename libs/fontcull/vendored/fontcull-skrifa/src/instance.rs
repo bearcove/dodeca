@@ -221,7 +221,7 @@ mod tests {
 
     #[test]
     fn effective_coords() {
-        let font = FontRef::new(font_test_data::AVAR2_CHECKER).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::AVAR2_CHECKER).unwrap();
         let location = font.axes().location([("AVAR", 50.0), ("AVWK", 75.0)]);
         let loc_ref = LocationRef::from(&location);
         assert!(!loc_ref.is_default());
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn effective_coords_for_default() {
-        let font = FontRef::new(font_test_data::AVAR2_CHECKER).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::AVAR2_CHECKER).unwrap();
         let location = font.axes().location([("AVAR", 0.0), ("AVWK", 0.0)]);
         let loc_ref = LocationRef::from(&location);
         assert!(loc_ref.is_default());

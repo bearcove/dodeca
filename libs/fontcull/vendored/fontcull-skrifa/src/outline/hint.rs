@@ -553,7 +553,7 @@ mod tests {
     // is enabled in the TrueType interpreter.
     #[test]
     fn ignore_hdmx_when_back_compat_enabled() {
-        let font = FontRef::new(font_test_data::TINOS_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::TINOS_SUBSET).unwrap();
         let outlines = font.outline_glyphs();
         // Double quote was the most egregious failure
         let gid = font.charmap().map('"').unwrap();
@@ -588,7 +588,7 @@ mod tests {
     // rounded advance widths
     #[test]
     fn round_advance_when_prep_disables_hinting() {
-        let font = FontRef::new(font_test_data::TINOS_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::TINOS_SUBSET).unwrap();
         let outlines = font.outline_glyphs();
         let gid = font.charmap().map('"').unwrap();
         let size = Size::new(16.0);
@@ -615,7 +615,7 @@ mod tests {
     // <https://github.com/googlefonts/fontations/issues/1544>
     #[test]
     fn hint_fractional_font_size() {
-        let font = FontRef::new(font_test_data::COUSINE_HINT_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::COUSINE_HINT_SUBSET).unwrap();
         let outlines = font.outline_glyphs();
         let gid = GlyphId::new(1); // was 85 in the original font
         let size = Size::new(24.8);

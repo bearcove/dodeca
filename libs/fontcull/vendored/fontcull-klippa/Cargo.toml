@@ -19,5 +19,6 @@ thiserror = "1.0.58"
 fontcull-write-fonts = { version = "0.44.1", path = "../fontcull-write-fonts", features = ["read"] }
 
 [dev-dependencies]
+fontcull-font-test-data = { version = "0.6.1", path = "../fontcull-font-test-data" }
 diff = "0.1.13"
 tempdir = "0.3.7"

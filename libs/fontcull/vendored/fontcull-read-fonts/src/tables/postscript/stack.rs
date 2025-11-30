@@ -432,7 +432,7 @@ mod tests {
 
     #[test]
     fn blend() {
-        let ivs_data = &font_test_data::cff2::EXAMPLE[18..];
+        let ivs_data = &fontcull_font_test_data::cff2::EXAMPLE[18..];
         let ivs = ItemVariationStore::read(FontData::new(ivs_data)).unwrap();
         // This coordinate will generate scalars [0.5, 0.5]
         let coords = &[F2Dot14::from_f32(-0.75)];

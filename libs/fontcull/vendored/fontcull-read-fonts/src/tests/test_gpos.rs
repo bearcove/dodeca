@@ -1,7 +1,7 @@
 use crate::tables::layout::DeltaFormat;
 
 use super::*;
-use font_test_data::gpos as test_data;
+use fontcull_font_test_data::gpos as test_data;
 
 #[test]
 fn singleposformat1() {

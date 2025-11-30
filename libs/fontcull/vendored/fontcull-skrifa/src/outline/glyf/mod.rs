@@ -1310,7 +1310,7 @@ mod tests {
 
     #[test]
     fn overlap_flags() {
-        let font = FontRef::new(font_test_data::VAZIRMATN_VAR).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::VAZIRMATN_VAR).unwrap();
         let scaler = Outlines::new(&font).unwrap();
         let glyph_count = font.maxp().unwrap().num_glyphs();
         // GID 2 is a composite glyph with the overlap bit on a component
@@ -1327,12 +1327,12 @@ mod tests {
     #[test]
     fn interpreter_preference() {
         // no instructions in this font...
-        let font = FontRef::new(font_test_data::COLRV0V1).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::COLRV0V1).unwrap();
         let outlines = Outlines::new(&font).unwrap();
         // thus no preference for the interpreter
         assert!(!outlines.prefer_interpreter());
         // but this one has instructions...
-        let font = FontRef::new(font_test_data::TTHINT_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::TTHINT_SUBSET).unwrap();
         let outlines = Outlines::new(&font).unwrap();
         // so let's use it
         assert!(outlines.prefer_interpreter());
@@ -1340,7 +1340,7 @@ mod tests {
 
     #[test]
     fn empty_glyph_advance() {
-        let font = FontRef::new(font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
         let outlines = Outlines::new(&font).unwrap();
         let coords = [F2Dot14::from_f32(0.5)];
         let ppem = Some(24.0);
@@ -1358,7 +1358,7 @@ mod tests {
 
     #[test]
     fn empty_glyphs_have_phantom_points_too() {
-        let font = FontRef::new(font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
         let outlines = Outlines::new(&font).unwrap();
         let gid = font.charmap().map(' ').unwrap();
         let outline = outlines.outline(gid).unwrap();
@@ -1370,11 +1370,11 @@ mod tests {
     // <https://issues.oss-fuzz.com/issues/391753684
     #[test]
     fn composite_with_too_many_points() {
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
         let mut outlines = Outlines::new(&font).unwrap();
         // Hack glyf and loca to build a glyph that contains more than 64k
         // total points
-        let mut glyf_buf = font_test_data::bebuffer::BeBuffer::new();
+        let mut glyf_buf = fontcull_font_test_data::bebuffer::BeBuffer::new();
         // Make a component glyph with 40k points so we overflow the
         // total limit in a composite
         let simple_glyph_point_count = 40000;
@@ -1407,7 +1407,7 @@ mod tests {
         let glyph1_end = glyf_buf.len();
         outlines.glyf = Glyf::read(glyf_buf.data().into()).unwrap();
         // Now create a loca table
-        let mut loca_buf = font_test_data::bebuffer::BeBuffer::new();
+        let mut loca_buf = fontcull_font_test_data::bebuffer::BeBuffer::new();
         loca_buf = loca_buf.extend([0u32, glyph0_end as u32, glyph1_end as u32]);
         outlines.loca = Loca::read(loca_buf.data().into(), true).unwrap();
         let gid = GlyphId::new(1);
@@ -1422,7 +1422,7 @@ mod tests {
 
     #[test]
     fn fractional_size_hinting() {
-        let font = FontRef::from_index(font_test_data::TINOS_SUBSET, 0).unwrap();
+        let font = FontRef::from_index(fontcull_font_test_data::TINOS_SUBSET, 0).unwrap();
         let outlines = Outlines::new(&font).unwrap();
         // Make sure we capture the correct bit
         assert!(!outlines.fractional_size_hinting);

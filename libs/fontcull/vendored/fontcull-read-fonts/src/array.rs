@@ -184,7 +184,7 @@ impl<'a, T: AnyBitPattern + FixedSize> FontReadWithArgs<'a> for &'a [T] {
 mod tests {
     use super::*;
     use crate::codegen_test::records::VarLenItem;
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
 
     impl VarSize for VarLenItem<'_> {
         type Size = u32;

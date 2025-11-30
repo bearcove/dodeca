@@ -1369,7 +1369,7 @@ mod test {
     #[test]
     fn populate_unicodes_wo_input_gid() {
         let mut plan = Plan::default();
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
         plan.font_num_glyphs = get_font_num_glyphs(&font);
 
         let input_gids = IntSet::empty();
@@ -1405,7 +1405,7 @@ mod test {
     #[test]
     fn populate_unicodes_w_input_gid() {
         let mut plan = Plan::default();
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
         plan.font_num_glyphs = get_font_num_glyphs(&font);
 
         let mut input_gids = IntSet::empty();
@@ -1439,7 +1439,7 @@ mod test {
 
     #[test]
     fn glyf_closure_composite_glyphs() {
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
         let loca = font.loca(None).unwrap();
         let glyf = font.glyf().unwrap();
         let mut gids = IntSet::empty();
@@ -1453,7 +1453,7 @@ mod test {
     #[test]
     fn populate_gids_wo_cmap_colr_layout() {
         let mut plan = Plan::default();
-        let font = FontRef::new(font_test_data::GLYF_COMPONENTS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::GLYF_COMPONENTS).unwrap();
         plan.font_num_glyphs = get_font_num_glyphs(&font);
         plan.unicodes.insert(0x2c_u32);
         plan.unicodes.insert(0x34_u32);

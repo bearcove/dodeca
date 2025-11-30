@@ -431,7 +431,7 @@ impl<'a> TableProvider<'a> for FontRef<'a> {
 
 #[cfg(test)]
 mod tests {
-    use font_test_data::{be_buffer, bebuffer::BeBuffer, ttc::TTC, AHEM};
+    use fontcull_font_test_data::{be_buffer, bebuffer::BeBuffer, ttc::TTC, AHEM};
     use types::{Tag, TT_SFNT_VERSION};
 
     use crate::{FileRef, FontRef};
@@ -467,14 +467,14 @@ mod tests {
 
     #[test]
     fn unsorted_table_directory() {
-        let cff2_data = font_test_data::cff2::EXAMPLE;
-        let post_data = font_test_data::post::SIMPLE;
+        let cff2_data = fontcull_font_test_data::cff2::EXAMPLE;
+        let post_data = fontcull_font_test_data::post::SIMPLE;
         let gdef_data = [
-            font_test_data::gdef::GDEF_HEADER,
-            font_test_data::gdef::GLYPHCLASSDEF_TABLE,
+            fontcull_font_test_data::gdef::GDEF_HEADER,
+            fontcull_font_test_data::gdef::GLYPHCLASSDEF_TABLE,
         ]
         .concat();
-        let gpos_data = font_test_data::gpos::SINGLEPOSFORMAT1;
+        let gpos_data = fontcull_font_test_data::gpos::SINGLEPOSFORMAT1;
 
         let font_data = be_buffer! {
             TT_SFNT_VERSION,

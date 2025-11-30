@@ -941,7 +941,7 @@ impl From<Fixed> for BcdComponents {
 
 #[cfg(test)]
 mod tests {
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
 
     use super::*;
     use crate::{
@@ -1027,7 +1027,7 @@ mod tests {
     #[test]
     fn example_top_dict_tokens() {
         use Operator::*;
-        let top_dict_data = &font_test_data::cff2::EXAMPLE[5..12];
+        let top_dict_data = &fontcull_font_test_data::cff2::EXAMPLE[5..12];
         let tokens: Vec<_> = tokens(top_dict_data).map(|entry| entry.unwrap()).collect();
         let expected: &[Token] = &[
             68.into(),
@@ -1043,7 +1043,7 @@ mod tests {
     #[test]
     fn example_top_dict_entries() {
         use Entry::*;
-        let top_dict_data = &font_test_data::cff2::EXAMPLE[0x5..=0xB];
+        let top_dict_data = &fontcull_font_test_data::cff2::EXAMPLE[0x5..=0xB];
         let entries: Vec<_> = entries(top_dict_data, None)
             .map(|entry| entry.unwrap())
             .collect();
@@ -1058,9 +1058,9 @@ mod tests {
     #[test]
     fn example_private_dict_entries() {
         use Entry::*;
-        let private_dict_data = &font_test_data::cff2::EXAMPLE[0x4f..=0xc0];
+        let private_dict_data = &fontcull_font_test_data::cff2::EXAMPLE[0x4f..=0xc0];
         let store =
-            ItemVariationStore::read(FontData::new(&font_test_data::cff2::EXAMPLE[18..])).unwrap();
+            ItemVariationStore::read(FontData::new(&fontcull_font_test_data::cff2::EXAMPLE[18..])).unwrap();
         let coords = &[F2Dot14::from_f32(0.0)];
         let blend_state = BlendState::new(store, coords, 0).unwrap();
         let entries: Vec<_> = entries(private_dict_data, Some(blend_state))
@@ -1095,7 +1095,7 @@ mod tests {
     #[test]
     fn noto_serif_display_top_dict_entries() {
         use Entry::*;
-        let top_dict_data = FontRef::new(font_test_data::NOTO_SERIF_DISPLAY_TRIMMED)
+        let top_dict_data = FontRef::new(fontcull_font_test_data::NOTO_SERIF_DISPLAY_TRIMMED)
             .unwrap()
             .cff()
             .unwrap()

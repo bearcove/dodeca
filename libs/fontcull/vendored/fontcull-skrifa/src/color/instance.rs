@@ -608,7 +608,7 @@ mod tests {
     /// and <https://g-issues.oss-fuzz.com/issues/439498857>
     #[test]
     fn var_delta_index_overflow() {
-        let font = FontRef::new(font_test_data::COLRV0V1_VARIABLE).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::COLRV0V1_VARIABLE).unwrap();
         let coords = &[F2Dot14::from_f32(0.5)];
         let instance = ColrInstance::new(font.colr().unwrap(), coords);
         // Just don't panic with overflow

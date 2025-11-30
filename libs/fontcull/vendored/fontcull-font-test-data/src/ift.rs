@@ -5,7 +5,7 @@
 
 use std::iter;
 
-use font_types::{Int24, Tag, Uint24};
+use fontcull_font_types::{Int24, Tag, Uint24};
 
 use crate::{be_buffer, bebuffer::BeBuffer};
 

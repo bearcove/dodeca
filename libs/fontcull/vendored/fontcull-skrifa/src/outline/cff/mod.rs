@@ -988,7 +988,7 @@ mod tests {
         MetadataProvider,
     };
     use dict::Blues;
-    use font_test_data::bebuffer::BeBuffer;
+    use fontcull_font_test_data::bebuffer::BeBuffer;
     use raw::tables::cff2::Cff2;
     use fontcull_read_fonts::FontRef;
 
@@ -1029,7 +1029,7 @@ mod tests {
 
     #[test]
     fn read_cff_static() {
-        let font = FontRef::new(font_test_data::NOTO_SERIF_DISPLAY_TRIMMED).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTO_SERIF_DISPLAY_TRIMMED).unwrap();
         let cff = Outlines::new(&font).unwrap();
         assert!(!cff.is_cff2());
         assert!(cff.top_dict.var_store.is_none());
@@ -1043,7 +1043,7 @@ mod tests {
 
     #[test]
     fn read_cff2_static() {
-        let font = FontRef::new(font_test_data::CANTARELL_VF_TRIMMED).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CANTARELL_VF_TRIMMED).unwrap();
         let cff = Outlines::new(&font).unwrap();
         assert!(cff.is_cff2());
         assert!(cff.top_dict.var_store.is_some());
@@ -1057,7 +1057,7 @@ mod tests {
 
     #[test]
     fn read_example_cff2_table() {
-        let cff2 = Cff2::read(FontData::new(font_test_data::cff2::EXAMPLE)).unwrap();
+        let cff2 = Cff2::read(FontData::new(fontcull_font_test_data::cff2::EXAMPLE)).unwrap();
         let top_dict =
             TopDict::new(cff2.offset_data().as_bytes(), cff2.top_dict_data(), true).unwrap();
         assert!(top_dict.var_store.is_some());
@@ -1070,22 +1070,22 @@ mod tests {
     #[test]
     fn cff2_variable_outlines_match_freetype() {
         compare_glyphs(
-            font_test_data::CANTARELL_VF_TRIMMED,
-            font_test_data::CANTARELL_VF_TRIMMED_GLYPHS,
+            fontcull_font_test_data::CANTARELL_VF_TRIMMED,
+            fontcull_font_test_data::CANTARELL_VF_TRIMMED_GLYPHS,
         );
     }
 
     #[test]
     fn cff_static_outlines_match_freetype() {
         compare_glyphs(
-            font_test_data::NOTO_SERIF_DISPLAY_TRIMMED,
-            font_test_data::NOTO_SERIF_DISPLAY_TRIMMED_GLYPHS,
+            fontcull_font_test_data::NOTO_SERIF_DISPLAY_TRIMMED,
+            fontcull_font_test_data::NOTO_SERIF_DISPLAY_TRIMMED_GLYPHS,
         );
     }
 
     #[test]
     fn unhinted_ends_with_close() {
-        let font = FontRef::new(font_test_data::CANTARELL_VF_TRIMMED).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CANTARELL_VF_TRIMMED).unwrap();
         let glyph = font.outline_glyphs().get(GlyphId::new(1)).unwrap();
         let mut svg = SvgPen::default();
         glyph.draw(Size::unscaled(), &mut svg).unwrap();
@@ -1094,7 +1094,7 @@ mod tests {
 
     #[test]
     fn hinted_ends_with_close() {
-        let font = FontRef::new(font_test_data::CANTARELL_VF_TRIMMED).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CANTARELL_VF_TRIMMED).unwrap();
         let glyphs = font.outline_glyphs();
         let hinter = HintingInstance::new(
             &glyphs,
@@ -1112,7 +1112,7 @@ mod tests {
     /// Ensure we don't reject an empty Private DICT
     #[test]
     fn empty_private_dict() {
-        let font = FontRef::new(font_test_data::MATERIAL_ICONS_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::MATERIAL_ICONS_SUBSET).unwrap();
         let outlines = super::Outlines::new(&font).unwrap();
         assert!(outlines.top_dict.private_dict_range.is_empty());
         assert!(outlines
@@ -1163,7 +1163,7 @@ mod tests {
     /// unscaled draw request.
     #[test]
     fn proper_scaling_when_factor_equals_fixed_one() {
-        let font = FontRef::new(font_test_data::MATERIAL_ICONS_SUBSET).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::MATERIAL_ICONS_SUBSET).unwrap();
         assert_eq!(font.head().unwrap().units_per_em(), 512);
         let glyphs = font.outline_glyphs();
         let glyph = glyphs.get(GlyphId::new(1)).unwrap();
@@ -1225,9 +1225,9 @@ mod tests {
     // We were overwriting family_other_blues with family_blues.
     #[test]
     fn capture_family_other_blues() {
-        let private_dict_data = &font_test_data::cff2::EXAMPLE[0x4f..=0xc0];
+        let private_dict_data = &fontcull_font_test_data::cff2::EXAMPLE[0x4f..=0xc0];
         let store =
-            ItemVariationStore::read(FontData::new(&font_test_data::cff2::EXAMPLE[18..])).unwrap();
+            ItemVariationStore::read(FontData::new(&fontcull_font_test_data::cff2::EXAMPLE[18..])).unwrap();
         let coords = &[F2Dot14::from_f32(0.0)];
         let blend_state = BlendState::new(store, coords, 0).unwrap();
         let private_dict = PrivateDict::new(
@@ -1244,7 +1244,7 @@ mod tests {
 
     #[test]
     fn implied_seac() {
-        let font = FontRef::new(font_test_data::CHARSTRING_PATH_OPS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CHARSTRING_PATH_OPS).unwrap();
         let glyphs = font.outline_glyphs();
         let gid = GlyphId::new(3);
         assert_eq!(font.glyph_names().get(gid).unwrap(), "Scaron");
@@ -1262,7 +1262,7 @@ mod tests {
 
     #[test]
     fn implied_seac_clears_hints() {
-        let font = FontRef::new(font_test_data::CHARSTRING_PATH_OPS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CHARSTRING_PATH_OPS).unwrap();
         let outlines = Outlines::from_cff(&font, 1000).unwrap();
         let subfont = outlines.subfont(0, Some(16.0), &[]).unwrap();
         let cff_data = outlines.offset_data.as_bytes();
@@ -1361,7 +1361,7 @@ mod tests {
     #[test]
     fn nested_font_matrices() {
         // Expected values extracted from FreeType debugging session
-        let font = FontRef::new(font_test_data::MATERIAL_ICONS_SUBSET_MATRIX).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::MATERIAL_ICONS_SUBSET_MATRIX).unwrap();
         let outlines = Outlines::from_cff(&font, 512).unwrap();
         // Check the normalized top dict matrix
         let (top_matrix, top_upem) = outlines.top_dict.font_matrix.unwrap();

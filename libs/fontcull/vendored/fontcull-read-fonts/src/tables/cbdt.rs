@@ -20,7 +20,7 @@ mod tests {
 
     #[test]
     fn read_cblc_1_cbdt_17() {
-        let font = FontRef::new(font_test_data::EMBEDDED_BITMAPS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::EMBEDDED_BITMAPS).unwrap();
         let cblc = font.cblc().unwrap();
         let cbdt = font.cbdt().unwrap();
         let size = &cblc.bitmap_sizes()[0];
@@ -62,7 +62,7 @@ mod tests {
 
     #[test]
     fn sparse_glyph_ids() {
-        let font = FontRef::new(font_test_data::CBDT).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CBDT).unwrap();
         let cblc = font.cblc().unwrap();
         let cbdt = font.cbdt().unwrap();
         let size = &cblc.bitmap_sizes()[0];

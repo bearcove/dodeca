@@ -29,6 +29,8 @@ serde = { version = "1.0", features = ["derive"], optional = true }
 indexmap = "2.0"
 
 [dev-dependencies]
+fontcull-font-test-data = { version = "0.6.1", path = "../fontcull-font-test-data" }
+fontcull-read-fonts = { version = "0.36.0", path = "../fontcull-read-fonts", features = ["codegen_test", "experimental_traverse"] }
 diff = "0.1.12"
 nu-ansi-term = "0.50.1"
 rstest = "0.18.0"

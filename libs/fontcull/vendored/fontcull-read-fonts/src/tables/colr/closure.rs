@@ -604,7 +604,7 @@ mod tests {
 
     #[test]
     fn test_colr_v0_closure() {
-        let font = FontRef::new(font_test_data::COLRV0V1_VARIABLE).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::COLRV0V1_VARIABLE).unwrap();
         let colr = font.colr().unwrap();
 
         let mut input_glyph_set = IntSet::empty();
@@ -639,7 +639,7 @@ mod tests {
 
     #[test]
     fn test_colr_v0_closure_not_found() {
-        let font = FontRef::new(font_test_data::COLRV0V1_VARIABLE).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::COLRV0V1_VARIABLE).unwrap();
         let colr = font.colr().unwrap();
 
         let mut input_glyph_set = IntSet::empty();
@@ -654,7 +654,7 @@ mod tests {
 
     #[test]
     fn test_colr_v1_closure_no_var() {
-        let font = FontRef::new(font_test_data::COLRV0V1_VARIABLE).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::COLRV0V1_VARIABLE).unwrap();
         let colr = font.colr().unwrap();
 
         let mut glyph_set = IntSet::empty();
@@ -696,7 +696,7 @@ mod tests {
 
     #[test]
     fn test_colr_v1_closure_w_var() {
-        let font = FontRef::new(font_test_data::COLRV0V1_VARIABLE).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::COLRV0V1_VARIABLE).unwrap();
         let colr = font.colr().unwrap();
 
         let mut glyph_set = IntSet::empty();

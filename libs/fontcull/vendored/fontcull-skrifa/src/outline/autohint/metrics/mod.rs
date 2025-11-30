@@ -392,7 +392,7 @@ mod tests {
 
     #[test]
     fn precomputed_style_set() {
-        let font = FontRef::new(font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
         let coords = &[];
         let shaper = Shaper::new(&font, ShaperMode::Nominal);
         let glyph_count = font.maxp().unwrap().num_glyphs() as u32;
@@ -414,7 +414,7 @@ mod tests {
 
     #[test]
     fn lazy_style_set() {
-        let font = FontRef::new(font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
         let coords = &[];
         let shaper = Shaper::new(&font, ShaperMode::Nominal);
         let glyph_count = font.maxp().unwrap().num_glyphs() as u32;

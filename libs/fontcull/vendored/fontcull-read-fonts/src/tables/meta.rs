@@ -80,7 +80,7 @@ impl<'a> FontRead<'a> for ScriptLangTag<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use font_test_data::meta as test_data;
+    use fontcull_font_test_data::meta as test_data;
 
     impl PartialEq<&str> for ScriptLangTag<'_> {
         fn eq(&self, other: &&str) -> bool {

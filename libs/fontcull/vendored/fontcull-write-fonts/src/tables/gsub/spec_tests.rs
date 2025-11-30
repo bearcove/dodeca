@@ -1,6 +1,6 @@
 use super::*;
 use crate::assert_hex_eq;
-use font_test_data::gsub as test_data;
+use fontcull_font_test_data::gsub as test_data;
 
 #[test]
 fn singlesubstformat1() {

@@ -374,7 +374,7 @@ mod tests {
 
     #[test]
     fn hinted_coords_and_metrics_default() {
-        let font = FontRef::new(font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIFHEBREW_AUTOHINT_METRICS).unwrap();
         let (outline, metrics) = hint_outline(
             &font,
             16.0,
@@ -439,7 +439,7 @@ mod tests {
 
     #[test]
     fn hinted_coords_and_metrics_cjk() {
-        let font = FontRef::new(font_test_data::NOTOSERIFTC_AUTOHINT_METRICS).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::NOTOSERIFTC_AUTOHINT_METRICS).unwrap();
         let (outline, metrics) = hint_outline(
             &font,
             16.0,
@@ -587,7 +587,7 @@ mod tests {
     /// metrics
     #[test]
     fn missing_edge_metrics() {
-        let font = FontRef::new(font_test_data::CUBIC_GLYF).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::CUBIC_GLYF).unwrap();
         let (_outline, metrics) = hint_outline(
             &font,
             16.0,
@@ -607,7 +607,7 @@ mod tests {
     // font
     #[test]
     fn skia_ahem_test_case() {
-        let font = FontRef::new(font_test_data::AHEM).unwrap();
+        let font = FontRef::new(fontcull_font_test_data::AHEM).unwrap();
         let outline = hint_outline(
             &font,
             24.0,

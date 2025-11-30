@@ -160,7 +160,7 @@ mod test {
 
     fn example_ivs() -> ItemVariationStore<'static> {
         // ItemVariationStore is at offset 18 in the CFF example table
-        let ivs_data = &font_test_data::cff2::EXAMPLE[18..];
+        let ivs_data = &fontcull_font_test_data::cff2::EXAMPLE[18..];
         ItemVariationStore::read(FontData::new(ivs_data)).unwrap()
     }
 }

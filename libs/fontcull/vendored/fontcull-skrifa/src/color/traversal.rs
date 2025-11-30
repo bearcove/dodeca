@@ -630,7 +630,7 @@ mod tests {
 
     #[test]
     fn clipbox_test() {
-        let colr_font = font_test_data::COLRV0V1_VARIABLE;
+        let colr_font = fontcull_font_test_data::COLRV0V1_VARIABLE;
         let font = FontRef::new(colr_font).unwrap();
         let test_glyph_id = font.charmap().map(CLIPBOX[0]).unwrap();
         let upem = font.head().unwrap().units_per_em();
