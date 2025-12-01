@@ -13,7 +13,7 @@ documentation = "https://docs.rs/svag"
 readme = "README.md"
 keywords = ["svg", "minify", "optimize", "xml"]
 categories = ["command-line-utilities", "web-programming", "encoding"]
-rust-version = "1.85"
+rust-version = "1.88"
 exclude = ["xtask/", "tests/", ".github/", ".cargo/"]
 
 [dependencies]
