@@ -1,3 +1,5 @@
+#![allow(clippy::collapsible_if)]
+
 mod cache_bust;
 mod cas;
 mod config;
