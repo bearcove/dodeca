@@ -40,7 +40,8 @@ pub fn inject_livereload(html: &str, options: RenderOptions) -> String {
     connect();
 })();
 </script>"##;
-        html.replace("</body>", &format!("{livereload_script}</body>"))
+        // Inject after <html> - always present even after minification
+        html.replacen("<html", &format!("{livereload_script}<html"), 1)
     } else {
         html.to_string()
     }

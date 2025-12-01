@@ -3,13 +3,15 @@ title = "dodeca"
 description = "A fully incremental static site generator"
 +++
 
-<img src="/images/dodeca-logo.svg" alt="Dodeca logo" style="float: right; margin-left: 1em; width: 150px;">
-
 A fully incremental static site generator built with Rust.
 
-![Mountain landscape](/images/mountain.jpg)
+## Contents
 
-*Photo by [Samuel Ferrara](https://unsplash.com/@samferrara) on Unsplash (CC0)*
+- [Features](#features)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [License](#license)
 
 ## Features
 
@@ -70,3 +72,9 @@ output "docs/public"
 ## License
 
 Licensed under either of Apache License, Version 2.0 or MIT license at your option.
+
+---
+
+![Mountain landscape](/images/mountain.jpg)
+
+*Photo by [Samuel Ferrara](https://unsplash.com/@samferrara) on Unsplash (CC0) — used here to demonstrate responsive image processing*
