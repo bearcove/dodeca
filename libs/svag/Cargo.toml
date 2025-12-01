@@ -30,6 +30,7 @@ futures = "0.3"
 
 # Image comparison
 image = "0.25"
+ssim = "0.1"
 
 # Temp files for testing
 tempfile = "3"
