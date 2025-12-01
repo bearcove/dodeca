@@ -100,6 +100,16 @@ npm install svgo  # for comparison
 cargo xtask readme
 ```
 
+## FAQ
+
+**Why "svag"?**
+
+Because it's swag.
+
+**Is it production-ready?**
+
+No, but the tests make me reasonably sure it won't mess anything up.
+
 ## Roadmap
 
 - [ ] More optimization passes (match svgo's output sizes)
