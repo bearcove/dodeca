@@ -131,11 +131,6 @@ thumbhash = "0.1"  # Compact image placeholders (~28 bytes)
 # HTML minification
 minify-html = "0.15"
 
-# SVG optimization
-oxvg_optimiser = "0.0.3"
-oxvg_ast = "0.0.3"
-typed-arena = "2"  # Arena allocator for oxvg
-
 # Minimal-versions workarounds: these transitive deps have ancient minimum
 # version specs that don't build on modern Rust
 phf = "0.11"  # 0.11+ drops proc-macro-hack (which needs syn 0.15)
