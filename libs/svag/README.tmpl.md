@@ -125,6 +125,17 @@ cargo run --bin generate-readme --features minijinja
 - [svgo](https://github.com/svg/svgo) - The OG SVG optimizer
 - [oxvg](https://github.com/nickshanks/oxvg) - Rust SVGO port
 
+## Sponsors
+
+CI hosted by:
+
+<p><a href="https://depot.dev?utm_source=savage">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="https://github.com/bearcove/savage/raw/main/static/depot-dark.svg">
+<img src="https://github.com/bearcove/savage/raw/main/static/depot-light.svg" height="40" alt="Depot">
+</picture>
+</a></p>
+
 ## License
 
 Licensed under either of:

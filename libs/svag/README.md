@@ -109,10 +109,10 @@ Test corpus: `tests/corpus/*.svg` (3 files, 2.7 KB total)
 
 | Tool | Time | Throughput |
 |------|------|------------|
-| savage | 597µs | 4.3 MB/s |
-| svgo | 578.33ms | 4.6 KB/s |
+| savage | 830µs | 3.1 MB/s |
+| svgo | 579.01ms | 4.6 KB/s |
 
-savage is **968x** faster than svgo.
+savage is **697x** faster than svgo.
 
 To regenerate these benchmarks:
 
@@ -125,6 +125,17 @@ cargo run --bin generate-readme --features minijinja
 
 - [svgo](https://github.com/svg/svgo) - The OG SVG optimizer
 - [oxvg](https://github.com/nickshanks/oxvg) - Rust SVGO port
+
+## Sponsors
+
+CI hosted by:
+
+<p><a href="https://depot.dev?utm_source=savage">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="https://github.com/bearcove/savage/raw/main/static/depot-dark.svg">
+<img src="https://github.com/bearcove/savage/raw/main/static/depot-light.svg" height="40" alt="Depot">
+</picture>
+</a></p>
 
 ## License
 
