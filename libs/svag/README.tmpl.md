@@ -96,9 +96,6 @@ cargo install savage
 <!-- BENCHMARKS_START -->
 | File | Original | Minified | Savings |
 |------|----------|----------|---------|
-| Complex Path | 545 B | 335 B | **38.5%** |
-| Inkscape Bloated | 1.9 KB | 602 B | **69.3%** |
-| Simple | 215 B | 206 B | 4.2% |
 <!-- BENCHMARKS_END -->
 
 ## Inspired by
