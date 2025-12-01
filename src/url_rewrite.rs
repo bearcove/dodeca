@@ -295,6 +295,91 @@ fn rewrite_srcset(srcset: &str, path_map: &HashMap<String, String>) -> String {
         .join(", ")
 }
 
+/// Transform `<img>` tags pointing to internal images into `<picture>` elements
+///
+/// The `image_variants` map contains:
+/// - Key: original image path (e.g., "/images/photo.png")
+/// - Value: (jxl_path, webp_path, width, height)
+///
+/// Transforms:
+/// ```html
+/// <img src="/images/photo.png" alt="A photo">
+/// ```
+/// Into:
+/// ```html
+/// <picture>
+///   <source srcset="/images/photo.abc123.jxl" type="image/jxl">
+///   <source srcset="/images/photo.def456.webp" type="image/webp">
+///   <img src="/images/photo.def456.webp" alt="A photo" width="800" height="600">
+/// </picture>
+/// ```
+pub fn transform_images_to_picture(
+    html: &str,
+    image_variants: &HashMap<String, (String, String, u32, u32)>,
+) -> String {
+    use regex::Regex;
+
+    // If no image variants, return unchanged
+    if image_variants.is_empty() {
+        return html.to_string();
+    }
+
+    // Match <img> tags with src attribute (double quotes)
+    // Captures: 1=before src, 2=src value, 3=after src before closing, 4=self-closing or not
+    let img_re_double = Regex::new(r#"<img\s+([^>]*?)src="([^"]+)"([^>]*?)(/?)>"#).unwrap();
+    // Match <img> tags with src attribute (single quotes)
+    let img_re_single = Regex::new(r#"<img\s+([^>]*?)src='([^']+)'([^>]*?)(/?)>"#).unwrap();
+
+    let transform = |caps: &regex::Captures, quote: &str| -> String {
+        let before_src = &caps[1];
+        let src = &caps[2];
+        let after_src = &caps[3];
+        let self_closing = &caps[4];
+
+        // Check if this src has image variants
+        if let Some((jxl_path, webp_path, width, height)) = image_variants.get(src) {
+            // Build the <picture> element
+            // Extract existing width/height attributes to avoid duplicates
+            let has_width = before_src.contains("width=") || after_src.contains("width=");
+            let has_height = before_src.contains("height=") || after_src.contains("height=");
+
+            // Build dimension attributes if not present
+            let mut extra_attrs = String::new();
+            if !has_width {
+                extra_attrs.push_str(&format!(" width={quote}{width}{quote}"));
+            }
+            if !has_height {
+                extra_attrs.push_str(&format!(" height={quote}{height}{quote}"));
+            }
+
+            // Reconstruct the img tag with WebP src and dimensions
+            let img_tag = format!(
+                "<img {before_src}src={quote}{webp_path}{quote}{after_src}{extra_attrs}{self_closing}>"
+            );
+
+            // Build the picture element
+            format!(
+                "<picture>\
+                    <source srcset={quote}{jxl_path}{quote} type={quote}image/jxl{quote}>\
+                    <source srcset={quote}{webp_path}{quote} type={quote}image/webp{quote}>\
+                    {img_tag}\
+                </picture>"
+            )
+        } else {
+            // Not a processable image, return unchanged
+            caps[0].to_string()
+        }
+    };
+
+    // First pass: double quotes
+    let result = img_re_double.replace_all(html, |caps: &regex::Captures| transform(caps, "\""));
+
+    // Second pass: single quotes
+    let result = img_re_single.replace_all(&result, |caps: &regex::Captures| transform(caps, "'"));
+
+    result.into_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -527,5 +612,78 @@ mod tests {
         assert!(result.contains("'/images/icon.def.svg'"));
         assert!(result.contains("`/images/hero.ghi.jpg`"));
         assert!(result.contains("\"/not/in/map.png\"")); // unchanged
+    }
+
+    #[test]
+    fn test_transform_images_to_picture() {
+        let html = r#"<img src="/images/photo.png" alt="A photo">"#;
+
+        let mut image_variants = HashMap::new();
+        image_variants.insert(
+            "/images/photo.png".to_string(),
+            (
+                "/images/photo.abc123.jxl".to_string(),
+                "/images/photo.def456.webp".to_string(),
+                800,
+                600,
+            ),
+        );
+
+        let result = transform_images_to_picture(html, &image_variants);
+
+        // Should be wrapped in <picture>
+        assert!(result.contains("<picture>"));
+        assert!(result.contains("</picture>"));
+
+        // Should have JXL and WebP sources
+        assert!(result.contains(r#"<source srcset="/images/photo.abc123.jxl" type="image/jxl">"#));
+        assert!(result.contains(r#"<source srcset="/images/photo.def456.webp" type="image/webp">"#));
+
+        // Fallback img should use WebP
+        assert!(result.contains(r#"src="/images/photo.def456.webp""#));
+
+        // Should have width and height
+        assert!(result.contains(r#"width="800""#));
+        assert!(result.contains(r#"height="600""#));
+
+        // Should preserve alt attribute
+        assert!(result.contains(r#"alt="A photo""#));
+    }
+
+    #[test]
+    fn test_transform_images_to_picture_preserves_existing_dimensions() {
+        let html = r#"<img src="/images/photo.png" width="400" height="300" alt="Resized">"#;
+
+        let mut image_variants = HashMap::new();
+        image_variants.insert(
+            "/images/photo.png".to_string(),
+            (
+                "/images/photo.jxl".to_string(),
+                "/images/photo.webp".to_string(),
+                800,
+                600,
+            ),
+        );
+
+        let result = transform_images_to_picture(html, &image_variants);
+
+        // Should NOT add width/height (already present)
+        // Should keep existing width/height
+        assert!(result.contains(r#"width="400""#));
+        assert!(result.contains(r#"height="300""#));
+        // Should NOT have the intrinsic dimensions added
+        assert!(!result.contains(r#"width="800""#));
+    }
+
+    #[test]
+    fn test_transform_images_to_picture_non_matching() {
+        let html = r#"<img src="/images/external.png" alt="External">"#;
+
+        let image_variants = HashMap::new(); // Empty - no matches
+
+        let result = transform_images_to_picture(html, &image_variants);
+
+        // Should be unchanged
+        assert_eq!(result, html);
     }
 }

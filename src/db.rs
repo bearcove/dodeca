@@ -281,3 +281,16 @@ pub struct OgTemplateFile {
     #[returns(ref)]
     pub content: String,
 }
+
+/// Result of processing an image into responsive formats (JXL + WebP)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ProcessedImages {
+    /// JPEG-XL encoded data (best compression, future-proof)
+    pub jxl: Vec<u8>,
+    /// WebP encoded data (wide browser support, fallback)
+    pub webp: Vec<u8>,
+    /// Original image width
+    pub width: u32,
+    /// Original image height
+    pub height: u32,
+}

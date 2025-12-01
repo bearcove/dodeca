@@ -119,6 +119,13 @@ typst = "0.14"
 typst-svg = "0.14"
 typst-render = "0.14"
 
+# Image processing (responsive images: JXL + WebP)
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
+webp = "0.3"
+jxl-oxide = "0.12"
+jpegxl-rs = "0.11"  # Uses system libjxl
+rgb = "0.8"
+
 # Minimal-versions workarounds: these transitive deps have ancient minimum
 # version specs that don't build on modern Rust
 phf = "0.11"  # 0.11+ drops proc-macro-hack (which needs syn 0.15)

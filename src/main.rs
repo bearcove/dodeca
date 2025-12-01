@@ -3,6 +3,7 @@ mod cas;
 mod config;
 mod db;
 mod font_subsetter;
+mod image;
 mod link_checker;
 mod logging;
 mod og;

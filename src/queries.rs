@@ -1,10 +1,11 @@
 use crate::db::{
     CharSet, Db, Heading, OgImageOutput, OgTemplateFile, OutputFile, Page, ParsedData,
-    RenderedHtml, SassFile, SassRegistry, Section, SiteOutput, SiteTree, SourceFile,
-    SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
+    ProcessedImages, RenderedHtml, SassFile, SassRegistry, Section, SiteOutput, SiteTree,
+    SourceFile, SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
 };
+use crate::image::{self, InputFormat, OutputFormat};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
-use crate::url_rewrite::{rewrite_urls_in_css, rewrite_urls_in_html};
+use crate::url_rewrite::{rewrite_urls_in_css, rewrite_urls_in_html, transform_images_to_picture};
 use facet::Facet;
 use facet_value::Value;
 use pulldown_cmark::{Options, Parser, html};
@@ -352,6 +353,24 @@ pub fn subset_font<'db>(
     }
 }
 
+/// Process an image file into responsive formats (JXL + WebP)
+/// Returns None if the image cannot be processed or is not a supported format
+#[salsa::tracked]
+pub fn process_image(db: &dyn Db, image_file: StaticFile) -> Option<ProcessedImages> {
+    let path = image_file.path(db);
+    let input_format = InputFormat::from_extension(path.as_str())?;
+    let data = image_file.content(db);
+
+    let (jxl, webp) = image::process_image(data, input_format)?;
+
+    Some(ProcessedImages {
+        jxl: jxl.data,
+        webp: webp.data,
+        width: jxl.width,
+        height: jxl.height,
+    })
+}
+
 /// Build the complete site - THE top-level query
 /// This produces all output files that need to be written to disk.
 /// Fonts are automatically subsetted, all assets are cache-busted.
@@ -393,12 +412,51 @@ pub fn build_site<'db>(
     let all_css = format!("{css_str}\n{inline_css}");
     let font_analysis = font_subsetter::analyze_fonts(&combined_html, &all_css);
 
-    // --- Phase 4: Process static files (with font subsetting) and build path mapping ---
+    // --- Phase 4: Process static files (with font subsetting and image transcoding) ---
     // Maps original path (e.g., "fonts/Inter.woff2") to (new_path, content)
     let mut static_outputs: HashMap<String, (String, Vec<u8>)> = HashMap::new();
 
+    // Track processed images for <img> -> <picture> transformation
+    // Maps original path to (jxl_path, webp_path, width, height)
+    let mut image_variants: HashMap<String, (String, String, u32, u32)> = HashMap::new();
+
     for file in static_files.files(db) {
         let path = file.path(db).as_str();
+
+        // Check if this is a processable image (PNG, JPG, GIF, WebP, JXL)
+        if InputFormat::is_processable(path) {
+            // Try to process the image into JXL and WebP variants
+            if let Some(processed) = process_image(db, *file) {
+                // Generate cache-busted paths for both variants
+                let jxl_path_base = image::change_extension(path, OutputFormat::Jxl.extension());
+                let webp_path_base = image::change_extension(path, OutputFormat::WebP.extension());
+
+                let jxl_hash = content_hash(&processed.jxl);
+                let webp_hash = content_hash(&processed.webp);
+
+                let jxl_path = cache_busted_path(&jxl_path_base, &jxl_hash);
+                let webp_path = cache_busted_path(&webp_path_base, &webp_hash);
+
+                // Store the image variants for HTML transformation
+                image_variants.insert(
+                    format!("/{path}"),
+                    (
+                        format!("/{jxl_path}"),
+                        format!("/{webp_path}"),
+                        processed.width,
+                        processed.height,
+                    ),
+                );
+
+                // Add both variants to output
+                static_outputs.insert(jxl_path_base.clone(), (jxl_path, processed.jxl));
+                static_outputs.insert(webp_path_base.clone(), (webp_path, processed.webp));
+
+                // Don't output the original image (replaced by JXL/WebP)
+                continue;
+            }
+            // If processing failed, fall through to output the original
+        }
 
         // Get content (possibly subsetted for fonts)
         let content = if is_font_file(path) {
@@ -453,13 +511,17 @@ pub fn build_site<'db>(
     }
 
     // --- Phase 6: Rewrite HTML ---
+    // First rewrite URLs, then transform <img> to <picture> for responsive images
     let mut files = Vec::new();
 
     for (route, html) in html_outputs {
+        // First pass: rewrite asset URLs (CSS, fonts, etc.)
         let rewritten_html = rewrite_urls_in_html(&html, &all_path_map);
+        // Second pass: transform <img> tags pointing to internal images into <picture> elements
+        let final_html = transform_images_to_picture(&rewritten_html, &image_variants);
         files.push(OutputFile::Html {
             route,
-            content: rewritten_html,
+            content: final_html,
         });
     }
 
