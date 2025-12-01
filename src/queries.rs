@@ -782,8 +782,8 @@ pub fn render_og_image(
 /// Resolve Zola-style @/ internal links to URL paths
 fn resolve_internal_link(link: &str) -> String {
     if let Some(path) = link.strip_prefix("@/") {
-        // Convert @/learn/_index.md -> /learn/
-        // Convert @/learn/page.md -> /learn/page/
+        // Convert @/learn/_index.md -> /learn
+        // Convert @/learn/page.md -> /learn/page
         let mut path = path.to_string();
 
         // Remove .md extension
@@ -798,11 +798,11 @@ fn resolve_internal_link(link: &str) -> String {
             path = String::new();
         }
 
-        // Ensure leading and trailing slashes
+        // Ensure leading slash, no trailing slash (except for root)
         if path.is_empty() {
             "/".to_string()
         } else {
-            format!("/{path}/")
+            format!("/{path}")
         }
     } else {
         link.to_string()
@@ -830,18 +830,18 @@ weight = 10
     #[test]
     fn test_resolve_internal_link() {
         // Section index files
-        assert_eq!(resolve_internal_link("@/learn/_index.md"), "/learn/");
+        assert_eq!(resolve_internal_link("@/learn/_index.md"), "/learn");
         assert_eq!(
             resolve_internal_link("@/learn/showcases/_index.md"),
-            "/learn/showcases/"
+            "/learn/showcases"
         );
         assert_eq!(resolve_internal_link("@/_index.md"), "/");
 
         // Regular pages
-        assert_eq!(resolve_internal_link("@/learn/page.md"), "/learn/page/");
+        assert_eq!(resolve_internal_link("@/learn/page.md"), "/learn/page");
         assert_eq!(
             resolve_internal_link("@/learn/migration/serde.md"),
-            "/learn/migration/serde/"
+            "/learn/migration/serde"
         );
 
         // External links unchanged
