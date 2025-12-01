@@ -22,7 +22,8 @@ install-updater = true
 
 # Use Depot runners for faster builds
 [dist.github-custom-runners]
-x86_64-unknown-linux-gnu = "depot-ubuntu-24.04"
-aarch64-unknown-linux-gnu = "depot-ubuntu-24.04-arm"
+x86_64-unknown-linux-gnu = "depot-ubuntu-24.04-32"
+aarch64-unknown-linux-gnu = "depot-ubuntu-24.04-arm-32"
 x86_64-apple-darwin = "depot-macos-latest"
 aarch64-apple-darwin = "depot-macos-latest"
+x86_64-pc-windows-msvc = "depot-windows-2022-16"
