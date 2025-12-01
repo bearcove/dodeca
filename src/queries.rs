@@ -1,11 +1,14 @@
 use crate::db::{
-    CharSet, Db, Heading, OgImageOutput, OgTemplateFile, OutputFile, Page, ParsedData,
-    ProcessedImages, RenderedHtml, SassFile, SassRegistry, Section, SiteOutput, SiteTree,
-    SourceFile, SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
+    CharSet, Db, Heading, ImageVariant, OgImageOutput, OgTemplateFile, OutputFile, Page,
+    ParsedData, ProcessedImages, RenderedHtml, SassFile, SassRegistry, Section, SiteOutput,
+    SiteTree, SourceFile, SourceRegistry, StaticFile, StaticRegistry, TemplateFile,
+    TemplateRegistry,
 };
-use crate::image::{self, InputFormat, OutputFormat};
+use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
-use crate::url_rewrite::{rewrite_urls_in_css, rewrite_urls_in_html, transform_images_to_picture};
+use crate::url_rewrite::{
+    rewrite_urls_in_css, rewrite_urls_in_html, transform_images_to_picture, ResponsiveImageInfo,
+};
 use facet::Facet;
 use facet_value::Value;
 use pulldown_cmark::{Options, Parser, html};
@@ -353,7 +356,7 @@ pub fn subset_font<'db>(
     }
 }
 
-/// Process an image file into responsive formats (JXL + WebP)
+/// Process an image file into responsive formats (JXL + WebP) with multiple widths
 /// Returns None if the image cannot be processed or is not a supported format
 #[salsa::tracked]
 pub fn process_image(db: &dyn Db, image_file: StaticFile) -> Option<ProcessedImages> {
@@ -361,13 +364,30 @@ pub fn process_image(db: &dyn Db, image_file: StaticFile) -> Option<ProcessedIma
     let input_format = InputFormat::from_extension(path.as_str())?;
     let data = image_file.content(db);
 
-    let (jxl, webp) = image::process_image(data, input_format)?;
+    let processed = image::process_image(data, input_format)?;
 
     Some(ProcessedImages {
-        jxl: jxl.data,
-        webp: webp.data,
-        width: jxl.width,
-        height: jxl.height,
+        original_width: processed.original_width,
+        original_height: processed.original_height,
+        thumbhash_data_url: processed.thumbhash_data_url,
+        jxl_variants: processed
+            .jxl_variants
+            .into_iter()
+            .map(|v| ImageVariant {
+                data: v.data,
+                width: v.width,
+                height: v.height,
+            })
+            .collect(),
+        webp_variants: processed
+            .webp_variants
+            .into_iter()
+            .map(|v| ImageVariant {
+                data: v.data,
+                width: v.width,
+                height: v.height,
+            })
+            .collect(),
     })
 }
 
@@ -417,40 +437,59 @@ pub fn build_site<'db>(
     let mut static_outputs: HashMap<String, (String, Vec<u8>)> = HashMap::new();
 
     // Track processed images for <img> -> <picture> transformation
-    // Maps original path to (jxl_path, webp_path, width, height)
-    let mut image_variants: HashMap<String, (String, String, u32, u32)> = HashMap::new();
+    let mut image_variants: HashMap<String, ResponsiveImageInfo> = HashMap::new();
 
     for file in static_files.files(db) {
         let path = file.path(db).as_str();
 
         // Check if this is a processable image (PNG, JPG, GIF, WebP, JXL)
         if InputFormat::is_processable(path) {
-            // Try to process the image into JXL and WebP variants
+            // Try to process the image into JXL and WebP variants at multiple widths
             if let Some(processed) = process_image(db, *file) {
-                // Generate cache-busted paths for both variants
-                let jxl_path_base = image::change_extension(path, OutputFormat::Jxl.extension());
-                let webp_path_base = image::change_extension(path, OutputFormat::WebP.extension());
+                let mut jxl_srcset = Vec::new();
+                let mut webp_srcset = Vec::new();
 
-                let jxl_hash = content_hash(&processed.jxl);
-                let webp_hash = content_hash(&processed.webp);
+                // Process each JXL variant
+                for variant in &processed.jxl_variants {
+                    let base_path = image::change_extension(path, OutputFormat::Jxl.extension());
+                    let variant_path = if variant.width == processed.original_width {
+                        base_path // Original size, no suffix
+                    } else {
+                        add_width_suffix(&base_path, variant.width)
+                    };
+                    let hash = content_hash(&variant.data);
+                    let cache_busted = cache_busted_path(&variant_path, &hash);
 
-                let jxl_path = cache_busted_path(&jxl_path_base, &jxl_hash);
-                let webp_path = cache_busted_path(&webp_path_base, &webp_hash);
+                    jxl_srcset.push((format!("/{cache_busted}"), variant.width));
+                    static_outputs.insert(variant_path, (cache_busted, variant.data.clone()));
+                }
 
-                // Store the image variants for HTML transformation
+                // Process each WebP variant
+                for variant in &processed.webp_variants {
+                    let base_path = image::change_extension(path, OutputFormat::WebP.extension());
+                    let variant_path = if variant.width == processed.original_width {
+                        base_path // Original size, no suffix
+                    } else {
+                        add_width_suffix(&base_path, variant.width)
+                    };
+                    let hash = content_hash(&variant.data);
+                    let cache_busted = cache_busted_path(&variant_path, &hash);
+
+                    webp_srcset.push((format!("/{cache_busted}"), variant.width));
+                    static_outputs.insert(variant_path, (cache_busted, variant.data.clone()));
+                }
+
+                // Store the image info for HTML transformation
                 image_variants.insert(
                     format!("/{path}"),
-                    (
-                        format!("/{jxl_path}"),
-                        format!("/{webp_path}"),
-                        processed.width,
-                        processed.height,
-                    ),
+                    ResponsiveImageInfo {
+                        jxl_srcset,
+                        webp_srcset,
+                        original_width: processed.original_width,
+                        original_height: processed.original_height,
+                        thumbhash_data_url: processed.thumbhash_data_url.clone(),
+                    },
                 );
-
-                // Add both variants to output
-                static_outputs.insert(jxl_path_base.clone(), (jxl_path, processed.jxl));
-                static_outputs.insert(webp_path_base.clone(), (webp_path, processed.webp));
 
                 // Don't output the original image (replaced by JXL/WebP)
                 continue;

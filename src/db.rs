@@ -282,15 +282,28 @@ pub struct OgTemplateFile {
     pub content: String,
 }
 
+/// A single image variant (one format, one size)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ImageVariant {
+    /// The encoded image data
+    pub data: Vec<u8>,
+    /// Width in pixels
+    pub width: u32,
+    /// Height in pixels
+    pub height: u32,
+}
+
 /// Result of processing an image into responsive formats (JXL + WebP)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProcessedImages {
-    /// JPEG-XL encoded data (best compression, future-proof)
-    pub jxl: Vec<u8>,
-    /// WebP encoded data (wide browser support, fallback)
-    pub webp: Vec<u8>,
     /// Original image width
-    pub width: u32,
+    pub original_width: u32,
     /// Original image height
-    pub height: u32,
+    pub original_height: u32,
+    /// Thumbhash as base64 data URL (tiny PNG placeholder)
+    pub thumbhash_data_url: String,
+    /// JXL variants at different widths (sorted by width ascending)
+    pub jxl_variants: Vec<ImageVariant>,
+    /// WebP variants at different widths (sorted by width ascending)
+    pub webp_variants: Vec<ImageVariant>,
 }

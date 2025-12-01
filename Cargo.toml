@@ -94,6 +94,7 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 
 # Misc
 camino = "1"  # UTF-8 paths
+base64 = "0.22"  # For encoding thumbhash data URLs
 shellexpand = "3"  # Tilde expansion for font paths
 aliri_braid = "0.4"  # Strongly-typed string wrappers
 regex = "1"  # For HTML heading extraction
@@ -125,6 +126,7 @@ webp = "0.3"
 jxl-oxide = "0.12"
 jpegxl-rs = "0.11"  # Uses system libjxl
 rgb = "0.8"
+thumbhash = "0.1"  # Compact image placeholders (~28 bytes)
 
 # Minimal-versions workarounds: these transitive deps have ancient minimum
 # version specs that don't build on modern Rust
