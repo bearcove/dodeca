@@ -93,10 +93,32 @@ cargo install savage
 
 ## Benchmarks
 
-<!-- BENCHMARKS_START -->
-| File | Original | Minified | Savings |
-|------|----------|----------|---------|
-<!-- BENCHMARKS_END -->
+Test corpus: `tests/corpus/*.svg` ({{ file_count }} files, {{ total.original }} total)
+
+### Size comparison
+
+| File | Original | savage | svgo |
+|------|----------|--------|------|
+{% for b in benchmarks -%}
+| {{ b.name }} | {{ b.original }} | {{ b.savage }} ({{ b.savage_pct }}) | {{ b.svgo }} ({{ b.svgo_pct }}) |
+{% endfor %}
+| **Total** | **{{ total.original }}** | **{{ total.savage }}** ({{ total.savage_pct }}) | **{{ total.svgo }}** ({{ total.svgo_pct }}) |
+
+### Speed comparison
+
+| Tool | Time | Throughput |
+|------|------|------------|
+| savage | {{ timing.savage_time }} | {{ timing.savage_throughput }} |
+| svgo | {{ timing.svgo_time }} | {{ timing.svgo_throughput }} |
+
+savage is **{{ timing.speedup }}** faster than svgo.
+
+To regenerate these benchmarks:
+
+```bash
+npm install svgo  # for comparison benchmarks
+cargo run --bin generate-readme --features minijinja
+```
 
 ## Inspired by
 

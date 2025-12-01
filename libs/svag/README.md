@@ -93,13 +93,33 @@ cargo install savage
 
 ## Benchmarks
 
-<!-- BENCHMARKS_START -->
-| File | Original | Minified | Savings |
-|------|----------|----------|---------|
-| Complex Path | 545 B | 335 B | **38.5%** |
-| Inkscape Bloated | 1.9 KB | 602 B | **69.3%** |
-| Simple | 215 B | 206 B | 4.2% |
-<!-- BENCHMARKS_END -->
+Test corpus: `tests/corpus/*.svg` (3 files, 2.7 KB total)
+
+### Size comparison
+
+| File | Original | savage | svgo |
+|------|----------|--------|------|
+| Complex Path | 545 B | 335 B (-38.5%) | 336 B (-38.3%) |
+| Inkscape Bloated | 1.9 KB | 602 B (-69.3%) | 521 B (-73.4%) |
+| Simple | 215 B | 206 B (-4.2%) | 190 B (-11.6%) |
+
+| **Total** | **2.7 KB** | **1.1 KB** (-58.0%) | **1.0 KB** (-61.5%) |
+
+### Speed comparison
+
+| Tool | Time | Throughput |
+|------|------|------------|
+| savage | 597µs | 4.3 MB/s |
+| svgo | 578.33ms | 4.6 KB/s |
+
+savage is **968x** faster than svgo.
+
+To regenerate these benchmarks:
+
+```bash
+npm install svgo  # for comparison benchmarks
+cargo run --bin generate-readme --features minijinja
+```
 
 ## Inspired by
 

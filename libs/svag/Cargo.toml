@@ -22,6 +22,9 @@ thiserror = "2"
 # For number formatting
 ryu = "1"
 
+# README generation (optional)
+minijinja = { version = "2", optional = true }
+
 [dev-dependencies]
 # Headless Chrome for rendering
 chromiumoxide = { version = "0.7", features = ["tokio-runtime"], default-features = false }
@@ -38,6 +41,12 @@ tempfile = "3"
 # Base64 encoding for data URLs
 base64 = "0.22"
 
+
 [[bin]]
 name = "savage"
 path = "src/main.rs"
+
+[[bin]]
+name = "generate-readme"
+path = "src/bin/generate_readme.rs"
+required-features = ["minijinja"]
