@@ -8,6 +8,13 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "An SVG minifier"
 repository = "https://github.com/bearcove/svag"
+homepage = "https://github.com/bearcove/svag"
+documentation = "https://docs.rs/svag"
+readme = "README.md"
+keywords = ["svg", "minify", "optimize", "xml"]
+categories = ["command-line-utilities", "web-programming", "encoding"]
+rust-version = "1.85"
+exclude = ["xtask/", "tests/", ".github/", ".cargo/"]
 
 [dependencies]
 quick-xml = "0.37"
