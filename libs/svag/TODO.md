@@ -1,12 +1,8 @@
 # TODO
 
-## In Progress
-
-- [x] Set up GitHub Actions CI
-- [x] Set up release-plz for automated releases
-
 ## Up Next
 
+- [ ] Configure crates.io trusted publishing for release-plz
 - [ ] Close the compression gap with svgo (~3-4% behind)
   - [ ] More aggressive path optimizations (merge commands, convert curves)
   - [ ] Remove redundant transforms
