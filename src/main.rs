@@ -11,6 +11,7 @@ mod queries;
 mod render;
 mod search;
 mod serve;
+mod svg;
 mod template;
 mod tui;
 mod types;

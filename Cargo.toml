@@ -128,6 +128,9 @@ jpegxl-rs = "0.11"  # Uses system libjxl
 rgb = "0.8"
 thumbhash = "0.1"  # Compact image placeholders (~28 bytes)
 
+# HTML minification
+minify-html = "0.15"
+
 # Minimal-versions workarounds: these transitive deps have ancient minimum
 # version specs that don't build on modern Rust
 phf = "0.11"  # 0.11+ drops proc-macro-hack (which needs syn 0.15)

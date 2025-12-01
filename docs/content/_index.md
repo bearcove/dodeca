@@ -3,7 +3,13 @@ title = "dodeca"
 description = "A fully incremental static site generator"
 +++
 
+<img src="/images/dodeca-logo.svg" alt="Dodeca logo" style="float: right; margin-left: 1em; width: 150px;">
+
 A fully incremental static site generator built with Rust.
+
+![Mountain landscape](/images/mountain.jpg)
+
+*Photo by [Samuel Ferrara](https://unsplash.com/@samferrara) on Unsplash (CC0)*
 
 ## Features
 

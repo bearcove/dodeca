@@ -314,6 +314,24 @@ pub fn load_static(db: &dyn Db, file: StaticFile) -> Vec<u8> {
     file.content(db).clone()
 }
 
+/// Minify an SVG file - tracked by Salsa
+/// Returns minified SVG bytes, or original bytes if minification fails
+#[salsa::tracked]
+pub fn minify_svg(db: &dyn Db, file: StaticFile) -> Vec<u8> {
+    let content = file.content(db);
+
+    // Try to parse as UTF-8 string
+    let Ok(svg_str) = std::str::from_utf8(content) else {
+        return content.clone();
+    };
+
+    // Try to minify
+    match crate::svg::minify_svg(svg_str) {
+        Some(minified) => minified.into_bytes(),
+        None => content.clone(),
+    }
+}
+
 /// Load all static files - returns map of path -> content
 #[salsa::tracked]
 pub fn load_all_static<'db>(
@@ -497,7 +515,7 @@ pub fn build_site<'db>(
             // If processing failed, fall through to output the original
         }
 
-        // Get content (possibly subsetted for fonts)
+        // Get content (possibly subsetted for fonts, or optimized for SVGs)
         let content = if is_font_file(path) {
             if let Some(chars) = find_chars_for_font_file(path, &font_analysis) {
                 if !chars.is_empty() {
@@ -516,6 +534,9 @@ pub fn build_site<'db>(
             } else {
                 load_static(db, *file)
             }
+        } else if path.to_lowercase().ends_with(".svg") {
+            // Minify SVG files
+            minify_svg(db, *file)
         } else {
             load_static(db, *file)
         };
@@ -557,7 +578,9 @@ pub fn build_site<'db>(
         // First pass: rewrite asset URLs (CSS, fonts, etc.)
         let rewritten_html = rewrite_urls_in_html(&html, &all_path_map);
         // Second pass: transform <img> tags pointing to internal images into <picture> elements
-        let final_html = transform_images_to_picture(&rewritten_html, &image_variants);
+        let transformed_html = transform_images_to_picture(&rewritten_html, &image_variants);
+        // Third pass: minify HTML
+        let final_html = crate::svg::minify_html(&transformed_html);
         files.push(OutputFile::Html {
             route,
             content: final_html,
