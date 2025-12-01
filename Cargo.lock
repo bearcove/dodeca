@@ -1015,6 +1015,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1d728cc89cf3aee9ff92b05e62b19ee65a02b5702cff7d5a377e32c6ae29d8d"
 
 [[package]]
+name = "cmake"
+version = "0.1.54"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7caa3f9de89ddbe2c607f4101924c5abec803763ae9534e4f4d7d8f84aa81f0"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "cobs"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3452,11 +3461,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "jpegxl-src"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96c328aa9d824459bfb9aef47b8b3defa126df1bbd6fd3a1e59e703911d6dd00"
+dependencies = [
+ "cmake",
+]
+
+[[package]]
 name = "jpegxl-sys"
 version = "0.11.2+libjxl-0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdaef0388e8220dc89a4ab47f92f942b68dfc237fa2dd3c3881948c5d88ce2f0"
 dependencies = [
+ "jpegxl-src",
  "pkg-config",
 ]
 
@@ -8992,7 +9011,7 @@ checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 [[package]]
 name = "woofwoof"
 version = "1.0.1"
-source = "git+https://github.com/bearcove/woofwoof#f3b27accc11fb22c6774c9c23f85cecb5bc14a23"
+source = "git+https://github.com/bearcove/woofwoof#5d55afd4720c285ca8e560eb71e8c87f02b27a55"
 dependencies = [
  "brotli 7.0.0",
  "cc",

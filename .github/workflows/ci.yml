@@ -12,9 +12,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libjxl-dev
-
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
@@ -26,9 +23,6 @@ jobs:
     runs-on: depot-macos-15
     steps:
       - uses: actions/checkout@v5
-
-      - name: Install system dependencies
-        run: brew install jpeg-xl
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -42,20 +36,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install system dependencies
-        run: |
-          vcpkg install libjxl:x64-windows
-          echo "JPEGXL_DIR=$env:VCPKG_ROOT\installed\x64-windows" >> $env:GITHUB_ENV
-        shell: pwsh
-
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Check
         run: cargo check --all-features
-        env:
-          PKG_CONFIG_PATH: ${{ env.VCPKG_ROOT }}\installed\x64-windows\lib\pkgconfig
 
   clippy:
     runs-on: depot-ubuntu-24.04-16
@@ -63,9 +49,6 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v5
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libjxl-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -94,9 +77,6 @@ jobs:
     runs-on: depot-ubuntu-24.04-16
     steps:
       - uses: actions/checkout@v5
-
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libjxl-dev
 
       - uses: dtolnay/rust-toolchain@stable
 

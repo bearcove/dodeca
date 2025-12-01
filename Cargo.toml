@@ -124,7 +124,7 @@ typst-render = "0.14"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
 webp = "0.3"
 jxl-oxide = "0.12"
-jpegxl-rs = "0.11"  # Uses system libjxl
+jpegxl-rs = { version = "0.11", features = ["vendored"] }  # Builds libjxl from source
 rgb = "0.8"
 thumbhash = "0.1"  # Compact image placeholders (~28 bytes)
 
