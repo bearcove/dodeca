@@ -1,8 +1,8 @@
 use crate::db::{
-    CharSet, Db, Heading, ImageVariant, OgImageOutput, OgTemplateFile, OutputFile, Page,
-    ParsedData, ProcessedImages, RenderedHtml, SassFile, SassRegistry, Section, SiteOutput,
-    SiteTree, SourceFile, SourceRegistry, StaticFile, StaticRegistry, TemplateFile,
-    TemplateRegistry,
+    AllRenderedHtml, CharSet, CssOutput, Db, Heading, ImageVariant, OgImageOutput, OgTemplateFile,
+    OutputFile, Page, ParsedData, ProcessedImages, RenderedHtml, SassFile, SassRegistry, Section,
+    SiteOutput, SiteTree, SourceFile, SourceRegistry, StaticFile, StaticFileOutput, StaticRegistry,
+    TemplateFile, TemplateRegistry,
 };
 use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
@@ -633,6 +633,260 @@ pub fn build_site<'db>(
     }
 
     SiteOutput { files }
+}
+
+// ============================================================================
+// Lazy serve queries - for on-demand page rendering
+// ============================================================================
+
+/// Render all pages and sections to HTML (without URL rewriting)
+/// This is cached globally and used for font character analysis
+#[salsa::tracked]
+pub fn all_rendered_html<'db>(
+    db: &'db dyn Db,
+    sources: SourceRegistry<'db>,
+    templates: TemplateRegistry<'db>,
+) -> AllRenderedHtml {
+    let site_tree = build_tree(db, sources);
+    let template_map = load_all_templates(db, templates);
+    let mut pages = HashMap::new();
+
+    for (route, section) in &site_tree.sections {
+        let html = crate::render::render_section_to_html(section, &site_tree, &template_map);
+        pages.insert(route.clone(), html);
+    }
+
+    for (route, page) in &site_tree.pages {
+        let html = crate::render::render_page_to_html(page, &site_tree, &template_map);
+        pages.insert(route.clone(), html);
+    }
+
+    AllRenderedHtml { pages }
+}
+
+/// Analyze all rendered HTML for font character usage
+/// Returns the FontAnalysis needed for font subsetting
+#[salsa::tracked]
+pub fn font_char_analysis<'db>(
+    db: &'db dyn Db,
+    sources: SourceRegistry<'db>,
+    templates: TemplateRegistry<'db>,
+    sass: SassRegistry<'db>,
+) -> crate::font_subsetter::FontAnalysis {
+    use crate::font_subsetter;
+
+    let all_html = all_rendered_html(db, sources, templates);
+    let css_content = compile_sass(db, sass);
+    let css_str = css_content.as_ref().map(|c| c.0.as_str()).unwrap_or("");
+
+    // Combine all HTML for analysis
+    let combined_html: String = all_html.pages.values().cloned().collect::<Vec<_>>().join("\n");
+    let inline_css = font_subsetter::extract_css_from_html(&combined_html);
+    let all_css = format!("{css_str}\n{inline_css}");
+
+    font_subsetter::analyze_fonts(&combined_html, &all_css)
+}
+
+/// Process a single static file and return its cache-busted output
+/// For fonts, this triggers global font analysis for subsetting
+#[salsa::tracked]
+pub fn static_file_output<'db>(
+    db: &'db dyn Db,
+    file: StaticFile,
+    sources: SourceRegistry<'db>,
+    templates: TemplateRegistry<'db>,
+    sass: SassRegistry<'db>,
+) -> StaticFileOutput {
+    use crate::cache_bust::{cache_busted_path, content_hash};
+
+    let path = file.path(db).as_str();
+
+    // Get processed content based on file type
+    let content = if is_font_file(path) {
+        // Font file - need to subset based on char analysis
+        let analysis = font_char_analysis(db, sources, templates, sass);
+        if let Some(chars) = find_chars_for_font_file(path, &analysis) {
+            if !chars.is_empty() {
+                let mut sorted_chars: Vec<char> = chars.into_iter().collect();
+                sorted_chars.sort();
+                let char_set = CharSet::new(db, sorted_chars);
+
+                if let Some(subsetted) = subset_font(db, file, char_set) {
+                    subsetted
+                } else {
+                    load_static(db, file)
+                }
+            } else {
+                load_static(db, file)
+            }
+        } else {
+            load_static(db, file)
+        }
+    } else if path.to_lowercase().ends_with(".svg") {
+        // SVG - optimize with oxvg
+        optimize_svg(db, file)
+    } else {
+        // Other static files - just load
+        load_static(db, file)
+    };
+
+    // Hash and create cache-busted path
+    let hash = content_hash(&content);
+    let cache_busted = cache_busted_path(path, &hash);
+
+    StaticFileOutput {
+        cache_busted_path: cache_busted,
+        content,
+    }
+}
+
+/// Compile CSS and return cache-busted output with rewritten URLs
+#[salsa::tracked]
+pub fn css_output<'db>(
+    db: &'db dyn Db,
+    sources: SourceRegistry<'db>,
+    templates: TemplateRegistry<'db>,
+    sass: SassRegistry<'db>,
+    static_files: StaticRegistry<'db>,
+) -> Option<CssOutput> {
+    use crate::cache_bust::{cache_busted_path, content_hash};
+    use crate::url_rewrite::rewrite_urls_in_css;
+
+    let css_content = compile_sass(db, sass)?;
+
+    // Build static path map for URL rewriting
+    let mut static_path_map: HashMap<String, String> = HashMap::new();
+    for file in static_files.files(db) {
+        let original_path = file.path(db).as_str();
+        // Skip images - they get transcoded to different formats
+        if !InputFormat::is_processable(original_path) {
+            let output = static_file_output(db, *file, sources, templates, sass);
+            static_path_map.insert(
+                format!("/{original_path}"),
+                format!("/{}", output.cache_busted_path),
+            );
+        }
+    }
+
+    // Rewrite URLs in CSS
+    let rewritten_css = rewrite_urls_in_css(&css_content.0, &static_path_map);
+
+    // Hash and create cache-busted path
+    let hash = content_hash(rewritten_css.as_bytes());
+    let cache_busted = cache_busted_path("main.css", &hash);
+
+    Some(CssOutput {
+        cache_busted_path: cache_busted,
+        content: rewritten_css,
+    })
+}
+
+/// Serve a single page or section with full URL rewriting and minification
+/// This is the main entry point for lazy page serving
+#[salsa::tracked]
+pub fn serve_html<'db>(
+    db: &'db dyn Db,
+    route: Route,
+    sources: SourceRegistry<'db>,
+    templates: TemplateRegistry<'db>,
+    sass: SassRegistry<'db>,
+    static_files: StaticRegistry<'db>,
+) -> Option<String> {
+    use crate::url_rewrite::{rewrite_urls_in_html, transform_images_to_picture, ResponsiveImageInfo};
+
+    let site_tree = build_tree(db, sources);
+
+    // Check if route exists in site tree
+    let route_exists = site_tree.sections.contains_key(&route) || site_tree.pages.contains_key(&route);
+    if !route_exists {
+        return None;
+    }
+
+    // Get the raw HTML for this route
+    let all_html = all_rendered_html(db, sources, templates);
+    let raw_html = all_html.pages.get(&route).cloned()?;
+
+    // Build the full URL rewrite map
+    let mut path_map: HashMap<String, String> = HashMap::new();
+
+    // Add CSS path
+    if let Some(css) = css_output(db, sources, templates, sass, static_files) {
+        path_map.insert("/main.css".to_string(), format!("/{}", css.cache_busted_path));
+    }
+
+    // Add static file paths (non-images)
+    for file in static_files.files(db) {
+        let original_path = file.path(db).as_str();
+        if !InputFormat::is_processable(original_path) {
+            let output = static_file_output(db, *file, sources, templates, sass);
+            path_map.insert(
+                format!("/{original_path}"),
+                format!("/{}", output.cache_busted_path),
+            );
+        }
+    }
+
+    // Build image variants map for <picture> transformation
+    let mut image_variants: HashMap<String, ResponsiveImageInfo> = HashMap::new();
+    for file in static_files.files(db) {
+        let path = file.path(db).as_str();
+        if InputFormat::is_processable(path) {
+            if let Some(processed) = process_image(db, *file) {
+                use crate::cache_bust::{cache_busted_path as bust_path, content_hash};
+
+                let mut jxl_srcset = Vec::new();
+                let mut webp_srcset = Vec::new();
+
+                // Process JXL variants
+                for variant in &processed.jxl_variants {
+                    let base_path = image::change_extension(path, image::OutputFormat::Jxl.extension());
+                    let variant_path = if variant.width == processed.original_width {
+                        base_path
+                    } else {
+                        add_width_suffix(&base_path, variant.width)
+                    };
+                    let hash = content_hash(&variant.data);
+                    let cache_busted = bust_path(&variant_path, &hash);
+                    jxl_srcset.push((format!("/{cache_busted}"), variant.width));
+                }
+
+                // Process WebP variants
+                for variant in &processed.webp_variants {
+                    let base_path = image::change_extension(path, image::OutputFormat::WebP.extension());
+                    let variant_path = if variant.width == processed.original_width {
+                        base_path
+                    } else {
+                        add_width_suffix(&base_path, variant.width)
+                    };
+                    let hash = content_hash(&variant.data);
+                    let cache_busted = bust_path(&variant_path, &hash);
+                    webp_srcset.push((format!("/{cache_busted}"), variant.width));
+                }
+
+                image_variants.insert(
+                    format!("/{path}"),
+                    ResponsiveImageInfo {
+                        jxl_srcset,
+                        webp_srcset,
+                        original_width: processed.original_width,
+                        original_height: processed.original_height,
+                        thumbhash_data_url: processed.thumbhash_data_url.clone(),
+                    },
+                );
+            }
+        }
+    }
+
+    // Rewrite URLs in HTML
+    let rewritten_html = rewrite_urls_in_html(&raw_html, &path_map);
+
+    // Transform <img> to <picture> for responsive images
+    let transformed_html = transform_images_to_picture(&rewritten_html, &image_variants);
+
+    // Minify HTML
+    let final_html = crate::svg::minify_html(&transformed_html);
+
+    Some(final_html)
 }
 
 /// Convert a route to a slug for OG image filenames

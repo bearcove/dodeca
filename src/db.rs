@@ -307,3 +307,29 @@ pub struct ProcessedImages {
     /// WebP variants at different widths (sorted by width ascending)
     pub webp_variants: Vec<ImageVariant>,
 }
+
+/// Output of processing a static file: cache-busted path and content
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StaticFileOutput {
+    /// Cache-busted path (e.g., "fonts/Inter.a1b2c3d4.woff2")
+    pub cache_busted_path: String,
+    /// Processed content (subsetted font, optimized SVG, etc.)
+    pub content: Vec<u8>,
+}
+
+/// Output of compiling CSS: cache-busted path and rewritten content
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct CssOutput {
+    /// Cache-busted path (e.g., "main.a1b2c3d4.css")
+    pub cache_busted_path: String,
+    /// CSS content with rewritten asset URLs
+    pub content: String,
+}
+
+/// All rendered HTML content (for font analysis)
+/// This is a global cache - rendering all pages once for font char extraction
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AllRenderedHtml {
+    /// Map of route -> rendered HTML (before URL rewriting)
+    pub pages: std::collections::HashMap<Route, String>,
+}

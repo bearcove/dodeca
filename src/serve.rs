@@ -22,11 +22,13 @@ use std::time::Instant;
 use tokio::sync::{broadcast, watch};
 
 use crate::db::{
-    Database, OutputFile, SassFile, SassRegistry, SourceFile, SourceRegistry, StaticFile,
+    Database, SassFile, SassRegistry, SourceFile, SourceRegistry, StaticFile,
     StaticRegistry, TemplateFile, TemplateRegistry,
 };
-use crate::queries::build_site;
+use crate::queries::{css_output, serve_html, static_file_output, process_image};
 use crate::render::{RenderOptions, inject_livereload};
+use crate::types::Route;
+use crate::image::{InputFormat, OutputFormat, add_width_suffix};
 
 /// Shared state for the dev server
 pub struct SiteServer {
@@ -69,68 +71,94 @@ impl SiteServer {
         let _ = self.livereload_tx.send(());
     }
 
-    /// Build the full site via Salsa query - returns all outputs with cache-busted paths
-    fn build_site_output(&self) -> Option<crate::db::SiteOutput> {
+    /// Find content for a given path using lazy Salsa queries
+    fn find_content(&self, path: &str) -> Option<ServeContent> {
         let db = self.db.lock().ok()?;
         let sources = self.sources.read().ok()?;
         let templates = self.templates.read().ok()?;
         let sass_files = self.sass_files.read().ok()?;
-        let static_files = self.static_files.read().ok()?;
+        let static_files_vec = self.static_files.read().ok()?;
 
         let source_registry = SourceRegistry::new(&*db, sources.clone());
         let template_registry = TemplateRegistry::new(&*db, templates.clone());
         let sass_registry = SassRegistry::new(&*db, sass_files.clone());
-        let static_registry = StaticRegistry::new(&*db, static_files.clone());
+        let static_registry = StaticRegistry::new(&*db, static_files_vec.clone());
 
-        Some(build_site(
+        // 1. Try to serve as HTML page (by route)
+        let route_path = if path == "/" {
+            "/".to_string()
+        } else {
+            path.trim_end_matches('/').to_string()
+        };
+
+        let route = Route::new(route_path.clone());
+        if let Some(html) = serve_html(
             &*db,
+            route,
             source_registry,
             template_registry,
             sass_registry,
             static_registry,
-        ))
-    }
+        ) {
+            let html = inject_livereload(&html, self.render_options);
+            return Some(ServeContent::Html(html));
+        }
 
-    /// Find content for a given path from the site output
-    fn find_content(&self, path: &str) -> Option<ServeContent> {
-        let site_output = self.build_site_output()?;
+        // 2. Try to serve CSS (check if path matches cache-busted CSS path)
+        if let Some(css) = css_output(&*db, source_registry, template_registry, sass_registry, static_registry) {
+            let css_url = format!("/{}", css.cache_busted_path);
+            if path == css_url {
+                return Some(ServeContent::Css(css.content));
+            }
+        }
 
-        // Normalize path for route lookup
-        let route_path = if path == "/" {
-            "/".to_string()
-        } else {
-            let trimmed = path.trim_end_matches('/');
-            format!("{trimmed}/")
-        };
+        // 3. Try to serve static files (match cache-busted paths)
+        for file in static_registry.files(&*db) {
+            let original_path = file.path(&*db).as_str();
 
-        for output in &site_output.files {
-            match output {
-                OutputFile::Html { route, content } => {
-                    if route.as_str() == route_path {
-                        let html = inject_livereload(content, self.render_options);
-                        return Some(ServeContent::Html(html));
+            // Check if this is a processable image
+            if InputFormat::is_processable(original_path) {
+                // Images get transcoded - check all variant paths
+                if let Some(processed) = process_image(&*db, *file) {
+                    use crate::cache_bust::{cache_busted_path, content_hash};
+
+                    // Check JXL variants
+                    for variant in &processed.jxl_variants {
+                        let base_path = crate::image::change_extension(original_path, OutputFormat::Jxl.extension());
+                        let variant_path = if variant.width == processed.original_width {
+                            base_path
+                        } else {
+                            add_width_suffix(&base_path, variant.width)
+                        };
+                        let hash = content_hash(&variant.data);
+                        let cache_busted = cache_busted_path(&variant_path, &hash);
+                        if path == format!("/{cache_busted}") {
+                            return Some(ServeContent::Static(variant.data.clone(), "image/jxl"));
+                        }
+                    }
+
+                    // Check WebP variants
+                    for variant in &processed.webp_variants {
+                        let base_path = crate::image::change_extension(original_path, OutputFormat::WebP.extension());
+                        let variant_path = if variant.width == processed.original_width {
+                            base_path
+                        } else {
+                            add_width_suffix(&base_path, variant.width)
+                        };
+                        let hash = content_hash(&variant.data);
+                        let cache_busted = cache_busted_path(&variant_path, &hash);
+                        if path == format!("/{cache_busted}") {
+                            return Some(ServeContent::Static(variant.data.clone(), "image/webp"));
+                        }
                     }
                 }
-                OutputFile::Css {
-                    path: css_path,
-                    content,
-                } => {
-                    // CSS has cache-busted path like "/main.a1b2c3d4.css"
-                    let css_url = format!("/{}", css_path.as_str());
-                    if path == css_url {
-                        return Some(ServeContent::Css(content.clone()));
-                    }
-                }
-                OutputFile::Static {
-                    path: static_path,
-                    content,
-                } => {
-                    // Static files have cache-busted paths
-                    let static_url = format!("/{}", static_path.as_str());
-                    if path == static_url {
-                        let mime = mime_from_extension(path);
-                        return Some(ServeContent::Static(content.clone(), mime));
-                    }
+            } else {
+                // Non-image static file
+                let output = static_file_output(&*db, *file, source_registry, template_registry, sass_registry);
+                let static_url = format!("/{}", output.cache_busted_path);
+                if path == static_url {
+                    let mime = mime_from_extension(path);
+                    return Some(ServeContent::Static(output.content, mime));
                 }
             }
         }
