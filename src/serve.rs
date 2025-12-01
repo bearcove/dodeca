@@ -71,6 +71,44 @@ impl SiteServer {
         let _ = self.livereload_tx.send(());
     }
 
+    /// Load cached query results from disk
+    pub fn load_cache(&self, cache_path: &std::path::Path) -> Result<()> {
+        use bincode::Options;
+
+        if !cache_path.exists() {
+            tracing::info!("No cache file found at {:?}", cache_path);
+            return Ok(());
+        }
+
+        let data = std::fs::read(cache_path)?;
+        let mut db = self.db.lock().unwrap();
+
+        let mut deserializer = bincode::Deserializer::from_slice(
+            &data,
+            bincode::DefaultOptions::new()
+                .with_fixint_encoding()
+                .allow_trailing_bytes(),
+        );
+
+        <dyn salsa::Database>::deserialize(&mut *db, &mut deserializer)?;
+        tracing::info!("Loaded cache from {:?}", cache_path);
+        Ok(())
+    }
+
+    /// Save cached query results to disk
+    pub fn save_cache(&self, cache_path: &std::path::Path) -> Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let data = bincode::serialize(&<dyn salsa::Database>::as_serialize(&mut *db))?;
+
+        // Write atomically via temp file
+        let temp_path = cache_path.with_extension("tmp");
+        std::fs::write(&temp_path, &data)?;
+        std::fs::rename(&temp_path, cache_path)?;
+
+        tracing::info!("Saved cache to {:?} ({} bytes)", cache_path, data.len());
+        Ok(())
+    }
+
     /// Find content for a given path using lazy Salsa queries
     fn find_content(&self, path: &str) -> Option<ServeContent> {
         let db = self.db.lock().ok()?;

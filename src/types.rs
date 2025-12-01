@@ -105,7 +105,7 @@ pub struct SassContent;
 
 /// Relative path to a static file from the static directory.
 /// Example: "favicon.ico", "images/logo.png"
-#[braid]
+#[braid(serde)]
 pub struct StaticPath;
 
 impl Route {

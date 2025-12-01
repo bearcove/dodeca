@@ -79,6 +79,10 @@ cidr = "0.3"
 # Incremental computation
 salsa = { version = "0.24", features = ["persistence"] }
 
+# Serialization (for salsa persistence)
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+
 # Content-addressed storage
 rapidhash = "4"
 canopydb = "0.2.5"

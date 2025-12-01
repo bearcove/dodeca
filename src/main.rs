@@ -1331,6 +1331,12 @@ async fn serve_with_tui(
     // Create the site server - serves directly from Salsa, no disk I/O
     let server = Arc::new(serve::SiteServer::new(render_options));
 
+    // Load cached query results (e.g., processed images) from disk
+    let cache_path = content_dir.parent().unwrap_or(content_dir).join(".cache/dodeca.bin");
+    if let Err(e) = server.load_cache(cache_path.as_std_path()) {
+        let _ = event_tx.send(LogEvent::warn(format!("Failed to load cache: {e}")));
+    }
+
     // Determine initial bind mode
     let initial_mode = if address == "0.0.0.0" {
         tui::BindMode::Lan
@@ -1824,6 +1830,14 @@ async fn serve_with_tui(
     {
         let shutdown = current_shutdown.lock().unwrap();
         let _ = shutdown.send(true);
+    }
+
+    // Save cache before exit
+    if let Err(e) = std::fs::create_dir_all(cache_path.parent().unwrap()) {
+        tracing::warn!("Failed to create cache dir: {e}");
+    }
+    if let Err(e) = server.save_cache(cache_path.as_std_path()) {
+        tracing::warn!("Failed to save cache: {e}");
     }
 
     Ok(())

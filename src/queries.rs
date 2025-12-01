@@ -380,7 +380,7 @@ pub fn subset_font<'db>(
 
 /// Process an image file into responsive formats (JXL + WebP) with multiple widths
 /// Returns None if the image cannot be processed or is not a supported format
-#[salsa::tracked]
+#[salsa::tracked(persist)]
 #[tracing::instrument(skip_all, name = "process_image")]
 pub fn process_image(db: &dyn Db, image_file: StaticFile) -> Option<ProcessedImages> {
     let path = image_file.path(db);

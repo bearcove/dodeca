@@ -140,7 +140,7 @@ pub struct SassRegistry<'db> {
 }
 
 /// Input: A static file with its binary content
-#[salsa::input]
+#[salsa::input(persist)]
 pub struct StaticFile {
     /// The path to this file (relative to static dir)
     #[returns(ref)]
@@ -283,7 +283,7 @@ pub struct OgTemplateFile {
 }
 
 /// A single image variant (one format, one size)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ImageVariant {
     /// The encoded image data
     pub data: Vec<u8>,
@@ -294,7 +294,7 @@ pub struct ImageVariant {
 }
 
 /// Result of processing an image into responsive formats (JXL + WebP)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ProcessedImages {
     /// Original image width
     pub original_width: u32,
