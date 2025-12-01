@@ -105,7 +105,7 @@ scraper = "0.24"
 
 # URL rewriting (precise, parser-based)
 lol_html = "2.7"        # Streaming HTML rewriter
-lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }  # CSS parser/transformer
+lightningcss = { version = "1.0.0-alpha.65", features = ["visitor", "grid"] }  # CSS parser/transformer
 oxc = { version = "0.96", features = ["full"] }  # JS parser/minifier (0.96 for Rust 1.88 compat)
 
 # Font subsetting (actual font manipulation)
@@ -130,6 +130,11 @@ thumbhash = "0.1"  # Compact image placeholders (~28 bytes)
 
 # HTML minification
 minify-html = "0.15"
+
+# SVG optimization
+oxvg_optimiser = "0.0.3"
+oxvg_ast = "0.0.3"
+typed-arena = "2"  # Arena allocator for oxvg
 
 # Minimal-versions workarounds: these transitive deps have ancient minimum
 # version specs that don't build on modern Rust

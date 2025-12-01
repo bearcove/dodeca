@@ -314,10 +314,10 @@ pub fn load_static(db: &dyn Db, file: StaticFile) -> Vec<u8> {
     file.content(db).clone()
 }
 
-/// Minify an SVG file - tracked by Salsa
-/// Returns minified SVG bytes, or original bytes if minification fails
+/// Optimize an SVG file using oxvg - tracked by Salsa
+/// Returns optimized SVG bytes, or original bytes if optimization fails
 #[salsa::tracked]
-pub fn minify_svg(db: &dyn Db, file: StaticFile) -> Vec<u8> {
+pub fn optimize_svg(db: &dyn Db, file: StaticFile) -> Vec<u8> {
     let content = file.content(db);
 
     // Try to parse as UTF-8 string
@@ -325,9 +325,9 @@ pub fn minify_svg(db: &dyn Db, file: StaticFile) -> Vec<u8> {
         return content.clone();
     };
 
-    // Try to minify
-    match crate::svg::minify_svg(svg_str) {
-        Some(minified) => minified.into_bytes(),
+    // Try to optimize with oxvg
+    match crate::svg::optimize_svg(svg_str) {
+        Some(optimized) => optimized.into_bytes(),
         None => content.clone(),
     }
 }
@@ -535,8 +535,8 @@ pub fn build_site<'db>(
                 load_static(db, *file)
             }
         } else if path.to_lowercase().ends_with(".svg") {
-            // Minify SVG files
-            minify_svg(db, *file)
+            // Optimize SVG files with oxvg
+            optimize_svg(db, *file)
         } else {
             load_static(db, *file)
         };
