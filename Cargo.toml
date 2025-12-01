@@ -143,6 +143,11 @@ nom = "7"     # 7+ drops lexical-core 0.7 (broken usize/u32 ops)
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["blocking"] }
 
+# Optimize dependencies in dev mode for faster tests
+# (keeps main crate unoptimized for fast incremental builds)
+[profile.dev.package."*"]
+opt-level = 2
+
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"

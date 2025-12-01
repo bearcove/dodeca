@@ -380,16 +380,32 @@ pub fn subset_font<'db>(
 
 /// Process an image file into responsive formats (JXL + WebP) with multiple widths
 /// Returns None if the image cannot be processed or is not a supported format
+///
+/// Uses CAS (Content-Addressable Storage) to cache processed images across restarts.
+/// The cache key is a 32-byte hash of the input image content.
 #[salsa::tracked(persist)]
 #[tracing::instrument(skip_all, name = "process_image")]
 pub fn process_image(db: &dyn Db, image_file: StaticFile) -> Option<ProcessedImages> {
+    use crate::cas::{content_hash_32, get_cached_image, put_cached_image};
+
     let path = image_file.path(db);
     let input_format = InputFormat::from_extension(path.as_str())?;
     let data = image_file.content(db);
 
+    // Compute content hash for cache lookup
+    let content_hash = content_hash_32(data);
+
+    // Check CAS cache first
+    if let Some(cached) = get_cached_image(&content_hash) {
+        tracing::debug!("Image cache hit for {}", path.as_str());
+        return Some(cached);
+    }
+
+    tracing::debug!("Image cache miss for {}", path.as_str());
+
     let processed = image::process_image(data, input_format)?;
 
-    Some(ProcessedImages {
+    let result = ProcessedImages {
         original_width: processed.original_width,
         original_height: processed.original_height,
         thumbhash_data_url: processed.thumbhash_data_url,
@@ -411,7 +427,12 @@ pub fn process_image(db: &dyn Db, image_file: StaticFile) -> Option<ProcessedIma
                 height: v.height,
             })
             .collect(),
-    })
+    };
+
+    // Store in CAS cache for next time
+    put_cached_image(&content_hash, &result);
+
+    Some(result)
 }
 
 /// Build the complete site - THE top-level query

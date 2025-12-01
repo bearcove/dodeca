@@ -3,12 +3,20 @@
 //! Uses rapidhash for fast hashing and canopydb for persistent storage.
 //! Tracks which files have been written and their content hashes to avoid
 //! unnecessary disk writes.
+//!
+//! Also provides image caching to avoid re-processing images across restarts.
 
+use crate::db::ProcessedImages;
 use camino::Utf8Path;
 use canopydb::Database;
 use rapidhash::fast::RapidHasher;
 use std::fs;
 use std::hash::Hasher;
+use std::path::Path;
+use std::sync::OnceLock;
+
+// Global image cache instance
+static IMAGE_CACHE: OnceLock<Database> = OnceLock::new();
 
 /// Content-addressed storage for build outputs
 pub struct ContentStore {
@@ -71,4 +79,78 @@ impl ContentStore {
 
         Ok(true)
     }
+}
+
+// ============================================================================
+// Image Cache (global, for processed images)
+// ============================================================================
+
+/// Initialize the global image cache
+pub fn init_image_cache(cache_dir: &Path) -> color_eyre::Result<()> {
+    // canopydb stores data in a directory, not a single file
+    let db_path = cache_dir.join("images.canopy");
+
+    // Ensure the database directory exists
+    fs::create_dir_all(&db_path)?;
+
+    let db = Database::new(&db_path)?;
+    let _ = IMAGE_CACHE.set(db);
+    tracing::info!("Image cache initialized at {:?}", db_path);
+    Ok(())
+}
+
+/// Image processing pipeline version - bump this when encoding settings change
+/// (widths, quality, formats, etc.) to invalidate the cache
+pub const IMAGE_PIPELINE_VERSION: u64 = 1;
+
+/// Compute content hash for cache key (32 bytes for collision resistance)
+/// Includes the pipeline version so changing settings invalidates cache
+pub fn content_hash_32(data: &[u8]) -> [u8; 32] {
+    let mut result = [0u8; 32];
+
+    // Hash with different seeds to get 32 bytes
+    // Include pipeline version so changing settings invalidates cache
+    let mut hasher = RapidHasher::default();
+    hasher.write(&IMAGE_PIPELINE_VERSION.to_le_bytes());
+    hasher.write(data);
+    let h1 = hasher.finish();
+    result[0..8].copy_from_slice(&h1.to_le_bytes());
+
+    let mut hasher = RapidHasher::new(h1);
+    hasher.write(data);
+    let h2 = hasher.finish();
+    result[8..16].copy_from_slice(&h2.to_le_bytes());
+
+    let mut hasher = RapidHasher::new(h2);
+    hasher.write(data);
+    let h3 = hasher.finish();
+    result[16..24].copy_from_slice(&h3.to_le_bytes());
+
+    let mut hasher = RapidHasher::new(h3);
+    hasher.write(data);
+    let h4 = hasher.finish();
+    result[24..32].copy_from_slice(&h4.to_le_bytes());
+
+    result
+}
+
+/// Get cached processed images by input content hash
+pub fn get_cached_image(content_hash: &[u8; 32]) -> Option<ProcessedImages> {
+    let db = IMAGE_CACHE.get()?;
+    let rx = db.begin_read().ok()?;
+    let tree = rx.get_tree(b"processed").ok()??;
+    let data = tree.get(content_hash).ok()??;
+    bincode::deserialize(&data).ok()
+}
+
+/// Store processed images by input content hash
+pub fn put_cached_image(content_hash: &[u8; 32], images: &ProcessedImages) {
+    let Some(db) = IMAGE_CACHE.get() else { return };
+    let Ok(data) = bincode::serialize(images) else { return };
+
+    let Ok(tx) = db.begin_write() else { return };
+    let Ok(mut tree) = tx.get_or_create_tree(b"processed") else { return };
+    let _ = tree.insert(content_hash, &data);
+    drop(tree);
+    let _ = tx.commit();
 }
