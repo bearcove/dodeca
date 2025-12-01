@@ -16,11 +16,27 @@ A fully incremental static site generator. Features:
 
 ## Installation
 
-```bash
-# With cargo-binstall (recommended)
-cargo binstall dodeca
+### macOS / Linux
 
-# Or from source
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/bearcove/dodeca/releases/latest/download/dodeca-installer.sh | sh
+```
+
+### Windows
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/bearcove/dodeca/releases/latest/download/dodeca-installer.ps1 | iex"
+```
+
+### Homebrew
+
+```bash
+brew install bearcove/tap/dodeca
+```
+
+### From source
+
+```bash
 cargo install dodeca
 ```
 
