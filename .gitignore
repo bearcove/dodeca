@@ -1,3 +1,4 @@
 /target
 .dodeca.db/
 /docs/public/
+.cache/
