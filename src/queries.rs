@@ -314,8 +314,8 @@ pub fn load_static(db: &dyn Db, file: StaticFile) -> Vec<u8> {
     file.content(db).clone()
 }
 
-/// Optimize an SVG file using oxvg - tracked by Salsa
-/// Returns optimized SVG bytes, or original bytes if optimization fails
+/// Process an SVG file - tracked by Salsa
+/// Currently passes through unchanged (optimization disabled)
 #[salsa::tracked]
 pub fn optimize_svg(db: &dyn Db, file: StaticFile) -> Vec<u8> {
     let content = file.content(db);
@@ -325,7 +325,7 @@ pub fn optimize_svg(db: &dyn Db, file: StaticFile) -> Vec<u8> {
         return content.clone();
     };
 
-    // Try to optimize with oxvg
+    // Process SVG (currently passthrough)
     match crate::svg::optimize_svg(svg_str) {
         Some(optimized) => optimized.into_bytes(),
         None => content.clone(),
@@ -535,7 +535,7 @@ pub fn build_site<'db>(
                 load_static(db, *file)
             }
         } else if path.to_lowercase().ends_with(".svg") {
-            // Optimize SVG files with oxvg
+            // Process SVG files
             optimize_svg(db, *file)
         } else {
             load_static(db, *file)
@@ -723,7 +723,7 @@ pub fn static_file_output<'db>(
             load_static(db, file)
         }
     } else if path.to_lowercase().ends_with(".svg") {
-        // SVG - optimize with oxvg
+        // SVG - process
         optimize_svg(db, file)
     } else {
         // Other static files - just load
