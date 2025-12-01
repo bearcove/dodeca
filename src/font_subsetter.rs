@@ -10,7 +10,7 @@ use scraper::{Html, Selector};
 use std::collections::{HashMap, HashSet};
 
 /// A parsed @font-face rule
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)] // weight and style reserved for font-weight matching
 pub struct FontFace {
     /// The font-family name declared in @font-face
@@ -24,7 +24,7 @@ pub struct FontFace {
 }
 
 /// Result of analyzing CSS for font information
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct FontAnalysis {
     /// Map of font-family name -> characters used
     pub chars_per_font: HashMap<String, HashSet<char>>,

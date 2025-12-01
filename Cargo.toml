@@ -141,6 +141,9 @@ typed-arena = "2"  # Arena allocator for oxvg
 phf = "0.11"  # 0.11+ drops proc-macro-hack (which needs syn 0.15)
 nom = "7"     # 7+ drops lexical-core 0.7 (broken usize/u32 ops)
 
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["blocking"] }
+
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
