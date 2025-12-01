@@ -19,16 +19,18 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - uses: taiki-e/install-action@nextest
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
 
       - name: Build
-        run: cargo build --verbose
+        run: cargo build
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo nextest run
 
   test-macos:
     runs-on: depot-macos-latest
@@ -38,13 +40,15 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - uses: taiki-e/install-action@nextest
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --verbose
+        run: cargo build
 
       - name: Run tests
-        run: cargo test --lib --verbose
+        run: cargo nextest run --lib
 
   clippy:
     runs-on: depot-ubuntu-24.04-4
