@@ -48,6 +48,10 @@ struct Cli {
 enum Command {
     /// Build the site (blocks on link checking and search index)
     Build {
+        /// Project directory (looks for .config/dodeca.kdl here)
+        #[arg()]
+        path: Option<Utf8PathBuf>,
+
         /// Content directory (uses .config/dodeca.kdl if not specified)
         #[arg(short, long)]
         content: Option<Utf8PathBuf>,
@@ -63,6 +67,10 @@ enum Command {
 
     /// Build and serve with live reload
     Serve {
+        /// Project directory (looks for .config/dodeca.kdl here)
+        #[arg()]
+        path: Option<Utf8PathBuf>,
+
         /// Content directory (uses .config/dodeca.kdl if not specified)
         #[arg(short, long)]
         content: Option<Utf8PathBuf>,
@@ -98,10 +106,11 @@ struct ResolvedBuildConfig {
 
 /// Resolve content and output directories from CLI args or config file
 fn resolve_dirs(
+    path: Option<Utf8PathBuf>,
     content: Option<Utf8PathBuf>,
     output: Option<Utf8PathBuf>,
 ) -> Result<ResolvedBuildConfig> {
-    // If both are specified, use them directly (no config file needed)
+    // If both content and output are specified, use them directly (no config file needed)
     if let (Some(c), Some(o)) = (&content, &output) {
         return Ok(ResolvedBuildConfig {
             content_dir: c.clone(),
@@ -110,8 +119,12 @@ fn resolve_dirs(
         });
     }
 
-    // Try to find config file
-    let config = ResolvedConfig::discover()?;
+    // Try to find config file, optionally from a specific path
+    let config = if let Some(ref project_path) = path {
+        ResolvedConfig::discover_from(project_path)?
+    } else {
+        ResolvedConfig::discover()?
+    };
 
     match config {
         Some(cfg) => {
@@ -123,19 +136,25 @@ fn resolve_dirs(
                 skip_domains: cfg.skip_domains,
             })
         }
-        None => Err(eyre!(
-            "{}\n\n\
-                 Create a config file at {} with:\n\n\
-                 \x20   {}\n\
-                 \x20   {}\n\n\
-                 Or specify both {} and {} on the command line.",
-            "No configuration found.".red().bold(),
-            ".config/dodeca.kdl".cyan(),
-            "content \"path/to/content\"".green(),
-            "output \"path/to/output\"".green(),
-            "--content".yellow(),
-            "--output".yellow()
-        )),
+        None => {
+            let config_path = path
+                .as_ref()
+                .map(|p| format!("{}/.config/dodeca.kdl", p))
+                .unwrap_or_else(|| ".config/dodeca.kdl".to_string());
+            Err(eyre!(
+                "{}\n\n\
+                     Create a config file at {} with:\n\n\
+                     \x20   {}\n\
+                     \x20   {}\n\n\
+                     Or specify both {} and {} on the command line.",
+                "No configuration found.".red().bold(),
+                config_path.cyan(),
+                "content \"path/to/content\"".green(),
+                "output \"path/to/output\"".green(),
+                "--content".yellow(),
+                "--output".yellow()
+            ))
+        }
     }
 }
 
@@ -146,16 +165,18 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Command::Build {
+            path,
             content,
             output,
             tui: _use_tui,
         } => {
-            let cfg = resolve_dirs(content, output)?;
+            let cfg = resolve_dirs(path, content, output)?;
 
             // Always use the mini build TUI for now
             build_with_mini_tui(&cfg.content_dir, &cfg.output_dir, &cfg.skip_domains)?;
         }
         Command::Serve {
+            path,
             content,
             output,
             address,
@@ -163,7 +184,7 @@ async fn main() -> Result<()> {
             open,
             no_tui,
         } => {
-            let cfg = resolve_dirs(content, output)?;
+            let cfg = resolve_dirs(path, content, output)?;
             let (content_dir, output_dir) = (cfg.content_dir, cfg.output_dir);
 
             // Check if we should use TUI

@@ -73,7 +73,7 @@ pub struct ResolvedConfig {
 }
 
 impl ResolvedConfig {
-    /// Discover and load configuration
+    /// Discover and load configuration from current directory
     pub fn discover() -> Result<Option<Self>> {
         let config_path = find_config_file()?;
 
@@ -83,6 +83,18 @@ impl ResolvedConfig {
                 Ok(Some(resolved))
             }
             None => Ok(None),
+        }
+    }
+
+    /// Discover and load configuration from a specific project path
+    pub fn discover_from(project_path: &Utf8Path) -> Result<Option<Self>> {
+        let config_file = project_path.join(CONFIG_DIR).join(CONFIG_FILE);
+
+        if config_file.exists() {
+            let resolved = load_config(&config_file)?;
+            Ok(Some(resolved))
+        } else {
+            Ok(None)
         }
     }
 }
