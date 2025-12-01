@@ -1,4 +1,4 @@
-//! Visual regression tests for savage.
+//! Visual regression tests for svag.
 //!
 //! These tests render SVGs before and after minification using headless Chrome,
 //! then compare them using SSIM to ensure visual fidelity.
@@ -15,7 +15,7 @@ use futures::StreamExt;
 use image::RgbImage;
 use tempfile::TempDir;
 
-use savage::minify;
+use svag::minify;
 
 const TEST_OUTPUT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test_output");
 
@@ -211,7 +211,11 @@ async fn test_visual_regression() {
             "{}: SSIM = {:.6} ({}) - saved to test_output/",
             name,
             ssim_score,
-            if ssim_score >= MIN_SSIM { "PASS" } else { "FAIL" }
+            if ssim_score >= MIN_SSIM {
+                "PASS"
+            } else {
+                "FAIL"
+            }
         );
 
         assert!(

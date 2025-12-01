@@ -1,8 +1,8 @@
 //! SVG path data parsing and minification.
 //!
-//! SVG path syntax: https://www.w3.org/TR/SVG/paths.html
+//! SVG path syntax: <https://www.w3.org/TR/SVG/paths.html>
 
-use crate::error::SavageError;
+use crate::error::SvagError;
 
 /// A parsed SVG path.
 #[derive(Debug, Clone, PartialEq)]
@@ -65,7 +65,7 @@ pub enum Command {
 }
 
 /// Parse SVG path data.
-pub fn parse_path(d: &str) -> Result<Path, SavageError> {
+pub fn parse_path(d: &str) -> Result<Path, SvagError> {
     let mut parser = PathParser::new(d);
     parser.parse()
 }
@@ -173,9 +173,7 @@ fn format_cmd(cmd: char, prev_cmd: Option<char>, args: &[f64], precision: u8) ->
         None => true,
         Some(prev) => {
             // After M, coordinates are treated as L; after m, as l
-            if prev == 'M' && cmd == 'L' {
-                false
-            } else if prev == 'm' && cmd == 'l' {
+            if (prev == 'M' && cmd == 'L') || (prev == 'm' && cmd == 'l') {
                 false
             } else {
                 prev != cmd
@@ -210,6 +208,7 @@ fn format_cmd(cmd: char, prev_cmd: Option<char>, args: &[f64], precision: u8) ->
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn format_arc(
     cmd: char,
     prev_cmd: Option<char>,
@@ -296,14 +295,18 @@ impl<'a> PathParser<'a> {
         Self { input, pos: 0 }
     }
 
-    fn parse(&mut self) -> Result<Path, SavageError> {
+    fn parse(&mut self) -> Result<Path, SvagError> {
         let mut commands = Vec::new();
         let mut last_cmd: Option<char> = None;
 
         self.skip_whitespace();
 
         while !self.is_eof() {
-            let cmd = if self.peek().map(|c| c.is_ascii_alphabetic()).unwrap_or(false) {
+            let cmd = if self
+                .peek()
+                .map(|c| c.is_ascii_alphabetic())
+                .unwrap_or(false)
+            {
                 let c = self.next().unwrap();
                 last_cmd = Some(c);
                 c
@@ -314,11 +317,7 @@ impl<'a> PathParser<'a> {
                     Some('M') => 'L',
                     Some('m') => 'l',
                     Some(c) => c,
-                    None => {
-                        return Err(SavageError::InvalidPath(
-                            "Expected command letter".into(),
-                        ))
-                    }
+                    None => return Err(SvagError::InvalidPath("Expected command letter".into())),
                 }
             };
 
@@ -330,7 +329,7 @@ impl<'a> PathParser<'a> {
         Ok(Path { commands })
     }
 
-    fn parse_command(&mut self, cmd: char) -> Result<Command, SavageError> {
+    fn parse_command(&mut self, cmd: char) -> Result<Command, SvagError> {
         let rel = cmd.is_ascii_lowercase();
 
         match cmd.to_ascii_lowercase() {
@@ -428,14 +427,11 @@ impl<'a> PathParser<'a> {
                 })
             }
             'z' => Ok(Command::ClosePath),
-            _ => Err(SavageError::InvalidPath(format!(
-                "Unknown command: {}",
-                cmd
-            ))),
+            _ => Err(SvagError::InvalidPath(format!("Unknown command: {}", cmd))),
         }
     }
 
-    fn parse_number(&mut self) -> Result<f64, SavageError> {
+    fn parse_number(&mut self) -> Result<f64, SvagError> {
         self.skip_whitespace_and_comma();
 
         let start = self.pos;
@@ -471,23 +467,23 @@ impl<'a> PathParser<'a> {
 
         let s = &self.input[start..self.pos];
         if s.is_empty() {
-            return Err(SavageError::InvalidPath("Expected number".into()));
+            return Err(SvagError::InvalidPath("Expected number".into()));
         }
 
         s.parse()
-            .map_err(|_| SavageError::InvalidPath(format!("Invalid number: {}", s)))
+            .map_err(|_| SvagError::InvalidPath(format!("Invalid number: {}", s)))
     }
 
-    fn parse_flag(&mut self) -> Result<bool, SavageError> {
+    fn parse_flag(&mut self) -> Result<bool, SvagError> {
         self.skip_whitespace_and_comma();
         match self.next() {
             Some('0') => Ok(false),
             Some('1') => Ok(true),
-            Some(c) => Err(SavageError::InvalidPath(format!(
+            Some(c) => Err(SvagError::InvalidPath(format!(
                 "Expected flag (0 or 1), got: {}",
                 c
             ))),
-            None => Err(SavageError::InvalidPath("Expected flag".into())),
+            None => Err(SvagError::InvalidPath("Expected flag".into())),
         }
     }
 
@@ -538,7 +534,10 @@ mod tests {
     fn test_parse_relative_path() {
         let path = parse_path("m10,20 l30,40").unwrap();
         assert_eq!(path.commands.len(), 2);
-        assert!(matches!(path.commands[0], Command::MoveTo { rel: true, .. }));
+        assert!(matches!(
+            path.commands[0],
+            Command::MoveTo { rel: true, .. }
+        ));
     }
 
     #[test]

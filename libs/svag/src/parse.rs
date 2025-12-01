@@ -1,13 +1,13 @@
 //! SVG parsing from XML.
 
-use quick_xml::events::{BytesStart, Event};
 use quick_xml::Reader;
+use quick_xml::events::{BytesStart, Event};
 
 use crate::ast::*;
-use crate::error::SavageError;
+use crate::error::SvagError;
 
 /// Parse an SVG string into a Document.
-pub fn parse_svg(svg: &str) -> Result<Document, SavageError> {
+pub fn parse_svg(svg: &str) -> Result<Document, SvagError> {
     let mut reader = Reader::from_str(svg);
 
     let mut xml_declaration = None;
@@ -50,7 +50,7 @@ pub fn parse_svg(svg: &str) -> Result<Document, SavageError> {
         }
     }
 
-    let root = root.ok_or_else(|| SavageError::InvalidSvg("No root element found".into()))?;
+    let root = root.ok_or_else(|| SvagError::InvalidSvg("No root element found".into()))?;
 
     Ok(Document {
         xml_declaration,
@@ -59,7 +59,7 @@ pub fn parse_svg(svg: &str) -> Result<Document, SavageError> {
     })
 }
 
-fn parse_element(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Element, SavageError> {
+fn parse_element(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Element, SvagError> {
     let mut element = parse_element_start(start)?;
 
     loop {
@@ -84,9 +84,9 @@ fn parse_element(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Eleme
                 }
             }
             Event::Comment(comment) => {
-                element
-                    .children
-                    .push(Node::Comment(String::from_utf8_lossy(&comment).into_owned()));
+                element.children.push(Node::Comment(
+                    String::from_utf8_lossy(&comment).into_owned(),
+                ));
             }
             Event::CData(cdata) => {
                 element
@@ -99,12 +99,13 @@ fn parse_element(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Eleme
                     .split_once(char::is_whitespace)
                     .map(|(t, r)| (t.to_string(), Some(r.to_string())))
                     .unwrap_or_else(|| (content, None));
-                element
-                    .children
-                    .push(Node::ProcessingInstruction { target, content: rest });
+                element.children.push(Node::ProcessingInstruction {
+                    target,
+                    content: rest,
+                });
             }
             Event::Eof => {
-                return Err(SavageError::InvalidSvg("Unexpected end of file".into()));
+                return Err(SvagError::InvalidSvg("Unexpected end of file".into()));
             }
             _ => {}
         }
@@ -113,11 +114,11 @@ fn parse_element(reader: &mut Reader<&[u8]>, start: &BytesStart) -> Result<Eleme
     Ok(element)
 }
 
-fn parse_empty_element(start: &BytesStart) -> Result<Element, SavageError> {
+fn parse_empty_element(start: &BytesStart) -> Result<Element, SvagError> {
     parse_element_start(start)
 }
 
-fn parse_element_start(start: &BytesStart) -> Result<Element, SavageError> {
+fn parse_element_start(start: &BytesStart) -> Result<Element, SvagError> {
     let name_bytes = start.name();
     let name = std::str::from_utf8(name_bytes.as_ref())?;
 
@@ -128,7 +129,7 @@ fn parse_element_start(start: &BytesStart) -> Result<Element, SavageError> {
     };
 
     for attr in start.attributes() {
-        let attr = attr.map_err(|e| SavageError::InvalidSvg(format!("Invalid attribute: {}", e)))?;
+        let attr = attr.map_err(|e| SvagError::InvalidSvg(format!("Invalid attribute: {}", e)))?;
         let key = std::str::from_utf8(attr.key.as_ref())?;
         let value = attr.unescape_value()?;
         element.attributes.push(Attribute {
@@ -166,7 +167,12 @@ mod tests {
 
         let doc = parse_svg(svg).unwrap();
         // whitespace text nodes + comment + rect
-        let comments: Vec<_> = doc.root.children.iter().filter(|n| matches!(n, Node::Comment(_))).collect();
+        let comments: Vec<_> = doc
+            .root
+            .children
+            .iter()
+            .filter(|n| matches!(n, Node::Comment(_)))
+            .collect();
         assert_eq!(comments.len(), 1);
     }
 

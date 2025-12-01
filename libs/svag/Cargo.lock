@@ -1689,24 +1689,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 
 [[package]]
-name = "savage"
-version = "0.1.0"
-dependencies = [
- "base64",
- "chromiumoxide",
- "clap",
- "futures",
- "image",
- "minijinja",
- "quick-xml",
- "ryu",
- "ssim",
- "tempfile",
- "thiserror 2.0.17",
- "tokio",
-]
-
-[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1851,6 +1833,23 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "svag"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "chromiumoxide",
+ "clap",
+ "futures",
+ "image",
+ "quick-xml",
+ "ryu",
+ "ssim",
+ "tempfile",
+ "thiserror 2.0.17",
+ "tokio",
+]
 
 [[package]]
 name = "syn"
@@ -2512,6 +2511,14 @@ name = "writeable"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9edde0db4769d2dc68579893f2306b26c6ecfbe0ef499b013d731b7b9247e0b9"
+
+[[package]]
+name = "xtask"
+version = "0.1.0"
+dependencies = [
+ "minijinja",
+ "svag",
+]
 
 [[package]]
 name = "y4m"

@@ -107,7 +107,10 @@ pub enum Node {
     /// A CDATA section
     CData(String),
     /// A processing instruction (e.g., `<?xml-stylesheet ... ?>`)
-    ProcessingInstruction { target: String, content: Option<String> },
+    ProcessingInstruction {
+        target: String,
+        content: Option<String>,
+    },
 }
 
 impl Element {

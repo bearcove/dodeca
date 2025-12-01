@@ -1,6 +1,6 @@
-//! Savage - A savage SVG minifier
+//! svag - An SVG minifier
 //!
-//! Savage optimizes SVG files while maintaining visual fidelity.
+//! svag optimizes SVG files while maintaining visual fidelity.
 
 mod ast;
 mod error;
@@ -16,12 +16,12 @@ pub use parse::*;
 pub use serialize::*;
 
 /// Minify an SVG string with default settings.
-pub fn minify(svg: &str) -> Result<String, SavageError> {
+pub fn minify(svg: &str) -> Result<String, SvagError> {
     minify_with_options(svg, &Options::default())
 }
 
 /// Minify an SVG string with custom options.
-pub fn minify_with_options(svg: &str, options: &Options) -> Result<String, SavageError> {
+pub fn minify_with_options(svg: &str, options: &Options) -> Result<String, SvagError> {
     let mut doc = parse_svg(svg)?;
     optimize(&mut doc, options);
     Ok(serialize(&doc, options))

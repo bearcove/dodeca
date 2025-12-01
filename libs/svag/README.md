@@ -1,22 +1,10 @@
-# savage
+# svag
 
 [![MIT + Apache 2.0](https://img.shields.io/badge/license-MIT%20%2B%20Apache%202.0-blue)](./LICENSE-MIT)
-[![crates.io](https://img.shields.io/crates/v/savage.svg)](https://crates.io/crates/savage)
-[![docs.rs](https://docs.rs/savage/badge.svg)](https://docs.rs/savage)
+[![crates.io](https://img.shields.io/crates/v/svag.svg)](https://crates.io/crates/svag)
+[![docs.rs](https://docs.rs/svag/badge.svg)](https://docs.rs/svag)
 
-A savage SVG minifier.
-
-## Philosophy
-
-**Aggressive but safe.** Savage applies every optimization that won't break your SVG.
-It removes comments, metadata, editor cruft (Inkscape, Illustrator), unnecessary
-whitespace, default attribute values—anything that doesn't affect rendering.
-
-**Visual fidelity first.** Every optimization is tested against headless Chrome
-rendering with SSIM comparison. If the output doesn't match the input at 99.9%
-similarity, the test fails.
-
-**Rust-native.** No Node.js, no WASM, no subprocess. Just `cargo add savage` and go.
+An SVG minifier.
 
 ## Features
 
@@ -37,7 +25,7 @@ similarity, the test fails.
 ### As a library
 
 ```rust
-use savage::minify;
+use svag::minify;
 
 let svg = r#"<?xml version="1.0"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
@@ -53,20 +41,20 @@ let minified = minify(svg).unwrap();
 
 ```bash
 # From stdin
-echo '<svg>...</svg>' | savage
+echo '<svg>...</svg>' | svag
 
 # From file
-savage input.svg -o output.svg
+svag input.svg -o output.svg
 
 # With stats
-savage input.svg --stats
+svag input.svg --stats
 # 1961 -> 602 bytes (69.3% smaller)
 ```
 
 ### With custom options
 
 ```rust
-use savage::{minify_with_options, Options};
+use svag::{minify_with_options, Options};
 
 let options = Options {
     precision: 1,           // decimal places for coordinates
@@ -82,66 +70,47 @@ let minified = minify_with_options(svg, &options).unwrap();
 ## Installation
 
 ```bash
-cargo add savage
+cargo add svag
 ```
 
 Or for the CLI:
 
 ```bash
-cargo install savage
+cargo install svag
 ```
 
-## Benchmarks
+## Size comparison
 
 Test corpus: `tests/corpus/*.svg` (3 files, 2.7 KB total)
 
-### Size comparison
-
-| File | Original | savage | svgo |
-|------|----------|--------|------|
+| File | Original | svag | svgo¹ |
+|------|----------|------|-------|
 | Complex Path | 545 B | 335 B (-38.5%) | 336 B (-38.3%) |
 | Inkscape Bloated | 1.9 KB | 602 B (-69.3%) | 521 B (-73.4%) |
 | Simple | 215 B | 206 B (-4.2%) | 190 B (-11.6%) |
 
 | **Total** | **2.7 KB** | **1.1 KB** (-58.0%) | **1.0 KB** (-61.5%) |
 
-### Speed comparison
-
-| Tool | Time | Throughput |
-|------|------|------------|
-| savage | 830µs | 3.1 MB/s |
-| svgo | 579.01ms | 4.6 KB/s |
-
-savage is **697x** faster than svgo.
+¹ [svgo](https://github.com/svg/svgo) is a mature, battle-tested Node.js SVG optimizer. The size differences here are minor — svgo has more optimization passes. CLI timing comparisons wouldn't be fair since svgo pays Node.js startup cost; as a library it would perform much better.
 
 To regenerate these benchmarks:
 
 ```bash
-npm install svgo  # for comparison benchmarks
-cargo run --bin generate-readme --features minijinja
+npm install svgo  # for comparison
+cargo xtask readme
 ```
+
+## Roadmap
+
+- [ ] More optimization passes (match svgo's output sizes)
+- [ ] SVGO-compatible plugin system
+- [ ] Streaming support for large files
 
 ## Inspired by
 
 - [svgo](https://github.com/svg/svgo) - The OG SVG optimizer
 - [oxvg](https://github.com/nickshanks/oxvg) - Rust SVGO port
 
-## Sponsors
-
-CI hosted by:
-
-<p><a href="https://depot.dev?utm_source=savage">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset="https://github.com/bearcove/savage/raw/main/static/depot-dark.svg">
-<img src="https://github.com/bearcove/savage/raw/main/static/depot-light.svg" height="40" alt="Depot">
-</picture>
-</a></p>
-
 ## License
 
-Licensed under either of:
-
-- Apache License, Version 2.0 ([LICENSE-APACHE](./LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
-- MIT license ([LICENSE-MIT](./LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
-
-at your option.
+MIT OR Apache-2.0

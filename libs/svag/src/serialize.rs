@@ -1,39 +1,39 @@
 //! SVG serialization to minified XML.
 
-use crate::ast::*;
 use crate::Options;
+use crate::ast::*;
 
 /// Serialize a Document to a minified SVG string.
 pub fn serialize(doc: &Document, options: &Options) -> String {
     let mut out = String::new();
 
     // XML declaration
-    if !options.remove_xml_declaration {
-        if let Some(ref decl) = doc.xml_declaration {
-            out.push_str("<?xml version=\"");
-            out.push_str(&decl.version);
+    if !options.remove_xml_declaration
+        && let Some(ref decl) = doc.xml_declaration
+    {
+        out.push_str("<?xml version=\"");
+        out.push_str(&decl.version);
+        out.push('"');
+        if let Some(ref enc) = decl.encoding {
+            out.push_str(" encoding=\"");
+            out.push_str(enc);
             out.push('"');
-            if let Some(ref enc) = decl.encoding {
-                out.push_str(" encoding=\"");
-                out.push_str(enc);
-                out.push('"');
-            }
-            if let Some(standalone) = decl.standalone {
-                out.push_str(" standalone=\"");
-                out.push_str(if standalone { "yes" } else { "no" });
-                out.push('"');
-            }
-            out.push_str("?>");
         }
+        if let Some(standalone) = decl.standalone {
+            out.push_str(" standalone=\"");
+            out.push_str(if standalone { "yes" } else { "no" });
+            out.push('"');
+        }
+        out.push_str("?>");
     }
 
     // DOCTYPE
-    if !options.remove_doctype {
-        if let Some(ref dt) = doc.doctype {
-            out.push_str("<!DOCTYPE ");
-            out.push_str(dt);
-            out.push('>');
-        }
+    if !options.remove_doctype
+        && let Some(ref dt) = doc.doctype
+    {
+        out.push_str("<!DOCTYPE ");
+        out.push_str(dt);
+        out.push('>');
     }
 
     // Root element
@@ -153,7 +153,10 @@ mod tests {
         let doc = parse_svg(svg).unwrap();
         let options = Options::default();
         let out = serialize(&doc, &options);
-        assert_eq!(out, r#"<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>"#);
+        assert_eq!(
+            out,
+            r#"<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>"#
+        );
     }
 
     #[test]

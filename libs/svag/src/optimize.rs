@@ -2,9 +2,9 @@
 
 use std::collections::HashSet;
 
+use crate::Options;
 use crate::ast::*;
 use crate::path::{parse_path, serialize_path};
-use crate::Options;
 
 /// Apply all enabled optimizations to the document.
 pub fn optimize(doc: &mut Document, options: &Options) {
@@ -128,7 +128,8 @@ fn collect_used_prefixes(elem: &Element, used: &mut HashSet<Option<String>>) {
 
 /// Remove comment nodes.
 fn remove_comments(elem: &mut Element) {
-    elem.children.retain(|node| !matches!(node, Node::Comment(_)));
+    elem.children
+        .retain(|node| !matches!(node, Node::Comment(_)));
 
     for child in elem.child_elements_mut() {
         remove_comments(child);
@@ -162,17 +163,17 @@ fn is_hidden(elem: &Element) -> bool {
     }
 
     // Check opacity
-    if let Some(opacity) = elem.get_attr("opacity") {
-        if opacity.parse::<f64>().ok() == Some(0.0) {
-            return true;
-        }
+    if let Some(opacity) = elem.get_attr("opacity")
+        && opacity.parse::<f64>().ok() == Some(0.0)
+    {
+        return true;
     }
 
     // Check style attribute for display:none
-    if let Some(style) = elem.get_attr("style") {
-        if style.contains("display:none") || style.contains("display: none") {
-            return true;
-        }
+    if let Some(style) = elem.get_attr("style")
+        && (style.contains("display:none") || style.contains("display: none"))
+    {
+        return true;
     }
 
     false
@@ -186,7 +187,9 @@ fn remove_empty(elem: &mut Element) {
     }
 
     // Then remove empty containers
-    let container_elements = ["g", "defs", "symbol", "marker", "clipPath", "mask", "pattern"];
+    let container_elements = [
+        "g", "defs", "symbol", "marker", "clipPath", "mask", "pattern",
+    ];
 
     elem.children.retain(|node| {
         if let Node::Element(e) = node {
@@ -255,13 +258,12 @@ fn can_collapse_group(elem: &Element) -> bool {
 
 /// Minify path data.
 fn minify_paths(elem: &mut Element, precision: u8) {
-    if elem.name.local == "path" {
-        if let Some(d) = elem.get_attr("d").map(|s| s.to_string()) {
-            if let Ok(path) = parse_path(&d) {
-                let minified = serialize_path(&path, precision);
-                elem.set_attr("d", minified);
-            }
-        }
+    if elem.name.local == "path"
+        && let Some(d) = elem.get_attr("d").map(|s| s.to_string())
+        && let Ok(path) = parse_path(&d)
+    {
+        let minified = serialize_path(&path, precision);
+        elem.set_attr("d", minified);
     }
 
     for child in elem.child_elements_mut() {
@@ -348,8 +350,15 @@ fn minify_style_colors(style: &str) -> String {
             let value = value.trim();
             result.push_str(prop);
             result.push(':');
-            if ["fill", "stroke", "color", "stop-color", "flood-color", "lighting-color"]
-                .contains(&prop)
+            if [
+                "fill",
+                "stroke",
+                "color",
+                "stop-color",
+                "flood-color",
+                "lighting-color",
+            ]
+            .contains(&prop)
             {
                 result.push_str(&minify_color(value));
             } else {
@@ -364,9 +373,8 @@ fn minify_style_colors(style: &str) -> String {
 
 /// Remove default attribute values.
 fn remove_default_attrs(elem: &mut Element) {
-    elem.attributes.retain(|attr| {
-        !is_default_value(&elem.name.local, &attr.name.local, &attr.value)
-    });
+    elem.attributes
+        .retain(|attr| !is_default_value(&elem.name.local, &attr.name.local, &attr.value));
 
     for child in elem.child_elements_mut() {
         remove_default_attrs(child);

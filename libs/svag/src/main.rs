@@ -3,11 +3,11 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 
 use clap::Parser;
-use savage::{minify_with_options, Options};
+use svag::{Options, minify_with_options};
 
 #[derive(Parser)]
-#[command(name = "savage")]
-#[command(about = "A savage SVG minifier", long_about = None)]
+#[command(name = "svag")]
+#[command(about = "An SVG minifier", long_about = None)]
 struct Cli {
     /// Input file (use - for stdin)
     #[arg(default_value = "-")]

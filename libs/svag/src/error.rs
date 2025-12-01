@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum SavageError {
+pub enum SvagError {
     #[error("XML parsing error: {0}")]
     XmlParse(#[from] quick_xml::Error),
 

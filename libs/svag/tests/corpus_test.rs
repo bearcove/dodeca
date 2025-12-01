@@ -4,7 +4,7 @@
 use std::fs;
 use std::path::Path;
 
-use savage::{minify, parse_svg};
+use svag::{minify, parse_svg};
 
 /// Test that all corpus SVGs can be parsed and minified without errors.
 #[test]
@@ -30,24 +30,18 @@ fn test_corpus_minification() {
             let original_size = content.len();
 
             // Test parsing
-            let doc = parse_svg(&content).expect(&format!("Failed to parse {}", name));
+            let doc = parse_svg(&content).unwrap_or_else(|_| panic!("Failed to parse {}", name));
 
             // Verify root is an SVG element
-            assert!(
-                doc.root.is("svg"),
-                "{}: Root element is not <svg>",
-                name
-            );
+            assert!(doc.root.is("svg"), "{}: Root element is not <svg>", name);
 
             // Test minification
-            let minified = minify(&content).expect(&format!("Failed to minify {}", name));
+            let minified = minify(&content).unwrap_or_else(|_| panic!("Failed to minify {}", name));
             let minified_size = minified.len();
 
             // Verify minified output is valid SVG
-            let _ = parse_svg(&minified).expect(&format!(
-                "Failed to parse minified output of {}",
-                name
-            ));
+            let _ = parse_svg(&minified)
+                .unwrap_or_else(|_| panic!("Failed to parse minified output of {}", name));
 
             // Calculate savings
             let savings = if original_size > 0 {
@@ -95,9 +89,18 @@ fn test_inkscape_cleanup() {
     let minified = minify(inkscape_svg).unwrap();
 
     // Should not contain inkscape or sodipodi
-    assert!(!minified.contains("inkscape:"), "inkscape namespace not removed");
-    assert!(!minified.contains("sodipodi:"), "sodipodi namespace not removed");
-    assert!(!minified.contains("sodipodi:namedview"), "sodipodi:namedview not removed");
+    assert!(
+        !minified.contains("inkscape:"),
+        "inkscape namespace not removed"
+    );
+    assert!(
+        !minified.contains("sodipodi:"),
+        "sodipodi namespace not removed"
+    );
+    assert!(
+        !minified.contains("sodipodi:namedview"),
+        "sodipodi:namedview not removed"
+    );
 
     // Should still be valid SVG
     let doc = parse_svg(&minified).unwrap();
@@ -114,8 +117,14 @@ fn test_path_precision() {
     let minified = minify(svg).unwrap();
 
     // Should not contain high-precision numbers
-    assert!(!minified.contains("123456789"), "High precision not reduced");
-    assert!(!minified.contains("987654321"), "High precision not reduced");
+    assert!(
+        !minified.contains("123456789"),
+        "High precision not reduced"
+    );
+    assert!(
+        !minified.contains("987654321"),
+        "High precision not reduced"
+    );
 
     // Should still parse correctly
     let _ = parse_svg(&minified).unwrap();
@@ -150,11 +159,20 @@ fn test_default_removal() {
     let minified = minify(svg).unwrap();
 
     // version="1.1" should be removed
-    assert!(!minified.contains("version="), "version attribute not removed");
+    assert!(
+        !minified.contains("version="),
+        "version attribute not removed"
+    );
     // fill-opacity="1" should be removed
-    assert!(!minified.contains("fill-opacity"), "fill-opacity not removed");
+    assert!(
+        !minified.contains("fill-opacity"),
+        "fill-opacity not removed"
+    );
     // stroke-opacity="1" should be removed
-    assert!(!minified.contains("stroke-opacity"), "stroke-opacity not removed");
+    assert!(
+        !minified.contains("stroke-opacity"),
+        "stroke-opacity not removed"
+    );
     // opacity="1" should be removed
     assert!(!minified.contains("opacity="), "opacity not removed");
 }
