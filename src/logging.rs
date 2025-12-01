@@ -3,13 +3,16 @@
 //! Provides:
 //! - TUI layer that routes log events to the Activity panel
 //! - Dynamic filtering with salsa debug toggle
+//! - Slow query logging (spans >50ms)
 //! - Standard env filter for non-TUI mode
 
 use crate::tui::{LogEvent, LogLevel};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
+use std::time::Instant;
 use tracing::{Event, Level, Subscriber};
+use tracing::span::{Attributes, Id};
 use tracing_subscriber::{
     Layer,
     filter::EnvFilter,
@@ -17,6 +20,9 @@ use tracing_subscriber::{
     registry::LookupSpan,
     util::SubscriberInitExt,
 };
+
+/// Threshold for logging slow spans (in milliseconds)
+const SLOW_SPAN_THRESHOLD_MS: u128 = 50;
 
 /// A tracing layer that sends formatted events to a channel (for TUI Activity panel)
 pub struct TuiLayer {
@@ -40,10 +46,37 @@ impl TuiLayer {
     }
 }
 
+/// Extension data stored with each span for timing
+struct SpanTiming {
+    start: Instant,
+}
+
 impl<S> Layer<S> for TuiLayer
 where
     S: Subscriber + for<'a> LookupSpan<'a>,
 {
+    fn on_new_span(&self, _attrs: &Attributes<'_>, id: &Id, ctx: Context<'_, S>) {
+        if let Some(span) = ctx.span(id) {
+            span.extensions_mut().insert(SpanTiming { start: Instant::now() });
+        }
+    }
+
+    fn on_close(&self, id: Id, ctx: Context<'_, S>) {
+        if let Some(span) = ctx.span(&id) {
+            let extensions = span.extensions();
+            if let Some(timing) = extensions.get::<SpanTiming>() {
+                let elapsed_ms = timing.start.elapsed().as_millis();
+                if elapsed_ms >= SLOW_SPAN_THRESHOLD_MS {
+                    let name = span.name();
+                    let _ = self.tx.send(LogEvent {
+                        level: LogLevel::Warn,
+                        message: format!("slow query: {} took {}ms", name, elapsed_ms),
+                    });
+                }
+            }
+        }
+    }
+
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
         let metadata = event.metadata();
         let level = *metadata.level();

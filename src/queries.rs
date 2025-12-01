@@ -62,6 +62,7 @@ pub struct CompiledCss(pub String);
 /// Compile SASS to CSS - tracked by Salsa for dependency tracking
 /// Returns None if compilation fails
 #[salsa::tracked]
+#[tracing::instrument(skip_all, name = "compile_sass")]
 pub fn compile_sass<'db>(db: &'db dyn Db, registry: SassRegistry<'db>) -> Option<CompiledCss> {
     // Load all sass files - creates dependency on each
     let sass_map = load_all_sass(db, registry);
@@ -255,6 +256,7 @@ fn find_parent_section(route: &Route, sections: &BTreeMap<Route, Section>) -> Ro
 /// Render a single page to HTML
 /// This tracked query depends on the page content, templates, and site tree
 #[salsa::tracked]
+#[tracing::instrument(skip_all, name = "render_page")]
 pub fn render_page<'db>(
     db: &'db dyn Db,
     route: Route,
@@ -283,6 +285,7 @@ pub fn render_page<'db>(
 /// Render a single section to HTML
 /// This tracked query depends on the section content, templates, and site tree
 #[salsa::tracked]
+#[tracing::instrument(skip_all, name = "render_section")]
 pub fn render_section<'db>(
     db: &'db dyn Db,
     route: Route,
@@ -350,6 +353,7 @@ pub fn load_all_static<'db>(
 /// Subset a font file to only include specified characters
 /// Returns WOFF2 compressed bytes, or None if subsetting fails
 #[salsa::tracked]
+#[tracing::instrument(skip_all, name = "subset_font")]
 pub fn subset_font<'db>(
     db: &'db dyn Db,
     font_file: StaticFile,
@@ -377,6 +381,7 @@ pub fn subset_font<'db>(
 /// Process an image file into responsive formats (JXL + WebP) with multiple widths
 /// Returns None if the image cannot be processed or is not a supported format
 #[salsa::tracked]
+#[tracing::instrument(skip_all, name = "process_image")]
 pub fn process_image(db: &dyn Db, image_file: StaticFile) -> Option<ProcessedImages> {
     let path = image_file.path(db);
     let input_format = InputFormat::from_extension(path.as_str())?;
@@ -784,6 +789,7 @@ pub fn css_output<'db>(
 /// Serve a single page or section with full URL rewriting and minification
 /// This is the main entry point for lazy page serving
 #[salsa::tracked]
+#[tracing::instrument(skip_all, name = "serve_html")]
 pub fn serve_html<'db>(
     db: &'db dyn Db,
     route: Route,
