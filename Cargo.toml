@@ -2,7 +2,7 @@
 name = "dodeca"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 authors = ["Amos Wenger <amos@bearcove.eu>"]
 license = "MIT OR Apache-2.0"
 description = "A fully incremental static site generator"
