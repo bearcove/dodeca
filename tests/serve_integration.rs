@@ -24,10 +24,10 @@ fn wait_for_server(port: u16, timeout: Duration) -> bool {
     let client = reqwest::blocking::Client::new();
 
     while start.elapsed() < timeout {
-        if let Ok(resp) = client.get(format!("http://127.0.0.1:{}/", port)).send() {
-            if resp.status().is_success() {
-                return true;
-            }
+        if let Ok(resp) = client.get(format!("http://127.0.0.1:{}/", port)).send()
+            && resp.status().is_success()
+        {
+            return true;
         }
         std::thread::sleep(Duration::from_millis(100));
     }
@@ -78,8 +78,9 @@ fn test_all_pages_accessible() {
         }
     }
 
-    // Kill the server
+    // Kill the server and wait to avoid zombie process
     server.kill().ok();
+    server.wait().ok();
 
     // Report all failures at once
     if !failures.is_empty() {

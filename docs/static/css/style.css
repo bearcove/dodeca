@@ -135,6 +135,11 @@ article a:hover {
     text-decoration: underline;
 }
 
+article img {
+    max-width: 100%;
+    height: auto;
+}
+
 article code {
     font-family: "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
     font-size: 0.9em;
