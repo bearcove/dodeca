@@ -397,10 +397,13 @@ pub fn transform_images_to_picture(
                 extra_attrs.push_str(&format!(" decoding={quote}async{quote}"));
             }
             if !has_style {
-                // Add thumbhash placeholder as background
+                // Add thumbhash placeholder as background, cleared on load
                 extra_attrs.push_str(&format!(
-                    " style={quote}background:url({}) center/cover no-repeat{quote}",
+                    " style={quote}background:url({}) 50%/cover no-repeat{quote}",
                     info.thumbhash_data_url
+                ));
+                extra_attrs.push_str(&format!(
+                    " onload={quote}this.style.background='none'{quote}"
                 ));
             }
 
