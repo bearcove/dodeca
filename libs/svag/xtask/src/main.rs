@@ -287,7 +287,10 @@ fn run_svgo_batch(corpus_dir: &Path) -> Option<SvgoResults> {
         .ok()?;
 
     if !output.status.success() {
-        eprintln!("svgo batch failed: {}", String::from_utf8_lossy(&output.stderr));
+        eprintln!(
+            "svgo batch failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         return None;
     }
 
@@ -345,7 +348,10 @@ fn run_svag_bench(corpus_dir: &Path) -> Option<SvagBenchResult> {
         .ok()?;
 
     if !output.status.success() {
-        eprintln!("svag bench failed: {}", String::from_utf8_lossy(&output.stderr));
+        eprintln!(
+            "svag bench failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         return None;
     }
 
@@ -386,15 +392,20 @@ fn cmd_readme() {
     }
 
     let svag = svag_results.unwrap();
-    let svgo_time_ms = svgo_results.as_ref().map(|r| r.total_time_ms).unwrap_or(0.0);
+    let svgo_time_ms = svgo_results
+        .as_ref()
+        .map(|r| r.total_time_ms)
+        .unwrap_or(0.0);
 
     // Calculate svgo totals from file results
     let (svgo_original, svgo_minified) = svgo_results
         .as_ref()
         .map(|r| {
-            r.files.iter().fold((0usize, 0usize), |(orig, mini), (_, o, m)| {
-                (orig + o, mini + m)
-            })
+            r.files
+                .iter()
+                .fold((0usize, 0usize), |(orig, mini), (_, o, m)| {
+                    (orig + o, mini + m)
+                })
         })
         .unwrap_or((svag.original, svag.original));
 
@@ -402,7 +413,10 @@ fn cmd_readme() {
     let svgo_saved = svgo_original.saturating_sub(svgo_minified);
 
     println!("\n--- Results ---");
-    println!("Files: {} (svag: {} success, {} failed)", svag.files, svag.success, svag.failed);
+    println!(
+        "Files: {} (svag: {} success, {} failed)",
+        svag.files, svag.success, svag.failed
+    );
     println!(
         "Original: {} | svag: {} ({}, saved {}) | svgo: {} ({}, saved {})",
         format_bytes(svag.original),
