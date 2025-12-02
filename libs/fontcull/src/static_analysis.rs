@@ -723,3 +723,288 @@ mod tests {
         assert_eq!(rules[2].font_family, "Inter");
     }
 }
+
+#[cfg(test)]
+mod unicode_tests {
+    use super::*;
+
+    #[test]
+    fn test_css_var_with_unicode_variable_name() {
+        let css = r#"
+            :root {
+                --日本語: 'Noto Sans JP';
+            }
+            body {
+                font-family: var(--日本語);
+            }
+        "#;
+        
+        let vars = parse_css_custom_properties(css);
+        assert_eq!(vars.get("--日本語"), Some(&"'Noto Sans JP'".to_string()));
+        
+        let rules = parse_font_family_rules_with_vars(css, &vars);
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].font_family, "Noto Sans JP");
+    }
+
+    #[test] 
+    fn test_css_var_with_unicode_in_value() {
+        let css = r#"
+            :root {
+                --font: '日本語フォント', sans-serif;
+            }
+            body {
+                font-family: var(--font);
+            }
+        "#;
+        
+        let vars = parse_css_custom_properties(css);
+        let rules = parse_font_family_rules_with_vars(css, &vars);
+        assert_eq!(rules[0].font_family, "日本語フォント");
+    }
+
+    #[test]
+    fn test_css_var_unicode_before_var() {
+        // Unicode content before var() in the same property value
+        let css = r#"
+            :root {
+                --font: 'Test';
+            }
+            body {
+                font-family: var(--font);
+            }
+        "#;
+        
+        let vars = parse_css_custom_properties(css);
+        let rules = parse_font_family_rules_with_vars(css, &vars);
+        assert_eq!(rules[0].font_family, "Test");
+    }
+
+    #[test]
+    fn test_css_var_with_emoji() {
+        let css = r#"
+            :root {
+                --emoji-font: '🎉 Party Font';
+            }
+            body {
+                font-family: var(--emoji-font);
+            }
+        "#;
+        
+        let vars = parse_css_custom_properties(css);
+        let rules = parse_font_family_rules_with_vars(css, &vars);
+        assert_eq!(rules[0].font_family, "🎉 Party Font");
+    }
+
+    #[test]
+    fn test_css_var_fallback_with_unicode() {
+        let css = r#"
+            body {
+                font-family: var(--undefined, '日本語フォント');
+            }
+        "#;
+        
+        let vars = parse_css_custom_properties(css);
+        let rules = parse_font_family_rules_with_vars(css, &vars);
+        assert_eq!(rules[0].font_family, "日本語フォント");
+    }
+
+    #[test]
+    fn test_css_var_nested_with_unicode() {
+        let css = r#"
+            :root {
+                --base: '日本語';
+                --full: var(--base), sans-serif;
+            }
+            body {
+                font-family: var(--full);
+            }
+        "#;
+        
+        let vars = parse_css_custom_properties(css);
+        let rules = parse_font_family_rules_with_vars(css, &vars);
+        assert_eq!(rules[0].font_family, "日本語");
+    }
+
+    #[test]
+    fn test_unicode_selector() {
+        let css = r#"
+            .日本語-class {
+                font-family: 'Test Font';
+            }
+        "#;
+        
+        let rules = parse_font_family_rules_with_vars(css, &HashMap::new());
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].selector, ".日本語-class");
+        assert_eq!(rules[0].font_family, "Test Font");
+    }
+
+    #[test]
+    fn test_unicode_in_font_face() {
+        let css = r#"
+            @font-face {
+                font-family: '日本語フォント';
+                src: url('/fonts/japanese.woff2');
+            }
+        "#;
+        
+        let faces = parse_font_face_rules(css);
+        assert_eq!(faces.len(), 1);
+        assert_eq!(faces[0].family, "日本語フォント");
+    }
+
+    #[test]
+    fn test_mixed_unicode_and_ascii_complex() {
+        let css = r#"
+            :root {
+                --primary: 'Helvetica';
+                --日本語: 'Noto Sans JP';
+                --combined: var(--primary), var(--日本語), sans-serif;
+            }
+            .my-class {
+                font-family: var(--combined);
+            }
+        "#;
+        
+        let vars = parse_css_custom_properties(css);
+        assert_eq!(vars.get("--primary"), Some(&"'Helvetica'".to_string()));
+        assert_eq!(vars.get("--日本語"), Some(&"'Noto Sans JP'".to_string()));
+        
+        let rules = parse_font_family_rules_with_vars(css, &vars);
+        assert_eq!(rules[0].font_family, "Helvetica");
+    }
+
+    #[test]
+    fn test_collect_chars_with_unicode_content() {
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    :root { --font: 'TestFont'; }
+                    body { font-family: var(--font); }
+                </style>
+            </head>
+            <body>
+                <p>日本語テキスト</p>
+            </body>
+            </html>
+        "#;
+        
+        let css = extract_css_from_html(html);
+        let chars = collect_chars_per_font(html, &css);
+        
+        assert!(chars.contains_key("TestFont"));
+        let font_chars = &chars["TestFont"];
+        assert!(font_chars.contains(&'日'));
+        assert!(font_chars.contains(&'本'));
+        assert!(font_chars.contains(&'語'));
+    }
+
+    #[test]
+    fn test_analyze_fonts_unicode_everywhere() {
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    @font-face {
+                        font-family: '日本語フォント';
+                        src: url('/fonts/jp.woff2');
+                    }
+                    :root {
+                        --jp-font: '日本語フォント', sans-serif;
+                    }
+                    body {
+                        font-family: var(--jp-font);
+                    }
+                </style>
+            </head>
+            <body>
+                <p>こんにちは世界</p>
+            </body>
+            </html>
+        "#;
+        
+        let css = extract_css_from_html(html);
+        let analysis = analyze_fonts(html, &css);
+        
+        // Font face should be parsed
+        assert_eq!(analysis.font_faces.len(), 1);
+        assert_eq!(analysis.font_faces[0].family, "日本語フォント");
+        
+        // Characters should be collected
+        assert!(analysis.chars_per_font.contains_key("日本語フォント"));
+        let chars = &analysis.chars_per_font["日本語フォント"];
+        assert!(chars.contains(&'こ'));
+        assert!(chars.contains(&'世'));
+        assert!(chars.contains(&'界'));
+    }
+
+    #[test]
+    fn test_var_immediately_after_unicode() {
+        // Edge case: var() immediately after multi-byte chars
+        let value = "日本語var(--test)";
+        let mut vars = HashMap::new();
+        vars.insert("--test".to_string(), "'Result'".to_string());
+        
+        let resolved = resolve_css_var(value, &vars);
+        assert_eq!(resolved, "日本語'Result'");
+    }
+
+    #[test]
+    fn test_var_between_unicode() {
+        let value = "前var(--mid)後";
+        let mut vars = HashMap::new();
+        vars.insert("--mid".to_string(), "中".to_string());
+        
+        let resolved = resolve_css_var(value, &vars);
+        assert_eq!(resolved, "前中後");
+    }
+
+    #[test]
+    fn test_multiple_vars_with_unicode() {
+        let value = "var(--a)日本語var(--b)";
+        let mut vars = HashMap::new();
+        vars.insert("--a".to_string(), "前".to_string());
+        vars.insert("--b".to_string(), "後".to_string());
+        
+        let resolved = resolve_css_var(value, &vars);
+        assert_eq!(resolved, "前日本語後");
+    }
+
+    #[test]
+    fn test_four_byte_unicode() {
+        // Test with 4-byte UTF-8 characters (emoji, etc.)
+        let css = r#"
+            :root {
+                --emoji: '😀🎉🚀';
+            }
+            body {
+                font-family: var(--emoji);
+            }
+        "#;
+        
+        let vars = parse_css_custom_properties(css);
+        assert_eq!(vars.get("--emoji"), Some(&"'😀🎉🚀'".to_string()));
+        
+        let rules = parse_font_family_rules_with_vars(css, &vars);
+        assert_eq!(rules[0].font_family, "😀🎉🚀");
+    }
+
+    #[test]
+    fn test_zalgo_text() {
+        // Test with combining characters (Zalgo-style text)
+        let css = r#"
+            :root {
+                --zalgo: 'H̷e̶l̵l̴o̷';
+            }
+            body {
+                font-family: var(--zalgo);
+            }
+        "#;
+        
+        let vars = parse_css_custom_properties(css);
+        let rules = parse_font_family_rules_with_vars(css, &vars);
+        assert_eq!(rules[0].font_family, "H̷e̶l̵l̴o̷");
+    }
+}
