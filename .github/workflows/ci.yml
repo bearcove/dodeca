@@ -13,8 +13,19 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Build livereload WASM
+        run: wasm-pack build --target web crates/livereload-client
+
+      - name: Build plugins
+        run: cargo build -p dodeca-webp -p dodeca-jxl
 
       - name: Check
         run: cargo check --all-features
@@ -25,8 +36,19 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Build livereload WASM
+        run: wasm-pack build --target web crates/livereload-client
+
+      - name: Build plugins
+        run: cargo build -p dodeca-webp -p dodeca-jxl
 
       - name: Check
         run: cargo check --all-features
@@ -37,8 +59,19 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Build livereload WASM
+        run: wasm-pack build --target web crates/livereload-client
+
+      - name: Build plugins
+        run: cargo build -p dodeca-webp -p dodeca-jxl
 
       - name: Check
         run: cargo check --all-features
@@ -53,8 +86,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Build livereload WASM
+        run: wasm-pack build --target web crates/livereload-client
+
+      - name: Build plugins
+        run: cargo build -p dodeca-webp -p dodeca-jxl
 
       - name: Install SARIF tools
         run: cargo install clippy-sarif sarif-fmt
@@ -79,8 +122,19 @@ jobs:
       - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Build livereload WASM
+        run: wasm-pack build --target web crates/livereload-client
+
+      - name: Build plugins
+        run: cargo build -p dodeca-webp -p dodeca-jxl
 
       - name: Run tests
         run: cargo test --all-features
