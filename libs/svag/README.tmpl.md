@@ -89,14 +89,19 @@ Test corpus: {{ file_count }} SVG files ({{ total.original }} total)
 | **Bytes saved** | {{ total.svag_saved }} | {{ total.svgo_saved }} |
 | **Processing time** | {{ total.svag_time }} | {{ total.svgo_time }} |
 
-[svgo](https://github.com/svg/svgo) is a mature, battle-tested Node.js SVG optimizer. Timing measured with svgo loaded as a library (not CLI) for fair comparison.
+<details>
+<summary>Methodology</summary>
 
-To regenerate these benchmarks:
+The test corpus includes SVGs from the [W3C SVG 1.1 Test Suite](https://www.w3.org/Graphics/SVG/Test/20110816/), [KDE Oxygen Icons](https://github.com/nickshanks/oxvg), and [Wikimedia Commons](https://commons.wikimedia.org/). Duplicates are removed by content hash.
 
-```bash
-npm install svgo  # for comparison
-cargo xtask readme
-```
+Both tools run in parallel using all available CPU cores:
+- **svag**: Rust with [rayon](https://docs.rs/rayon), release build
+- **svgo**: Node.js with [worker_threads](https://nodejs.org/api/worker_threads.html)
+
+Timing is wall-clock time for processing all files. This avoids penalizing svgo for Node.js startup overhead.
+</details>
+
+To regenerate: `npm install svgo && cargo xtask fetch-corpus && cargo xtask readme`
 
 ## FAQ
 
