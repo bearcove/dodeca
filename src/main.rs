@@ -1370,6 +1370,10 @@ async fn serve_plain(
                         } else if path.starts_with(&static_dir_for_watcher) {
                             if let Ok(relative) = path.strip_prefix(&static_dir_for_watcher) {
                                 if let Ok(content) = fs::read(path) {
+                                    // Skip empty files (transient state during git operations)
+                                    if content.is_empty() {
+                                        continue;
+                                    }
                                     let mut db = server_for_watcher.db.lock().unwrap();
                                     let static_files = server_for_watcher.static_files.read().unwrap();
                                     let relative_str = relative.to_string();
@@ -1949,6 +1953,10 @@ async fn serve_with_tui(
                                     // Static file changed (CSS, fonts, images, etc.)
                                     if let Ok(relative) = path.strip_prefix(&static_dir_for_watcher) {
                                         if let Ok(content) = fs::read(path) {
+                                            // Skip empty files (transient state during git operations)
+                                            if content.is_empty() {
+                                                continue;
+                                            }
                                             let mut db = server_for_watcher.db.lock().unwrap();
                                             let static_files =
                                                 server_for_watcher.static_files.read().unwrap();
