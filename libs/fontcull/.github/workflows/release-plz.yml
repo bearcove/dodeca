@@ -13,7 +13,7 @@ permissions:
 jobs:
   release-plz-release:
     name: Release
-    runs-on: depot-ubuntu-24.04-4
+    runs-on: depot-ubuntu-24.04-16
     environment: release
     steps:
       - name: Checkout repository
@@ -38,7 +38,7 @@ jobs:
 
   release-plz-pr:
     name: Release PR
-    runs-on: depot-ubuntu-24.04-4
+    runs-on: depot-ubuntu-24.04-16
     concurrency:
       group: release-plz-${{ github.ref }}
       cancel-in-progress: false

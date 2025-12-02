@@ -44,3 +44,39 @@ cargo install --git https://github.com/bearcove/fontcull
 ```
 
 Requires Chrome/Chromium installed (uses your system browser, no specific version needed).
+
+## Library usage
+
+fontcull can also be used as a library for font subsetting:
+
+```rust
+use fontcull::{subset_font_to_woff2, analyze_fonts, extract_css_from_html};
+use std::collections::HashSet;
+
+// Direct subsetting with known characters
+let font_data = std::fs::read("font.ttf").unwrap();
+let chars: HashSet<char> = "Hello World".chars().collect();
+let woff2 = subset_font_to_woff2(&font_data, &chars).unwrap();
+
+// Or analyze HTML/CSS to find which characters are used (requires `static-analysis` feature)
+let html = r#"<html><style>body { font-family: "MyFont"; }</style><body>Hello</body></html>"#;
+let css = extract_css_from_html(html);
+let analysis = analyze_fonts(html, &css);
+```
+
+### Features
+
+- `klippa` (default): Pure Rust font subsetting
+- `static-analysis`: Static HTML/CSS parsing for font usage detection
+- `browser` (default): Browser-based glyph extraction for CLI
+
+## Sponsors
+
+<p> <a href="https://depot.dev?utm_source=fontcull">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="https://github.com/facet-rs/facet/raw/main/static/sponsors-v3/depot-dark.svg">
+<img src="https://github.com/facet-rs/facet/raw/main/static/sponsors-v3/depot-light.svg" height="40" alt="Depot">
+</picture>
+</a> </p>
+
+...without whom this work could not exist.

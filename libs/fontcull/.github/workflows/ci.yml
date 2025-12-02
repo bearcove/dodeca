@@ -12,7 +12,7 @@ env:
 
 jobs:
   test-linux:
-    runs-on: depot-ubuntu-24.04-4
+    runs-on: depot-ubuntu-24.04-16
     steps:
       - uses: actions/checkout@v4
 
@@ -51,7 +51,7 @@ jobs:
         run: cargo nextest run --lib
 
   clippy:
-    runs-on: depot-ubuntu-24.04-4
+    runs-on: depot-ubuntu-24.04-16
     steps:
       - uses: actions/checkout@v4
 
@@ -67,7 +67,7 @@ jobs:
         run: cargo clippy -p fontcull --all-targets
 
   fmt:
-    runs-on: depot-ubuntu-24.04-4
+    runs-on: depot-ubuntu-24.04-16
     steps:
       - uses: actions/checkout@v4
 
@@ -80,7 +80,7 @@ jobs:
         run: cargo fmt --all -- --check
 
   docs:
-    runs-on: depot-ubuntu-24.04-4
+    runs-on: depot-ubuntu-24.04-16
     steps:
       - uses: actions/checkout@v4
 
