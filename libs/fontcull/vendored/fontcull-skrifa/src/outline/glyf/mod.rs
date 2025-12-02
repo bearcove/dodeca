@@ -1340,7 +1340,8 @@ mod tests {
 
     #[test]
     fn empty_glyph_advance() {
-        let font = FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
+        let font =
+            FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
         let outlines = Outlines::new(&font).unwrap();
         let coords = [F2Dot14::from_f32(0.5)];
         let ppem = Some(24.0);
@@ -1358,7 +1359,8 @@ mod tests {
 
     #[test]
     fn empty_glyphs_have_phantom_points_too() {
-        let font = FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
+        let font =
+            FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
         let outlines = Outlines::new(&font).unwrap();
         let gid = font.charmap().map(' ').unwrap();
         let outline = outlines.outline(gid).unwrap();

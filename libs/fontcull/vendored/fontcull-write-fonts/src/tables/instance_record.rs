@@ -33,7 +33,10 @@ impl Validate for InstanceRecord {
 }
 
 impl<'a> FromObjRef<fontcull_read_fonts::tables::fvar::InstanceRecord<'a>> for InstanceRecord {
-    fn from_obj_ref(from: &fontcull_read_fonts::tables::fvar::InstanceRecord<'a>, _data: FontData) -> Self {
+    fn from_obj_ref(
+        from: &fontcull_read_fonts::tables::fvar::InstanceRecord<'a>,
+        _data: FontData,
+    ) -> Self {
         InstanceRecord {
             subfamily_name_id: from.subfamily_name_id,
             flags: from.flags,

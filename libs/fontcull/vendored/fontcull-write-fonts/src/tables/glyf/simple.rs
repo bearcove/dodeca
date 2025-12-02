@@ -6,8 +6,8 @@ use crate::{
     FontWrite, OtRound,
 };
 
-use kurbo::BezPath;
 use fontcull_read_fonts::{tables::glyf::SimpleGlyphFlags, FontRead};
+use kurbo::BezPath;
 
 pub use fontcull_read_fonts::tables::glyf::CurvePoint;
 
@@ -258,7 +258,9 @@ impl FromObjRef<fontcull_read_fonts::tables::glyf::SimpleGlyph<'_>> for SimpleGl
 impl FromTableRef<fontcull_read_fonts::tables::glyf::SimpleGlyph<'_>> for SimpleGlyph {}
 
 impl<'a> FontRead<'a> for SimpleGlyph {
-    fn read(data: fontcull_read_fonts::FontData<'a>) -> Result<Self, fontcull_read_fonts::ReadError> {
+    fn read(
+        data: fontcull_read_fonts::FontData<'a>,
+    ) -> Result<Self, fontcull_read_fonts::ReadError> {
         fontcull_read_fonts::tables::glyf::SimpleGlyph::read(data).map(|g| g.to_owned_table())
     }
 }
@@ -621,15 +623,19 @@ fn simple_glyphs_from_kurbo(paths: &[BezPath]) -> Result<Vec<SimpleGlyph>, Malfo
 #[cfg(test)]
 mod tests {
     use fontcull_font_types::GlyphId;
-    use kurbo::Affine;
     use fontcull_read_fonts::{tables::glyf as read_glyf, FontRef, TableProvider};
+    use kurbo::Affine;
 
     use super::*;
 
     // For `indexToLocFormat == 0` (short version), offset divided by 2 is stored, so add a padding
     // byte if the length is not even to ensure our computed bytes match those of our test glyphs.
-    fn pad_for_loca_format(loca: &fontcull_read_fonts::tables::loca::Loca, mut bytes: Vec<u8>) -> Vec<u8> {
-        if matches!(loca, fontcull_read_fonts::tables::loca::Loca::Short(_)) && bytes.len() & 1 != 0 {
+    fn pad_for_loca_format(
+        loca: &fontcull_read_fonts::tables::loca::Loca,
+        mut bytes: Vec<u8>,
+    ) -> Vec<u8> {
+        if matches!(loca, fontcull_read_fonts::tables::loca::Loca::Short(_)) && bytes.len() & 1 != 0
+        {
             bytes.push(0);
         }
         bytes
@@ -738,7 +744,8 @@ mod tests {
 
         let glyph = SimpleGlyph::from_bezpath(&path).unwrap();
         let bytes = crate::dump_table(&glyph).unwrap();
-        let read = fontcull_read_fonts::tables::glyf::SimpleGlyph::read(bytes.as_slice().into()).unwrap();
+        let read =
+            fontcull_read_fonts::tables::glyf::SimpleGlyph::read(bytes.as_slice().into()).unwrap();
         assert_eq!(read.number_of_contours(), 1);
         assert_eq!(read.num_points(), 6);
         assert_eq!(read.end_pts_of_contours(), &[5]);
@@ -778,7 +785,8 @@ mod tests {
             let glyph = SimpleGlyph::from_bezpath(path).unwrap();
             let bytes = crate::dump_table(&glyph).unwrap();
             let read =
-                fontcull_read_fonts::tables::glyf::SimpleGlyph::read(bytes.as_slice().into()).unwrap();
+                fontcull_read_fonts::tables::glyf::SimpleGlyph::read(bytes.as_slice().into())
+                    .unwrap();
             assert_eq!(read.number_of_contours(), 1);
             assert_eq!(read.num_points(), 5);
             assert_eq!(read.end_pts_of_contours(), &[4]);
@@ -806,7 +814,8 @@ mod tests {
 
         let glyph = SimpleGlyph::from_bezpath(&path).unwrap();
         let bytes = crate::dump_table(&glyph).unwrap();
-        let read = fontcull_read_fonts::tables::glyf::SimpleGlyph::read(bytes.as_slice().into()).unwrap();
+        let read =
+            fontcull_read_fonts::tables::glyf::SimpleGlyph::read(bytes.as_slice().into()).unwrap();
         assert_eq!(read.number_of_contours(), 2);
         assert_eq!(read.num_points(), 2);
         assert_eq!(read.end_pts_of_contours(), &[0, 1]);
@@ -836,7 +845,8 @@ mod tests {
 
         assert_eq!(r_flags.len(), 2, "{r_flags:?}");
         let bytes = crate::dump_table(&glyph).unwrap();
-        let read = fontcull_read_fonts::tables::glyf::SimpleGlyph::read(bytes.as_slice().into()).unwrap();
+        let read =
+            fontcull_read_fonts::tables::glyf::SimpleGlyph::read(bytes.as_slice().into()).unwrap();
         assert_eq!(read.number_of_contours(), 1);
         assert_eq!(read.num_points(), 4);
         assert_eq!(read.end_pts_of_contours(), &[3]);

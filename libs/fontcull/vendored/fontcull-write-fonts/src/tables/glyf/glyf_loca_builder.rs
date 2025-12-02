@@ -98,8 +98,8 @@ mod tests {
     use super::super::{Anchor, Component, ComponentFlags, Transform};
     use crate::from_obj::FromTableRef;
     use fontcull_font_types::GlyphId;
-    use kurbo::{BezPath, Shape};
     use fontcull_read_fonts::FontRead;
+    use kurbo::{BezPath, Shape};
 
     use super::*;
 
@@ -160,7 +160,8 @@ mod tests {
         assert_eq!(loca.offsets.len(), 5);
         assert_eq!(loca.offsets, &[0, 0, len1, len1 + len2, len1 + len2 + len3]);
 
-        let rglyf = fontcull_read_fonts::tables::glyf::Glyf::read(glyf.0.as_slice().into()).unwrap();
+        let rglyf =
+            fontcull_read_fonts::tables::glyf::Glyf::read(glyf.0.as_slice().into()).unwrap();
         let loca_bytes = crate::dump_table(&loca).unwrap();
         let rloca = fontcull_read_fonts::tables::loca::Loca::read(
             loca_bytes.as_slice().into(),

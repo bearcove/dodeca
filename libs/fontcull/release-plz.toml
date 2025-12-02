@@ -1,0 +1,11 @@
+# Release-plz configuration
+# See https://release-plz.ieni.dev/docs/config
+
+[workspace]
+# Only publish the main fontcull crate, not vendored dependencies
+members_to_release = ["fontcull"]
+
+[[package]]
+name = "fontcull"
+# Generate changelog
+changelog_update = true

@@ -915,23 +915,24 @@ mod tests {
 
     #[test]
     fn composite_glyph_overlapping_contour_flag() {
-        let gids_components_with_overlap: Vec<_> = all_glyphs(fontcull_font_test_data::VAZIRMATN_VAR)
-            .enumerate()
-            .filter_map(|(gid, glyph)| match glyph {
-                Some(Glyph::Composite(glyph)) => Some((gid, glyph)),
-                _ => None,
-            })
-            .flat_map(|(gid, glyph)| {
-                glyph
-                    .components()
-                    .enumerate()
-                    .filter_map(move |(comp_ix, comp)| {
-                        comp.flags
-                            .contains(CompositeGlyphFlags::OVERLAP_COMPOUND)
-                            .then_some((gid, comp_ix))
-                    })
-            })
-            .collect();
+        let gids_components_with_overlap: Vec<_> =
+            all_glyphs(fontcull_font_test_data::VAZIRMATN_VAR)
+                .enumerate()
+                .filter_map(|(gid, glyph)| match glyph {
+                    Some(Glyph::Composite(glyph)) => Some((gid, glyph)),
+                    _ => None,
+                })
+                .flat_map(|(gid, glyph)| {
+                    glyph
+                        .components()
+                        .enumerate()
+                        .filter_map(move |(comp_ix, comp)| {
+                            comp.flags
+                                .contains(CompositeGlyphFlags::OVERLAP_COMPOUND)
+                                .then_some((gid, comp_ix))
+                        })
+                })
+                .collect();
         // Only GID 2, component 1 has the overlap bit set
         let expected_gids_components_with_overlap = vec![(2, 1)];
         assert_eq!(

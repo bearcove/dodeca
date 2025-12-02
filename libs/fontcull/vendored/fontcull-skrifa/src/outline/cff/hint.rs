@@ -1111,7 +1111,9 @@ fn midpoint(a: Fixed, b: Fixed) -> Fixed {
 
 #[cfg(test)]
 mod tests {
-    use fontcull_read_fonts::{tables::postscript::charstring::CommandSink, types::F2Dot14, FontRef};
+    use fontcull_read_fonts::{
+        tables::postscript::charstring::CommandSink, types::F2Dot14, FontRef,
+    };
 
     use super::{
         BlueZone, Blues, Fixed, Hint, HintMap, HintMask, HintParams, HintState, HintingSink,

@@ -1060,7 +1060,8 @@ mod tests {
         use Entry::*;
         let private_dict_data = &fontcull_font_test_data::cff2::EXAMPLE[0x4f..=0xc0];
         let store =
-            ItemVariationStore::read(FontData::new(&fontcull_font_test_data::cff2::EXAMPLE[18..])).unwrap();
+            ItemVariationStore::read(FontData::new(&fontcull_font_test_data::cff2::EXAMPLE[18..]))
+                .unwrap();
         let coords = &[F2Dot14::from_f32(0.0)];
         let blend_state = BlendState::new(store, coords, 0).unwrap();
         let entries: Vec<_> = entries(private_dict_data, Some(blend_state))

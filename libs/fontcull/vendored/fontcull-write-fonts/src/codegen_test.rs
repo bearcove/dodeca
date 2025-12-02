@@ -88,7 +88,9 @@ mod offsets_arrays {
         }
     }
 
-    impl FromObjRef<fontcull_read_fonts::codegen_test::offsets_arrays::VarSizeDummy<'_>> for VarSizeDummy {
+    impl FromObjRef<fontcull_read_fonts::codegen_test::offsets_arrays::VarSizeDummy<'_>>
+        for VarSizeDummy
+    {
         fn from_obj_ref(
             from: &fontcull_read_fonts::codegen_test::offsets_arrays::VarSizeDummy,
             _: FontData,

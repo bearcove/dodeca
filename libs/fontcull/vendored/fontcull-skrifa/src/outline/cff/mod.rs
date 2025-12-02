@@ -3,8 +3,6 @@
 mod hint;
 
 use super::{GlyphHMetrics, OutlinePen};
-use hint::{HintParams, HintState, HintingSink};
-use raw::{tables::postscript::dict::normalize_font_matrix, FontRef};
 use fontcull_read_fonts::{
     tables::{
         postscript::{
@@ -16,6 +14,8 @@ use fontcull_read_fonts::{
     types::{F2Dot14, Fixed, GlyphId},
     FontData, FontRead, ReadError, TableProvider,
 };
+use hint::{HintParams, HintState, HintingSink};
+use raw::{tables::postscript::dict::normalize_font_matrix, FontRef};
 use std::ops::Range;
 
 /// Type for loading, scaling and hinting outlines in CFF/CFF2 tables.
@@ -989,8 +989,8 @@ mod tests {
     };
     use dict::Blues;
     use fontcull_font_test_data::bebuffer::BeBuffer;
-    use raw::tables::cff2::Cff2;
     use fontcull_read_fonts::FontRef;
+    use raw::tables::cff2::Cff2;
 
     #[test]
     fn unscaled_scaling_sink_produces_integers() {
@@ -1227,7 +1227,8 @@ mod tests {
     fn capture_family_other_blues() {
         let private_dict_data = &fontcull_font_test_data::cff2::EXAMPLE[0x4f..=0xc0];
         let store =
-            ItemVariationStore::read(FontData::new(&fontcull_font_test_data::cff2::EXAMPLE[18..])).unwrap();
+            ItemVariationStore::read(FontData::new(&fontcull_font_test_data::cff2::EXAMPLE[18..]))
+                .unwrap();
         let coords = &[F2Dot14::from_f32(0.0)];
         let blend_state = BlendState::new(store, coords, 0).unwrap();
         let private_dict = PrivateDict::new(

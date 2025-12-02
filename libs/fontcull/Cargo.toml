@@ -20,13 +20,23 @@ repository = "https://github.com/fasterthanlime/fontcull"
 keywords = ["font", "subset", "woff2", "web", "glyphhanger"]
 categories = ["command-line-utilities", "web-programming"]
 
+[[bin]]
+name = "fontcull"
+path = "src/main.rs"
+required-features = ["browser"]
+
+[lib]
+name = "fontcull"
+path = "src/lib.rs"
+
 [features]
-default = ["klippa"]
+default = ["klippa", "browser"]
 klippa = ["dep:fontcull-klippa", "dep:fontcull-skrifa", "dep:fontcull-write-fonts", "dep:fontcull-read-fonts", "dep:woff"]
+static-analysis = ["dep:scraper"]
+browser = ["dep:chromiumoxide", "dep:tokio", "dep:serde_json", "dep:futures"]
 
 [dependencies]
-chromiumoxide = { version = "0.7", features = ["tokio-runtime"] }
-tokio = { version = "1", features = ["full"] }
+# CLI dependencies (always needed for binary)
 clap = { version = "4", features = ["derive"] }
 glob = "0.3"
 eyre = "0.6"
@@ -34,9 +44,16 @@ color-eyre = "0.6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-futures = "0.3"
 url = "2"
+
+# Browser-based extraction (optional)
+chromiumoxide = { version = "0.7", features = ["tokio-runtime"], optional = true }
+tokio = { version = "1", features = ["full"], optional = true }
+serde_json = { version = "1", optional = true }
+futures = { version = "0.3", optional = true }
+
+# Static HTML/CSS analysis (optional)
+scraper = { version = "0.24", optional = true }
 
 # klippa backend (optional, vendored from googlefonts/fontations)
 fontcull-klippa = { version = "0.1.0", path = "vendored/fontcull-klippa", optional = true }

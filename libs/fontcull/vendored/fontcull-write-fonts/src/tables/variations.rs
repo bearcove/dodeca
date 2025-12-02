@@ -489,9 +489,10 @@ mod tests {
 
         let bytes = crate::dump_table(&thing).unwrap();
         assert_eq!(thing.compute_size() as usize, bytes.len());
-        let (read, _) = fontcull_read_fonts::tables::variations::PackedPointNumbers::split_off_front(
-            FontData::new(&bytes),
-        );
+        let (read, _) =
+            fontcull_read_fonts::tables::variations::PackedPointNumbers::split_off_front(
+                FontData::new(&bytes),
+            );
         assert_eq!(thing.as_slice(), read.iter().collect::<Vec<_>>());
     }
 
@@ -537,9 +538,10 @@ mod tests {
 
         let bytes = crate::dump_table(&thing).unwrap();
         assert_eq!(thing.compute_size() as usize, bytes.len());
-        let (read, _) = fontcull_read_fonts::tables::variations::PackedPointNumbers::split_off_front(
-            FontData::new(&bytes),
-        );
+        let (read, _) =
+            fontcull_read_fonts::tables::variations::PackedPointNumbers::split_off_front(
+                FontData::new(&bytes),
+            );
         assert_eq!(thing.as_slice(), read.iter().collect::<Vec<_>>());
     }
 
@@ -549,9 +551,10 @@ mod tests {
 
         let bytes = crate::dump_table(&thing).unwrap();
         assert_eq!(thing.compute_size() as usize, bytes.len());
-        let (read, _) = fontcull_read_fonts::tables::variations::PackedPointNumbers::split_off_front(
-            FontData::new(&bytes),
-        );
+        let (read, _) =
+            fontcull_read_fonts::tables::variations::PackedPointNumbers::split_off_front(
+                FontData::new(&bytes),
+            );
         assert_eq!(thing.as_slice(), read.iter().collect::<Vec<_>>());
     }
 
@@ -579,7 +582,9 @@ mod tests {
         let deltas = PackedDeltas::new(vec![10, -105, 0, -58, 0, 0, 0, 0, 0, 0, 0, 0, 4130, -1228]);
         let bytes = crate::dump_table(&deltas).unwrap();
         assert_eq!(bytes, PACKED_DELTA_BYTES);
-        let read = fontcull_read_fonts::tables::variations::PackedDeltas::consume_all(FontData::new(&bytes));
+        let read = fontcull_read_fonts::tables::variations::PackedDeltas::consume_all(
+            FontData::new(&bytes),
+        );
         let decoded = read.iter().collect::<Vec<_>>();
         assert_eq!(deltas.deltas.len(), decoded.len());
         assert_eq!(deltas.deltas, decoded);
@@ -735,9 +740,10 @@ mod tests {
 
         // make sure we get the same mapping back after round-tripping to/from bytes
         let raw_dsim = crate::dump_table(&dsim).unwrap();
-        let dsim2 =
-            fontcull_read_fonts::tables::variations::DeltaSetIndexMap::read(FontData::new(&raw_dsim))
-                .unwrap();
+        let dsim2 = fontcull_read_fonts::tables::variations::DeltaSetIndexMap::read(FontData::new(
+            &raw_dsim,
+        ))
+        .unwrap();
         assert_eq!(
             (0..mapping.len())
                 .map(|i| {

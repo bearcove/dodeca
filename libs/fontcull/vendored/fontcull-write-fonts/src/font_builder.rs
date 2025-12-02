@@ -323,7 +323,10 @@ mod tests {
             builder.add_raw(tag, data);
         }
         let font_data = builder.build();
-        assert_eq!(fontcull_read_fonts::tables::compute_checksum(&font_data), 0xB1B0AFBA);
+        assert_eq!(
+            fontcull_read_fonts::tables::compute_checksum(&font_data),
+            0xB1B0AFBA
+        );
     }
 
     #[test]

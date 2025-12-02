@@ -335,7 +335,8 @@ mod tests {
 
     #[test]
     fn post_glyph_names() {
-        let font = FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
+        let font =
+            FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
         let names = GlyphNames::new(&font);
         let expected_names = [
             ".notdef",
@@ -368,7 +369,8 @@ mod tests {
 
     #[test]
     fn post_glyph_names_partial() {
-        let font = FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
+        let font =
+            FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
         let mut names = GlyphNames::new(&font);
         let Inner::Post(_, len) = &mut names.inner else {
             panic!("it's a post table!");

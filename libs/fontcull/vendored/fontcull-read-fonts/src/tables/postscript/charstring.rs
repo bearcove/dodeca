@@ -770,7 +770,8 @@ mod tests {
         let charstring = &fontcull_font_test_data::cff2::EXAMPLE[0xc8..=0xe1];
         let empty_index_bytes = [0u8; 8];
         let store =
-            ItemVariationStore::read(FontData::new(&fontcull_font_test_data::cff2::EXAMPLE[18..])).unwrap();
+            ItemVariationStore::read(FontData::new(&fontcull_font_test_data::cff2::EXAMPLE[18..]))
+                .unwrap();
         let global_subrs = Index::new(&empty_index_bytes, true).unwrap();
         let coords = &[F2Dot14::from_f32(0.0)];
         let blend_state = BlendState::new(store, coords, 0).unwrap();

@@ -1314,7 +1314,8 @@ mod tests {
         for _ in 0..10 {
             let table = Gvar::new(variations.clone(), 1).unwrap();
             let bytes = crate::dump_table(&table).unwrap();
-            let gvar = fontcull_read_fonts::tables::gvar::Gvar::read(FontData::new(&bytes)).unwrap();
+            let gvar =
+                fontcull_read_fonts::tables::gvar::Gvar::read(FontData::new(&bytes)).unwrap();
 
             assert_eq!(gvar.shared_tuple_count(), 2);
             assert_eq!(

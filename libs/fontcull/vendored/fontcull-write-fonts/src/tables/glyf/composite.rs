@@ -87,7 +87,9 @@ impl FromObjRef<fontcull_read_fonts::tables::glyf::CompositeGlyph<'_>> for Compo
 impl FromTableRef<fontcull_read_fonts::tables::glyf::CompositeGlyph<'_>> for CompositeGlyph {}
 
 impl<'a> FontRead<'a> for CompositeGlyph {
-    fn read(data: fontcull_read_fonts::FontData<'a>) -> Result<Self, fontcull_read_fonts::ReadError> {
+    fn read(
+        data: fontcull_read_fonts::FontData<'a>,
+    ) -> Result<Self, fontcull_read_fonts::ReadError> {
         fontcull_read_fonts::tables::glyf::CompositeGlyph::read(data).map(|g| g.to_owned_table())
     }
 }
@@ -331,7 +333,8 @@ mod tests {
         composite._instructions = orig.instructions().unwrap_or_default().to_vec();
         assert!(iter.next().is_none());
         let bytes = crate::dump_table(&composite).unwrap();
-        let ours = fontcull_read_fonts::tables::glyf::CompositeGlyph::read(FontData::new(&bytes)).unwrap();
+        let ours =
+            fontcull_read_fonts::tables::glyf::CompositeGlyph::read(FontData::new(&bytes)).unwrap();
 
         let our_comps = ours.components().collect::<Vec<_>>();
         let orig_comps = orig.components().collect::<Vec<_>>();

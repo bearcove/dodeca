@@ -566,8 +566,8 @@ mod tests {
         MetadataProvider,
     };
 
-    use raw::tables::cpal;
     use fontcull_read_fonts::{types::BoundingBox, FontRef};
+    use raw::tables::cpal;
 
     use super::{Brush, ColorPainter, CompositeMode, GlyphId, Transform};
     use crate::color::traversal_tests::test_glyph_defs::{COLORED_CIRCLES_V0, COLORED_CIRCLES_V1};

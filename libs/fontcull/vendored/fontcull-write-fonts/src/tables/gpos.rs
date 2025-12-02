@@ -75,7 +75,8 @@ impl<'a> FontRead<'a> for PositionLookup {
 
 impl<'a> FontRead<'a> for PositionLookupList {
     fn read(data: FontData<'a>) -> Result<Self, ReadError> {
-        fontcull_read_fonts::tables::gpos::PositionLookupList::read(data).map(|x| x.to_owned_table())
+        fontcull_read_fonts::tables::gpos::PositionLookupList::read(data)
+            .map(|x| x.to_owned_table())
     }
 }
 

@@ -2,7 +2,6 @@
 use crate::serialize::Serializer;
 use crate::SubsetFlags;
 use crate::{Plan, Subset, SubsetError};
-use std::cmp::Ordering;
 use fontcull_write_fonts::{
     read::{
         collections::IntSet,
@@ -11,6 +10,7 @@ use fontcull_write_fonts::{
     },
     FontBuilder,
 };
+use std::cmp::Ordering;
 
 // reference: subset() for OS/2 in harfbuzz
 // https://github.com/harfbuzz/harfbuzz/blob/a070f9ebbe88dc71b248af9731dd49ec93f4e6e6/src/hb-ot-os2-table.hh#L229

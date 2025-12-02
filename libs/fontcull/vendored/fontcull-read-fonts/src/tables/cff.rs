@@ -204,7 +204,10 @@ mod tests {
 
     #[test]
     fn icons_glyph_names() {
-        test_glyph_names(fontcull_font_test_data::MATERIAL_ICONS_SUBSET, &[".notdef", "_10k"]);
+        test_glyph_names(
+            fontcull_font_test_data::MATERIAL_ICONS_SUBSET,
+            &[".notdef", "_10k"],
+        );
     }
 
     fn test_glyph_names(font_data: &[u8], expected_names: &[&str]) {
