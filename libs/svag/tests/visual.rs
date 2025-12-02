@@ -107,7 +107,10 @@ async fn render_svg(browser: &Browser, svg: &str, width: u32, height: u32) -> Rg
     img.to_rgb8()
 }
 
-async fn run_visual_tests(browser: &Browser, test_cases: &[(&str, String)]) -> Vec<(String, f64, bool)> {
+async fn run_visual_tests(
+    browser: &Browser,
+    test_cases: &[(&str, String)],
+) -> Vec<(String, f64, bool)> {
     let output_dir = Path::new(TEST_OUTPUT_DIR);
     fs::create_dir_all(output_dir).unwrap();
 
@@ -192,33 +195,38 @@ async fn test_visual_regression() {
             "simple_rect",
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
                 <rect x="10" y="10" width="80" height="80" fill="red"/>
-            </svg>"#.to_string(),
+            </svg>"#
+                .to_string(),
         ),
         (
             "circle_with_stroke",
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
                 <circle cx="50" cy="50" r="40" fill="blue" stroke="black" stroke-width="2"/>
-            </svg>"#.to_string(),
+            </svg>"#
+                .to_string(),
         ),
         (
             "path_triangle",
             r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
                 <path d="M 50 10 L 90 90 L 10 90 Z" fill="#00ff00"/>
-            </svg>"##.to_string(),
+            </svg>"##
+                .to_string(),
         ),
         (
             "cubic_bezier",
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
                 <path d="M 10 80 C 40 10, 65 10, 95 80 S 150 150, 180 80"
                       fill="none" stroke="black" stroke-width="2"/>
-            </svg>"#.to_string(),
+            </svg>"#
+                .to_string(),
         ),
         (
             "arcs",
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
                 <path d="M 50 100 A 50 50 0 1 1 150 100 A 50 50 0 1 1 50 100"
                       fill="purple"/>
-            </svg>"#.to_string(),
+            </svg>"#
+                .to_string(),
         ),
     ];
 
@@ -239,13 +247,21 @@ async fn test_visual_regression() {
 
         for entry in &entries {
             if let Ok(content) = fs::read_to_string(entry.path()) {
-                let name = entry.path().file_stem().unwrap().to_string_lossy().to_string();
+                let name = entry
+                    .path()
+                    .file_stem()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
                 corpus_cases.push((Box::leak(name.into_boxed_str()), content));
             }
         }
     }
 
-    println!("\n=== Visual Regression Tests (corpus: {} files) ===", corpus_cases.len());
+    println!(
+        "\n=== Visual Regression Tests (corpus: {} files) ===",
+        corpus_cases.len()
+    );
     let corpus_results = run_visual_tests(&browser, &corpus_cases).await;
 
     // Cleanup
@@ -254,12 +270,19 @@ async fn test_visual_regression() {
 
     // Check results
     let all_results: Vec<_> = inline_results.iter().chain(corpus_results.iter()).collect();
-    let failed: Vec<_> = all_results.iter().filter(|(_, _, passed)| !passed).collect();
+    let failed: Vec<_> = all_results
+        .iter()
+        .filter(|(_, _, passed)| !passed)
+        .collect();
 
     if failed.is_empty() {
         println!("\n=== All {} visual tests passed! ===\n", all_results.len());
     } else {
-        println!("\n=== {} of {} tests failed ===", failed.len(), all_results.len());
+        println!(
+            "\n=== {} of {} tests failed ===",
+            failed.len(),
+            all_results.len()
+        );
         for (name, ssim, _) in &failed {
             println!("  FAIL: {} (SSIM = {:.6})", name, ssim);
         }

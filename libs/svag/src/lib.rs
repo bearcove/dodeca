@@ -4,6 +4,7 @@
 
 mod ast;
 mod error;
+mod fonts;
 mod optimize;
 mod parse;
 mod path;
@@ -11,6 +12,7 @@ mod serialize;
 
 pub use ast::*;
 pub use error::*;
+pub use fonts::*;
 pub use optimize::*;
 pub use parse::*;
 pub use serialize::*;
