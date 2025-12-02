@@ -3,6 +3,8 @@
 //! Based on https://github.com/enkia/tokyo-night-vscode-theme
 //!
 //! Use the `TokyoNight` extension trait for semantic styling:
+
+#![allow(dead_code)] // Theme palette - not all colors used yet
 //! ```ignore
 //! use crate::theme::TokyoNight;
 //! Span::raw("/path/to/file").tn_path()

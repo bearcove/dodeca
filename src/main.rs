@@ -8,7 +8,7 @@ mod html_diff;
 mod image;
 mod link_checker;
 mod logging;
-mod og;
+mod plugins;
 mod queries;
 mod render;
 mod search;
@@ -243,11 +243,11 @@ async fn main() -> Result<()> {
                 cleared.push(format!(".cache/ ({})", format_bytes(size)));
             }
 
-            // Remove CAS database
+            // Remove CAS database (canopydb is a directory)
             if cas_db.exists() {
-                let size = fs::metadata(&cas_db)?.len() as usize;
-                fs::remove_file(&cas_db)?;
-                cleared.push(format!(".dodeca.db ({})", format_bytes(size)));
+                let size = dir_size(&cas_db);
+                fs::remove_dir_all(&cas_db)?;
+                cleared.push(format!(".dodeca.db/ ({})", format_bytes(size)));
             }
 
             if cleared.is_empty() {
@@ -643,9 +643,9 @@ pub fn build(
     let cas_path = base_dir.join(".dodeca.db");
     let store = cas::ContentStore::open(&cas_path)?;
 
-    // Initialize image cache for processed images
+    // Initialize asset cache (processed images, OG images, etc.)
     let cache_dir = base_dir.join(".cache");
-    cas::init_image_cache(cache_dir.as_std_path())?;
+    cas::init_asset_cache(cache_dir.as_std_path())?;
 
     // Create query stats for tracking
     let query_stats = QueryStats::new();
@@ -860,6 +860,9 @@ fn build_with_mini_tui(
     use std::io::{self, IsTerminal};
     use std::time::Instant;
 
+    // Initialize tracing (respects RUST_LOG)
+    logging::init_standard_tracing();
+
     let start = Instant::now();
     let is_terminal = io::stdout().is_terminal();
 
@@ -868,9 +871,9 @@ fn build_with_mini_tui(
     let cas_path = base_dir.join(".dodeca.db");
     let store = cas::ContentStore::open(&cas_path)?;
 
-    // Initialize image cache for processed images
+    // Initialize asset cache (processed images, OG images, etc.)
     let cache_dir = base_dir.join(".cache");
-    cas::init_image_cache(cache_dir.as_std_path())?;
+    cas::init_asset_cache(cache_dir.as_std_path())?;
 
     // Create query stats
     let query_stats = QueryStats::new();
@@ -1145,6 +1148,9 @@ fn build_with_mini_tui(
         crossterm::execute!(io::stdout(), cursor::Show)?;
     }
 
+    // Calculate output directory size
+    let output_size = dir_size(output_dir);
+
     // Print final summary
     let elapsed = start.elapsed();
     println!(
@@ -1158,16 +1164,17 @@ fn build_with_mini_tui(
         search_files.len()
     );
     println!(
-        "{} {} internal, {} external links",
+        "{} {} internal, {} external checked",
         "Links".green().bold(),
         link_result.internal_links,
         link_result.external_checked
     );
     println!(
-        "{} in {:.2}s → {}",
+        "{} in {:.2}s → {} ({})",
         "Done".green().bold(),
         elapsed.as_secs_f64(),
-        output_dir.cyan()
+        output_dir.cyan(),
+        format_bytes(output_size)
     );
 
     Ok(())
@@ -1184,10 +1191,10 @@ async fn serve_plain(
     use std::sync::Arc;
     use tokio::sync::watch;
 
-    // Initialize image cache for processed images
+    // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
     let cache_dir = parent_dir.join(".cache");
-    cas::init_image_cache(cache_dir.as_std_path())?;
+    cas::init_asset_cache(cache_dir.as_std_path())?;
 
     let render_options = render::RenderOptions {
         livereload: true, // Enable live reload in plain mode too
@@ -1682,10 +1689,10 @@ async fn serve_with_tui(
     use std::sync::mpsc;
     use tokio::sync::watch;
 
-    // Initialize image cache for processed images
+    // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
     let cache_dir = parent_dir.join(".cache");
-    cas::init_image_cache(cache_dir.as_std_path())?;
+    cas::init_asset_cache(cache_dir.as_std_path())?;
 
     // Create channels
     let (progress_tx, progress_rx) = tui::progress_channel();

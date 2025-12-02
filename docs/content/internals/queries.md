@@ -18,5 +18,3 @@ Every computation is a Salsa query. Queries are memoized and track dependencies 
 **Fonts**: `font_char_analysis` (find used chars) → `subset_font`.
 
 **Assets**: `optimize_svg`, `static_file_output` (cache-busted).
-
-**OG images**: `render_og_image` (PNG via Typst).

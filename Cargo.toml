@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/livereload-client", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "xtask"]
+members = [".", "crates/livereload-client", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "xtask"]
 
 [package]
 name = "dodeca"
@@ -102,7 +102,6 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 # Misc
 camino = "1"  # UTF-8 paths
 base64 = "0.22"  # For encoding thumbhash data URLs
-shellexpand = "3"  # Tilde expansion for font paths
 aliri_braid = "0.4"  # Strongly-typed string wrappers
 regex = "1"  # For HTML heading extraction
 url = "2"  # URL parsing for domain extraction
@@ -115,18 +114,13 @@ oxc = { version = "0.100", features = ["full"] }  # JS parser/minifier
 # Font subsetting (static analysis + klippa backend)
 fontcull = { version = "1.0.4", default-features = false, features = ["klippa", "static-analysis"] }
 
-# OG image generation (Typst → SVG/PNG)
-typst = "0.14"
-typst-svg = "0.14"
-typst-render = "0.14"
-
-# Image processing (responsive images: JXL + WebP)
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "gif"] }
-webp = "0.3"
-jxl-oxide = "0.12"
-jpegxl-rs = { version = "0.11", features = ["vendored"] }  # Builds libjxl from source
+# Image processing (decode common formats, encode via plugins)
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif"] }
 rgb = "0.8"
 thumbhash = "0.1"  # Compact image placeholders (~28 bytes)
+
+# Plugin system for image encoding/decoding (WebP, JXL via plugins)
+plugcard = { path = "crates/plugcard" }
 
 # HTML minification
 minify-html = "0.18"

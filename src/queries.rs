@@ -1,8 +1,8 @@
 use crate::db::{
-    AllRenderedHtml, CharSet, CssOutput, Db, Heading, ImageVariant, OgImageOutput, OgTemplateFile,
-    OutputFile, Page, ParsedData, ProcessedImages, RenderedHtml, SassFile, SassRegistry, Section,
-    SiteOutput, SiteTree, SourceFile, SourceRegistry, StaticFile, StaticFileOutput, StaticRegistry,
-    TemplateFile, TemplateRegistry,
+    AllRenderedHtml, CharSet, CssOutput, Db, Heading, ImageVariant, OutputFile, Page, ParsedData,
+    ProcessedImages, RenderedHtml, SassFile, SassRegistry, Section, SiteOutput, SiteTree,
+    SourceFile, SourceRegistry, StaticFile, StaticFileOutput, StaticRegistry, TemplateFile,
+    TemplateRegistry,
 };
 use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
@@ -650,36 +650,6 @@ pub fn build_site<'db>(
         });
     }
 
-    // --- Phase 6b: Generate OG images for all pages and sections ---
-    // OG images are placed at /og/<route-slug>.svg and /og/<route-slug>.png
-    for section in site_tree.sections.values() {
-        if let Some(og) = render_og_image(db, section.title.clone(), None, None) {
-            let route_slug = route_to_og_slug(&section.route);
-            files.push(OutputFile::Static {
-                path: StaticPath::new(format!("og/{route_slug}.svg")),
-                content: og.svg.into_bytes(),
-            });
-            files.push(OutputFile::Static {
-                path: StaticPath::new(format!("og/{route_slug}.png")),
-                content: og.png,
-            });
-        }
-    }
-
-    for page in site_tree.pages.values() {
-        if let Some(og) = render_og_image(db, page.title.clone(), None, None) {
-            let route_slug = route_to_og_slug(&page.route);
-            files.push(OutputFile::Static {
-                path: StaticPath::new(format!("og/{route_slug}.svg")),
-                content: og.svg.into_bytes(),
-            });
-            files.push(OutputFile::Static {
-                path: StaticPath::new(format!("og/{route_slug}.png")),
-                content: og.png,
-            });
-        }
-    }
-
     // --- Phase 7: Add CSS and static files to output ---
     if let (Some(path), Some(content)) = (css_path, css_final) {
         files.push(OutputFile::Css {
@@ -992,21 +962,6 @@ pub fn serve_html<'db>(
     Some(final_html)
 }
 
-/// Convert a route to a slug for OG image filenames
-///
-/// Examples:
-/// - "/" -> "index"
-/// - "/learn/" -> "learn"
-/// - "/learn/page/" -> "learn-page"
-fn route_to_og_slug(route: &Route) -> String {
-    let trimmed = route.as_str().trim_matches('/');
-    if trimmed.is_empty() {
-        "index".to_string()
-    } else {
-        trimmed.replace('/', "-")
-    }
-}
-
 /// Check if a path is a font file
 fn is_font_file(path: &str) -> bool {
     let lower = path.to_lowercase();
@@ -1219,45 +1174,6 @@ fn inject_heading_ids(html: &str, headings: &[Heading]) -> String {
     }
 
     result
-}
-
-/// Render an OG image for a page/section
-///
-/// This query is tracked by Salsa for caching. If the title and template
-/// haven't changed, the cached image is returned.
-#[salsa::tracked]
-pub fn render_og_image(
-    db: &dyn Db,
-    title: Title,
-    description: Option<String>,
-    template: Option<OgTemplateFile>,
-) -> Option<OgImageOutput> {
-    use crate::og;
-    use std::collections::HashMap;
-
-    // Get template content (use provided or default)
-    let template_content = template
-        .map(|t| t.content(db).clone())
-        .unwrap_or_else(|| og::DEFAULT_TEMPLATE.to_string());
-
-    // Build variables for the template
-    let mut vars = HashMap::new();
-    vars.insert("title".to_string(), title.as_str().to_string());
-    if let Some(desc) = description {
-        vars.insert("description".to_string(), desc);
-    }
-
-    // Render the OG image
-    match og::render_og_image(&template_content, &vars) {
-        Ok(image) => Some(OgImageOutput {
-            svg: image.svg,
-            png: image.png,
-        }),
-        Err(e) => {
-            tracing::warn!("Failed to render OG image for '{}': {}", title.as_str(), e);
-            None
-        }
-    }
 }
 
 /// Resolve Zola-style @/ internal links to URL paths

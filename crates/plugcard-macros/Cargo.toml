@@ -5,7 +5,10 @@ edition = "2024"
 rust-version = "1.85"
 description = "Proc macros for plugcard plugin system"
 license = "MIT OR Apache-2.0"
-publish = false
+repository = "https://github.com/bearcove/plugcard"
+homepage = "https://github.com/bearcove/plugcard"
+keywords = ["plugin", "ffi", "proc-macro"]
+categories = ["development-tools::procedural-macro-helpers"]
 
 [lib]
 proc-macro = true

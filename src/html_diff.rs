@@ -9,6 +9,8 @@
 //!
 //! The client (Rust/WASM) applies patches directly to the DOM.
 
+#![allow(dead_code)] // Some functions reserved for future use
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

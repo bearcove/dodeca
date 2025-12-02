@@ -15,8 +15,8 @@ use std::hash::Hasher;
 use std::path::Path;
 use std::sync::OnceLock;
 
-// Global image cache instance
-static IMAGE_CACHE: OnceLock<Database> = OnceLock::new();
+// Global asset cache instance (images, OG images, etc.)
+static ASSET_CACHE: OnceLock<Database> = OnceLock::new();
 
 /// Content-addressed storage for build outputs
 pub struct ContentStore {
@@ -82,20 +82,20 @@ impl ContentStore {
 }
 
 // ============================================================================
-// Image Cache (global, for processed images)
+// Asset Cache (global, for processed images, OG images, etc.)
 // ============================================================================
 
-/// Initialize the global image cache
-pub fn init_image_cache(cache_dir: &Path) -> color_eyre::Result<()> {
+/// Initialize the global asset cache
+pub fn init_asset_cache(cache_dir: &Path) -> color_eyre::Result<()> {
     // canopydb stores data in a directory, not a single file
-    let db_path = cache_dir.join("images.canopy");
+    let db_path = cache_dir.join("assets.canopy");
 
     // Ensure the database directory exists
     fs::create_dir_all(&db_path)?;
 
     let db = Database::new(&db_path)?;
-    let _ = IMAGE_CACHE.set(db);
-    tracing::info!("Image cache initialized at {:?}", db_path);
+    let _ = ASSET_CACHE.set(db);
+    tracing::info!("Asset cache initialized at {:?}", db_path);
     Ok(())
 }
 
@@ -163,7 +163,7 @@ pub fn content_hash_32(data: &[u8]) -> InputHash {
 
 /// Get cached processed images by input content hash
 pub fn get_cached_image(content_hash: &InputHash) -> Option<ProcessedImages> {
-    let db = IMAGE_CACHE.get()?;
+    let db = ASSET_CACHE.get()?;
     let rx = db.begin_read().ok()?;
     let tree = rx.get_tree(b"processed").ok()??;
     let data = tree.get(&content_hash.0).ok()??;
@@ -172,7 +172,7 @@ pub fn get_cached_image(content_hash: &InputHash) -> Option<ProcessedImages> {
 
 /// Store processed images by input content hash
 pub fn put_cached_image(content_hash: &InputHash, images: &ProcessedImages) {
-    let Some(db) = IMAGE_CACHE.get() else { return };
+    let Some(db) = ASSET_CACHE.get() else { return };
     let Ok(data) = postcard::to_allocvec(images) else { return };
 
     let Ok(tx) = db.begin_write() else { return };

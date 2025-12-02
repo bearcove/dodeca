@@ -1,7 +1,54 @@
-//! Plugcard: Dynamic library plugin system with serialized method calls
+//! Plugcard: Dynamic library plugin system with serialized method calls.
 //!
-//! Inspired by postcard-rpc, this provides a way to load plugins as dynamic
-//! libraries and call methods using serialized data across the FFI boundary.
+//! # Overview
+//!
+//! Plugcard provides a way to define plugin interfaces using regular Rust functions,
+//! then load and call those functions across dynamic library boundaries. It uses
+//! [postcard] for serialization and [postcard_schema] for introspection.
+//!
+//! # Defining a plugin
+//!
+//! ```rust,ignore
+//! use plugcard::plugcard;
+//!
+//! #[plugcard]
+//! pub fn greet(name: String) -> String {
+//!     format!("Hello, {name}!")
+//! }
+//! ```
+//!
+//! The `#[plugcard]` macro generates:
+//! - A wrapper function with C ABI that handles serialization/deserialization
+//! - Registration in a global method table via [linkme]
+//! - Schema information for the input and output types
+//!
+//! # Current limitations
+//!
+//! All arguments are currently serialized via postcard, which means large buffers
+//! (like image pixel data) are copied. This is fine for small payloads but suboptimal
+//! for multi-megabyte data.
+//!
+//! # Future: Transport layer
+//!
+//! The plan is to add a transport abstraction on the caller side that can choose
+//! between different strategies based on context:
+//!
+//! - **Local transport** (same-process dylib): For `&[u8]` arguments, pass raw
+//!   pointers instead of serializing. The borrow is held for the duration of the
+//!   call, so lifetime safety is guaranteed by Rust's type system. Zero-copy.
+//!
+//! - **Remote transport** (IPC, network, WASM): Full postcard serialization.
+//!   Borrowed data is copied into the message. Higher overhead but gains isolation
+//!   (crash safety, sandboxing, cross-machine).
+//!
+//! The plugin code is identical either way—the transport layer is an adapter on
+//! the host side that speaks the right protocol for the situation. This means you
+//! could load the same plugin both ways: local for hot paths, remote for untrusted
+//! input that needs sandboxing.
+//!
+//! The key insight: for local transport, the synchronous function call *is* the
+//! lifetime scope. No capability tokens or blob stores needed—Rust's borrow checker
+//! already enforces that the caller can't free the data while the plugin is using it.
 
 use linkme::distributed_slice;
 
@@ -134,3 +181,35 @@ pub use serde;
 
 // Re-export the proc macro
 pub use plugcard_macros::plugcard;
+
+// Host-side plugin loading
+mod loader;
+pub use loader::{Plugin, PluginMethod};
+
+/// Export plugin entry points. Call this once in your plugin's lib.rs.
+///
+/// ```rust,ignore
+/// plugcard::export_plugin!();
+/// ```
+#[macro_export]
+macro_rules! export_plugin {
+    () => {
+        /// Returns pointer to the methods array
+        #[unsafe(no_mangle)]
+        pub extern "C" fn __plugcard_methods_ptr() -> *const $crate::MethodSignature {
+            $crate::list_methods().as_ptr()
+        }
+
+        /// Returns length of the methods array
+        #[unsafe(no_mangle)]
+        pub extern "C" fn __plugcard_methods_len() -> usize {
+            $crate::list_methods().len()
+        }
+
+        /// Dispatch a method call
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn __plugcard_dispatch(data: *mut $crate::MethodCallData) {
+            unsafe { $crate::dispatch(data) }
+        }
+    };
+}

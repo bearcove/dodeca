@@ -2,6 +2,8 @@
 //!
 //! Shows live progress for parallel build tasks with a clean terminal UI.
 
+#![allow(dead_code)] // Some LogEvent constructors reserved for future use
+
 use color_eyre::Result;
 use crossterm::{
     ExecutableCommand,

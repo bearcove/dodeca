@@ -265,23 +265,6 @@ pub enum ExternalLinkStatus {
     Failed(String),
 }
 
-/// Rendered OG image output (SVG + PNG)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct OgImageOutput {
-    /// SVG content (preferred format, smaller)
-    pub svg: String,
-    /// PNG content (fallback format)
-    pub png: Vec<u8>,
-}
-
-/// Input for OG template (optional - uses default if not provided)
-#[salsa::input]
-pub struct OgTemplateFile {
-    /// The Typst template content
-    #[returns(ref)]
-    pub content: String,
-}
-
 /// A single image variant (one format, one size)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ImageVariant {

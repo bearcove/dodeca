@@ -21,6 +21,4 @@ A single markdown image becomes a responsive `<picture>` with JPEG XL, WebP, and
 
 Browsers pick the best format they support. All images get `loading="lazy"`.
 
-Processed images are cached in `.cache/images.canopy`. Unchanged images skip reprocessing entirely.
-
-dodeca also generates Open Graph images for social sharing using [resvg](https://github.com/RazrFalcon/resvg), rendered from SVG templates.
+Processed images are cached in `.cache/assets.canopy`. Unchanged images skip reprocessing entirely.

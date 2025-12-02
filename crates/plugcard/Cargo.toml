@@ -5,7 +5,10 @@ edition = "2024"
 rust-version = "1.85"
 description = "Dynamic library plugin system with serialized method calls"
 license = "MIT OR Apache-2.0"
-publish = false
+repository = "https://github.com/bearcove/plugcard"
+homepage = "https://github.com/bearcove/plugcard"
+keywords = ["plugin", "ffi", "dynamic-library", "rpc"]
+categories = ["development-tools", "rust-patterns"]
 
 [dependencies]
 # Serialization
@@ -18,5 +21,8 @@ postcard-schema = { version = "0.1", features = ["derive", "alloc"] }
 # Distributed slices for method registration
 linkme = "0.3"
 
+# Dynamic library loading (for host side)
+libloading = "0.8"
+
 # Re-export the proc macro
-plugcard-macros = { path = "../plugcard-macros" }
+plugcard-macros = { path = "../plugcard-macros", version = "0.1.0" }

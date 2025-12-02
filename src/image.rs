@@ -1,8 +1,10 @@
 //! Image processing for responsive images
 //!
-//! Converts source images (PNG, JPG, GIF, WebP) to modern formats:
+//! Converts source images (PNG, JPG, GIF, WebP, JXL) to modern formats:
 //! - JPEG-XL (best compression, future-proof)
 //! - WebP (wide browser support, fallback)
+//!
+//! Encoding and decoding of WebP/JXL is done via plugins.
 //!
 //! Also generates:
 //! - Multiple width variants for srcset
@@ -10,8 +12,6 @@
 
 use base64::Engine;
 use image::{DynamicImage, ImageDecoder, ImageEncoder, Rgb, Rgba};
-use jpegxl_rs::encode::EncoderFrame;
-use jxl_oxide::JxlImage;
 use std::io::Cursor;
 
 /// Standard responsive breakpoints (in pixels)
@@ -113,13 +113,15 @@ pub fn get_dimensions(data: &[u8], format: InputFormat) -> Option<(u32, u32)> {
         InputFormat::Gif => image::codecs::gif::GifDecoder::new(cursor)
             .ok()
             .map(|d| d.dimensions()),
-        InputFormat::WebP => image::codecs::webp::WebPDecoder::new(cursor)
-            .ok()
-            .map(|d| d.dimensions()),
-        InputFormat::Jxl => JxlImage::builder()
-            .read(cursor)
-            .ok()
-            .map(|img| (img.width(), img.height())),
+        // For WebP/JXL, we need to decode via plugin to get dimensions
+        InputFormat::WebP => {
+            let decoded = crate::plugins::decode_webp_plugin(data)?;
+            Some((decoded.width, decoded.height))
+        }
+        InputFormat::Jxl => {
+            let decoded = crate::plugins::decode_jxl_plugin(data)?;
+            Some((decoded.width, decoded.height))
+        }
     }
 }
 
@@ -135,37 +137,39 @@ fn decode_image(data: &[u8], format: InputFormat) -> Option<DynamicImage> {
         InputFormat::Gif => {
             image::load_from_memory_with_format(data, image::ImageFormat::Gif).ok()
         }
-        InputFormat::WebP => {
-            image::load_from_memory_with_format(data, image::ImageFormat::WebP).ok()
-        }
-        InputFormat::Jxl => decode_jxl(data),
+        InputFormat::WebP => decode_webp_via_plugin(data),
+        InputFormat::Jxl => decode_jxl_via_plugin(data),
     }
 }
 
-/// Decode a JPEG-XL image using jxl-oxide
-fn decode_jxl(data: &[u8]) -> Option<DynamicImage> {
-    let image = JxlImage::builder().read(data).ok()?;
-    let render = image.render_frame(0).ok()?;
+/// Decode a WebP image using the plugin
+fn decode_webp_via_plugin(data: &[u8]) -> Option<DynamicImage> {
+    let decoded = crate::plugins::decode_webp_plugin(data)?;
+    pixels_to_dynamic_image(&decoded.pixels, decoded.width, decoded.height, decoded.channels)
+}
 
-    let mut stream = render.stream();
-    let num_channels = stream.channels();
-    let mut buffer = vec![0f32; (num_channels * stream.width() * stream.height()) as usize];
-    stream.write_to_buffer(&mut buffer[..]);
+/// Decode a JPEG-XL image using the plugin
+fn decode_jxl_via_plugin(data: &[u8]) -> Option<DynamicImage> {
+    let decoded = crate::plugins::decode_jxl_plugin(data)?;
+    pixels_to_dynamic_image(&decoded.pixels, decoded.width, decoded.height, decoded.channels)
+}
 
-    match num_channels {
+/// Convert raw pixels to DynamicImage
+fn pixels_to_dynamic_image(pixels: &[u8], width: u32, height: u32, channels: u8) -> Option<DynamicImage> {
+    match channels {
         3 => {
-            let img_buf = image::ImageBuffer::<Rgb<f32>, Vec<f32>>::from_raw(
-                image.width(),
-                image.height(),
-                buffer,
+            let img_buf = image::ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(
+                width,
+                height,
+                pixels.to_vec(),
             )?;
             Some(DynamicImage::from(img_buf))
         }
         4 => {
-            let img_buf = image::ImageBuffer::<Rgba<f32>, Vec<f32>>::from_raw(
-                image.width(),
-                image.height(),
-                buffer,
+            let img_buf = image::ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(
+                width,
+                height,
+                pixels.to_vec(),
             )?;
             Some(DynamicImage::from(img_buf))
         }
@@ -173,47 +177,17 @@ fn decode_jxl(data: &[u8]) -> Option<DynamicImage> {
     }
 }
 
-/// Encode an image to WebP format
+/// Encode an image to WebP format (via plugin)
 fn encode_webp(img: &DynamicImage) -> Option<Vec<u8>> {
-    // WebP encoder only supports RGBA
     let rgba = img.to_rgba8();
-    let rgba_img = DynamicImage::from(rgba);
-
-    webp::Encoder::from_image(&rgba_img)
-        .ok()?
-        .encode(82.0) // Quality: 82 (good balance of quality/size)
-        .to_vec()
-        .into()
+    crate::plugins::encode_webp_plugin(rgba.as_raw(), img.width(), img.height(), 82)
 }
 
-/// Encode an image to JPEG-XL format
+/// Encode an image to JPEG-XL format (via plugin)
 fn encode_jxl(img: &DynamicImage) -> Option<Vec<u8>> {
-    let runner = jpegxl_rs::ThreadsRunner::default();
-
-    let mut encoder = jpegxl_rs::encoder_builder()
-        .parallel_runner(&runner)
-        .quality(2.8) // Distance metric (lower = better quality, 2.8 is high quality)
-        .speed(jpegxl_rs::encode::EncoderSpeed::Squirrel) // Effort level 7
-        .build()
-        .ok()?;
-
-    if img.color().has_alpha() {
-        let rgba = img.to_rgba8();
-        encoder.has_alpha = true;
-        let frame = EncoderFrame::new(rgba.as_raw()).num_channels(4);
-        encoder
-            .encode_frame::<_, u8>(&frame, img.width(), img.height())
-            .ok()
-            .map(|r| r.data)
-    } else {
-        let rgb = img.to_rgb8();
-        encoder.has_alpha = false;
-        let frame = EncoderFrame::new(rgb.as_raw()).num_channels(3);
-        encoder
-            .encode_frame::<_, u8>(&frame, img.width(), img.height())
-            .ok()
-            .map(|r| r.data)
-    }
+    let rgba = img.to_rgba8();
+    // Quality 80 maps to distance ~3 in the plugin (high quality)
+    crate::plugins::encode_jxl_plugin(rgba.as_raw(), img.width(), img.height(), 80)
 }
 
 /// Generate a thumbhash and encode it as a data URL

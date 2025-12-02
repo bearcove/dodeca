@@ -1,0 +1,20 @@
+[package]
+name = "dodeca-jxl"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "JPEG XL encoding plugin for dodeca"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+plugcard = { path = "../plugcard" }
+linkme = "0.3"
+postcard-schema = { version = "0.1", features = ["derive", "alloc"] }
+serde = { version = "1", features = ["derive"] }
+
+# JPEG XL encoding
+jpegxl-rs = { version = "0.11", features = ["vendored"] }
