@@ -74,7 +74,7 @@ unsynn! {
 /// Mark a function as a plugcard method
 ///
 /// The function must have arguments and return type that implement
-/// `Serialize`, `Deserialize`, and `Schema`.
+/// the `Facet` trait.
 ///
 /// # Example
 /// ```ignore
@@ -141,6 +141,8 @@ fn plugcard_impl(item: proc_macro2::TokenStream) -> std::result::Result<proc_mac
     let input_type_name = format_ident!("__PlugcardInput_{}", fn_name);
     let sig_name = format_ident!("__PLUGCARD_SIG_{}", fn_name);
     let method_name_str = fn_name.to_string();
+    let input_type_name_str = format!("__PlugcardInput_{}", fn_name);
+    let output_type_name_str = return_type.to_string().replace(" ", "");
 
     // Generate input struct fields
     let input_fields: Vec<_> = args
@@ -166,9 +168,8 @@ fn plugcard_impl(item: proc_macro2::TokenStream) -> std::result::Result<proc_mac
         #vis fn #fn_name(#(#arg_names: #arg_types),*) -> #return_type
         #fn_body
 
-        // Input composite type
-        #[derive(::plugcard::serde::Serialize, ::plugcard::serde::Deserialize, ::plugcard::postcard_schema::Schema)]
-        #[serde(crate = "::plugcard::serde")]
+        // Input composite type (using Facet instead of serde)
+        #[derive(::plugcard::facet::Facet)]
         #[allow(non_camel_case_types)]
         struct #input_type_name {
             #(#input_fields),*
@@ -180,9 +181,9 @@ fn plugcard_impl(item: proc_macro2::TokenStream) -> std::result::Result<proc_mac
             unsafe {
                 let data = &mut *data;
 
-                // Deserialize input
+                // Deserialize input using facet-postcard
                 let input_slice = ::core::slice::from_raw_parts(data.input_ptr, data.input_len);
-                let input: #input_type_name = match ::plugcard::postcard::from_bytes(input_slice) {
+                let input: #input_type_name = match ::plugcard::facet_postcard::from_bytes(input_slice) {
                     Ok(v) => v,
                     Err(_) => {
                         data.result = ::plugcard::MethodCallResult::DeserializeError;
@@ -193,11 +194,11 @@ fn plugcard_impl(item: proc_macro2::TokenStream) -> std::result::Result<proc_mac
                 // Call the actual function
                 let result = #fn_name(#(input.#arg_names),*);
 
-                // Serialize output
+                // Serialize output using facet-postcard
                 let output_slice = ::core::slice::from_raw_parts_mut(data.output_ptr, data.output_cap);
-                match ::plugcard::postcard::to_slice(&result, output_slice) {
+                match ::plugcard::facet_postcard::to_slice(&result, output_slice) {
                     Ok(written) => {
-                        data.output_len = written.len();
+                        data.output_len = written;
                         data.result = ::plugcard::MethodCallResult::Success;
                     }
                     Err(_) => {
@@ -213,12 +214,12 @@ fn plugcard_impl(item: proc_macro2::TokenStream) -> std::result::Result<proc_mac
         static #sig_name: ::plugcard::MethodSignature = ::plugcard::MethodSignature {
             key: ::plugcard::compute_key(
                 #method_name_str,
-                <#input_type_name as ::plugcard::postcard_schema::Schema>::SCHEMA,
-                <#return_type as ::plugcard::postcard_schema::Schema>::SCHEMA,
+                #input_type_name_str,
+                #output_type_name_str,
             ),
             name: #method_name_str,
-            input_schema: <#input_type_name as ::plugcard::postcard_schema::Schema>::SCHEMA,
-            output_schema: <#return_type as ::plugcard::postcard_schema::Schema>::SCHEMA,
+            input_type_name: #input_type_name_str,
+            output_type_name: #output_type_name_str,
             call: #wrapper_name,
         };
     };

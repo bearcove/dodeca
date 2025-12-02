@@ -11,12 +11,9 @@ keywords = ["plugin", "ffi", "dynamic-library", "rpc"]
 categories = ["development-tools", "rust-patterns"]
 
 [dependencies]
-# Serialization
-postcard = { version = "1", features = ["alloc"] }
-serde = { version = "1", features = ["derive"] }
-
-# Schema introspection
-postcard-schema = { version = "0.1", features = ["derive", "alloc"] }
+# Serialization via facet (replacing serde + postcard)
+facet = { git = "https://github.com/facet-rs/facet" }
+facet-postcard = { git = "https://github.com/facet-rs/facet", features = ["alloc"] }
 
 # Distributed slices for method registration
 linkme = "0.3"

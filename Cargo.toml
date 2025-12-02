@@ -84,7 +84,7 @@ salsa = { version = "0.24", features = ["persistence"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
-postcard = "1"             # Fast, compact binary serialization with serde
+postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary serialization with serde
 
 # Content-addressed storage
 rapidhash = "4"

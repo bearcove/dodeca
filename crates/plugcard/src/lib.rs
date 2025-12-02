@@ -4,7 +4,7 @@
 //!
 //! Plugcard provides a way to define plugin interfaces using regular Rust functions,
 //! then load and call those functions across dynamic library boundaries. It uses
-//! [postcard] for serialization and [postcard_schema] for introspection.
+//! [facet-postcard] for serialization and [facet] for introspection.
 //!
 //! # Defining a plugin
 //!
@@ -20,7 +20,7 @@
 //! The `#[plugcard]` macro generates:
 //! - A wrapper function with C ABI that handles serialization/deserialization
 //! - Registration in a global method table via [linkme]
-//! - Schema information for the input and output types
+//! - Type name information for the input and output types
 //!
 //! # Current limitations
 //!
@@ -50,23 +50,55 @@
 //! lifetime scope. No capability tokens or blob stores needed—Rust's borrow checker
 //! already enforces that the caller can't free the data while the plugin is using it.
 
+use facet::Facet;
 use linkme::distributed_slice;
+
+/// A Result type that can be serialized with facet-postcard.
+///
+/// Use this instead of `std::result::Result<T, String>` in plugin functions
+/// since `Result` doesn't implement `Facet`.
+#[derive(Facet, Debug, Clone)]
+#[repr(u8)]
+pub enum PlugResult<T> {
+    /// Operation succeeded
+    Ok(T),
+    /// Operation failed with an error message
+    Err(String),
+}
+
+impl<T> From<Result<T, String>> for PlugResult<T> {
+    fn from(result: Result<T, String>) -> Self {
+        match result {
+            Ok(v) => PlugResult::Ok(v),
+            Err(e) => PlugResult::Err(e),
+        }
+    }
+}
+
+impl<T> From<PlugResult<T>> for Result<T, String> {
+    fn from(result: PlugResult<T>) -> Self {
+        match result {
+            PlugResult::Ok(v) => Ok(v),
+            PlugResult::Err(e) => Err(e),
+        }
+    }
+}
 
 /// Distributed slice containing all registered method signatures
 #[distributed_slice]
 pub static METHODS: [MethodSignature];
 
-/// A method signature with schema information for introspection
+/// A method signature with type information for introspection
 #[derive(Debug, Clone)]
 pub struct MethodSignature {
-    /// Unique key derived from method name and type schemas
+    /// Unique key derived from method name and type names
     pub key: u64,
     /// Human-readable method name
     pub name: &'static str,
-    /// Schema for the input type
-    pub input_schema: &'static postcard_schema::schema::NamedType,
-    /// Schema for the output type
-    pub output_schema: &'static postcard_schema::schema::NamedType,
+    /// Type name for the input type
+    pub input_type_name: &'static str,
+    /// Type name for the output type
+    pub output_type_name: &'static str,
     /// The wrapper function to call
     pub call: unsafe extern "C" fn(*mut MethodCallData),
 }
@@ -130,8 +162,8 @@ pub unsafe fn dispatch(data: *mut MethodCallData) {
     }
 }
 
-/// Compute a method key from name and schemas (const-compatible FNV-1a hash)
-pub const fn compute_key(name: &str, input_schema: &postcard_schema::schema::NamedType, output_schema: &postcard_schema::schema::NamedType) -> u64 {
+/// Compute a method key from name and type names (const-compatible FNV-1a hash)
+pub const fn compute_key(name: &str, input_type_name: &str, output_type_name: &str) -> u64 {
     // FNV-1a hash constants
     const FNV_OFFSET: u64 = 0xcbf29ce484222325;
     const FNV_PRIME: u64 = 0x100000001b3;
@@ -147,8 +179,8 @@ pub const fn compute_key(name: &str, input_schema: &postcard_schema::schema::Nam
         i += 1;
     }
 
-    // Hash input schema name
-    let input_bytes = input_schema.name.as_bytes();
+    // Hash input type name
+    let input_bytes = input_type_name.as_bytes();
     let mut i = 0;
     while i < input_bytes.len() {
         hash ^= input_bytes[i] as u64;
@@ -156,8 +188,8 @@ pub const fn compute_key(name: &str, input_schema: &postcard_schema::schema::Nam
         i += 1;
     }
 
-    // Hash output schema name
-    let output_bytes = output_schema.name.as_bytes();
+    // Hash output type name
+    let output_bytes = output_type_name.as_bytes();
     let mut i = 0;
     while i < output_bytes.len() {
         hash ^= output_bytes[i] as u64;
@@ -175,9 +207,8 @@ pub fn list_methods() -> &'static [MethodSignature] {
 
 // Re-exports for macro use
 pub use linkme;
-pub use postcard;
-pub use postcard_schema;
-pub use serde;
+pub use facet;
+pub use facet_postcard;
 
 // Re-export the proc macro
 pub use plugcard_macros::plugcard;

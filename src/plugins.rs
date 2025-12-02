@@ -3,13 +3,14 @@
 //! Plugins are loaded from dynamic libraries (.so on Linux, .dylib on macOS).
 //! Currently supports image encoding/decoding plugins (WebP, JXL).
 
-use plugcard::Plugin;
+use facet::Facet;
+use plugcard::{Plugin, PlugResult};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tracing::{debug, info, warn};
 
 /// Decoded image data returned by plugins
-#[derive(serde::Deserialize)]
+#[derive(Facet)]
 pub struct DecodedImage {
     pub pixels: Vec<u8>,
     pub width: u32,
@@ -102,8 +103,8 @@ pub fn plugins() -> &'static PluginRegistry {
 pub fn encode_webp_plugin(pixels: &[u8], width: u32, height: u32, quality: u8) -> Option<Vec<u8>> {
     let plugin = plugins().webp.as_ref()?;
 
-    // The plugin expects (Vec<u8>, u32, u32, u8) and returns Result<Vec<u8>, String>
-    #[derive(serde::Serialize)]
+    // The plugin expects (Vec<u8>, u32, u32, u8) and returns PlugResult<Vec<u8>>
+    #[derive(Facet)]
     struct Input {
         pixels: Vec<u8>,
         width: u32,
@@ -118,9 +119,9 @@ pub fn encode_webp_plugin(pixels: &[u8], width: u32, height: u32, quality: u8) -
         quality,
     };
 
-    match plugin.call::<Input, Result<Vec<u8>, String>>("encode_webp", &input) {
-        Ok(Ok(data)) => Some(data),
-        Ok(Err(e)) => {
+    match plugin.call::<Input, PlugResult<Vec<u8>>>("encode_webp", &input) {
+        Ok(PlugResult::Ok(data)) => Some(data),
+        Ok(PlugResult::Err(e)) => {
             warn!("webp plugin error: {}", e);
             None
         }
@@ -135,7 +136,7 @@ pub fn encode_webp_plugin(pixels: &[u8], width: u32, height: u32, quality: u8) -
 pub fn encode_jxl_plugin(pixels: &[u8], width: u32, height: u32, quality: u8) -> Option<Vec<u8>> {
     let plugin = plugins().jxl.as_ref()?;
 
-    #[derive(serde::Serialize)]
+    #[derive(Facet)]
     struct Input {
         pixels: Vec<u8>,
         width: u32,
@@ -150,9 +151,9 @@ pub fn encode_jxl_plugin(pixels: &[u8], width: u32, height: u32, quality: u8) ->
         quality,
     };
 
-    match plugin.call::<Input, Result<Vec<u8>, String>>("encode_jxl", &input) {
-        Ok(Ok(data)) => Some(data),
-        Ok(Err(e)) => {
+    match plugin.call::<Input, PlugResult<Vec<u8>>>("encode_jxl", &input) {
+        Ok(PlugResult::Ok(data)) => Some(data),
+        Ok(PlugResult::Err(e)) => {
             warn!("jxl plugin error: {}", e);
             None
         }
@@ -167,7 +168,7 @@ pub fn encode_jxl_plugin(pixels: &[u8], width: u32, height: u32, quality: u8) ->
 pub fn decode_webp_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().webp.as_ref()?;
 
-    #[derive(serde::Serialize)]
+    #[derive(Facet)]
     struct Input {
         data: Vec<u8>,
     }
@@ -176,9 +177,9 @@ pub fn decode_webp_plugin(data: &[u8]) -> Option<DecodedImage> {
         data: data.to_vec(),
     };
 
-    match plugin.call::<Input, Result<DecodedImage, String>>("decode_webp", &input) {
-        Ok(Ok(decoded)) => Some(decoded),
-        Ok(Err(e)) => {
+    match plugin.call::<Input, PlugResult<DecodedImage>>("decode_webp", &input) {
+        Ok(PlugResult::Ok(decoded)) => Some(decoded),
+        Ok(PlugResult::Err(e)) => {
             warn!("webp decode plugin error: {}", e);
             None
         }
@@ -193,7 +194,7 @@ pub fn decode_webp_plugin(data: &[u8]) -> Option<DecodedImage> {
 pub fn decode_jxl_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().jxl.as_ref()?;
 
-    #[derive(serde::Serialize)]
+    #[derive(Facet)]
     struct Input {
         data: Vec<u8>,
     }
@@ -202,9 +203,9 @@ pub fn decode_jxl_plugin(data: &[u8]) -> Option<DecodedImage> {
         data: data.to_vec(),
     };
 
-    match plugin.call::<Input, Result<DecodedImage, String>>("decode_jxl", &input) {
-        Ok(Ok(decoded)) => Some(decoded),
-        Ok(Err(e)) => {
+    match plugin.call::<Input, PlugResult<DecodedImage>>("decode_jxl", &input) {
+        Ok(PlugResult::Ok(decoded)) => Some(decoded),
+        Ok(PlugResult::Err(e)) => {
             warn!("jxl decode plugin error: {}", e);
             None
         }

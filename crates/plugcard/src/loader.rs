@@ -1,6 +1,7 @@
 //! Host-side plugin loading via libloading.
 
 use crate::{MethodCallData, MethodCallResult, MethodSignature};
+use facet::Facet;
 use libloading::{Library, Symbol};
 use std::path::Path;
 
@@ -119,19 +120,19 @@ impl Plugin {
     /// ```rust,ignore
     /// let result: String = plugin.call("greet", &"World".to_string())?;
     /// ```
-    pub fn call<I, O>(&self, name: &str, input: &I) -> Result<O, CallError>
+    pub fn call<'a, I, O>(&self, name: &str, input: &'a I) -> Result<O, CallError>
     where
-        I: serde::Serialize,
-        O: serde::de::DeserializeOwned,
+        I: Facet<'a>,
+        O: Facet<'static>,
     {
         let method = self.find_method(name).ok_or(CallError::UnknownMethod)?;
 
         let input_bytes =
-            crate::postcard::to_allocvec(input).map_err(|_| CallError::SerializeError)?;
+            crate::facet_postcard::to_vec(input).map_err(|_| CallError::SerializeError)?;
 
         let output_bytes = self.call_raw(method.key, &input_bytes)?;
 
-        crate::postcard::from_bytes(&output_bytes).map_err(|_| CallError::DeserializeError)
+        crate::facet_postcard::from_bytes(&output_bytes).map_err(|_| CallError::DeserializeError)
     }
 }
 
@@ -157,7 +158,7 @@ impl std::fmt::Display for CallError {
             CallError::DeserializeError => write!(f, "failed to deserialize"),
             CallError::MethodError(data) => {
                 // Try to deserialize as String for nice error messages
-                if let Ok(msg) = crate::postcard::from_bytes::<String>(data) {
+                if let Ok(msg) = crate::facet_postcard::from_bytes::<String>(data) {
                     write!(f, "method error: {msg}")
                 } else {
                     write!(f, "method error: {} bytes", data.len())

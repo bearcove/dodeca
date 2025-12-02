@@ -12,9 +12,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 plugcard = { path = "../plugcard" }
+facet = { git = "https://github.com/facet-rs/facet" }
 linkme = "0.3"
-postcard-schema = { version = "0.1", features = ["derive", "alloc"] }
-serde = { version = "1", features = ["derive"] }
 
 # WebP encoding
 webp = "0.3"
