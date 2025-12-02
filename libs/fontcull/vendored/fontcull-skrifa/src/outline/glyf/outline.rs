@@ -7,11 +7,11 @@ use super::super::{
     pen::PathStyle,
     DrawError, Hinting, OutlinePen,
 };
-use raw::tables::glyf::PointCoord;
 use fontcull_read_fonts::{
     tables::glyf::{Glyph, PointFlags},
     types::{F26Dot6, Fixed, GlyphId, Point},
 };
+use raw::tables::glyf::PointCoord;
 
 /// Maximum number of points we support in a single outline including
 /// composites.

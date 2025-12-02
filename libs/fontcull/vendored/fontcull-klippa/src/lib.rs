@@ -46,10 +46,7 @@ pub use parsing_util::{
 };
 
 use fnv::FnvHashMap;
-use serialize::SerializeErrorFlags;
-use serialize::Serializer;
 use fontcull_skrifa::MetadataProvider;
-use thiserror::Error;
 use fontcull_write_fonts::types::GlyphId;
 use fontcull_write_fonts::types::Tag;
 use fontcull_write_fonts::{
@@ -87,7 +84,12 @@ use fontcull_write_fonts::{
     },
     tables::cmap::PlatformId,
 };
-use fontcull_write_fonts::{tables::hhea::Hhea, tables::hmtx::Hmtx, tables::maxp::Maxp, FontBuilder};
+use fontcull_write_fonts::{
+    tables::hhea::Hhea, tables::hmtx::Hmtx, tables::maxp::Maxp, FontBuilder,
+};
+use serialize::SerializeErrorFlags;
+use serialize::Serializer;
+use thiserror::Error;
 
 const MAX_COMPOSITE_OPERATIONS_PER_GLYPH: u8 = 64;
 const MAX_NESTING_LEVEL: u8 = 64;

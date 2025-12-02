@@ -1,6 +1,5 @@
 use core::ops::RangeInclusive;
 
-use raw::tables::glyf::PointCoord;
 use fontcull_read_fonts::{
     tables::glyf::{PointFlags, PointMarker},
     tables::gvar::{GlyphDelta, Gvar},
@@ -8,6 +7,7 @@ use fontcull_read_fonts::{
     types::{F2Dot14, Fixed, GlyphId, Point},
     ReadError,
 };
+use raw::tables::glyf::PointCoord;
 
 use super::PHANTOM_POINT_COUNT;
 

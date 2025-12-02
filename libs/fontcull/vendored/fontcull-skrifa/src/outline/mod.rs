@@ -109,8 +109,8 @@ use super::{
     GLYF_COMPOSITE_RECURSION_LIMIT,
 };
 use core::fmt::Debug;
-use pen::PathStyle;
 use fontcull_read_fonts::{types::GlyphId, TableProvider};
+use pen::PathStyle;
 
 #[cfg(feature = "libm")]
 #[allow(unused_imports)]
@@ -699,8 +699,8 @@ pub(super) fn with_glyf_memory<R>(
 mod tests {
     use super::*;
     use crate::{instance::Location, outline::pen::SvgPen, MetadataProvider};
-    use kurbo::{Affine, BezPath, PathEl, Point};
     use fontcull_read_fonts::{types::GlyphId, FontRef, TableProvider};
+    use kurbo::{Affine, BezPath, PathEl, Point};
 
     use pretty_assertions::assert_eq;
 
@@ -710,7 +710,10 @@ mod tests {
     #[test]
     fn outline_glyph_formats() {
         let font_format_pairs = [
-            (fontcull_font_test_data::VAZIRMATN_VAR, OutlineGlyphFormat::Glyf),
+            (
+                fontcull_font_test_data::VAZIRMATN_VAR,
+                OutlineGlyphFormat::Glyf,
+            ),
             (
                 fontcull_font_test_data::CANTARELL_VF_TRIMMED,
                 OutlineGlyphFormat::Cff2,
@@ -719,7 +722,10 @@ mod tests {
                 fontcull_font_test_data::NOTO_SERIF_DISPLAY_TRIMMED,
                 OutlineGlyphFormat::Cff,
             ),
-            (fontcull_font_test_data::COLRV0V1_VARIABLE, OutlineGlyphFormat::Glyf),
+            (
+                fontcull_font_test_data::COLRV0V1_VARIABLE,
+                OutlineGlyphFormat::Glyf,
+            ),
         ];
         for (font_data, format) in font_format_pairs {
             assert_eq!(
@@ -1416,7 +1422,8 @@ mod tests {
 
     #[test]
     fn empty_glyph_advance_unhinted() {
-        let font = FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
+        let font =
+            FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
         let outlines = font.outline_glyphs();
         let coords = [NormalizedCoord::from_f32(0.5)];
         let gid = font.charmap().map(' ').unwrap();
@@ -1434,7 +1441,8 @@ mod tests {
 
     #[test]
     fn empty_glyph_advance_hinted() {
-        let font = FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
+        let font =
+            FontRef::new(fontcull_font_test_data::HVAR_WITH_TRUNCATED_ADVANCE_INDEX_MAP).unwrap();
         let outlines = font.outline_glyphs();
         let coords = [NormalizedCoord::from_f32(0.5)];
         let hinter = HintingInstance::new(

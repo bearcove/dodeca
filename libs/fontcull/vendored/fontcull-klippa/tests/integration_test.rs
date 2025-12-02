@@ -8,16 +8,16 @@
 
 use fontcull_klippa::{parse_unicodes, subset_font, Plan, SubsetFlags, DEFAULT_LAYOUT_FEATURES};
 use fontcull_skrifa::GlyphId;
+use fontcull_write_fonts::{
+    read::{collections::IntSet, FontRef},
+    types::{NameId, Tag},
+};
 use std::fmt::Write;
 use std::fs;
 use std::iter::Peekable;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use tempdir::TempDir;
-use fontcull_write_fonts::{
-    read::{collections::IntSet, FontRef},
-    types::{NameId, Tag},
-};
 
 static TEST_DATA_DIR: &str = "./test-data";
 static GEN_EXPECTED_OUTPUTS_VAR: &str = "GEN_EXPECTED_OUTPUTS";

@@ -181,8 +181,8 @@ mod tests {
         super::super::super::{SmoothMode, Target},
         Engine, HintErrorKind, MockEngine,
     };
-    use raw::types::F2Dot14;
     use fontcull_read_fonts::tables::glyf::bytecode::Opcode;
+    use raw::types::F2Dot14;
 
     #[test]
     fn getinfo() {

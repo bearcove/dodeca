@@ -7,8 +7,8 @@ use std::{
 };
 
 use fnv::{FnvHashMap, FnvHasher};
-use hashbrown::HashTable;
 use fontcull_write_fonts::types::{FixedSize, Scalar, Uint24};
+use hashbrown::HashTable;
 
 /// An error which occurred during the serialization of a table using Serializer.
 #[derive(Clone, Copy, Debug, PartialEq)]

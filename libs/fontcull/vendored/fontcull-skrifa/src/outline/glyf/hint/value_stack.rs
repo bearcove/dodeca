@@ -1,7 +1,7 @@
 //! Value stack for TrueType interpreter.
 //!
-use raw::types::F26Dot6;
 use fontcull_read_fonts::tables::glyf::bytecode::InlineOperands;
+use raw::types::F26Dot6;
 
 use super::error::HintErrorKind;
 

@@ -529,7 +529,11 @@ mod tests {
             (96, Some(("Adlam", true))),
             (97, Some(("Adlam", false))),
         ];
-        check_styles(fontcull_font_test_data::AUTOHINT_CMAP, ShaperMode::Nominal, expected);
+        check_styles(
+            fontcull_font_test_data::AUTOHINT_CMAP,
+            ShaperMode::Nominal,
+            expected,
+        );
     }
 
     #[test]

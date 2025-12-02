@@ -221,7 +221,8 @@ mod tests {
         table.name_record.sort();
 
         let _dumped = crate::dump_table(&table).unwrap();
-        let loaded = fontcull_read_fonts::tables::name::Name::read(FontData::new(&_dumped)).unwrap();
+        let loaded =
+            fontcull_read_fonts::tables::name::Name::read(FontData::new(&_dumped)).unwrap();
         assert_eq!(loaded.name_record()[0].encoding_id, 4);
         assert_eq!(loaded.name_record()[1].name_id, NameId::new(1029));
         assert_eq!(loaded.name_record()[2].name_id, NameId::new(1030));
@@ -284,10 +285,12 @@ mod tests {
         ];
 
         let raw_table =
-            fontcull_read_fonts::tables::name::Name::read(FontData::new(COLINS_BESPOKE_DATA)).unwrap();
+            fontcull_read_fonts::tables::name::Name::read(FontData::new(COLINS_BESPOKE_DATA))
+                .unwrap();
         let owned: Name = raw_table.to_owned_table();
         let dumped = crate::dump_table(&owned).unwrap();
-        let reloaded = fontcull_read_fonts::tables::name::Name::read(FontData::new(&dumped)).unwrap();
+        let reloaded =
+            fontcull_read_fonts::tables::name::Name::read(FontData::new(&dumped)).unwrap();
 
         for rec in raw_table.name_record() {
             let raw_str = rec.string(raw_table.string_data()).unwrap();

@@ -235,7 +235,10 @@ impl Validate for FeatureParams {
 }
 
 impl FromObjRef<fontcull_read_fonts::tables::layout::FeatureParams<'_>> for FeatureParams {
-    fn from_obj_ref(from: &fontcull_read_fonts::tables::layout::FeatureParams, data: FontData) -> Self {
+    fn from_obj_ref(
+        from: &fontcull_read_fonts::tables::layout::FeatureParams,
+        data: FontData,
+    ) -> Self {
         use fontcull_read_fonts::tables::layout::FeatureParams as FromType;
         match from {
             FromType::Size(thing) => Self::Size(SizeParams::from_obj_ref(thing, data)),

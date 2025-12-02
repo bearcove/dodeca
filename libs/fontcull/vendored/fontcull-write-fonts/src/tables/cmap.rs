@@ -888,7 +888,8 @@ mod tests {
     // roundtrip the mapping from read-fonts
     fn get_read_mapping(table: &super::Cmap4) -> Vec<(char, GlyphId)> {
         let bytes = dump_table(table).unwrap();
-        let readcmap = fontcull_read_fonts::tables::cmap::Cmap4::read(bytes.as_slice().into()).unwrap();
+        let readcmap =
+            fontcull_read_fonts::tables::cmap::Cmap4::read(bytes.as_slice().into()).unwrap();
 
         let mut mapping = readcmap
             .iter()

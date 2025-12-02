@@ -686,22 +686,34 @@ mod tests {
 
     #[test]
     fn mostly_off_curve_to_path_scan_backward() {
-        compare_path_conversion(fontcull_font_test_data::MOSTLY_OFF_CURVE, PathStyle::FreeType);
+        compare_path_conversion(
+            fontcull_font_test_data::MOSTLY_OFF_CURVE,
+            PathStyle::FreeType,
+        );
     }
 
     #[test]
     fn mostly_off_curve_to_path_scan_forward() {
-        compare_path_conversion(fontcull_font_test_data::MOSTLY_OFF_CURVE, PathStyle::HarfBuzz);
+        compare_path_conversion(
+            fontcull_font_test_data::MOSTLY_OFF_CURVE,
+            PathStyle::HarfBuzz,
+        );
     }
 
     #[test]
     fn starting_off_curve_to_path_scan_backward() {
-        compare_path_conversion(fontcull_font_test_data::STARTING_OFF_CURVE, PathStyle::FreeType);
+        compare_path_conversion(
+            fontcull_font_test_data::STARTING_OFF_CURVE,
+            PathStyle::FreeType,
+        );
     }
 
     #[test]
     fn starting_off_curve_to_path_scan_forward() {
-        compare_path_conversion(fontcull_font_test_data::STARTING_OFF_CURVE, PathStyle::HarfBuzz);
+        compare_path_conversion(
+            fontcull_font_test_data::STARTING_OFF_CURVE,
+            PathStyle::HarfBuzz,
+        );
     }
 
     #[test]
@@ -716,12 +728,18 @@ mod tests {
 
     #[test]
     fn cff_to_path_scan_backward() {
-        compare_path_conversion(fontcull_font_test_data::CANTARELL_VF_TRIMMED, PathStyle::FreeType);
+        compare_path_conversion(
+            fontcull_font_test_data::CANTARELL_VF_TRIMMED,
+            PathStyle::FreeType,
+        );
     }
 
     #[test]
     fn cff_to_path_scan_forward() {
-        compare_path_conversion(fontcull_font_test_data::CANTARELL_VF_TRIMMED, PathStyle::HarfBuzz);
+        compare_path_conversion(
+            fontcull_font_test_data::CANTARELL_VF_TRIMMED,
+            PathStyle::HarfBuzz,
+        );
     }
 
     /// Ensures autohint path conversion matches the base scaler path

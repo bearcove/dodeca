@@ -1119,7 +1119,8 @@ mod tests {
         let bytes = crate::dump_table(&table).unwrap();
         let data = FontData::new(&bytes);
 
-        let reloaded = fontcull_read_fonts::tables::variations::ItemVariationStore::read(data).unwrap();
+        let reloaded =
+            fontcull_read_fonts::tables::variations::ItemVariationStore::read(data).unwrap();
 
         assert_eq!(reloaded.item_variation_data_count(), 2);
         let var_data_array = reloaded.item_variation_data();
@@ -1514,7 +1515,8 @@ mod tests {
 
         let bytes = crate::dump_table(&store).unwrap();
         let data = FontData::new(&bytes);
-        let reloaded = fontcull_read_fonts::tables::variations::ItemVariationStore::read(data).unwrap();
+        let reloaded =
+            fontcull_read_fonts::tables::variations::ItemVariationStore::read(data).unwrap();
 
         assert_eq!(reloaded.item_variation_data_count(), 2);
         let var_data_array = reloaded.item_variation_data();

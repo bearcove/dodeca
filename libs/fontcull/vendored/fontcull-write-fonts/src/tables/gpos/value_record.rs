@@ -244,9 +244,11 @@ mod tests {
         my_record.set_explicit_value_format(ValueFormat::X_ADVANCE | ValueFormat::X_ADVANCE_DEVICE);
         let bytes = crate::dump_table(&my_record).unwrap();
         assert_eq!(bytes.len(), 4);
-        let read_back =
-            fontcull_read_fonts::tables::gpos::ValueRecord::read(FontData::new(&bytes), my_record.format())
-                .unwrap();
+        let read_back = fontcull_read_fonts::tables::gpos::ValueRecord::read(
+            FontData::new(&bytes),
+            my_record.format(),
+        )
+        .unwrap();
         assert!(read_back.x_advance_device.get().is_null());
     }
 
@@ -275,7 +277,8 @@ mod tests {
         assert_eq!(bytes.len(), 4);
 
         let read_back =
-            fontcull_read_fonts::tables::gpos::ValueRecord::read(bytes.as_slice().into(), format).unwrap();
+            fontcull_read_fonts::tables::gpos::ValueRecord::read(bytes.as_slice().into(), format)
+                .unwrap();
         assert_eq!(read_back.x_advance(), Some(5));
         assert!(read_back.x_advance_device(FontData::EMPTY).is_none());
 

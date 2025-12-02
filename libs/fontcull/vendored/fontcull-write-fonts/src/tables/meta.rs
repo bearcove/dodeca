@@ -110,7 +110,9 @@ impl FromObjRef<fontcull_read_fonts::tables::meta::Metadata<'_>> for Metadata {
                         .collect(),
                 )
             }
-            fontcull_read_fonts::tables::meta::Metadata::Other(bytes) => Self::Other(bytes.to_vec()),
+            fontcull_read_fonts::tables::meta::Metadata::Other(bytes) => {
+                Self::Other(bytes.to_vec())
+            }
         }
     }
 }
@@ -126,7 +128,10 @@ impl Default for Metadata {
 }
 
 impl FromObjRef<fontcull_read_fonts::tables::meta::DataMapRecord> for DataMapRecord {
-    fn from_obj_ref(obj: &fontcull_read_fonts::tables::meta::DataMapRecord, offset_data: FontData) -> Self {
+    fn from_obj_ref(
+        obj: &fontcull_read_fonts::tables::meta::DataMapRecord,
+        offset_data: FontData,
+    ) -> Self {
         let data = obj
             .data(offset_data)
             .map(|meta| meta.to_owned_table())
@@ -161,7 +166,8 @@ mod tests {
 
         let round_trip = crate::dump_table(&table).unwrap();
         let read_back = Meta::read(round_trip.as_slice().into()).unwrap();
-        let readr = fontcull_read_fonts::tables::meta::Meta::read(round_trip.as_slice().into()).unwrap();
+        let readr =
+            fontcull_read_fonts::tables::meta::Meta::read(round_trip.as_slice().into()).unwrap();
         dbg!(readr);
 
         //eprintln!("{read_back:#?}");

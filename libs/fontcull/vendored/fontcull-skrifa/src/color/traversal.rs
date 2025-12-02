@@ -615,8 +615,8 @@ pub(crate) fn traverse_v0_range(
 
 #[cfg(test)]
 mod tests {
-    use raw::types::GlyphId;
     use fontcull_read_fonts::{types::BoundingBox, FontRef, TableProvider};
+    use raw::types::GlyphId;
 
     use crate::{
         color::{
