@@ -4,6 +4,132 @@ use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
 use std::collections::{HashMap, HashSet};
 
+/// Find the nearest parent section for a route (for page context)
+fn find_parent_section<'a>(route: &Route, site_tree: &'a SiteTree) -> Option<&'a Section> {
+    let mut current = route.clone();
+    loop {
+        if let Some(section) = site_tree.sections.get(&current) {
+            if current != *route {
+                return Some(section);
+            }
+        }
+        match current.parent() {
+            Some(parent) => current = parent,
+            None => {
+                // Return root section if it exists
+                return site_tree.sections.get(&Route::root());
+            }
+        }
+    }
+}
+
+/// Convert ANSI escape codes to HTML spans with inline styles.
+fn ansi_to_html(input: &str) -> String {
+    let mut output = String::new();
+    let mut chars = input.chars().peekable();
+    let mut in_span = false;
+
+    while let Some(c) = chars.next() {
+        if c == '\x1b' && chars.peek() == Some(&'[') {
+            chars.next(); // consume '['
+
+            // Parse the escape sequence
+            let mut seq = String::new();
+            while let Some(&ch) = chars.peek() {
+                if ch.is_ascii_digit() || ch == ';' {
+                    seq.push(chars.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+
+            // Consume the final character (usually 'm')
+            let final_char = chars.next();
+
+            if final_char == Some('m') {
+                // Close any existing span
+                if in_span {
+                    output.push_str("</span>");
+                    in_span = false;
+                }
+
+                // Parse the style
+                if let Some(style) = parse_ansi_style(&seq) {
+                    if !style.is_empty() {
+                        output.push_str(&format!("<span style=\"{style}\">"));
+                        in_span = true;
+                    }
+                }
+            }
+        } else if c == '<' {
+            output.push_str("&lt;");
+        } else if c == '>' {
+            output.push_str("&gt;");
+        } else if c == '&' {
+            output.push_str("&amp;");
+        } else {
+            output.push(c);
+        }
+    }
+
+    if in_span {
+        output.push_str("</span>");
+    }
+
+    output
+}
+
+/// Parse ANSI style codes and return CSS style string.
+fn parse_ansi_style(seq: &str) -> Option<String> {
+    if seq.is_empty() || seq == "0" {
+        return Some(String::new()); // Reset
+    }
+
+    let parts: Vec<&str> = seq.split(';').collect();
+    let mut styles = Vec::new();
+
+    let mut i = 0;
+    while i < parts.len() {
+        match parts[i] {
+            "0" => return Some(String::new()), // Reset
+            "1" => styles.push("font-weight:bold".to_string()),
+            "2" => styles.push("opacity:0.7".to_string()), // Dim
+            "3" => styles.push("font-style:italic".to_string()),
+            "4" => styles.push("text-decoration:underline".to_string()),
+            "30" => styles.push("color:#000".to_string()),
+            "31" => styles.push("color:#e06c75".to_string()), // Red
+            "32" => styles.push("color:#98c379".to_string()), // Green
+            "33" => styles.push("color:#e5c07b".to_string()), // Yellow
+            "34" => styles.push("color:#61afef".to_string()), // Blue
+            "35" => styles.push("color:#c678dd".to_string()), // Magenta
+            "36" => styles.push("color:#56b6c2".to_string()), // Cyan
+            "37" => styles.push("color:#abb2bf".to_string()), // White
+            "38" => {
+                // Extended color (24-bit RGB)
+                if i + 1 < parts.len() && parts[i + 1] == "2" && i + 4 < parts.len() {
+                    let r = parts[i + 2];
+                    let g = parts[i + 3];
+                    let b = parts[i + 4];
+                    styles.push(format!("color:rgb({r},{g},{b})"));
+                    i += 4;
+                }
+            }
+            "90" => styles.push("color:#5c6370".to_string()), // Bright black (gray)
+            "91" => styles.push("color:#e06c75".to_string()), // Bright red
+            "92" => styles.push("color:#98c379".to_string()), // Bright green
+            "93" => styles.push("color:#e5c07b".to_string()), // Bright yellow
+            "94" => styles.push("color:#61afef".to_string()), // Bright blue
+            "95" => styles.push("color:#c678dd".to_string()), // Bright magenta
+            "96" => styles.push("color:#56b6c2".to_string()), // Bright cyan
+            "97" => styles.push("color:#fff".to_string()),    // Bright white
+            _ => {}
+        }
+        i += 1;
+    }
+
+    Some(styles.join(";"))
+}
+
 /// Options for rendering
 #[derive(Default, Clone, Copy)]
 pub struct RenderOptions {
@@ -125,6 +251,11 @@ pub fn try_render_page_to_html(
         Value::String(page.route.as_str().to_string()),
     );
 
+    // Find the parent section for sidebar navigation
+    if let Some(section) = find_parent_section(&page.route, site_tree) {
+        ctx.set("section", section_to_value(section, site_tree));
+    }
+
     engine
         .render("page.html", &ctx)
         .map_err(|e| format!("{e:?}"))
@@ -184,7 +315,13 @@ pub fn render_section_to_html(
 pub const RENDER_ERROR_MARKER: &str = "<!-- DODECA_RENDER_ERROR -->";
 
 /// Render a visible error page for development
+///
+/// TODO: This inline HTML is revolting. The error page styling should be
+/// extracted into its own crate or at minimum a proper template file that
+/// can be shared with the 404 page. The ANSI-to-HTML conversion should also
+/// be a separate utility.
 fn render_error_page(error: &str) -> String {
+    let error_html = ansi_to_html(error);
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -196,22 +333,24 @@ fn render_error_page(error: &str) -> String {
     <style>
         body {{
             font-family: system-ui, -apple-system, sans-serif;
-            background: #1a1a2e;
-            color: #eee;
+            background: #1a1a1a;
+            color: #e5e5e5;
             margin: 0;
             padding: 2rem;
+            min-height: 100vh;
         }}
         .error-container {{
             max-width: 900px;
             margin: 0 auto;
         }}
         h1 {{
-            color: #ff6b6b;
-            border-bottom: 2px solid #ff6b6b;
+            color: #e5e5e5;
+            border-bottom: 1px solid #333;
             padding-bottom: 0.5rem;
+            font-weight: 400;
         }}
         pre {{
-            background: #0f0f1a;
+            background: #0d0d0d;
             border: 1px solid #333;
             border-radius: 8px;
             padding: 1rem;
@@ -219,20 +358,25 @@ fn render_error_page(error: &str) -> String {
             white-space: pre-wrap;
             word-wrap: break-word;
             font-size: 14px;
-            line-height: 1.5;
+            line-height: 1.6;
+            color: #ccc;
         }}
         .hint {{
-            background: #2d2d44;
-            border-left: 4px solid #4ecdc4;
+            background: #252525;
+            border-left: 3px solid #666;
             padding: 1rem;
-            margin-top: 1rem;
+            margin-top: 1.5rem;
+            color: #aaa;
+        }}
+        .hint strong {{
+            color: #e5e5e5;
         }}
     </style>
 </head>
 <body>
     <div class="error-container">
         <h1>Template Render Error</h1>
-        <pre>{error}</pre>
+        <pre>{error_html}</pre>
         <div class="hint">
             <strong>Hint:</strong> Check your template syntax and ensure all referenced variables exist.
         </div>
@@ -248,13 +392,18 @@ fn build_render_context(site_tree: &SiteTree) -> Context {
 
     // Add config
     let mut config_map = HashMap::new();
-    config_map.insert("title".to_string(), Value::String("facet".to_string()));
+    config_map.insert("title".to_string(), Value::String("dodeca".to_string()));
     config_map.insert(
         "description".to_string(),
-        Value::String("A Rust reflection library".to_string()),
+        Value::String("A fully incremental static site generator".to_string()),
     );
     config_map.insert("base_url".to_string(), Value::String("/".to_string()));
     ctx.set("config", Value::Dict(config_map));
+
+    // Add root section for sidebar navigation
+    if let Some(root) = site_tree.sections.get(&Route::root()) {
+        ctx.set("root", section_to_value(root, site_tree));
+    }
 
     // Register get_url function
     ctx.register_fn(
@@ -466,11 +615,15 @@ fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
     );
     map.insert("weight".to_string(), Value::Int(section.weight as i64));
 
-    // Add pages in this section (including their headings)
-    let section_pages: Vec<Value> = site_tree
+    // Add pages in this section (sorted by weight, including their headings)
+    let mut pages: Vec<&Page> = site_tree
         .pages
         .values()
         .filter(|p| p.section_route == section.route)
+        .collect();
+    pages.sort_by_key(|p| p.weight);
+    let section_pages: Vec<Value> = pages
+        .into_iter()
         .map(|p| {
             let mut page_map = HashMap::new();
             page_map.insert(
@@ -492,8 +645,8 @@ fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
         .collect();
     map.insert("pages".to_string(), Value::List(section_pages));
 
-    // Add subsections
-    let subsections: Vec<Value> = site_tree
+    // Add subsections (full objects, sorted by weight)
+    let mut child_sections: Vec<&Section> = site_tree
         .sections
         .values()
         .filter(|s| {
@@ -506,10 +659,56 @@ fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
                     .count()
                     == 0
         })
-        .map(|s| Value::String(route_to_path(s.route.as_str())))
+        .collect();
+    child_sections.sort_by_key(|s| s.weight);
+    let subsections: Vec<Value> = child_sections
+        .into_iter()
+        .map(|s| subsection_to_value(s, site_tree))
         .collect();
     map.insert("subsections".to_string(), Value::List(subsections));
     map.insert("toc".to_string(), headings_to_value(&section.headings));
+
+    Value::Dict(map)
+}
+
+/// Convert a subsection to a value (includes pages but not recursive subsections)
+fn subsection_to_value(section: &Section, site_tree: &SiteTree) -> Value {
+    let mut map = HashMap::new();
+    map.insert(
+        "title".to_string(),
+        Value::String(section.title.as_str().to_string()),
+    );
+    map.insert(
+        "permalink".to_string(),
+        Value::String(section.route.as_str().to_string()),
+    );
+    map.insert("weight".to_string(), Value::Int(section.weight as i64));
+
+    // Add pages in this section, sorted by weight
+    let mut section_pages: Vec<&Page> = site_tree
+        .pages
+        .values()
+        .filter(|p| p.section_route == section.route)
+        .collect();
+    section_pages.sort_by_key(|p| p.weight);
+
+    let pages: Vec<Value> = section_pages
+        .into_iter()
+        .map(|p| {
+            let mut page_map = HashMap::new();
+            page_map.insert(
+                "title".to_string(),
+                Value::String(p.title.as_str().to_string()),
+            );
+            page_map.insert(
+                "permalink".to_string(),
+                Value::String(p.route.as_str().to_string()),
+            );
+            page_map.insert("weight".to_string(), Value::Int(p.weight as i64));
+            Value::Dict(page_map)
+        })
+        .collect();
+    map.insert("pages".to_string(), Value::List(pages));
 
     Value::Dict(map)
 }

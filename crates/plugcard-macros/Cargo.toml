@@ -1,0 +1,16 @@
+[package]
+name = "plugcard-macros"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Proc macros for plugcard plugin system"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+unsynn = "0.3"
+proc-macro2 = "1"
+quote = "1"

@@ -1,0 +1,22 @@
+[package]
+name = "plugcard"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Dynamic library plugin system with serialized method calls"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+# Serialization
+postcard = { version = "1", features = ["alloc"] }
+serde = { version = "1", features = ["derive"] }
+
+# Schema introspection
+postcard-schema = { version = "0.1", features = ["derive", "alloc"] }
+
+# Distributed slices for method registration
+linkme = "0.3"
+
+# Re-export the proc macro
+plugcard-macros = { path = "../plugcard-macros" }

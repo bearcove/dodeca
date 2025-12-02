@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
 description = "WASM client for dodeca live reload - applies DOM patches"
+publish = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]

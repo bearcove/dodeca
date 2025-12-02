@@ -2,3 +2,5 @@ content "content"
 output "public"
 link_check {
 }
+stable_assets {
+}

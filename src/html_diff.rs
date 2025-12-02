@@ -375,7 +375,7 @@ pub fn parse_html_fragment(html: &str) -> Option<DomNode> {
         .children
         .borrow()
         .iter()
-        .filter_map(|child| convert_rcdom_node(child))
+        .filter_map(convert_rcdom_node)
         .collect();
 
     if children.len() == 1 {
@@ -394,11 +394,10 @@ fn convert_rcdom_node(handle: &markup5ever_rcdom::Handle) -> Option<DomNode> {
             // Document node - return first element child (usually <html>)
             let children = handle.children.borrow();
             for child in children.iter() {
-                if let Some(node) = convert_rcdom_node(child) {
-                    if node.tag != "#text" {
+                if let Some(node) = convert_rcdom_node(child)
+                    && node.tag != "#text" {
                         return Some(node);
                     }
-                }
             }
             None
         }

@@ -1332,4 +1332,5 @@ weight = 10
         );
         assert_eq!(resolve_internal_link("/some/path/"), "/some/path/");
     }
+
 }

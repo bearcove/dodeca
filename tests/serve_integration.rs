@@ -459,3 +459,194 @@ fn test_css_livereload_tui_docs() {
     server.kill().ok();
     server.wait().ok();
 }
+
+/// Test that new content files are detected and served (issue #7)
+#[test]
+fn test_new_content_file_detected() {
+    let port = 14570;
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let fixture_path = format!("{}/tests/fixtures/sample-site", manifest_dir);
+    let new_page_path = format!("{}/content/new-page.md", fixture_path);
+
+    // Ensure the new page doesn't exist before starting
+    let _ = std::fs::remove_file(&new_page_path);
+
+    let mut server = start_server("sample-site", port);
+
+    let ready = wait_for_server(port, Duration::from_secs(30));
+    assert!(ready, "Server did not start within timeout");
+
+    let client = reqwest::blocking::Client::new();
+
+    // Verify the new page doesn't exist yet
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/new-page/", port))
+        .send()
+        .expect("Failed to fetch new page");
+    assert_eq!(resp.status().as_u16(), 404, "New page should not exist initially");
+
+    // Create the new page
+    let new_page_content = r#"+++
+title = "New Page"
++++
+
+This is a dynamically created page.
+"#;
+    std::fs::write(&new_page_path, new_page_content).expect("Failed to create new page");
+
+    // Wait for file watcher to pick up the change
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Verify the new page is now accessible
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/new-page/", port))
+        .send()
+        .expect("Failed to fetch new page after creation");
+
+    assert!(
+        resp.status().is_success(),
+        "New page should be accessible after creation, got status {}",
+        resp.status()
+    );
+
+    let body = resp.text().expect("Failed to read body");
+    assert!(
+        body.contains("dynamically created"),
+        "New page content should be present. Body:\n{body}"
+    );
+
+    // Clean up
+    let _ = std::fs::remove_file(&new_page_path);
+
+    server.kill().ok();
+    server.wait().ok();
+}
+
+/// Test that deleted content files result in 404 (issue #7)
+#[test]
+fn test_deleted_content_file_returns_404() {
+    let port = 14571;
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let fixture_path = format!("{}/tests/fixtures/sample-site", manifest_dir);
+    let temp_page_path = format!("{}/content/temp-page.md", fixture_path);
+
+    // Create a page before starting the server
+    let page_content = r#"+++
+title = "Temporary Page"
++++
+
+This page will be deleted.
+"#;
+    std::fs::write(&temp_page_path, page_content).expect("Failed to create temp page");
+
+    let mut server = start_server("sample-site", port);
+
+    let ready = wait_for_server(port, Duration::from_secs(30));
+    assert!(ready, "Server did not start within timeout");
+
+    let client = reqwest::blocking::Client::new();
+
+    // Verify the page exists initially
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/temp-page/", port))
+        .send()
+        .expect("Failed to fetch temp page");
+    assert!(
+        resp.status().is_success(),
+        "Temp page should exist initially, got status {}",
+        resp.status()
+    );
+
+    // Delete the page
+    std::fs::remove_file(&temp_page_path).expect("Failed to delete temp page");
+
+    // Wait for file watcher to pick up the change
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Verify the page is no longer accessible
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/temp-page/", port))
+        .send()
+        .expect("Failed to fetch temp page after deletion");
+
+    assert_eq!(
+        resp.status().as_u16(),
+        404,
+        "Deleted page should return 404, got status {}",
+        resp.status()
+    );
+
+    // Clean up (in case test failed before deletion)
+    let _ = std::fs::remove_file(&temp_page_path);
+
+    server.kill().ok();
+    server.wait().ok();
+}
+
+/// Test that new section files (_index.md) are detected
+/// NOTE: This test is currently ignored because notify-rs doesn't watch newly created
+/// subdirectories by default. New files in EXISTING directories work fine.
+#[test]
+#[ignore = "File watcher doesn't detect files in newly created subdirectories"]
+fn test_new_section_detected() {
+    let port = 14572;
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let fixture_path = format!("{}/tests/fixtures/sample-site", manifest_dir);
+    let new_section_dir = format!("{}/content/new-section", fixture_path);
+    let new_section_path = format!("{}/_index.md", new_section_dir);
+
+    // Ensure the new section doesn't exist before starting
+    let _ = std::fs::remove_dir_all(&new_section_dir);
+
+    let mut server = start_server("sample-site", port);
+
+    let ready = wait_for_server(port, Duration::from_secs(30));
+    assert!(ready, "Server did not start within timeout");
+
+    let client = reqwest::blocking::Client::new();
+
+    // Verify the new section doesn't exist yet
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/new-section/", port))
+        .send()
+        .expect("Failed to fetch new section");
+    assert_eq!(resp.status().as_u16(), 404, "New section should not exist initially");
+
+    // Create the new section directory and _index.md
+    std::fs::create_dir_all(&new_section_dir).expect("Failed to create section dir");
+    let section_content = r#"+++
+title = "New Section"
++++
+
+This is a dynamically created section.
+"#;
+    std::fs::write(&new_section_path, section_content).expect("Failed to create section index");
+
+    // Wait for file watcher to pick up the change
+    // Note: New directories may need more time for the watcher to detect
+    std::thread::sleep(Duration::from_millis(1000));
+
+    // Verify the new section is now accessible
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/new-section/", port))
+        .send()
+        .expect("Failed to fetch new section after creation");
+
+    assert!(
+        resp.status().is_success(),
+        "New section should be accessible after creation, got status {}",
+        resp.status()
+    );
+
+    let body = resp.text().expect("Failed to read body");
+    assert!(
+        body.contains("dynamically created section"),
+        "New section content should be present. Body:\n{body}"
+    );
+
+    // Clean up
+    let _ = std::fs::remove_dir_all(&new_section_dir);
+
+    server.kill().ok();
+    server.wait().ok();
+}
