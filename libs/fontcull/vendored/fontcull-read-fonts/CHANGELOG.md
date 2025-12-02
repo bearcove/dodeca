@@ -7,11 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.4](https://github.com/bearcove/fontcull/compare/fontcull-v1.0.3...fontcull-v1.0.4) - 2025-12-02
+## [0.37.0](https://github.com/bearcove/fontcull/compare/fontcull-read-fonts-v0.36.0...fontcull-read-fonts-v0.37.0) - 2025-12-02
 
 ### Other
 
-- Custom github token
-- Trigger release-plz
-- Switch to depot runners
 - Add core subsetting API + HTML/CSS parsing

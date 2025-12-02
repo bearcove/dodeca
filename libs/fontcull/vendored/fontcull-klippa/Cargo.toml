@@ -1,6 +1,6 @@
 [package]
 name = "fontcull-klippa"
-version = "0.1.0"
+version = "0.1.1"
 description = "Subsetting a font file according to provided input. (Vendored fork for fontcull)"
 readme = "README.md"
 categories = ["text-processing"]
@@ -14,9 +14,9 @@ clap = { version = "4.5.4", features = ["derive"] }
 fnv = "1.0.7"
 hashbrown = "0.15.1"
 regex = "1.10.4"
-fontcull-skrifa = { version = "0.39.0", path = "../fontcull-skrifa" }
+fontcull-skrifa = { version = "0.39.1", path = "../fontcull-skrifa" }
 thiserror = "1.0.58"
-fontcull-write-fonts = { version = "0.44.1", path = "../fontcull-write-fonts", features = ["read"] }
+fontcull-write-fonts = { version = "0.44.2", path = "../fontcull-write-fonts", features = ["read"] }
 
 [dev-dependencies]
 fontcull-font-test-data = { version = "0.6.1", path = "../fontcull-font-test-data" }

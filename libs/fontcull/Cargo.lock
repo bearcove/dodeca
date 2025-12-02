@@ -911,7 +911,7 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "fontcull"
-version = "1.0.3"
+version = "1.0.4"
 dependencies = [
  "chromiumoxide",
  "clap 4.5.53",
@@ -951,7 +951,7 @@ dependencies = [
 
 [[package]]
 name = "fontcull-klippa"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap 4.5.53",
  "diff",
@@ -967,7 +967,7 @@ dependencies = [
 
 [[package]]
 name = "fontcull-read-fonts"
-version = "0.36.0"
+version = "0.37.0"
 dependencies = [
  "bytemuck",
  "core_maths",
@@ -981,7 +981,7 @@ dependencies = [
 
 [[package]]
 name = "fontcull-skrifa"
-version = "0.39.0"
+version = "0.39.1"
 dependencies = [
  "bytemuck",
  "core_maths",
@@ -995,7 +995,7 @@ dependencies = [
 
 [[package]]
 name = "fontcull-write-fonts"
-version = "0.44.1"
+version = "0.44.2"
 dependencies = [
  "bincode",
  "diff",
