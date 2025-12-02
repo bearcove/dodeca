@@ -6,6 +6,9 @@
 use scraper::{Html, Selector};
 use std::collections::{HashMap, HashSet};
 
+/// CSS custom properties (variables) map
+type CssVariables = HashMap<String, String>;
+
 /// A parsed @font-face rule
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(dead_code)] // weight and style reserved for font-weight matching
@@ -45,7 +48,12 @@ pub fn analyze_fonts(html: &str, css: &str) -> FontAnalysis {
 /// Returns a map of font-family name -> set of characters used with that font.
 pub fn collect_chars_per_font(html: &str, css: &str) -> HashMap<String, HashSet<char>> {
     let document = Html::parse_document(html);
-    let font_rules = parse_font_family_rules(css);
+
+    // First, parse CSS custom properties (variables)
+    let css_vars = parse_css_custom_properties(css);
+
+    // Parse font-family rules with variable resolution
+    let font_rules = parse_font_family_rules_with_vars(css, &css_vars);
 
     let mut result: HashMap<String, HashSet<char>> = HashMap::new();
 
@@ -86,8 +94,8 @@ struct FontFamilyRule {
     font_family: String,
 }
 
-/// Parse CSS and extract rules that set font-family
-fn parse_font_family_rules(css: &str) -> Vec<FontFamilyRule> {
+/// Parse CSS and extract rules that set font-family, with CSS variable resolution
+fn parse_font_family_rules_with_vars(css: &str, css_vars: &CssVariables) -> Vec<FontFamilyRule> {
     let mut rules = Vec::new();
 
     // Simple CSS parser - find rule blocks and extract font-family
@@ -105,7 +113,7 @@ fn parse_font_family_rules(css: &str) -> Vec<FontFamilyRule> {
             in_block = false;
 
             // Parse the block content for font-family
-            if let Some(font_family) = extract_font_family(&block_content) {
+            if let Some(font_family) = extract_font_family_with_vars(&block_content, css_vars) {
                 let selector = current_selector.trim().to_string();
                 if !selector.is_empty() && !selector.starts_with('@') {
                     rules.push(FontFamilyRule {
@@ -126,14 +134,14 @@ fn parse_font_family_rules(css: &str) -> Vec<FontFamilyRule> {
     rules
 }
 
-/// Extract font-family value from a CSS declaration block
-fn extract_font_family(block: &str) -> Option<String> {
+/// Extract font-family value from a CSS declaration block, with CSS variable resolution
+fn extract_font_family_with_vars(block: &str, css_vars: &CssVariables) -> Option<String> {
     // Look for font-family: value; or font: ... value;
     for declaration in block.split(';') {
         let declaration = declaration.trim();
 
         if let Some(value) = declaration.strip_prefix("font-family:") {
-            return Some(parse_font_family_value(value));
+            return Some(parse_font_family_value_with_vars(value, css_vars));
         }
 
         // Handle shorthand 'font' property (simplified - just look for font-family at end)
@@ -247,17 +255,148 @@ fn parse_font_src(value: &str) -> Option<String> {
 }
 
 /// Parse a font-family value, returning the first (primary) font
+/// If css_vars is provided, resolves var() references
 fn parse_font_family_value(value: &str) -> String {
+    parse_font_family_value_with_vars(value, &HashMap::new())
+}
+
+/// Parse a font-family value with CSS variable resolution
+fn parse_font_family_value_with_vars(value: &str, css_vars: &CssVariables) -> String {
     let value = value.trim();
+
+    // Resolve var() references first
+    let resolved = resolve_css_var(value, css_vars);
 
     // font-family can be: "Font Name", 'Font Name', Font-Name, or a list
     // We take the first one
-    let first = value.split(',').next().unwrap_or(value).trim();
+    let first = resolved.split(',').next().unwrap_or(&resolved).trim();
 
     // Remove quotes if present
     let first = first.trim_matches('"').trim_matches('\'');
 
     first.to_string()
+}
+
+/// Resolve CSS var() references in a value
+/// Handles: var(--property-name) and var(--property-name, fallback)
+fn resolve_css_var(value: &str, css_vars: &CssVariables) -> String {
+    let mut result = value.to_string();
+
+    // Keep resolving var() references until none remain (handles nested vars)
+    let mut iterations = 0;
+    const MAX_ITERATIONS: usize = 10; // Prevent infinite loops from circular references
+
+    while let Some(var_start) = result.find("var(") {
+        if iterations >= MAX_ITERATIONS {
+            break;
+        }
+        iterations += 1;
+
+        // Find matching closing paren (handle nested parens)
+        let after_var = &result[var_start + 4..];
+        let mut depth = 1;
+        let mut var_end = None;
+        for (i, c) in after_var.char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        var_end = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let Some(end_offset) = var_end else {
+            break; // Malformed var()
+        };
+
+        let var_content = &after_var[..end_offset];
+        let full_var_end = var_start + 4 + end_offset + 1; // Include closing paren
+
+        // Parse var content: --property-name or --property-name, fallback
+        let (var_name, fallback) = if let Some(comma_pos) = var_content.find(',') {
+            let name = var_content[..comma_pos].trim();
+            let fallback = var_content[comma_pos + 1..].trim();
+            (name, Some(fallback))
+        } else {
+            (var_content.trim(), None)
+        };
+
+        // Look up the variable value
+        let replacement = css_vars
+            .get(var_name)
+            .map(|s| s.as_str())
+            .or(fallback)
+            .unwrap_or("");
+
+        // Replace the var() with its resolved value
+        result = format!(
+            "{}{}{}",
+            &result[..var_start],
+            replacement,
+            &result[full_var_end..]
+        );
+    }
+
+    result
+}
+
+/// Parse CSS custom property declarations from CSS
+/// Returns a map of --property-name -> value
+fn parse_css_custom_properties(css: &str) -> CssVariables {
+    let mut vars = HashMap::new();
+
+    // Parse through CSS looking for custom property declarations
+    let mut remaining = css;
+
+    while let Some(brace_start) = remaining.find('{') {
+        let after_brace = &remaining[brace_start + 1..];
+
+        // Find matching closing brace
+        let mut depth = 1;
+        let mut block_end = None;
+        for (i, c) in after_brace.char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        block_end = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let Some(end) = block_end else {
+            break;
+        };
+
+        let block = &after_brace[..end];
+
+        // Parse declarations in this block
+        for declaration in block.split(';') {
+            let declaration = declaration.trim();
+
+            // Look for custom property declarations (--name: value)
+            if declaration.starts_with("--")
+                && let Some(colon_pos) = declaration.find(':')
+            {
+                let name = declaration[..colon_pos].trim();
+                let value = declaration[colon_pos + 1..].trim();
+                vars.insert(name.to_string(), value.to_string());
+            }
+        }
+
+        remaining = &after_brace[end + 1..];
+    }
+
+    vars
 }
 
 /// Find which font-family applies to an element based on CSS rules
@@ -282,11 +421,11 @@ fn find_font_family_for_element(
         for ancestor in element.ancestors() {
             if let Some(ancestor_el) = scraper::ElementRef::wrap(ancestor) {
                 for rule in rules {
-                    if let Ok(selector) = Selector::parse(&rule.selector) {
-                        if selector.matches(&ancestor_el) {
-                            matched_font = Some(rule.font_family.clone());
-                            // Don't break - later rules still override
-                        }
+                    if let Ok(selector) = Selector::parse(&rule.selector)
+                        && selector.matches(&ancestor_el)
+                    {
+                        matched_font = Some(rule.font_family.clone());
+                        // Don't break - later rules still override
                     }
                 }
             }
@@ -326,7 +465,7 @@ mod tests {
             .code { font-family: monospace; }
         "#;
 
-        let rules = parse_font_family_rules(css);
+        let rules = parse_font_family_rules_with_vars(css, &HashMap::new());
         assert_eq!(rules.len(), 3);
         assert_eq!(rules[0].selector, "body");
         assert_eq!(rules[0].font_family, "Inter");
@@ -462,5 +601,125 @@ mod tests {
         let chars = &analysis.chars_per_font["MyFont"];
         assert!(chars.contains(&'H'));
         assert!(chars.contains(&'W'));
+    }
+
+    #[test]
+    fn test_parse_css_custom_properties() {
+        let css = r#"
+            :root {
+                --font-mono: 'Iosevka', monospace;
+                --font-body: "Inter", sans-serif;
+                --spacing: 1rem;
+            }
+            body { color: black; }
+        "#;
+
+        let vars = parse_css_custom_properties(css);
+        assert_eq!(vars.get("--font-mono"), Some(&"'Iosevka', monospace".to_string()));
+        assert_eq!(vars.get("--font-body"), Some(&"\"Inter\", sans-serif".to_string()));
+        assert_eq!(vars.get("--spacing"), Some(&"1rem".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_css_var_simple() {
+        let mut vars = HashMap::new();
+        vars.insert("--font-mono".to_string(), "'Iosevka', monospace".to_string());
+
+        let result = resolve_css_var("var(--font-mono)", &vars);
+        assert_eq!(result, "'Iosevka', monospace");
+    }
+
+    #[test]
+    fn test_resolve_css_var_with_fallback() {
+        let vars: CssVariables = HashMap::new();
+
+        // When variable doesn't exist, should use fallback
+        let result = resolve_css_var("var(--undefined, Arial)", &vars);
+        assert_eq!(result, "Arial");
+    }
+
+    #[test]
+    fn test_resolve_css_var_nested() {
+        let mut vars = HashMap::new();
+        vars.insert("--base-font".to_string(), "'Inter'".to_string());
+        vars.insert("--font-stack".to_string(), "var(--base-font), sans-serif".to_string());
+
+        let result = resolve_css_var("var(--font-stack)", &vars);
+        assert_eq!(result, "'Inter', sans-serif");
+    }
+
+    #[test]
+    fn test_font_family_with_css_var() {
+        // This is the exact reproduction case from the issue
+        let html = r#"
+            <html>
+            <head>
+                <style>
+                    @font-face {
+                        font-family: 'Iosevka';
+                        src: url('/fonts/Iosevka-Regular.woff2') format('woff2');
+                    }
+
+                    :root {
+                        --font-mono: 'Iosevka', monospace;
+                    }
+
+                    code {
+                        font-family: var(--font-mono);
+                    }
+                </style>
+            </head>
+            <body>
+                <code>fn main() { println!("hello"); }</code>
+            </body>
+            </html>
+        "#;
+
+        let css = extract_css_from_html(html);
+        let analysis = analyze_fonts(html, &css);
+
+        // Should have the font-face for Iosevka
+        assert_eq!(analysis.font_faces.len(), 1);
+        assert_eq!(analysis.font_faces[0].family, "Iosevka");
+
+        // Should have collected chars for Iosevka (not None/empty!)
+        assert!(analysis.chars_per_font.contains_key("Iosevka"),
+            "chars_per_font should contain Iosevka, but got: {:?}",
+            analysis.chars_per_font.keys().collect::<Vec<_>>());
+
+        let iosevka_chars = &analysis.chars_per_font["Iosevka"];
+        // Check for characters from: fn main() { println!("hello"); }
+        assert!(iosevka_chars.contains(&'f'));
+        assert!(iosevka_chars.contains(&'n'));
+        assert!(iosevka_chars.contains(&'m'));
+        assert!(iosevka_chars.contains(&'('));
+        assert!(iosevka_chars.contains(&'{'));
+        assert!(iosevka_chars.contains(&'h'));
+        assert!(iosevka_chars.contains(&'e'));
+        assert!(iosevka_chars.contains(&'l'));
+        assert!(iosevka_chars.contains(&'o'));
+    }
+
+    #[test]
+    fn test_css_var_in_multiple_rules() {
+        let css = r#"
+            :root {
+                --heading-font: 'Playfair Display';
+                --body-font: 'Inter';
+            }
+
+            h1 { font-family: var(--heading-font); }
+            h2 { font-family: var(--heading-font); }
+            p { font-family: var(--body-font); }
+        "#;
+
+        let vars = parse_css_custom_properties(css);
+        let rules = parse_font_family_rules_with_vars(css, &vars);
+
+        // Should have 3 rules (h1, h2, p)
+        assert_eq!(rules.len(), 3);
+        assert_eq!(rules[0].font_family, "Playfair Display");
+        assert_eq!(rules[1].font_family, "Playfair Display");
+        assert_eq!(rules[2].font_family, "Inter");
     }
 }
