@@ -6,8 +6,9 @@ edition = "2024"
 [dependencies]
 camino = "1.2.1"
 miette = "7.6.0"
+pest = "2.8.4"
+pest_derive = "2.8.4"
 rootcause = "0.10.0"
-winnow = "0.7"
 
 [dev-dependencies]
 insta = { version = "1.42", features = ["glob"] }

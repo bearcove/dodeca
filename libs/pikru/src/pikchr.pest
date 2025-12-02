@@ -1,0 +1,204 @@
+// Pikchr grammar for pest parser
+// See https://pikchr.org/ for language reference
+
+// === Top-level ===
+program = { SOI ~ statement_list ~ EOI }
+
+statement_list = { EOL* ~ (statement ~ (EOL+ ~ statement)*)? ~ EOL* }
+
+statement = {
+    labeled_statement
+  | direction
+  | assignment
+  | define
+  | assert_stmt
+  | print_stmt
+  | object_stmt
+}
+
+labeled_statement = { PLACENAME ~ ":" ~ (position | object_stmt) }
+
+// === Directions ===
+direction = { "up" | "down" | "left" | "right" }
+
+// === Assignments ===
+assignment = { lvalue ~ assign_op ~ rvalue }
+assign_op = { "+=" | "-=" | "*=" | "/=" | "=" }
+lvalue = { variable | "fill" | "color" | "thickness" }
+rvalue = { expr | PLACENAME }  // PLACENAME for color names like "Red"
+variable = { "$" ~ IDENT | IDENT }
+
+// === Macros ===
+define = { "define" ~ IDENT ~ CODEBLOCK }
+CODEBLOCK = { "{" ~ (!"}" ~ ANY)* ~ "}" }
+
+// === Assert & Print ===
+assert_stmt = { "assert" ~ "(" ~ (expr ~ "==" ~ expr | position ~ "==" ~ position) ~ ")" }
+print_stmt = { "print" ~ print_args }
+print_args = { (expr | STRING) ~ ("," ~ (expr | STRING))* }
+
+// === Objects ===
+object_stmt = { basetype ~ attribute_list? }
+
+basetype = {
+    CLASSNAME
+  | STRING ~ textposition?
+  | sublist
+}
+
+sublist = { "[" ~ statement_list ~ "]" }
+
+CLASSNAME = {
+    "arc" | "arrow" | "box" | "circle" | "cylinder" | "dot"
+  | "ellipse" | "file" | "line" | "move" | "oval" | "spline" | "text"
+}
+
+// === Attributes ===
+attribute_list = { attribute+ }
+
+attribute = {
+    numproperty ~ relexpr
+  | dashproperty ~ expr?
+  | colorproperty ~ rvalue
+  | boolproperty
+  | "go"? ~ direction ~ optrelexpr
+  | "go"? ~ direction ~ "even" ~ position
+  | "close"
+  | "chop"
+  | "from" ~ position
+  | "to" ~ position
+  | "then" ~ (optrelexpr ~ "heading" ~ expr | optrelexpr ~ EDGEPT)?
+  | "at" ~ position
+  | "with" ~ withclause
+  | "same" ~ ("as" ~ object)?
+  | STRING ~ textposition?
+  | "fit"
+  | "behind" ~ object
+  | relexpr  // bare expression for default direction movement
+}
+
+withclause = { dot_edge ~ "at" ~ position | EDGEPT ~ "at" ~ position }
+
+numproperty = { "height" | "ht" | "width" | "wid" | "radius" | "rad" | "diameter" | "thickness" }
+dashproperty = { "dotted" | "dashed" }
+colorproperty = { "fill" | "color" }
+boolproperty = {
+    "cw" | "ccw"
+  | "invis" | "invisible"
+  | "thick" | "thin" | "solid"
+  | "<->" | "->" | "<-"
+}
+
+textposition = { textattr+ }
+textattr = {
+    "above" | "below" | "center"
+  | "ljust" | "rjust"
+  | "bold" | "italic" | "mono" | "monospace"
+  | "big" | "small"
+  | "aligned"
+}
+
+// === Expressions ===
+relexpr = { expr ~ "%"? }
+optrelexpr = { relexpr? }
+
+expr = { prefix? ~ primary ~ (infix ~ prefix? ~ primary)* }
+prefix = { "-" | "+" }
+infix = { "+" | "-" | "*" | "/" }
+
+primary = {
+    "(" ~ expr ~ ")"
+  | "(" ~ ("fill" | "color" | "thickness") ~ ")"
+  | func_call
+  | dist_call
+  | NUMBER
+  | place ~ dot_xy
+  | object ~ dot_prop
+  | place  // bare place (evaluates to center point) - must be before variable!
+  | variable  // user-defined variables like $x or linewid
+}
+
+func_call = { FUNC1 ~ "(" ~ expr ~ ")" | FUNC2 ~ "(" ~ expr ~ "," ~ expr ~ ")" }
+dist_call = { "dist" ~ "(" ~ position ~ "," ~ position ~ ")" }
+
+FUNC1 = { "abs" | "cos" | "sin" | "int" | "sqrt" }
+FUNC2 = { "max" | "min" }
+
+// === Positions ===
+// IMPORTANT: More specific (longer) alternatives must come before shorter ones!
+position = {
+    place ~ ("+" | "-") ~ "(" ~ expr ~ "," ~ expr ~ ")"
+  | place ~ ("+" | "-") ~ expr ~ "," ~ expr
+  | expr ~ "," ~ expr
+  | "(" ~ position ~ "," ~ position ~ ")"
+  | "(" ~ position ~ ")"
+  | expr ~ ("between" | "of" ~ "the" ~ "way" ~ "between") ~ position ~ "and" ~ position
+  | expr ~ "<" ~ position ~ "," ~ position ~ ">"
+  | expr ~ ("above" | "below") ~ position
+  | expr ~ ("left" ~ "of" | "right" ~ "of") ~ position
+  | expr ~ "on"? ~ "heading" ~ (EDGEPT | expr) ~ ("of" | "from") ~ position
+  | expr ~ EDGEPT ~ "of" ~ position
+  | place  // bare place must come last!
+}
+
+place = {
+    EDGEPT ~ "of" ~ object
+  | object ~ dot_edge
+  | object
+}
+
+// === Objects & References ===
+object = { objectname | nth }
+
+objectname = {
+    "this" ~ dot_name*
+  | PLACENAME ~ dot_name*
+}
+
+nth = {
+    NTH ~ "last"? ~ CLASSNAME
+  | NTH ~ "last"? ~ "[" ~ "]"
+  | "last" ~ CLASSNAME?
+  | "last" ~ "[" ~ "]"
+  | "previous"
+}
+
+NTH = @{ ASCII_DIGIT+ ~ ("st" | "nd" | "rd" | "th") }
+
+// === Edge Points ===
+// IMPORTANT: longer keywords must come before shorter ones in PEG!
+EDGEPT = {
+    "north" | "south" | "east" | "west"
+  | "start" | "end" | "center"
+  | "bottom" | "bot"
+  | "top" | "left" | "right"
+  | "ne" | "nw" | "se" | "sw"
+  | "n" | "s" | "e" | "w" | "c" | "t"
+}
+
+// Dot accessors - differentiated by what follows
+dot_xy = { "." ~ ("x" | "y") }
+dot_edge = { "." ~ EDGEPT }
+dot_prop = { "." ~ (numproperty | dashproperty | colorproperty) }
+dot_name = { "." ~ PLACENAME }
+
+// === Tokens ===
+PLACENAME = @{ ASCII_ALPHA_UPPER ~ (ASCII_ALPHANUMERIC | "_")* }
+IDENT = @{ (ASCII_ALPHA_LOWER | "_" | "@") ~ (ASCII_ALPHANUMERIC | "_")* }
+
+// NUMBER must not match ordinals like 6th, 2nd, etc.
+NUMBER = @{
+    ("0x" | "0X") ~ ASCII_HEX_DIGIT+
+  | ASCII_DIGIT+ ~ !("st" | "nd" | "rd" | "th") ~ ("." ~ ASCII_DIGIT*)? ~ (("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+)? ~ UNIT?
+  | "." ~ ASCII_DIGIT+ ~ (("e" | "E") ~ ("+" | "-")? ~ ASCII_DIGIT+)? ~ UNIT?
+}
+UNIT = { "in" | "cm" | "mm" | "pt" | "px" | "pc" }
+
+STRING = @{ "\"" ~ (!"\"" ~ ANY | "\\\"")* ~ "\"" }
+
+// === Whitespace & Comments ===
+WHITESPACE = _{ " " | "\t" | "\r" | line_continuation }
+line_continuation = { "\\" ~ NEWLINE }
+COMMENT = _{ "#" ~ (!NEWLINE ~ ANY)* | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+EOL = { NEWLINE | ";" }
+NEWLINE = _{ "\n" }
