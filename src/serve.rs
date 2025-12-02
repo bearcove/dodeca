@@ -843,7 +843,7 @@ async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
                     Ok(LiveReloadMsg::Patches { route, data }) => {
                         // Only send patches if client is viewing this route
                         // (or if we don't know their route yet, send anyway)
-                        if current_route.as_ref().map_or(true, |r| r == &route) {
+                        if current_route.as_ref().is_none_or(|r| r == &route) {
                             if sender.send(Message::Binary(data.into())).await.is_err() {
                                 break;
                             }

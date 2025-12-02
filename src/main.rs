@@ -1396,20 +1396,29 @@ async fn serve_plain(
                         println!("  Changed: {}", path.file_name().unwrap_or("?"));
                     }
 
-                    // Update files in Salsa
+                    // Update files in Salsa (or add new ones)
                     for path in &paths {
                         if path.starts_with(&content_for_watcher) {
                             if let Ok(relative) = path.strip_prefix(&content_for_watcher) {
                                 if let Ok(content) = fs::read_to_string(path) {
                                     let mut db = server_for_watcher.db.lock().unwrap();
-                                    let sources = server_for_watcher.sources.read().unwrap();
+                                    let mut sources = server_for_watcher.sources.write().unwrap();
                                     let relative_str = relative.to_string();
+                                    let mut found = false;
                                     for source in sources.iter() {
                                         if source.path(&*db).as_str() == relative_str {
                                             use salsa::Setter;
                                             source.set_content(&mut *db).to(SourceContent::new(content.clone()));
+                                            found = true;
                                             break;
                                         }
+                                    }
+                                    if !found {
+                                        // New file - create and add it
+                                        let source_path = SourcePath::new(relative_str);
+                                        let source = SourceFile::new(&*db, source_path, SourceContent::new(content));
+                                        sources.push(source);
+                                        println!("  {} Added new source: {}", "+".green(), relative);
                                     }
                                 }
                             }
@@ -1417,14 +1426,23 @@ async fn serve_plain(
                             if let Ok(relative) = path.strip_prefix(&templates_dir_for_watcher) {
                                 if let Ok(content) = fs::read_to_string(path) {
                                     let mut db = server_for_watcher.db.lock().unwrap();
-                                    let templates = server_for_watcher.templates.read().unwrap();
+                                    let mut templates = server_for_watcher.templates.write().unwrap();
                                     let relative_str = relative.to_string();
+                                    let mut found = false;
                                     for template in templates.iter() {
                                         if template.path(&*db).as_str() == relative_str {
                                             use salsa::Setter;
                                             template.set_content(&mut *db).to(TemplateContent::new(content.clone()));
+                                            found = true;
                                             break;
                                         }
+                                    }
+                                    if !found {
+                                        // New file - create and add it
+                                        let template_path = TemplatePath::new(relative_str);
+                                        let template = TemplateFile::new(&*db, template_path, TemplateContent::new(content));
+                                        templates.push(template);
+                                        println!("  {} Added new template: {}", "+".green(), relative);
                                     }
                                 }
                             }
@@ -1432,14 +1450,23 @@ async fn serve_plain(
                             if let Ok(relative) = path.strip_prefix(&sass_dir_for_watcher) {
                                 if let Ok(content) = fs::read_to_string(path) {
                                     let mut db = server_for_watcher.db.lock().unwrap();
-                                    let sass_files = server_for_watcher.sass_files.read().unwrap();
+                                    let mut sass_files = server_for_watcher.sass_files.write().unwrap();
                                     let relative_str = relative.to_string();
+                                    let mut found = false;
                                     for sass_file in sass_files.iter() {
                                         if sass_file.path(&*db).as_str() == relative_str {
                                             use salsa::Setter;
                                             sass_file.set_content(&mut *db).to(SassContent::new(content.clone()));
+                                            found = true;
                                             break;
                                         }
+                                    }
+                                    if !found {
+                                        // New file - create and add it
+                                        let sass_path = SassPath::new(relative_str);
+                                        let sass = SassFile::new(&*db, sass_path, SassContent::new(content));
+                                        sass_files.push(sass);
+                                        println!("  {} Added new sass: {}", "+".green(), relative);
                                     }
                                 }
                             }
@@ -1451,14 +1478,12 @@ async fn serve_plain(
                                         continue;
                                     }
                                     let mut db = server_for_watcher.db.lock().unwrap();
-                                    let static_files = server_for_watcher.static_files.read().unwrap();
+                                    let mut static_files = server_for_watcher.static_files.write().unwrap();
                                     let relative_str = relative.to_string();
-                                    tracing::debug!("[no-tui] Looking for static file: {relative_str}");
                                     let mut found = false;
                                     for static_file in static_files.iter() {
                                         let stored_path = static_file.path(&*db).as_str().to_string();
                                         if stored_path == relative_str {
-                                            tracing::info!("[no-tui] Updating static file: {relative_str} ({} bytes)", content.len());
                                             use salsa::Setter;
                                             static_file.set_content(&mut *db).to(content.clone());
                                             found = true;
@@ -1466,8 +1491,85 @@ async fn serve_plain(
                                         }
                                     }
                                     if !found {
-                                        tracing::warn!("[no-tui] Static file not found: {relative_str}");
+                                        // New file - create and add it
+                                        let static_path = StaticPath::new(relative_str);
+                                        let static_file = StaticFile::new(&*db, static_path, content);
+                                        static_files.push(static_file);
+                                        println!("  {} Added new static: {}", "+".green(), relative);
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    // Trigger live reload
+                    server_for_watcher.trigger_reload();
+                    last_rebuild = Instant::now();
+                }
+                EventKind::Remove(_) => {
+                    // Handle file deletions
+                    let paths: Vec<Utf8PathBuf> = event
+                        .paths
+                        .iter()
+                        .filter(|p| {
+                            let path_str = p.to_string_lossy();
+                            if path_str.contains(".tmp.") || path_str.ends_with("~") {
+                                return false;
+                            }
+                            let is_known_ext = p.extension()
+                                .map(|e| e == "md" || e == "scss" || e == "html")
+                                .unwrap_or(false);
+                            let is_static = p.starts_with(static_dir_for_watcher.as_std_path());
+                            is_known_ext || is_static
+                        })
+                        .filter_map(|p| Utf8PathBuf::from_path_buf(p.clone()).ok())
+                        .collect();
+
+                    if paths.is_empty() {
+                        continue;
+                    }
+
+                    for path in &paths {
+                        println!("  {} Removed: {}", "-".red(), path.file_name().unwrap_or("?"));
+                    }
+
+                    // Remove deleted files from Salsa inputs
+                    for path in &paths {
+                        if path.starts_with(&content_for_watcher) {
+                            if let Ok(relative) = path.strip_prefix(&content_for_watcher) {
+                                let db = server_for_watcher.db.lock().unwrap();
+                                let mut sources = server_for_watcher.sources.write().unwrap();
+                                let relative_str = relative.to_string();
+                                // Find and remove the source file
+                                if let Some(pos) = sources.iter().position(|s| s.path(&*db).as_str() == relative_str) {
+                                    sources.remove(pos);
+                                }
+                            }
+                        } else if path.starts_with(&templates_dir_for_watcher) {
+                            if let Ok(relative) = path.strip_prefix(&templates_dir_for_watcher) {
+                                let db = server_for_watcher.db.lock().unwrap();
+                                let mut templates = server_for_watcher.templates.write().unwrap();
+                                let relative_str = relative.to_string();
+                                if let Some(pos) = templates.iter().position(|t| t.path(&*db).as_str() == relative_str) {
+                                    templates.remove(pos);
+                                }
+                            }
+                        } else if path.starts_with(&sass_dir_for_watcher) {
+                            if let Ok(relative) = path.strip_prefix(&sass_dir_for_watcher) {
+                                let db = server_for_watcher.db.lock().unwrap();
+                                let mut sass_files = server_for_watcher.sass_files.write().unwrap();
+                                let relative_str = relative.to_string();
+                                if let Some(pos) = sass_files.iter().position(|s| s.path(&*db).as_str() == relative_str) {
+                                    sass_files.remove(pos);
+                                }
+                            }
+                        } else if path.starts_with(&static_dir_for_watcher) {
+                            if let Ok(relative) = path.strip_prefix(&static_dir_for_watcher) {
+                                let db = server_for_watcher.db.lock().unwrap();
+                                let mut static_files = server_for_watcher.static_files.write().unwrap();
+                                let relative_str = relative.to_string();
+                                if let Some(pos) = static_files.iter().position(|s| s.path(&*db).as_str() == relative_str) {
+                                    static_files.remove(pos);
                                 }
                             }
                         }

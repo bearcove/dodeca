@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/livereload-client", "xtask"]
+members = [".", "crates/livereload-client", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "xtask"]
 
 [package]
 name = "dodeca"

@@ -263,17 +263,13 @@ fn diff_one_change_medium(bencher: Bencher) {
     let mut new = generate_large_page(20, 10);
 
     // Modify one paragraph
-    if let Some(main) = new.children.get_mut(2) {
-        if let Some(article) = main.children.get_mut(0) {
-            if let Some(section) = article.children.get_mut(10) {
-                if let Some(para) = section.children.get_mut(3) {
-                    if let Some(text_node) = para.children.get_mut(0) {
+    if let Some(main) = new.children.get_mut(2)
+        && let Some(article) = main.children.get_mut(0)
+            && let Some(section) = article.children.get_mut(10)
+                && let Some(para) = section.children.get_mut(3)
+                    && let Some(text_node) = para.children.get_mut(0) {
                         text_node.text = "THIS TEXT WAS CHANGED!".to_string();
                     }
-                }
-            }
-        }
-    }
 
     old.compute_hashes_parallel();
     new.compute_hashes_parallel();
@@ -287,17 +283,13 @@ fn diff_one_change_large(bencher: Bencher) {
     let mut new = generate_large_page(50, 20);
 
     // Modify one paragraph deep in the tree
-    if let Some(main) = new.children.get_mut(2) {
-        if let Some(article) = main.children.get_mut(0) {
-            if let Some(section) = article.children.get_mut(25) {
-                if let Some(para) = section.children.get_mut(5) {
-                    if let Some(text_node) = para.children.get_mut(0) {
+    if let Some(main) = new.children.get_mut(2)
+        && let Some(article) = main.children.get_mut(0)
+            && let Some(section) = article.children.get_mut(25)
+                && let Some(para) = section.children.get_mut(5)
+                    && let Some(text_node) = para.children.get_mut(0) {
                         text_node.text = "THIS TEXT WAS CHANGED!".to_string();
                     }
-                }
-            }
-        }
-    }
 
     old.compute_hashes_parallel();
     new.compute_hashes_parallel();
@@ -312,17 +304,13 @@ fn diff_many_changes_medium(bencher: Bencher) {
 
     // Modify several paragraphs across different sections
     for section_idx in [2, 5, 10, 15, 18] {
-        if let Some(main) = new.children.get_mut(2) {
-            if let Some(article) = main.children.get_mut(0) {
-                if let Some(section) = article.children.get_mut(section_idx) {
-                    if let Some(para) = section.children.get_mut(1) {
-                        if let Some(text_node) = para.children.get_mut(0) {
+        if let Some(main) = new.children.get_mut(2)
+            && let Some(article) = main.children.get_mut(0)
+                && let Some(section) = article.children.get_mut(section_idx)
+                    && let Some(para) = section.children.get_mut(1)
+                        && let Some(text_node) = para.children.get_mut(0) {
                             text_node.text = format!("CHANGED section {}", section_idx);
                         }
-                    }
-                }
-            }
-        }
     }
 
     old.compute_hashes_parallel();
