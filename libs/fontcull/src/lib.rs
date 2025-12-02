@@ -100,6 +100,7 @@ pub fn subset_font_data(font_data: &[u8], chars: &HashSet<char>) -> Result<Vec<u
     // Perform subsetting
     let subsetted = subset_font(&font, &plan).map_err(|e| SubsetError::Subset(format!("{e:?}")))?;
 
+    // Tis done
     Ok(subsetted)
 }
 
