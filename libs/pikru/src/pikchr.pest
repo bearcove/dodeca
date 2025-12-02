@@ -27,8 +27,9 @@ direction = @{ ("up" | "down" | "left" | "right") ~ !ASCII_ALPHANUMERIC }
 assignment = { lvalue ~ assign_op ~ rvalue }
 assign_op = { "+=" | "-=" | "*=" | "/=" | "=" }
 lvalue = { variable | "fill" | "color" | "thickness" }
-rvalue = { expr | PLACENAME }  // PLACENAME for color names like "Red"
+rvalue = { expr | HEX_COLOR | PLACENAME }  // PLACENAME for color names like "Red", HEX_COLOR for #ff0000
 variable = { "$" ~ IDENT | IDENT }
+HEX_COLOR = @{ "#" ~ ASCII_HEX_DIGIT{3,8} }  // #rgb, #rrggbb, or #rrggbbaa
 
 // === Macros ===
 define = { "define" ~ IDENT ~ CODEBLOCK }
@@ -245,6 +246,7 @@ STRING = @{ "\"" ~ ("\\" ~ ANY | !("\"" | "\\") ~ ANY)* ~ "\"" }
 // === Whitespace & Comments ===
 WHITESPACE = _{ " " | "\t" | "\r" | line_continuation }
 line_continuation = { "\\" ~ NEWLINE }
-COMMENT = _{ "//" ~ (!NEWLINE ~ ANY)* | "#" ~ (!NEWLINE ~ ANY)* | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+// Note: # comments must NOT start with hex digits (to allow #ff0000 hex colors)
+COMMENT = _{ "//" ~ (!NEWLINE ~ ANY)* | "#" ~ !ASCII_HEX_DIGIT ~ (!NEWLINE ~ ANY)* | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 EOL = { NEWLINE | ";" }
 NEWLINE = _{ "\n" }

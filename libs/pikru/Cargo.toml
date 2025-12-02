@@ -14,6 +14,7 @@ rootcause = "0.10.0"
 insta = { version = "1.42", features = ["glob"] }
 datatest-stable = "0.3"
 regex-lite = "0.1.8"
+roxmltree = "0.20"
 
 [[test]]
 name = "pikchr_tests"
