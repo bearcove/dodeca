@@ -11,7 +11,7 @@ members = [
 
 [package]
 name = "fontcull"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2024"
 authors = ["Amos Wenger <amos@bearcove.eu>"]
 description = "Subset fonts based on actual glyph usage from web pages"
@@ -56,10 +56,10 @@ futures = { version = "0.3", optional = true }
 scraper = { version = "0.24", optional = true }
 
 # klippa backend (optional, vendored from googlefonts/fontations)
-fontcull-klippa = { version = "0.1.0", path = "vendored/fontcull-klippa", optional = true }
-fontcull-skrifa = { version = "0.39.0", path = "vendored/fontcull-skrifa", optional = true }
-fontcull-write-fonts = { version = "0.44.1", path = "vendored/fontcull-write-fonts", optional = true }
-fontcull-read-fonts = { version = "0.36.0", path = "vendored/fontcull-read-fonts", optional = true }
+fontcull-klippa = { version = "0.1.1", path = "vendored/fontcull-klippa", optional = true }
+fontcull-skrifa = { version = "0.39.1", path = "vendored/fontcull-skrifa", optional = true }
+fontcull-write-fonts = { version = "0.44.2", path = "vendored/fontcull-write-fonts", optional = true }
+fontcull-read-fonts = { version = "0.37.0", path = "vendored/fontcull-read-fonts", optional = true }
 woff = { version = "0.6", optional = true }
 
 # The profile that 'dist' will build with

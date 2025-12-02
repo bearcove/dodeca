@@ -1,6 +1,6 @@
 [package]
 name = "fontcull-write-fonts"
-version = "0.44.1"
+version = "0.44.2"
 description = "Writing font files. (Vendored fork for fontcull)"
 readme = "README.md"
 categories = ["text-processing", "parsing", "graphics"]
@@ -21,7 +21,7 @@ ift = ["fontcull-read-fonts/ift"]
 
 [dependencies]
 fontcull-font-types = { version = "0.10.1", path = "../fontcull-font-types" }
-fontcull-read-fonts = { version = "0.36.0", path = "../fontcull-read-fonts", default-features = true }
+fontcull-read-fonts = { version = "0.37.0", path = "../fontcull-read-fonts", default-features = true }
 log = "0.4"
 kurbo = "0.12.0"
 dot2 = { version = "1.0", optional = true }
@@ -30,7 +30,7 @@ indexmap = "2.0"
 
 [dev-dependencies]
 fontcull-font-test-data = { version = "0.6.1", path = "../fontcull-font-test-data" }
-fontcull-read-fonts = { version = "0.36.0", path = "../fontcull-read-fonts", features = ["codegen_test", "experimental_traverse"] }
+fontcull-read-fonts = { version = "0.37.0", path = "../fontcull-read-fonts", features = ["codegen_test", "experimental_traverse"] }
 diff = "0.1.12"
 nu-ansi-term = "0.50.1"
 rstest = "0.18.0"
