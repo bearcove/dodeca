@@ -156,37 +156,62 @@ impl SiteServer {
 
             // Check if this is a processable image
             if InputFormat::is_processable(original_path) {
-                // Images get transcoded - check all variant paths
-                if let Some(processed) = process_image(&*db, *file) {
-                    use crate::cache_bust::{cache_busted_path, content_hash};
+                use crate::cas::ImageVariantKey;
+                use crate::queries::{image_metadata, image_input_hash};
 
-                    // Check JXL variants
-                    for variant in &processed.jxl_variants {
-                        let base_path = crate::image::change_extension(original_path, OutputFormat::Jxl.extension());
-                        let variant_path = if variant.width == processed.original_width {
-                            base_path
-                        } else {
-                            add_width_suffix(&base_path, variant.width)
-                        };
-                        let hash = content_hash(&variant.data);
-                        let cache_busted = cache_busted_path(&variant_path, &hash);
-                        if path == format!("/{cache_busted}") {
-                            return Some(ServeContent::Static(variant.data.clone(), "image/jxl"));
+                // Get metadata and input hash (fast - no encoding)
+                let Some(metadata) = image_metadata(&*db, *file) else { continue };
+                let input_hash = image_input_hash(&*db, *file);
+
+                // Check each possible variant URL
+                for &width in &metadata.variant_widths {
+                    // Check JXL variant
+                    let jxl_base = crate::image::change_extension(original_path, OutputFormat::Jxl.extension());
+                    let jxl_variant_path = if width == metadata.width {
+                        jxl_base.clone()
+                    } else {
+                        add_width_suffix(&jxl_base, width)
+                    };
+                    let jxl_key = ImageVariantKey {
+                        input_hash,
+                        format: OutputFormat::Jxl,
+                        width,
+                    };
+                    let jxl_cache_busted = format!("{}.{}.jxl",
+                        jxl_variant_path.trim_end_matches(".jxl"),
+                        jxl_key.url_hash()
+                    );
+                    if path == format!("/{jxl_cache_busted}") {
+                        // NOW process the image (lazy!)
+                        if let Some(processed) = process_image(&*db, *file) {
+                            if let Some(variant) = processed.jxl_variants.iter().find(|v| v.width == width) {
+                                return Some(ServeContent::Static(variant.data.clone(), "image/jxl"));
+                            }
                         }
                     }
 
-                    // Check WebP variants
-                    for variant in &processed.webp_variants {
-                        let base_path = crate::image::change_extension(original_path, OutputFormat::WebP.extension());
-                        let variant_path = if variant.width == processed.original_width {
-                            base_path
-                        } else {
-                            add_width_suffix(&base_path, variant.width)
-                        };
-                        let hash = content_hash(&variant.data);
-                        let cache_busted = cache_busted_path(&variant_path, &hash);
-                        if path == format!("/{cache_busted}") {
-                            return Some(ServeContent::Static(variant.data.clone(), "image/webp"));
+                    // Check WebP variant
+                    let webp_base = crate::image::change_extension(original_path, OutputFormat::WebP.extension());
+                    let webp_variant_path = if width == metadata.width {
+                        webp_base.clone()
+                    } else {
+                        add_width_suffix(&webp_base, width)
+                    };
+                    let webp_key = ImageVariantKey {
+                        input_hash,
+                        format: OutputFormat::WebP,
+                        width,
+                    };
+                    let webp_cache_busted = format!("{}.{}.webp",
+                        webp_variant_path.trim_end_matches(".webp"),
+                        webp_key.url_hash()
+                    );
+                    if path == format!("/{webp_cache_busted}") {
+                        // NOW process the image (lazy!)
+                        if let Some(processed) = process_image(&*db, *file) {
+                            if let Some(variant) = processed.webp_variants.iter().find(|v| v.width == width) {
+                                return Some(ServeContent::Static(variant.data.clone(), "image/webp"));
+                            }
                         }
                     }
                 }

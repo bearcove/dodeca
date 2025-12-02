@@ -265,6 +265,43 @@ fn resize_image(img: &DynamicImage, target_width: u32) -> DynamicImage {
     )
 }
 
+/// Image metadata without the processed bytes
+/// This is fast to compute (decode only, no encode)
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ImageMetadata {
+    /// Original width
+    pub width: u32,
+    /// Original height
+    pub height: u32,
+    /// Thumbhash as base64 data URL
+    pub thumbhash_data_url: String,
+    /// Which widths we'll generate variants for
+    pub variant_widths: Vec<u32>,
+}
+
+/// Get image metadata without processing (fast - decode only, no encode)
+pub fn get_image_metadata(data: &[u8], input_format: InputFormat) -> Option<ImageMetadata> {
+    let img = decode_image(data, input_format)?;
+    let (width, height) = (img.width(), img.height());
+    let thumbhash_data_url = generate_thumbhash_data_url(&img)?;
+
+    // Compute which widths we'll generate (same logic as process_image)
+    let mut variant_widths: Vec<u32> = RESPONSIVE_WIDTHS
+        .iter()
+        .copied()
+        .filter(|&w| w < width)
+        .collect();
+    variant_widths.push(width); // Always include original
+    variant_widths.sort();
+
+    Some(ImageMetadata {
+        width,
+        height,
+        thumbhash_data_url,
+        variant_widths,
+    })
+}
+
 /// Process an image and generate all variants
 ///
 /// Returns None if the image cannot be processed (unsupported format, decode error, etc.)

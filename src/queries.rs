@@ -378,6 +378,24 @@ pub fn subset_font<'db>(
     }
 }
 
+/// Get image metadata (dimensions, thumbhash, variant widths) without full processing
+/// This is fast - only decodes the image, doesn't encode to JXL/WebP
+#[salsa::tracked]
+pub fn image_metadata(db: &dyn Db, image_file: StaticFile) -> Option<image::ImageMetadata> {
+    let path = image_file.path(db);
+    let input_format = InputFormat::from_extension(path.as_str())?;
+    let data = image_file.content(db);
+    image::get_image_metadata(data, input_format)
+}
+
+/// Get the input hash for an image file (for cache-busted URLs)
+#[salsa::tracked]
+pub fn image_input_hash(db: &dyn Db, image_file: StaticFile) -> crate::cas::InputHash {
+    use crate::cas::content_hash_32;
+    let data = image_file.content(db);
+    content_hash_32(data)
+}
+
 /// Process an image file into responsive formats (JXL + WebP) with multiple widths
 /// Returns None if the image cannot be processed or is not a supported format
 ///
@@ -490,6 +508,10 @@ pub fn build_site<'db>(
         if InputFormat::is_processable(path) {
             // Try to process the image into JXL and WebP variants at multiple widths
             if let Some(processed) = process_image(db, *file) {
+                use crate::cas::ImageVariantKey;
+
+                // Get input hash for deterministic URLs (same as serve_html)
+                let input_hash = image_input_hash(db, *file);
                 let mut jxl_srcset = Vec::new();
                 let mut webp_srcset = Vec::new();
 
@@ -501,8 +523,16 @@ pub fn build_site<'db>(
                     } else {
                         add_width_suffix(&base_path, variant.width)
                     };
-                    let hash = content_hash(&variant.data);
-                    let cache_busted = cache_busted_path(&variant_path, &hash);
+                    // Use input-based hash for URL (matches serve_html)
+                    let key = ImageVariantKey {
+                        input_hash,
+                        format: OutputFormat::Jxl,
+                        width: variant.width,
+                    };
+                    let cache_busted = format!("{}.{}.jxl",
+                        variant_path.trim_end_matches(".jxl"),
+                        key.url_hash()
+                    );
 
                     jxl_srcset.push((format!("/{cache_busted}"), variant.width));
                     static_outputs.insert(variant_path, (cache_busted, variant.data.clone()));
@@ -516,8 +546,16 @@ pub fn build_site<'db>(
                     } else {
                         add_width_suffix(&base_path, variant.width)
                     };
-                    let hash = content_hash(&variant.data);
-                    let cache_busted = cache_busted_path(&variant_path, &hash);
+                    // Use input-based hash for URL (matches serve_html)
+                    let key = ImageVariantKey {
+                        input_hash,
+                        format: OutputFormat::WebP,
+                        width: variant.width,
+                    };
+                    let cache_busted = format!("{}.{}.webp",
+                        variant_path.trim_end_matches(".webp"),
+                        key.url_hash()
+                    );
 
                     webp_srcset.push((format!("/{cache_busted}"), variant.width));
                     static_outputs.insert(variant_path, (cache_busted, variant.data.clone()));
@@ -854,40 +892,50 @@ pub fn serve_html<'db>(
     }
 
     // Build image variants map for <picture> transformation
+    // Uses image_metadata (fast decode) + input-based hashes (no encoding needed)
     let mut image_variants: HashMap<String, ResponsiveImageInfo> = HashMap::new();
     for file in static_files.files(db) {
         let path = file.path(db).as_str();
         if InputFormat::is_processable(path) {
-            if let Some(processed) = process_image(db, *file) {
-                use crate::cache_bust::{cache_busted_path as bust_path, content_hash};
+            if let Some(metadata) = image_metadata(db, *file) {
+                use crate::cas::ImageVariantKey;
 
+                let input_hash = image_input_hash(db, *file);
                 let mut jxl_srcset = Vec::new();
                 let mut webp_srcset = Vec::new();
 
-                // Process JXL variants
-                for variant in &processed.jxl_variants {
+                // Build JXL srcset using input-based hashes
+                for &width in &metadata.variant_widths {
                     let base_path = image::change_extension(path, image::OutputFormat::Jxl.extension());
-                    let variant_path = if variant.width == processed.original_width {
+                    let variant_path = if width == metadata.width {
                         base_path
                     } else {
-                        add_width_suffix(&base_path, variant.width)
+                        add_width_suffix(&base_path, width)
                     };
-                    let hash = content_hash(&variant.data);
-                    let cache_busted = bust_path(&variant_path, &hash);
-                    jxl_srcset.push((format!("/{cache_busted}"), variant.width));
+                    let key = ImageVariantKey {
+                        input_hash,
+                        format: image::OutputFormat::Jxl,
+                        width,
+                    };
+                    let cache_busted = format!("{}.{}", variant_path.trim_end_matches(".jxl"), key.url_hash()) + ".jxl";
+                    jxl_srcset.push((format!("/{cache_busted}"), width));
                 }
 
-                // Process WebP variants
-                for variant in &processed.webp_variants {
+                // Build WebP srcset using input-based hashes
+                for &width in &metadata.variant_widths {
                     let base_path = image::change_extension(path, image::OutputFormat::WebP.extension());
-                    let variant_path = if variant.width == processed.original_width {
+                    let variant_path = if width == metadata.width {
                         base_path
                     } else {
-                        add_width_suffix(&base_path, variant.width)
+                        add_width_suffix(&base_path, width)
                     };
-                    let hash = content_hash(&variant.data);
-                    let cache_busted = bust_path(&variant_path, &hash);
-                    webp_srcset.push((format!("/{cache_busted}"), variant.width));
+                    let key = ImageVariantKey {
+                        input_hash,
+                        format: image::OutputFormat::WebP,
+                        width,
+                    };
+                    let cache_busted = format!("{}.{}", variant_path.trim_end_matches(".webp"), key.url_hash()) + ".webp";
+                    webp_srcset.push((format!("/{cache_busted}"), width));
                 }
 
                 image_variants.insert(
@@ -895,9 +943,9 @@ pub fn serve_html<'db>(
                     ResponsiveImageInfo {
                         jxl_srcset,
                         webp_srcset,
-                        original_width: processed.original_width,
-                        original_height: processed.original_height,
-                        thumbhash_data_url: processed.thumbhash_data_url.clone(),
+                        original_width: metadata.width,
+                        original_height: metadata.height,
+                        thumbhash_data_url: metadata.thumbhash_data_url.clone(),
                     },
                 );
             }

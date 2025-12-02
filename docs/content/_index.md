@@ -73,8 +73,6 @@ output "docs/public"
 
 Licensed under either of Apache License, Version 2.0 or MIT license at your option.
 
----
-
 ![Mountain landscape](/images/mountain.jpg)
 
 *Photo by [Samuel Ferrara](https://unsplash.com/@samferrara) on Unsplash (CC0) — used here to demonstrate responsive image processing*

@@ -103,9 +103,37 @@ pub fn init_image_cache(cache_dir: &Path) -> color_eyre::Result<()> {
 /// (widths, quality, formats, etc.) to invalidate the cache
 pub const IMAGE_PIPELINE_VERSION: u64 = 1;
 
+/// Hash of input image content (includes pipeline version)
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InputHash(pub [u8; 32]);
+
+/// Key for a specific image variant (format + size)
+/// Used to compute deterministic cache-busted URLs without processing the image
+#[derive(Hash)]
+pub struct ImageVariantKey {
+    /// Hash of input image content (includes pipeline version)
+    pub input_hash: InputHash,
+    /// Output format
+    pub format: crate::image::OutputFormat,
+    /// Output width in pixels
+    pub width: u32,
+}
+
+impl ImageVariantKey {
+    /// Compute a short hash suitable for cache-busting URLs
+    pub fn url_hash(&self) -> String {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = RapidHasher::default();
+        self.hash(&mut hasher);
+        let hash = hasher.finish();
+        // Use first 8 chars of hex (32 bits) - enough for cache busting
+        format!("{:08x}", hash as u32)
+    }
+}
+
 /// Compute content hash for cache key (32 bytes for collision resistance)
 /// Includes the pipeline version so changing settings invalidates cache
-pub fn content_hash_32(data: &[u8]) -> [u8; 32] {
+pub fn content_hash_32(data: &[u8]) -> InputHash {
     let mut result = [0u8; 32];
 
     // Hash with different seeds to get 32 bytes
@@ -131,26 +159,26 @@ pub fn content_hash_32(data: &[u8]) -> [u8; 32] {
     let h4 = hasher.finish();
     result[24..32].copy_from_slice(&h4.to_le_bytes());
 
-    result
+    InputHash(result)
 }
 
 /// Get cached processed images by input content hash
-pub fn get_cached_image(content_hash: &[u8; 32]) -> Option<ProcessedImages> {
+pub fn get_cached_image(content_hash: &InputHash) -> Option<ProcessedImages> {
     let db = IMAGE_CACHE.get()?;
     let rx = db.begin_read().ok()?;
     let tree = rx.get_tree(b"processed").ok()??;
-    let data = tree.get(content_hash).ok()??;
+    let data = tree.get(&content_hash.0).ok()??;
     bincode::deserialize(&data).ok()
 }
 
 /// Store processed images by input content hash
-pub fn put_cached_image(content_hash: &[u8; 32], images: &ProcessedImages) {
+pub fn put_cached_image(content_hash: &InputHash, images: &ProcessedImages) {
     let Some(db) = IMAGE_CACHE.get() else { return };
     let Ok(data) = bincode::serialize(images) else { return };
 
     let Ok(tx) = db.begin_write() else { return };
     let Ok(mut tree) = tx.get_or_create_tree(b"processed") else { return };
-    let _ = tree.insert(content_hash, &data);
+    let _ = tree.insert(&content_hash.0, &data);
     drop(tree);
     let _ = tx.commit();
 }
