@@ -1,19 +1,41 @@
 //! Cache busting for static assets
 //!
 //! Hashes file content and embeds in filename for optimal browser caching.
-//! Example: `main.css` → `main.a1b2c3d4.css`
+//! Uses the "dodeca alphabet" - base15 encoding with only the characters
+//! from "dodeca" plus digits: `0123456789acdeo`
+//!
+//! Example: `main.css` → `main.0a3dec47oc21.css`
 
 use rapidhash::fast::RapidHasher;
 use std::hash::Hasher;
 
+/// The dodeca alphabet: digits + unique letters from "dodeca"
+/// 15 characters for base15 encoding
+const DODECA_ALPHABET: &[u8; 15] = b"0123456789acdeo";
+
+/// Number of characters in dodeca hashes (12 for "dodeca" = 12-sided)
+const DODECA_HASH_LEN: usize = 12;
+
+/// Encode a u64 hash as a 12-character dodeca string (base15)
+/// 15^12 ≈ 129 trillion combinations - plenty of entropy
+pub fn encode_dodeca(mut hash: u64) -> String {
+    let mut result = [b'0'; DODECA_HASH_LEN];
+
+    for i in (0..DODECA_HASH_LEN).rev() {
+        result[i] = DODECA_ALPHABET[(hash % 15) as usize];
+        hash /= 15;
+    }
+
+    // SAFETY: DODECA_ALPHABET only contains ASCII characters
+    unsafe { String::from_utf8_unchecked(result.to_vec()) }
+}
+
 /// Generate a short hash from content for cache busting
-/// Returns 8 hex characters (32 bits of the hash)
+/// Returns 12 dodeca characters (base15 with dodeca alphabet)
 pub fn content_hash(content: &[u8]) -> String {
     let mut hasher = RapidHasher::default();
     hasher.write(content);
-    let hash = hasher.finish();
-    // Take first 8 hex chars (32 bits) - enough for uniqueness, short for URLs
-    format!("{:08x}", (hash >> 32) as u32)
+    encode_dodeca(hasher.finish())
 }
 
 /// Generate cache-busted filename
@@ -31,33 +53,60 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_encode_dodeca() {
+        // Test that encoding produces valid dodeca alphabet characters
+        let encoded = encode_dodeca(0);
+        assert_eq!(encoded, "000000000000");
+        assert_eq!(encoded.len(), 12);
+
+        // Test with a known value
+        let encoded = encode_dodeca(12345678901234567890);
+        assert_eq!(encoded.len(), 12);
+        // All characters should be from dodeca alphabet
+        for c in encoded.chars() {
+            assert!(
+                "0123456789acdeo".contains(c),
+                "Invalid character in dodeca hash: {c}"
+            );
+        }
+    }
+
+    #[test]
     fn test_content_hash() {
         let hash1 = content_hash(b"hello world");
         let hash2 = content_hash(b"hello world");
         let hash3 = content_hash(b"different content");
 
-        assert_eq!(hash1.len(), 8);
+        assert_eq!(hash1.len(), 12); // dodeca = 12 characters
         assert_eq!(hash1, hash2); // deterministic
         assert_ne!(hash1, hash3); // different content = different hash
+
+        // All characters should be from dodeca alphabet
+        for c in hash1.chars() {
+            assert!(
+                "0123456789acdeo".contains(c),
+                "Invalid character in dodeca hash: {c}"
+            );
+        }
     }
 
     #[test]
     fn test_cache_busted_path() {
         assert_eq!(
-            cache_busted_path("main.css", "a1b2c3d4"),
-            "main.a1b2c3d4.css"
+            cache_busted_path("main.css", "0a3dec47oc21"),
+            "main.0a3dec47oc21.css"
         );
         assert_eq!(
-            cache_busted_path("fonts/Inter.woff2", "deadbeef"),
-            "fonts/Inter.deadbeef.woff2"
+            cache_busted_path("fonts/Inter.woff2", "dec0da123456"),
+            "fonts/Inter.dec0da123456.woff2"
         );
         assert_eq!(
-            cache_busted_path("fonts/Inter-Bold.woff2", "12345678"),
-            "fonts/Inter-Bold.12345678.woff2"
+            cache_busted_path("fonts/Inter-Bold.woff2", "123456789012"),
+            "fonts/Inter-Bold.123456789012.woff2"
         );
         assert_eq!(
-            cache_busted_path("noextension", "abcd1234"),
-            "noextension.abcd1234"
+            cache_busted_path("noextension", "acdeo0123456"),
+            "noextension.acdeo0123456"
         );
     }
 }

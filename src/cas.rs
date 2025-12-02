@@ -121,13 +121,12 @@ pub struct ImageVariantKey {
 
 impl ImageVariantKey {
     /// Compute a short hash suitable for cache-busting URLs
+    /// Uses dodeca alphabet (base15) for a subtle signature
     pub fn url_hash(&self) -> String {
         use std::hash::{Hash, Hasher};
         let mut hasher = RapidHasher::default();
         self.hash(&mut hasher);
-        let hash = hasher.finish();
-        // Use first 8 chars of hex (32 bits) - enough for cache busting
-        format!("{:08x}", hash as u32)
+        crate::cache_bust::encode_dodeca(hasher.finish())
     }
 }
 
