@@ -115,9 +115,7 @@ No, but the tests make me reasonably sure it won't mess anything up.
 
 ## Roadmap
 
-- [ ] More optimization passes (match svgo's output sizes)
-- [ ] SVGO-compatible plugin system
-- [ ] Streaming support for large files
+- [ ] More optimization passes (close the gap with svgo's compression)
 
 ## Inspired by
 

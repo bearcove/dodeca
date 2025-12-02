@@ -87,7 +87,7 @@ Test corpus: 4858 SVG files (1042.5 MB total)
 |--|------|------|
 | **Output size** | 729.0 MB (-30.1%) | 412.2 MB (-60.5%) |
 | **Bytes saved** | 313.6 MB | 630.3 MB |
-| **Processing time** | 496.6ms | 23.83s |
+| **Processing time** | 514.1ms | 26.92s |
 
 <details>
 <summary>Methodology</summary>
@@ -115,9 +115,7 @@ No, but the tests make me reasonably sure it won't mess anything up.
 
 ## Roadmap
 
-- [ ] More optimization passes (match svgo's output sizes)
-- [ ] SVGO-compatible plugin system
-- [ ] Streaming support for large files
+- [ ] More optimization passes (close the gap with svgo's compression)
 
 ## Inspired by
 

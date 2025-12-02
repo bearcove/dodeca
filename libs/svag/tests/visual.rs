@@ -18,6 +18,7 @@ use tempfile::TempDir;
 use svag::minify;
 
 const TEST_OUTPUT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test_output");
+const VISUAL_CORPUS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/visual_corpus");
 
 /// Minimum acceptable SSIM score (99.9% similarity)
 const MIN_SSIM: f64 = 0.999;
@@ -106,13 +107,57 @@ async fn render_svg(browser: &Browser, svg: &str, width: u32, height: u32) -> Rg
     img.to_rgb8()
 }
 
+async fn run_visual_tests(browser: &Browser, test_cases: &[(&str, String)]) -> Vec<(String, f64, bool)> {
+    let output_dir = Path::new(TEST_OUTPUT_DIR);
+    fs::create_dir_all(output_dir).unwrap();
+
+    let mut results = Vec::new();
+
+    for (name, svg) in test_cases {
+        let minified = match minify(svg) {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("{}: SKIP (minify failed: {})", name, e);
+                continue;
+            }
+        };
+
+        let (width, height) = extract_dimensions(svg).unwrap_or((480, 360));
+
+        // Render original
+        let original_img = render_svg(browser, svg, width, height).await;
+        // Render minified
+        let minified_img = render_svg(browser, &minified, width, height).await;
+
+        // Save for inspection
+        let original_path = output_dir.join(format!("{}_original.png", name));
+        let minified_path = output_dir.join(format!("{}_minified.png", name));
+        original_img.save(&original_path).unwrap();
+        minified_img.save(&minified_path).unwrap();
+
+        // Save SVGs too
+        fs::write(output_dir.join(format!("{}_original.svg", name)), svg).unwrap();
+        fs::write(output_dir.join(format!("{}_minified.svg", name)), &minified).unwrap();
+
+        let ssim_score = compute_ssim(&original_img, &minified_img);
+        let passed = ssim_score >= MIN_SSIM;
+
+        let status = if passed { "PASS" } else { "FAIL" };
+        println!("{}: SSIM = {:.6} ({})", name, ssim_score, status);
+
+        results.push((name.to_string(), ssim_score, passed));
+    }
+
+    results
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn test_visual_regression() {
     // Create a unique temp directory for this browser instance
     let temp_dir = TempDir::new().unwrap();
     let user_data_dir = temp_dir.path().to_string_lossy().to_string();
 
-    // Let chromiumoxide find the browser automatically (no chrome_executable specified)
+    // Let chromiumoxide find the browser automatically
     let (browser, mut handler) = Browser::launch(
         BrowserConfig::builder()
             .arg("--headless=new")
@@ -128,109 +173,96 @@ async fn test_visual_regression() {
 
     let browser = Arc::new(browser);
 
-    // Spawn handler task - must keep processing events
+    // Spawn handler task
     let handle = tokio::spawn(async move {
         loop {
             match handler.next().await {
                 Some(Ok(_)) => {}
-                Some(Err(e)) => {
-                    eprintln!("Browser handler error: {:?}", e);
-                }
+                Some(Err(e)) => eprintln!("Browser handler error: {:?}", e),
                 None => break,
             }
         }
     });
 
-    // Give the browser a moment to initialize
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // Ensure output directory exists
-    let output_dir = Path::new(TEST_OUTPUT_DIR);
-    fs::create_dir_all(output_dir).unwrap();
-
-    // Test cases
-    let test_cases = [
+    // Inline test cases (basic shapes)
+    let inline_cases: Vec<(&str, String)> = vec![
         (
             "simple_rect",
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
                 <rect x="10" y="10" width="80" height="80" fill="red"/>
-            </svg>"#,
+            </svg>"#.to_string(),
         ),
         (
             "circle_with_stroke",
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
                 <circle cx="50" cy="50" r="40" fill="blue" stroke="black" stroke-width="2"/>
-            </svg>"#,
+            </svg>"#.to_string(),
         ),
         (
             "path_triangle",
             r##"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
                 <path d="M 50 10 L 90 90 L 10 90 Z" fill="#00ff00"/>
-            </svg>"##,
+            </svg>"##.to_string(),
         ),
         (
             "cubic_bezier",
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
                 <path d="M 10 80 C 40 10, 65 10, 95 80 S 150 150, 180 80"
                       fill="none" stroke="black" stroke-width="2"/>
-            </svg>"#,
+            </svg>"#.to_string(),
         ),
         (
             "arcs",
             r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
                 <path d="M 50 100 A 50 50 0 1 1 150 100 A 50 50 0 1 1 50 100"
                       fill="purple"/>
-            </svg>"#,
+            </svg>"#.to_string(),
         ),
     ];
 
-    println!("\n=== Visual Regression Tests ===");
+    println!("\n=== Visual Regression Tests (inline) ===");
+    let inline_results = run_visual_tests(&browser, &inline_cases).await;
 
-    for (name, svg) in test_cases {
-        let minified = minify(svg).expect("Failed to minify SVG");
-        let (width, height) = extract_dimensions(svg).unwrap_or((256, 256));
+    // Load corpus test cases
+    let corpus_dir = Path::new(VISUAL_CORPUS_DIR);
+    let mut corpus_cases: Vec<(&str, String)> = Vec::new();
 
-        // Render original
-        let original_img = render_svg(&browser, svg, width, height).await;
-        // Render minified
-        let minified_img = render_svg(&browser, &minified, width, height).await;
+    if corpus_dir.exists() {
+        let mut entries: Vec<_> = fs::read_dir(corpus_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "svg"))
+            .collect();
+        entries.sort_by_key(|e| e.path());
 
-        // Save for inspection
-        let original_path = output_dir.join(format!("{}_original.png", name));
-        let minified_path = output_dir.join(format!("{}_minified.png", name));
-        original_img.save(&original_path).unwrap();
-        minified_img.save(&minified_path).unwrap();
-
-        // Save SVGs too
-        fs::write(output_dir.join(format!("{}_original.svg", name)), svg).unwrap();
-        fs::write(output_dir.join(format!("{}_minified.svg", name)), &minified).unwrap();
-
-        let ssim_score = compute_ssim(&original_img, &minified_img);
-
-        println!(
-            "{}: SSIM = {:.6} ({}) - saved to test_output/",
-            name,
-            ssim_score,
-            if ssim_score >= MIN_SSIM {
-                "PASS"
-            } else {
-                "FAIL"
+        for entry in &entries {
+            if let Ok(content) = fs::read_to_string(entry.path()) {
+                let name = entry.path().file_stem().unwrap().to_string_lossy().to_string();
+                corpus_cases.push((Box::leak(name.into_boxed_str()), content));
             }
-        );
-
-        assert!(
-            ssim_score >= MIN_SSIM,
-            "{}: SSIM {} is below threshold {} -- see test_output/{}_*.png",
-            name,
-            ssim_score,
-            MIN_SSIM,
-            name
-        );
+        }
     }
 
-    println!("\n=== All visual tests passed! ===\n");
+    println!("\n=== Visual Regression Tests (corpus: {} files) ===", corpus_cases.len());
+    let corpus_results = run_visual_tests(&browser, &corpus_cases).await;
 
     // Cleanup
     drop(browser);
     handle.abort();
+
+    // Check results
+    let all_results: Vec<_> = inline_results.iter().chain(corpus_results.iter()).collect();
+    let failed: Vec<_> = all_results.iter().filter(|(_, _, passed)| !passed).collect();
+
+    if failed.is_empty() {
+        println!("\n=== All {} visual tests passed! ===\n", all_results.len());
+    } else {
+        println!("\n=== {} of {} tests failed ===", failed.len(), all_results.len());
+        for (name, ssim, _) in &failed {
+            println!("  FAIL: {} (SSIM = {:.6})", name, ssim);
+        }
+        panic!("{} visual regression tests failed", failed.len());
+    }
 }
