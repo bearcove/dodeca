@@ -23,13 +23,12 @@ pub fn minify_html(html: &str) -> String {
     String::from_utf8(result).unwrap_or_else(|_| html.to_string())
 }
 
-/// Pass through SVG content unchanged
+/// Optimize SVG content using svag
 ///
-/// SVG optimization is currently disabled because minify-html lowercases
-/// SVG attributes (e.g., viewBox -> viewbox), breaking the SVG.
-/// TODO: Implement proper SVG optimization that preserves case sensitivity.
+/// Removes unnecessary metadata, collapses groups, optimizes paths, etc.
+/// Preserves case sensitivity of SVG attributes (unlike minify-html).
 pub fn optimize_svg(svg_content: &str) -> Option<String> {
-    Some(svg_content.to_string())
+    svag::minify(svg_content).ok()
 }
 
 #[cfg(test)]
@@ -56,14 +55,20 @@ mod tests {
     }
 
     #[test]
-    fn test_optimize_svg_passthrough() {
-        let input = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="40" fill="red"/>
-        </svg>"#;
+    fn test_optimize_svg() {
+        let input = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+            <!-- A red circle -->
+            <circle cx="50" cy="50" r="40" fill="#ff0000"/>
+        </svg>"##;
 
         let output = optimize_svg(input);
         assert!(output.is_some());
-        // Should be unchanged (passthrough)
-        assert_eq!(output.unwrap(), input);
+        let output = output.unwrap();
+        // Should be smaller (removes comments, optimizes colors)
+        assert!(output.len() < input.len(), "expected smaller output");
+        // Should preserve viewBox (case-sensitive)
+        assert!(output.contains("viewBox"), "viewBox should be preserved");
+        // Should still have the circle
+        assert!(output.contains("circle"), "circle element should be preserved");
     }
 }
