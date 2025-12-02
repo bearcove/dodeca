@@ -30,6 +30,7 @@ image = "0.25"
 ssim = "0.1"
 tempfile = "3"
 base64 = "0.22"
+ignore = "0.4"
 
 [[bin]]
 name = "svag"

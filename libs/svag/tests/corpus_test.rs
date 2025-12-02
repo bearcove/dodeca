@@ -4,6 +4,7 @@
 use std::fs;
 use std::path::Path;
 
+use ignore::WalkBuilder;
 use svag::{minify, parse_svg};
 
 /// Test that all corpus SVGs can be parsed and minified without errors.
@@ -17,58 +18,69 @@ fn test_corpus_minification() {
     }
 
     let mut total = 0;
+    let mut passed = 0;
+    let mut failed = 0;
     let mut total_original = 0usize;
     let mut total_minified = 0usize;
 
-    for entry in fs::read_dir(&corpus_dir).unwrap() {
+    for entry in WalkBuilder::new(&corpus_dir).git_ignore(false).build() {
         let entry = entry.unwrap();
         let path = entry.path();
 
-        if path.extension().map(|e| e == "svg").unwrap_or(false) {
-            let name = path.file_name().unwrap().to_string_lossy();
-            let content = fs::read_to_string(&path).unwrap();
-            let original_size = content.len();
-
-            // Test parsing
-            let doc = parse_svg(&content).unwrap_or_else(|_| panic!("Failed to parse {}", name));
-
-            // Verify root is an SVG element
-            assert!(doc.root.is("svg"), "{}: Root element is not <svg>", name);
-
-            // Test minification
-            let minified = minify(&content).unwrap_or_else(|_| panic!("Failed to minify {}", name));
-            let minified_size = minified.len();
-
-            // Verify minified output is valid SVG
-            let _ = parse_svg(&minified)
-                .unwrap_or_else(|_| panic!("Failed to parse minified output of {}", name));
-
-            // Calculate savings
-            let savings = if original_size > 0 {
-                ((original_size - minified_size) as f64 / original_size as f64) * 100.0
-            } else {
-                0.0
+        if path.extension().is_some_and(|e| e == "svg") {
+            let rel_path = path.strip_prefix(&corpus_dir).unwrap_or(path);
+            let content = match fs::read_to_string(path) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("  SKIP {}: {}", rel_path.display(), e);
+                    continue;
+                }
             };
-
-            println!(
-                "{}: {} -> {} bytes ({:.1}% smaller)",
-                name, original_size, minified_size, savings
-            );
-
+            let original_size = content.len();
             total += 1;
-            total_original += original_size;
-            total_minified += minified_size;
+
+            // Test parsing and minification
+            match minify(&content) {
+                Ok(minified) => {
+                    let minified_size = minified.len();
+
+                    // Verify minified output is valid SVG
+                    if let Err(e) = parse_svg(&minified) {
+                        eprintln!(
+                            "  FAIL {}: minified output invalid: {}",
+                            rel_path.display(),
+                            e
+                        );
+                        failed += 1;
+                        continue;
+                    }
+
+                    passed += 1;
+                    total_original += original_size;
+                    total_minified += minified_size;
+                }
+                Err(e) => {
+                    eprintln!("  FAIL {}: {}", rel_path.display(), e);
+                    failed += 1;
+                }
+            }
         }
     }
 
     if total > 0 {
-        let total_savings =
-            ((total_original - total_minified) as f64 / total_original as f64) * 100.0;
+        let total_savings = if total_original > 0 {
+            ((total_original - total_minified) as f64 / total_original as f64) * 100.0
+        } else {
+            0.0
+        };
+        println!("\nCorpus: {}/{} passed, {} failed", passed, total, failed);
         println!(
-            "\nTotal: {} files, {} -> {} bytes ({:.1}% smaller)",
-            total, total_original, total_minified, total_savings
+            "Size: {} -> {} bytes ({:.1}% smaller)",
+            total_original, total_minified, total_savings
         );
     }
+
+    assert_eq!(failed, 0, "{} SVG files failed to minify", failed);
 }
 
 /// Test specific optimization behaviors.

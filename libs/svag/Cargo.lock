@@ -2203,6 +2203,7 @@ dependencies = [
  "chromiumoxide",
  "clap",
  "futures",
+ "ignore",
  "image",
  "quick-xml",
  "ryu",
