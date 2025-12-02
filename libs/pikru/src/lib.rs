@@ -90,6 +90,13 @@ mod tests {
     }
 
     #[test]
+    fn parse_dollar_one() {
+        let input = "$one = 1.0";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
     fn parse_dot_x() {
         // Test C4.x style access
         let input = "box at C4.x, C4.y";
@@ -137,11 +144,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_last_arrow() {
-        // Test expr parsing of "last arrow"
+    fn parse_position_last_arrow() {
+        // "last arrow" is a position (via nth/object/place), not an expr
         let input = "last arrow";
-        let result = PikchrParser::parse(Rule::expr, input);
-        assert!(result.is_ok(), "Failed to parse expr: {:?}", result.err());
+        let result = PikchrParser::parse(Rule::position, input);
+        assert!(result.is_ok(), "Failed to parse position: {:?}", result.err());
     }
 
     #[test]
@@ -153,11 +160,11 @@ mod tests {
     }
 
     #[test]
-    fn parse_expr_just_last() {
-        // Does "last" alone parse as expr?
+    fn parse_position_just_last() {
+        // "last" alone is a position (via nth/object/place), not an expr
         let input = "last";
-        let result = PikchrParser::parse(Rule::expr, input);
-        println!("Result for 'last': {:?}", result);
+        let result = PikchrParser::parse(Rule::position, input);
+        println!("Result for 'last' as position: {:?}", result);
         assert!(result.is_ok());
     }
 
@@ -225,5 +232,104 @@ mod tests {
         let input = include_str!("../../pikchr/tests/test02.pikchr");
         let result = PikchrParser::parse(Rule::program, input);
         assert!(result.is_ok(), "Failed to parse test02.pikchr: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_one_dot_se() {
+        // Test One.se as place - object with dot edge
+        let input = "One.se";
+        let result = PikchrParser::parse(Rule::place, input);
+        println!("place('One.se'): {:?}", result);
+        assert!(result.is_ok(), "Failed to parse as place: {:?}", result.err());
+
+        // Test One.se as position
+        let result = PikchrParser::parse(Rule::position, input);
+        println!("position('One.se'): {:?}", result);
+        assert!(result.is_ok(), "Failed to parse as position: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_then_to_one_se() {
+        // Test progressively to find where it breaks
+        let tests = [
+            "spline to One.se",
+            "spline then to One.se",
+            "spline -> to One.se",
+            "spline left to One.se",
+            "spline left 2cm to One.se",
+            "spline -> left 2cm to One.se",
+            "spline -> left 2cm then to One.se",
+        ];
+        for input in tests {
+            let result = PikchrParser::parse(Rule::program, input);
+            println!("{}: {}", input, if result.is_ok() { "OK" } else { "FAIL" });
+            if result.is_err() {
+                println!("  {:?}", result.err());
+            }
+        }
+        // Final assertion
+        let input = "spline -> left 2cm then to One.se";
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_test03() {
+        let input = include_str!("../../pikchr/tests/test03.pikchr");
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse test03.pikchr: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_test10() {
+        let input = include_str!("../../pikchr/tests/test10.pikchr");
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse test10.pikchr: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_expr_file() {
+        let input = include_str!("../../pikchr/tests/expr.pikchr");
+        let result = PikchrParser::parse(Rule::program, input);
+        assert!(result.is_ok(), "Failed to parse expr.pikchr: {:?}", result.err());
+    }
+
+    #[test]
+    fn parse_all_pikchr_files() {
+        // Files that are intentionally testing error handling (contain intentional syntax errors)
+        let error_test_files = ["test60.pikchr", "test62.pikchr"];
+
+        let test_dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/tests"));
+        let mut pass = 0;
+        let mut fail = 0;
+        let mut expected_errors = 0;
+        let mut failures = Vec::new();
+
+        for entry in std::fs::read_dir(test_dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.extension().map(|e| e == "pikchr").unwrap_or(false) {
+                let filename = path.file_name().unwrap().to_string_lossy();
+                let source = std::fs::read_to_string(&path).unwrap();
+
+                match PikchrParser::parse(Rule::program, &source) {
+                    Ok(_) => pass += 1,
+                    Err(e) => {
+                        if error_test_files.contains(&filename.as_ref()) {
+                            expected_errors += 1;
+                        } else {
+                            fail += 1;
+                            failures.push((filename.to_string(), e.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+
+        println!("\nParse results: {} passed, {} expected errors, {} unexpected failures", pass, expected_errors, fail);
+        for (name, err) in &failures {
+            println!("  FAIL: {} - {}", name, err.lines().next().unwrap_or(""));
+        }
+        assert!(failures.is_empty(), "{} files failed to parse unexpectedly", fail);
     }
 }

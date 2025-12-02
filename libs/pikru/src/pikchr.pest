@@ -14,12 +14,14 @@ statement = {
   | assert_stmt
   | print_stmt
   | object_stmt
+  | macro_call  // must be last - matches any IDENT
 }
 
 labeled_statement = { PLACENAME ~ ":" ~ (position | object_stmt) }
 
 // === Directions ===
-direction = { "up" | "down" | "left" | "right" }
+// Direction keywords must not be followed by alphanumeric (word boundary)
+direction = @{ ("up" | "down" | "left" | "right") ~ !ASCII_ALPHANUMERIC }
 
 // === Assignments ===
 assignment = { lvalue ~ assign_op ~ rvalue }
@@ -30,12 +32,21 @@ variable = { "$" ~ IDENT | IDENT }
 
 // === Macros ===
 define = { "define" ~ IDENT ~ CODEBLOCK }
-CODEBLOCK = { "{" ~ (!"}" ~ ANY)* ~ "}" }
+// CODEBLOCK handles nested braces by recursively matching balanced {}
+CODEBLOCK = @{ "{" ~ CODEBLOCK_INNER* ~ "}" }
+CODEBLOCK_INNER = { CODEBLOCK | (!("{" | "}") ~ ANY) }
+
+// Macro invocation: macroname(arg1, arg2, ...) or just macroname
+macro_call = { IDENT ~ ("(" ~ macro_args? ~ ")")? }
+macro_args = { macro_arg ~ ("," ~ macro_arg)* }
+macro_arg = { STRING | expr | IDENT }
 
 // === Assert & Print ===
 assert_stmt = { "assert" ~ "(" ~ (expr ~ "==" ~ expr | position ~ "==" ~ position) ~ ")" }
 print_stmt = { "print" ~ print_args }
-print_args = { (expr | STRING) ~ ("," ~ (expr | STRING))* }
+// Print args can include expr, STRING, or PLACENAME (for color names like Red, Orange)
+print_args = { print_arg ~ ("," ~ print_arg)* }
+print_arg = { STRING | expr | PLACENAME }
 
 // === Objects ===
 object_stmt = { basetype ~ attribute_list? }
@@ -49,7 +60,7 @@ basetype = {
 sublist = { "[" ~ statement_list ~ "]" }
 
 CLASSNAME = {
-    "arc" | "arrow" | "box" | "circle" | "cylinder" | "dot"
+    "arc" | "arrow" | "box" | "circle" | "cylinder" | "diamond" | "dot"
   | "ellipse" | "file" | "line" | "move" | "oval" | "spline" | "text"
 }
 
@@ -61,13 +72,15 @@ attribute = {
   | dashproperty ~ expr?
   | colorproperty ~ rvalue
   | boolproperty
+  | "go"? ~ direction ~ "until" ~ "even" ~ "with"? ~ position
+  | "go"? ~ direction ~ "even" ~ "with"? ~ position
   | "go"? ~ direction ~ optrelexpr
-  | "go"? ~ direction ~ "even" ~ position
+  | "go"? ~ optrelexpr ~ "heading" ~ expr
   | "close"
   | "chop"
   | "from" ~ position
   | "to" ~ position
-  | "then" ~ (optrelexpr ~ "heading" ~ expr | optrelexpr ~ EDGEPT)?
+  | "then" ~ ("to" ~ position | direction ~ "until" ~ "even" ~ "with"? ~ position | direction ~ "even" ~ "with"? ~ position | direction ~ optrelexpr | optrelexpr ~ "heading" ~ expr | optrelexpr ~ EDGEPT)?
   | "at" ~ position
   | "with" ~ withclause
   | "same" ~ ("as" ~ object)?
@@ -87,13 +100,18 @@ boolproperty = {
   | "invis" | "invisible"
   | "thick" | "thin" | "solid"
   | "<->" | "->" | "<-"
+  // HTML entity arrow tokens
+  | "&leftrightarrow;" | "&leftarrow;" | "&rightarrow;"
+  | "&larr;" | "&rarr;"
+  // Unicode arrow tokens
+  | "↔" | "←" | "→"
 }
 
 textposition = { textattr+ }
 textattr = {
     "above" | "below" | "center"
   | "ljust" | "rjust"
-  | "bold" | "italic" | "mono" | "monospace"
+  | "bold" | "italic" | "monospace" | "mono"  // monospace before mono!
   | "big" | "small"
   | "aligned"
 }
@@ -112,10 +130,12 @@ primary = {
   | func_call
   | dist_call
   | NUMBER
-  | place ~ dot_xy
-  | object ~ dot_prop
-  | place  // bare place (evaluates to center point) - must be before variable!
-  | variable  // user-defined variables like $x or linewid
+  | NTH ~ "vertex" ~ "of" ~ object ~ dot_xy  // 2nd vertex of spline.x
+  | object ~ dot_edge ~ dot_xy  // C4.n.x - edge point coordinate
+  | object ~ dot_xy  // C4.x - object coordinate
+  | object ~ dot_prop  // object.width, object.height, etc.
+  | variable  // user-defined variables like $x, linewid
+  // NOTE: bare place/object is NOT an expr! Use position rule for places.
 }
 
 func_call = { FUNC1 ~ "(" ~ expr ~ ")" | FUNC2 ~ "(" ~ expr ~ "," ~ expr ~ ")" }
@@ -126,23 +146,25 @@ FUNC2 = { "max" | "min" }
 
 // === Positions ===
 // IMPORTANT: More specific (longer) alternatives must come before shorter ones!
+// Parenthesized forms must come before bare expr,expr to avoid greedy matching
 position = {
-    place ~ ("+" | "-") ~ "(" ~ expr ~ "," ~ expr ~ ")"
+    "(" ~ position ~ "," ~ position ~ ")"  // (pos, pos) - tuple extraction
+  | "(" ~ position ~ ")"  // (pos) - grouping
+  | place ~ ("+" | "-") ~ "(" ~ expr ~ "," ~ expr ~ ")"
   | place ~ ("+" | "-") ~ expr ~ "," ~ expr
-  | expr ~ "," ~ expr
-  | "(" ~ position ~ "," ~ position ~ ")"
-  | "(" ~ position ~ ")"
-  | expr ~ ("between" | "of" ~ "the" ~ "way" ~ "between") ~ position ~ "and" ~ position
+  | expr ~ ("between" | ("of" ~ "the")? ~ "way" ~ "between") ~ position ~ "and" ~ position
   | expr ~ "<" ~ position ~ "," ~ position ~ ">"
   | expr ~ ("above" | "below") ~ position
   | expr ~ ("left" ~ "of" | "right" ~ "of") ~ position
   | expr ~ "on"? ~ "heading" ~ (EDGEPT | expr) ~ ("of" | "from") ~ position
   | expr ~ EDGEPT ~ "of" ~ position
+  | expr ~ "," ~ expr  // bare x,y coordinates - must be after all expr-starting forms!
   | place  // bare place must come last!
 }
 
 place = {
-    EDGEPT ~ "of" ~ object
+    NTH ~ "vertex" ~ "of" ~ object
+  | EDGEPT ~ "of" ~ object
   | object ~ dot_edge
   | object
 }
@@ -158,8 +180,10 @@ objectname = {
 nth = {
     NTH ~ "last"? ~ CLASSNAME
   | NTH ~ "last"? ~ "[" ~ "]"
-  | "last" ~ CLASSNAME?
+  | "first" ~ "[" ~ "]"
+  | "first" ~ CLASSNAME?
   | "last" ~ "[" ~ "]"
+  | "last" ~ CLASSNAME?
   | "previous"
 }
 
@@ -167,13 +191,15 @@ NTH = @{ ASCII_DIGIT+ ~ ("st" | "nd" | "rd" | "th") }
 
 // === Edge Points ===
 // IMPORTANT: longer keywords must come before shorter ones in PEG!
-EDGEPT = {
+// Single-letter edge points must not be followed by identifier chars
+// Rule is atomic (@) to prevent implicit whitespace before boundary check
+EDGEPT = @{
     "north" | "south" | "east" | "west"
   | "start" | "end" | "center"
   | "bottom" | "bot"
   | "top" | "left" | "right"
   | "ne" | "nw" | "se" | "sw"
-  | "n" | "s" | "e" | "w" | "c" | "t"
+  | ("n" | "s" | "e" | "w" | "c" | "t") ~ !ASCII_ALPHANUMERIC
 }
 
 // Dot accessors - differentiated by what follows
@@ -184,7 +210,26 @@ dot_name = { "." ~ PLACENAME }
 
 // === Tokens ===
 PLACENAME = @{ ASCII_ALPHA_UPPER ~ (ASCII_ALPHANUMERIC | "_")* }
-IDENT = @{ (ASCII_ALPHA_LOWER | "_" | "@") ~ (ASCII_ALPHANUMERIC | "_")* }
+
+// IDENT must not match keywords - use negative lookahead
+// Keywords: last, first, previous, this, and all direction/edge/attribute keywords
+// Keywords must be followed by non-alphanumeric to be recognized (word boundary)
+keyword = @{
+    ("last" | "first" | "previous" | "this"
+  | "above" | "below" | "left" | "right" | "up" | "down"
+  | "at" | "from" | "to" | "with" | "then" | "and" | "of"
+  | "north" | "south" | "east" | "west" | "start" | "end" | "center"
+  | "top" | "bottom" | "ne" | "nw" | "se" | "sw"
+  | "chop" | "close" | "same" | "fit" | "behind" | "go" | "even" | "between" | "way" | "the" | "heading" | "on"
+  | "cw" | "ccw" | "invis" | "invisible" | "thick" | "thin" | "solid"
+  | "bold" | "italic" | "mono" | "monospace" | "big" | "small" | "aligned" | "ljust" | "rjust"
+  | "height" | "ht" | "width" | "wid" | "radius" | "rad" | "diameter" | "thickness"
+  | "fill" | "color" | "dotted" | "dashed"
+  | "define" | "assert" | "print"
+  | "abs" | "cos" | "sin" | "int" | "sqrt" | "max" | "min" | "dist") ~ !ASCII_ALPHANUMERIC
+}
+
+IDENT = @{ !keyword ~ (ASCII_ALPHA_LOWER | "_" | "@") ~ (ASCII_ALPHANUMERIC | "_")* }
 
 // NUMBER must not match ordinals like 6th, 2nd, etc.
 NUMBER = @{
@@ -194,11 +239,12 @@ NUMBER = @{
 }
 UNIT = { "in" | "cm" | "mm" | "pt" | "px" | "pc" }
 
-STRING = @{ "\"" ~ (!"\"" ~ ANY | "\\\"")* ~ "\"" }
+// String with proper escape handling - all escape sequences
+STRING = @{ "\"" ~ ("\\" ~ ANY | !("\"" | "\\") ~ ANY)* ~ "\"" }
 
 // === Whitespace & Comments ===
 WHITESPACE = _{ " " | "\t" | "\r" | line_continuation }
 line_continuation = { "\\" ~ NEWLINE }
-COMMENT = _{ "#" ~ (!NEWLINE ~ ANY)* | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
+COMMENT = _{ "//" ~ (!NEWLINE ~ ANY)* | "#" ~ (!NEWLINE ~ ANY)* | "/*" ~ (!"*/" ~ ANY)* ~ "*/" }
 EOL = { NEWLINE | ";" }
 NEWLINE = _{ "\n" }
