@@ -108,9 +108,10 @@ fn test_css_font_urls_are_rewritten() {
         .text()
         .expect("Failed to read HTML body");
 
-    // Find the cache-busted CSS URL in HTML (e.g., /css/style.abc123.css)
+    // Find the cache-busted CSS URL in HTML (e.g., /css/style.0a3dec47oc21.css)
     // Note: minified HTML may have unquoted attributes like href=/css/style.123.css
-    let css_url_re = Regex::new(r#"href=["']?(/css/style\.[a-f0-9]+\.css)["']?"#).unwrap();
+    // Hash uses dodeca alphabet: 0123456acdeo (base12)
+    let css_url_re = Regex::new(r#"href=["']?(/css/style\.[0-6acdeo]+\.css)["']?"#).unwrap();
     let css_url = css_url_re
         .captures(&html)
         .and_then(|c| c.get(1))
@@ -131,8 +132,9 @@ fn test_css_font_urls_are_rewritten() {
         "CSS still contains original font URL. CSS content:\n{css}"
     );
 
-    // Font URL should be cache-busted (e.g., /fonts/test.abc123.woff2)
-    let font_url_re = Regex::new(r"/fonts/test\.[a-f0-9]+\.woff2").unwrap();
+    // Font URL should be cache-busted (e.g., /fonts/test.0a3dec47oc21.woff2)
+    // Hash uses dodeca alphabet: 0123456acdeo (base12)
+    let font_url_re = Regex::new(r"/fonts/test\.[0-6acdeo]+\.woff2").unwrap();
     assert!(
         font_url_re.is_match(&css),
         "CSS does not contain cache-busted font URL. CSS content:\n{css}"
@@ -182,7 +184,8 @@ fn test_css_livereload() {
         .expect("Failed to read HTML body");
 
     // Find the cache-busted CSS URL in HTML
-    let css_url_re = Regex::new(r#"href=[\"']?(/css/style\.[a-f0-9]+\.css)[\"']?"#).unwrap();
+    // Hash uses dodeca alphabet: 0123456acdeo (base12)
+    let css_url_re = Regex::new(r#"href=[\"']?(/css/style\.[0-6acdeo]+\.css)[\"']?"#).unwrap();
     let css_url_1 = css_url_re
         .captures(&html)
         .and_then(|c| c.get(1))
@@ -287,7 +290,8 @@ fn test_css_livereload_tui_mode() {
         .expect("Failed to read HTML body");
 
     // Find the cache-busted CSS URL in HTML
-    let css_url_re = Regex::new(r#"href=[\"']?(/css/style\.[a-f0-9]+\.css)[\"']?"#).unwrap();
+    // Hash uses dodeca alphabet: 0123456acdeo (base12)
+    let css_url_re = Regex::new(r#"href=[\"']?(/css/style\.[0-6acdeo]+\.css)[\"']?"#).unwrap();
     let css_url_1 = css_url_re
         .captures(&html)
         .and_then(|c| c.get(1))
@@ -392,7 +396,8 @@ fn test_css_livereload_tui_docs() {
         .expect("Failed to read HTML body");
 
     // Find the cache-busted CSS URL in HTML
-    let css_url_re = Regex::new(r#"href=[\"']?(/css/style\.[a-f0-9]+\.css)[\"']?"#).unwrap();
+    // Hash uses dodeca alphabet: 0123456acdeo (base12)
+    let css_url_re = Regex::new(r#"href=[\"']?(/css/style\.[0-6acdeo]+\.css)[\"']?"#).unwrap();
     let css_url_1 = css_url_re
         .captures(&html)
         .and_then(|c| c.get(1))
