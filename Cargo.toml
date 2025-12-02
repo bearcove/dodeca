@@ -56,8 +56,8 @@ futures-util = "0.3"  # For stream handling in WebSocket
 # Parallel processing
 rayon = "1"
 
-# CLI
-clap = { version = "4", features = ["derive"] }
+# CLI (using facet-args instead of clap)
+facet-args = { git = "https://github.com/facet-rs/facet" }
 
 # Sass
 grass = "0.13"

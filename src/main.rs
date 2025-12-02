@@ -32,87 +32,174 @@ use crate::types::{
     StaticPath, TemplateContent, TemplatePath, TemplatePathRef,
 };
 use camino::{Utf8Path, Utf8PathBuf};
-use clap::{Parser, Subcommand};
 use color_eyre::{Result, eyre::eyre};
+use facet::Facet;
+use facet_args as args;
 use ignore::WalkBuilder;
 use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
 use std::fs;
 use std::sync::Arc;
 
-#[derive(Parser)]
-#[command(name = "dodeca", about = "Static site generator for facet docs")]
-struct Cli {
-    #[command(subcommand)]
-    command: Command,
+/// Build command arguments
+#[derive(Facet, Debug)]
+struct BuildArgs {
+    /// Project directory (looks for .config/dodeca.kdl here)
+    #[facet(args::positional, default)]
+    path: Option<String>,
+
+    /// Content directory (uses .config/dodeca.kdl if not specified)
+    #[facet(args::named, args::short = 'c', default)]
+    content: Option<String>,
+
+    /// Output directory (uses .config/dodeca.kdl if not specified)
+    #[facet(args::named, args::short = 'o', default)]
+    output: Option<String>,
+
+    /// Show TUI progress display
+    #[facet(args::named)]
+    tui: bool,
 }
 
-#[derive(Subcommand)]
+/// Serve command arguments
+#[derive(Facet, Debug)]
+struct ServeArgs {
+    /// Project directory (looks for .config/dodeca.kdl here)
+    #[facet(args::positional, default)]
+    path: Option<String>,
+
+    /// Content directory (uses .config/dodeca.kdl if not specified)
+    #[facet(args::named, args::short = 'c', default)]
+    content: Option<String>,
+
+    /// Output directory (uses .config/dodeca.kdl if not specified)
+    #[facet(args::named, args::short = 'o', default)]
+    output: Option<String>,
+
+    /// Address to bind on
+    #[facet(args::named, args::short = 'a', default = "127.0.0.1".to_string())]
+    address: String,
+
+    /// Port to serve on
+    #[facet(args::named, args::short = 'p', default = 4000)]
+    port: u16,
+
+    /// Open browser after starting server
+    #[facet(args::named)]
+    open: bool,
+
+    /// Disable TUI (show plain output instead)
+    #[facet(args::named)]
+    no_tui: bool,
+
+    /// Force TUI mode even without a terminal (for testing)
+    #[facet(args::named)]
+    force_tui: bool,
+
+    /// Start with public access enabled (listen on all interfaces)
+    #[facet(args::named, args::short = 'P', rename = "public")]
+    public_access: bool,
+}
+
+/// Clean command arguments
+#[derive(Facet, Debug)]
+struct CleanArgs {
+    /// Project directory (looks for .config/dodeca.kdl here)
+    #[facet(args::positional, default)]
+    path: Option<String>,
+}
+
+/// Parsed command from CLI
 enum Command {
-    /// Build the site (blocks on link checking and search index)
-    Build {
-        /// Project directory (looks for .config/dodeca.kdl here)
-        #[arg()]
-        path: Option<Utf8PathBuf>,
+    Build(BuildArgs),
+    Serve(ServeArgs),
+    Clean(CleanArgs),
+}
 
-        /// Content directory (uses .config/dodeca.kdl if not specified)
-        #[arg(short, long)]
-        content: Option<Utf8PathBuf>,
+fn print_usage() {
+    eprintln!(
+        "{} - Static site generator\n",
+        "ddc".cyan().bold()
+    );
+    eprintln!("{}", "USAGE:".yellow());
+    eprintln!("    ddc <COMMAND> [OPTIONS]\n");
+    eprintln!("{}", "COMMANDS:".yellow());
+    eprintln!("    {}      Build the site", "build".green());
+    eprintln!("    {}      Build and serve with live reload", "serve".green());
+    eprintln!("    {}      Clear all caches", "clean".green());
+    eprintln!("\n{}", "BUILD OPTIONS:".yellow());
+    eprintln!("    [path]           Project directory");
+    eprintln!("    -c, --content    Content directory");
+    eprintln!("    -o, --output     Output directory");
+    eprintln!("    --tui            Show TUI progress display");
+    eprintln!("\n{}", "SERVE OPTIONS:".yellow());
+    eprintln!("    [path]           Project directory");
+    eprintln!("    -c, --content    Content directory");
+    eprintln!("    -o, --output     Output directory");
+    eprintln!("    -a, --address    Address to bind on (default: 127.0.0.1)");
+    eprintln!("    -p, --port       Port to serve on (default: 4000)");
+    eprintln!("    --open           Open browser after starting server");
+    eprintln!("    --no-tui         Disable TUI (show plain output)");
+    eprintln!("    -P, --public     Listen on all interfaces (LAN access)");
+    eprintln!("\n{}", "CLEAN OPTIONS:".yellow());
+    eprintln!("    [path]           Project directory");
+}
 
-        /// Output directory (uses .config/dodeca.kdl if not specified)
-        #[arg(short, long)]
-        output: Option<Utf8PathBuf>,
+fn parse_args() -> Result<Command> {
+    // Set up miette graphical reporter for nice error output
+    miette::set_hook(Box::new(|_| {
+        Box::new(
+            miette::MietteHandlerOpts::new()
+                .terminal_links(true)
+                .unicode(true)
+                .context_lines(3)
+                .build(),
+        )
+    }))
+    .ok(); // Ignore error if already set
 
-        /// Show TUI progress display
-        #[arg(long)]
-        tui: bool,
-    },
+    let args: Vec<String> = std::env::args().collect();
 
-    /// Build and serve with live reload
-    Serve {
-        /// Project directory (looks for .config/dodeca.kdl here)
-        #[arg()]
-        path: Option<Utf8PathBuf>,
+    if args.len() < 2 {
+        print_usage();
+        return Err(eyre!("No command specified"));
+    }
 
-        /// Content directory (uses .config/dodeca.kdl if not specified)
-        #[arg(short, long)]
-        content: Option<Utf8PathBuf>,
+    let cmd = &args[1];
+    let rest: Vec<&str> = args[2..].iter().map(|s| s.as_str()).collect();
 
-        /// Output directory (uses .config/dodeca.kdl if not specified)
-        #[arg(short, long)]
-        output: Option<Utf8PathBuf>,
-
-        /// Address to bind on
-        #[arg(short, long, default_value = "127.0.0.1")]
-        address: String,
-
-        /// Port to serve on
-        #[arg(short, long, default_value = "4000")]
-        port: u16,
-
-        /// Open browser after starting server
-        #[arg(long)]
-        open: bool,
-
-        /// Disable TUI (show plain output instead)
-        #[arg(long)]
-        no_tui: bool,
-
-        /// Force TUI mode even without a terminal (for testing)
-        #[arg(long, hide = true)]
-        force_tui: bool,
-
-        /// Start with public access enabled (listen on all interfaces)
-        #[arg(short = 'P', long)]
-        public: bool,
-    },
-
-    /// Clear all caches (Salsa DB and processed images)
-    Clean {
-        /// Project directory (looks for .config/dodeca.kdl here)
-        #[arg()]
-        path: Option<Utf8PathBuf>,
-    },
+    match cmd.as_str() {
+        "build" => {
+            let build_args: BuildArgs = facet_args::from_slice(&rest).map_err(|e| {
+                // Print miette error directly for nice formatting
+                eprintln!("{:?}", miette::Report::new(e));
+                eyre!("Failed to parse build arguments")
+            })?;
+            Ok(Command::Build(build_args))
+        }
+        "serve" => {
+            let serve_args: ServeArgs = facet_args::from_slice(&rest).map_err(|e| {
+                eprintln!("{:?}", miette::Report::new(e));
+                eyre!("Failed to parse serve arguments")
+            })?;
+            Ok(Command::Serve(serve_args))
+        }
+        "clean" => {
+            let clean_args: CleanArgs = facet_args::from_slice(&rest).map_err(|e| {
+                eprintln!("{:?}", miette::Report::new(e));
+                eyre!("Failed to parse clean arguments")
+            })?;
+            Ok(Command::Clean(clean_args))
+        }
+        "--help" | "-h" | "help" => {
+            print_usage();
+            std::process::exit(0);
+        }
+        _ => {
+            print_usage();
+            Err(eyre!("Unknown command: {}", cmd))
+        }
+    }
 }
 
 /// Resolved configuration for a build
@@ -125,10 +212,15 @@ struct ResolvedBuildConfig {
 
 /// Resolve content and output directories from CLI args or config file
 fn resolve_dirs(
-    path: Option<Utf8PathBuf>,
-    content: Option<Utf8PathBuf>,
-    output: Option<Utf8PathBuf>,
+    path: Option<String>,
+    content: Option<String>,
+    output: Option<String>,
 ) -> Result<ResolvedBuildConfig> {
+    // Convert to Utf8PathBuf
+    let path = path.map(Utf8PathBuf::from);
+    let content = content.map(Utf8PathBuf::from);
+    let output = output.map(Utf8PathBuf::from);
+
     // If both content and output are specified, use them directly (no config file needed)
     if let (Some(c), Some(o)) = (&content, &output) {
         return Ok(ResolvedBuildConfig {
@@ -182,49 +274,34 @@ fn resolve_dirs(
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
-    let cli = Cli::parse();
+    let command = parse_args()?;
 
-    match cli.command {
-        Command::Build {
-            path,
-            content,
-            output,
-            tui: _use_tui,
-        } => {
-            let cfg = resolve_dirs(path, content, output)?;
+    match command {
+        Command::Build(args) => {
+            let cfg = resolve_dirs(args.path, args.content, args.output)?;
 
             // Always use the mini build TUI for now
             build_with_mini_tui(&cfg.content_dir, &cfg.output_dir, &cfg.skip_domains)?;
         }
-        Command::Serve {
-            path,
-            content,
-            output,
-            address,
-            port,
-            open,
-            no_tui,
-            force_tui,
-            public,
-        } => {
-            let cfg = resolve_dirs(path, content, output)?;
+        Command::Serve(args) => {
+            let cfg = resolve_dirs(args.path, args.content, args.output)?;
 
             // Check if we should use TUI
             use std::io::IsTerminal;
-            let use_tui = force_tui || (!no_tui && std::io::stdout().is_terminal());
+            let use_tui = args.force_tui || (!args.no_tui && std::io::stdout().is_terminal());
 
             if use_tui {
-                serve_with_tui(&cfg.content_dir, &cfg.output_dir, &address, port, open, cfg.stable_assets, public).await?;
+                serve_with_tui(&cfg.content_dir, &cfg.output_dir, &args.address, args.port, args.open, cfg.stable_assets, args.public_access).await?;
             } else {
                 // Plain mode - no TUI, serve from Salsa
                 logging::init_standard_tracing();
-                serve_plain(&cfg.content_dir, &address, port, open, cfg.stable_assets).await?;
+                serve_plain(&cfg.content_dir, &args.address, args.port, args.open, cfg.stable_assets).await?;
             }
         }
-        Command::Clean { path } => {
+        Command::Clean(args) => {
             // Find the project directory
-            let base_dir = if let Some(p) = path {
-                p
+            let base_dir = if let Some(p) = args.path {
+                Utf8PathBuf::from(p)
             } else if let Some(cfg) = ResolvedConfig::discover()? {
                 cfg.content_dir.parent().map(|p| p.to_owned()).unwrap_or(cfg.content_dir)
             } else {
