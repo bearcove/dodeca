@@ -3,9 +3,12 @@
 //! Usage:
 //!   cargo xtask build [--release]
 //!   cargo xtask run [--release] [-- <ddc args>]
+//!   cargo xtask install
 //!   cargo xtask wasm
 
 use std::env;
+use std::fs;
+use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
 fn main() -> ExitCode {
@@ -37,6 +40,12 @@ fn main() -> ExitCode {
             }
             ExitCode::SUCCESS
         }
+        Some("install") => {
+            if !install_dev() {
+                return ExitCode::FAILURE;
+            }
+            ExitCode::SUCCESS
+        }
         Some("wasm") => {
             if build_wasm() {
                 ExitCode::SUCCESS
@@ -48,6 +57,7 @@ fn main() -> ExitCode {
             eprintln!("Usage:");
             eprintln!("  cargo xtask build [--release]        Build WASM + plugins + dodeca");
             eprintln!("  cargo xtask run [--release] [-- ..]  Build all, then run ddc");
+            eprintln!("  cargo xtask install                  Build release & install to ~/.cargo/bin");
             eprintln!("  cargo xtask wasm                     Build WASM only");
             ExitCode::FAILURE
         }
@@ -170,4 +180,69 @@ fn run_ddc(release: bool, args: &[&str]) -> bool {
             false
         }
     }
+}
+
+fn install_dev() -> bool {
+    // Build everything in release mode
+    if !build_all(true) {
+        return false;
+    }
+
+    // Get cargo bin directory
+    let cargo_bin = match env::var("CARGO_HOME") {
+        Ok(home) => PathBuf::from(home).join("bin"),
+        Err(_) => {
+            if let Some(home) = env::var("HOME").ok() {
+                PathBuf::from(home).join(".cargo").join("bin")
+            } else {
+                eprintln!("Could not determine cargo bin directory");
+                return false;
+            }
+        }
+    };
+
+    if !cargo_bin.exists() {
+        eprintln!("Cargo bin directory does not exist: {}", cargo_bin.display());
+        return false;
+    }
+
+    eprintln!("Installing to {}...", cargo_bin.display());
+
+    // Copy ddc binary (remove first to avoid "text file busy" on Linux)
+    let ddc_src = PathBuf::from("target/release/ddc");
+    let ddc_dst = cargo_bin.join("ddc");
+    let _ = fs::remove_file(&ddc_dst); // Ignore error if file doesn't exist
+    if let Err(e) = fs::copy(&ddc_src, &ddc_dst) {
+        eprintln!("Failed to copy ddc: {e}");
+        return false;
+    }
+    eprintln!("  Installed ddc");
+
+    // Copy plugins
+    let plugin_ext = if cfg!(target_os = "macos") {
+        "dylib"
+    } else if cfg!(target_os = "windows") {
+        "dll"
+    } else {
+        "so"
+    };
+
+    let plugins = ["libdodeca_webp", "libdodeca_jxl"];
+    for plugin in plugins {
+        let src = PathBuf::from(format!("target/release/{plugin}.{plugin_ext}"));
+        let dst = cargo_bin.join(format!("{plugin}.{plugin_ext}"));
+        if src.exists() {
+            let _ = fs::remove_file(&dst); // Remove first to avoid "text file busy"
+            if let Err(e) = fs::copy(&src, &dst) {
+                eprintln!("Failed to copy {plugin}: {e}");
+                return false;
+            }
+            eprintln!("  Installed {plugin}.{plugin_ext}");
+        } else {
+            eprintln!("  Warning: {plugin}.{plugin_ext} not found, skipping");
+        }
+    }
+
+    eprintln!("Installation complete!");
+    true
 }
