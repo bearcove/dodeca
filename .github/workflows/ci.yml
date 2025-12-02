@@ -55,6 +55,9 @@ jobs:
 
   check-windows:
     runs-on: depot-windows-2022-16
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v5
 

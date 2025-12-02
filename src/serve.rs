@@ -862,10 +862,9 @@ async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
                     }
                     Some(Ok(Message::Text(text))) => {
                         // Client can send its current route
-                        if text.starts_with("route:") {
-                            let route = text[6..].to_string();
+                        if let Some(route) = text.strip_prefix("route:") {
                             tracing::info!("🔌 Browser viewing {}", route);
-                            current_route = Some(route);
+                            current_route = Some(route.to_string());
                         }
                     }
                     _ => {}
