@@ -16,7 +16,7 @@ Server does all the diffing. Client (Rust/WASM) just applies patches.
 │                                                   │             │
 │                                        ┌──────────▼──────────┐ │
 │                                        │   Vec<Patch>        │ │
-│                                        │   (bincode)         │ │
+│                                        │   (postcard)         │ │
 │                                        └──────────┬──────────┘ │
 └───────────────────────────────────────────────────┼─────────────┘
                                                     │ WebSocket
@@ -26,7 +26,7 @@ Server does all the diffing. Client (Rust/WASM) just applies patches.
 │                                                                 │
 │  ┌─────────────────────┐    ┌─────────────────────────────────┐│
 │  │  Deserialize        │───▶│  Apply patches to real DOM      ││
-│  │  (bincode)          │    │  (web-sys)                      ││
+│  │  (postcard)          │    │  (web-sys)                      ││
 │  └─────────────────────┘    └─────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -34,7 +34,7 @@ Server does all the diffing. Client (Rust/WASM) just applies patches.
 ## Key Principles
 
 1. **Server-side diffing**: Server has both old and new DOM (thanks to Salsa caching)
-2. **Binary wire format**: bincode for compact, fast serialization
+2. **Binary wire format**: postcard for compact, fast serialization
 3. **Same code both sides**: Rust diff/patch logic shared via WASM
 4. **Preserve client state**: Patches are surgical, scroll/focus/forms preserved
 
@@ -176,7 +176,7 @@ enum LiveReloadMessage {
 
 ### Serialization
 
-- **Format**: bincode (binary, fast, compact)
+- **Format**: postcard (binary, fast, compact)
 - **Compression**: Optional gzip for large patches
 - **Framing**: WebSocket binary messages
 
@@ -190,7 +190,7 @@ use web_sys::{Document, Element, Node};
 
 #[wasm_bindgen]
 pub fn apply_patches(data: &[u8]) -> Result<(), JsValue> {
-    let patches: Vec<Patch> = bincode::deserialize(data)
+    let patches: Vec<Patch> = postcard::deserialize(data)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let document = web_sys::window()
@@ -297,7 +297,7 @@ This ensures the system is robust even if the diffing has edge cases.
 ### Phase 2: DOM Patching (Core)
 - [ ] Implement `parse_html()` using html5ever
 - [ ] Add tree-edit-distance for child matching
-- [ ] bincode serialization for Patch enum
+- [ ] postcard serialization for Patch enum
 - [ ] Basic WASM client with web-sys
 
 ### Phase 3: Smart Matching
