@@ -7,3 +7,8 @@ publish = false
 [dependencies]
 svag = { path = ".." }
 minijinja = "2"
+reqwest = { version = "0.12", features = ["blocking"] }
+flate2 = "1"
+tar = "0.4"
+rapidhash = "1"
+ignore = "0.4"
