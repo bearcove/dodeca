@@ -4,7 +4,7 @@
 //! - HTML: Uses lol_html to rewrite attributes and inline style/script content
 //! - JS: Uses OXC parser to find string literals and rewrite asset paths
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 // OXC imports for JS string literal rewriting
 use oxc::ast_visit::Visit;
@@ -142,6 +142,104 @@ pub fn rewrite_urls_in_html(html: &str, path_map: &HashMap<String, String>) -> S
 
     // Second pass: rewrite script content via regex (lol_html doesn't allow script text replacement)
     rewrite_script_tags(&html_rewritten, path_map)
+}
+
+/// Mark dead internal links in HTML using lol_html
+///
+/// Adds `data-dead` attribute to `<a>` tags with internal hrefs that don't exist in known_routes.
+/// Returns (modified_html, had_dead_links) tuple.
+pub fn mark_dead_links(html: &str, known_routes: &HashSet<String>) -> (String, bool) {
+    use lol_html::{element, rewrite_str, RewriteStrSettings};
+    use std::cell::Cell;
+
+    let had_dead = Cell::new(false);
+    let routes = known_routes.clone();
+
+    let result = rewrite_str(
+        html,
+        RewriteStrSettings {
+            element_content_handlers: vec![element!("a[href]", |el| {
+                if let Some(href) = el.get_attribute("href") {
+                    // Skip external links, anchors, special protocols, and static files
+                    if href.starts_with("http://")
+                        || href.starts_with("https://")
+                        || href.starts_with('#')
+                        || href.starts_with("mailto:")
+                        || href.starts_with("tel:")
+                        || href.starts_with("javascript:")
+                        || href.starts_with("/__")
+                    {
+                        return Ok(());
+                    }
+
+                    // Skip static file extensions
+                    let static_extensions = [
+                        ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff",
+                        ".woff2", ".ttf", ".eot", ".pdf", ".zip", ".tar", ".gz", ".webp", ".jxl",
+                        ".xml", ".txt", ".md", ".wasm",
+                    ];
+                    if static_extensions.iter().any(|ext| href.ends_with(ext)) {
+                        return Ok(());
+                    }
+
+                    // Only check absolute internal links (starting with /)
+                    if !href.starts_with('/') {
+                        return Ok(());
+                    }
+
+                    // Split off fragment
+                    let path = href.split('#').next().unwrap_or(&href);
+                    if path.is_empty() {
+                        return Ok(());
+                    }
+
+                    // Normalize the route
+                    let target = normalize_route_for_check(path);
+
+                    // Check if route exists (with various trailing slash combinations)
+                    let exists = routes.contains(&target)
+                        || routes.contains(&format!("{}/", target.trim_end_matches('/')))
+                        || routes.contains(target.trim_end_matches('/'));
+
+                    if !exists {
+                        el.set_attribute("data-dead", &target).ok();
+                        had_dead.set(true);
+                    }
+                }
+                Ok(())
+            })],
+            ..Default::default()
+        },
+    );
+
+    match result {
+        Ok(rewritten) => (rewritten, had_dead.get()),
+        Err(e) => {
+            tracing::warn!("Failed to mark dead links: {:?}", e);
+            (html.to_string(), false)
+        }
+    }
+}
+
+/// Normalize a route path for dead link checking
+fn normalize_route_for_check(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            p => parts.push(p),
+        }
+    }
+
+    if parts.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{}", parts.join("/"))
+    }
 }
 
 /// Rewrite script tag content in HTML
