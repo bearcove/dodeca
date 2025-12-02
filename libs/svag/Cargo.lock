@@ -3027,6 +3027,7 @@ dependencies = [
  "minijinja",
  "rapidhash",
  "reqwest",
+ "serde_json",
  "svag",
  "tar",
 ]

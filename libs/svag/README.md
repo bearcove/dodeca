@@ -79,19 +79,26 @@ Or for the CLI:
 cargo install svag
 ```
 
-## Size comparison
+## Benchmarks
 
 Test corpus: `tests/corpus/*.svg` (3 files, 2.7 KB total)
 
-| File | Original | svag | svgo¹ |
-|------|----------|------|-------|
+| File | Original | svag | svgo |
+|------|----------|------|------|
 | Complex Path | 545 B | 335 B (-38.5%) | 336 B (-38.3%) |
 | Inkscape Bloated | 1.9 KB | 602 B (-69.3%) | 521 B (-73.4%) |
 | Simple | 215 B | 206 B (-4.2%) | 190 B (-11.6%) |
 
 | **Total** | **2.7 KB** | **1.1 KB** (-58.0%) | **1.0 KB** (-61.5%) |
 
-¹ [svgo](https://github.com/svg/svgo) is a mature, battle-tested Node.js SVG optimizer. The size differences here are minor — svgo has more optimization passes. CLI timing comparisons wouldn't be fair since svgo pays Node.js startup cost; as a library it would perform much better.
+### Summary
+
+|  | svag | svgo |
+|--|------|------|
+| **Bytes saved** | 1.5 KB | 1.6 KB |
+| **Processing time** | 0.8ms | 23.2ms |
+
+[svgo](https://github.com/svg/svgo) is a mature, battle-tested Node.js SVG optimizer. Timing measured with svgo loaded as a library (not CLI) for fair comparison.
 
 To regenerate these benchmarks:
 

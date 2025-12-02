@@ -9,10 +9,10 @@ use ignore::WalkBuilder;
 use minijinja::{Environment, context};
 use rapidhash::RapidHashMap;
 use std::fs;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tar::Archive;
 
 fn project_root() -> PathBuf {
@@ -254,46 +254,65 @@ fn format_bytes(bytes: usize) -> String {
     }
 }
 
+fn format_duration(ms: f64) -> String {
+    if ms >= 1000.0 {
+        format!("{:.2}s", ms / 1000.0)
+    } else {
+        format!("{:.1}ms", ms)
+    }
+}
+
 fn pct_reduction(original: usize, minified: usize) -> String {
     let pct = (1.0 - minified as f64 / original as f64) * 100.0;
     format!("-{:.1}%", pct)
 }
 
-fn run_svgo(svgo_cmd: &str, input: &str) -> Option<String> {
-    let mut child = Command::new(svgo_cmd)
-        .args(["--input", "-", "--output", "-"])
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .ok()?;
-
-    let mut stdin = child.stdin.take()?;
-    stdin.write_all(input.as_bytes()).ok()?;
-    drop(stdin);
-
-    let output = child.wait_with_output().ok()?;
-    if output.status.success() {
-        String::from_utf8(output.stdout).ok()
-    } else {
-        None
-    }
+/// Result from the batch svgo benchmark script
+#[derive(Debug)]
+struct SvgoResults {
+    /// Per-file results: (name, original_size, minified_size, time_ms)
+    files: Vec<(String, usize, usize, f64)>,
+    total_time_ms: f64,
 }
 
-fn find_svgo() -> Option<String> {
-    let local = project_root().join("node_modules/.bin/svgo");
-    if local.exists() {
-        return Some(local.to_string_lossy().into_owned());
+fn run_svgo_batch(corpus_dir: &Path) -> Option<SvgoResults> {
+    let script = project_root().join("bench-svgo.mjs");
+    if !script.exists() {
+        return None;
     }
-    if Command::new("svgo")
-        .arg("--version")
+
+    let output = Command::new("node")
+        .arg(&script)
+        .arg(corpus_dir)
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-    {
-        return Some("svgo".to_string());
+        .ok()?;
+
+    if !output.status.success() {
+        eprintln!("svgo batch failed: {}", String::from_utf8_lossy(&output.stderr));
+        return None;
     }
-    None
+
+    // Parse JSON output
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+
+    let files = json["files"]
+        .as_array()?
+        .iter()
+        .filter_map(|f| {
+            Some((
+                f["name"].as_str()?.to_string(),
+                f["original"].as_u64()? as usize,
+                f["minified"].as_u64()? as usize,
+                f["time_ms"].as_f64()?,
+            ))
+        })
+        .collect();
+
+    let total = &json["total"];
+    Some(SvgoResults {
+        files,
+        total_time_ms: total["time_ms"].as_f64()?,
+    })
 }
 
 fn cmd_readme() {
@@ -301,12 +320,6 @@ fn cmd_readme() {
     let template_path = root.join("README.tmpl.md");
     let output_path = root.join("README.md");
     let corpus_dir = root.join("tests/corpus");
-
-    let svgo_cmd = find_svgo();
-    if svgo_cmd.is_none() {
-        eprintln!("Warning: svgo not found. Install with: npm install svgo");
-        eprintln!("Continuing without svgo comparison...\n");
-    }
 
     // Only use top-level SVGs for README benchmarks
     let mut svg_files: Vec<_> = fs::read_dir(&corpus_dir)
@@ -316,20 +329,40 @@ fn cmd_readme() {
         .collect();
     svg_files.sort_by_key(|e| e.path());
 
+    println!("Running benchmarks on {} files...\n", svg_files.len());
+
+    // Run svgo batch first (loads Node once, processes all files)
+    println!("Running svgo (batch mode)...");
+    let svgo_results = run_svgo_batch(&corpus_dir);
+    if svgo_results.is_none() {
+        eprintln!("Warning: svgo not found. Install with: npm install svgo");
+        eprintln!("Continuing without svgo comparison...\n");
+    }
+
+    // Build a map of svgo results by filename
+    let svgo_by_name: std::collections::HashMap<String, (usize, f64)> = svgo_results
+        .as_ref()
+        .map(|r| {
+            r.files
+                .iter()
+                .map(|(name, _, minified, time)| (name.clone(), (*minified, *time)))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Run svag on all files (batch timing)
+    println!("Running svag...");
+    let svag_start = Instant::now();
+
     let mut benchmarks = Vec::new();
     let mut total_original = 0usize;
     let mut total_svag = 0usize;
     let mut total_svgo = 0usize;
-    let mut total_svgo_time = Duration::ZERO;
-
-    println!("Running benchmarks on {} files...\n", svg_files.len());
 
     for entry in &svg_files {
         let path = entry.path();
-        let name = path
-            .file_stem()
-            .unwrap()
-            .to_string_lossy()
+        let file_stem = path.file_stem().unwrap().to_string_lossy();
+        let name = file_stem
             .replace('-', " ")
             .split_whitespace()
             .map(|word| {
@@ -351,19 +384,12 @@ fn cmd_readme() {
         let svag_size = svag_result.len();
         total_svag += svag_size;
 
-        // Run svgo
-        let (svgo_size, svgo_time) = if let Some(ref cmd) = svgo_cmd {
-            let start = Instant::now();
-            if let Some(svgo_result) = run_svgo(cmd, &svg) {
-                (svgo_result.len(), start.elapsed())
-            } else {
-                (original_size, Duration::ZERO)
-            }
-        } else {
-            (original_size, Duration::ZERO)
-        };
+        // Get svgo result from batch
+        let svgo_size = svgo_by_name
+            .get(file_stem.as_ref())
+            .map(|(size, _)| *size)
+            .unwrap_or(original_size);
         total_svgo += svgo_size;
-        total_svgo_time += svgo_time;
 
         println!(
             "{}: {} → svag: {} ({}), svgo: {} ({})",
@@ -385,14 +411,27 @@ fn cmd_readme() {
         });
     }
 
+    let svag_time = svag_start.elapsed();
+    let svgo_time_ms = svgo_results.as_ref().map(|r| r.total_time_ms).unwrap_or(0.0);
+
+    let svag_saved = total_original.saturating_sub(total_svag);
+    let svgo_saved = total_original.saturating_sub(total_svgo);
+
     println!("\n--- Totals ---");
     println!(
-        "Original: {} | svag: {} ({}) | svgo: {} ({})",
+        "Original: {} | svag: {} ({}, saved {}) | svgo: {} ({}, saved {})",
         format_bytes(total_original),
         format_bytes(total_svag),
         pct_reduction(total_original, total_svag),
+        format_bytes(svag_saved),
         format_bytes(total_svgo),
         pct_reduction(total_original, total_svgo),
+        format_bytes(svgo_saved),
+    );
+    println!(
+        "Time: svag: {} | svgo: {}",
+        format_duration(svag_time.as_secs_f64() * 1000.0),
+        format_duration(svgo_time_ms),
     );
 
     // Render template
@@ -409,8 +448,12 @@ fn cmd_readme() {
                 original => format_bytes(total_original),
                 svag => format_bytes(total_svag),
                 svag_pct => pct_reduction(total_original, total_svag),
+                svag_saved => format_bytes(svag_saved),
+                svag_time => format_duration(svag_time.as_secs_f64() * 1000.0),
                 svgo => format_bytes(total_svgo),
                 svgo_pct => pct_reduction(total_original, total_svgo),
+                svgo_saved => format_bytes(svgo_saved),
+                svgo_time => format_duration(svgo_time_ms),
             },
         })
         .expect("Failed to render template");
