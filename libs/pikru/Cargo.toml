@@ -1,0 +1,19 @@
+[package]
+name = "pikru"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+camino = "1.2.1"
+miette = "7.6.0"
+rootcause = "0.10.0"
+winnow = "0.7"
+
+[dev-dependencies]
+insta = { version = "1.42", features = ["glob"] }
+datatest-stable = "0.3"
+regex-lite = "0.1.8"
+
+[[test]]
+name = "pikchr_tests"
+harness = false
