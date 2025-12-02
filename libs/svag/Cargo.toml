@@ -21,6 +21,8 @@ quick-xml = "0.37"
 clap = { version = "4", features = ["derive"] }
 thiserror = "2"
 ryu = "1"
+rayon = "1"
+ignore = "0.4"
 
 [dev-dependencies]
 chromiumoxide = { version = "0.7", features = ["tokio-runtime"], default-features = false }

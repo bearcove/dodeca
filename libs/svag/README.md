@@ -81,22 +81,13 @@ cargo install svag
 
 ## Benchmarks
 
-Test corpus: `tests/corpus/*.svg` (3 files, 2.7 KB total)
-
-| File | Original | svag | svgo |
-|------|----------|------|------|
-| Complex Path | 545 B | 335 B (-38.5%) | 336 B (-38.3%) |
-| Inkscape Bloated | 1.9 KB | 602 B (-69.3%) | 521 B (-73.4%) |
-| Simple | 215 B | 206 B (-4.2%) | 190 B (-11.6%) |
-
-| **Total** | **2.7 KB** | **1.1 KB** (-58.0%) | **1.0 KB** (-61.5%) |
-
-### Summary
+Test corpus: 4858 SVG files (1042.5 MB total)
 
 |  | svag | svgo |
 |--|------|------|
-| **Bytes saved** | 1.5 KB | 1.6 KB |
-| **Processing time** | 0.8ms | 23.2ms |
+| **Output size** | 729.0 MB (-30.1%) | 412.2 MB (-60.5%) |
+| **Bytes saved** | 313.6 MB | 630.3 MB |
+| **Processing time** | 506.6ms | 26.21s |
 
 [svgo](https://github.com/svg/svgo) is a mature, battle-tested Node.js SVG optimizer. Timing measured with svgo loaded as a library (not CLI) for fair comparison.
 

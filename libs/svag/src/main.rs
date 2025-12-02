@@ -1,19 +1,22 @@
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use clap::Parser;
+use ignore::WalkBuilder;
+use rayon::prelude::*;
 use svag::{Options, minify_with_options};
 
 #[derive(Parser)]
 #[command(name = "svag")]
 #[command(about = "An SVG minifier", long_about = None)]
 struct Cli {
-    /// Input file (use - for stdin)
+    /// Input file or directory (use - for stdin)
     #[arg(default_value = "-")]
     input: PathBuf,
 
-    /// Output file (use - for stdout)
+    /// Output file (use - for stdout). For directory mode, files are minified in-place.
     #[arg(short, long, default_value = "-")]
     output: PathBuf,
 
@@ -48,21 +51,14 @@ struct Cli {
     /// Print size comparison
     #[arg(short, long)]
     stats: bool,
+
+    /// Benchmark mode: process files but don't write output, print JSON stats
+    #[arg(long)]
+    bench: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-
-    // Read input
-    let input = if cli.input.as_os_str() == "-" {
-        let mut buf = String::new();
-        io::stdin().read_to_string(&mut buf)?;
-        buf
-    } else {
-        fs::read_to_string(&cli.input)?
-    };
-
-    let input_len = input.len();
 
     // Build options
     let options = if cli.no_optimize {
@@ -95,8 +91,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    // Check if input is a directory
+    if cli.input.is_dir() {
+        process_directory(&cli, &options)?;
+    } else {
+        process_single_file(&cli, &options)?;
+    }
+
+    Ok(())
+}
+
+fn process_single_file(cli: &Cli, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
+    // Read input
+    let input = if cli.input.as_os_str() == "-" {
+        let mut buf = String::new();
+        io::stdin().read_to_string(&mut buf)?;
+        buf
+    } else {
+        fs::read_to_string(&cli.input)?
+    };
+
+    let input_len = input.len();
+
     // Minify
-    let output = minify_with_options(&input, &options)?;
+    let output = minify_with_options(&input, options)?;
     let output_len = output.len();
 
     // Write output
@@ -118,6 +136,96 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{} -> {} bytes ({:.1}% smaller)",
             input_len, output_len, percent
         );
+    }
+
+    Ok(())
+}
+
+fn process_directory(cli: &Cli, options: &Options) -> Result<(), Box<dyn std::error::Error>> {
+    // Collect all SVG files
+    let files: Vec<PathBuf> = WalkBuilder::new(&cli.input)
+        .git_ignore(false)
+        .build()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "svg"))
+        .map(|e| e.path().to_path_buf())
+        .collect();
+
+    let file_count = files.len();
+
+    if cli.bench {
+        // Benchmark mode: process in parallel, collect stats
+        let total_original = AtomicUsize::new(0);
+        let total_minified = AtomicUsize::new(0);
+        let success_count = AtomicUsize::new(0);
+        let fail_count = AtomicUsize::new(0);
+
+        let start = std::time::Instant::now();
+
+        files.par_iter().for_each(|path| {
+            if let Ok(input) = fs::read_to_string(path) {
+                let input_len = input.len();
+                total_original.fetch_add(input_len, Ordering::Relaxed);
+
+                match minify_with_options(&input, options) {
+                    Ok(output) => {
+                        total_minified.fetch_add(output.len(), Ordering::Relaxed);
+                        success_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(_) => {
+                        total_minified.fetch_add(input_len, Ordering::Relaxed);
+                        fail_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+        });
+
+        let elapsed = start.elapsed();
+        let orig = total_original.load(Ordering::Relaxed);
+        let mini = total_minified.load(Ordering::Relaxed);
+        let succ = success_count.load(Ordering::Relaxed);
+        let fail = fail_count.load(Ordering::Relaxed);
+
+        // Output JSON for easy parsing
+        println!(
+            r#"{{"files":{},"success":{},"failed":{},"original":{},"minified":{},"saved":{},"time_ms":{:.2}}}"#,
+            file_count,
+            succ,
+            fail,
+            orig,
+            mini,
+            orig.saturating_sub(mini),
+            elapsed.as_secs_f64() * 1000.0
+        );
+    } else {
+        // Regular mode: minify in-place
+        let processed = AtomicUsize::new(0);
+        let failed = AtomicUsize::new(0);
+
+        files.par_iter().for_each(|path| {
+            if let Ok(input) = fs::read_to_string(path) {
+                match minify_with_options(&input, options) {
+                    Ok(output) => {
+                        if fs::write(path, &output).is_ok() {
+                            processed.fetch_add(1, Ordering::Relaxed);
+                        } else {
+                            failed.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                    Err(_) => {
+                        failed.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+        });
+
+        if cli.stats {
+            eprintln!(
+                "Processed {} files, {} failed",
+                processed.load(Ordering::Relaxed),
+                failed.load(Ordering::Relaxed)
+            );
+        }
     }
 
     Ok(())

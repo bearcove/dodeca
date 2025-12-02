@@ -81,19 +81,11 @@ cargo install svag
 
 ## Benchmarks
 
-Test corpus: `tests/corpus/*.svg` ({{ file_count }} files, {{ total.original }} total)
-
-| File | Original | svag | svgo |
-|------|----------|------|------|
-{% for b in benchmarks -%}
-| {{ b.name }} | {{ b.original }} | {{ b.svag }} ({{ b.svag_pct }}) | {{ b.svgo }} ({{ b.svgo_pct }}) |
-{% endfor %}
-| **Total** | **{{ total.original }}** | **{{ total.svag }}** ({{ total.svag_pct }}) | **{{ total.svgo }}** ({{ total.svgo_pct }}) |
-
-### Summary
+Test corpus: {{ file_count }} SVG files ({{ total.original }} total)
 
 |  | svag | svgo |
 |--|------|------|
+| **Output size** | {{ total.svag }} ({{ total.svag_pct }}) | {{ total.svgo }} ({{ total.svgo_pct }}) |
 | **Bytes saved** | {{ total.svag_saved }} | {{ total.svgo_saved }} |
 | **Processing time** | {{ total.svag_time }} | {{ total.svgo_time }} |
 

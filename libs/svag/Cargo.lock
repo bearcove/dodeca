@@ -2206,6 +2206,7 @@ dependencies = [
  "ignore",
  "image",
  "quick-xml",
+ "rayon",
  "ryu",
  "ssim",
  "tempfile",
