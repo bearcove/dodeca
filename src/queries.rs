@@ -483,14 +483,27 @@ pub fn build_site<'db>(
     }
 
     // --- Phase 2: Compile CSS ---
-    let css_content = compile_sass(db, sass);
-    let css_str = css_content.as_ref().map(|c| c.0.as_str()).unwrap_or("");
+    let sass_css = compile_sass(db, sass);
+    let sass_str = sass_css.as_ref().map(|c| c.0.as_str()).unwrap_or("");
+
+    // Collect CSS from static files
+    let mut static_css_parts = Vec::new();
+    for file in static_files.files(db) {
+        let path = file.path(db).as_str();
+        if path.to_lowercase().ends_with(".css") {
+            let content = load_static(db, *file);
+            if let Ok(css_str) = String::from_utf8(content) {
+                static_css_parts.push(css_str);
+            }
+        }
+    }
+    let static_css = static_css_parts.join("\n");
 
     // --- Phase 3: Analyze fonts for subsetting ---
     let html_refs: Vec<&str> = html_outputs.iter().map(|(_, h)| h.as_str()).collect();
     let combined_html = html_refs.join("\n");
     let inline_css = fontcull::extract_css_from_html(&combined_html);
-    let all_css = format!("{css_str}\n{inline_css}");
+    let all_css = format!("{sass_str}\n{static_css}\n{inline_css}");
     let font_analysis = fontcull::analyze_fonts(&combined_html, &all_css);
 
     // --- Phase 4: Process static files (with font subsetting and image transcoding) ---
@@ -618,7 +631,7 @@ pub fn build_site<'db>(
         .collect();
 
     // --- Phase 5: Rewrite CSS and hash it ---
-    let (css_path, css_final) = if let Some(ref css) = css_content {
+    let (css_path, css_final) = if let Some(ref css) = sass_css {
         let rewritten_css = rewrite_urls_in_css(&css.0, &static_path_map);
         let css_hash = content_hash(rewritten_css.as_bytes());
         let css_path = cache_busted_path("main.css", &css_hash);
@@ -705,16 +718,30 @@ pub fn font_char_analysis<'db>(
     sources: SourceRegistry<'db>,
     templates: TemplateRegistry<'db>,
     sass: SassRegistry<'db>,
+    static_files: StaticRegistry<'db>,
 ) -> fontcull::FontAnalysis {
 
     let all_html = all_rendered_html(db, sources, templates);
-    let css_content = compile_sass(db, sass);
-    let css_str = css_content.as_ref().map(|c| c.0.as_str()).unwrap_or("");
+    let sass_css = compile_sass(db, sass);
+    let sass_str = sass_css.as_ref().map(|c| c.0.as_str()).unwrap_or("");
+
+    // Collect CSS from static files
+    let mut static_css_parts = Vec::new();
+    for file in static_files.files(db) {
+        let path = file.path(db).as_str();
+        if path.to_lowercase().ends_with(".css") {
+            let content = load_static(db, *file);
+            if let Ok(css_str) = String::from_utf8(content) {
+                static_css_parts.push(css_str);
+            }
+        }
+    }
+    let static_css = static_css_parts.join("\n");
 
     // Combine all HTML for analysis
     let combined_html: String = all_html.pages.values().cloned().collect::<Vec<_>>().join("\n");
     let inline_css = fontcull::extract_css_from_html(&combined_html);
-    let all_css = format!("{css_str}\n{inline_css}");
+    let all_css = format!("{sass_str}\n{static_css}\n{inline_css}");
 
     fontcull::analyze_fonts(&combined_html, &all_css)
 }
@@ -740,7 +767,7 @@ pub fn static_file_output<'db>(
     // Get processed content based on file type
     let content = if is_font_file(path) {
         // Font file - need to subset based on char analysis
-        let analysis = font_char_analysis(db, sources, templates, sass);
+        let analysis = font_char_analysis(db, sources, templates, sass, static_files);
         if let Some(chars) = find_chars_for_font_file(path, &analysis) {
             if !chars.is_empty() {
                 let mut sorted_chars: Vec<char> = chars.into_iter().collect();
@@ -976,8 +1003,12 @@ fn find_chars_for_font_file(
     path: &str,
     analysis: &fontcull::FontAnalysis,
 ) -> Option<std::collections::HashSet<char>> {
-    // Normalize path for comparison (remove leading slash if present)
-    let normalized = path.trim_start_matches('/');
+    // Normalize path: remove leading slash and 'static/' prefix
+    // File paths are like "static/fonts/Foo.woff2"
+    // CSS URLs are like "/fonts/Foo.woff2"
+    let normalized = path
+        .trim_start_matches('/')
+        .trim_start_matches("static/");
 
     // Find @font-face rules that reference this font file
     for face in &analysis.font_faces {
