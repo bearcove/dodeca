@@ -615,15 +615,24 @@ mod tests {
         "#;
 
         let vars = parse_css_custom_properties(css);
-        assert_eq!(vars.get("--font-mono"), Some(&"'Iosevka', monospace".to_string()));
-        assert_eq!(vars.get("--font-body"), Some(&"\"Inter\", sans-serif".to_string()));
+        assert_eq!(
+            vars.get("--font-mono"),
+            Some(&"'Iosevka', monospace".to_string())
+        );
+        assert_eq!(
+            vars.get("--font-body"),
+            Some(&"\"Inter\", sans-serif".to_string())
+        );
         assert_eq!(vars.get("--spacing"), Some(&"1rem".to_string()));
     }
 
     #[test]
     fn test_resolve_css_var_simple() {
         let mut vars = HashMap::new();
-        vars.insert("--font-mono".to_string(), "'Iosevka', monospace".to_string());
+        vars.insert(
+            "--font-mono".to_string(),
+            "'Iosevka', monospace".to_string(),
+        );
 
         let result = resolve_css_var("var(--font-mono)", &vars);
         assert_eq!(result, "'Iosevka', monospace");
@@ -642,7 +651,10 @@ mod tests {
     fn test_resolve_css_var_nested() {
         let mut vars = HashMap::new();
         vars.insert("--base-font".to_string(), "'Inter'".to_string());
-        vars.insert("--font-stack".to_string(), "var(--base-font), sans-serif".to_string());
+        vars.insert(
+            "--font-stack".to_string(),
+            "var(--base-font), sans-serif".to_string(),
+        );
 
         let result = resolve_css_var("var(--font-stack)", &vars);
         assert_eq!(result, "'Inter', sans-serif");
@@ -683,9 +695,11 @@ mod tests {
         assert_eq!(analysis.font_faces[0].family, "Iosevka");
 
         // Should have collected chars for Iosevka (not None/empty!)
-        assert!(analysis.chars_per_font.contains_key("Iosevka"),
+        assert!(
+            analysis.chars_per_font.contains_key("Iosevka"),
             "chars_per_font should contain Iosevka, but got: {:?}",
-            analysis.chars_per_font.keys().collect::<Vec<_>>());
+            analysis.chars_per_font.keys().collect::<Vec<_>>()
+        );
 
         let iosevka_chars = &analysis.chars_per_font["Iosevka"];
         // Check for characters from: fn main() { println!("hello"); }
@@ -738,16 +752,16 @@ mod unicode_tests {
                 font-family: var(--日本語);
             }
         "#;
-        
+
         let vars = parse_css_custom_properties(css);
         assert_eq!(vars.get("--日本語"), Some(&"'Noto Sans JP'".to_string()));
-        
+
         let rules = parse_font_family_rules_with_vars(css, &vars);
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].font_family, "Noto Sans JP");
     }
 
-    #[test] 
+    #[test]
     fn test_css_var_with_unicode_in_value() {
         let css = r#"
             :root {
@@ -757,7 +771,7 @@ mod unicode_tests {
                 font-family: var(--font);
             }
         "#;
-        
+
         let vars = parse_css_custom_properties(css);
         let rules = parse_font_family_rules_with_vars(css, &vars);
         assert_eq!(rules[0].font_family, "日本語フォント");
@@ -774,7 +788,7 @@ mod unicode_tests {
                 font-family: var(--font);
             }
         "#;
-        
+
         let vars = parse_css_custom_properties(css);
         let rules = parse_font_family_rules_with_vars(css, &vars);
         assert_eq!(rules[0].font_family, "Test");
@@ -790,7 +804,7 @@ mod unicode_tests {
                 font-family: var(--emoji-font);
             }
         "#;
-        
+
         let vars = parse_css_custom_properties(css);
         let rules = parse_font_family_rules_with_vars(css, &vars);
         assert_eq!(rules[0].font_family, "🎉 Party Font");
@@ -803,7 +817,7 @@ mod unicode_tests {
                 font-family: var(--undefined, '日本語フォント');
             }
         "#;
-        
+
         let vars = parse_css_custom_properties(css);
         let rules = parse_font_family_rules_with_vars(css, &vars);
         assert_eq!(rules[0].font_family, "日本語フォント");
@@ -820,7 +834,7 @@ mod unicode_tests {
                 font-family: var(--full);
             }
         "#;
-        
+
         let vars = parse_css_custom_properties(css);
         let rules = parse_font_family_rules_with_vars(css, &vars);
         assert_eq!(rules[0].font_family, "日本語");
@@ -833,7 +847,7 @@ mod unicode_tests {
                 font-family: 'Test Font';
             }
         "#;
-        
+
         let rules = parse_font_family_rules_with_vars(css, &HashMap::new());
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].selector, ".日本語-class");
@@ -848,7 +862,7 @@ mod unicode_tests {
                 src: url('/fonts/japanese.woff2');
             }
         "#;
-        
+
         let faces = parse_font_face_rules(css);
         assert_eq!(faces.len(), 1);
         assert_eq!(faces[0].family, "日本語フォント");
@@ -866,11 +880,11 @@ mod unicode_tests {
                 font-family: var(--combined);
             }
         "#;
-        
+
         let vars = parse_css_custom_properties(css);
         assert_eq!(vars.get("--primary"), Some(&"'Helvetica'".to_string()));
         assert_eq!(vars.get("--日本語"), Some(&"'Noto Sans JP'".to_string()));
-        
+
         let rules = parse_font_family_rules_with_vars(css, &vars);
         assert_eq!(rules[0].font_family, "Helvetica");
     }
@@ -890,10 +904,10 @@ mod unicode_tests {
             </body>
             </html>
         "#;
-        
+
         let css = extract_css_from_html(html);
         let chars = collect_chars_per_font(html, &css);
-        
+
         assert!(chars.contains_key("TestFont"));
         let font_chars = &chars["TestFont"];
         assert!(font_chars.contains(&'日'));
@@ -924,14 +938,14 @@ mod unicode_tests {
             </body>
             </html>
         "#;
-        
+
         let css = extract_css_from_html(html);
         let analysis = analyze_fonts(html, &css);
-        
+
         // Font face should be parsed
         assert_eq!(analysis.font_faces.len(), 1);
         assert_eq!(analysis.font_faces[0].family, "日本語フォント");
-        
+
         // Characters should be collected
         assert!(analysis.chars_per_font.contains_key("日本語フォント"));
         let chars = &analysis.chars_per_font["日本語フォント"];
@@ -946,7 +960,7 @@ mod unicode_tests {
         let value = "日本語var(--test)";
         let mut vars = HashMap::new();
         vars.insert("--test".to_string(), "'Result'".to_string());
-        
+
         let resolved = resolve_css_var(value, &vars);
         assert_eq!(resolved, "日本語'Result'");
     }
@@ -956,7 +970,7 @@ mod unicode_tests {
         let value = "前var(--mid)後";
         let mut vars = HashMap::new();
         vars.insert("--mid".to_string(), "中".to_string());
-        
+
         let resolved = resolve_css_var(value, &vars);
         assert_eq!(resolved, "前中後");
     }
@@ -967,7 +981,7 @@ mod unicode_tests {
         let mut vars = HashMap::new();
         vars.insert("--a".to_string(), "前".to_string());
         vars.insert("--b".to_string(), "後".to_string());
-        
+
         let resolved = resolve_css_var(value, &vars);
         assert_eq!(resolved, "前日本語後");
     }
@@ -983,10 +997,10 @@ mod unicode_tests {
                 font-family: var(--emoji);
             }
         "#;
-        
+
         let vars = parse_css_custom_properties(css);
         assert_eq!(vars.get("--emoji"), Some(&"'😀🎉🚀'".to_string()));
-        
+
         let rules = parse_font_family_rules_with_vars(css, &vars);
         assert_eq!(rules[0].font_family, "😀🎉🚀");
     }
@@ -1002,7 +1016,7 @@ mod unicode_tests {
                 font-family: var(--zalgo);
             }
         "#;
-        
+
         let vars = parse_css_custom_properties(css);
         let rules = parse_font_family_rules_with_vars(css, &vars);
         assert_eq!(rules[0].font_family, "H̷e̶l̵l̴o̷");
