@@ -1289,9 +1289,15 @@ fn inject_heading_ids(html: &str, headings: &[Heading]) -> String {
 /// Resolve Zola-style @/ internal links to URL paths
 fn resolve_internal_link(link: &str) -> String {
     if let Some(path) = link.strip_prefix("@/") {
+        // Split off fragment (e.g., #anchor) before processing
+        let (path_part, fragment) = match path.find('#') {
+            Some(idx) => (&path[..idx], Some(&path[idx..])),
+            None => (path, None),
+        };
+
         // Convert @/learn/_index.md -> /learn
         // Convert @/learn/page.md -> /learn/page
-        let mut path = path.to_string();
+        let mut path = path_part.to_string();
 
         // Remove .md extension
         if path.ends_with(".md") {
@@ -1306,10 +1312,16 @@ fn resolve_internal_link(link: &str) -> String {
         }
 
         // Ensure leading slash, no trailing slash (except for root)
-        if path.is_empty() {
+        let base = if path.is_empty() {
             "/".to_string()
         } else {
             format!("/{path}")
+        };
+
+        // Re-append fragment if present
+        match fragment {
+            Some(frag) => format!("{base}{frag}"),
+            None => base,
         }
     } else {
         link.to_string()
@@ -1357,6 +1369,17 @@ weight = 10
             "https://example.com"
         );
         assert_eq!(resolve_internal_link("/some/path/"), "/some/path/");
+
+        // Links with hash fragments
+        assert_eq!(
+            resolve_internal_link("@/guide/ecosystem.md#anchor"),
+            "/guide/ecosystem#anchor"
+        );
+        assert_eq!(
+            resolve_internal_link("@/guide/_index.md#section"),
+            "/guide#section"
+        );
+        assert_eq!(resolve_internal_link("@/_index.md#top"), "/#top");
     }
 
 }
