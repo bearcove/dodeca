@@ -78,13 +78,16 @@ impl FontFormat {
     }
 }
 
-/// Decompress a WOFF font to TTF/OTF
+/// Decompress a WOFF2 font to TTF/OTF
 ///
 /// If the input is already TTF/OTF, returns a copy unchanged.
-/// If the input is WOFF1 or WOFF2, decompresses it to TTF/OTF.
+/// If the input is WOFF2, decompresses it to TTF/OTF.
 ///
 /// This is a separate operation that can be cached/salsified independently
 /// from subsetting.
+///
+/// Requires the `woff2` feature (enabled by default).
+#[cfg(feature = "woff2")]
 pub fn decompress_font(font_data: &[u8]) -> Result<Vec<u8>, SubsetError> {
     match FontFormat::detect(font_data) {
         FontFormat::Woff2 => woofwoof::decompress(font_data)
@@ -103,6 +106,9 @@ pub fn decompress_font(font_data: &[u8]) -> Result<Vec<u8>, SubsetError> {
 ///
 /// This is a separate operation that can be cached/salsified independently
 /// from subsetting.
+///
+/// Requires the `woff2` feature (enabled by default).
+#[cfg(feature = "woff2")]
 pub fn compress_to_woff2(font_data: &[u8]) -> Result<Vec<u8>, SubsetError> {
     // woofwoof::compress(data, metadata, quality, allow_transforms)
     // - metadata: empty string (no metadata)
@@ -161,6 +167,9 @@ pub fn subset_font_data(font_data: &[u8], chars: &HashSet<char>) -> Result<Vec<u
 ///
 /// Takes raw font data and a set of characters,
 /// returns the subsetted font as WOFF2 bytes.
+///
+/// Requires the `woff2` feature (enabled by default).
+#[cfg(feature = "woff2")]
 pub fn subset_font_to_woff2(
     font_data: &[u8],
     chars: &HashSet<char>,
@@ -216,6 +225,9 @@ pub fn subset_font_data_unicode(
 }
 
 /// Subset a font to WOFF2 using unicode codepoints (u32)
+///
+/// Requires the `woff2` feature (enabled by default).
+#[cfg(feature = "woff2")]
 pub fn subset_font_to_woff2_unicode(
     font_data: &[u8],
     unicodes: &[u32],
@@ -280,6 +292,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "woff2")]
     fn test_decompress_ttf_passthrough() {
         // A minimal valid-ish TTF header (just for format detection)
         let ttf_data = [0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
@@ -288,6 +301,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "woff2")]
     fn test_decompress_woff2_fixture() {
         // Read WOFF2 fixture file (created by fonttools)
         let woff2_data =
@@ -308,6 +322,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "woff2")]
     fn test_decompress_woff1_not_supported() {
         // Read WOFF1 fixture file (created by fonttools)
         let woff1_data =
@@ -322,6 +337,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "woff2")]
     fn test_subset_woff2_input() {
         // Read WOFF2 fixture
         let woff2_input =

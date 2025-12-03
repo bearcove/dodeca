@@ -8,10 +8,25 @@ Font subsetting library. Subset fonts to only include glyphs that are actually u
 - **Multiple formats** - Supports TTF, OTF, and WOFF2 input
 - **WOFF2 output** - Compress subsetted fonts to WOFF2 for web delivery
 - **Static analysis** (optional) - Parse HTML/CSS to detect font usage
+- **Optional WOFF2** - Disable for pure Rust builds without C++ dependency
+
+## Feature flags
+
+| Feature | Default | Description |
+|---------|---------|-------------|
+| `woff2` | Yes | WOFF2 compression/decompression (requires C++) |
+| `static-analysis` | No | HTML/CSS parsing for font usage detection |
+
+For a pure Rust build without WOFF2 support:
+
+```toml
+[dependencies]
+fontcull = { version = "2", default-features = false }
+```
 
 ## Usage
 
-```rust
+```ignore
 use fontcull::{subset_font_to_woff2, decompress_font};
 use std::collections::HashSet;
 
@@ -28,7 +43,7 @@ std::fs::write("MyFont-subset.woff2", woff2).unwrap();
 
 ### With WOFF2 input
 
-```rust
+```ignore
 use fontcull::{decompress_font, subset_font_data, compress_to_woff2};
 use std::collections::HashSet;
 
@@ -50,7 +65,7 @@ Enable the `static-analysis` feature to parse HTML and CSS for font usage:
 fontcull = { version = "2", features = ["static-analysis"] }
 ```
 
-```rust
+```ignore
 use fontcull::{analyze_fonts, extract_css_from_html, subset_font_to_woff2};
 
 let html = r#"<html>
@@ -73,14 +88,14 @@ if let Some(chars) = analysis.chars_per_font.get("MyFont") {
 ### Core functions
 
 - `subset_font_data(font_data, chars)` - Subset font to TTF bytes
+- `subset_font_data_unicode(font_data, unicodes)` - Subset using `u32` codepoints
+
+### WOFF2 functions (requires `woff2` feature)
+
 - `subset_font_to_woff2(font_data, chars)` - Subset and compress to WOFF2
+- `subset_font_to_woff2_unicode(font_data, unicodes)` - Subset to WOFF2 using codepoints
 - `decompress_font(font_data)` - Decompress WOFF2 to TTF/OTF
 - `compress_to_woff2(font_data)` - Compress TTF/OTF to WOFF2
-
-### Unicode codepoint variants
-
-- `subset_font_data_unicode(font_data, unicodes)` - Subset using `u32` codepoints
-- `subset_font_to_woff2_unicode(font_data, unicodes)` - Subset to WOFF2 using codepoints
 
 ### Format detection
 
