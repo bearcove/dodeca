@@ -293,6 +293,8 @@ pub fn try_render_section_to_html(
         "current_path",
         Value::String(section.route.as_str().to_string()),
     );
+    // Set page to None so templates can use `{% if page %}` without error
+    ctx.set("page", Value::None);
 
     let template_name = if section.route.as_str() == "/" {
         "index.html"
