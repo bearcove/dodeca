@@ -1378,6 +1378,12 @@ fn handle_file_changed(
     match category {
         PathCategory::Content => {
             if let Ok(content) = fs::read_to_string(path) {
+                let last_modified = fs::metadata(path.as_std_path())
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
                 let mut db = server.db.lock().unwrap();
                 let mut sources = server.sources.write().unwrap();
                 let relative_str = relative.to_string();
@@ -1386,13 +1392,14 @@ fn handle_file_changed(
                     if source.path(&*db).as_str() == relative_str {
                         use salsa::Setter;
                         source.set_content(&mut *db).to(SourceContent::new(content.clone()));
+                        source.set_last_modified(&mut *db).to(last_modified);
                         found = true;
                         break;
                     }
                 }
                 if !found {
                     let source_path = SourcePath::new(relative_str);
-                    let source = SourceFile::new(&*db, source_path, SourceContent::new(content));
+                    let source = SourceFile::new(&*db, source_path, SourceContent::new(content), last_modified);
                     sources.push(source);
                     println!("  {} Added new source: {}", "+".green(), relative);
                 }
