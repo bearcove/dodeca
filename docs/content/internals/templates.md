@@ -294,6 +294,7 @@ Convert a path to a URL:
 | `reverse` | Reverse string or list |
 | `sort` | Sort list (use `sort(attribute="field")` for dicts) |
 | `join(sep)` | Join list with separator |
+| `split(pat)` | Split string into list (default: space) |
 | `default(value)` | Fallback if value is empty/none |
 
 All output is HTML-escaped by default. Use `| safe` for pre-rendered HTML:

@@ -256,13 +256,20 @@ pub fn render_section_to_html(
 fn build_render_context(site_tree: &SiteTree, data: Option<Value>) -> Context {
     let mut ctx = Context::new();
 
-    // Add config
+    // Add config - derive title/description from root section's frontmatter
     let mut config_map = HashMap::new();
-    config_map.insert("title".to_string(), Value::String("dodeca".to_string()));
-    config_map.insert(
-        "description".to_string(),
-        Value::String("A fully incremental static site generator".to_string()),
-    );
+    let (site_title, site_description) = site_tree
+        .sections
+        .get(&Route::root())
+        .map(|root| {
+            (
+                root.title.to_string(),
+                root.description.clone().unwrap_or_default(),
+            )
+        })
+        .unwrap_or_else(|| ("Untitled".to_string(), String::new()));
+    config_map.insert("title".to_string(), Value::String(site_title));
+    config_map.insert("description".to_string(), Value::String(site_description));
     config_map.insert("base_url".to_string(), Value::String("/".to_string()));
     ctx.set("config", Value::Dict(config_map));
 

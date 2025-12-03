@@ -185,7 +185,7 @@ impl SiteServer {
             }
 
             if let Some(ref path) = new_css_path {
-                tracing::info!("🎨 CSS changed: {}", path);
+                tracing::info!("CSS changed: {}", path);
                 let _ = self.livereload_tx.send(LiveReloadMsg::CssUpdate {
                     path: path.clone(),
                 });
@@ -200,7 +200,7 @@ impl SiteServer {
 
         if cached_routes.is_empty() {
             if !css_changed {
-                tracing::info!("🔄 No cached routes, sending full reload");
+                tracing::info!("No cached routes, sending full reload");
                 let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
             }
             return;
@@ -254,7 +254,7 @@ impl SiteServer {
                                 match serialize_patches(&diff_result.patches) {
                                     Ok(data) => {
                                         tracing::info!(
-                                            "✨ {} - patching: {} ({} bytes)",
+                                            "{} - patching: {} ({} bytes)",
                                             route, summary, data.len()
                                         );
                                         let _ = self.livereload_tx.send(LiveReloadMsg::Patches {
@@ -293,7 +293,7 @@ impl SiteServer {
 
         // If neither HTML nor CSS changed, send a generic reload (for static assets, etc.)
         if !any_html_changed && !css_changed {
-            tracing::info!("🔄 No HTML/CSS changes detected, refreshing for static assets");
+            tracing::info!("No HTML/CSS changes detected, refreshing for static assets");
             let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
         }
     }
@@ -713,7 +713,7 @@ async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
     // Track the current route this client is viewing
     let mut current_route: Option<String> = None;
 
-    tracing::info!("🔌 Browser connected for live reload");
+    tracing::info!("Browser connected for live reload");
 
     // Send initial connection confirmation
     let _ = sender.send(Message::Text("connected".into())).await;
@@ -756,7 +756,7 @@ async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
                     Some(Ok(Message::Text(text))) => {
                         // Client can send its current route
                         if let Some(route) = text.strip_prefix("route:") {
-                            tracing::info!("🔌 Browser viewing {}", route);
+                            tracing::info!("Browser viewing {}", route);
                             current_route = Some(route.to_string());
                         }
                     }
@@ -766,7 +766,7 @@ async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
         }
     }
 
-    tracing::info!("🔌 Browser disconnected");
+    tracing::info!("Browser disconnected");
 }
 
 /// Middleware to log HTTP requests with status code and latency

@@ -213,6 +213,7 @@ pub struct Heading {
 pub struct Section {
     pub route: Route,
     pub title: Title,
+    pub description: Option<String>,
     pub weight: i32,
     pub body_html: HtmlBody,
     /// Headings extracted from content
@@ -255,6 +256,8 @@ pub struct ParsedData {
     pub route: Route,
     /// Parsed title
     pub title: Title,
+    /// Optional description from frontmatter
+    pub description: Option<String>,
     /// Weight for sorting
     pub weight: i32,
     /// Body HTML

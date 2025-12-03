@@ -151,6 +151,7 @@ pub fn parse_file(db: &dyn Db, source: SourceFile) -> ParsedData {
         source_path: path.clone(),
         route,
         title: Title::new(frontmatter.title),
+        description: frontmatter.description,
         weight: frontmatter.weight,
         body_html,
         is_section,
@@ -180,6 +181,7 @@ pub fn build_tree<'db>(db: &'db dyn Db, sources: SourceRegistry<'db>) -> SiteTre
             Section {
                 route: data.route.clone(),
                 title: data.title.clone(),
+                description: data.description.clone(),
                 weight: data.weight,
                 body_html: data.body_html.clone(),
                 headings: data.headings.clone(),
@@ -192,6 +194,7 @@ pub fn build_tree<'db>(db: &'db dyn Db, sources: SourceRegistry<'db>) -> SiteTre
     sections.entry(Route::root()).or_insert_with(|| Section {
         route: Route::root(),
         title: Title::from_static("Home"),
+        description: None,
         weight: 0,
         body_html: HtmlBody::from_static(""),
         headings: Vec::new(),
