@@ -1661,10 +1661,20 @@ fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, miette::Rep
 
 fn resolve_object<'a>(ctx: &'a RenderContext, obj: &Object) -> Option<&'a RenderedObject> {
     match obj {
-        Object::Named(name) => match &name.base {
-            ObjectNameBase::PlaceName(n) => ctx.get_object(n),
-            ObjectNameBase::This => ctx.last_object(),
-        },
+        Object::Named(name) => {
+            // First resolve the base object
+            let base_obj = match &name.base {
+                ObjectNameBase::PlaceName(n) => ctx.get_object(n),
+                ObjectNameBase::This => ctx.last_object(),
+            }?;
+
+            // Then follow the path through sublists (e.g., Main.A -> Main's child A)
+            if name.path.is_empty() {
+                Some(base_obj)
+            } else {
+                resolve_path_in_object(base_obj, &name.path)
+            }
+        }
         Object::Nth(nth) => match nth {
             Nth::Last(class) => {
                 let oc = class.as_ref().and_then(|c| nth_class_to_object_class(c));
@@ -1688,6 +1698,28 @@ fn resolve_object<'a>(ctx: &'a RenderContext, obj: &Object) -> Option<&'a Render
             }
         },
     }
+}
+
+/// Resolve a path within an object's children (e.g., ["A"] finds child named "A")
+fn resolve_path_in_object<'a>(
+    obj: &'a RenderedObject,
+    path: &[String],
+) -> Option<&'a RenderedObject> {
+    if path.is_empty() {
+        return Some(obj);
+    }
+
+    let next_name = &path[0];
+    let remaining = &path[1..];
+
+    // Search in children for matching name
+    for child in &obj.children {
+        if child.name.as_ref() == Some(next_name) {
+            return resolve_path_in_object(child, remaining);
+        }
+    }
+
+    None
 }
 
 fn nth_class_to_object_class(nc: &NthClass) -> Option<ObjectClass> {
