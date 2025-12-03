@@ -53,6 +53,17 @@
 use facet::Facet;
 use linkme::distributed_slice;
 
+/// ABI version for plugcard plugins.
+///
+/// This version is checked when loading plugins to detect stale .so files
+/// built against incompatible versions of plugcard. Bump this when:
+/// - MethodSignature struct layout changes
+/// - MethodCallData struct layout changes
+/// - The plugin export interface changes
+///
+/// Format: 0xMMMMmmpp (Major, minor, patch as u32)
+pub const ABI_VERSION: u32 = 0x0001_0000; // 1.0.0
+
 /// A Result type that can be serialized with facet-postcard.
 ///
 /// Use this instead of `std::result::Result<T, String>` in plugin functions
@@ -216,7 +227,7 @@ pub use plugcard_macros::plugcard;
 
 // Host-side plugin loading
 mod loader;
-pub use loader::{Plugin, PluginMethod};
+pub use loader::{LoadError, Plugin, PluginMethod};
 
 /// Export plugin entry points. Call this once in your plugin's lib.rs.
 ///
@@ -226,6 +237,12 @@ pub use loader::{Plugin, PluginMethod};
 #[macro_export]
 macro_rules! export_plugin {
     () => {
+        /// Returns the ABI version this plugin was built with
+        #[unsafe(no_mangle)]
+        pub extern "C" fn __plugcard_abi_version() -> u32 {
+            $crate::ABI_VERSION
+        }
+
         /// Returns pointer to the methods array
         #[unsafe(no_mangle)]
         pub extern "C" fn __plugcard_methods_ptr() -> *const $crate::MethodSignature {

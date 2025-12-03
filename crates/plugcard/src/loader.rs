@@ -1,9 +1,56 @@
 //! Host-side plugin loading via libloading.
 
-use crate::{MethodCallData, MethodCallResult, MethodSignature};
+use crate::{MethodCallData, MethodCallResult, MethodSignature, ABI_VERSION};
 use facet::Facet;
 use libloading::{Library, Symbol};
 use std::path::Path;
+
+/// Error when loading a plugin.
+#[derive(Debug)]
+pub enum LoadError {
+    /// Failed to load the dynamic library
+    Library(libloading::Error),
+    /// Plugin doesn't export __plugcard_abi_version (too old)
+    NoAbiVersion,
+    /// Plugin ABI version doesn't match host
+    AbiMismatch {
+        /// Version the host expects
+        expected: u32,
+        /// Version the plugin has
+        found: u32,
+    },
+}
+
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadError::Library(e) => write!(f, "failed to load library: {e}"),
+            LoadError::NoAbiVersion => write!(
+                f,
+                "plugin doesn't export ABI version (rebuild with latest plugcard)"
+            ),
+            LoadError::AbiMismatch { expected, found } => write!(
+                f,
+                "ABI version mismatch: host expects 0x{expected:08x}, plugin has 0x{found:08x}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LoadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            LoadError::Library(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<libloading::Error> for LoadError {
+    fn from(e: libloading::Error) -> Self {
+        LoadError::Library(e)
+    }
+}
 
 /// A loaded plugin.
 pub struct Plugin {
@@ -27,8 +74,33 @@ impl Plugin {
     ///
     /// # Safety
     /// The plugin must be a valid plugcard plugin built with `export_plugin!()`.
-    pub unsafe fn load(path: impl AsRef<Path>) -> Result<Self, libloading::Error> {
+    ///
+    /// # Errors
+    /// Returns `LoadError::NoAbiVersion` if the plugin doesn't export an ABI version
+    /// (indicating it was built with an older plugcard that didn't have version checks).
+    /// Returns `LoadError::AbiMismatch` if the plugin's ABI version doesn't match the host.
+    pub unsafe fn load(path: impl AsRef<Path>) -> Result<Self, LoadError> {
         let library = unsafe { Library::new(path.as_ref()) }?;
+
+        // Check ABI version first - this catches stale plugins
+        let abi_version: Result<Symbol<extern "C" fn() -> u32>, _> =
+            unsafe { library.get(b"__plugcard_abi_version") };
+
+        match abi_version {
+            Ok(get_version) => {
+                let plugin_version = get_version();
+                if plugin_version != ABI_VERSION {
+                    return Err(LoadError::AbiMismatch {
+                        expected: ABI_VERSION,
+                        found: plugin_version,
+                    });
+                }
+            }
+            Err(_) => {
+                // Plugin doesn't have ABI version export - it's from before we added this check
+                return Err(LoadError::NoAbiVersion);
+            }
+        }
 
         // Get the methods slice
         let methods_ptr: Symbol<extern "C" fn() -> *const MethodSignature> =

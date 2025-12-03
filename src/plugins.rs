@@ -4,7 +4,7 @@
 //! Currently supports image encoding/decoding plugins (WebP, JXL).
 
 use facet::Facet;
-use plugcard::{Plugin, PlugResult};
+use plugcard::{LoadError, Plugin, PlugResult};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tracing::{debug, info, warn};
@@ -52,6 +52,20 @@ impl PluginRegistry {
                 let methods: Vec<_> = plugin.methods().map(|m| m.name).collect();
                 info!("loaded plugin {} with methods: {:?}", lib_name, methods);
                 Some(plugin)
+            }
+            Err(LoadError::AbiMismatch { expected, found }) => {
+                warn!(
+                    "plugin {} has incompatible ABI version (expected 0x{:08x}, found 0x{:08x}) - rebuild the plugin",
+                    lib_name, expected, found
+                );
+                None
+            }
+            Err(LoadError::NoAbiVersion) => {
+                warn!(
+                    "plugin {} was built with an old plugcard version - rebuild the plugin",
+                    lib_name
+                );
+                None
             }
             Err(e) => {
                 warn!("failed to load plugin {}: {}", lib_name, e);
