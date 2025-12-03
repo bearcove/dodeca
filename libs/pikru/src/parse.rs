@@ -262,18 +262,25 @@ fn parse_object_stmt(pair: Pair<Rule>) -> Result<ObjectStatement, miette::Report
 }
 
 fn parse_basetype(pair: Pair<Rule>) -> Result<BaseType, miette::Report> {
-    let inner = pair.into_inner().next().unwrap();
-    match inner.as_rule() {
-        Rule::CLASSNAME => Ok(BaseType::Class(parse_classname(inner)?)),
+    let mut inner = pair.into_inner();
+    let first = inner.next().unwrap();
+    match first.as_rule() {
+        Rule::CLASSNAME => Ok(BaseType::Class(parse_classname(first)?)),
         Rule::STRING => {
-            let text = parse_string(inner)?;
-            Ok(BaseType::Text(StringLit { value: text }, None))
+            let text = parse_string(first)?;
+            // Check for optional textposition (e.g., rjust, ljust, above, below)
+            let textpos = inner
+                .next()
+                .filter(|p| p.as_rule() == Rule::textposition)
+                .map(parse_textposition)
+                .transpose()?;
+            Ok(BaseType::Text(StringLit { value: text }, textpos))
         }
         Rule::sublist => {
-            let statements = parse_statement_list(inner.into_inner().next().unwrap())?;
+            let statements = parse_statement_list(first.into_inner().next().unwrap())?;
             Ok(BaseType::Sublist(statements))
         }
-        _ => Err(miette::miette!("Invalid basetype: {:?}", inner.as_rule())),
+        _ => Err(miette::miette!("Invalid basetype: {:?}", first.as_rule())),
     }
 }
 

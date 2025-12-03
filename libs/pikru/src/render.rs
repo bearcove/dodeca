@@ -70,6 +70,60 @@ mod defaults {
     pub const STROKE_WIDTH: Inches = Inches::inches(0.015);
     pub const FONT_SIZE: f64 = 0.14; // approx charht (kept as f64 for text calculations)
     pub const MARGIN: f64 = 0.0; // kept as f64 for variable lookups
+    pub const CHARWID: f64 = 0.08; // default character width in inches
+}
+
+/// Proportional character widths from C pikchr's awChar table.
+/// Values are relative widths where 100 = average character width.
+/// Index is (ASCII code - 0x20) for printable characters 0x20-0x7e.
+#[rustfmt::skip]
+const AW_CHAR: [u8; 95] = [
+    // ' '   !    "    #    $    %    &    '
+       45,  55,  62, 115,  90, 132, 125,  40,
+    // (    )    *    +    ,    -    .    /
+       55,  55,  71, 115,  45,  48,  45,  50,
+    // 0    1    2    3    4    5    6    7
+       91,  91,  91,  91,  91,  91,  91,  91,
+    // 8    9    :    ;    <    =    >    ?
+       91,  91,  50,  50, 120, 120, 120,  78,
+    // @    A    B    C    D    E    F    G
+      142, 102, 105, 110, 115, 105,  98, 105,
+    // H    I    J    K    L    M    N    O
+      125,  58,  58, 107,  95, 145, 125, 115,
+    // P    Q    R    S    T    U    V    W
+       95, 115, 107,  95,  97, 118, 102, 150,
+    // X    Y    Z    [    \    ]    ^    _
+      100,  93, 100,  58,  50,  58, 119,  72,
+    // `    a    b    c    d    e    f    g
+       72,  86,  92,  80,  92,  85,  52,  92,
+    // h    i    j    k    l    m    n    o
+       92,  47,  47,  88,  48, 135,  92,  86,
+    // p    q    r    s    t    u    v    w
+       92,  92,  69,  75,  58,  92,  80, 121,
+    // x    y    z    {    |    }    ~
+       81,  80,  76,  91,  49,  91, 118,
+];
+
+/// Calculate text width using proportional character widths like C pikchr.
+/// Returns width in "hundredths" (sum of AW_CHAR values).
+fn pik_text_length(text: &str) -> u32 {
+    let mut cnt: u32 = 0;
+    for c in text.chars() {
+        if c >= ' ' && c <= '~' {
+            cnt += AW_CHAR[(c as usize) - 0x20] as u32;
+        } else {
+            // Non-ASCII or control: use average width (100)
+            cnt += 100;
+        }
+    }
+    cnt
+}
+
+/// Calculate text width in inches using proportional character widths.
+fn text_width_inches(text: &str, charwid: f64) -> f64 {
+    let length_hundredths = pik_text_length(text);
+    // C formula: pik_text_length * charWidth * 0.01
+    length_hundredths as f64 * charwid * 0.01
 }
 
 /// A point in 2D space
@@ -458,6 +512,47 @@ fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
                 expand_object_bounds(bounds, child);
             }
         }
+        ObjectClass::Text => {
+            // For text objects, iterate ALL text spans and expand bounds for each.
+            // Handle ljust/rjust - text extends in one direction from anchor point.
+            let charht = Inches(defaults::FONT_SIZE);
+            let charwid = defaults::CHARWID;
+
+            if obj.text.is_empty() {
+                // No text - just use object dimensions
+                bounds.expand_rect(
+                    obj.center,
+                    Size {
+                        w: obj.width,
+                        h: obj.height,
+                    },
+                );
+            } else {
+                for text in &obj.text {
+                    let text_w = Inches(text_width_inches(&text.value, charwid));
+                    let hh = charht / 2.0;
+
+                    if text.rjust {
+                        // rjust: text extends to the LEFT of center (anchor at right edge)
+                        bounds.expand_point(Point::new(obj.center.x - text_w, obj.center.y - hh));
+                        bounds.expand_point(Point::new(obj.center.x, obj.center.y + hh));
+                    } else if text.ljust {
+                        // ljust: text extends to the RIGHT of center (anchor at left edge)
+                        bounds.expand_point(Point::new(obj.center.x, obj.center.y - hh));
+                        bounds.expand_point(Point::new(obj.center.x + text_w, obj.center.y + hh));
+                    } else {
+                        // Centered text
+                        bounds.expand_rect(
+                            obj.center,
+                            Size {
+                                w: text_w,
+                                h: charht,
+                            },
+                        );
+                    }
+                }
+            }
+        }
         _ => bounds.expand_rect(
             obj.center,
             Size {
@@ -638,9 +733,11 @@ fn render_object_stmt(
             ClassName::Text => (ObjectClass::Text, Inches::ZERO, Inches::ZERO),
         },
         BaseType::Text(s, _) => {
-            // Estimate text dimensions
-            let w = s.value.len() as f64 * defaults::FONT_SIZE * 0.6;
-            let h = defaults::FONT_SIZE * 1.2;
+            // Use proportional character widths like C pikchr
+            let charwid = defaults::CHARWID;
+            let charht = defaults::FONT_SIZE;
+            let w = text_width_inches(&s.value, charwid);
+            let h = charht;
             (ObjectClass::Text, Inches(w), Inches(h))
         }
         BaseType::Sublist(_) => {
@@ -1533,9 +1630,11 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, miette:
             let base = eval_place(ctx, place)?;
             let dx_val = eval_len(ctx, dx)?;
             let dy_val = eval_len(ctx, dy)?;
+            // Pikchr uses Y-UP semantics in user syntax, but we use Y-DOWN internally.
+            // So adding Y moves up (smaller Y in our system), subtracting moves down.
             match op {
-                BinaryOp::Add => Ok(Point::new(base.x + dx_val, base.y + dy_val)),
-                BinaryOp::Sub => Ok(Point::new(base.x - dx_val, base.y - dy_val)),
+                BinaryOp::Add => Ok(Point::new(base.x + dx_val, base.y - dy_val)),
+                BinaryOp::Sub => Ok(Point::new(base.x - dx_val, base.y + dy_val)),
                 _ => Ok(base),
             }
         }
@@ -2305,6 +2404,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     scaler.px(obj.height),
                     &scaler,
                     false, // Text objects are not lines
+                    true,  // This IS a standalone text object
                 );
             }
             ObjectClass::Move => {
@@ -2338,6 +2438,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 scaler.px(obj.height),
                 &scaler,
                 is_line,
+                false, // Text inside shapes, not standalone
             );
         }
     }
@@ -2348,6 +2449,8 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 }
 
 /// Render positioned text labels
+/// is_line: true if rendering text for a line/arrow object
+/// is_standalone_text: true if this is a standalone Text object (not text inside a shape)
 fn render_positioned_text(
     svg: &mut String,
     texts: &[PositionedText],
@@ -2357,6 +2460,7 @@ fn render_positioned_text(
     height: f64,
     scaler: &Scaler,
     is_line: bool,
+    is_standalone_text: bool,
 ) {
     // Group texts by their vertical position (above, below, or center)
     let mut above_texts: Vec<&PositionedText> = Vec::new();
@@ -2394,13 +2498,17 @@ fn render_positioned_text(
         height / 2.0
     };
 
+    // Line labels should behave like standalone text for anchoring purposes
+    // (no width-based offset from shape center)
+    let use_standalone_anchor = is_standalone_text || is_line;
+
     // Render above texts (above the shape/line)
+    // First label (i=0) hugs the anchor, subsequent labels stack further out
     for (i, text) in above_texts.iter().enumerate() {
         let font_size = get_font_size(text, scaler);
         // C pikchr positions text with charht spacing, offset by ~0.58*charht from line
-        let text_y =
-            cy - base_offset - font_size * 0.58 - font_size * (above_texts.len() - 1 - i) as f64;
-        let (text_x, anchor) = get_text_anchor(text, cx, width);
+        let text_y = cy - base_offset - font_size * 0.58 - font_size * i as f64;
+        let (text_x, anchor) = get_text_anchor(text, cx, width, use_standalone_anchor);
         render_styled_text(svg, text, text_x, text_y, anchor, font_size);
     }
 
@@ -2408,7 +2516,7 @@ fn render_positioned_text(
     for (i, text) in center_texts.iter().enumerate() {
         let font_size = get_font_size(text, scaler);
         let text_y = cy + (i as f64 - center_texts.len() as f64 / 2.0 + 0.5) * font_size;
-        let (text_x, anchor) = get_text_anchor(text, cx, width);
+        let (text_x, anchor) = get_text_anchor(text, cx, width, use_standalone_anchor);
         render_styled_text(svg, text, text_x, text_y, anchor, font_size);
     }
 
@@ -2417,7 +2525,7 @@ fn render_positioned_text(
         let font_size = get_font_size(text, scaler);
         // C pikchr positions text with charht spacing, offset by ~0.58*charht from line
         let text_y = cy + base_offset + font_size * 0.58 + font_size * i as f64;
-        let (text_x, anchor) = get_text_anchor(text, cx, width);
+        let (text_x, anchor) = get_text_anchor(text, cx, width, use_standalone_anchor);
         render_styled_text(svg, text, text_x, text_y, anchor, font_size);
     }
 }
@@ -2471,11 +2579,30 @@ fn render_styled_text(
 }
 
 /// Get text x position and anchor based on justification
-fn get_text_anchor(text: &PositionedText, cx: f64, width: f64) -> (f64, &'static str) {
+/// For standalone text objects (width == 0 or is_standalone), use direct anchoring.
+/// For text inside shapes, offset from center with padding.
+fn get_text_anchor(
+    text: &PositionedText,
+    cx: f64,
+    width: f64,
+    is_standalone: bool,
+) -> (f64, &'static str) {
     if text.ljust {
-        (cx - width / 2.0 + 5.0, "start") // Small padding from left edge
+        if is_standalone || width < 1.0 {
+            // Standalone: anchor at position, text extends right
+            (cx, "start")
+        } else {
+            // Inside shape: offset from left edge with padding
+            (cx - width / 2.0 + 5.0, "start")
+        }
     } else if text.rjust {
-        (cx + width / 2.0 - 5.0, "end") // Small padding from right edge
+        if is_standalone || width < 1.0 {
+            // Standalone: anchor at position, text extends left
+            (cx, "end")
+        } else {
+            // Inside shape: offset from right edge with padding
+            (cx + width / 2.0 - 5.0, "end")
+        }
     } else {
         (cx, "middle")
     }
@@ -2559,6 +2686,7 @@ fn render_sublist_children(
                 child.class,
                 ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Arc
             );
+            let is_standalone_text = child.class == ObjectClass::Text;
             render_positioned_text(
                 svg,
                 &child.text,
@@ -2568,6 +2696,7 @@ fn render_sublist_children(
                 scaler.px(child.height),
                 scaler,
                 is_line,
+                is_standalone_text,
             );
         }
 
