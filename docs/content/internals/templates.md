@@ -56,13 +56,90 @@ The root section, useful for building sidebars:
 
 ### `data`
 
-Data files loaded from `data/` directory (JSON, YAML, TOML, KDL):
+Data files loaded from the `data/` directory (sibling to `content/`). Supports JSON, YAML, TOML, and KDL formats.
+
+**Directory structure:**
+
+```
+my-site/
+├── content/
+├── data/
+│   ├── navigation.yaml
+│   ├── authors.json
+│   ├── versions.toml
+│   └── settings.kdl
+└── templates/
+```
+
+Each file becomes a key under `data` (filename without extension):
+
+| File | Access |
+|------|--------|
+| `data/navigation.yaml` | `data.navigation` |
+| `data/authors.json` | `data.authors` |
+| `data/versions.toml` | `data.versions` |
+| `data/settings.kdl` | `data.settings` |
+
+**Example: Navigation menu** (`data/navigation.yaml`)
+
+```yaml
+main:
+  - label: Home
+    url: /
+  - label: Guide
+    url: /guide/
+  - label: GitHub
+    url: https://github.com/bearcove/dodeca
+    external: true
+```
 
 ```jinja
-{% for item in data.navigation %}
-  <a href="{{ item.url }}">{{ item.label }}</a>
+<nav>
+{% for item in data.navigation.main %}
+  <a href="{{ item.url }}"{% if item.external %} target="_blank"{% endif %}>
+    {{ item.label }}
+  </a>
 {% endfor %}
+</nav>
 ```
+
+**Example: Version info** (`data/versions.toml`)
+
+```toml
+[dodeca]
+version = "0.2.0"
+rust_version = "1.91"
+
+[dependencies]
+salsa = "0.24"
+```
+
+```jinja
+<footer>
+  Built with dodeca v{{ data.versions.dodeca.version }}
+  (Rust {{ data.versions.dodeca.rust_version }})
+</footer>
+```
+
+**Example: Author profiles** (`data/authors.json`)
+
+```json
+{
+  "amos": {
+    "name": "Amos Wenger",
+    "url": "https://fasterthanli.me"
+  }
+}
+```
+
+```jinja
+{% if page.author %}
+  {% set author = data.authors[page.author] %}
+  <a href="{{ author.url }}">{{ author.name }}</a>
+{% endif %}
+```
+
+Data files are watched in serve mode—edits trigger live reload.
 
 ## Page Context
 
