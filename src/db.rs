@@ -128,16 +128,18 @@ pub struct SassFile {
     pub content: SassContent,
 }
 
-/// Interned template registry - allows Salsa to track template set as a whole
-#[salsa::interned]
-pub struct TemplateRegistry<'db> {
+/// Input template registry - allows Salsa to track template set as a whole
+/// This is an INPUT (not interned) so that updating it invalidates dependent queries
+#[salsa::input]
+pub struct TemplateRegistry {
     #[returns(ref)]
     pub templates: Vec<TemplateFile>,
 }
 
-/// Interned sass registry - allows Salsa to track sass file set as a whole
-#[salsa::interned]
-pub struct SassRegistry<'db> {
+/// Input sass registry - allows Salsa to track sass file set as a whole
+/// This is an INPUT (not interned) so that updating it invalidates dependent queries
+#[salsa::input]
+pub struct SassRegistry {
     #[returns(ref)]
     pub files: Vec<SassFile>,
 }
@@ -154,11 +156,10 @@ pub struct StaticFile {
     pub content: Vec<u8>,
 }
 
-/// Interned static file registry - allows Salsa to track static files as a whole
-/// When files change, we create NEW StaticFile objects (not mutate), so the Vec
-/// contains different IDs and Salsa creates a new interned value automatically.
-#[salsa::interned]
-pub struct StaticRegistry<'db> {
+/// Input static file registry - allows Salsa to track static files as a whole
+/// This is an INPUT (not interned) so that updating it invalidates dependent queries
+#[salsa::input]
+pub struct StaticRegistry {
     #[returns(ref)]
     pub files: Vec<StaticFile>,
 }
@@ -175,16 +176,18 @@ pub struct DataFile {
     pub content: DataContent,
 }
 
-/// Interned data file registry - allows Salsa to track data files as a whole
-#[salsa::interned]
-pub struct DataRegistry<'db> {
+/// Input data file registry - allows Salsa to track data files as a whole
+/// This is an INPUT (not interned) so that updating it invalidates dependent queries
+#[salsa::input]
+pub struct DataRegistry {
     #[returns(ref)]
     pub files: Vec<DataFile>,
 }
 
-/// Interned source registry - allows Salsa to track all source files as a whole
-#[salsa::interned]
-pub struct SourceRegistry<'db> {
+/// Input source registry - allows Salsa to track all source files as a whole
+/// This is an INPUT (not interned) so that updating it invalidates dependent queries
+#[salsa::input]
+pub struct SourceRegistry {
     #[returns(ref)]
     pub sources: Vec<SourceFile>,
 }

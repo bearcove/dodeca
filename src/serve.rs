@@ -117,16 +117,16 @@ pub struct SiteServer {
     /// The Salsa database - all queries go through here
     /// Uses Mutex instead of RwLock because Database contains RefCell (not Sync)
     pub db: Mutex<Database>,
-    /// Source files (for creating registries)
-    pub sources: RwLock<Vec<SourceFile>>,
-    /// Template files (for creating registries)
-    pub templates: RwLock<Vec<TemplateFile>>,
-    /// SASS files (for creating registries)
-    pub sass_files: RwLock<Vec<SassFile>>,
-    /// Static files (in Salsa)
-    pub static_files: RwLock<Vec<StaticFile>>,
-    /// Data files (for template variables)
-    pub data_files: RwLock<Vec<DataFile>>,
+    /// Source registry (Salsa input - update this to invalidate queries)
+    pub source_registry: SourceRegistry,
+    /// Template registry (Salsa input - update this to invalidate queries)
+    pub template_registry: TemplateRegistry,
+    /// SASS registry (Salsa input - update this to invalidate queries)
+    pub sass_registry: SassRegistry,
+    /// Static file registry (Salsa input - update this to invalidate queries)
+    pub static_registry: StaticRegistry,
+    /// Data file registry (Salsa input - update this to invalidate queries)
+    pub data_registry: DataRegistry,
     /// Search index files (pagefind): path -> content
     pub search_files: RwLock<HashMap<String, Vec<u8>>>,
     /// Live reload broadcast
@@ -144,13 +144,22 @@ pub struct SiteServer {
 impl SiteServer {
     pub fn new(render_options: RenderOptions, stable_assets: Vec<String>) -> Self {
         let (livereload_tx, _) = broadcast::channel(16);
+        let db = Database::new();
+
+        // Create empty registries as Salsa inputs
+        let source_registry = SourceRegistry::new(&db, Vec::new());
+        let template_registry = TemplateRegistry::new(&db, Vec::new());
+        let sass_registry = SassRegistry::new(&db, Vec::new());
+        let static_registry = StaticRegistry::new(&db, Vec::new());
+        let data_registry = DataRegistry::new(&db, Vec::new());
+
         Self {
-            db: Mutex::new(Database::new()),
-            sources: RwLock::new(Vec::new()),
-            templates: RwLock::new(Vec::new()),
-            sass_files: RwLock::new(Vec::new()),
-            static_files: RwLock::new(Vec::new()),
-            data_files: RwLock::new(Vec::new()),
+            db: Mutex::new(db),
+            source_registry,
+            template_registry,
+            sass_registry,
+            static_registry,
+            data_registry,
             search_files: RwLock::new(HashMap::new()),
             livereload_tx,
             render_options,
@@ -163,6 +172,72 @@ impl SiteServer {
     /// Check if a path is configured as a stable asset
     fn is_stable_asset(&self, path: &str) -> bool {
         self.stable_assets.iter().any(|p| p == path)
+    }
+
+    /// Update the source registry with a new list of sources
+    /// This invalidates all Salsa queries that depend on sources
+    pub fn set_sources(&self, sources: Vec<SourceFile>) {
+        use salsa::Setter;
+        let mut db = self.db.lock().unwrap();
+        self.source_registry.set_sources(&mut *db).to(sources);
+    }
+
+    /// Update the template registry with a new list of templates
+    pub fn set_templates(&self, templates: Vec<TemplateFile>) {
+        use salsa::Setter;
+        let mut db = self.db.lock().unwrap();
+        self.template_registry.set_templates(&mut *db).to(templates);
+    }
+
+    /// Update the sass registry with a new list of sass files
+    pub fn set_sass_files(&self, files: Vec<SassFile>) {
+        use salsa::Setter;
+        let mut db = self.db.lock().unwrap();
+        self.sass_registry.set_files(&mut *db).to(files);
+    }
+
+    /// Update the static registry with a new list of static files
+    pub fn set_static_files(&self, files: Vec<StaticFile>) {
+        use salsa::Setter;
+        let mut db = self.db.lock().unwrap();
+        self.static_registry.set_files(&mut *db).to(files);
+    }
+
+    /// Update the data registry with a new list of data files
+    pub fn set_data_files(&self, files: Vec<DataFile>) {
+        use salsa::Setter;
+        let mut db = self.db.lock().unwrap();
+        self.data_registry.set_files(&mut *db).to(files);
+    }
+
+    /// Get a clone of the current sources (for modification)
+    pub fn get_sources(&self) -> Vec<SourceFile> {
+        let db = self.db.lock().unwrap();
+        self.source_registry.sources(&*db).clone()
+    }
+
+    /// Get a clone of the current templates (for modification)
+    pub fn get_templates(&self) -> Vec<TemplateFile> {
+        let db = self.db.lock().unwrap();
+        self.template_registry.templates(&*db).clone()
+    }
+
+    /// Get a clone of the current sass files (for modification)
+    pub fn get_sass_files(&self) -> Vec<SassFile> {
+        let db = self.db.lock().unwrap();
+        self.sass_registry.files(&*db).clone()
+    }
+
+    /// Get a clone of the current static files (for modification)
+    pub fn get_static_files(&self) -> Vec<StaticFile> {
+        let db = self.db.lock().unwrap();
+        self.static_registry.files(&*db).clone()
+    }
+
+    /// Get a clone of the current data files (for modification)
+    pub fn get_data_files(&self) -> Vec<DataFile> {
+        let db = self.db.lock().unwrap();
+        self.data_registry.files(&*db).clone()
     }
 
     /// Notify all connected browsers to reload
@@ -313,25 +388,14 @@ impl SiteServer {
     /// Get current CSS path from database
     fn get_current_css_path(&self) -> Option<String> {
         let db = self.db.lock().ok()?;
-        let sources = self.sources.read().ok()?;
-        let templates = self.templates.read().ok()?;
-        let sass_files = self.sass_files.read().ok()?;
-        let static_files_vec = self.static_files.read().ok()?;
-        let data_files_vec = self.data_files.read().ok()?;
-
-        let source_registry = SourceRegistry::new(&*db, sources.clone());
-        let template_registry = TemplateRegistry::new(&*db, templates.clone());
-        let sass_registry = SassRegistry::new(&*db, sass_files.clone());
-        let static_registry = StaticRegistry::new(&*db, static_files_vec.clone());
-        let data_registry = DataRegistry::new(&*db, data_files_vec.clone());
 
         css_output(
             &*db,
-            source_registry,
-            template_registry,
-            sass_registry,
-            static_registry,
-            data_registry,
+            self.source_registry,
+            self.template_registry,
+            self.sass_registry,
+            self.static_registry,
+            self.data_registry,
         )
         .map(|css| format!("/{}", css.cache_busted_path))
     }
@@ -387,21 +451,10 @@ impl SiteServer {
     /// Find content for a given path using lazy Salsa queries
     fn find_content(&self, path: &str) -> Option<ServeContent> {
         let db = self.db.lock().ok()?;
-        let sources = self.sources.read().ok()?;
-        let templates = self.templates.read().ok()?;
-        let sass_files = self.sass_files.read().ok()?;
-        let static_files_vec = self.static_files.read().ok()?;
-        let data_files_vec = self.data_files.read().ok()?;
-
-        let source_registry = SourceRegistry::new(&*db, sources.clone());
-        let template_registry = TemplateRegistry::new(&*db, templates.clone());
-        let sass_registry = SassRegistry::new(&*db, sass_files.clone());
-        let static_registry = StaticRegistry::new(&*db, static_files_vec.clone());
-        let data_registry = DataRegistry::new(&*db, data_files_vec.clone());
 
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
-            let site_tree = build_tree(&*db, source_registry);
+            let site_tree = build_tree(&*db, self.source_registry);
             let routes: HashSet<String> = site_tree.sections.keys()
                 .chain(site_tree.pages.keys())
                 .map(|r| r.as_str().to_string())
@@ -422,18 +475,18 @@ impl SiteServer {
         if let Some(html) = serve_html(
             &*db,
             route,
-            source_registry,
-            template_registry,
-            sass_registry,
-            static_registry,
-            data_registry,
+            self.source_registry,
+            self.template_registry,
+            self.sass_registry,
+            self.static_registry,
+            self.data_registry,
         ) {
             let html = inject_livereload(&html, self.render_options, known_routes.as_ref());
             return Some(ServeContent::Html(html));
         }
 
         // 2. Try to serve CSS (check if path matches cache-busted CSS path)
-        if let Some(css) = css_output(&*db, source_registry, template_registry, sass_registry, static_registry, data_registry) {
+        if let Some(css) = css_output(&*db, self.source_registry, self.template_registry, self.sass_registry, self.static_registry, self.data_registry) {
             let css_url = format!("/{}", css.cache_busted_path);
             if path == css_url {
                 return Some(ServeContent::Css(css.content));
@@ -441,7 +494,7 @@ impl SiteServer {
         }
 
         // 3. Try to serve static files (match cache-busted paths)
-        for file in static_registry.files(&*db) {
+        for file in self.static_registry.files(&*db) {
             let original_path = file.path(&*db).as_str();
 
             // Check if this is a processable image
@@ -507,7 +560,7 @@ impl SiteServer {
                 }
             } else {
                 // Non-image static file
-                let output = static_file_output(&*db, *file, source_registry, template_registry, sass_registry, static_registry, data_registry);
+                let output = static_file_output(&*db, *file, self.source_registry, self.template_registry, self.sass_registry, self.static_registry, self.data_registry);
                 let static_url = format!("/{}", output.cache_busted_path);
                 if path == static_url {
                     let mime = mime_from_extension(path);
@@ -534,13 +587,8 @@ impl SiteServer {
             Ok(db) => db,
             Err(_) => return Vec::new(),
         };
-        let sources = match self.sources.read() {
-            Ok(s) => s,
-            Err(_) => return Vec::new(),
-        };
 
-        let source_registry = SourceRegistry::new(&*db, sources.clone());
-        let site_tree = build_tree(&*db, source_registry);
+        let site_tree = build_tree(&*db, self.source_registry);
 
         let requested = path.trim_matches('/').to_lowercase();
         let requested_parts: Vec<&str> = requested.split('/').collect();

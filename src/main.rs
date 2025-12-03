@@ -1385,7 +1385,8 @@ fn handle_file_changed(
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
                 let mut db = server.db.lock().unwrap();
-                let mut sources = server.sources.write().unwrap();
+                // Access registry directly (don't use get_sources() which would deadlock)
+                let mut sources = server.source_registry.sources(&*db).clone();
                 let relative_str = relative.to_string();
                 let mut found = false;
                 for source in sources.iter() {
@@ -1401,6 +1402,8 @@ fn handle_file_changed(
                     let source_path = SourcePath::new(relative_str);
                     let source = SourceFile::new(&*db, source_path, SourceContent::new(content), last_modified);
                     sources.push(source);
+                    use salsa::Setter;
+                    server.source_registry.set_sources(&mut *db).to(sources);
                     println!("  {} Added new source: {}", "+".green(), relative);
                 }
             }
@@ -1408,7 +1411,8 @@ fn handle_file_changed(
         PathCategory::Template => {
             if let Ok(content) = fs::read_to_string(path) {
                 let mut db = server.db.lock().unwrap();
-                let mut templates = server.templates.write().unwrap();
+                // Access registry directly (don't use get_templates() which would deadlock)
+                let mut templates = server.template_registry.templates(&*db).clone();
                 let relative_str = relative.to_string();
                 let mut found = false;
                 for template in templates.iter() {
@@ -1423,6 +1427,8 @@ fn handle_file_changed(
                     let template_path = TemplatePath::new(relative_str);
                     let template = TemplateFile::new(&*db, template_path, TemplateContent::new(content));
                     templates.push(template);
+                    use salsa::Setter;
+                    server.template_registry.set_templates(&mut *db).to(templates);
                     println!("  {} Added new template: {}", "+".green(), relative);
                 }
             }
@@ -1430,7 +1436,8 @@ fn handle_file_changed(
         PathCategory::Sass => {
             if let Ok(content) = fs::read_to_string(path) {
                 let mut db = server.db.lock().unwrap();
-                let mut sass_files = server.sass_files.write().unwrap();
+                // Access registry directly (don't use get_sass_files() which would deadlock)
+                let mut sass_files = server.sass_registry.files(&*db).clone();
                 let relative_str = relative.to_string();
                 let mut found = false;
                 for sass_file in sass_files.iter() {
@@ -1445,6 +1452,8 @@ fn handle_file_changed(
                     let sass_path = SassPath::new(relative_str);
                     let sass = SassFile::new(&*db, sass_path, SassContent::new(content));
                     sass_files.push(sass);
+                    use salsa::Setter;
+                    server.sass_registry.set_files(&mut *db).to(sass_files);
                     println!("  {} Added new sass: {}", "+".green(), relative);
                 }
             }
@@ -1456,7 +1465,8 @@ fn handle_file_changed(
                     return;
                 }
                 let mut db = server.db.lock().unwrap();
-                let mut static_files = server.static_files.write().unwrap();
+                // Access registry directly (don't use get_static_files() which would deadlock)
+                let mut static_files = server.static_registry.files(&*db).clone();
                 let relative_str = relative.to_string();
 
                 // Find existing StaticFile and update via set_content() to trigger Salsa invalidation
@@ -1475,6 +1485,8 @@ fn handle_file_changed(
                     let static_path = StaticPath::new(relative_str);
                     let static_file = StaticFile::new(&*db, static_path, content);
                     static_files.push(static_file);
+                    use salsa::Setter;
+                    server.static_registry.set_files(&mut *db).to(static_files);
                     println!("  {} Added new static file: {}", "+".green(), relative);
                 }
             }
@@ -1483,7 +1495,8 @@ fn handle_file_changed(
         PathCategory::Data => {
             if let Ok(content) = fs::read_to_string(path) {
                 let mut db = server.db.lock().unwrap();
-                let mut data_files = server.data_files.write().unwrap();
+                // Access registry directly (don't use get_data_files() which would deadlock)
+                let mut data_files = server.data_registry.files(&*db).clone();
                 let relative_str = relative.to_string();
                 let mut found = false;
                 for data_file in data_files.iter() {
@@ -1498,6 +1511,8 @@ fn handle_file_changed(
                     let data_path = DataPath::new(relative_str);
                     let data_file = DataFile::new(&*db, data_path, DataContent::new(content));
                     data_files.push(data_file);
+                    use salsa::Setter;
+                    server.data_registry.set_files(&mut *db).to(data_files);
                     println!("  {} Added new data file: {}", "+".green(), relative);
                 }
             }
@@ -1515,6 +1530,7 @@ fn handle_file_removed(
     server: &serve::SiteServer,
 ) {
     use file_watcher::PathCategory;
+    use salsa::Setter;
 
     let category = config.categorize(path);
     let relative = match config.relative_path(path) {
@@ -1525,38 +1541,48 @@ fn handle_file_removed(
 
     match category {
         PathCategory::Content => {
-            let db = server.db.lock().unwrap();
-            let mut sources = server.sources.write().unwrap();
+            let mut db = server.db.lock().unwrap();
+            // Access registry directly (don't use get_sources() which would deadlock)
+            let mut sources = server.source_registry.sources(&*db).clone();
             if let Some(pos) = sources.iter().position(|s| s.path(&*db).as_str() == relative_str) {
                 sources.remove(pos);
+                server.source_registry.set_sources(&mut *db).to(sources);
             }
         }
         PathCategory::Template => {
-            let db = server.db.lock().unwrap();
-            let mut templates = server.templates.write().unwrap();
+            let mut db = server.db.lock().unwrap();
+            // Access registry directly (don't use get_templates() which would deadlock)
+            let mut templates = server.template_registry.templates(&*db).clone();
             if let Some(pos) = templates.iter().position(|t| t.path(&*db).as_str() == relative_str) {
                 templates.remove(pos);
+                server.template_registry.set_templates(&mut *db).to(templates);
             }
         }
         PathCategory::Sass => {
-            let db = server.db.lock().unwrap();
-            let mut sass_files = server.sass_files.write().unwrap();
+            let mut db = server.db.lock().unwrap();
+            // Access registry directly (don't use get_sass_files() which would deadlock)
+            let mut sass_files = server.sass_registry.files(&*db).clone();
             if let Some(pos) = sass_files.iter().position(|s| s.path(&*db).as_str() == relative_str) {
                 sass_files.remove(pos);
+                server.sass_registry.set_files(&mut *db).to(sass_files);
             }
         }
         PathCategory::Static => {
-            let db = server.db.lock().unwrap();
-            let mut static_files = server.static_files.write().unwrap();
+            let mut db = server.db.lock().unwrap();
+            // Access registry directly (don't use get_static_files() which would deadlock)
+            let mut static_files = server.static_registry.files(&*db).clone();
             if let Some(pos) = static_files.iter().position(|s| s.path(&*db).as_str() == relative_str) {
                 static_files.remove(pos);
+                server.static_registry.set_files(&mut *db).to(static_files);
             }
         }
         PathCategory::Data => {
-            let db = server.db.lock().unwrap();
-            let mut data_files = server.data_files.write().unwrap();
+            let mut db = server.db.lock().unwrap();
+            // Access registry directly (don't use get_data_files() which would deadlock)
+            let mut data_files = server.data_registry.files(&*db).clone();
             if let Some(pos) = data_files.iter().position(|d| d.path(&*db).as_str() == relative_str) {
                 data_files.remove(pos);
+                server.data_registry.set_files(&mut *db).to(data_files);
             }
         }
         PathCategory::Unknown => {}
@@ -1604,7 +1630,7 @@ async fn serve_plain(
 
     {
         let db = server.db.lock().unwrap();
-        let mut sources = server.sources.write().unwrap();
+        let mut sources = Vec::new();
 
         for path in &md_files {
             let content = fs::read_to_string(path)?;
@@ -1623,6 +1649,8 @@ async fn serve_plain(
             let source = SourceFile::new(&*db, source_path, source_content, last_modified);
             sources.push(source);
         }
+        drop(db);
+        server.set_sources(sources);
     }
     println!("  Loaded {} source files", md_files.len());
 
@@ -1645,7 +1673,7 @@ async fn serve_plain(
             .collect();
 
         let db = server.db.lock().unwrap();
-        let mut templates = server.templates.write().unwrap();
+        let mut templates = Vec::new();
 
         for path in &template_files {
             let content = fs::read_to_string(path)?;
@@ -1659,7 +1687,10 @@ async fn serve_plain(
             let template = TemplateFile::new(&*db, template_path, template_content);
             templates.push(template);
         }
-        println!("  Loaded {} templates", templates.len());
+        let count = templates.len();
+        drop(db);
+        server.set_templates(templates);
+        println!("  Loaded {} templates", count);
     }
 
     // Load static files into Salsa
@@ -1667,8 +1698,7 @@ async fn serve_plain(
     if static_dir.exists() {
         let walker = WalkBuilder::new(&static_dir).build();
         let db = server.db.lock().unwrap();
-        let mut static_files = server.static_files.write().unwrap();
-        let mut count = 0;
+        let mut static_files = Vec::new();
 
         for entry in walker {
             let entry = entry?;
@@ -1682,9 +1712,11 @@ async fn serve_plain(
                 let static_path = StaticPath::new(relative.to_string());
                 let static_file = StaticFile::new(&*db, static_path, content);
                 static_files.push(static_file);
-                count += 1;
             }
         }
+        let count = static_files.len();
+        drop(db);
+        server.set_static_files(static_files);
         println!("  Loaded {count} static files");
     }
 
@@ -1693,8 +1725,7 @@ async fn serve_plain(
     if data_dir.exists() {
         let walker = WalkBuilder::new(&data_dir).build();
         let db = server.db.lock().unwrap();
-        let mut data_files = server.data_files.write().unwrap();
-        let mut count = 0;
+        let mut data_files = Vec::new();
 
         for entry in walker {
             let entry = entry?;
@@ -1711,10 +1742,12 @@ async fn serve_plain(
                     let data_path = DataPath::new(relative.to_string());
                     let data_file = DataFile::new(&*db, data_path, DataContent::new(content));
                     data_files.push(data_file);
-                    count += 1;
                 }
             }
         }
+        let count = data_files.len();
+        drop(db);
+        server.set_data_files(data_files);
         println!("  Loaded {count} data files");
     }
 
@@ -1735,7 +1768,7 @@ async fn serve_plain(
             .collect();
 
         let db = server.db.lock().unwrap();
-        let mut sass_files = server.sass_files.write().unwrap();
+        let mut sass_files = Vec::new();
 
         for path in &sass_files_list {
             let content = fs::read_to_string(path)?;
@@ -1749,7 +1782,10 @@ async fn serve_plain(
             let sass_file = SassFile::new(&*db, sass_path, sass_content);
             sass_files.push(sass_file);
         }
-        println!("  Loaded {} SASS files", sass_files.len());
+        let count = sass_files.len();
+        drop(db);
+        server.set_sass_files(sass_files);
+        println!("  Loaded {} SASS files", count);
     }
 
     // Build search index in background
@@ -1901,45 +1937,21 @@ async fn serve_plain(
 /// Takes a snapshot of the server's current state, builds all HTML via Salsa,
 /// and updates the search index. Salsa memoization makes this fast for unchanged pages.
 fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::SearchFiles> {
-    use crate::db::{SassRegistry, SourceRegistry, StaticRegistry, TemplateRegistry};
-
-    // Lock the database and get current registries
+    // Lock the database and use the stored registries
     let db = server.db.lock().map_err(|_| eyre!("db lock poisoned"))?;
-    let sources = server
-        .sources
-        .read()
-        .map_err(|_| eyre!("sources lock poisoned"))?;
-    let templates = server
-        .templates
-        .read()
-        .map_err(|_| eyre!("templates lock poisoned"))?;
-    let sass_files = server
-        .sass_files
-        .read()
-        .map_err(|_| eyre!("sass lock poisoned"))?;
-
-    // Create registries
-    let source_registry = SourceRegistry::new(&*db, sources.clone());
-    let template_registry = TemplateRegistry::new(&*db, templates.clone());
-    let sass_registry = SassRegistry::new(&*db, sass_files.clone());
-    let static_registry = StaticRegistry::new(&*db, vec![]); // Empty - search doesn't need static files
-    let data_registry = DataRegistry::new(&*db, vec![]); // Empty - search doesn't need data files
 
     // Build the site (Salsa will cache/reuse unchanged computations)
     let site_output = queries::build_site(
         &*db,
-        source_registry,
-        template_registry,
-        sass_registry,
-        static_registry,
-        data_registry,
+        server.source_registry,
+        server.template_registry,
+        server.sass_registry,
+        server.static_registry,
+        server.data_registry,
     );
 
-    // Drop locks before async work
+    // Drop lock before async work
     drop(db);
-    drop(sources);
-    drop(templates);
-    drop(sass_files);
 
     // Build search index in a separate thread with its own runtime
     let output = site_output.clone();
@@ -2064,7 +2076,7 @@ async fn serve_with_tui(
 
     {
         let db = server.db.lock().unwrap();
-        let mut sources = server.sources.write().unwrap();
+        let mut sources = server.get_sources();
 
         for path in &md_files {
             let content = fs::read_to_string(path)?;
@@ -2083,6 +2095,8 @@ async fn serve_with_tui(
             let source = SourceFile::new(&*db, source_path, source_content, last_modified);
             sources.push(source);
         }
+        drop(db);
+        server.set_sources(sources);
     }
 
     progress_tx.send_modify(|prog| prog.parse.finish());
@@ -2110,7 +2124,7 @@ async fn serve_with_tui(
             .collect();
 
         let db = server.db.lock().unwrap();
-        let mut templates = server.templates.write().unwrap();
+        let mut templates = server.get_templates();
 
         for path in &template_files {
             let content = fs::read_to_string(path)?;
@@ -2125,9 +2139,13 @@ async fn serve_with_tui(
             templates.push(template);
         }
 
+        let count = templates.len();
+        drop(db);
+        server.set_templates(templates);
+
         let _ = event_tx.send(LogEvent::build(format!(
             "Loaded {} templates",
-            templates.len()
+            count
         )));
     }
 
@@ -2136,7 +2154,7 @@ async fn serve_with_tui(
     if static_dir.exists() {
         let walker = WalkBuilder::new(&static_dir).build();
         let db = server.db.lock().unwrap();
-        let mut static_files = server.static_files.write().unwrap();
+        let mut static_files = server.get_static_files();
         let mut count = 0;
 
         for entry in walker {
@@ -2155,6 +2173,8 @@ async fn serve_with_tui(
             }
         }
 
+        drop(db);
+        server.set_static_files(static_files);
         let _ = event_tx.send(LogEvent::build(format!("Loaded {count} static files")));
     }
 
@@ -2175,7 +2195,7 @@ async fn serve_with_tui(
             .collect();
 
         let db = server.db.lock().unwrap();
-        let mut sass_files = server.sass_files.write().unwrap();
+        let mut sass_files = server.get_sass_files();
 
         for path in &sass_files_list {
             let content = fs::read_to_string(path)?;
@@ -2190,9 +2210,13 @@ async fn serve_with_tui(
             sass_files.push(sass_file);
         }
 
+        let count = sass_files.len();
+        drop(db);
+        server.set_sass_files(sass_files);
+
         let _ = event_tx.send(LogEvent::build(format!(
             "Loaded {} SASS files",
-            sass_files.len()
+            count
         )));
     }
 
@@ -2429,12 +2453,12 @@ async fn serve_with_tui(
                                 );
 
                                 // Update the file in the server's Salsa database
+                                // Access registry directly (don't use get_*() helpers which would deadlock)
                                 if ext == Some("md") {
                                     if let Ok(relative) = path.strip_prefix(&content_for_watcher) {
                                         if let Ok(content) = fs::read_to_string(path) {
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let sources =
-                                                server_for_watcher.sources.read().unwrap();
+                                            let sources = server_for_watcher.source_registry.sources(&*db).clone();
 
                                             // Find existing source and update it
                                             let relative_str = relative.to_string();
@@ -2455,8 +2479,7 @@ async fn serve_with_tui(
                                     {
                                         if let Ok(content) = fs::read_to_string(path) {
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let templates =
-                                                server_for_watcher.templates.read().unwrap();
+                                            let templates = server_for_watcher.template_registry.templates(&*db).clone();
 
                                             // Find existing template and update it
                                             let relative_str = relative.to_string();
@@ -2475,8 +2498,7 @@ async fn serve_with_tui(
                                     if let Ok(relative) = path.strip_prefix(&sass_dir_for_watcher) {
                                         if let Ok(content) = fs::read_to_string(path) {
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let sass_files =
-                                                server_for_watcher.sass_files.read().unwrap();
+                                            let sass_files = server_for_watcher.sass_registry.files(&*db).clone();
 
                                             // Find existing sass file and update it
                                             let relative_str = relative.to_string();
@@ -2500,8 +2522,7 @@ async fn serve_with_tui(
                                                 continue;
                                             }
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let static_files =
-                                                server_for_watcher.static_files.read().unwrap();
+                                            let static_files = server_for_watcher.static_registry.files(&*db).clone();
 
                                             // Find existing static file and update it
                                             let relative_str = relative.to_string();

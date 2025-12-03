@@ -9,5 +9,6 @@ mod cache_busting;
 mod content;
 mod dead_links;
 mod sass;
+mod section_pages;
 mod static_assets;
 mod templates;

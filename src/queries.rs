@@ -25,7 +25,7 @@ pub fn load_template(db: &dyn Db, template: TemplateFile) -> TemplateContent {
 #[salsa::tracked]
 pub fn load_all_templates<'db>(
     db: &'db dyn Db,
-    registry: TemplateRegistry<'db>,
+    registry: TemplateRegistry,
 ) -> HashMap<String, String> {
     let mut result = HashMap::new();
     for template in registry.templates(db) {
@@ -45,7 +45,7 @@ pub fn load_sass(db: &dyn Db, sass: SassFile) -> SassContent {
 /// Load all sass files and return a map of path -> content
 /// This tracked query records dependencies on all sass files
 #[salsa::tracked]
-pub fn load_all_sass<'db>(db: &'db dyn Db, registry: SassRegistry<'db>) -> HashMap<String, String> {
+pub fn load_all_sass<'db>(db: &'db dyn Db, registry: SassRegistry) -> HashMap<String, String> {
     let mut result = HashMap::new();
     for sass in registry.files(db) {
         let path = sass.path(db).as_str().to_string();
@@ -61,7 +61,7 @@ pub fn load_all_sass<'db>(db: &'db dyn Db, registry: SassRegistry<'db>) -> HashM
 #[salsa::tracked]
 pub fn load_all_data_raw<'db>(
     db: &'db dyn Db,
-    registry: DataRegistry<'db>,
+    registry: DataRegistry,
 ) -> Vec<(String, String)> {
     registry
         .files(db)
@@ -83,7 +83,7 @@ pub struct CompiledCss(pub String);
 /// Returns None if compilation fails
 #[salsa::tracked]
 #[tracing::instrument(skip_all, name = "compile_sass")]
-pub fn compile_sass<'db>(db: &'db dyn Db, registry: SassRegistry<'db>) -> Option<CompiledCss> {
+pub fn compile_sass<'db>(db: &'db dyn Db, registry: SassRegistry) -> Option<CompiledCss> {
     // Load all sass files - creates dependency on each
     let sass_map = load_all_sass(db, registry);
 
@@ -163,7 +163,7 @@ pub fn parse_file(db: &dyn Db, source: SourceFile) -> ParsedData {
 /// Build the site tree from all source files
 /// This tracked query depends on all parse_file results
 #[salsa::tracked]
-pub fn build_tree<'db>(db: &'db dyn Db, sources: SourceRegistry<'db>) -> SiteTree {
+pub fn build_tree<'db>(db: &'db dyn Db, sources: SourceRegistry) -> SiteTree {
     let mut sections: BTreeMap<Route, Section> = BTreeMap::new();
     let mut pages: BTreeMap<Route, Page> = BTreeMap::new();
 
@@ -244,9 +244,9 @@ fn find_parent_section(route: &Route, sections: &BTreeMap<Route, Section>) -> Ro
 pub fn render_page<'db>(
     db: &'db dyn Db,
     route: Route,
-    sources: SourceRegistry<'db>,
-    templates: TemplateRegistry<'db>,
-    data: DataRegistry<'db>,
+    sources: SourceRegistry,
+    templates: TemplateRegistry,
+    data: DataRegistry,
 ) -> RenderedHtml {
     use crate::render::render_page_to_html;
 
@@ -278,9 +278,9 @@ pub fn render_page<'db>(
 pub fn render_section<'db>(
     db: &'db dyn Db,
     route: Route,
-    sources: SourceRegistry<'db>,
-    templates: TemplateRegistry<'db>,
-    data: DataRegistry<'db>,
+    sources: SourceRegistry,
+    templates: TemplateRegistry,
+    data: DataRegistry,
 ) -> RenderedHtml {
     use crate::render::render_section_to_html;
 
@@ -335,7 +335,7 @@ pub fn optimize_svg(db: &dyn Db, file: StaticFile) -> Vec<u8> {
 #[salsa::tracked]
 pub fn load_all_static<'db>(
     db: &'db dyn Db,
-    registry: StaticRegistry<'db>,
+    registry: StaticRegistry,
 ) -> HashMap<String, Vec<u8>> {
     let mut result = HashMap::new();
     for file in registry.files(db) {
@@ -520,11 +520,11 @@ pub fn process_image(db: &dyn Db, image_file: StaticFile) -> Option<ProcessedIma
 #[salsa::tracked]
 pub fn build_site<'db>(
     db: &'db dyn Db,
-    sources: SourceRegistry<'db>,
-    templates: TemplateRegistry<'db>,
-    sass: SassRegistry<'db>,
-    static_files: StaticRegistry<'db>,
-    data: DataRegistry<'db>,
+    sources: SourceRegistry,
+    templates: TemplateRegistry,
+    sass: SassRegistry,
+    static_files: StaticRegistry,
+    data: DataRegistry,
 ) -> SiteOutput {
     use crate::cache_bust::{cache_busted_path, content_hash};
 
@@ -752,9 +752,9 @@ pub fn build_site<'db>(
 #[salsa::tracked]
 pub fn all_rendered_html<'db>(
     db: &'db dyn Db,
-    sources: SourceRegistry<'db>,
-    templates: TemplateRegistry<'db>,
-    data: DataRegistry<'db>,
+    sources: SourceRegistry,
+    templates: TemplateRegistry,
+    data: DataRegistry,
 ) -> AllRenderedHtml {
     let site_tree = build_tree(db, sources);
     let template_map = load_all_templates(db, templates);
@@ -793,11 +793,11 @@ pub fn all_rendered_html<'db>(
 #[salsa::tracked]
 pub fn font_char_analysis<'db>(
     db: &'db dyn Db,
-    sources: SourceRegistry<'db>,
-    templates: TemplateRegistry<'db>,
-    sass: SassRegistry<'db>,
-    static_files: StaticRegistry<'db>,
-    data: DataRegistry<'db>,
+    sources: SourceRegistry,
+    templates: TemplateRegistry,
+    sass: SassRegistry,
+    static_files: StaticRegistry,
+    data: DataRegistry,
 ) -> fontcull::FontAnalysis {
 
     let all_html = all_rendered_html(db, sources, templates, data);
@@ -832,11 +832,11 @@ pub fn font_char_analysis<'db>(
 pub fn static_file_output<'db>(
     db: &'db dyn Db,
     file: StaticFile,
-    sources: SourceRegistry<'db>,
-    templates: TemplateRegistry<'db>,
-    sass: SassRegistry<'db>,
-    static_files: StaticRegistry<'db>,
-    data: DataRegistry<'db>,
+    sources: SourceRegistry,
+    templates: TemplateRegistry,
+    sass: SassRegistry,
+    static_files: StaticRegistry,
+    data: DataRegistry,
 ) -> StaticFileOutput {
     use crate::cache_bust::{cache_busted_path, content_hash};
 
@@ -910,11 +910,11 @@ pub fn static_file_output<'db>(
 #[salsa::tracked]
 pub fn css_output<'db>(
     db: &'db dyn Db,
-    sources: SourceRegistry<'db>,
-    templates: TemplateRegistry<'db>,
-    sass: SassRegistry<'db>,
-    static_files: StaticRegistry<'db>,
-    data: DataRegistry<'db>,
+    sources: SourceRegistry,
+    templates: TemplateRegistry,
+    sass: SassRegistry,
+    static_files: StaticRegistry,
+    data: DataRegistry,
 ) -> Option<CssOutput> {
     use crate::cache_bust::{cache_busted_path, content_hash};
     use crate::url_rewrite::rewrite_urls_in_css;
@@ -955,11 +955,11 @@ pub fn css_output<'db>(
 pub fn serve_html<'db>(
     db: &'db dyn Db,
     route: Route,
-    sources: SourceRegistry<'db>,
-    templates: TemplateRegistry<'db>,
-    sass: SassRegistry<'db>,
-    static_files: StaticRegistry<'db>,
-    data: DataRegistry<'db>,
+    sources: SourceRegistry,
+    templates: TemplateRegistry,
+    sass: SassRegistry,
+    static_files: StaticRegistry,
+    data: DataRegistry,
 ) -> Option<String> {
     use crate::url_rewrite::{rewrite_urls_in_html, transform_images_to_picture, ResponsiveImageInfo};
 
