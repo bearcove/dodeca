@@ -203,3 +203,68 @@ This ensures type-safe dispatch: if schemas change, keys change.
 - **plugcard** - Core types and runtime
 - **plugcard-macros** - The `#[plugcard]` proc macro (uses [unsynn](https://docs.rs/unsynn) for parsing)
 - **dodeca-baseline** - Example plugin with test functions
+
+## Why Plugins?
+
+The primary motivation is **link speed**. Rust's incremental compilation is fast, but linking a large binary with many dependencies is slow. By moving functionality into dynamic libraries:
+
+- The main `dodeca` binary stays small and links fast
+- Plugins compile and link independently
+- Changing a plugin doesn't require relinking the main binary
+- Heavy dependencies (image processing, font subsetting, HTTP) live in plugins
+
+This dramatically improves iteration speed during development.
+
+## Future Architecture
+
+The goal is to move most heavy dependencies into plugins:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Core dodeca                             │
+│  ┌─────────┐ ┌─────────┐ ┌──────────┐ ┌─────────────────┐   │
+│  │  Salsa  │ │Markdown │ │ Template │ │  Plugin Host    │   │
+│  │(queries)│ │ Parser  │ │  Engine  │ │(JSON-RPC async) │   │
+│  └─────────┘ └─────────┘ └──────────┘ └────────┬────────┘   │
+└────────────────────────────────────────────────┼────────────┘
+                                                 │
+              ┌──────────────────────────────────┼──────────────────────────────────┐
+              │                                  │                                  │
+              ▼                                  ▼                                  ▼
+┌─────────────────────────┐    ┌─────────────────────────┐    ┌─────────────────────────┐
+│    http-server plugin   │    │   http-client plugin    │    │     search plugin       │
+│        (axum)           │    │       (reqwest)         │    │  (replaces pagefind)    │
+└─────────────────────────┘    └────────────┬────────────┘    └─────────────────────────┘
+                                            │
+                                            ▼
+                               ┌─────────────────────────┐
+                               │   link-checker plugin   │
+                               │ (uses http-client msgs) │
+                               └─────────────────────────┘
+
+┌─────────────────────────┐    ┌─────────────────────────┐    ┌─────────────────────────┐
+│  font-subsetting plugin │    │  image-processing plugin│    │      tui plugin         │
+│      (fontcull)         │    │        (image)          │    │      (ratatui)          │
+└─────────────────────────┘    └─────────────────────────┘    └─────────────────────────┘
+```
+
+### Async Plugin Support
+
+Plugins can perform async operations via message-passing (JSON-RPC style):
+
+```
+Plugin                              Host
+   │                                  │
+   │── request { id: 1, ... } ───────▶│
+   │                                  │ (host performs async I/O)
+   │◀── response { id: 1, ... } ──────│
+   │                                  │
+```
+
+Each plugin has its own runtime if needed. No shared tokio runtime complexity.
+
+### Plugin Dependencies
+
+Plugins can depend on each other through the message-passing system. For example, the link-checker plugin doesn't bundle its own HTTP client—it sends requests that get routed to the http-client plugin.
+
+This keeps each plugin focused and avoids duplicating dependencies across plugins.
