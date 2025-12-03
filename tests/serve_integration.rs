@@ -9,6 +9,9 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 use regex::Regex;
 
+/// RAII guard for temp directories - tempfile::TempDir with a type alias for clarity
+type TempDirGuard = tempfile::TempDir;
+
 /// Server handle with the actual bound port
 struct ServerHandle {
     child: Child,
@@ -19,19 +22,10 @@ struct ServerHandle {
     _fixture_guard: TempDirGuard,
 }
 
-/// Temporary directory that deletes itself on drop
-struct TempDirGuard {
-    path: PathBuf,
-}
-
-impl Drop for TempDirGuard {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
-    }
-}
 
 impl Drop for ServerHandle {
     fn drop(&mut self) {
+        tracing::debug!(fixture_dir = %self.fixture_dir.display(), "ServerHandle dropping, killing server");
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -58,27 +52,30 @@ fn create_isolated_fixture(fixture_rel: &str) -> color_eyre::Result<(PathBuf, Te
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let src = manifest_dir.join("tests/fixtures").join(fixture_rel);
 
-    let uniq = format!(
-        "dodeca-fixture-{}-{}",
-        fixture_rel.replace('/', "-"),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    );
-    let dst = std::env::temp_dir().join(uniq);
+    // Use tempfile for guaranteed unique temp directories
+    let temp_dir = tempfile::Builder::new()
+        .prefix(&format!("dodeca-fixture-{}-", fixture_rel.replace('/', "-")))
+        .tempdir()?;
 
+    let dst = temp_dir.path().to_path_buf();
     copy_dir_recursive(&src, &dst)?;
+
     // Ensure .cache exists and is empty
     let cache_dir = dst.join(".cache");
     let _ = fs::remove_dir_all(&cache_dir);
     fs::create_dir_all(&cache_dir)?;
 
-    Ok((dst.clone(), TempDirGuard { path: dst }))
+    tracing::debug!(path = %dst.display(), "Created isolated test fixture");
+    Ok((dst, temp_dir))
 }
 
 /// Start the server with given args, wait for LISTENING_PORT=...
 fn start_server_with_args(args: &[&str], fixture_dir: PathBuf, fixture_guard: TempDirGuard) -> ServerHandle {
+    tracing::debug!(
+        fixture_dir = %fixture_dir.display(),
+        args = ?args,
+        "Starting server"
+    );
     let mut child = Command::new(env!("CARGO_BIN_EXE_ddc"))
         .args(args)
         .stdout(Stdio::piped())
@@ -102,7 +99,21 @@ fn start_server_with_args(args: &[&str], fixture_dir: PathBuf, fixture_guard: Te
         }
     }
 
-    let port = port.expect("Server did not print LISTENING_PORT");
+    // If we didn't get a port, kill the child and wait before panicking.
+    // This ensures the child process is dead before TempDirGuard drops.
+    let port = match port {
+        Some(p) => {
+            tracing::debug!(port = p, fixture_dir = %fixture_dir.display(), "Server started successfully");
+            p
+        }
+        None => {
+            tracing::error!(fixture_dir = %fixture_dir.display(), "Server did not print LISTENING_PORT, killing");
+            let _ = child.kill();
+            let _ = child.wait();
+            // Now it's safe to drop fixture_guard (which happens when we panic)
+            panic!("Server did not print LISTENING_PORT");
+        }
+    };
 
     // Keep draining stdout so the child never hits a broken pipe when it logs,
     // and mirror lines to stderr for debugging in test output.
@@ -485,14 +496,14 @@ fn test_css_livereload_tui_mode() {
 fn start_server_tui_in_dir(dir: &str) -> ServerHandle {
     // Copy target dir to isolated temp to avoid shared .cache
     let src = PathBuf::from(dir);
-    let uniq = format!(
-        "dodeca-docs-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
-    );
-    let dst = std::env::temp_dir().join(uniq);
+
+    // Use tempfile for guaranteed unique temp directories
+    let temp_dir = tempfile::Builder::new()
+        .prefix("dodeca-docs-")
+        .tempdir()
+        .expect("create temp dir");
+
+    let dst = temp_dir.path().to_path_buf();
     copy_dir_recursive(&src, &dst).expect("copy docs dir");
     let cache_dir = dst.join(".cache");
     let _ = fs::remove_dir_all(&cache_dir);
@@ -521,7 +532,7 @@ fn start_server_tui_in_dir(dir: &str) -> ServerHandle {
     }
 
     let port = port.expect("Server did not print LISTENING_PORT");
-    ServerHandle { child, port, fixture_dir: dst.clone(), _fixture_guard: TempDirGuard { path: dst } }
+    ServerHandle { child, port, fixture_dir: dst, _fixture_guard: temp_dir }
 }
 
 /// Test CSS livereload in TUI mode using docs directory (mimics user workflow)

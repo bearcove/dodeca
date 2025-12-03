@@ -1577,6 +1577,11 @@ async fn serve_plain(
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
     let cache_dir = parent_dir.join(".cache");
+    tracing::info!(
+        content_dir = %content_dir,
+        cache_dir = %cache_dir,
+        "serve_plain: initializing"
+    );
     cas::init_asset_cache(cache_dir.as_std_path())?;
 
     let render_options = render::RenderOptions {
