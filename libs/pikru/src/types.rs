@@ -136,12 +136,9 @@ impl Div<f64> for Length {
     fn div(self, rhs: f64) -> Length { Length(self.0 / rhs) }
 }
 
-impl Div<Length> for Length {
-    type Output = Scalar;
-    /// Dividing two lengths gives a dimensionless scalar.
-    /// Note: Returns Scalar(inf) if rhs is zero. Use `checked_div` for safe division.
-    fn div(self, rhs: Length) -> Scalar { Scalar(self.0 / rhs.0) }
-}
+// NOTE: Length / Length is intentionally NOT implemented as a trait.
+// Use Length::checked_div() which returns Option<Scalar> and handles zero divisor.
+// This prevents silent infinity from division by zero in layout math.
 
 impl Neg for Length {
     type Output = Length;

@@ -62,12 +62,12 @@ Guidelines for keeping Pikru layout/emit code safe and unit-correct using Rust t
 
 - `Length`: newtype with `try_new`, `try_non_negative`, `abs`, `min`, `max`, `checked_div`, `is_finite`
 - `Scalar`: newtype with `raw()`, `is_finite()`; `Scalar * Length = Length`
-- `Length / Length → Scalar` (typed ratio)
+- `Length::checked_div() → Option<Scalar>` (no unchecked `/` trait to prevent silent infinity)
 - `Offset<T>`: displacement vector type; `Point + Offset = Point`, `Point - Point = Offset`
 - `UnitVec`: normalized direction vectors with `FRAC_1_SQRT_2` for diagonals; `UnitVec * Length → Offset`
 - `Point<Length>::midpoint()`: typed midpoint calculation
 - `BBox<Length>`: typed `width()`, `height()`, `size()`, `center()`, `is_empty()`
-- `Scaler::try_new()`: rejects NaN/infinite/zero/negative scale factors
+- `Scaler::try_new()`: rejects NaN/infinite/zero/negative scale factors; wired into `generate_svg`
 - `NumericError`: error type for validation failures
 - `defaults` module uses typed `Inches` constants
 

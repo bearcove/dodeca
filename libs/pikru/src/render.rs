@@ -1453,7 +1453,8 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     let r_scale = 144.0; // match pikchr.c rScale
     let scale = ctx.variables.get("scale").copied().unwrap_or(1.0);
     let eff_scale = r_scale * scale;
-    let scaler = Scaler::new(eff_scale);
+    let scaler = Scaler::try_new(eff_scale)
+        .map_err(|e| miette::miette!("invalid scale value {}: {}", eff_scale, e))?;
     let arrow_ht = Inches(ctx.variables.get("arrowht").copied().unwrap_or(0.08));
     let arrow_wid = Inches(ctx.variables.get("arrowwid").copied().unwrap_or(0.06));
     let dashwid = Inches(ctx.variables.get("dashwid").copied().unwrap_or(0.05));
