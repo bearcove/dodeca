@@ -349,7 +349,9 @@ pub fn render_section<'db>(
 /// Load a single static file's content - tracked by Salsa
 #[salsa::tracked]
 pub fn load_static(db: &dyn Db, file: StaticFile) -> Vec<u8> {
-    file.content(db).clone()
+    let content = file.content(db).clone();
+    tracing::debug!(path = %file.path(db).as_str(), size = content.len(), "load_static called");
+    content
 }
 
 /// Process an SVG file - tracked by Salsa
@@ -880,9 +882,6 @@ pub fn static_file_output<'db>(
     use crate::cache_bust::{cache_busted_path, content_hash};
 
     let path = file.path(db).as_str();
-    let content_len = file.content(db).len();
-    tracing::debug!("static_file_output called for {path} ({content_len} bytes)");
-
     // Get processed content based on file type
     let content = if is_font_file(path) {
         // Font file - need to subset based on char analysis

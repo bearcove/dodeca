@@ -155,6 +155,8 @@ pub struct StaticFile {
 }
 
 /// Interned static file registry - allows Salsa to track static files as a whole
+/// When files change, we create NEW StaticFile objects (not mutate), so the Vec
+/// contains different IDs and Salsa creates a new interned value automatically.
 #[salsa::interned]
 pub struct StaticRegistry<'db> {
     #[returns(ref)]

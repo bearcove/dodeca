@@ -145,6 +145,8 @@ nom = "7"     # 7+ drops lexical-core 0.7 (broken usize/u32 ops)
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["blocking"] }
 divan = "0.1"
+test-log = { version = "0.2", features = ["trace"] }
+regex = "1"  # For test assertions
 livereload-client = { path = "crates/livereload-client" }  # For patch types in tests
 chromiumoxide = "0.8"  # Headless Chrome for E2E tests
 futures = "0.3"        # For StreamExt in browser tests

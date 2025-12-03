@@ -825,11 +825,79 @@ pub fn build_router(server: Arc<SiteServer>) -> Router {
         .layer(middleware::from_fn(log_requests))
 }
 
-/// Start HTTP servers on multiple specific IP addresses
-pub async fn run_on_ips(
+/// Bound listeners ready to serve
+pub struct BoundListeners {
+    pub listeners: Vec<tokio::net::TcpListener>,
+    pub port: u16,
+}
+
+/// Bind to available port(s) on the given IPs.
+/// - If `preferred` is Some(port), tries that exact port (returns error if unavailable)
+/// - If `preferred` is None, tries 4000-4019, then lets OS choose (port 0)
+pub async fn bind_listeners(ips: &[Ipv4Addr], preferred: Option<u16>) -> Result<BoundListeners> {
+    use std::io::ErrorKind;
+
+    let mut listeners = Vec::new();
+    let mut actual_port = 0u16;
+
+    for (i, ip) in ips.iter().enumerate() {
+        let (listener, port) = if i == 0 {
+            // First IP - find available port
+            if let Some(port) = preferred {
+                let addr = format!("{ip}:{port}");
+                let listener = tokio::net::TcpListener::bind(&addr).await?;
+                // If caller requested port 0, capture the OS-assigned port
+                let actual = if port == 0 {
+                    listener.local_addr()?.port()
+                } else {
+                    port
+                };
+                (listener, actual)
+            } else {
+                // Try 4000-4019, then port 0
+                let mut bound = None;
+                for port in 4000..4020 {
+                    let addr = format!("{ip}:{port}");
+                    match tokio::net::TcpListener::bind(&addr).await {
+                        Ok(listener) => {
+                            bound = Some((listener, port));
+                            break;
+                        }
+                        Err(e) if e.kind() == ErrorKind::AddrInUse => continue,
+                        Err(e) => return Err(e.into()),
+                    }
+                }
+                match bound {
+                    Some(b) => b,
+                    None => {
+                        // All preferred ports in use - let OS choose
+                        let addr = format!("{ip}:0");
+                        let listener = tokio::net::TcpListener::bind(&addr).await?;
+                        let port = listener.local_addr()?.port();
+                        (listener, port)
+                    }
+                }
+            }
+        } else {
+            // Subsequent IPs use the same port as the first
+            let addr = format!("{ip}:{actual_port}");
+            let listener = tokio::net::TcpListener::bind(&addr).await?;
+            (listener, actual_port)
+        };
+
+        if i == 0 {
+            actual_port = port;
+        }
+        listeners.push(listener);
+    }
+
+    Ok(BoundListeners { listeners, port: actual_port })
+}
+
+/// Run HTTP servers on pre-bound listeners
+pub async fn run_on_listeners(
     server: Arc<SiteServer>,
-    ips: &[Ipv4Addr],
-    port: u16,
+    bound: BoundListeners,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
     use tokio::task::JoinSet;
@@ -837,9 +905,7 @@ pub async fn run_on_ips(
     let app = build_router(server);
     let mut join_set = JoinSet::new();
 
-    for ip in ips {
-        let addr = format!("{ip}:{port}");
-        let listener = tokio::net::TcpListener::bind(&addr).await?;
+    for listener in bound.listeners {
         let app_clone = app.clone();
         let mut shutdown_rx_clone = shutdown_rx.clone();
 

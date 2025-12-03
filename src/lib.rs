@@ -4,6 +4,7 @@
 
 pub mod db;
 pub mod error_pages;
+pub mod file_watcher;
 pub mod html_diff;
 pub mod link_checker;
 pub mod template;
