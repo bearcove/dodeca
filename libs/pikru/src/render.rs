@@ -884,16 +884,14 @@ fn render_object_stmt(
         || even_clause.is_some()
     {
         // Line-like objects with explicit from/to, direction moves, or then clauses
-        // Determine start position
+        // Determine start position based on direction of movement
         let start = if let Some(pos) = from_position {
             pos
         } else if has_direction_move {
-            // Get exit edge of last object based on which directions we're moving
-            // For compound moves like "up 1 right 2", start from appropriate corner
+            // Get exit edge of last object based on accumulated offset direction
             if let Some(last_obj) = ctx.last_object() {
                 let (hw, hh) = (last_obj.width / 2.0, last_obj.height / 2.0);
                 let c = last_obj.center;
-                // Determine exit point based on direction of movement
                 let exit_x = if direction_offset_x > Inches::ZERO {
                     c.x + hw // moving right, exit from right edge
                 } else if direction_offset_x < Inches::ZERO {
@@ -928,45 +926,22 @@ fn render_object_stmt(
         } else {
             // Build waypoints starting from start
             let mut points = vec![start];
-            let current_pos = start;
+            let mut current_pos = start;
 
-            // First segment: use accumulated direction offsets or default
-            if to_position.is_none() && then_clauses.is_empty() {
-                // Simple line: apply accumulated offsets (or default in ctx.direction)
-                let (dx, dy) = if has_direction_move {
-                    (direction_offset_x, direction_offset_y)
-                } else {
-                    // No explicit direction, use default distance in ctx.direction
-                    match ctx.direction {
-                        Direction::Right => (width, Inches::ZERO),
-                        Direction::Left => (-width, Inches::ZERO),
-                        Direction::Up => (Inches::ZERO, -width),
-                        Direction::Down => (Inches::ZERO, width),
-                    }
-                };
-                let next = Point::new(current_pos.x + dx, current_pos.y + dy);
-                points.push(next);
-            } else if to_position.is_some() && then_clauses.is_empty() {
+            if to_position.is_some() && then_clauses.is_empty() && !has_direction_move {
                 // from X to Y - just two points
                 points.push(to_position.unwrap());
-            } else {
-                // Has then clauses - first apply direction offsets
-                let (dx, dy) = if has_direction_move {
-                    (direction_offset_x, direction_offset_y)
-                } else {
-                    match ctx.direction {
-                        Direction::Right => (width, Inches::ZERO),
-                        Direction::Left => (-width, Inches::ZERO),
-                        Direction::Up => (Inches::ZERO, -width),
-                        Direction::Down => (Inches::ZERO, width),
-                    }
-                };
-                let next = Point::new(current_pos.x + dx, current_pos.y + dy);
+            } else if has_direction_move {
+                // Apply accumulated offsets as single diagonal move (C pikchr behavior)
+                let next = Point::new(
+                    current_pos.x + direction_offset_x,
+                    current_pos.y + direction_offset_y,
+                );
                 points.push(next);
-                let mut current_pos = next;
-                let mut current_dir = ctx.direction;
+                current_pos = next;
 
-                // Process each then clause
+                // Then process any then clauses after direction moves
+                let mut current_dir = ctx.direction;
                 for clause in &then_clauses {
                     let (next_point, next_dir) =
                         eval_then_clause(ctx, clause, current_pos, current_dir, width)?;
@@ -974,6 +949,24 @@ fn render_object_stmt(
                     current_pos = next_point;
                     current_dir = next_dir;
                 }
+            } else if !then_clauses.is_empty() {
+                // No direction moves but has then clauses - start with default move
+                let next = move_in_direction(current_pos, ctx.direction, width);
+                points.push(next);
+                current_pos = next;
+                let mut current_dir = ctx.direction;
+
+                for clause in &then_clauses {
+                    let (next_point, next_dir) =
+                        eval_then_clause(ctx, clause, current_pos, current_dir, width)?;
+                    points.push(next_point);
+                    current_pos = next_point;
+                    current_dir = next_dir;
+                }
+            } else {
+                // No direction moves, no then clauses - default single segment
+                let next = move_in_direction(current_pos, ctx.direction, width);
+                points.push(next);
             }
 
             let end = *points.last().unwrap_or(&start);
@@ -1575,6 +1568,14 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, miette:
 fn endpoint_object_from_position(ctx: &RenderContext, pos: &Position) -> Option<EndpointObject> {
     match pos {
         Position::Place(place) => endpoint_object_from_place(ctx, place),
+        // Extract underlying Place from offset positions (e.g., C0.ne + (0.05,0))
+        Position::PlaceOffset(place, _, _, _) => endpoint_object_from_place(ctx, place),
+        // For "between A and B", use the first position's object for chop
+        Position::Between(_, pos1, _) => endpoint_object_from_position(ctx, pos1),
+        // For "above/below X", extract from X
+        Position::AboveBelow(_, _, inner) => endpoint_object_from_position(ctx, inner),
+        // For angle bracket <A, B>, use first position
+        Position::Bracket(_, pos1, _) => endpoint_object_from_position(ctx, pos1),
         _ => None,
     }
 }
@@ -1863,20 +1864,22 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
         match obj.class {
             ObjectClass::Box => {
-                let x = tx - scaler.px(obj.width / 2.0);
-                let y = ty - scaler.px(obj.height / 2.0);
+                // Use <path> like C pikchr for consistency
+                let x1 = tx - scaler.px(obj.width / 2.0);
+                let y1 = ty - scaler.px(obj.height / 2.0);
+                let x2 = tx + scaler.px(obj.width / 2.0);
+                let y2 = ty + scaler.px(obj.height / 2.0);
                 if obj.style.corner_radius.0 > 0.0 {
+                    // Rounded corners - keep using rect for now (C pikchr also uses path but complex)
                     writeln!(svg, r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" rx="{:.2}" ry="{:.2}" {}/>"#,
-                             x, y, scaler.px(obj.width), scaler.px(obj.height), scaler.px(obj.style.corner_radius), scaler.px(obj.style.corner_radius), stroke_style).unwrap();
+                             x1, y1, scaler.px(obj.width), scaler.px(obj.height), scaler.px(obj.style.corner_radius), scaler.px(obj.style.corner_radius), stroke_style).unwrap();
                 } else {
+                    // C pikchr renders boxes as path: M x1,y2 L x2,y2 L x2,y1 L x1,y1 Z
+                    // (starts at bottom-left, goes clockwise)
                     writeln!(
                         svg,
-                        r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" {}/>"#,
-                        x,
-                        y,
-                        scaler.px(obj.width),
-                        scaler.px(obj.height),
-                        stroke_style
+                        r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}L{:.2},{:.2}L{:.2},{:.2}Z" {}/>"#,
+                        x1, y2, x2, y2, x2, y1, x1, y1, stroke_style
                     )
                     .unwrap();
                 }
@@ -2385,19 +2388,20 @@ fn render_sublist_children(
 
         match child.class {
             ObjectClass::Box => {
-                let x = tx - scaler.px(child.width / 2.0);
-                let y = ty - scaler.px(child.height / 2.0);
-                let w = scaler.px(child.width);
-                let h = scaler.px(child.height);
+                let x1 = tx - scaler.px(child.width / 2.0);
+                let y1 = ty - scaler.px(child.height / 2.0);
+                let x2 = tx + scaler.px(child.width / 2.0);
+                let y2 = ty + scaler.px(child.height / 2.0);
                 if child.style.corner_radius.0 > 0.0 {
                     let r = scaler.px(child.style.corner_radius);
                     writeln!(svg, r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" rx="{:.2}" ry="{:.2}" {}/>"#,
-                             x, y, w, h, r, r, stroke_style).unwrap();
+                             x1, y1, scaler.px(child.width), scaler.px(child.height), r, r, stroke_style).unwrap();
                 } else {
+                    // C pikchr renders boxes as path
                     writeln!(
                         svg,
-                        r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" {}/>"#,
-                        x, y, w, h, stroke_style
+                        r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}L{:.2},{:.2}L{:.2},{:.2}Z" {}/>"#,
+                        x1, y2, x2, y2, x2, y1, x1, y1, stroke_style
                     )
                     .unwrap();
                 }
@@ -2873,19 +2877,14 @@ fn format_stroke_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) ->
     ));
 
     if style.dashed {
+        // C pikchr: stroke-dasharray: dashwid, dashwid
         let dash = scaler.len(dashwid).0;
-        parts.push(format!(
-            "stroke-dasharray=\"{:.2},{:.2}\"",
-            dash * 6.0,
-            dash * 4.0
-        ));
+        parts.push(format!("stroke-dasharray=\"{:.2},{:.2}\"", dash, dash));
     } else if style.dotted {
+        // C pikchr: stroke-dasharray: stroke_width, dashwid
+        let sw = scaler.len(style.stroke_width).0.max(2.1); // min 2.1 per C source
         let dash = scaler.len(dashwid).0;
-        parts.push(format!(
-            "stroke-dasharray=\"{:.2},{:.2}\"",
-            dash * 2.0,
-            dash * 2.0
-        ));
+        parts.push(format!("stroke-dasharray=\"{:.2},{:.2}\"", sw, dash));
     }
 
     parts.join(" ")
