@@ -9,6 +9,7 @@ miette = "7.6.0"
 pest = "2.8.4"
 pest_derive = "2.8.4"
 rootcause = "0.10.0"
+time = { version = "0.3.44", features = ["formatting", "macros"] }
 
 [dev-dependencies]
 insta = { version = "1.42", features = ["glob"] }

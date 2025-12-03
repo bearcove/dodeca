@@ -155,8 +155,8 @@ position = {
   | place ~ ("+" | "-") ~ expr ~ "," ~ expr
   | expr ~ ("between" | ("of" ~ "the")? ~ "way" ~ "between") ~ position ~ "and" ~ position
   | expr ~ "<" ~ position ~ "," ~ position ~ ">"
-  | expr ~ ("above" | "below") ~ position
-  | expr ~ ("left" ~ "of" | "right" ~ "of") ~ position
+  | expr ~ above_below ~ position
+  | expr ~ left_right_of ~ position
   | expr ~ "on"? ~ "heading" ~ (EDGEPT | expr) ~ ("of" | "from") ~ position
   | expr ~ EDGEPT ~ "of" ~ position
   | expr ~ "," ~ expr  // bare x,y coordinates - must be after all expr-starting forms!
@@ -192,6 +192,10 @@ NTH = @{ ASCII_DIGIT+ ~ ("st" | "nd" | "rd" | "th") }
 
 // === Edge Points ===
 // IMPORTANT: longer keywords must come before shorter ones in PEG!
+// Position modifiers - need to be rules so they're captured in AST
+above_below = { "above" | "below" }
+left_right_of = { ("left" | "right") ~ "of" }
+
 // Single-letter edge points must not be followed by identifier chars
 // Rule is atomic (@) to prevent implicit whitespace before boundary check
 EDGEPT = @{

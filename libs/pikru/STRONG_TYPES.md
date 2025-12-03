@@ -70,10 +70,12 @@ Guidelines for keeping Pikru layout/emit code safe and unit-correct using Rust t
 - `Scaler::try_new()`: rejects NaN/infinite/zero/negative scale factors; wired into `generate_svg`
 - `NumericError`: error type for validation failures
 - `defaults` module uses typed `Inches` constants
+- `EvalValue` enum (`Length | Scalar | Color`) replaces `HashMap<String, f64>` for typed variable storage
+- Variable initialization categorized: lengths, scalars, colors stored with proper `EvalValue` variants
+- Bidirectional `Value ↔ EvalValue` conversions for expression evaluation
 
 ### Pending
 
 - Wire `try_new` into evaluator for user input validation
-- Replace `HashMap<String, f64>` with typed `EvalValue` in variables
 - Add compile-fail tests (trybuild) for invalid type combinations
 - `Angle::try_new`, `Angle::from_degrees`, `Angle::from_radians` with validation

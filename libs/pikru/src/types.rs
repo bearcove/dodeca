@@ -196,6 +196,64 @@ impl Scalar {
     }
 }
 
+/// A typed value from expression evaluation.
+/// Used in the variable map to preserve type information.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum EvalValue {
+    /// A length in inches
+    Length(Length),
+    /// A unitless scalar (scale factors, fill opacity, etc.)
+    Scalar(f64),
+    /// A color as 24-bit RGB value
+    Color(u32),
+}
+
+impl EvalValue {
+    /// Extract as Length, or None if not a length
+    pub fn as_length(self) -> Option<Length> {
+        match self {
+            EvalValue::Length(l) => Some(l),
+            _ => None,
+        }
+    }
+
+    /// Extract as scalar f64, converting Length to its raw value
+    pub fn as_scalar(self) -> f64 {
+        match self {
+            EvalValue::Length(l) => l.raw(),
+            EvalValue::Scalar(s) => s,
+            EvalValue::Color(c) => c as f64,
+        }
+    }
+
+    /// Extract as color, or None if not a color
+    pub fn as_color(self) -> Option<u32> {
+        match self {
+            EvalValue::Color(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// Check if finite (not NaN or infinite)
+    pub fn is_finite(self) -> bool {
+        match self {
+            EvalValue::Length(l) => l.is_finite(),
+            EvalValue::Scalar(s) => s.is_finite(),
+            EvalValue::Color(_) => true,
+        }
+    }
+}
+
+impl fmt::Display for EvalValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EvalValue::Length(l) => write!(f, "{}in", l),
+            EvalValue::Scalar(s) => write!(f, "{}", s),
+            EvalValue::Color(c) => write!(f, "#{:06x}", c),
+        }
+    }
+}
+
 impl fmt::Display for Scalar {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
@@ -254,10 +312,6 @@ pub struct Scaler {
 }
 
 impl Scaler {
-    /// Create a new Scaler (unchecked).
-    /// Use `try_new` for user-provided values.
-    pub(crate) fn new(r_scale: f64) -> Self { Scaler { r_scale } }
-
     /// Create a Scaler with validation (rejects NaN, infinite, zero, negative)
     pub fn try_new(r_scale: f64) -> Result<Self, NumericError> {
         if r_scale.is_nan() {
@@ -599,7 +653,7 @@ mod tests {
 
     #[test]
     fn scaler_converts_length_to_px() {
-        let scaler = Scaler::new(144.0);
+        let scaler = Scaler::try_new(144.0).unwrap();
         let len = Length(1.0); // 1 inch
         assert_eq!(scaler.px(len), 144.0); // 144 pixels
     }

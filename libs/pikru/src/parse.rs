@@ -389,10 +389,13 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
         }
         Rule::position => {
             let pos = parse_position(inner.next().unwrap())?;
-            // Check if this is "from position" or "to position" based on the original string
-            // (the "from"/"to" keyword is a literal and not captured as a child)
-            if pair_str.trim_start().starts_with("from") {
+            // Check if this is "from", "to", or "at" position based on the original string
+            // (the keyword is a literal and not captured as a child)
+            let trimmed = pair_str.trim_start();
+            if trimmed.starts_with("from") {
                 Ok(Attribute::From(pos))
+            } else if trimmed.starts_with("at") {
+                Ok(Attribute::At(pos))
             } else {
                 Ok(Attribute::To(pos))
             }
@@ -973,7 +976,7 @@ fn parse_number(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
 }
 
 fn parse_position(pair: Pair<Rule>) -> Result<Position, miette::Report> {
-    let pair_str = pair.as_str();
+    let pair_str = pair.as_str().to_string();
     let mut inner = pair.into_inner().peekable();
 
     // Check what the first item is
@@ -1062,18 +1065,18 @@ fn parse_position(pair: Pair<Rule>) -> Result<Position, miette::Report> {
                     let pos1 = parse_position(inner.next().unwrap())?;
                     let pos2 = parse_position(inner.next().unwrap())?;
                     Ok(Position::Bracket(first_expr, Box::new(pos1), Box::new(pos2)))
-                } else if next_str == "above" || next_str == "below" {
-                    let ab = if next_str == "above" { AboveBelow::Above } else { AboveBelow::Below };
-                    inner.next(); // skip above/below
+                } else if next.as_rule() == Rule::above_below {
+                    // expr above_below position (new rule-based matching)
+                    let ab_pair = inner.next().unwrap();
+                    let ab_str = ab_pair.as_str().trim();
+                    let ab = if ab_str == "above" { AboveBelow::Above } else { AboveBelow::Below };
                     let pos = parse_position(inner.next().unwrap())?;
                     Ok(Position::AboveBelow(first_expr, ab, Box::new(pos)))
-                } else if next_str == "left" || next_str == "right" {
-                    let lr = if next_str == "left" { LeftRight::Left } else { LeftRight::Right };
-                    inner.next(); // skip left/right
-                    // Skip "of"
-                    if inner.peek().map(|p| p.as_str() == "of").unwrap_or(false) {
-                        inner.next();
-                    }
+                } else if next.as_rule() == Rule::left_right_of {
+                    // expr left_right_of position (new rule-based matching)
+                    let lr_pair = inner.next().unwrap();
+                    let lr_str = lr_pair.as_str().trim();
+                    let lr = if lr_str.starts_with("left") { LeftRight::Left } else { LeftRight::Right };
                     let pos = parse_position(inner.next().unwrap())?;
                     Ok(Position::LeftRightOf(first_expr, lr, Box::new(pos)))
                 } else if next_str == "heading" || next_str == "on" {

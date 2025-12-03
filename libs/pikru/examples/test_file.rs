@@ -1,6 +1,7 @@
 fn main() {
-    let input = std::fs::read_to_string("../pikchr/tests/test01.pikchr")
-        .expect("Failed to read file");
+    let path = std::env::args().nth(1).unwrap_or_else(|| "../pikchr/tests/test01.pikchr".to_string());
+    let input = std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| panic!("Failed to read file: {}", path));
     match pikru::pikchr(&input) {
         Ok(svg) => {
             println!("SVG length: {} bytes", svg.len());
@@ -11,6 +12,7 @@ fn main() {
                 svg.matches("<path").count(),
                 svg.matches("<text").count(),
                 svg.matches("<polygon").count());
+            println!("{}", svg);
         }
         Err(e) => eprintln!("Error: {}", e),
     }

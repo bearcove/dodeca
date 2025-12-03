@@ -1,9 +1,18 @@
 //! SVG rendering for pikchr diagrams
 
 use crate::ast::*;
-use crate::types::{Length as Inches, Point, Size, PtIn, BoxIn, Scaler, UnitVec};
+use crate::types::{Length as Inches, Point, Size, PtIn, BoxIn, Scaler, UnitVec, EvalValue};
 use std::collections::HashMap;
 use std::fmt::Write;
+use time::{OffsetDateTime, format_description};
+
+/// Generate a UTC timestamp in YYYYMMDDhhmmss format for data-pikchr-date attribute
+fn utc_timestamp() -> String {
+    let now = OffsetDateTime::now_utc();
+    let format = format_description::parse("[year][month][day][hour][minute][second]")
+        .expect("valid format");
+    now.format(&format).unwrap_or_default()
+}
 
 /// Generic numeric value that can be either a length (in inches) or a unitless scalar.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -24,6 +33,26 @@ impl Value {
         match self {
             Value::Scalar(s) => Ok(s),
             Value::Len(_) => Err(miette::miette!("Expected scalar value, got length")),
+        }
+    }
+}
+
+impl From<EvalValue> for Value {
+    fn from(ev: EvalValue) -> Self {
+        match ev {
+            EvalValue::Length(l) => Value::Len(l),
+            EvalValue::Scalar(s) => Value::Scalar(s),
+            // Colors are used as numeric values in expressions (24-bit RGB)
+            EvalValue::Color(c) => Value::Scalar(c as f64),
+        }
+    }
+}
+
+impl From<Value> for EvalValue {
+    fn from(v: Value) -> Self {
+        match v {
+            Value::Len(l) => EvalValue::Length(l),
+            Value::Scalar(s) => EvalValue::Scalar(s),
         }
     }
 }
@@ -188,8 +217,8 @@ pub struct RenderContext {
     pub objects: HashMap<String, RenderedObject>,
     /// All objects in order
     pub object_list: Vec<RenderedObject>,
-    /// Variables
-    pub variables: HashMap<String, f64>,
+    /// Variables (typed: lengths, scalars, colors)
+    pub variables: HashMap<String, EvalValue>,
     /// Bounding box of all objects
     pub bounds: BoundingBox,
 }
@@ -212,10 +241,9 @@ impl Default for RenderContext {
 
 impl RenderContext {
     fn init_builtin_variables(&mut self) {
-        // Built‑in defaults mirror pikchr.c aBuiltin[] (all in inches)
-        let builtins: &[(&str, f64)] = &[
+        // Built‑in length defaults mirror pikchr.c aBuiltin[] (all in inches)
+        let lengths: &[(&str, f64)] = &[
             ("arcrad", 0.25),
-            ("arrowhead", 2.0),
             ("arrowht", 0.08),
             ("arrowwid", 0.06),
             ("boxht", 0.5),
@@ -224,7 +252,6 @@ impl RenderContext {
             ("charht", 0.14),
             ("charwid", 0.08),
             ("circlerad", 0.25),
-            ("color", 0.0),
             ("cylht", 0.5),
             ("cylrad", 0.075),
             ("cylwid", 0.75),
@@ -237,13 +264,11 @@ impl RenderContext {
             ("fileht", 0.75),
             ("filerad", 0.15),
             ("filewid", 0.5),
-            ("fill", -1.0),
             ("lineht", 0.5),
             ("linewid", 0.5),
             ("movewid", 0.5),
             ("ovalht", 0.5),
             ("ovalwid", 1.0),
-            ("scale", 1.0),
             ("textht", 0.5),
             ("textwid", 0.75),
             ("thickness", 0.015),
@@ -252,17 +277,30 @@ impl RenderContext {
             ("rightmargin", 0.0),
             ("topmargin", 0.0),
             ("bottommargin", 0.0),
+            // Common aliases
+            ("wid", 0.75),
+            ("ht", 0.5),
+            ("rad", 0.25),
         ];
-        for (k, v) in builtins {
-            self.variables.insert((*k).to_string(), *v);
+        for (k, v) in lengths {
+            self.variables.insert((*k).to_string(), EvalValue::Length(Inches(*v)));
         }
 
-        // Common aliases used in expressions
-        self.variables.insert("wid".to_string(), 0.75);
-        self.variables.insert("ht".to_string(), 0.5);
-        self.variables.insert("rad".to_string(), 0.25);
+        // Unitless scalars
+        let scalars: &[(&str, f64)] = &[
+            ("arrowhead", 2.0),  // Multiplier, not a length
+            ("scale", 1.0),
+        ];
+        for (k, v) in scalars {
+            self.variables.insert((*k).to_string(), EvalValue::Scalar(*v));
+        }
 
-        // Color names as numeric (match C’s 24-bit values)
+        // Color variables (fill = -1 means "no fill", stored as special sentinel)
+        // Note: fill/color are color slots, but fill=-1 signals "none"
+        self.variables.insert("fill".to_string(), EvalValue::Scalar(-1.0)); // Sentinel for "no fill"
+        self.variables.insert("color".to_string(), EvalValue::Color(0x000000)); // Black stroke
+
+        // Named colors (match C's 24-bit values)
         let colors: &[(&str, u32)] = &[
             ("white", 0xffffff),
             ("black", 0x000000),
@@ -303,7 +341,7 @@ impl RenderContext {
             ("wheat", 0xf5deb3),
         ];
         for (k, v) in colors {
-            self.variables.insert((*k).to_string(), *v as f64);
+            self.variables.insert((*k).to_string(), EvalValue::Color(*v));
         }
     }
 
@@ -383,6 +421,15 @@ fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
     }
 }
 
+/// Compute the bounding box of a list of rendered objects (in local coordinates)
+fn compute_children_bounds(children: &[RenderedObject]) -> BoundingBox {
+    let mut bounds = BoundingBox::new();
+    for child in children {
+        expand_object_bounds(&mut bounds, child);
+    }
+    bounds
+}
+
 /// Render a pikchr program to SVG
 pub fn render(program: &Program) -> Result<String, miette::Report> {
     let mut ctx = RenderContext::new();
@@ -422,7 +469,7 @@ fn render_statement(ctx: &mut RenderContext, stmt: &Statement, print_lines: &mut
             match &assign.lvalue {
                 LValue::Variable(name) => {
                     ctx.variables
-                        .insert(name.clone(), value_to_scalar(value));
+                        .insert(name.clone(), EvalValue::from(value));
                 }
                 _ => {
                     // fill, color, thickness - global settings
@@ -499,8 +546,31 @@ fn render_object_stmt(
             let h = defaults::FONT_SIZE * 1.2;
             (ObjectClass::Text, Inches(w), Inches(h))
         }
-        BaseType::Sublist(_) => (ObjectClass::Sublist, defaults::BOX_WIDTH, defaults::BOX_HEIGHT),
+        BaseType::Sublist(_) => {
+            // Placeholder - will be computed from rendered children below
+            (ObjectClass::Sublist, Inches::ZERO, Inches::ZERO)
+        }
     };
+
+    // For sublists, render children early to compute their actual bounds
+    let (sublist_children, sublist_bounds) = if let BaseType::Sublist(statements) = &obj_stmt.basetype {
+        let children = render_sublist(ctx, statements)?;
+        let bounds = compute_children_bounds(&children);
+        (Some(children), Some(bounds))
+    } else {
+        (None, None)
+    };
+
+    // Update width/height for sublists based on computed bounds
+    if let Some(ref bounds) = sublist_bounds {
+        if !bounds.is_empty() {
+            width = bounds.width();
+            height = bounds.height();
+        } else {
+            width = defaults::BOX_WIDTH;
+            height = defaults::BOX_HEIGHT;
+        }
+    }
 
     let mut style = ObjectStyle::default();
     let mut text = Vec::new();
@@ -748,15 +818,21 @@ fn render_object_stmt(
         (c, s, e, vec![s, e])
     };
 
-    // Handle sublist: render nested statements (local coords) then translate to this center
-    let mut children = if let BaseType::Sublist(statements) = &obj_stmt.basetype {
-        render_sublist(ctx, statements)?
-    } else {
-        Vec::new()
-    };
+    // Handle sublist: use pre-rendered children and translate to final position
+    let mut children = sublist_children.unwrap_or_default();
 
     if !children.is_empty() {
-        translate_children(&mut children, center);
+        // Children were rendered in local coords starting at (0,0).
+        // We need to translate them so their center aligns with the sublist's center.
+        if let Some(ref bounds) = sublist_bounds {
+            if !bounds.is_empty() {
+                // The children's center in local coords
+                let local_center = bounds.center();
+                // Offset from local center to final center
+                let offset = Point::new(center.x - local_center.x, center.y - local_center.y);
+                translate_children(&mut children, offset);
+            }
+        }
     }
 
     Ok(RenderedObject {
@@ -957,12 +1033,10 @@ fn calculate_object_position(
     width: Inches,
     height: Inches,
 ) -> (PointIn, PointIn, PointIn) {
-    let center = ctx.position;
-
-    // For line-like objects, calculate end based on direction and length
+    // For line-like objects, start is at cursor, end is cursor + length in direction
     let (start, end, center) = match class {
         ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Move => {
-            let start = center;
+            let start = ctx.position;
             let end = match ctx.direction {
                 Direction::Right => Point::new(start.x + width, start.y),
                 Direction::Left => Point::new(start.x - width, start.y),
@@ -973,18 +1047,27 @@ fn calculate_object_position(
             (start, end, mid)
         }
         _ => {
-            // For shaped objects, keep center at the current cursor; start/end are entry/exit along direction
+            // For shaped objects (box, circle, etc.):
+            // The entry edge is placed at the current cursor, not the center.
+            // This matches C pikchr behavior where objects chain edge-to-edge.
+            let (half_w, half_h) = (width / 2.0, height / 2.0);
+            let center = match ctx.direction {
+                Direction::Right => Point::new(ctx.position.x + half_w, ctx.position.y),
+                Direction::Left => Point::new(ctx.position.x - half_w, ctx.position.y),
+                Direction::Up => Point::new(ctx.position.x, ctx.position.y - half_h),
+                Direction::Down => Point::new(ctx.position.x, ctx.position.y + half_h),
+            };
             let start = match ctx.direction {
-                Direction::Right => Point::new(center.x - width / 2.0, center.y),
-                Direction::Left => Point::new(center.x + width / 2.0, center.y),
-                Direction::Up => Point::new(center.x, center.y + height / 2.0),
-                Direction::Down => Point::new(center.x, center.y - height / 2.0),
+                Direction::Right => Point::new(center.x - half_w, center.y),
+                Direction::Left => Point::new(center.x + half_w, center.y),
+                Direction::Up => Point::new(center.x, center.y + half_h),
+                Direction::Down => Point::new(center.x, center.y - half_h),
             };
             let end = match ctx.direction {
-                Direction::Right => Point::new(center.x + width / 2.0, center.y),
-                Direction::Left => Point::new(center.x - width / 2.0, center.y),
-                Direction::Up => Point::new(center.x, center.y - height / 2.0),
-                Direction::Down => Point::new(center.x, center.y + height / 2.0),
+                Direction::Right => Point::new(center.x + half_w, center.y),
+                Direction::Left => Point::new(center.x - half_w, center.y),
+                Direction::Up => Point::new(center.x, center.y - half_h),
+                Direction::Down => Point::new(center.x, center.y + half_h),
             };
             (start, end, center)
         }
@@ -1000,7 +1083,7 @@ fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Report> 
             .variables
             .get(name)
             .copied()
-            .map(Value::Scalar)
+            .map(Value::from)
             .ok_or_else(|| miette::miette!("Undefined variable: {}", name)),
         Expr::BuiltinVar(b) => {
             let key = match b {
@@ -1011,7 +1094,7 @@ fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Report> 
             ctx.variables
                 .get(key)
                 .copied()
-                .map(Value::Scalar)
+                .map(Value::from)
                 .ok_or_else(|| miette::miette!("Undefined builtin: {}", key))
         }
         Expr::BinaryOp(lhs, op, rhs) => {
@@ -1162,13 +1245,6 @@ fn eval_scalar(ctx: &RenderContext, expr: &Expr) -> Result<f64, miette::Report> 
     match eval_expr(ctx, expr)? {
         Value::Scalar(s) => Ok(s),
         Value::Len(l) => Ok(l.0),
-    }
-}
-
-fn value_to_scalar(v: Value) -> f64 {
-    match v {
-        Value::Len(l) => l.0,
-        Value::Scalar(s) => s,
     }
 }
 
@@ -1441,23 +1517,40 @@ fn eval_color(rvalue: &RValue) -> String {
     }
 }
 
+/// Helper to extract a length from an EvalValue, with fallback
+fn get_length(ctx: &RenderContext, name: &str, default: f64) -> f64 {
+    ctx.variables
+        .get(name)
+        .and_then(|v| v.as_length())
+        .map(|l| l.raw())
+        .unwrap_or(default)
+}
+
+/// Helper to extract a scalar from an EvalValue, with fallback
+fn get_scalar(ctx: &RenderContext, name: &str, default: f64) -> f64 {
+    ctx.variables
+        .get(name)
+        .map(|v| v.as_scalar())
+        .unwrap_or(default)
+}
+
 fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
-    let margin_base = ctx.variables.get("margin").copied().unwrap_or(defaults::MARGIN);
-    let left_margin = ctx.variables.get("leftmargin").copied().unwrap_or(0.0);
-    let right_margin = ctx.variables.get("rightmargin").copied().unwrap_or(0.0);
-    let top_margin = ctx.variables.get("topmargin").copied().unwrap_or(0.0);
-    let bottom_margin = ctx.variables.get("bottommargin").copied().unwrap_or(0.0);
-    let thickness = ctx.variables.get("thickness").copied().unwrap_or(defaults::STROKE_WIDTH.raw());
+    let margin_base = get_length(ctx, "margin", defaults::MARGIN);
+    let left_margin = get_length(ctx, "leftmargin", 0.0);
+    let right_margin = get_length(ctx, "rightmargin", 0.0);
+    let top_margin = get_length(ctx, "topmargin", 0.0);
+    let bottom_margin = get_length(ctx, "bottommargin", 0.0);
+    let thickness = get_length(ctx, "thickness", defaults::STROKE_WIDTH.raw());
 
     let margin = margin_base + thickness;
     let r_scale = 144.0; // match pikchr.c rScale
-    let scale = ctx.variables.get("scale").copied().unwrap_or(1.0);
+    let scale = get_scalar(ctx, "scale", 1.0);
     let eff_scale = r_scale * scale;
     let scaler = Scaler::try_new(eff_scale)
         .map_err(|e| miette::miette!("invalid scale value {}: {}", eff_scale, e))?;
-    let arrow_ht = Inches(ctx.variables.get("arrowht").copied().unwrap_or(0.08));
-    let arrow_wid = Inches(ctx.variables.get("arrowwid").copied().unwrap_or(0.06));
-    let dashwid = Inches(ctx.variables.get("dashwid").copied().unwrap_or(0.05));
+    let arrow_ht = Inches(get_length(ctx, "arrowht", 0.08));
+    let arrow_wid = Inches(get_length(ctx, "arrowwid", 0.06));
+    let dashwid = Inches(get_length(ctx, "dashwid", 0.05));
     let arrow_len_px = scaler.len(arrow_ht);
     let arrow_wid_px = scaler.len(arrow_wid);
     let mut bounds = ctx.bounds;
@@ -1480,13 +1573,15 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     // SVG header (add class and pixel dimensions like C)
     let width_px = scaler.px(view_width);
     let height_px = scaler.px(view_height);
+    let timestamp = utc_timestamp();
     writeln!(
         svg,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" width="{:.0}" height="{:.0}" viewBox="0 0 {:.2} {:.2}" data-pikchr-date="">"#,
+        r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" width="{:.0}" height="{:.0}" viewBox="0 0 {:.2} {:.2}" data-pikchr-date="{}">"#,
         width_px,
         height_px,
         width_px,
-        height_px
+        height_px,
+        timestamp
     )
     .unwrap();
 
@@ -1564,12 +1659,34 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     if obj.style.arrow_end {
                         render_arrowhead(&mut svg, draw_sx, draw_sy, draw_ex, draw_ey, &obj.style, arrow_len_px.0, arrow_wid_px.0);
                     }
-                    // Render the line path
-                    writeln!(svg, r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}" {}/>"#,
-                             draw_sx, draw_sy, draw_ex, draw_ey, stroke_style).unwrap();
                     if obj.style.arrow_start {
                         render_arrowhead_start(&mut svg, draw_sx, draw_sy, draw_ex, draw_ey, &obj.style, arrow_len_px.0, arrow_wid_px.0);
                     }
+
+                    // Chop line endpoints for arrowheads (by arrowht/2 as in C pikchr, in pixels)
+                    let arrow_chop_px = arrow_len_px.0 / 2.0;
+                    let (line_sx, line_sy, line_ex, line_ey) = {
+                        let mut sx = draw_sx;
+                        let mut sy = draw_sy;
+                        let mut ex = draw_ex;
+                        let mut ey = draw_ey;
+
+                        if obj.style.arrow_start {
+                            let (new_sx, new_sy, _, _) = chop_line(sx, sy, ex, ey, arrow_chop_px);
+                            sx = new_sx;
+                            sy = new_sy;
+                        }
+                        if obj.style.arrow_end {
+                            let (_, _, new_ex, new_ey) = chop_line(sx, sy, ex, ey, arrow_chop_px);
+                            ex = new_ex;
+                            ey = new_ey;
+                        }
+                        (sx, sy, ex, ey)
+                    };
+
+                    // Render the line path (with chopped endpoints)
+                    writeln!(svg, r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}" {}/>"#,
+                             line_sx, line_sy, line_ex, line_ey, stroke_style).unwrap();
                 } else {
                     // Multi-segment polyline - chop first and last segments
                     let mut points = obj.waypoints.clone();
@@ -1588,20 +1705,19 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         points[n - 1] = Point::new(Inches(new_x), Inches(new_y));
                     }
 
-                    // Build path string
-                    let path_str: String = points.iter().enumerate()
-                        .map(|(i, p)| {
-                            let cmd = if i == 0 { "M" } else { "L" };
-                            format!("{}{:.2},{:.2}", cmd, scaler.px(p.x + offset_x), scaler.px(p.y + offset_y))
-                        })
-                        .collect::<Vec<_>>()
-                        .join("");
-
                     if obj.style.close_path {
+                        // Build path string (no arrow chopping for closed paths)
+                        let path_str: String = points.iter().enumerate()
+                            .map(|(i, p)| {
+                                let cmd = if i == 0 { "M" } else { "L" };
+                                format!("{}{:.2},{:.2}", cmd, scaler.px(p.x + offset_x), scaler.px(p.y + offset_y))
+                            })
+                            .collect::<Vec<_>>()
+                            .join("");
                         // Closed polygon - add Z to close path
                         writeln!(svg, r#"  <path d="{}Z" {}/>"#, path_str, stroke_style).unwrap();
                     } else {
-                        // Render arrowheads
+                        // Render arrowheads first (before chopping line for path)
                         let n = points.len();
                         if obj.style.arrow_end && n >= 2 {
                             let p1 = points[n - 2];
@@ -1613,7 +1729,6 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                                              scaler.px(p2.y + offset_y),
                                              &obj.style, arrow_len_px.0, arrow_wid_px.0);
                         }
-                        writeln!(svg, r#"  <path d="{}" {}/>"#, path_str, stroke_style).unwrap();
                         if obj.style.arrow_start && n >= 2 {
                             let p1 = points[0];
                             let p2 = points[1];
@@ -1624,6 +1739,31 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                                                     scaler.px(p2.y + offset_y),
                                                     &obj.style, arrow_len_px.0, arrow_wid_px.0);
                         }
+
+                        // Chop line endpoints for arrowheads (by arrowht/2 as in C pikchr)
+                        let arrow_chop = arrow_ht / 2.0;
+                        if obj.style.arrow_start && n >= 2 {
+                            let p0 = points[0];
+                            let p1 = points[1];
+                            let (new_x, new_y, _, _) = chop_line(p0.x.0, p0.y.0, p1.x.0, p1.y.0, arrow_chop.0);
+                            points[0] = Point::new(Inches(new_x), Inches(new_y));
+                        }
+                        if obj.style.arrow_end && n >= 2 {
+                            let pn1 = points[n - 2];
+                            let pn = points[n - 1];
+                            let (_, _, new_x, new_y) = chop_line(pn1.x.0, pn1.y.0, pn.x.0, pn.y.0, arrow_chop.0);
+                            points[n - 1] = Point::new(Inches(new_x), Inches(new_y));
+                        }
+
+                        // Build path string with chopped endpoints
+                        let path_str: String = points.iter().enumerate()
+                            .map(|(i, p)| {
+                                let cmd = if i == 0 { "M" } else { "L" };
+                                format!("{}{:.2},{:.2}", cmd, scaler.px(p.x + offset_x), scaler.px(p.y + offset_y))
+                            })
+                            .collect::<Vec<_>>()
+                            .join("");
+                        writeln!(svg, r#"  <path d="{}" {}/>"#, path_str, stroke_style).unwrap();
                     }
                 }
             }
@@ -1734,7 +1874,7 @@ fn get_font_size(text: &PositionedText, scaler: &Scaler) -> f64 {
 }
 
 /// Render a single styled text element
-fn render_styled_text(svg: &mut String, text: &PositionedText, x: f64, y: f64, anchor: &str, font_size: f64) {
+fn render_styled_text(svg: &mut String, text: &PositionedText, x: f64, y: f64, anchor: &str, _font_size: f64) {
     let mut style_parts: Vec<String> = Vec::new();
 
     // Font family
@@ -1758,8 +1898,8 @@ fn render_styled_text(svg: &mut String, text: &PositionedText, x: f64, y: f64, a
         format!(" {}", style_parts.join(" "))
     };
 
-    writeln!(svg, r#"  <text x="{:.2}" y="{:.2}" text-anchor="{}" dominant-baseline="middle" font-size="{:.2}"{}>{}</text>"#,
-             x, y, anchor, font_size, style_str, escape_xml(&text.value)).unwrap();
+    writeln!(svg, r#"  <text x="{:.2}" y="{:.2}" text-anchor="{}" fill="rgb(0,0,0)" dominant-baseline="central"{}>{}</text>"#,
+             x, y, anchor, style_str, escape_xml(&text.value)).unwrap();
 }
 
 /// Get text x position and anchor based on justification
@@ -2094,14 +2234,16 @@ fn render_arrowhead(svg: &mut String, sx: f64, sy: f64, ex: f64, ey: f64, style:
     let py = ux;
 
     // Arrow tip is at (ex, ey)
-    // Base points are arrow_len back along the line, offset by arrow_width perpendicular
+    // Base points are arrow_len back along the line, offset by half arrow_width perpendicular
+    // Note: arrowwid is the FULL base width, so we use arrow_width/2 for the half-width
     let base_x = ex - ux * arrow_len;
     let base_y = ey - uy * arrow_len;
+    let half_width = arrow_width / 2.0;
 
-    let p1_x = base_x + px * arrow_width;
-    let p1_y = base_y + py * arrow_width;
-    let p2_x = base_x - px * arrow_width;
-    let p2_y = base_y - py * arrow_width;
+    let p1_x = base_x + px * half_width;
+    let p1_y = base_y + py * half_width;
+    let p2_x = base_x - px * half_width;
+    let p2_y = base_y - py * half_width;
 
     writeln!(svg, r#"  <polygon points="{:.2},{:.2} {:.2},{:.2} {:.2},{:.2}" fill="{}"/>"#,
              ex, ey, p1_x, p1_y, p2_x, p2_y, style.stroke).unwrap();
