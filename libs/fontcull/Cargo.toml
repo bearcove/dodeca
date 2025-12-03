@@ -9,6 +9,7 @@ members = [
     "vendored/fontcull-skrifa",
     "vendored/fontcull-klippa",
 ]
+resolver = "3"
 
 # The profile that 'dist' will build with
 [profile.dist]
