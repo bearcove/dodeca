@@ -366,8 +366,11 @@ impl RenderContext {
 fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
     match obj.class {
         ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Arc => {
+            // Include stroke thickness padding for lines
+            let pad = obj.style.stroke_width / 2.0;
             for pt in &obj.waypoints {
-                bounds.expand_point(*pt);
+                bounds.expand_point(Point::new(pt.x - pad, pt.y - pad));
+                bounds.expand_point(Point::new(pt.x + pad, pt.y + pad));
             }
         }
         ObjectClass::Sublist => {
@@ -1460,30 +1463,23 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     let arrow_wid_px = scaler.len(arrow_wid);
     let mut bounds = ctx.bounds;
 
-    // Ensure we have some content
-    if bounds.width() <= 0.0 || bounds.height() <= 0.0 {
-        bounds = BoundingBox {
-            min: Point::new(Inches(0.0), Inches(0.0)),
-            max: Point::new(Inches(100.0), Inches(100.0)),
-        };
-    }
-
-    // Expand bounds with margins
+    // Expand bounds with margins first (before checking for zero dimensions)
     bounds.max.x += Inches(margin + right_margin);
     bounds.max.y += Inches(margin + top_margin);
     bounds.min.x -= Inches(margin + left_margin);
     bounds.min.y -= Inches(margin + bottom_margin);
 
-    let view_width = bounds.width();
-    let view_height = bounds.height();
+    // Use a small epsilon for zero-dimension check (thin lines are valid)
+    let view_width = bounds.width().max(0.01);
+    let view_height = bounds.height().max(0.01);
     let offset_x = Inches(-bounds.min.x.0);
     let offset_y = Inches(-bounds.min.y.0);
 
     let mut svg = String::new();
 
     // SVG header (add class and pixel dimensions like C)
-    let width_px = view_width * eff_scale;
-    let height_px = view_height * eff_scale;
+    let width_px = view_width * scaler.r_scale;
+    let height_px = view_height * scaler.r_scale;
     writeln!(
         svg,
         r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" width="{:.0}" height="{:.0}" viewBox="0 0 {:.2} {:.2}" data-pikchr-date="">"#,
@@ -1502,60 +1498,60 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             continue;
         }
 
-        let tx = to_px_len(obj.center.x + offset_x, eff_scale);
-        let ty = to_px_len(obj.center.y + offset_y, eff_scale);
-        let sx = to_px_len(obj.start.x + offset_x, eff_scale);
-        let sy = to_px_len(obj.start.y + offset_y, eff_scale);
-        let ex = to_px_len(obj.end.x + offset_x, eff_scale);
-        let ey = to_px_len(obj.end.y + offset_y, eff_scale);
+        let tx = scaler.px(obj.center.x + offset_x);
+        let ty = scaler.px(obj.center.y + offset_y);
+        let sx = scaler.px(obj.start.x + offset_x);
+        let sy = scaler.px(obj.start.y + offset_y);
+        let ex = scaler.px(obj.end.x + offset_x);
+        let ey = scaler.px(obj.end.y + offset_y);
 
         let stroke_style = format_stroke_style(&obj.style, &scaler, dashwid);
 
         match obj.class {
             ObjectClass::Box => {
-                let x = tx - to_px_len(obj.width / 2.0, eff_scale);
-                let y = ty - to_px_len(obj.height / 2.0, eff_scale);
+                let x = tx - scaler.px(obj.width / 2.0);
+                let y = ty - scaler.px(obj.height / 2.0);
                 if obj.style.corner_radius.0 > 0.0 {
                     writeln!(svg, r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" rx="{:.2}" ry="{:.2}" {}/>"#,
-                             x, y, to_px_len(obj.width, eff_scale), to_px_len(obj.height, eff_scale), to_px_len(obj.style.corner_radius, eff_scale), to_px_len(obj.style.corner_radius, eff_scale), stroke_style).unwrap();
+                             x, y, scaler.px(obj.width), scaler.px(obj.height), scaler.px(obj.style.corner_radius), scaler.px(obj.style.corner_radius), stroke_style).unwrap();
                 } else {
                     writeln!(svg, r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" {}/>"#,
-                             x, y, to_px_len(obj.width, eff_scale), to_px_len(obj.height, eff_scale), stroke_style).unwrap();
+                             x, y, scaler.px(obj.width), scaler.px(obj.height), stroke_style).unwrap();
                 }
             }
             ObjectClass::Circle => {
-                let r = to_px_len(obj.width / 2.0, eff_scale);
+                let r = scaler.px(obj.width / 2.0);
                 writeln!(svg, r#"  <circle cx="{:.2}" cy="{:.2}" r="{:.2}" {}/>"#,
                          tx, ty, r, stroke_style).unwrap();
             }
             ObjectClass::Dot => {
                 // Dot is a small filled circle
-                let r = to_px_len(obj.width / 2.0, eff_scale);
+                let r = scaler.px(obj.width / 2.0);
                 let fill = if obj.style.fill == "none" { &obj.style.stroke } else { &obj.style.fill };
                 writeln!(svg, r#"  <circle cx="{:.2}" cy="{:.2}" r="{:.2}" fill="{}" stroke="none"/>"#,
                          tx, ty, r, fill).unwrap();
             }
             ObjectClass::Ellipse => {
-                let rx = to_px_len(obj.width / 2.0, eff_scale);
-                let ry = to_px_len(obj.height / 2.0, eff_scale);
+                let rx = scaler.px(obj.width / 2.0);
+                let ry = scaler.px(obj.height / 2.0);
                 writeln!(svg, r#"  <ellipse cx="{:.2}" cy="{:.2}" rx="{:.2}" ry="{:.2}" {}/>"#,
                          tx, ty, rx, ry, stroke_style).unwrap();
             }
             ObjectClass::Oval => {
                 // Oval is a pill shape (rounded rectangle with fully rounded ends)
-                render_oval(&mut svg, tx, ty, obj.width, obj.height, eff_scale, &stroke_style);
+                render_oval(&mut svg, tx, ty, obj.width, obj.height, &scaler, &stroke_style);
             }
             ObjectClass::Cylinder => {
                 // Cylinder: elliptical top/bottom with vertical sides
-                render_cylinder(&mut svg, tx, ty, obj.width, obj.height, eff_scale, &stroke_style, &obj.style);
+                render_cylinder(&mut svg, tx, ty, obj.width, obj.height, &scaler, &stroke_style, &obj.style);
             }
             ObjectClass::File => {
                 // File: document shape with folded corner
-                render_file(&mut svg, tx, ty, obj.width, obj.height, eff_scale, &stroke_style);
+                render_file(&mut svg, tx, ty, obj.width, obj.height, &scaler, &stroke_style);
             }
             ObjectClass::Line | ObjectClass::Arrow => {
                 // Apply chop if needed (shorten line from both ends)
-                let chop_amount_px = if obj.style.chop { defaults::CIRCLE_RADIUS * eff_scale } else { 0.0 };
+                let chop_amount_px = if obj.style.chop { scaler.px(Inches(defaults::CIRCLE_RADIUS)) } else { 0.0 };
                 let (draw_sx, draw_sy, draw_ex, draw_ey) = if chop_amount_px > 0.0 {
                     chop_line(sx, sy, ex, ey, chop_amount_px)
                 } else {
@@ -1596,7 +1592,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     let path_str: String = points.iter().enumerate()
                         .map(|(i, p)| {
                             let cmd = if i == 0 { "M" } else { "L" };
-                            format!("{}{:.2},{:.2}", cmd, to_px_len(p.x + offset_x, eff_scale), to_px_len(p.y + offset_y, eff_scale))
+                            format!("{}{:.2},{:.2}", cmd, scaler.px(p.x + offset_x), scaler.px(p.y + offset_y))
                         })
                         .collect::<Vec<_>>()
                         .join("");
@@ -1611,10 +1607,10 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                             let p1 = points[n - 2];
                             let p2 = points[n - 1];
                             render_arrowhead(&mut svg,
-                                             to_px_len(p1.x + offset_x, eff_scale),
-                                             to_px_len(p1.y + offset_y, eff_scale),
-                                             to_px_len(p2.x + offset_x, eff_scale),
-                                             to_px_len(p2.y + offset_y, eff_scale),
+                                             scaler.px(p1.x + offset_x),
+                                             scaler.px(p1.y + offset_y),
+                                             scaler.px(p2.x + offset_x),
+                                             scaler.px(p2.y + offset_y),
                                              &obj.style, arrow_len_px.0, arrow_wid_px.0);
                         }
                         writeln!(svg, r#"  <path d="{}" {}/>"#, path_str, stroke_style).unwrap();
@@ -1622,10 +1618,10 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                             let p1 = points[0];
                             let p2 = points[1];
                             render_arrowhead_start(&mut svg,
-                                                    to_px_len(p1.x + offset_x, eff_scale),
-                                                    to_px_len(p1.y + offset_y, eff_scale),
-                                                    to_px_len(p2.x + offset_x, eff_scale),
-                                                    to_px_len(p2.y + offset_y, eff_scale),
+                                                    scaler.px(p1.x + offset_x),
+                                                    scaler.px(p1.y + offset_y),
+                                                    scaler.px(p2.x + offset_x),
+                                                    scaler.px(p2.y + offset_y),
                                                     &obj.style, arrow_len_px.0, arrow_wid_px.0);
                         }
                     }
@@ -1674,7 +1670,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
         // Render text labels inside objects
         if obj.class != ObjectClass::Text && !obj.text.is_empty() {
-        render_positioned_text(&mut svg, &obj.text, tx, ty, obj.width.0 * eff_scale, obj.height.0 * eff_scale);
+        render_positioned_text(&mut svg, &obj.text, tx, ty, scaler.px(obj.width), scaler.px(obj.height));
         }
     }
 
@@ -1779,32 +1775,34 @@ fn get_text_anchor(text: &PositionedText, cx: f64, width: f64) -> (f64, &'static
 
 /// Render sublist children that are already in world coordinates; only apply global offset/margins.
 fn render_sublist_children(svg: &mut String, children: &[RenderedObject], offx: Inches, offy: Inches, scaler: &Scaler, dashwid: Inches) {
-    let eff_scale = scaler.r_scale;
     for child in children {
-        let tx = to_px_len(child.center.x + offx, eff_scale);
-        let ty = to_px_len(child.center.y + offy, eff_scale);
-        let sx = to_px_len(child.start.x + offx, eff_scale);
-        let sy = to_px_len(child.start.y + offy, eff_scale);
-        let ex = to_px_len(child.end.x + offx, eff_scale);
-        let ey = to_px_len(child.end.y + offy, eff_scale);
+        let tx = scaler.px(child.center.x + offx);
+        let ty = scaler.px(child.center.y + offy);
+        let sx = scaler.px(child.start.x + offx);
+        let sy = scaler.px(child.start.y + offy);
+        let ex = scaler.px(child.end.x + offx);
+        let ey = scaler.px(child.end.y + offy);
 
         // Sublist children inherit dash settings from caller
         let stroke_style = format_stroke_style(&child.style, scaler, dashwid);
 
         match child.class {
             ObjectClass::Box => {
-                let x = tx - child.width.0 * eff_scale / 2.0;
-                let y = ty - child.height.0 * eff_scale / 2.0;
+                let x = tx - scaler.px(child.width / 2.0);
+                let y = ty - scaler.px(child.height / 2.0);
+                let w = scaler.px(child.width);
+                let h = scaler.px(child.height);
                 if child.style.corner_radius.0 > 0.0 {
+                    let r = scaler.px(child.style.corner_radius);
                     writeln!(svg, r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" rx="{:.2}" ry="{:.2}" {}/>"#,
-                             x, y, child.width.0 * eff_scale, child.height.0 * eff_scale, child.style.corner_radius.0 * eff_scale, child.style.corner_radius.0 * eff_scale, stroke_style).unwrap();
+                             x, y, w, h, r, r, stroke_style).unwrap();
                 } else {
                     writeln!(svg, r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" {}/>"#,
-                             x, y, child.width.0 * eff_scale, child.height.0 * eff_scale, stroke_style).unwrap();
+                             x, y, w, h, stroke_style).unwrap();
                 }
             }
             ObjectClass::Circle => {
-                let r = child.width.0 * eff_scale / 2.0;
+                let r = scaler.px(child.width / 2.0);
                 writeln!(svg, r#"  <circle cx="{:.2}" cy="{:.2}" r="{:.2}" {}/>"#,
                          tx, ty, r, stroke_style).unwrap();
             }
@@ -1821,7 +1819,7 @@ fn render_sublist_children(svg: &mut String, children: &[RenderedObject], offx: 
 
         // Render text for child
         if !child.text.is_empty() {
-            render_positioned_text(svg, &child.text, tx, ty, child.width.0 * eff_scale, child.height.0 * eff_scale);
+            render_positioned_text(svg, &child.text, tx, ty, scaler.px(child.width), scaler.px(child.height));
         }
 
         // Recursively render nested sublists
@@ -1859,10 +1857,10 @@ fn chop_line(x1: f64, y1: f64, x2: f64, y2: f64, amount: f64) -> (f64, f64, f64,
 }
 
 /// Render an oval (pill shape)
-fn render_oval(svg: &mut String, cx: f64, cy: f64, width_in: Inches, height_in: Inches, eff_scale: f64, stroke_style: &str) {
+fn render_oval(svg: &mut String, cx: f64, cy: f64, width_in: Inches, height_in: Inches, scaler: &Scaler, stroke_style: &str) {
     // Oval is a rounded rectangle where the radius is half the smaller dimension (still in inches until scaled)
-    let width = to_px_len(width_in, eff_scale);
-    let height = to_px_len(height_in, eff_scale);
+    let width = scaler.px(width_in);
+    let height = scaler.px(height_in);
     let radius = height.min(width) / 2.0;
     let x = cx - width / 2.0;
     let y = cy - height / 2.0;
@@ -1871,11 +1869,11 @@ fn render_oval(svg: &mut String, cx: f64, cy: f64, width_in: Inches, height_in: 
 }
 
 /// Render a cylinder shape
-fn render_cylinder(svg: &mut String, cx: f64, cy: f64, width_in: Inches, height_in: Inches, eff_scale: f64, _stroke_style: &str, style: &ObjectStyle) {
+fn render_cylinder(svg: &mut String, cx: f64, cy: f64, width_in: Inches, height_in: Inches, scaler: &Scaler, _stroke_style: &str, style: &ObjectStyle) {
     // Cylinder has elliptical top and bottom
     // The ellipse height is about 1/4 of the total width for a nice 3D effect
-    let width = to_px_len(width_in, eff_scale);
-    let height = to_px_len(height_in, eff_scale);
+    let width = scaler.px(width_in);
+    let height = scaler.px(height_in);
     let rx = width / 2.0;
     let ry = width / 8.0; // Ellipse vertical radius
 
@@ -1914,10 +1912,10 @@ fn render_cylinder(svg: &mut String, cx: f64, cy: f64, width_in: Inches, height_
 }
 
 /// Render a file shape (document with folded corner)
-fn render_file(svg: &mut String, cx: f64, cy: f64, width_in: Inches, height_in: Inches, eff_scale: f64, stroke_style: &str) {
+fn render_file(svg: &mut String, cx: f64, cy: f64, width_in: Inches, height_in: Inches, scaler: &Scaler, stroke_style: &str) {
     // File shape: rectangle with top-right corner folded
-    let width = to_px_len(width_in, eff_scale);
-    let height = to_px_len(height_in, eff_scale);
+    let width = scaler.px(width_in);
+    let height = scaler.px(height_in);
     let fold_size = width.min(height) * 0.2; // Fold is 20% of smaller dimension
 
     let x = cx - width / 2.0;
@@ -2072,11 +2070,6 @@ fn escape_xml(s: &str) -> String {
      .replace('<', "&lt;")
      .replace('>', "&gt;")
      .replace('"', "&quot;")
-}
-
-/// Convert a length in inches to pixels using the effective scale.
-fn to_px_len(l: Inches, eff_scale: f64) -> f64 {
-    l.0 * eff_scale
 }
 
 /// Render an arrowhead polygon at the end of a line

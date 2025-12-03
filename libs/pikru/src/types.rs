@@ -119,9 +119,26 @@ pub struct Scaler {
 impl Scaler {
     pub fn new(r_scale: f64) -> Self { Scaler { r_scale } }
 
+    /// Convert a length in inches to pixels.
     pub fn len(&self, l: Length) -> Px { l.to_px(self.r_scale) }
+
+    /// Convert a length in inches to raw f64 pixels (convenience for SVG output).
+    #[inline]
+    pub fn px(&self, l: Length) -> f64 { l.0 * self.r_scale }
+
+    /// Convert a point in inches to pixels.
     pub fn point(&self, p: Point<Length>) -> Point<Px> {
         Point { x: self.len(p.x), y: self.len(p.y) }
+    }
+
+    /// Convert a size in inches to pixels.
+    pub fn size(&self, s: Size<Length>) -> Size<Px> {
+        Size { w: self.len(s.w), h: self.len(s.h) }
+    }
+
+    /// Convert a bounding box in inches to pixels.
+    pub fn bbox(&self, b: BBox<Length>) -> BBox<Px> {
+        BBox { min: self.point(b.min), max: self.point(b.max) }
     }
 }
 
