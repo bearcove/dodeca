@@ -54,7 +54,7 @@ dependencies = [
  "actix-utils",
  "base64 0.22.1",
  "bitflags 2.10.0",
- "brotli",
+ "brotli 8.0.2",
  "bytes",
  "bytestring",
  "derive_more 2.0.1",
@@ -650,13 +650,34 @@ checksum = "36f64beae40a84da1b4b26ff2761a5b895c12adc41dc25aaee1c4f2bbfe97a6e"
 
 [[package]]
 name = "brotli"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc97b8f16f944bba54f0433f07e30be199b6dc2bd25937444bbad560bcea29bd"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+ "brotli-decompressor 4.0.3",
+]
+
+[[package]]
+name = "brotli"
 version = "8.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4bd8b9603c7aa97359dbd97ecf258968c95f3adddd6db2f7e7a5bef101c84560"
 dependencies = [
  "alloc-no-stdlib",
  "alloc-stdlib",
- "brotli-decompressor",
+ "brotli-decompressor 5.0.0",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a334ef7c9e23abf0ce748e8cd309037da93e606ad52eb372e4ce327a0dcfbdfd"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
 ]
 
 [[package]]
@@ -1865,7 +1886,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2138,37 +2159,32 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "fontcull"
-version = "1.0.5"
-source = "git+https://github.com/bearcove/fontcull#e4a4ecd30c37b1c7620ce9e2d8efc0dfe63e691a"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da02690abe372eb1bc94a21392d58cc25e759a8b3196b50795e6298d70e8e82c"
 dependencies = [
- "clap",
- "color-eyre",
- "eyre",
  "fontcull-klippa",
  "fontcull-read-fonts",
  "fontcull-skrifa",
  "fontcull-write-fonts",
- "glob",
  "scraper",
- "serde",
- "tracing",
- "tracing-subscriber",
- "url",
- "woff",
+ "woofwoof",
 ]
 
 [[package]]
 name = "fontcull-font-types"
-version = "0.10.1"
-source = "git+https://github.com/bearcove/fontcull#e4a4ecd30c37b1c7620ce9e2d8efc0dfe63e691a"
+version = "0.10.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7187211f698d3144c4278d99cede5f6d67814cd676bbf1d2b8607049b3d76b2"
 dependencies = [
  "bytemuck",
 ]
 
 [[package]]
 name = "fontcull-klippa"
-version = "0.1.1"
-source = "git+https://github.com/bearcove/fontcull#e4a4ecd30c37b1c7620ce9e2d8efc0dfe63e691a"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0ceb68d1b34e3c675e78f1cabbc49e19c5962d6c6173b7c77d77392431b99840"
 dependencies = [
  "clap",
  "fnv",
@@ -2181,8 +2197,9 @@ dependencies = [
 
 [[package]]
 name = "fontcull-read-fonts"
-version = "0.37.0"
-source = "git+https://github.com/bearcove/fontcull#e4a4ecd30c37b1c7620ce9e2d8efc0dfe63e691a"
+version = "0.38.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "170928e2d36f9605167b8480acd6e9fc5ef5daaf64fac43d178af9c563adba29"
 dependencies = [
  "bytemuck",
  "fontcull-font-types",
@@ -2190,8 +2207,9 @@ dependencies = [
 
 [[package]]
 name = "fontcull-skrifa"
-version = "0.39.1"
-source = "git+https://github.com/bearcove/fontcull#e4a4ecd30c37b1c7620ce9e2d8efc0dfe63e691a"
+version = "0.39.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c39120d1806ed11baf0559537bd601c6c60d7bf84ddcc385adea8fb8ff62d35"
 dependencies = [
  "bytemuck",
  "fontcull-read-fonts",
@@ -2199,8 +2217,9 @@ dependencies = [
 
 [[package]]
 name = "fontcull-write-fonts"
-version = "0.44.2"
-source = "git+https://github.com/bearcove/fontcull#e4a4ecd30c37b1c7620ce9e2d8efc0dfe63e691a"
+version = "0.44.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47b506b0883cf5f8998391cbffa92024143cedcbd0f344fc3f1507dec12956cf"
 dependencies = [
  "fontcull-font-types",
  "fontcull-read-fonts",
@@ -4057,7 +4076,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5673,7 +5692,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.1",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -6140,7 +6159,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6910,7 +6929,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7966,7 +7985,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8273,13 +8292,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 
 [[package]]
-name = "woff"
-version = "0.6.2"
+name = "woofwoof"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3d61720725e0f4bc536c1483b2d09f62469ea9dead6b03bad70dbfea649d90e"
+checksum = "e2d1f98d082af287cb121f931ccd30248fb665485bbb11a03bc686d2454a2bb4"
 dependencies = [
+ "brotli 7.0.0",
  "cc",
- "libc",
 ]
 
 [[package]]

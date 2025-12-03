@@ -111,7 +111,7 @@ url = "2"  # URL parsing for domain extraction
 lol_html = "2.7"        # Streaming HTML rewriter
 
 # Font subsetting (static analysis + klippa backend)
-fontcull = { git = "https://github.com/bearcove/fontcull", default-features = false, features = ["klippa", "static-analysis"] }
+fontcull = { version = "2.0", default-features = false, features = ["static-analysis"] }
 
 # Image processing (decode common formats, encode via plugins)
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif"] }
