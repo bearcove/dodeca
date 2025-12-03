@@ -1751,39 +1751,60 @@ async fn serve_plain(
     let server_for_watcher = server.clone();
 
     std::thread::spawn(move || {
+        use std::sync::mpsc::TryRecvError;
         use std::time::{Duration, Instant};
+
         let debounce = Duration::from_millis(100);
         let mut last_rebuild = Instant::now() - debounce;
+        let watcher = watcher; // keep Arc alive
+        let mut pending_events: Vec<file_watcher::FileEvent> = Vec::new();
 
-        // Keep watcher alive by holding the Arc
-        let watcher = watcher;
-
-        for event in watcher_rx {
+        loop {
+            let event = match watcher_rx.recv() {
+                Ok(event) => event,
+                Err(_) => break,
+            };
             let event = match event {
                 Ok(e) => e,
                 Err(_) => continue,
             };
 
-            // Process the notify event into our FileEvent type
-            let file_events = file_watcher::process_notify_event(event, &watcher_config, &watcher);
-
+            let mut file_events = file_watcher::process_notify_event(event, &watcher_config, &watcher);
             if file_events.is_empty() {
                 continue;
             }
+            pending_events.append(&mut file_events);
 
-            if last_rebuild.elapsed() < debounce {
-                continue;
+            // Coalesce any immediately available events so a burst is handled together.
+            loop {
+                match watcher_rx.try_recv() {
+                    Ok(Ok(next)) => {
+                        let mut more =
+                            file_watcher::process_notify_event(next, &watcher_config, &watcher);
+                        if !more.is_empty() {
+                            pending_events.append(&mut more);
+                        }
+                    }
+                    Ok(Err(_)) => continue,
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => return,
+                }
             }
 
-            for file_event in &file_events {
+            let elapsed = last_rebuild.elapsed();
+            if elapsed < debounce {
+                std::thread::sleep(debounce - elapsed);
+            }
+
+            for file_event in pending_events.drain(..) {
                 match file_event {
                     file_watcher::FileEvent::Changed(path) => {
                         println!("  Changed: {}", path.file_name().unwrap_or("?"));
-                        handle_file_changed(path, &watcher_config, &server_for_watcher);
+                        handle_file_changed(&path, &watcher_config, &server_for_watcher);
                     }
                     file_watcher::FileEvent::Removed(path) => {
                         println!("  {} Removed: {}", "-".red(), path.file_name().unwrap_or("?"));
-                        handle_file_removed(path, &watcher_config, &server_for_watcher);
+                        handle_file_removed(&path, &watcher_config, &server_for_watcher);
                     }
                     file_watcher::FileEvent::DirectoryCreated(path) => {
                         println!("  {} New directory: {}", "+".green(), path.file_name().unwrap_or("?"));
@@ -1791,7 +1812,6 @@ async fn serve_plain(
                 }
             }
 
-            // Trigger live reload
             server_for_watcher.trigger_reload();
             last_rebuild = Instant::now();
         }
