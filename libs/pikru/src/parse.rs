@@ -932,16 +932,43 @@ fn parse_dist_call(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
 }
 
 fn parse_number(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
-    let s = pair.as_str();
-    // Handle hex numbers
-    if s.starts_with("0x") || s.starts_with("0X") {
-        let n = u64::from_str_radix(&s[2..], 16)
+    let raw = pair.as_str();
+
+    // Hex literal (kept as-is, like C)
+    if raw.starts_with("0x") || raw.starts_with("0X") {
+        let n = u64::from_str_radix(&raw[2..], 16)
             .map_err(|e| miette::miette!("Invalid hex number: {}", e))?;
         return Ok(Expr::Number(n as f64));
     }
-    // Handle regular numbers (may have unit suffix)
-    let s = s.trim_end_matches(|c: char| c.is_alphabetic());
-    let n: f64 = s.parse().map_err(|e| miette::miette!("Invalid number: {}", e))?;
+
+    // Detect 2-letter unit suffix (in/cm/mm/pt/px/pc)
+    let (number_part, unit_suffix) = if raw.len() >= 2 {
+        let (head, tail) = raw.split_at(raw.len() - 2);
+        match tail {
+            "in" | "cm" | "mm" | "pt" | "px" | "pc" => (head, Some(tail)),
+            _ => (raw, None),
+        }
+    } else {
+        (raw, None)
+    };
+
+    let mut n: f64 = number_part
+        .parse()
+        .map_err(|e| miette::miette!("Invalid number: {}", e))?;
+
+    // Convert to inches to mirror pikchr.c:pik_atof
+    if let Some(unit) = unit_suffix {
+        n = match unit {
+            "in" => n,
+            "cm" => n / 2.54,
+            "mm" => n / 25.4,
+            "px" => n / 96.0,
+            "pt" => n / 72.0,
+            "pc" => n / 6.0,
+            _ => n, // unreachable due to match above
+        };
+    }
+
     Ok(Expr::Number(n))
 }
 

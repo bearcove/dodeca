@@ -4,6 +4,7 @@ pub mod ast;
 pub mod macros;
 pub mod parse;
 pub mod render;
+pub mod types;
 
 #[derive(Parser)]
 #[grammar = "pikchr.pest"]

@@ -312,7 +312,7 @@ pub struct RelExpr {
 /// Expression
 #[derive(Debug, Clone)]
 pub enum Expr {
-    Number(f64),
+    Number(f64), // stored in inches already
     Variable(String),
     PlaceName(String),
     ParenExpr(Box<Expr>),
