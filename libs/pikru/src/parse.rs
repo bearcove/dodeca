@@ -831,7 +831,11 @@ fn parse_textattr(pair: Pair<Rule>) -> Result<TextAttr, miette::Report> {
 fn parse_relexpr(pair: Pair<Rule>) -> Result<RelExpr, miette::Report> {
     let mut inner = pair.into_inner();
     let expr = parse_expr(inner.next().unwrap())?;
-    let is_percent = inner.next().map(|p| p.as_str() == "%").unwrap_or(false);
+    // Check if there's a percent rule following the expression
+    let is_percent = inner
+        .next()
+        .map(|p| p.as_rule() == Rule::percent)
+        .unwrap_or(false);
     Ok(RelExpr { expr, is_percent })
 }
 

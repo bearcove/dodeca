@@ -222,6 +222,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dissimilar"
+version = "1.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8975ffdaa0ef3661bfe02dbdcc06c9f829dfafe6a3c474de366a8d5e44276921"
+
+[[package]]
 name = "encode_unicode"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -439,6 +445,7 @@ version = "0.1.0"
 dependencies = [
  "camino",
  "datatest-stable",
+ "dissimilar",
  "insta",
  "miette",
  "pest",

@@ -14,6 +14,7 @@ time = { version = "0.3.44", features = ["formatting", "macros"] }
 [dev-dependencies]
 insta = { version = "1.42", features = ["glob"] }
 datatest-stable = "0.3"
+dissimilar = "1.0"
 regex-lite = "0.1.8"
 roxmltree = "0.20"
 

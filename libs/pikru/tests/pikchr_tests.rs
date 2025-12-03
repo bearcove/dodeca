@@ -809,6 +809,52 @@ impl SvgDiff {
     }
 }
 
+/// Format a colored inline diff using dissimilar
+fn format_inline_diff(c_svg: &str, rust_svg: &str) -> String {
+    use dissimilar::Chunk;
+
+    let chunks = dissimilar::diff(c_svg, rust_svg);
+    let mut output = String::new();
+
+    output.push_str("\n=== Inline Diff (C vs Rust) ===\n");
+    output.push_str("Legend: [-C only-] [+Rust only+] [unchanged]\n\n");
+
+    for chunk in chunks {
+        match chunk {
+            Chunk::Equal(s) => {
+                // For equal chunks, show abbreviated if long
+                if s.len() > 100 {
+                    let lines: Vec<&str> = s.lines().collect();
+                    if lines.len() > 3 {
+                        output.push_str(lines[0]);
+                        output.push('\n');
+                        output
+                            .push_str(&format!("... ({} unchanged lines) ...\n", lines.len() - 2));
+                        output.push_str(lines[lines.len() - 1]);
+                        output.push('\n');
+                    } else {
+                        output.push_str(s);
+                    }
+                } else {
+                    output.push_str(s);
+                }
+            }
+            Chunk::Delete(s) => {
+                output.push_str("\x1b[31m[-");
+                output.push_str(s);
+                output.push_str("-]\x1b[0m");
+            }
+            Chunk::Insert(s) => {
+                output.push_str("\x1b[32m[+");
+                output.push_str(s);
+                output.push_str("+]\x1b[0m");
+            }
+        }
+    }
+
+    output
+}
+
 /// Run the C pikchr implementation and return its SVG output
 fn run_c_pikchr(source: &str) -> String {
     let mut child = Command::new(C_PIKCHR)
@@ -849,12 +895,12 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
             match compare_svgs(&c_output, &rust_output) {
                 Ok(diff) => {
                     if !diff.is_empty() {
+                        let inline_diff = format_inline_diff(&c_output, &rust_output);
                         panic!(
-                            "SVG mismatch for {}:\n{}\n\n--- C output ---\n{}\n\n--- Rust output ---\n{}",
+                            "SVG mismatch for {}:\n{}\n{}",
                             path,
                             diff.format_report(),
-                            c_output,
-                            rust_output
+                            inline_diff
                         );
                     }
                 }

@@ -661,7 +661,29 @@ fn render_object_stmt(
     for attr in &obj_stmt.attributes {
         match attr {
             Attribute::NumProperty(prop, relexpr) => {
-                let val = eval_len(ctx, &relexpr.expr)?;
+                let raw_val = eval_len(ctx, &relexpr.expr)?;
+                // If percent, multiply by current value (or default) to get actual value
+                let val = if relexpr.is_percent {
+                    let base = match prop {
+                        NumProperty::Width => width,
+                        NumProperty::Height => height,
+                        NumProperty::Radius => {
+                            match class {
+                                ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Arc => {
+                                    width / 2.0 // current radius
+                                }
+                                _ => style.corner_radius,
+                            }
+                        }
+                        NumProperty::Diameter => width,
+                        NumProperty::Thickness => style.stroke_width,
+                    };
+                    // raw_val is the percentage as a number (e.g., 50 for 50%)
+                    // Convert to fraction and multiply by base
+                    base * (raw_val.raw() / 100.0)
+                } else {
+                    raw_val
+                };
                 match prop {
                     NumProperty::Width => width = val,
                     NumProperty::Height => height = val,

@@ -80,4 +80,4 @@ Guidelines for keeping Pikru layout/emit code safe and unit-correct using Rust t
 
 ### Status
 
-- Type-safety milestone is complete. Compile-fail (trybuild) UI tests are deferred so we can focus on the PARITY_PLAN layout semantics work; reintroduce them later if we need automated guardrails for invalid type mixes.
+- Type-safety milestone is complete; no further work is being tracked in this document. Effort now shifts entirely to the PARITY_PLAN layout semantics tasks.

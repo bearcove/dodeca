@@ -118,8 +118,9 @@ textattr = {
 }
 
 // === Expressions ===
-relexpr = { expr ~ "%"? }
+relexpr = { expr ~ percent? }
 optrelexpr = { relexpr? }
+percent = { "%" }
 
 expr = { prefix? ~ primary ~ (infix ~ prefix? ~ primary)* }
 prefix = { "-" | "+" }
