@@ -1,0 +1,34 @@
+# Knope configuration for dodeca releases
+# https://knope.tech/
+
+[package]
+versioned_files = ["Cargo.toml"]
+changelog = "CHANGELOG.md"
+
+[[workflows]]
+name = "release"
+
+[[workflows.steps]]
+type = "PrepareRelease"
+
+[[workflows.steps]]
+type = "Command"
+command = "cargo check --locked"
+
+[[workflows.steps]]
+type = "Command"
+command = "git add -A && git commit -m 'chore: prepare release'"
+shell = true
+
+[[workflows.steps]]
+type = "Release"
+
+[[workflows]]
+name = "document-change"
+
+[[workflows.steps]]
+type = "CreateChangeFile"
+
+[github]
+owner = "bearcove"
+repo = "dodeca"
