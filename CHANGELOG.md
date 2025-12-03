@@ -1,3 +1,10 @@
+## 0.2.10 (2025-12-03)
+
+### Fixes
+
+- use bash shell for all WASM build steps (Windows PATH issue)
+- add cargo bin to PATH for wasm-bindgen
+
 ## 0.2.9 (2025-12-03)
 
 ### Fixes
