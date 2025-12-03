@@ -1835,11 +1835,11 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     let thickness = get_length(ctx, "thickness", defaults::STROKE_WIDTH.raw());
 
     let margin = margin_base + thickness;
-    let r_scale = 144.0; // match pikchr.c rScale
+    let r_scale = 144.0; // match pikchr.c rScale - always use base scale for coordinates
     let scale = get_scalar(ctx, "scale", 1.0);
-    let eff_scale = r_scale * scale;
-    let scaler = Scaler::try_new(eff_scale)
-        .map_err(|e| miette::miette!("invalid scale value {}: {}", eff_scale, e))?;
+    // C pikchr uses r_scale for coordinate conversion, scale only affects display size
+    let scaler = Scaler::try_new(r_scale)
+        .map_err(|e| miette::miette!("invalid scale value {}: {}", r_scale, e))?;
     let arrow_ht = Inches(get_length(ctx, "arrowht", 0.08));
     let arrow_wid = Inches(get_length(ctx, "arrowwid", 0.06));
     let dashwid = Inches(get_length(ctx, "dashwid", 0.05));
@@ -1862,20 +1862,37 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
     let mut svg = String::new();
 
-    // SVG header (add class and pixel dimensions like C)
-    let width_px = scaler.px(view_width);
-    let height_px = scaler.px(view_height);
+    // SVG header - C pikchr only adds width/height when scale != 1.0
+    let viewbox_width = scaler.px(view_width);
+    let viewbox_height = scaler.px(view_height);
     let timestamp = utc_timestamp();
-    writeln!(
-        svg,
-        r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" width="{:.0}" height="{:.0}" viewBox="0 0 {:.2} {:.2}" data-pikchr-date="{}">"#,
-        width_px,
-        height_px,
-        width_px,
-        height_px,
-        timestamp
-    )
-    .unwrap();
+
+    // C pikchr: when scale != 1.0, display width = viewBox width * scale
+    let is_scaled = scale < 0.99 || scale > 1.01;
+    if is_scaled {
+        let display_width = (viewbox_width * scale).round();
+        let display_height = (viewbox_height * scale).round();
+        writeln!(
+            svg,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" width="{:.0}" height="{:.0}" viewBox="0 0 {:.2} {:.2}" data-pikchr-date="{}">"#,
+            display_width,
+            display_height,
+            viewbox_width,
+            viewbox_height,
+            timestamp
+        )
+        .unwrap();
+    } else {
+        // No scale - omit width/height attributes (let browser size by viewBox)
+        writeln!(
+            svg,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" viewBox="0 0 {:.2} {:.2}" data-pikchr-date="{}">"#,
+            viewbox_width,
+            viewbox_height,
+            timestamp
+        )
+        .unwrap();
+    }
 
     // Arrowheads are now rendered inline as polygon elements (matching C pikchr)
 
