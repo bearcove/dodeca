@@ -5,6 +5,7 @@ mod cas;
 mod config;
 mod data;
 mod db;
+mod error_pages;
 mod html_diff;
 mod image;
 mod link_checker;
