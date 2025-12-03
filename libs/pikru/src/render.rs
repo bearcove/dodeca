@@ -64,6 +64,8 @@ mod defaults {
     pub const LINE_WIDTH: Inches = Inches::inches(0.5); // linewid default
     pub const BOX_WIDTH: Inches = Inches::inches(0.75);
     pub const BOX_HEIGHT: Inches = Inches::inches(0.5);
+    pub const DIAMOND_WIDTH: Inches = Inches::inches(1.0); // C pikchr: diamond is larger than box
+    pub const DIAMOND_HEIGHT: Inches = Inches::inches(0.75);
     pub const CIRCLE_RADIUS: Inches = Inches::inches(0.25);
     pub const STROKE_WIDTH: Inches = Inches::inches(0.015);
     pub const FONT_SIZE: f64 = 0.14; // approx charht (kept as f64 for text calculations)
@@ -586,8 +588,8 @@ fn render_object_stmt(
             ),
             ClassName::Diamond => (
                 ObjectClass::Diamond,
-                defaults::BOX_WIDTH,
-                defaults::BOX_HEIGHT,
+                defaults::DIAMOND_WIDTH,
+                defaults::DIAMOND_HEIGHT,
             ),
             ClassName::File => (ObjectClass::File, defaults::BOX_WIDTH, defaults::BOX_HEIGHT),
             ClassName::Line => (ObjectClass::Line, defaults::LINE_WIDTH, Inches::ZERO),
@@ -2004,22 +2006,30 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     &stroke_style,
                 );
             }
+            ObjectClass::Diamond => {
+                // Diamond: rotated square/rhombus with vertices at edges
+                // C pikchr uses path: M left,cy L cx,bottom L right,cy L cx,top Z
+                let half_w = scaler.px(obj.width / 2.0);
+                let half_h = scaler.px(obj.height / 2.0);
+                let left = tx - half_w;
+                let right = tx + half_w;
+                let top = ty - half_h;
+                let bottom = ty + half_h;
+                writeln!(
+                    svg,
+                    r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}L{:.2},{:.2}L{:.2},{:.2}Z" {}/>"#,
+                    left, ty, tx, bottom, right, ty, tx, top, stroke_style
+                )
+                .unwrap();
+            }
             ObjectClass::Line | ObjectClass::Arrow => {
-                let (auto_sx, auto_sy, auto_ex, auto_ey) = if obj.waypoints.len() <= 2 {
+                // Apply auto-chop only when chop attribute is set (matching C pikchr behavior)
+                let (draw_sx, draw_sy, draw_ex, draw_ey) = if obj.style.chop
+                    && obj.waypoints.len() <= 2
+                {
                     apply_auto_chop_simple_line(&scaler, obj, sx, sy, ex, ey, offset_x, offset_y)
                 } else {
                     (sx, sy, ex, ey)
-                };
-                // Apply chop if needed (shorten line from both ends)
-                let chop_amount_px = if obj.style.chop {
-                    scaler.px(defaults::CIRCLE_RADIUS)
-                } else {
-                    0.0
-                };
-                let (draw_sx, draw_sy, draw_ex, draw_ey) = if chop_amount_px > 0.0 {
-                    chop_line(auto_sx, auto_sy, auto_ex, auto_ey, chop_amount_px)
-                } else {
-                    (auto_sx, auto_sy, auto_ex, auto_ey)
                 };
 
                 if obj.waypoints.len() <= 2 {
@@ -2080,8 +2090,11 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     .unwrap();
                 } else {
                     // Multi-segment polyline - chop first and last segments
+                    // For polylines, use fixed chop amount (circle radius) since we don't
+                    // have endpoint detection for multi-segment paths yet
                     let mut points = obj.waypoints.clone();
                     if obj.style.chop && points.len() >= 2 {
+                        let chop_amount_px = scaler.px(defaults::CIRCLE_RADIUS);
                         // Chop start
                         let p0 = points[0];
                         let p1 = points[1];
@@ -2599,14 +2612,17 @@ fn chop_against_endpoint(
     offset_x: Inches,
     offset_y: Inches,
 ) -> Option<(f64, f64)> {
+    let cx = scaler.px(endpoint.center.x + offset_x);
+    let cy = scaler.px(endpoint.center.y + offset_y);
+    let half_w = scaler.px(endpoint.width / 2.0);
+    let half_h = scaler.px(endpoint.height / 2.0);
+
     match endpoint.class {
-        ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval => {
-            let cx = scaler.px(endpoint.center.x + offset_x);
-            let cy = scaler.px(endpoint.center.y + offset_y);
-            let rx = scaler.px(endpoint.width / 2.0);
-            let ry = scaler.px(endpoint.height / 2.0);
-            chop_against_ellipse(cx, cy, rx, ry, toward)
+        ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval | ObjectClass::Cylinder => {
+            chop_against_ellipse(cx, cy, half_w, half_h, toward)
         }
+        ObjectClass::Box | ObjectClass::File => chop_against_box(cx, cy, half_w, half_h, toward),
+        ObjectClass::Diamond => chop_against_diamond(cx, cy, half_w, half_h, toward),
         _ => None,
     }
 }
@@ -2635,6 +2651,94 @@ fn chop_against_ellipse(
 
     let scale = 1.0 / denom.sqrt();
     Some((cx + dx * scale, cy + dy * scale))
+}
+
+/// Find the intersection of a ray from box center toward a target point with the box edge.
+/// Returns the point on the box boundary closest to the target.
+fn chop_against_box(
+    cx: f64,
+    cy: f64,
+    half_w: f64,
+    half_h: f64,
+    toward: (f64, f64),
+) -> Option<(f64, f64)> {
+    if half_w <= 0.0 || half_h <= 0.0 {
+        return None;
+    }
+
+    let dx = toward.0 - cx;
+    let dy = toward.1 - cy;
+    if dx.abs() < f64::EPSILON && dy.abs() < f64::EPSILON {
+        return None;
+    }
+
+    // Find t values for intersection with each edge
+    // Ray: P = center + t * (toward - center)
+    // We want the smallest positive t that intersects an edge
+
+    let mut t_min = f64::INFINITY;
+
+    // Right edge: x = cx + half_w
+    if dx.abs() > f64::EPSILON {
+        let t = half_w / dx.abs();
+        if t > 0.0 && t < t_min {
+            let y_at_t = dy * t;
+            if y_at_t.abs() <= half_h {
+                t_min = t;
+            }
+        }
+    }
+
+    // Top/bottom edge: y = cy +/- half_h
+    if dy.abs() > f64::EPSILON {
+        let t = half_h / dy.abs();
+        if t > 0.0 && t < t_min {
+            let x_at_t = dx * t;
+            if x_at_t.abs() <= half_w {
+                t_min = t;
+            }
+        }
+    }
+
+    if t_min.is_finite() {
+        Some((cx + dx * t_min, cy + dy * t_min))
+    } else {
+        None
+    }
+}
+
+/// Find the intersection of a ray from diamond center toward a target point with the diamond edge.
+/// A diamond is a rotated square (rhombus) with vertices at (cx±half_w, cy) and (cx, cy±half_h).
+fn chop_against_diamond(
+    cx: f64,
+    cy: f64,
+    half_w: f64,
+    half_h: f64,
+    toward: (f64, f64),
+) -> Option<(f64, f64)> {
+    if half_w <= 0.0 || half_h <= 0.0 {
+        return None;
+    }
+
+    let dx = toward.0 - cx;
+    let dy = toward.1 - cy;
+    if dx.abs() < f64::EPSILON && dy.abs() < f64::EPSILON {
+        return None;
+    }
+
+    // Diamond edges are defined by: |x - cx|/half_w + |y - cy|/half_h = 1
+    // For a ray from center: P = (cx + t*dx, cy + t*dy)
+    // Substituting: |t*dx|/half_w + |t*dy|/half_h = 1
+    // t * (|dx|/half_w + |dy|/half_h) = 1
+    // t = 1 / (|dx|/half_w + |dy|/half_h)
+
+    let denom = dx.abs() / half_w + dy.abs() / half_h;
+    if denom <= 0.0 {
+        return None;
+    }
+
+    let t = 1.0 / denom;
+    Some((cx + dx * t, cy + dy * t))
 }
 
 /// Render an oval (pill shape)
