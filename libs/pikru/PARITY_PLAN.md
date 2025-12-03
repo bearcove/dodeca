@@ -1,47 +1,101 @@
-# Pikru Parity Refactor Plan (Rust-first, zero-cost abstractions)
+# Pikru Parity Refactor Plan
 
-## Core Ideas
-- Make units explicit: lengths (inches), scalars, angles, colors as distinct newtypes.
-- Separate geometry from serialization: draw in inches, convert to px once at emit.
-- Centralize state/resolution: one context for variables, directions, object lookup.
-- Treat outputs as variants: SVG vs print/assert diagnostics.
-- Mirror C layout semantics; rScale applied only at emission.
+A roadmap for achieving C-pikchr compatibility using Rust-first, zero-cost abstractions.
 
-## Planned Types
-- `Length(pub f64)` inches; `Px(pub f64)`; `Angle(pub f64)` degrees; `Scalar(pub f64)`.
-- `Color` enum: Named(String) | Rgb(u8,u8,u8) | Rgba(u8,u8,u8,u8) | Raw(String).
-- `Point<T>` with `x: T, y: T`; `Size<T>` for width/height.
-- `Stroke { color: Color, width: Length, dash: DashPattern, invisible: bool }`
-- `Fill { color: Color }`
-- `DashPattern` enum (Solid, Dotted(Length,Length), Dashed(Length,Length)).
-- `Shape<Len>`: Box, Circle, Ellipse, Line { pts: Vec<Point<Len>> }, etc.
-- `Drawable<Len>`: { shape: Shape<Len>, stroke: Stroke, fill: Fill, text: Vec<TextSpan> }.
-- `TextSpan { pos: Point<Len>, value: String, font: FontSpec }`.
-- `Scaler { r_scale: f64 }` with `fn to_px(Point<Len>) -> Point<Px>`, etc.
-- `EvalValue`: Length | Scalar | Color | Angle (type-checked ops).
-- `RenderResult`: Svg(String) | Html(String) | Error(Diagnostic).
-- `LayoutContext`: dir/pos, typed vars, last/prev objects, bbox in inches; helpers `advance(len)`, `place`, `edge`, `even_with`, `until_even_with`.
+## Design Principles
+
+1. **Explicit units** - Lengths (inches), pixels, scalars, and angles as distinct newtypes prevent unit confusion at compile time.
+2. **Geometry/serialization separation** - Layout in inches; convert to pixels once at emit time.
+3. **Centralized state** - Single context for variables, directions, current position, object lookup.
+4. **Output variants** - SVG for diagrams, HTML for print/assert diagnostics.
+5. **C layout semantics** - Match the reference implementation; rScale applied only at emission.
+
+## Type System
+
+```
+                    ┌─────────────────────────────────────────┐
+    Primitives      │  Length(f64)   - inches (canonical)     │
+                    │  Px(f64)       - pixels (after scaling) │
+                    │  Scalar(f64)   - unitless               │
+                    │  Angle(f64)    - degrees                │
+                    │  Color         - Named|Rgb|Rgba|Raw     │
+                    └─────────────────────────────────────────┘
+                                        │
+                    ┌───────────────────▼───────────────────┐
+    Geometry        │  Point<T>    { x: T, y: T }           │
+    (generic)       │  Size<T>     { w: T, h: T }           │
+                    │  BBox<T>     { min: Point, max: Point }│
+                    └───────────────────────────────────────┘
+                                        │
+                    ┌───────────────────▼───────────────────┐
+    Aliases         │  PtIn  = Point<Length>                │
+                    │  PtPx  = Point<Px>                    │
+                    │  BoxIn = BBox<Length>                 │
+                    └───────────────────────────────────────┘
+                                        │
+                    ┌───────────────────▼───────────────────┐
+    Conversion      │  Scaler { r_scale: f64 }              │
+                    │    .len(Length) -> Px                 │
+                    │    .point(Point<Length>) -> Point<Px> │
+                    └───────────────────────────────────────┘
+```
+
+### Planned (not yet implemented)
+
+| Type | Purpose |
+|------|---------|
+| `Stroke` | `{ color, width: Length, dash: DashPattern, invisible: bool }` |
+| `Fill` | `{ color: Color }` |
+| `DashPattern` | `Solid \| Dotted(Length, Length) \| Dashed(Length, Length)` |
+| `Shape<T>` | `Box \| Circle \| Ellipse \| Line { pts: Vec<Point<T>> } \| ...` |
+| `Drawable<T>` | `{ shape, stroke, fill, text: Vec<TextSpan> }` |
+| `TextSpan` | `{ pos: Point<T>, value: String, font: FontSpec }` |
+| `EvalValue` | `Length \| Scalar \| Color \| Angle` for type-checked expr eval |
+| `LayoutContext` | dir, pos, typed vars, last/prev objects, bbox accumulator |
 
 ## Pipeline
-1. Parse → AST (unchanged grammar).
-2. Macro expand.
-3. Evaluate AST into `Drawable<Length>` using `LayoutContext`:
-   - context holds current dir/pos, vars (typed maps), last/prev objects.
-   - helpers: `advance(len)`, `place(obj_ref)`, `edge(obj_ref, ep)`.
-4. Emit: map `Drawable<Length>` to `Drawable<Px>` via `Scaler`; serialize SVG (formatters on Color/Stroke/Fill).
-5. Print/assert: produce Html/Error variants; tests can compare accordingly.
 
-## Incremental Steps
-1) Introduce newtypes (`Length`, `Scalar`, `Angle`, `Color`) + `Scaler`; adjust formatting helpers. **(types done; Scaler ready)**
-2) Refactor emitter to use inch space + `Scaler` for all coords/strokes/dashes/text; ensure bbox/margins stay in inches. **(partially done)**
-3) Port layout semantics: advance, centering, even/with, until even with, chop/arrowheads, sublist local coords, bbox accumulation (in inches).
-4) Rework evaluator to return `EvalValue`; enforce unit-safe arithmetic; propagate math errors for assert/print diagnostics.
-5) Model `Drawable` and populate from AST (box/circle/line/arrow/spline/text) in inches; add style (stroke/fill/dash from vars/dashwid) and text spans with char metrics.
-6) Emit: apply `Scaler` once; dash arrays from `dashwid`, arrow sizes from `arrowwid/arrowht`, stroke widths from `thickness`.
-7) Print/assert path: produce HTML with `<br>` and C-like error lines; fall back to SVG only when objects exist.
-8) Style parity: colors (hex/rgb/rgba/named), fg/bg vars, font-size initial, data-pikchr-date (manifest date) and class="pikchr".
-9) Margins: apply margin+thickness+side margins in inches before viewBox.
+```
+  ┌───────┐    ┌────────┐    ┌──────────────────┐    ┌─────────────────┐
+  │ Parse │───▶│ Expand │───▶│ Evaluate (inches)│───▶│ Emit (pixels)   │
+  │  AST  │    │ Macros │    │  LayoutContext   │    │ Scaler → SVG    │
+  └───────┘    └────────┘    └──────────────────┘    └─────────────────┘
+                                      │
+                              ┌───────▼───────┐
+                              │ Drawable<Len> │
+                              │ with styles   │
+                              └───────────────┘
+```
+
+## Progress Tracker
+
+### Done
+
+- [x] **Primitives**: `Length`, `Px`, `Scalar`, `Angle`, `Color` newtypes
+- [x] **Geometry**: Generic `Point<T>`, `Size<T>`, `BBox<T>`
+- [x] **Scaler**: `len()`, `point()` for Length→Px conversion
+- [x] **Operator traits**: `Add`, `Sub`, `Mul<f64>`, `Div<f64>`, `AddAssign`, `SubAssign` on `Length`
+- [x] **Tests**: `even_with` and `until_even_with` parity tests against C
+
+### In Progress
+
+- [ ] Wire typed geometry into `render.rs` (replace `Point { x: Length, y: Length }` with `PtIn`)
+- [ ] Refactor emitter to use `Scaler` for all coord/stroke/dash conversions
+
+### Pending
+
+| Step | Description |
+|------|-------------|
+| 3 | Layout semantics: advance, centering, chop/arrowheads, sublist local coords, bbox in inches |
+| 4 | Evaluator returns `EvalValue`; unit-safe arithmetic; math error diagnostics |
+| 5 | `Drawable<Length>` model populated from AST; styles from vars |
+| 6 | Emit: dash arrays from `dashwid`, arrow sizes, stroke widths via Scaler |
+| 7 | Print/assert: HTML output with `<br>` and C-like error lines |
+| 8 | Style parity: hex/rgb/rgba colors, fg/bg vars, font-size, `data-pikchr-date`, `class="pikchr"` |
+| 9 | Margins: margin + thickness + side margins in inches before viewBox |
 
 ## Notes
-- Keep public API `pikchr(&str) -> Result<String>` returning SVG; add internal helper for Html diagnostics.
-- Zero-cost: newtypes wrap `f64`; conversions inline; no runtime overhead beyond method calls optimized away.
+
+- Public API stays `pikchr(&str) -> Result<String>` returning SVG.
+- Zero-cost: newtypes wrap `f64`; conversions inline; no runtime overhead.
+- All layout math happens in inch space; pixel conversion is a one-time final pass.
