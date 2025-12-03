@@ -1828,7 +1828,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             }
             ObjectClass::Line | ObjectClass::Arrow => {
                 let (auto_sx, auto_sy, auto_ex, auto_ey) = if obj.waypoints.len() <= 2 {
-                    apply_auto_chop_simple_line(&scaler, obj, sx, sy, ex, ey)
+                    apply_auto_chop_simple_line(&scaler, obj, sx, sy, ex, ey, offset_x, offset_y)
                 } else {
                     (sx, sy, ex, ey)
                 };
@@ -2355,11 +2355,6 @@ fn chop_line(x1: f64, y1: f64, x2: f64, y2: f64, amount: f64) -> (f64, f64, f64,
     (new_x1, new_y1, new_x2, new_y2)
 }
 
-fn point_in_to_px_tuple(scaler: &Scaler, point: PointIn) -> (f64, f64) {
-    let px = scaler.point(point);
-    (px.x.0, px.y.0)
-}
-
 fn apply_auto_chop_simple_line(
     scaler: &Scaler,
     obj: &RenderedObject,
@@ -2367,33 +2362,50 @@ fn apply_auto_chop_simple_line(
     sy: f64,
     ex: f64,
     ey: f64,
+    offset_x: Inches,
+    offset_y: Inches,
 ) -> (f64, f64, f64, f64) {
     if obj.start_attachment.is_none() && obj.end_attachment.is_none() {
         return (sx, sy, ex, ey);
     }
 
-    let other_end_hint = obj
+    // Convert attachment centers to pixels with offset applied
+    let end_center_px = obj
         .end_attachment
         .as_ref()
-        .map(|info| point_in_to_px_tuple(scaler, info.center))
+        .map(|info| {
+            let px = scaler.px(info.center.x + offset_x);
+            let py = scaler.px(info.center.y + offset_y);
+            (px, py)
+        })
         .unwrap_or((ex, ey));
 
-    let other_start_hint = obj
+    let start_center_px = obj
         .start_attachment
         .as_ref()
-        .map(|info| point_in_to_px_tuple(scaler, info.center))
+        .map(|info| {
+            let px = scaler.px(info.center.x + offset_x);
+            let py = scaler.px(info.center.y + offset_y);
+            (px, py)
+        })
         .unwrap_or((sx, sy));
 
     let mut new_start = (sx, sy);
     if let Some(ref start_info) = obj.start_attachment {
-        if let Some(chopped) = chop_against_endpoint(scaler, start_info, other_end_hint) {
+        // Chop against start object, toward the end object's center
+        if let Some(chopped) =
+            chop_against_endpoint(scaler, start_info, end_center_px, offset_x, offset_y)
+        {
             new_start = chopped;
         }
     }
 
     let mut new_end = (ex, ey);
     if let Some(ref end_info) = obj.end_attachment {
-        if let Some(chopped) = chop_against_endpoint(scaler, end_info, other_start_hint) {
+        // Chop against end object, toward the start object's center
+        if let Some(chopped) =
+            chop_against_endpoint(scaler, end_info, start_center_px, offset_x, offset_y)
+        {
             new_end = chopped;
         }
     }
@@ -2405,12 +2417,13 @@ fn chop_against_endpoint(
     scaler: &Scaler,
     endpoint: &EndpointObject,
     toward: (f64, f64),
+    offset_x: Inches,
+    offset_y: Inches,
 ) -> Option<(f64, f64)> {
     match endpoint.class {
         ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval => {
-            let center_px = scaler.point(endpoint.center);
-            let cx = center_px.x.0;
-            let cy = center_px.y.0;
+            let cx = scaler.px(endpoint.center.x + offset_x);
+            let cy = scaler.px(endpoint.center.y + offset_y);
             let rx = scaler.px(endpoint.width / 2.0);
             let ry = scaler.px(endpoint.height / 2.0);
             chop_against_ellipse(cx, cy, rx, ry, toward)
