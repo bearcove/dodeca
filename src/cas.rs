@@ -89,8 +89,73 @@ impl ContentStore {
 // Asset Cache (global, for processed images, OG images, etc.)
 // ============================================================================
 
+/// Ensure .cache is in the nearest .gitignore, or create one if needed
+fn ensure_gitignore_has_cache(cache_dir: &Path) {
+    // The cache directory name we want to ignore
+    let cache_name = ".cache";
+
+    // Start from cache_dir's parent and search upward for .gitignore
+    let mut search_dir = cache_dir.parent();
+    let mut found_gitignore: Option<PathBuf> = None;
+
+    while let Some(dir) = search_dir {
+        let gitignore_path = dir.join(".gitignore");
+        if gitignore_path.exists() {
+            found_gitignore = Some(gitignore_path);
+            break;
+        }
+        search_dir = dir.parent();
+    }
+
+    let gitignore_path = found_gitignore.unwrap_or_else(|| {
+        // No .gitignore found, create one as sibling to .cache
+        cache_dir.parent().unwrap_or(cache_dir).join(".gitignore")
+    });
+
+    // Check if .cache is already in the gitignore
+    let needs_update = if gitignore_path.exists() {
+        match fs::read_to_string(&gitignore_path) {
+            Ok(content) => !content.lines().any(|line| {
+                let trimmed = line.trim();
+                trimmed == cache_name || trimmed == format!("{}/", cache_name)
+            }),
+            Err(_) => true, // Can't read, try to append anyway
+        }
+    } else {
+        true // File doesn't exist, need to create it
+    };
+
+    if needs_update {
+        // Append .cache to gitignore
+        let entry = if gitignore_path.exists() {
+            // Check if file ends with newline
+            let content = fs::read_to_string(&gitignore_path).unwrap_or_default();
+            if content.ends_with('\n') || content.is_empty() {
+                format!("{}\n", cache_name)
+            } else {
+                format!("\n{}\n", cache_name)
+            }
+        } else {
+            format!("{}\n", cache_name)
+        };
+
+        if let Ok(mut file) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&gitignore_path)
+        {
+            use std::io::Write;
+            let _ = file.write_all(entry.as_bytes());
+            tracing::info!("Added {} to {:?}", cache_name, gitignore_path);
+        }
+    }
+}
+
 /// Initialize the global asset cache
 pub fn init_asset_cache(cache_dir: &Path) -> color_eyre::Result<()> {
+    // Ensure .cache is gitignored before creating directories
+    ensure_gitignore_has_cache(cache_dir);
+
     // canopydb stores data in a directory, not a single file
     let db_path = cache_dir.join("assets.canopy");
 
