@@ -904,7 +904,7 @@ fn render_object_stmt(
         }
     } else if let Some((edge, target)) = with_clause {
         // Position object so that specified edge is at target position
-        let center = calculate_center_from_edge(edge, target, width, height);
+        let center = calculate_center_from_edge(edge, target, width, height, class);
         let (_, s, e) = calculate_object_position_at(ctx.direction, center, width, height);
         (center, s, e, vec![s, e])
     } else if let Some(pos) = explicit_position {
@@ -1005,9 +1005,22 @@ fn calculate_center_from_edge(
     target: PointIn,
     width: Inches,
     height: Inches,
+    class: ObjectClass,
 ) -> PointIn {
     let hw = width / 2.0;
     let hh = height / 2.0;
+
+    // For circles/ellipses, diagonal edge points use the actual point on the
+    // perimeter at 45 degrees, not the bounding box corner.
+    let is_round = matches!(
+        class,
+        ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval
+    );
+    let diag = if is_round {
+        std::f64::consts::FRAC_1_SQRT_2
+    } else {
+        1.0
+    };
 
     match edge {
         EdgePoint::North | EdgePoint::N | EdgePoint::Top | EdgePoint::T => {
@@ -1016,10 +1029,10 @@ fn calculate_center_from_edge(
         EdgePoint::South | EdgePoint::S | EdgePoint::Bottom => Point::new(target.x, target.y - hh),
         EdgePoint::East | EdgePoint::E | EdgePoint::Right => Point::new(target.x - hw, target.y),
         EdgePoint::West | EdgePoint::W | EdgePoint::Left => Point::new(target.x + hw, target.y),
-        EdgePoint::NorthEast => Point::new(target.x - hw, target.y + hh),
-        EdgePoint::NorthWest => Point::new(target.x + hw, target.y + hh),
-        EdgePoint::SouthEast => Point::new(target.x - hw, target.y - hh),
-        EdgePoint::SouthWest => Point::new(target.x + hw, target.y - hh),
+        EdgePoint::NorthEast => Point::new(target.x - hw * diag, target.y + hh * diag),
+        EdgePoint::NorthWest => Point::new(target.x + hw * diag, target.y + hh * diag),
+        EdgePoint::SouthEast => Point::new(target.x - hw * diag, target.y - hh * diag),
+        EdgePoint::SouthWest => Point::new(target.x + hw * diag, target.y - hh * diag),
         EdgePoint::Center | EdgePoint::C => target,
         EdgePoint::Start | EdgePoint::End => target, // For lines, just use target
     }
@@ -1626,6 +1639,19 @@ fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
     let hw = obj.width.0 / 2.0;
     let hh = obj.height.0 / 2.0;
 
+    // For circles/ellipses, diagonal edge points (ne, nw, se, sw) use the actual
+    // point on the perimeter at 45 degrees, not the bounding box corner.
+    // The diagonal factor is 1/sqrt(2) ≈ 0.707
+    let is_round = matches!(
+        obj.class,
+        ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval
+    );
+    let diag = if is_round {
+        std::f64::consts::FRAC_1_SQRT_2
+    } else {
+        1.0
+    };
+
     match edge {
         EdgePoint::North | EdgePoint::N | EdgePoint::Top | EdgePoint::T => {
             Point::new(Inches(cx), Inches(cy - hh))
@@ -1637,10 +1663,10 @@ fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
             Point::new(Inches(cx + hw), Inches(cy))
         }
         EdgePoint::West | EdgePoint::W | EdgePoint::Left => Point::new(Inches(cx - hw), Inches(cy)),
-        EdgePoint::NorthEast => Point::new(Inches(cx + hw), Inches(cy - hh)),
-        EdgePoint::NorthWest => Point::new(Inches(cx - hw), Inches(cy - hh)),
-        EdgePoint::SouthEast => Point::new(Inches(cx + hw), Inches(cy + hh)),
-        EdgePoint::SouthWest => Point::new(Inches(cx - hw), Inches(cy + hh)),
+        EdgePoint::NorthEast => Point::new(Inches(cx + hw * diag), Inches(cy - hh * diag)),
+        EdgePoint::NorthWest => Point::new(Inches(cx - hw * diag), Inches(cy - hh * diag)),
+        EdgePoint::SouthEast => Point::new(Inches(cx + hw * diag), Inches(cy + hh * diag)),
+        EdgePoint::SouthWest => Point::new(Inches(cx - hw * diag), Inches(cy + hh * diag)),
         EdgePoint::Center | EdgePoint::C => obj.center,
         EdgePoint::Start => obj.start,
         EdgePoint::End => obj.end,
