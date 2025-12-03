@@ -170,6 +170,7 @@ fn plugcard_impl(item: proc_macro2::TokenStream) -> std::result::Result<proc_mac
 
         // Input composite type (using Facet instead of serde)
         #[derive(::plugcard::facet::Facet)]
+        #[facet(crate = ::plugcard::facet)]
         #[allow(non_camel_case_types)]
         struct #input_type_name {
             #(#input_fields),*
