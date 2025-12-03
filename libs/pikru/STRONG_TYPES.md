@@ -73,9 +73,11 @@ Guidelines for keeping Pikru layout/emit code safe and unit-correct using Rust t
 - `EvalValue` enum (`Length | Scalar | Color`) replaces `HashMap<String, f64>` for typed variable storage
 - Variable initialization categorized: lengths, scalars, colors stored with proper `EvalValue` variants
 - Bidirectional `Value ↔ EvalValue` conversions for expression evaluation
+- Evaluator uses `Length::try_new` for parsed numbers; validates results are finite after arithmetic
+- Evaluator uses typed ops (`a + b`, `a.abs()`, `a.checked_div(b)`) instead of raw `f64` access
+- `validate_value()` helper catches overflow to infinity/NaN in expression results
 
 ### Pending
 
-- Wire `try_new` into evaluator for user input validation
 - Add compile-fail tests (trybuild) for invalid type combinations
 - `Angle::try_new`, `Angle::from_degrees`, `Angle::from_radians` with validation

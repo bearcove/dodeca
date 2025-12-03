@@ -1,9 +1,6 @@
 fn main() {
-    let input = r#"box "Start"
-arrow
-box "Middle"
-arrow
-box "End""#;
+    let input = r#"box "A"
+box "B" at 1in ne of A"#;
 
     match pikru::pikchr(input) {
         Ok(svg) => println!("{}", svg),
