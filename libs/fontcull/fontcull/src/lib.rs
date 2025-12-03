@@ -1,30 +1,4 @@
-//! fontcull - Font subsetting library
-//!
-//! Subset fonts to only include glyphs that are actually used.
-//!
-//! # Features
-//!
-//! - `static-analysis`: Static HTML/CSS parsing for font usage detection
-//! - `browser`: Browser-based glyph extraction with chromiumoxide (CLI only)
-//!
-//! # Example (static analysis)
-//!
-//! ```ignore
-//! use fontcull::{analyze_fonts, subset_font_to_woff2, extract_css_from_html};
-//!
-//! let html = r#"<html><head><style>body { font-family: "MyFont"; }</style></head>
-//!               <body><p>Hello World</p></body></html>"#;
-//!
-//! let css = extract_css_from_html(html);
-//! let analysis = analyze_fonts(html, &css);
-//!
-//! // Get chars used by "MyFont"
-//! if let Some(chars) = analysis.chars_per_font.get("MyFont") {
-//!     let font_data = std::fs::read("MyFont.ttf").unwrap();
-//!     let woff2 = subset_font_to_woff2(&font_data, chars).unwrap();
-//!     std::fs::write("MyFont-subset.woff2", woff2).unwrap();
-//! }
-//! ```
+#![doc = include_str!("../README.md")]
 
 use std::collections::HashSet;
 

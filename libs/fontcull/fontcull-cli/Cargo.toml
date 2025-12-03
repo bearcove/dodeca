@@ -9,6 +9,7 @@ repository = "https://github.com/bearcove/fontcull"
 homepage = "https://github.com/bearcove/fontcull"
 keywords = ["font", "subset", "woff2", "web", "glyphhanger"]
 categories = ["command-line-utilities", "web-programming"]
+readme = "README.md"
 
 [package.metadata.wix]
 upgrade-guid = "9FF2FB57-9D1B-4336-BDE9-0A200F15DADA"

@@ -9,6 +9,7 @@ repository = "https://github.com/bearcove/fontcull"
 homepage = "https://github.com/bearcove/fontcull"
 keywords = ["font", "subset", "woff2", "ttf", "otf"]
 categories = ["text-processing", "web-programming"]
+readme = "README.md"
 
 [features]
 default = []
