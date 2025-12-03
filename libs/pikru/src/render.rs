@@ -638,8 +638,10 @@ fn render_object_stmt(
     let mut to_position: Option<PointIn> = None;
     let mut from_attachment: Option<EndpointObject> = None;
     let mut to_attachment: Option<EndpointObject> = None;
-    let mut line_direction: Option<Direction> = None;
-    let mut line_distance: Option<Inches> = None;
+    // Accumulated direction offsets for compound moves like "up 1 right 2"
+    let mut direction_offset_x: Inches = Inches::ZERO;
+    let mut direction_offset_y: Inches = Inches::ZERO;
+    let mut has_direction_move: bool = false;
     let mut even_clause: Option<(Direction, Position)> = None;
     let mut then_clauses: Vec<ThenClause> = Vec::new();
     let mut with_clause: Option<(EdgePoint, PointIn)> = None; // (edge, target_position)
@@ -758,11 +760,27 @@ fn render_object_stmt(
                 }
             }
             Attribute::DirectionMove(_go, dir, dist) => {
-                line_direction = Some(*dir);
-                if let Some(relexpr) = dist {
+                has_direction_move = true;
+                let distance = if let Some(relexpr) = dist {
                     if let Ok(d) = eval_len(ctx, &relexpr.expr) {
-                        line_distance = Some(d);
+                        // Handle percent: 40% means 40% of the default line width
+                        if relexpr.is_percent {
+                            width * (d.raw() / 100.0)
+                        } else {
+                            d
+                        }
+                    } else {
+                        width // default distance
                     }
+                } else {
+                    width // default distance
+                };
+                // Accumulate offset based on direction
+                match dir {
+                    Direction::Right => direction_offset_x += distance,
+                    Direction::Left => direction_offset_x -= distance,
+                    Direction::Up => direction_offset_y -= distance,
+                    Direction::Down => direction_offset_y += distance,
                 }
             }
             Attribute::DirectionEven(_go, dir, pos) => {
@@ -772,9 +790,22 @@ fn render_object_stmt(
                 even_clause = Some((*dir, pos.clone()));
             }
             Attribute::BareExpr(relexpr) => {
-                // A bare expression is typically a distance
+                // A bare expression is typically a distance applied in ctx.direction
                 if let Ok(d) = eval_len(ctx, &relexpr.expr) {
-                    line_distance = Some(d);
+                    // Handle percent: 40% means 40% of the default line width
+                    let val = if relexpr.is_percent {
+                        width * (d.raw() / 100.0)
+                    } else {
+                        d
+                    };
+                    has_direction_move = true;
+                    // Apply in context direction
+                    match ctx.direction {
+                        Direction::Right => direction_offset_x += val,
+                        Direction::Left => direction_offset_x -= val,
+                        Direction::Up => direction_offset_y -= val,
+                        Direction::Down => direction_offset_y += val,
+                    }
                 }
             }
             Attribute::Then(Some(clause)) => {
@@ -845,19 +876,45 @@ fn render_object_stmt(
         height = height.max(fit_height);
     }
 
-    // Determine the effective direction and distance
-    let effective_dir = line_direction.unwrap_or(ctx.direction);
-    let effective_distance = line_distance.unwrap_or(width);
-
     // Calculate position based on object type
     let (center, start, end, waypoints) = if from_position.is_some()
         || to_position.is_some()
-        || line_direction.is_some()
+        || has_direction_move
         || !then_clauses.is_empty()
         || even_clause.is_some()
     {
-        // Line-like objects with explicit from/to, direction, or then clauses
-        let start = from_position.unwrap_or(ctx.position);
+        // Line-like objects with explicit from/to, direction moves, or then clauses
+        // Determine start position
+        let start = if let Some(pos) = from_position {
+            pos
+        } else if has_direction_move {
+            // Get exit edge of last object based on which directions we're moving
+            // For compound moves like "up 1 right 2", start from appropriate corner
+            if let Some(last_obj) = ctx.last_object() {
+                let (hw, hh) = (last_obj.width / 2.0, last_obj.height / 2.0);
+                let c = last_obj.center;
+                // Determine exit point based on direction of movement
+                let exit_x = if direction_offset_x > Inches::ZERO {
+                    c.x + hw // moving right, exit from right edge
+                } else if direction_offset_x < Inches::ZERO {
+                    c.x - hw // moving left, exit from left edge
+                } else {
+                    c.x // no horizontal movement, use center
+                };
+                let exit_y = if direction_offset_y > Inches::ZERO {
+                    c.y + hh // moving down, exit from bottom edge
+                } else if direction_offset_y < Inches::ZERO {
+                    c.y - hh // moving up, exit from top edge
+                } else {
+                    c.y // no vertical movement, use center
+                };
+                Point::new(exit_x, exit_y)
+            } else {
+                ctx.position
+            }
+        } else {
+            ctx.position
+        };
 
         if let Some((dir, pos_expr)) = even_clause.as_ref() {
             // Single-segment move until even with target
@@ -871,22 +928,43 @@ fn render_object_stmt(
         } else {
             // Build waypoints starting from start
             let mut points = vec![start];
-            let mut current_pos = start;
-            let mut current_dir = effective_dir;
+            let current_pos = start;
 
-            // First segment (from start in direction with distance)
+            // First segment: use accumulated direction offsets or default
             if to_position.is_none() && then_clauses.is_empty() {
-                // Simple line: just one segment
-                let next = move_in_direction(current_pos, current_dir, effective_distance);
+                // Simple line: apply accumulated offsets (or default in ctx.direction)
+                let (dx, dy) = if has_direction_move {
+                    (direction_offset_x, direction_offset_y)
+                } else {
+                    // No explicit direction, use default distance in ctx.direction
+                    match ctx.direction {
+                        Direction::Right => (width, Inches::ZERO),
+                        Direction::Left => (-width, Inches::ZERO),
+                        Direction::Up => (Inches::ZERO, -width),
+                        Direction::Down => (Inches::ZERO, width),
+                    }
+                };
+                let next = Point::new(current_pos.x + dx, current_pos.y + dy);
                 points.push(next);
             } else if to_position.is_some() && then_clauses.is_empty() {
                 // from X to Y - just two points
                 points.push(to_position.unwrap());
             } else {
-                // Has then clauses - first move in initial direction
-                let next = move_in_direction(current_pos, current_dir, effective_distance);
+                // Has then clauses - first apply direction offsets
+                let (dx, dy) = if has_direction_move {
+                    (direction_offset_x, direction_offset_y)
+                } else {
+                    match ctx.direction {
+                        Direction::Right => (width, Inches::ZERO),
+                        Direction::Left => (-width, Inches::ZERO),
+                        Direction::Up => (Inches::ZERO, -width),
+                        Direction::Down => (Inches::ZERO, width),
+                    }
+                };
+                let next = Point::new(current_pos.x + dx, current_pos.y + dy);
                 points.push(next);
-                current_pos = next;
+                let mut current_pos = next;
+                let mut current_dir = ctx.direction;
 
                 // Process each then clause
                 for clause in &then_clauses {
