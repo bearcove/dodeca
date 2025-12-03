@@ -6,7 +6,7 @@ readme = "README.md"
 categories = ["text-processing", "parsing", "graphics"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/fasterthanlime/fontcull"
+repository = "https://github.com/bearcove/fontcull"
 rust-version = "1.82"
 
 [package.metadata.docs.rs]

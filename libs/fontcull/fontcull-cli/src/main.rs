@@ -1,14 +1,11 @@
-use std::{collections::HashMap, path::PathBuf, process::Stdio};
+use std::{collections::HashMap, path::PathBuf};
 
 use chromiumoxide::{Page, browser::Browser};
 use clap::Parser;
 use color_eyre::eyre::{Context, Result};
 use futures::StreamExt;
-use tokio::process::Command;
 
 mod glyph_script;
-
-#[cfg(feature = "klippa")]
 mod klippa_backend;
 
 #[derive(Parser, Debug)]
@@ -38,10 +35,6 @@ struct Args {
     /// Output directory for subset fonts
     #[arg(long, short = 'o')]
     output: Option<PathBuf>,
-
-    /// Use pyftsubset for subsetting instead of klippa (requires Python fonttools)
-    #[arg(long)]
-    pyftsubset: bool,
 }
 
 /// Character set per font-family, plus a universal "*" set
@@ -244,41 +237,6 @@ async fn spider_page(page: &Page, limit: usize) -> Result<Vec<String>> {
     Ok(urls)
 }
 
-async fn subset_with_pyftsubset(
-    font_path: &str,
-    unicode_range: &str,
-    output_dir: Option<&PathBuf>,
-) -> Result<PathBuf> {
-    let path = PathBuf::from(font_path);
-    let stem = path.file_stem().unwrap().to_str().unwrap();
-
-    let output_path = match output_dir {
-        Some(dir) => dir.join(format!("{}-subset.woff2", stem)),
-        None => path.with_file_name(format!("{}-subset.woff2", stem)),
-    };
-
-    let status = Command::new("pyftsubset")
-        .arg(font_path)
-        .arg(format!("--output-file={}", output_path.display()))
-        .arg(format!("--unicodes={}", unicode_range))
-        .arg("--layout-features=*")
-        .arg("--flavor=woff2")
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .await
-        .wrap_err("Failed to run pyftsubset")?;
-
-    if !status.success() {
-        return Err(color_eyre::eyre::eyre!(
-            "pyftsubset failed with status: {}",
-            status
-        ));
-    }
-
-    Ok(output_path)
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
@@ -376,20 +334,8 @@ async fn main() -> Result<()> {
         for font_file in font_files {
             tracing::info!("Subsetting font: {}", font_file);
 
-            #[cfg(feature = "klippa")]
-            let output = if args.pyftsubset {
-                subset_with_pyftsubset(&font_file, &unicode_range, args.output.as_ref()).await?
-            } else {
-                klippa_backend::subset_with_klippa(&font_file, &chars, args.output.as_ref())?
-            };
-
-            #[cfg(not(feature = "klippa"))]
-            let output = {
-                if !args.pyftsubset {
-                    tracing::warn!("Klippa feature not enabled, using pyftsubset");
-                }
-                subset_with_pyftsubset(&font_file, &unicode_range, args.output.as_ref()).await?
-            };
+            let output =
+                klippa_backend::subset_with_klippa(&font_file, &chars, args.output.as_ref())?;
 
             tracing::info!("Created: {}", output.display());
         }

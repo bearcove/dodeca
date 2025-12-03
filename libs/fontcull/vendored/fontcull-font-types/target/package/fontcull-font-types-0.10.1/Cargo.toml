@@ -24,7 +24,7 @@ description = "Scalar types used in fonts. (Vendored fork for fontcull)"
 readme = "README.md"
 categories = ["text-processing"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/fasterthanlime/fontcull"
+repository = "https://github.com/bearcove/fontcull"
 
 [package.metadata.docs.rs]
 all-features = true

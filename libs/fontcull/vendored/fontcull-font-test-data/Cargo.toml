@@ -5,7 +5,7 @@ description = "Test data for the fontations crates. (Vendored fork for fontcull)
 readme = "README.md"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/fasterthanlime/fontcull"
+repository = "https://github.com/bearcove/fontcull"
 rust-version = "1.82"
 
 [dependencies]

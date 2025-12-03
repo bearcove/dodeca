@@ -50,6 +50,24 @@ jobs:
       - name: Run tests
         run: cargo nextest run --lib
 
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: taiki-e/install-action@nextest
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build
+
+      - name: Run tests
+        run: cargo nextest run --lib
+
   clippy:
     runs-on: depot-ubuntu-24.04-16
     steps:
@@ -63,8 +81,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Run Clippy
-        # Only run clippy on fontcull itself, not vendored crates
-        run: cargo clippy -p fontcull --all-targets
+        # Only run clippy on fontcull crates, not vendored ones
+        run: cargo clippy -p fontcull -p fontcull-cli --all-targets
 
   fmt:
     runs-on: depot-ubuntu-24.04-16

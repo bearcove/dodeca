@@ -27,6 +27,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloc-no-stdlib"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc7bb162ec39d46ab1ca8c77bf72e890535becd1751bb45f64c597edb4c8c6b3"
+
+[[package]]
+name = "alloc-stdlib"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94fb8275041c72129eb51b7d0322c29b8387a0386127718b096429201a5d6ece"
+dependencies = [
+ "alloc-no-stdlib",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -349,6 +364,27 @@ dependencies = [
  "futures-io",
  "futures-lite",
  "piper",
+]
+
+[[package]]
+name = "brotli"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc97b8f16f944bba54f0433f07e30be199b6dc2bd25937444bbad560bcea29bd"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+ "brotli-decompressor",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a334ef7c9e23abf0ce748e8cd309037da93e606ad52eb372e4ce327a0dcfbdfd"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
 ]
 
 [[package]]
@@ -913,24 +949,28 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 name = "fontcull"
 version = "1.0.5"
 dependencies = [
- "chromiumoxide",
- "clap 4.5.53",
- "color-eyre",
- "eyre",
  "fontcull-klippa",
  "fontcull-read-fonts",
  "fontcull-skrifa",
  "fontcull-write-fonts",
+ "scraper",
+ "woofwoof",
+]
+
+[[package]]
+name = "fontcull-cli"
+version = "1.0.5"
+dependencies = [
+ "chromiumoxide",
+ "clap 4.5.53",
+ "color-eyre",
+ "fontcull",
  "futures",
  "glob",
- "scraper",
- "serde",
  "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
- "url",
- "woff",
 ]
 
 [[package]]
@@ -3203,13 +3243,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
-name = "woff"
-version = "0.6.2"
+name = "woofwoof"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3d61720725e0f4bc536c1483b2d09f62469ea9dead6b03bad70dbfea649d90e"
+checksum = "e2d1f98d082af287cb121f931ccd30248fb665485bbb11a03bc686d2454a2bb4"
 dependencies = [
+ "brotli",
  "cc",
- "libc",
 ]
 
 [[package]]

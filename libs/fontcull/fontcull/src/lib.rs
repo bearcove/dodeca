@@ -4,9 +4,8 @@
 //!
 //! # Features
 //!
-//! - `klippa` (default): Pure Rust font subsetting with klippa
 //! - `static-analysis`: Static HTML/CSS parsing for font usage detection
-//! - `browser`: Browser-based glyph extraction with chromiumoxide
+//! - `browser`: Browser-based glyph extraction with chromiumoxide (CLI only)
 //!
 //! # Example (static analysis)
 //!
@@ -114,10 +113,11 @@ impl FontFormat {
 /// from subsetting.
 pub fn decompress_font(font_data: &[u8]) -> Result<Vec<u8>, SubsetError> {
     match FontFormat::detect(font_data) {
-        FontFormat::Woff2 => woff::version2::decompress(font_data)
+        FontFormat::Woff2 => woofwoof::decompress(font_data)
             .ok_or_else(|| SubsetError::WoffDecompress("WOFF2 decompression failed".to_string())),
-        FontFormat::Woff => woff::version1::decompress(font_data)
-            .ok_or_else(|| SubsetError::WoffDecompress("WOFF1 decompression failed".to_string())),
+        FontFormat::Woff => Err(SubsetError::WoffDecompress(
+            "WOFF1 decompression not supported, please convert to WOFF2 or TTF first".to_string(),
+        )),
         // Already TTF/OTF, return as-is
         _ => Ok(font_data.to_vec()),
     }
@@ -130,11 +130,11 @@ pub fn decompress_font(font_data: &[u8]) -> Result<Vec<u8>, SubsetError> {
 /// This is a separate operation that can be cached/salsified independently
 /// from subsetting.
 pub fn compress_to_woff2(font_data: &[u8]) -> Result<Vec<u8>, SubsetError> {
-    // woff::version2::compress(data, metadata, quality, allow_transforms)
+    // woofwoof::compress(data, metadata, quality, allow_transforms)
     // - metadata: empty string (no metadata)
     // - quality: 11 (maximum brotli compression)
     // - allow_transforms: true (enable WOFF2 table transforms)
-    woff::version2::compress(font_data, "", 11, true)
+    woofwoof::compress(font_data, "", 11, true)
         .ok_or_else(|| SubsetError::Woff2("WOFF2 compression failed".to_string()))
 }
 
@@ -142,7 +142,6 @@ pub fn compress_to_woff2(font_data: &[u8]) -> Result<Vec<u8>, SubsetError> {
 ///
 /// Takes raw font data (TTF/OTF/WOFF/WOFF2) and a set of characters,
 /// returns the subsetted font as TTF bytes.
-#[cfg(feature = "klippa")]
 pub fn subset_font_data(font_data: &[u8], chars: &HashSet<char>) -> Result<Vec<u8>, SubsetError> {
     use fontcull_klippa::{Plan, SubsetFlags, subset_font};
     use fontcull_read_fonts::collections::IntSet;
@@ -188,7 +187,6 @@ pub fn subset_font_data(font_data: &[u8], chars: &HashSet<char>) -> Result<Vec<u
 ///
 /// Takes raw font data and a set of characters,
 /// returns the subsetted font as WOFF2 bytes.
-#[cfg(feature = "klippa")]
 pub fn subset_font_to_woff2(
     font_data: &[u8],
     chars: &HashSet<char>,
@@ -196,7 +194,7 @@ pub fn subset_font_to_woff2(
     let subsetted = subset_font_data(font_data, chars)?;
 
     // Compress to WOFF2
-    let woff2 = woff::version2::compress(&subsetted, "", 11, true)
+    let woff2 = woofwoof::compress(&subsetted, "", 11, true)
         .ok_or_else(|| SubsetError::Woff2("WOFF2 compression failed".to_string()))?;
 
     Ok(woff2)
@@ -205,7 +203,6 @@ pub fn subset_font_to_woff2(
 /// Subset a font using unicode codepoints (u32) instead of chars
 ///
 /// This is useful when you already have codepoints from browser extraction.
-#[cfg(feature = "klippa")]
 pub fn subset_font_data_unicode(
     font_data: &[u8],
     unicodes: &[u32],
@@ -245,14 +242,13 @@ pub fn subset_font_data_unicode(
 }
 
 /// Subset a font to WOFF2 using unicode codepoints (u32)
-#[cfg(feature = "klippa")]
 pub fn subset_font_to_woff2_unicode(
     font_data: &[u8],
     unicodes: &[u32],
 ) -> Result<Vec<u8>, SubsetError> {
     let subsetted = subset_font_data_unicode(font_data, unicodes)?;
 
-    let woff2 = woff::version2::compress(&subsetted, "", 11, true)
+    let woff2 = woofwoof::compress(&subsetted, "", 11, true)
         .ok_or_else(|| SubsetError::Woff2("WOFF2 compression failed".to_string()))?;
 
     Ok(woff2)
@@ -264,7 +260,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[cfg(feature = "klippa")]
     fn test_subset_error_display() {
         let err = SubsetError::FontParse("invalid header".to_string());
         assert_eq!(format!("{}", err), "failed to parse font: invalid header");
@@ -319,7 +314,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "klippa")]
     fn test_decompress_woff2_fixture() {
         // Read WOFF2 fixture file (created by fonttools)
         let woff2_data =
@@ -340,8 +334,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "klippa")]
-    fn test_decompress_woff1_fixture() {
+    fn test_decompress_woff1_not_supported() {
         // Read WOFF1 fixture file (created by fonttools)
         let woff1_data =
             std::fs::read("test_data/simple_glyf.woff").expect("failed to read WOFF1 fixture");
@@ -349,19 +342,12 @@ mod tests {
         // Verify it's actually WOFF1
         assert_eq!(FontFormat::detect(&woff1_data), FontFormat::Woff);
 
-        // Decompress
-        let decompressed = decompress_font(&woff1_data).expect("failed to decompress WOFF1");
-
-        // The decompressed data should be valid TTF
-        assert_eq!(FontFormat::detect(&decompressed), FontFormat::Ttf);
-
-        // And we should be able to subset it
-        let chars: HashSet<char> = ['a', 'b', 'c'].into_iter().collect();
-        let _subsetted = subset_font_data(&decompressed, &chars).expect("failed to subset");
+        // WOFF1 decompression is not supported with woofwoof
+        let result = decompress_font(&woff1_data);
+        assert!(result.is_err());
     }
 
     #[test]
-    #[cfg(feature = "klippa")]
     fn test_subset_woff2_input() {
         // Read WOFF2 fixture
         let woff2_input =
@@ -369,23 +355,6 @@ mod tests {
 
         // Decompress, subset, and recompress - the full pipeline
         let decompressed = decompress_font(&woff2_input).expect("failed to decompress");
-        let chars: HashSet<char> = ['a', 'b', 'c'].into_iter().collect();
-        let subsetted = subset_font_data(&decompressed, &chars).expect("failed to subset");
-        let woff2_output = compress_to_woff2(&subsetted).expect("failed to compress output");
-
-        // Verify output is WOFF2
-        assert_eq!(FontFormat::detect(&woff2_output), FontFormat::Woff2);
-    }
-
-    #[test]
-    #[cfg(feature = "klippa")]
-    fn test_subset_woff1_input() {
-        // Read WOFF1 fixture
-        let woff1_input =
-            std::fs::read("test_data/simple_glyf.woff").expect("failed to read WOFF1 fixture");
-
-        // Decompress, subset, and recompress - the full pipeline
-        let decompressed = decompress_font(&woff1_input).expect("failed to decompress");
         let chars: HashSet<char> = ['a', 'b', 'c'].into_iter().collect();
         let subsetted = subset_font_data(&decompressed, &chars).expect("failed to subset");
         let woff2_output = compress_to_woff2(&subsetted).expect("failed to compress output");
