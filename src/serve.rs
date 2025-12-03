@@ -26,6 +26,7 @@ use crate::db::{
     Database, DataFile, DataRegistry, SassFile, SassRegistry, SourceFile, SourceRegistry,
     StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
 };
+use crate::error_pages::render_404_page;
 use crate::queries::{css_output, serve_html, static_file_output, process_image, build_tree};
 use crate::render::{RenderOptions, inject_livereload};
 use crate::types::Route;
@@ -610,191 +611,6 @@ fn similarity_score(requested: &str, requested_parts: &[&str], route: &str) -> u
     score
 }
 
-/// Dodeca logo SVG for 404 page
-const DODECA_LOGO_SVG: &str = include_str!("../docs/static/logo.svg");
-
-/// Render a helpful 404 page for development mode
-fn render_dev_404(path: &str, similar_routes: &[(String, String)]) -> String {
-    let suggestions = if similar_routes.is_empty() {
-        "<p class=\"no-results\">No similar pages found.</p>".to_string()
-    } else {
-        let links: Vec<String> = similar_routes.iter()
-            .map(|(route, title)| {
-                let display_title = if title.is_empty() {
-                    route.clone()
-                } else {
-                    format!("{} ({})", title, route)
-                };
-                format!(r#"<li><a href="{}">{}</a></li>"#, route, display_title)
-            })
-            .collect();
-        format!("<ul>{}</ul>", links.join("\n"))
-    };
-
-    // Anthracite/dark grey color scheme
-    format!(r##"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Page Not Found - dodeca dev</title>
-    <style>
-        body {{
-            font-family: system-ui, -apple-system, sans-serif;
-            background: #1a1a1a;
-            color: #d4d4d4;
-            margin: 0;
-            padding: 0;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }}
-        .container {{
-            max-width: 600px;
-            padding: 3rem;
-            text-align: center;
-        }}
-        .logo {{
-            margin-bottom: 1.5rem;
-            animation: float 3s ease-in-out infinite;
-        }}
-        .logo svg {{
-            width: 80px;
-            height: 80px;
-            opacity: 0.6;
-        }}
-        @keyframes float {{
-            0%, 100% {{ transform: translateY(0); }}
-            50% {{ transform: translateY(-8px); }}
-        }}
-        h1 {{
-            color: #e5e5e5;
-            font-size: 1.75rem;
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-        }}
-        p {{
-            color: #737373;
-        }}
-        .path {{
-            background: #262626;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            font-family: 'SF Mono', Consolas, monospace;
-            font-size: 0.9rem;
-            color: #a3a3a3;
-            margin: 1rem 0;
-            word-break: break-all;
-            border: 1px solid #333;
-        }}
-        .suggestions {{
-            text-align: left;
-            margin-top: 2rem;
-        }}
-        .suggestions h2 {{
-            font-size: 0.875rem;
-            color: #737373;
-            margin-bottom: 0.75rem;
-            font-weight: 500;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }}
-        .suggestions ul {{
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }}
-        .suggestions li {{
-            padding: 0.5rem 0;
-            border-bottom: 1px solid #262626;
-        }}
-        .suggestions li:last-child {{
-            border-bottom: none;
-        }}
-        .suggestions a {{
-            color: #6a8a6a;
-            text-decoration: none;
-            transition: color 0.2s;
-        }}
-        .suggestions a:hover {{
-            color: #8fbc8f;
-            text-decoration: underline;
-        }}
-        .no-results {{
-            color: #525252;
-            font-style: italic;
-        }}
-        .actions {{
-            margin-top: 2rem;
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-        }}
-        .btn {{
-            padding: 0.625rem 1.25rem;
-            border-radius: 6px;
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 0.875rem;
-            transition: all 0.2s;
-        }}
-        .btn:hover {{
-            transform: translateY(-1px);
-        }}
-        .btn-primary {{
-            background: #6a8a6a;
-            color: #fff;
-        }}
-        .btn-primary:hover {{
-            background: #7a9a7a;
-        }}
-        .btn-secondary {{
-            background: #262626;
-            color: #a3a3a3;
-            border: 1px solid #333;
-        }}
-        .btn-secondary:hover {{
-            background: #333;
-            color: #d4d4d4;
-        }}
-        .dev-badge {{
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            background: #333;
-            color: #737373;
-            padding: 0.25rem 0.75rem;
-            border-radius: 4px;
-            font-size: 0.7rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }}
-    </style>
-</head>
-<body>
-    <div class="dev-badge">dev</div>
-    <div class="container">
-        <div class="logo">
-            {logo}
-        </div>
-        <h1>Page Not Found</h1>
-        <p>The page you're looking for doesn't exist (yet?).</p>
-        <div class="path">{path}</div>
-        <div class="suggestions">
-            <h2>Maybe you meant</h2>
-            {suggestions}
-        </div>
-        <div class="actions">
-            <a href="javascript:history.back()" class="btn btn-secondary">← Go Back</a>
-            <a href="/" class="btn btn-primary">Home</a>
-        </div>
-    </div>
-</body>
-</html>"##, logo = DODECA_LOGO_SVG, path = path, suggestions = suggestions)
-}
-
 /// Content types that can be served
 enum ServeContent {
     Html(String),
@@ -868,7 +684,7 @@ async fn content_handler(State(server): State<Arc<SiteServer>>, request: Request
     // 404 - serve custom page in dev mode with livereload
     if server.render_options.livereload {
         let similar_routes = server.find_similar_routes(path);
-        let html = render_dev_404(path, &similar_routes);
+        let html = render_404_page(path, &similar_routes);
         // Inject livereload so the page auto-refreshes when the missing page is created
         let html = inject_livereload(&html, server.render_options, None);
         return Response::builder()

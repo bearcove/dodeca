@@ -1,8 +1,12 @@
 use crate::db::{Heading, Page, Section, SiteTree};
+use crate::error_pages::render_error_page;
 use crate::template::{Context, Engine, InMemoryLoader, Value};
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
 use std::collections::{HashMap, HashSet};
+
+// Re-export for backwards compatibility
+pub use crate::error_pages::RENDER_ERROR_MARKER;
 
 /// Find the nearest parent section for a route (for page context)
 fn find_parent_section<'a>(route: &Route, site_tree: &'a SiteTree) -> Option<&'a Section> {
@@ -21,113 +25,6 @@ fn find_parent_section<'a>(route: &Route, site_tree: &'a SiteTree) -> Option<&'a
             }
         }
     }
-}
-
-/// Convert ANSI escape codes to HTML spans with inline styles.
-fn ansi_to_html(input: &str) -> String {
-    let mut output = String::new();
-    let mut chars = input.chars().peekable();
-    let mut in_span = false;
-
-    while let Some(c) = chars.next() {
-        if c == '\x1b' && chars.peek() == Some(&'[') {
-            chars.next(); // consume '['
-
-            // Parse the escape sequence
-            let mut seq = String::new();
-            while let Some(&ch) = chars.peek() {
-                if ch.is_ascii_digit() || ch == ';' {
-                    seq.push(chars.next().unwrap());
-                } else {
-                    break;
-                }
-            }
-
-            // Consume the final character (usually 'm')
-            let final_char = chars.next();
-
-            if final_char == Some('m') {
-                // Close any existing span
-                if in_span {
-                    output.push_str("</span>");
-                    in_span = false;
-                }
-
-                // Parse the style
-                if let Some(style) = parse_ansi_style(&seq) {
-                    if !style.is_empty() {
-                        output.push_str(&format!("<span style=\"{style}\">"));
-                        in_span = true;
-                    }
-                }
-            }
-        } else if c == '<' {
-            output.push_str("&lt;");
-        } else if c == '>' {
-            output.push_str("&gt;");
-        } else if c == '&' {
-            output.push_str("&amp;");
-        } else {
-            output.push(c);
-        }
-    }
-
-    if in_span {
-        output.push_str("</span>");
-    }
-
-    output
-}
-
-/// Parse ANSI style codes and return CSS style string.
-fn parse_ansi_style(seq: &str) -> Option<String> {
-    if seq.is_empty() || seq == "0" {
-        return Some(String::new()); // Reset
-    }
-
-    let parts: Vec<&str> = seq.split(';').collect();
-    let mut styles = Vec::new();
-
-    let mut i = 0;
-    while i < parts.len() {
-        match parts[i] {
-            "0" => return Some(String::new()), // Reset
-            "1" => styles.push("font-weight:bold".to_string()),
-            "2" => styles.push("opacity:0.7".to_string()), // Dim
-            "3" => styles.push("font-style:italic".to_string()),
-            "4" => styles.push("text-decoration:underline".to_string()),
-            "30" => styles.push("color:#000".to_string()),
-            "31" => styles.push("color:#e06c75".to_string()), // Red
-            "32" => styles.push("color:#98c379".to_string()), // Green
-            "33" => styles.push("color:#e5c07b".to_string()), // Yellow
-            "34" => styles.push("color:#61afef".to_string()), // Blue
-            "35" => styles.push("color:#c678dd".to_string()), // Magenta
-            "36" => styles.push("color:#56b6c2".to_string()), // Cyan
-            "37" => styles.push("color:#abb2bf".to_string()), // White
-            "38" => {
-                // Extended color (24-bit RGB)
-                if i + 1 < parts.len() && parts[i + 1] == "2" && i + 4 < parts.len() {
-                    let r = parts[i + 2];
-                    let g = parts[i + 3];
-                    let b = parts[i + 4];
-                    styles.push(format!("color:rgb({r},{g},{b})"));
-                    i += 4;
-                }
-            }
-            "90" => styles.push("color:#5c6370".to_string()), // Bright black (gray)
-            "91" => styles.push("color:#e06c75".to_string()), // Bright red
-            "92" => styles.push("color:#98c379".to_string()), // Bright green
-            "93" => styles.push("color:#e5c07b".to_string()), // Bright yellow
-            "94" => styles.push("color:#61afef".to_string()), // Bright blue
-            "95" => styles.push("color:#c678dd".to_string()), // Bright magenta
-            "96" => styles.push("color:#56b6c2".to_string()), // Bright cyan
-            "97" => styles.push("color:#fff".to_string()),    // Bright white
-            _ => {}
-        }
-        i += 1;
-    }
-
-    Some(styles.join(";"))
 }
 
 /// Options for rendering
@@ -353,81 +250,6 @@ pub fn render_section_to_html(
 ) -> String {
     try_render_section_to_html(section, site_tree, templates, data)
         .unwrap_or_else(|e| render_error_page(&e))
-}
-
-/// Marker that indicates a page contains a render error (for build mode detection)
-pub const RENDER_ERROR_MARKER: &str = "<!-- DODECA_RENDER_ERROR -->";
-
-/// Render a visible error page for development
-///
-/// TODO: This inline HTML is revolting. The error page styling should be
-/// extracted into its own crate or at minimum a proper template file that
-/// can be shared with the 404 page. The ANSI-to-HTML conversion should also
-/// be a separate utility.
-fn render_error_page(error: &str) -> String {
-    let error_html = ansi_to_html(error);
-    format!(
-        r#"<!DOCTYPE html>
-<html lang="en">
-{RENDER_ERROR_MARKER}
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Template Error - dodeca</title>
-    <style>
-        body {{
-            font-family: system-ui, -apple-system, sans-serif;
-            background: #1a1a1a;
-            color: #e5e5e5;
-            margin: 0;
-            padding: 2rem;
-            min-height: 100vh;
-        }}
-        .error-container {{
-            max-width: 900px;
-            margin: 0 auto;
-        }}
-        h1 {{
-            color: #e5e5e5;
-            border-bottom: 1px solid #333;
-            padding-bottom: 0.5rem;
-            font-weight: 400;
-        }}
-        pre {{
-            background: #0d0d0d;
-            border: 1px solid #333;
-            border-radius: 8px;
-            padding: 1rem;
-            overflow-x: auto;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-            font-size: 14px;
-            line-height: 1.6;
-            color: #ccc;
-        }}
-        .hint {{
-            background: #252525;
-            border-left: 3px solid #666;
-            padding: 1rem;
-            margin-top: 1.5rem;
-            color: #aaa;
-        }}
-        .hint strong {{
-            color: #e5e5e5;
-        }}
-    </style>
-</head>
-<body>
-    <div class="error-container">
-        <h1>Template Render Error</h1>
-        <pre>{error_html}</pre>
-        <div class="hint">
-            <strong>Hint:</strong> Check your template syntax and ensure all referenced variables exist.
-        </div>
-    </div>
-</body>
-</html>"#
-    )
 }
 
 /// Build the render context with config and global functions
