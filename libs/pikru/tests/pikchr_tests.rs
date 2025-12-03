@@ -304,7 +304,13 @@ fn get_num_attr(node: &roxmltree::Node, name: &str) -> Option<f64> {
 }
 
 fn parse_style_attrs(node: &roxmltree::Node, str_attrs: &mut HashMap<String, String>) {
-    for attr in ["fill", "stroke", "stroke-width", "stroke-dasharray", "style"] {
+    for attr in [
+        "fill",
+        "stroke",
+        "stroke-width",
+        "stroke-dasharray",
+        "style",
+    ] {
         if let Some(v) = node.attribute(attr) {
             str_attrs.insert(attr.to_string(), normalize_color(v));
         }
@@ -822,7 +828,9 @@ fn run_c_pikchr(source: &str) -> String {
         .write_all(source.as_bytes())
         .unwrap();
 
-    let output = child.wait_with_output().expect("failed to wait on C pikchr");
+    let output = child
+        .wait_with_output()
+        .expect("failed to wait on C pikchr");
     String::from_utf8(output.stdout).expect("C pikchr output not UTF-8")
 }
 

@@ -146,7 +146,11 @@ mod tests {
         // "last arrow" is a position (via nth/object/place), not an expr
         let input = "last arrow";
         let result = PikchrParser::parse(Rule::position, input);
-        assert!(result.is_ok(), "Failed to parse position: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to parse position: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -154,7 +158,11 @@ mod tests {
         // Test assert statement
         let input = "assert( previous == last arrow )";
         let result = PikchrParser::parse(Rule::assert_stmt, input);
-        assert!(result.is_ok(), "Failed to parse assert_stmt: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to parse assert_stmt: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -206,7 +214,11 @@ mod tests {
     fn parse_test01() {
         let input = include_str!("../../pikchr/tests/test01.pikchr");
         let result = PikchrParser::parse(Rule::program, input);
-        assert!(result.is_ok(), "Failed to parse test01.pikchr: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to parse test01.pikchr: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -229,7 +241,11 @@ mod tests {
     fn parse_test02() {
         let input = include_str!("../../pikchr/tests/test02.pikchr");
         let result = PikchrParser::parse(Rule::program, input);
-        assert!(result.is_ok(), "Failed to parse test02.pikchr: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to parse test02.pikchr: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -238,12 +254,20 @@ mod tests {
         let input = "One.se";
         let result = PikchrParser::parse(Rule::place, input);
         println!("place('One.se'): {:?}", result);
-        assert!(result.is_ok(), "Failed to parse as place: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to parse as place: {:?}",
+            result.err()
+        );
 
         // Test One.se as position
         let result = PikchrParser::parse(Rule::position, input);
         println!("position('One.se'): {:?}", result);
-        assert!(result.is_ok(), "Failed to parse as position: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to parse as position: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -275,21 +299,33 @@ mod tests {
     fn parse_test03() {
         let input = include_str!("../../pikchr/tests/test03.pikchr");
         let result = PikchrParser::parse(Rule::program, input);
-        assert!(result.is_ok(), "Failed to parse test03.pikchr: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to parse test03.pikchr: {:?}",
+            result.err()
+        );
     }
 
     #[test]
     fn parse_test10() {
         let input = include_str!("../../pikchr/tests/test10.pikchr");
         let result = PikchrParser::parse(Rule::program, input);
-        assert!(result.is_ok(), "Failed to parse test10.pikchr: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to parse test10.pikchr: {:?}",
+            result.err()
+        );
     }
 
     #[test]
     fn parse_expr_file() {
         let input = include_str!("../../pikchr/tests/expr.pikchr");
         let result = PikchrParser::parse(Rule::program, input);
-        assert!(result.is_ok(), "Failed to parse expr.pikchr: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to parse expr.pikchr: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -297,7 +333,8 @@ mod tests {
         // Files that are intentionally testing error handling (contain intentional syntax errors)
         let error_test_files = ["test60.pikchr", "test62.pikchr"];
 
-        let test_dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/tests"));
+        let test_dir =
+            std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/tests"));
         let mut pass = 0;
         let mut fail = 0;
         let mut expected_errors = 0;
@@ -324,11 +361,18 @@ mod tests {
             }
         }
 
-        println!("\nParse results: {} passed, {} expected errors, {} unexpected failures", pass, expected_errors, fail);
+        println!(
+            "\nParse results: {} passed, {} expected errors, {} unexpected failures",
+            pass, expected_errors, fail
+        );
         for (name, err) in &failures {
             println!("  FAIL: {} - {}", name, err.lines().next().unwrap_or(""));
         }
-        assert!(failures.is_empty(), "{} files failed to parse unexpectedly", fail);
+        assert!(
+            failures.is_empty(),
+            "{} files failed to parse unexpectedly",
+            fail
+        );
     }
 
     // AST parsing tests
@@ -358,21 +402,33 @@ mod tests {
     fn ast_test01_file() {
         let input = include_str!("../../pikchr/tests/test01.pikchr");
         let result = crate::parse::parse(input);
-        assert!(result.is_ok(), "Failed to build AST for test01.pikchr: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to build AST for test01.pikchr: {:?}",
+            result.err()
+        );
     }
 
     #[test]
     fn ast_test02_file() {
         let input = include_str!("../../pikchr/tests/test02.pikchr");
         let result = crate::parse::parse(input);
-        assert!(result.is_ok(), "Failed to build AST for test02.pikchr: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to build AST for test02.pikchr: {:?}",
+            result.err()
+        );
     }
 
     #[test]
     fn ast_test03_file() {
         let input = include_str!("../../pikchr/tests/test03.pikchr");
         let result = crate::parse::parse(input);
-        assert!(result.is_ok(), "Failed to build AST for test03.pikchr: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Failed to build AST for test03.pikchr: {:?}",
+            result.err()
+        );
     }
 
     #[test]
@@ -380,7 +436,8 @@ mod tests {
         // Files that are intentionally testing error handling
         let error_test_files = ["test60.pikchr", "test62.pikchr"];
 
-        let test_dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/tests"));
+        let test_dir =
+            std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/tests"));
         let mut pass = 0;
         let mut fail = 0;
         let mut expected_errors = 0;
@@ -407,11 +464,18 @@ mod tests {
             }
         }
 
-        println!("\nAST build results: {} passed, {} expected errors, {} unexpected failures", pass, expected_errors, fail);
+        println!(
+            "\nAST build results: {} passed, {} expected errors, {} unexpected failures",
+            pass, expected_errors, fail
+        );
         for (name, err) in &failures {
             println!("  FAIL: {} - {}", name, err.lines().next().unwrap_or(""));
         }
-        assert!(failures.is_empty(), "{} files failed to build AST unexpectedly", fail);
+        assert!(
+            failures.is_empty(),
+            "{} files failed to build AST unexpectedly",
+            fail
+        );
     }
 
     // SVG rendering tests
@@ -447,7 +511,10 @@ mod tests {
         assert!(result.is_ok(), "Failed to render: {:?}", result.err());
         let svg = result.unwrap();
         assert!(svg.contains("<svg"), "Output should be SVG");
-        assert!(svg.matches("<rect").count() >= 2, "Should have at least 2 rects");
+        assert!(
+            svg.matches("<rect").count() >= 2,
+            "Should have at least 2 rects"
+        );
     }
 
     #[test]
@@ -464,7 +531,8 @@ mod tests {
         // Files that are intentionally testing error handling
         let error_test_files = ["test60.pikchr", "test62.pikchr"];
 
-        let test_dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/tests"));
+        let test_dir =
+            std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/tests"));
         let mut pass = 0;
         let mut fail = 0;
         let mut expected_errors = 0;
@@ -498,7 +566,10 @@ mod tests {
             }
         }
 
-        println!("\nRender results: {} passed, {} expected errors, {} unexpected failures", pass, expected_errors, fail);
+        println!(
+            "\nRender results: {} passed, {} expected errors, {} unexpected failures",
+            pass, expected_errors, fail
+        );
         for (name, err) in &failures[..failures.len().min(10)] {
             println!("  FAIL: {} - {}", name, err.lines().next().unwrap_or(""));
         }

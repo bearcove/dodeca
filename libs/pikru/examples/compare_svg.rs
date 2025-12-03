@@ -89,7 +89,10 @@ fn parse_svg_elements(svg: &str) -> Vec<SvgElement> {
         }
 
         let tag = node.tag_name().name();
-        if matches!(tag, "rect" | "circle" | "ellipse" | "line" | "path" | "polygon" | "polyline" | "text") {
+        if matches!(
+            tag,
+            "rect" | "circle" | "ellipse" | "line" | "path" | "polygon" | "polyline" | "text"
+        ) {
             elements.push(SvgElement {
                 tag: tag.to_string(),
                 x: parse_attr_f64(node.attribute("x").or_else(|| node.attribute("x1"))),

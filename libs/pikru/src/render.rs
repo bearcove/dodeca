@@ -145,12 +145,33 @@ pub struct RenderedObject {
     pub height: Inches,
     pub start: PointIn,
     pub end: PointIn,
+    pub start_attachment: Option<EndpointObject>,
+    pub end_attachment: Option<EndpointObject>,
     /// Waypoints for multi-segment lines (includes start, intermediate points, and end)
     pub waypoints: Vec<PointIn>,
     pub text: Vec<PositionedText>,
     pub style: ObjectStyle,
     /// Child objects for sublists
     pub children: Vec<RenderedObject>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EndpointObject {
+    pub class: ObjectClass,
+    pub center: PointIn,
+    pub width: Inches,
+    pub height: Inches,
+}
+
+impl EndpointObject {
+    fn from_rendered(obj: &RenderedObject) -> Self {
+        Self {
+            class: obj.class,
+            center: obj.center,
+            width: obj.width,
+            height: obj.height,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -615,6 +636,8 @@ fn render_object_stmt(
     let mut explicit_position: Option<PointIn> = None;
     let mut from_position: Option<PointIn> = None;
     let mut to_position: Option<PointIn> = None;
+    let mut from_attachment: Option<EndpointObject> = None;
+    let mut to_attachment: Option<EndpointObject> = None;
     let mut line_direction: Option<Direction> = None;
     let mut line_distance: Option<Inches> = None;
     let mut even_clause: Option<(Direction, Position)> = None;
@@ -699,11 +722,17 @@ fn render_object_stmt(
             Attribute::From(pos) => {
                 if let Ok(p) = eval_position(ctx, pos) {
                     from_position = Some(p);
+                    if from_attachment.is_none() {
+                        from_attachment = endpoint_object_from_position(ctx, pos);
+                    }
                 }
             }
             Attribute::To(pos) => {
                 if let Ok(p) = eval_position(ctx, pos) {
                     to_position = Some(p);
+                    if to_attachment.is_none() {
+                        to_attachment = endpoint_object_from_position(ctx, pos);
+                    }
                 }
             }
             Attribute::DirectionMove(_go, dir, dist) => {
@@ -894,6 +923,8 @@ fn render_object_stmt(
         height,
         start,
         end,
+        start_attachment: from_attachment,
+        end_attachment: to_attachment,
         waypoints,
         text,
         style,
@@ -1428,6 +1459,22 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, miette:
     }
 }
 
+fn endpoint_object_from_position(ctx: &RenderContext, pos: &Position) -> Option<EndpointObject> {
+    match pos {
+        Position::Place(place) => endpoint_object_from_place(ctx, place),
+        _ => None,
+    }
+}
+
+fn endpoint_object_from_place(ctx: &RenderContext, place: &Place) -> Option<EndpointObject> {
+    match place {
+        Place::Object(obj)
+        | Place::ObjectEdge(obj, _)
+        | Place::EdgePointOf(_, obj)
+        | Place::Vertex(_, obj) => resolve_object(ctx, obj).map(EndpointObject::from_rendered),
+    }
+}
+
 /// Get the unit offset direction for an edge point
 fn edge_point_offset(edge: &EdgePoint) -> UnitVec {
     match edge {
@@ -1780,6 +1827,11 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 );
             }
             ObjectClass::Line | ObjectClass::Arrow => {
+                let (auto_sx, auto_sy, auto_ex, auto_ey) = if obj.waypoints.len() <= 2 {
+                    apply_auto_chop_simple_line(&scaler, obj, sx, sy, ex, ey)
+                } else {
+                    (sx, sy, ex, ey)
+                };
                 // Apply chop if needed (shorten line from both ends)
                 let chop_amount_px = if obj.style.chop {
                     scaler.px(defaults::CIRCLE_RADIUS)
@@ -1787,9 +1839,9 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     0.0
                 };
                 let (draw_sx, draw_sy, draw_ex, draw_ey) = if chop_amount_px > 0.0 {
-                    chop_line(sx, sy, ex, ey, chop_amount_px)
+                    chop_line(auto_sx, auto_sy, auto_ex, auto_ey, chop_amount_px)
                 } else {
-                    (sx, sy, ex, ey)
+                    (auto_sx, auto_sy, auto_ex, auto_ey)
                 };
 
                 if obj.waypoints.len() <= 2 {
@@ -2301,6 +2353,96 @@ fn chop_line(x1: f64, y1: f64, x2: f64, y2: f64, amount: f64) -> (f64, f64, f64,
     let new_y2 = y2 - uy * amount;
 
     (new_x1, new_y1, new_x2, new_y2)
+}
+
+fn point_in_to_px_tuple(scaler: &Scaler, point: PointIn) -> (f64, f64) {
+    let px = scaler.point(point);
+    (px.x.0, px.y.0)
+}
+
+fn apply_auto_chop_simple_line(
+    scaler: &Scaler,
+    obj: &RenderedObject,
+    sx: f64,
+    sy: f64,
+    ex: f64,
+    ey: f64,
+) -> (f64, f64, f64, f64) {
+    if obj.start_attachment.is_none() && obj.end_attachment.is_none() {
+        return (sx, sy, ex, ey);
+    }
+
+    let other_end_hint = obj
+        .end_attachment
+        .as_ref()
+        .map(|info| point_in_to_px_tuple(scaler, info.center))
+        .unwrap_or((ex, ey));
+
+    let other_start_hint = obj
+        .start_attachment
+        .as_ref()
+        .map(|info| point_in_to_px_tuple(scaler, info.center))
+        .unwrap_or((sx, sy));
+
+    let mut new_start = (sx, sy);
+    if let Some(ref start_info) = obj.start_attachment {
+        if let Some(chopped) = chop_against_endpoint(scaler, start_info, other_end_hint) {
+            new_start = chopped;
+        }
+    }
+
+    let mut new_end = (ex, ey);
+    if let Some(ref end_info) = obj.end_attachment {
+        if let Some(chopped) = chop_against_endpoint(scaler, end_info, other_start_hint) {
+            new_end = chopped;
+        }
+    }
+
+    (new_start.0, new_start.1, new_end.0, new_end.1)
+}
+
+fn chop_against_endpoint(
+    scaler: &Scaler,
+    endpoint: &EndpointObject,
+    toward: (f64, f64),
+) -> Option<(f64, f64)> {
+    match endpoint.class {
+        ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval => {
+            let center_px = scaler.point(endpoint.center);
+            let cx = center_px.x.0;
+            let cy = center_px.y.0;
+            let rx = scaler.px(endpoint.width / 2.0);
+            let ry = scaler.px(endpoint.height / 2.0);
+            chop_against_ellipse(cx, cy, rx, ry, toward)
+        }
+        _ => None,
+    }
+}
+
+fn chop_against_ellipse(
+    cx: f64,
+    cy: f64,
+    rx: f64,
+    ry: f64,
+    toward: (f64, f64),
+) -> Option<(f64, f64)> {
+    if rx <= 0.0 || ry <= 0.0 {
+        return None;
+    }
+
+    let dx = toward.0 - cx;
+    let dy = toward.1 - cy;
+    if dx.abs() < f64::EPSILON && dy.abs() < f64::EPSILON {
+        return None;
+    }
+
+    let denom = (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry);
+    if denom <= 0.0 {
+        return None;
+    }
+
+    let scale = 1.0 / denom.sqrt();
+    Some((cx + dx * scale, cy + dy * scale))
 }
 
 /// Render an oval (pill shape)

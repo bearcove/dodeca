@@ -261,9 +261,9 @@ pub enum BoolProperty {
     Thick,
     Thin,
     Solid,
-    ArrowBoth,   // <->
-    ArrowRight,  // ->
-    ArrowLeft,   // <-
+    ArrowBoth,  // <->
+    ArrowRight, // ->
+    ArrowLeft,  // <-
 }
 
 /// With clause: .edge at position

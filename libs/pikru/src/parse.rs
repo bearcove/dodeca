@@ -2,8 +2,8 @@
 
 use crate::ast::*;
 use crate::{PikchrParser, Rule};
-use pest::iterators::Pair;
 use pest::Parser;
+use pest::iterators::Pair;
 
 /// Parse pikchr source into AST
 pub fn parse(source: &str) -> Result<Program, miette::Report> {
@@ -45,7 +45,10 @@ fn parse_statement(pair: Pair<Rule>) -> Result<Statement, miette::Report> {
         Rule::assert_stmt => Ok(Statement::Assert(parse_assert(inner)?)),
         Rule::print_stmt => Ok(Statement::Print(parse_print(inner)?)),
         Rule::object_stmt => Ok(Statement::Object(parse_object_stmt(inner)?)),
-        _ => Err(miette::miette!("Unexpected rule in statement: {:?}", inner.as_rule())),
+        _ => Err(miette::miette!(
+            "Unexpected rule in statement: {:?}",
+            inner.as_rule()
+        )),
     }
 }
 
@@ -172,22 +175,31 @@ fn parse_assert(pair: Pair<Rule>) -> Result<Assert, miette::Report> {
     // Grammar: "assert" ~ "(" ~ (expr ~ "==" ~ expr | position ~ "==" ~ position) ~ ")"
     // Keywords/literals like "assert", "(", "==", ")" are not captured as children
 
-    let first = inner.next().ok_or_else(|| miette::miette!("Empty assert statement"))?;
+    let first = inner
+        .next()
+        .ok_or_else(|| miette::miette!("Empty assert statement"))?;
 
     let condition = if first.as_rule() == Rule::expr {
         let left = parse_expr(first)?;
         // "==" is a literal, not captured - next should be the second expr
-        let right_pair = inner.next().ok_or_else(|| miette::miette!("Missing right side of assert"))?;
+        let right_pair = inner
+            .next()
+            .ok_or_else(|| miette::miette!("Missing right side of assert"))?;
         let right = parse_expr(right_pair)?;
         AssertCondition::ExprEqual(left, right)
     } else if first.as_rule() == Rule::position {
         let left = parse_position(first)?;
         // "==" is a literal, not captured - next should be the second position
-        let right_pair = inner.next().ok_or_else(|| miette::miette!("Missing right side of assert"))?;
+        let right_pair = inner
+            .next()
+            .ok_or_else(|| miette::miette!("Missing right side of assert"))?;
         let right = parse_position(right_pair)?;
         AssertCondition::PositionEqual(left, right)
     } else {
-        return Err(miette::miette!("Invalid assert condition: {:?}", first.as_rule()));
+        return Err(miette::miette!(
+            "Invalid assert condition: {:?}",
+            first.as_rule()
+        ));
     };
     Ok(Assert { condition })
 }
@@ -220,7 +232,12 @@ fn parse_labeled_statement(pair: Pair<Rule>) -> Result<LabeledStatement, miette:
     let content = match content_pair.as_rule() {
         Rule::position => LabeledContent::Position(parse_position(content_pair)?),
         Rule::object_stmt => LabeledContent::Object(parse_object_stmt(content_pair)?),
-        _ => return Err(miette::miette!("Invalid labeled content: {:?}", content_pair.as_rule())),
+        _ => {
+            return Err(miette::miette!(
+                "Invalid labeled content: {:?}",
+                content_pair.as_rule()
+            ));
+        }
     };
     Ok(LabeledStatement { label, content })
 }
@@ -238,7 +255,10 @@ fn parse_object_stmt(pair: Pair<Rule>) -> Result<ObjectStatement, miette::Report
             }
         }
     }
-    Ok(ObjectStatement { basetype, attributes })
+    Ok(ObjectStatement {
+        basetype,
+        attributes,
+    })
 }
 
 fn parse_basetype(pair: Pair<Rule>) -> Result<BaseType, miette::Report> {
@@ -324,7 +344,11 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
         Rule::relexpr => {
             let relexpr = parse_relexpr(inner.next().unwrap())?;
             // Check if this is actually "relexpr heading expr"
-            if inner.peek().map(|p| p.as_str() == "heading").unwrap_or(false) {
+            if inner
+                .peek()
+                .map(|p| p.as_str() == "heading")
+                .unwrap_or(false)
+            {
                 inner.next(); // skip "heading"
                 let heading_expr = parse_expr(inner.next().unwrap())?;
                 Ok(Attribute::Heading(Some(relexpr), heading_expr))
@@ -336,14 +360,26 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
             // optrelexpr can be empty - Grammar: optrelexpr = { relexpr? }
             // This might appear in: "go"? ~ optrelexpr ~ "heading" ~ expr
             let opt = inner.next().unwrap();
-            let relexpr = opt.into_inner().next().map(|p| parse_relexpr(p)).transpose()?;
+            let relexpr = opt
+                .into_inner()
+                .next()
+                .map(|p| parse_relexpr(p))
+                .transpose()?;
 
             // Check what follows
-            if inner.peek().map(|p| p.as_str() == "heading").unwrap_or(false) {
+            if inner
+                .peek()
+                .map(|p| p.as_str() == "heading")
+                .unwrap_or(false)
+            {
                 inner.next(); // skip "heading"
                 let heading_expr = parse_expr(inner.next().unwrap())?;
                 Ok(Attribute::Heading(relexpr, heading_expr))
-            } else if inner.peek().map(|p| p.as_rule() == Rule::EDGEPT).unwrap_or(false) {
+            } else if inner
+                .peek()
+                .map(|p| p.as_rule() == Rule::EDGEPT)
+                .unwrap_or(false)
+            {
                 // optrelexpr EDGEPT - this is a then clause variant
                 let ep = parse_edgepoint(inner.next().unwrap())?;
                 Ok(Attribute::Then(Some(ThenClause::EdgePoint(relexpr, ep))))
@@ -365,19 +401,27 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
                 if let Some(next) = inner.next() {
                     match next.as_rule() {
                         Rule::optrelexpr => {
-                            let relexpr = next.into_inner().next().map(|p| parse_relexpr(p)).transpose()?;
-                            Ok(Attribute::Then(Some(ThenClause::DirectionMove(dir, relexpr))))
+                            let relexpr = next
+                                .into_inner()
+                                .next()
+                                .map(|p| parse_relexpr(p))
+                                .transpose()?;
+                            Ok(Attribute::Then(Some(ThenClause::DirectionMove(
+                                dir, relexpr,
+                            ))))
                         }
                         Rule::position => {
                             // direction even with position or direction until even with position
                             let pos = parse_position(next)?;
                             if pair_str.contains("until") {
-                                Ok(Attribute::Then(Some(ThenClause::DirectionUntilEven(dir, pos))))
+                                Ok(Attribute::Then(Some(ThenClause::DirectionUntilEven(
+                                    dir, pos,
+                                ))))
                             } else {
                                 Ok(Attribute::Then(Some(ThenClause::DirectionEven(dir, pos))))
                             }
                         }
-                        _ => Ok(Attribute::Then(Some(ThenClause::DirectionMove(dir, None))))
+                        _ => Ok(Attribute::Then(Some(ThenClause::DirectionMove(dir, None)))),
                     }
                 } else {
                     Ok(Attribute::Then(Some(ThenClause::DirectionMove(dir, None))))
@@ -427,12 +471,19 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
                         } else if next.as_rule() == Rule::optrelexpr {
                             // go optrelexpr heading expr
                             let opt = inner.next().unwrap();
-                            let relexpr = opt.into_inner().next().map(|p| parse_relexpr(p)).transpose()?;
+                            let relexpr = opt
+                                .into_inner()
+                                .next()
+                                .map(|p| parse_relexpr(p))
+                                .transpose()?;
                             inner.next(); // skip "heading"
                             let heading_expr = parse_expr(inner.next().unwrap())?;
                             Ok(Attribute::Heading(relexpr, heading_expr))
                         } else {
-                            Err(miette::miette!("Unexpected after 'go': {:?}", next.as_rule()))
+                            Err(miette::miette!(
+                                "Unexpected after 'go': {:?}",
+                                next.as_rule()
+                            ))
                         }
                     } else {
                         Err(miette::miette!("Nothing after 'go'"))
@@ -479,15 +530,19 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
                     let obj = parse_object(inner.next().unwrap())?;
                     Ok(Attribute::Behind(obj))
                 }
-                _ => {
-                    Err(miette::miette!("Unexpected attribute: {} (rule: {:?})", s, first.as_rule()))
-                }
+                _ => Err(miette::miette!(
+                    "Unexpected attribute: {} (rule: {:?})",
+                    s,
+                    first.as_rule()
+                )),
             }
         }
     }
 }
 
-fn parse_direction_attribute<'a, I>(inner: &mut std::iter::Peekable<I>) -> Result<Attribute, miette::Report>
+fn parse_direction_attribute<'a, I>(
+    inner: &mut std::iter::Peekable<I>,
+) -> Result<Attribute, miette::Report>
 where
     I: Iterator<Item = Pair<'a, Rule>>,
 {
@@ -522,7 +577,11 @@ where
     } else if let Some(p) = inner.next() {
         // Should be optrelexpr for distance
         if p.as_rule() == Rule::optrelexpr {
-            let relexpr = p.into_inner().next().map(|r| parse_relexpr(r)).transpose()?;
+            let relexpr = p
+                .into_inner()
+                .next()
+                .map(|r| parse_relexpr(r))
+                .transpose()?;
             Ok(Attribute::DirectionMove(None, dir, relexpr))
         } else {
             Ok(Attribute::DirectionMove(None, dir, None))
@@ -570,7 +629,9 @@ where
                     inner.next();
                 }
                 let pos = parse_position(inner.next().unwrap())?;
-                Ok(Attribute::Then(Some(ThenClause::DirectionUntilEven(dir, pos))))
+                Ok(Attribute::Then(Some(ThenClause::DirectionUntilEven(
+                    dir, pos,
+                ))))
             } else if after_str == "even" {
                 inner.next(); // skip "even"
                 if inner.peek().map(|p| p.as_str() == "with").unwrap_or(false) {
@@ -579,8 +640,16 @@ where
                 let pos = parse_position(inner.next().unwrap())?;
                 Ok(Attribute::Then(Some(ThenClause::DirectionEven(dir, pos))))
             } else if after.as_rule() == Rule::optrelexpr {
-                let relexpr = inner.next().unwrap().into_inner().next().map(|p| parse_relexpr(p)).transpose()?;
-                Ok(Attribute::Then(Some(ThenClause::DirectionMove(dir, relexpr))))
+                let relexpr = inner
+                    .next()
+                    .unwrap()
+                    .into_inner()
+                    .next()
+                    .map(|p| parse_relexpr(p))
+                    .transpose()?;
+                Ok(Attribute::Then(Some(ThenClause::DirectionMove(
+                    dir, relexpr,
+                ))))
             } else {
                 Ok(Attribute::Then(Some(ThenClause::DirectionMove(dir, None))))
             }
@@ -589,14 +658,21 @@ where
         }
     } else if next.as_rule() == Rule::optrelexpr {
         let opt = inner.next().unwrap();
-        let relexpr = opt.into_inner().next().map(|p| parse_relexpr(p)).transpose()?;
+        let relexpr = opt
+            .into_inner()
+            .next()
+            .map(|p| parse_relexpr(p))
+            .transpose()?;
 
         // Check for "heading" or EDGEPT
         if let Some(after) = inner.peek() {
             if after.as_str() == "heading" {
                 inner.next(); // skip "heading"
                 let heading_expr = parse_expr(inner.next().unwrap())?;
-                Ok(Attribute::Then(Some(ThenClause::Heading(relexpr, heading_expr))))
+                Ok(Attribute::Then(Some(ThenClause::Heading(
+                    relexpr,
+                    heading_expr,
+                ))))
             } else if after.as_rule() == Rule::EDGEPT {
                 let ep = parse_edgepoint(inner.next().unwrap())?;
                 Ok(Attribute::Then(Some(ThenClause::EdgePoint(relexpr, ep))))
@@ -658,7 +734,9 @@ fn parse_withclause(pair: Pair<Rule>) -> Result<WithClause, miette::Report> {
     let mut inner = pair.into_inner().peekable();
 
     // First child should be dot_edge or EDGEPT
-    let edge_pair = inner.next().ok_or_else(|| miette::miette!("Empty withclause"))?;
+    let edge_pair = inner
+        .next()
+        .ok_or_else(|| miette::miette!("Empty withclause"))?;
 
     let edge = match edge_pair.as_rule() {
         Rule::dot_edge => {
@@ -683,7 +761,12 @@ fn parse_withclause(pair: Pair<Rule>) -> Result<WithClause, miette::Report> {
                 position: pos,
             });
         }
-        _ => return Err(miette::miette!("Invalid withclause edge: {:?}", edge_pair.as_rule())),
+        _ => {
+            return Err(miette::miette!(
+                "Invalid withclause edge: {:?}",
+                edge_pair.as_rule()
+            ));
+        }
     };
 
     // "at" is a keyword literal - not captured as a child
@@ -830,9 +913,13 @@ fn parse_primary(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
             // "vertex" and "of" are literals, not captured
             let nth = parse_nth_from_str(first.as_str())?;
             // Next should be object, then dot_xy
-            let obj_pair = inner.next().ok_or_else(|| miette::miette!("Missing object in vertex expression"))?;
+            let obj_pair = inner
+                .next()
+                .ok_or_else(|| miette::miette!("Missing object in vertex expression"))?;
             let obj = parse_object(obj_pair)?;
-            let coord_pair = inner.next().ok_or_else(|| miette::miette!("Missing coordinate in vertex expression"))?;
+            let coord_pair = inner
+                .next()
+                .ok_or_else(|| miette::miette!("Missing coordinate in vertex expression"))?;
             let coord = parse_coord(coord_pair)?;
             Ok(Expr::VertexCoord(nth, obj, coord))
         }
@@ -864,7 +951,10 @@ fn parse_primary(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
                         let prop = parse_numproperty(prop_pair)?;
                         Ok(Expr::ObjectProp(obj, prop))
                     }
-                    _ => Err(miette::miette!("Unexpected after object in primary: {:?}", next.as_rule())),
+                    _ => Err(miette::miette!(
+                        "Unexpected after object in primary: {:?}",
+                        next.as_rule()
+                    )),
                 }
             } else {
                 // Bare object - this should be a place, not an expr
@@ -878,7 +968,11 @@ fn parse_primary(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
                 "fill" => Ok(Expr::BuiltinVar(BuiltinVar::Fill)),
                 "color" => Ok(Expr::BuiltinVar(BuiltinVar::Color)),
                 "thickness" => Ok(Expr::BuiltinVar(BuiltinVar::Thickness)),
-                _ => Err(miette::miette!("Unexpected primary: {} (rule: {:?})", s, first.as_rule())),
+                _ => Err(miette::miette!(
+                    "Unexpected primary: {} (rule: {:?})",
+                    s,
+                    first.as_rule()
+                )),
             }
         }
     }
@@ -899,7 +993,8 @@ fn parse_coord(pair: Pair<Rule>) -> Result<Coord, miette::Report> {
 
 fn parse_nth_from_str(s: &str) -> Result<Nth, miette::Report> {
     // Parse ordinal like "1st", "2nd", "3rd", etc.
-    let num: u32 = s.trim_end_matches(|c: char| !c.is_ascii_digit())
+    let num: u32 = s
+        .trim_end_matches(|c: char| !c.is_ascii_digit())
         .parse()
         .map_err(|_| miette::miette!("Invalid ordinal: {}", s))?;
     Ok(Nth::Ordinal(num, false, None))
@@ -999,20 +1094,36 @@ fn parse_position(pair: Pair<Rule>) -> Result<Position, miette::Report> {
 
                 // Determine operator - could be "+" or "-" directly, or could be expr
                 let (op, first_expr_pair) = if next_str == "+" || next_str == "-" {
-                    let op = if next_str == "+" { BinaryOp::Add } else { BinaryOp::Sub };
-                    let first = inner.next().ok_or_else(|| miette::miette!("Missing x expression"))?;
+                    let op = if next_str == "+" {
+                        BinaryOp::Add
+                    } else {
+                        BinaryOp::Sub
+                    };
+                    let first = inner
+                        .next()
+                        .ok_or_else(|| miette::miette!("Missing x expression"))?;
                     (op, first)
                 } else if next_rule == Rule::expr {
                     // Operator not captured - assume Add (default), use this as first expr
                     // Check if the place string ends with + or -
-                    let op = if pair_str.contains('+') { BinaryOp::Add } else { BinaryOp::Sub };
+                    let op = if pair_str.contains('+') {
+                        BinaryOp::Add
+                    } else {
+                        BinaryOp::Sub
+                    };
                     (op, next_pair)
                 } else {
-                    return Err(miette::miette!("Unexpected after place: {} (rule: {:?})", next_str, next_rule));
+                    return Err(miette::miette!(
+                        "Unexpected after place: {} (rule: {:?})",
+                        next_str,
+                        next_rule
+                    ));
                 };
 
                 let x = parse_expr(first_expr_pair)?;
-                let y_pair = inner.next().ok_or_else(|| miette::miette!("Missing y expression"))?;
+                let y_pair = inner
+                    .next()
+                    .ok_or_else(|| miette::miette!("Missing y expression"))?;
                 let y = parse_expr(y_pair)?;
                 Ok(Position::PlaceOffset(place, op, x, y))
             } else {
@@ -1046,10 +1157,14 @@ fn parse_position(pair: Pair<Rule>) -> Result<Position, miette::Report> {
                 if next_str == "between" || next_str == "way" || next_str == "of" {
                     // expr between pos and pos OR expr (of the)? way between pos and pos
                     // Skip keywords until we get to positions
-                    while inner.peek().map(|p| {
-                        let s = p.as_str();
-                        s == "between" || s == "way" || s == "of" || s == "the"
-                    }).unwrap_or(false) {
+                    while inner
+                        .peek()
+                        .map(|p| {
+                            let s = p.as_str();
+                            s == "between" || s == "way" || s == "of" || s == "the"
+                        })
+                        .unwrap_or(false)
+                    {
                         inner.next();
                     }
                     let pos1 = parse_position(inner.next().unwrap())?;
@@ -1058,25 +1173,41 @@ fn parse_position(pair: Pair<Rule>) -> Result<Position, miette::Report> {
                         inner.next();
                     }
                     let pos2 = parse_position(inner.next().unwrap())?;
-                    Ok(Position::Between(first_expr, Box::new(pos1), Box::new(pos2)))
+                    Ok(Position::Between(
+                        first_expr,
+                        Box::new(pos1),
+                        Box::new(pos2),
+                    ))
                 } else if next_str == "<" {
                     // expr < pos, pos >
                     inner.next(); // skip "<"
                     let pos1 = parse_position(inner.next().unwrap())?;
                     let pos2 = parse_position(inner.next().unwrap())?;
-                    Ok(Position::Bracket(first_expr, Box::new(pos1), Box::new(pos2)))
+                    Ok(Position::Bracket(
+                        first_expr,
+                        Box::new(pos1),
+                        Box::new(pos2),
+                    ))
                 } else if next.as_rule() == Rule::above_below {
                     // expr above_below position (new rule-based matching)
                     let ab_pair = inner.next().unwrap();
                     let ab_str = ab_pair.as_str().trim();
-                    let ab = if ab_str == "above" { AboveBelow::Above } else { AboveBelow::Below };
+                    let ab = if ab_str == "above" {
+                        AboveBelow::Above
+                    } else {
+                        AboveBelow::Below
+                    };
                     let pos = parse_position(inner.next().unwrap())?;
                     Ok(Position::AboveBelow(first_expr, ab, Box::new(pos)))
                 } else if next.as_rule() == Rule::left_right_of {
                     // expr left_right_of position (new rule-based matching)
                     let lr_pair = inner.next().unwrap();
                     let lr_str = lr_pair.as_str().trim();
-                    let lr = if lr_str.starts_with("left") { LeftRight::Left } else { LeftRight::Right };
+                    let lr = if lr_str.starts_with("left") {
+                        LeftRight::Left
+                    } else {
+                        LeftRight::Right
+                    };
                     let pos = parse_position(inner.next().unwrap())?;
                     Ok(Position::LeftRightOf(first_expr, lr, Box::new(pos)))
                 } else if next_str == "heading" || next_str == "on" {
@@ -1094,7 +1225,11 @@ fn parse_position(pair: Pair<Rule>) -> Result<Position, miette::Report> {
                     };
 
                     // Skip "of" or "from"
-                    if inner.peek().map(|p| p.as_str() == "of" || p.as_str() == "from").unwrap_or(false) {
+                    if inner
+                        .peek()
+                        .map(|p| p.as_str() == "of" || p.as_str() == "from")
+                        .unwrap_or(false)
+                    {
                         inner.next();
                     }
                     let pos = parse_position(inner.next().unwrap())?;
@@ -1134,16 +1269,28 @@ fn parse_position(pair: Pair<Rule>) -> Result<Position, miette::Report> {
                     }
                     // Fallback: just return as EdgePointOf with a default center
                     let pos = parse_position(pos_pair)?;
-                    Ok(Position::EdgePointOf(first_expr, EdgePoint::Center, Box::new(pos)))
+                    Ok(Position::EdgePointOf(
+                        first_expr,
+                        EdgePoint::Center,
+                        Box::new(pos),
+                    ))
                 } else {
-                    Err(miette::miette!("Unexpected in position after expr: {} (rule: {:?})", next_str, next.as_rule()))
+                    Err(miette::miette!(
+                        "Unexpected in position after expr: {} (rule: {:?})",
+                        next_str,
+                        next.as_rule()
+                    ))
                 }
             } else {
                 // Just an expr - this shouldn't really happen for position
                 Err(miette::miette!("Position with bare expr: {}", pair_str))
             }
         }
-        _ => Err(miette::miette!("Unexpected position start: {:?} in '{}'", first.as_rule(), pair_str)),
+        _ => Err(miette::miette!(
+            "Unexpected position start: {:?} in '{}'",
+            first.as_rule(),
+            pair_str
+        )),
     }
 }
 
@@ -1165,7 +1312,10 @@ fn parse_place(pair: Pair<Rule>) -> Result<Place, miette::Report> {
                 let obj = parse_object(obj_pair)?;
                 Ok(Place::Vertex(nth, obj))
             } else {
-                Err(miette::miette!("Missing object in NTH vertex of object: {}", pair_str))
+                Err(miette::miette!(
+                    "Missing object in NTH vertex of object: {}",
+                    pair_str
+                ))
             }
         }
         Rule::EDGEPT => {
@@ -1180,7 +1330,11 @@ fn parse_place(pair: Pair<Rule>) -> Result<Place, miette::Report> {
             } else {
                 // No object found - maybe this is just a bare edgepoint
                 // Return as a placeholder object
-                Err(miette::miette!("Missing object in EDGEPT of object: {} (edgepoint: {:?})", pair_str, ep))
+                Err(miette::miette!(
+                    "Missing object in EDGEPT of object: {} (edgepoint: {:?})",
+                    pair_str,
+                    ep
+                ))
             }
         }
         Rule::object => {
@@ -1268,9 +1422,14 @@ fn parse_nth(pair: Pair<Rule>) -> Result<Nth, miette::Report> {
                 Ok(Nth::First(Some(NthClass::Sublist)))
             } else if s.starts_with("last") && s.contains("[]") {
                 Ok(Nth::Last(Some(NthClass::Sublist)))
-            } else if s.ends_with("st") || s.ends_with("nd") || s.ends_with("rd") || s.ends_with("th") {
+            } else if s.ends_with("st")
+                || s.ends_with("nd")
+                || s.ends_with("rd")
+                || s.ends_with("th")
+            {
                 // Ordinal like "1st", "2nd", "3rd", "4th", etc.
-                let num: u32 = s.trim_end_matches(|c: char| !c.is_ascii_digit())
+                let num: u32 = s
+                    .trim_end_matches(|c: char| !c.is_ascii_digit())
                     .parse()
                     .unwrap_or(1);
                 Ok(Nth::Ordinal(num, false, None))
@@ -1284,7 +1443,8 @@ fn parse_nth(pair: Pair<Rule>) -> Result<Nth, miette::Report> {
         Rule::NTH => {
             // Parse ordinal like "1st", "2nd", etc.
             let s = first.as_str();
-            let num: u32 = s.trim_end_matches(|c: char| !c.is_ascii_digit())
+            let num: u32 = s
+                .trim_end_matches(|c: char| !c.is_ascii_digit())
                 .parse()
                 .unwrap_or(1);
             let is_last = inner.peek().map(|p| p.as_str() == "last").unwrap_or(false);
@@ -1317,7 +1477,11 @@ fn parse_nth(pair: Pair<Rule>) -> Result<Nth, miette::Report> {
                     Ok(Nth::Last(class))
                 }
                 "previous" => Ok(Nth::Previous),
-                _ => Err(miette::miette!("Invalid nth: {} (rule: {:?})", s, first.as_rule())),
+                _ => Err(miette::miette!(
+                    "Invalid nth: {} (rule: {:?})",
+                    s,
+                    first.as_rule()
+                )),
             }
         }
     }
@@ -1363,7 +1527,7 @@ fn parse_edgepoint(pair: Pair<Rule>) -> Result<EdgePoint, miette::Report> {
 fn parse_string(pair: Pair<Rule>) -> Result<String, miette::Report> {
     let s = pair.as_str();
     // Remove quotes and handle escapes
-    let inner = &s[1..s.len()-1];
+    let inner = &s[1..s.len() - 1];
     let mut result = String::new();
     let mut chars = inner.chars().peekable();
     while let Some(c) = chars.next() {
