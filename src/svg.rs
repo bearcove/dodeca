@@ -1,34 +1,25 @@
 //! Minification utilities
 //!
-//! Provides HTML minification via minify-html.
+//! Provides HTML and SVG minification via plugins.
 
-use minify_html::{Cfg, minify};
-
-/// Get a minification config optimized for production HTML
-fn html_cfg() -> Cfg {
-    Cfg {
-        minify_css: true,
-        minify_js: true,
-        // Preserve template syntax for compatibility
-        preserve_brace_template_syntax: true,
-        ..Cfg::default()
-    }
-}
+use crate::plugins::{minify_html_plugin, optimize_svg_plugin};
 
 /// Minify HTML content
 ///
 /// Returns minified HTML, or original content if minification fails
 pub fn minify_html(html: &str) -> String {
-    let result = minify(html.as_bytes(), &html_cfg());
-    String::from_utf8(result).unwrap_or_else(|_| html.to_string())
+    minify_html_plugin(html).unwrap_or_else(|e| {
+        tracing::warn!("HTML minification failed: {}", e);
+        html.to_string()
+    })
 }
 
-/// Optimize SVG content using svag
+/// Optimize SVG content
 ///
 /// Removes unnecessary metadata, collapses groups, optimizes paths, etc.
-/// Preserves case sensitivity of SVG attributes (unlike minify-html).
+/// Preserves case sensitivity of SVG attributes.
 pub fn optimize_svg(svg_content: &str) -> Option<String> {
-    svag::minify(svg_content).ok()
+    optimize_svg_plugin(svg_content).ok()
 }
 
 #[cfg(test)]

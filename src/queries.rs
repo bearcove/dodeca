@@ -87,57 +87,13 @@ pub fn compile_sass<'db>(db: &'db dyn Db, registry: SassRegistry<'db>) -> Option
     // Load all sass files - creates dependency on each
     let sass_map = load_all_sass(db, registry);
 
-    // Find main.scss
-    let main_content = sass_map.get("main.scss")?;
-
-    // Create an in-memory filesystem for grass
-    let fs = InMemorySassFs::new(&sass_map);
-
-    // Compile with grass using in-memory fs
-    let options = grass::Options::default().fs(&fs);
-
-    match grass::from_string(main_content.clone(), &options) {
+    // Compile via plugin
+    match crate::plugins::compile_sass_plugin(&sass_map) {
         Ok(css) => Some(CompiledCss(css)),
         Err(e) => {
             tracing::error!("SASS compilation failed: {}", e);
             None
         }
-    }
-}
-
-/// In-memory filesystem for grass SASS compiler
-#[derive(Debug)]
-struct InMemorySassFs {
-    files: HashMap<std::path::PathBuf, Vec<u8>>,
-}
-
-impl InMemorySassFs {
-    fn new(sass_map: &HashMap<String, String>) -> Self {
-        let files = sass_map
-            .iter()
-            .map(|(path, content)| (std::path::PathBuf::from(path), content.as_bytes().to_vec()))
-            .collect();
-        Self { files }
-    }
-}
-
-impl grass::Fs for InMemorySassFs {
-    fn is_dir(&self, path: &std::path::Path) -> bool {
-        // Check if any file is under this directory
-        self.files.keys().any(|f| f.starts_with(path))
-    }
-
-    fn is_file(&self, path: &std::path::Path) -> bool {
-        self.files.contains_key(path)
-    }
-
-    fn read(&self, path: &std::path::Path) -> std::io::Result<Vec<u8>> {
-        self.files.get(path).cloned().ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("File not found: {path:?}"),
-            )
-        })
     }
 }
 

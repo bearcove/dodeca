@@ -27,6 +27,12 @@ pub struct PluginRegistry {
     pub webp: Option<Plugin>,
     /// JPEG XL encoder plugin
     pub jxl: Option<Plugin>,
+    /// HTML minification plugin
+    pub minify: Option<Plugin>,
+    /// SVG optimization plugin
+    pub svgo: Option<Plugin>,
+    /// SASS/SCSS compilation plugin
+    pub sass: Option<Plugin>,
 }
 
 impl PluginRegistry {
@@ -34,12 +40,30 @@ impl PluginRegistry {
     fn load_from_dir(dir: &Path) -> Self {
         let webp = Self::try_load_plugin(dir, "dodeca_webp");
         let jxl = Self::try_load_plugin(dir, "dodeca_jxl");
+        let minify = Self::try_load_plugin(dir, "dodeca_minify");
+        let svgo = Self::try_load_plugin(dir, "dodeca_svgo");
+        let sass = Self::try_load_plugin(dir, "dodeca_sass");
 
-        PluginRegistry { webp, jxl }
+        PluginRegistry { webp, jxl, minify, svgo, sass }
+    }
+
+    /// Check if any plugins were loaded
+    fn has_any(&self) -> bool {
+        self.webp.is_some()
+            || self.jxl.is_some()
+            || self.minify.is_some()
+            || self.svgo.is_some()
+            || self.sass.is_some()
     }
 
     fn try_load_plugin(dir: &Path, name: &str) -> Option<Plugin> {
+        #[cfg(target_os = "macos")]
+        let lib_name = format!("lib{name}.dylib");
+        #[cfg(target_os = "linux")]
         let lib_name = format!("lib{name}.so");
+        #[cfg(target_os = "windows")]
+        let lib_name = format!("{name}.dll");
+
         let path = dir.join(&lib_name);
 
         if !path.exists() {
@@ -99,7 +123,7 @@ pub fn plugins() -> &'static PluginRegistry {
 
         for dir in &search_paths {
             let registry = PluginRegistry::load_from_dir(dir);
-            if registry.webp.is_some() || registry.jxl.is_some() {
+            if registry.has_any() {
                 info!("loaded plugins from {}", dir.display());
                 return registry;
             }
@@ -109,6 +133,9 @@ pub fn plugins() -> &'static PluginRegistry {
         PluginRegistry {
             webp: None,
             jxl: None,
+            minify: None,
+            svgo: None,
+            sass: None,
         }
     })
 }
@@ -227,5 +254,68 @@ pub fn decode_jxl_plugin(data: &[u8]) -> Option<DecodedImage> {
             warn!("jxl decode plugin call failed: {}", e);
             None
         }
+    }
+}
+
+/// Minify HTML using the plugin.
+///
+/// # Panics
+/// Panics if the minify plugin is not loaded.
+pub fn minify_html_plugin(html: &str) -> Result<String, String> {
+    let plugin = plugins()
+        .minify
+        .as_ref()
+        .expect("dodeca-minify plugin not loaded");
+
+    match plugin.call::<String, PlugResult<String>>("minify_html", &html.to_string()) {
+        Ok(PlugResult::Ok(minified)) => Ok(minified),
+        Ok(PlugResult::Err(e)) => Err(e),
+        Err(e) => Err(format!("plugin call failed: {}", e)),
+    }
+}
+
+/// Optimize SVG using the plugin.
+///
+/// # Panics
+/// Panics if the svgo plugin is not loaded.
+pub fn optimize_svg_plugin(svg: &str) -> Result<String, String> {
+    let plugin = plugins()
+        .svgo
+        .as_ref()
+        .expect("dodeca-svgo plugin not loaded");
+
+    match plugin.call::<String, PlugResult<String>>("optimize_svg", &svg.to_string()) {
+        Ok(PlugResult::Ok(optimized)) => Ok(optimized),
+        Ok(PlugResult::Err(e)) => Err(e),
+        Err(e) => Err(format!("plugin call failed: {}", e)),
+    }
+}
+
+/// Input for SASS compilation
+#[derive(Facet)]
+struct SassInput {
+    files: std::collections::HashMap<String, String>,
+}
+
+/// Compile SASS/SCSS using the plugin.
+///
+/// # Panics
+/// Panics if the sass plugin is not loaded.
+pub fn compile_sass_plugin(
+    files: &std::collections::HashMap<String, String>,
+) -> Result<String, String> {
+    let plugin = plugins()
+        .sass
+        .as_ref()
+        .expect("dodeca-sass plugin not loaded");
+
+    let input = SassInput {
+        files: files.clone(),
+    };
+
+    match plugin.call::<SassInput, PlugResult<String>>("compile_sass", &input) {
+        Ok(PlugResult::Ok(css)) => Ok(css),
+        Ok(PlugResult::Err(e)) => Err(e),
+        Err(e) => Err(format!("plugin call failed: {}", e)),
     }
 }
