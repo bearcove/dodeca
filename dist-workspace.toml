@@ -20,6 +20,9 @@ publish-jobs = ["homebrew"]
 # Whether to install an updater program
 install-updater = true
 
+# Pre-build step to build livereload WASM
+github-build-setup = "../build-setup.yml"
+
 # Use Depot runners for faster builds
 [dist.github-custom-runners]
 x86_64-unknown-linux-gnu = "depot-ubuntu-24.04-32"

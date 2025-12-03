@@ -127,6 +127,12 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
+      - name: "Install wasm-pack"
+        run: |
+          "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
+      - name: "Build livereload-client WASM"
+        run: |
+          "wasm-pack build --target web crates/livereload-client"
       - name: Install dist
         run: ${{ matrix.install_dist.run }}
       # Get the dist-manifest
