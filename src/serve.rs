@@ -56,6 +56,8 @@ pub enum LiveReloadMsg {
     Reload,
     /// Patches for a specific route (serialized with postcard)
     Patches { route: String, data: Vec<u8> },
+    /// CSS update (new cache-busted path)
+    CssUpdate { path: String },
 }
 
 /// Summarize patch operations for logging
@@ -132,6 +134,8 @@ pub struct SiteServer {
     pub render_options: RenderOptions,
     /// Cached HTML for each route (for computing patches)
     html_cache: RwLock<HashMap<String, String>>,
+    /// Cached CSS path (cache-busted) for detecting CSS-only changes
+    css_cache: RwLock<Option<String>>,
     /// Asset paths that should be served at original paths (no cache-busting)
     stable_assets: Vec<String>,
 }
@@ -150,6 +154,7 @@ impl SiteServer {
             livereload_tx,
             render_options,
             html_cache: RwLock::new(HashMap::new()),
+            css_cache: RwLock::new(None),
             stable_assets,
         }
     }
@@ -164,6 +169,28 @@ impl SiteServer {
     pub fn trigger_reload(&self) {
         use crate::html_diff::{parse_html, diff, serialize_patches};
 
+        // Check for CSS changes first
+        let old_css_path = {
+            let cache = self.css_cache.read().unwrap();
+            cache.clone()
+        };
+        let new_css_path = self.get_current_css_path();
+        let css_changed = old_css_path != new_css_path;
+
+        if css_changed {
+            // Update CSS cache
+            if let Some(ref path) = new_css_path {
+                self.cache_css(path);
+            }
+
+            if let Some(ref path) = new_css_path {
+                tracing::info!("🎨 CSS changed: {}", path);
+                let _ = self.livereload_tx.send(LiveReloadMsg::CssUpdate {
+                    path: path.clone(),
+                });
+            }
+        }
+
         // Get all cached routes and compute patches
         let cached_routes: Vec<String> = {
             let cache = self.html_cache.read().unwrap();
@@ -171,12 +198,14 @@ impl SiteServer {
         };
 
         if cached_routes.is_empty() {
-            tracing::info!("🔄 No cached routes, sending full reload");
-            let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
+            if !css_changed {
+                tracing::info!("🔄 No cached routes, sending full reload");
+                let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
+            }
             return;
         }
 
-        let mut any_changed = false;
+        let mut any_html_changed = false;
         for route in cached_routes {
             // Get old HTML from cache
             let old_html = {
@@ -192,7 +221,7 @@ impl SiteServer {
 
             if let (Some(old), Some(new)) = (old_html, new_html.clone()) {
                 if old != new {
-                    any_changed = true;
+                    any_html_changed = true;
 
                     // Update cache
                     {
@@ -261,9 +290,9 @@ impl SiteServer {
             }
         }
 
-        // If nothing changed, send a generic reload (for static assets, etc.)
-        if !any_changed {
-            tracing::info!("🔄 No HTML changes detected, refreshing for static assets");
+        // If neither HTML nor CSS changed, send a generic reload (for static assets, etc.)
+        if !any_html_changed && !css_changed {
+            tracing::info!("🔄 No HTML/CSS changes detected, refreshing for static assets");
             let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
         }
     }
@@ -272,6 +301,38 @@ impl SiteServer {
     fn cache_html(&self, route: &str, html: &str) {
         let mut cache = self.html_cache.write().unwrap();
         cache.insert(route.to_string(), html.to_string());
+    }
+
+    /// Cache CSS path (called when serving CSS)
+    fn cache_css(&self, path: &str) {
+        let mut cache = self.css_cache.write().unwrap();
+        *cache = Some(path.to_string());
+    }
+
+    /// Get current CSS path from database
+    fn get_current_css_path(&self) -> Option<String> {
+        let db = self.db.lock().ok()?;
+        let sources = self.sources.read().ok()?;
+        let templates = self.templates.read().ok()?;
+        let sass_files = self.sass_files.read().ok()?;
+        let static_files_vec = self.static_files.read().ok()?;
+        let data_files_vec = self.data_files.read().ok()?;
+
+        let source_registry = SourceRegistry::new(&*db, sources.clone());
+        let template_registry = TemplateRegistry::new(&*db, templates.clone());
+        let sass_registry = SassRegistry::new(&*db, sass_files.clone());
+        let static_registry = StaticRegistry::new(&*db, static_files_vec.clone());
+        let data_registry = DataRegistry::new(&*db, data_files_vec.clone());
+
+        css_output(
+            &*db,
+            source_registry,
+            template_registry,
+            sass_registry,
+            static_registry,
+            data_registry,
+        )
+        .map(|css| format!("/{}", css.cache_busted_path))
     }
 
     /// Load cached query results from disk
@@ -779,12 +840,16 @@ async fn content_handler(State(server): State<Arc<SiteServer>>, request: Request
                     .body(Body::from(html))
                     .unwrap()
             }
-            ServeContent::Css(css) => Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, "text/css; charset=utf-8")
-                .header(header::CACHE_CONTROL, CACHE_IMMUTABLE)
-                .body(Body::from(css))
-                .unwrap(),
+            ServeContent::Css(css) => {
+                // Cache CSS path for hot reload detection
+                server.cache_css(path);
+                Response::builder()
+                    .status(StatusCode::OK)
+                    .header(header::CONTENT_TYPE, "text/css; charset=utf-8")
+                    .header(header::CACHE_CONTROL, CACHE_IMMUTABLE)
+                    .body(Body::from(css))
+                    .unwrap()
+            }
             ServeContent::Static(bytes, mime) => Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime)
@@ -853,6 +918,12 @@ async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
                             if sender.send(Message::Binary(data.into())).await.is_err() {
                                 break;
                             }
+                        }
+                    }
+                    Ok(LiveReloadMsg::CssUpdate { path }) => {
+                        // Send CSS update as text message with css: prefix
+                        if sender.send(Message::Text(format!("css:{}", path).into())).await.is_err() {
+                            break;
                         }
                     }
                     Err(_) => break,

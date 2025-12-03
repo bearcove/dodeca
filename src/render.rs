@@ -167,6 +167,7 @@ pub fn inject_livereload(html: &str, options: RenderOptions, known_routes: Optio
         // - Loads WASM module for DOM patching
         // - Binary WebSocket messages = patches (apply via WASM)
         // - Text "reload" message = full page reload (fallback)
+        // - Text "css:/path" message = CSS hot reload
         let livereload_script = r##"<script type="module">
 (async function() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -185,6 +186,37 @@ pub fn inject_livereload(html: &str, options: RenderOptions, known_routes: Optio
         console.warn('[livereload] WASM not available, using full reload:', e);
     }
 
+    // Hot-reload CSS by swapping stylesheet links
+    function hotReloadCss(newPath) {
+        // Find all stylesheet links that match /main.*.css pattern
+        const links = document.querySelectorAll('link[rel="stylesheet"]');
+        let updated = 0;
+        for (const link of links) {
+            const href = link.getAttribute('href');
+            // Match /main.*.css or /css/style.*.css patterns
+            if (href && (href.match(/^\/main\.[^/]+\.css/) || href.match(/^\/css\/style\.[^/]+\.css/) || href === '/main.css' || href === '/css/style.css')) {
+                // Create new link element
+                const newLink = document.createElement('link');
+                newLink.rel = 'stylesheet';
+                newLink.href = newPath;
+                // Insert new link after old one, then remove old after load
+                link.parentNode.insertBefore(newLink, link.nextSibling);
+                newLink.onload = () => {
+                    link.remove();
+                    console.log('[livereload] CSS updated:', newPath);
+                };
+                newLink.onerror = () => {
+                    console.error('[livereload] CSS load failed:', newPath);
+                    newLink.remove();
+                };
+                updated++;
+            }
+        }
+        if (updated === 0) {
+            console.warn('[livereload] No matching stylesheets found for CSS update');
+        }
+    }
+
     function connect() {
         ws = new WebSocket(wsUrl);
         ws.binaryType = 'arraybuffer';
@@ -198,6 +230,11 @@ pub fn inject_livereload(html: &str, options: RenderOptions, known_routes: Optio
                 if (event.data === 'reload') {
                     console.log('[livereload] full reload');
                     window.location.reload();
+                } else if (event.data.startsWith('css:')) {
+                    // CSS hot reload
+                    const newPath = event.data.substring(4);
+                    console.log('[livereload] CSS changed:', newPath);
+                    hotReloadCss(newPath);
                 }
             } else if (event.data instanceof ArrayBuffer && applyPatches) {
                 // Binary message = patches
