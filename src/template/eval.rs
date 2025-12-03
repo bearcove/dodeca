@@ -695,6 +695,7 @@ fn apply_filter(
         "reverse",
         "sort",
         "join",
+        "split",
         "default",
         "escape",
         "safe",
@@ -806,6 +807,16 @@ fn apply_filter(
                 }
                 _ => value,
             }
+        }
+        "split" => {
+            // Support both positional: split("/") and kwarg: split(pat="/")
+            let pat = get_kwarg("pat")
+                .map(|v| v.render_to_string())
+                .or_else(|| args.first().map(|v| v.render_to_string()))
+                .unwrap_or_else(|| " ".to_string());
+            let s = value.render_to_string();
+            let parts: Vec<Value> = s.split(&pat).map(|p| Value::String(p.to_string())).collect();
+            Value::List(parts)
         }
         "default" => {
             // Support both positional: default("fallback") and kwarg: default(value="fallback")

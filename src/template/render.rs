@@ -807,6 +807,24 @@ mod tests {
     }
 
     #[test]
+    fn test_split_filter() {
+        // Test split with kwarg pat=
+        let t = Template::parse("test", r#"{% set parts = path | split(pat="/") %}{{ parts | first }}"#).unwrap();
+        let result = t.render_with([("path", "guide/getting-started")]).unwrap();
+        assert_eq!(result, "guide");
+
+        // Test split with positional arg
+        let t = Template::parse("test", r#"{% set parts = text | split(",") %}{{ parts | length }}"#).unwrap();
+        let result = t.render_with([("text", "a,b,c")]).unwrap();
+        assert_eq!(result, "3");
+
+        // Test split with default (space)
+        let t = Template::parse("test", r#"{% set words = text | split %}{{ words | first }}"#).unwrap();
+        let result = t.render_with([("text", "hello world")]).unwrap();
+        assert_eq!(result, "hello");
+    }
+
+    #[test]
     fn test_html_escape() {
         let t = Template::parse("test", "{{ content }}").unwrap();
         let result = t
