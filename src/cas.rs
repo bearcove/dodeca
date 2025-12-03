@@ -181,3 +181,58 @@ pub fn put_cached_image(content_hash: &InputHash, images: &ProcessedImages) {
     drop(tree);
     let _ = tx.commit();
 }
+
+// ============================================================================
+// Font Decompression Cache
+// ============================================================================
+
+/// Font pipeline version - bump this when decompression/subsetting changes
+pub const FONT_PIPELINE_VERSION: u64 = 1;
+
+/// Get cached decompressed font (TTF) by input content hash
+pub fn get_cached_decompressed_font(content_hash: &InputHash) -> Option<Vec<u8>> {
+    let db = ASSET_CACHE.get()?;
+    let rx = db.begin_read().ok()?;
+    let tree = rx.get_tree(b"fonts_decompressed").ok()??;
+    let data = tree.get(&content_hash.0).ok()??;
+    Some(data.as_ref().to_vec())
+}
+
+/// Store decompressed font (TTF) by input content hash
+pub fn put_cached_decompressed_font(content_hash: &InputHash, ttf_data: &[u8]) {
+    let Some(db) = ASSET_CACHE.get() else { return };
+
+    let Ok(tx) = db.begin_write() else { return };
+    let Ok(mut tree) = tx.get_or_create_tree(b"fonts_decompressed") else { return };
+    let _ = tree.insert(&content_hash.0, ttf_data);
+    drop(tree);
+    let _ = tx.commit();
+}
+
+/// Compute font content hash (includes font pipeline version)
+pub fn font_content_hash(data: &[u8]) -> InputHash {
+    let mut result = [0u8; 32];
+
+    let mut hasher = RapidHasher::default();
+    hasher.write(&FONT_PIPELINE_VERSION.to_le_bytes());
+    hasher.write(data);
+    let h1 = hasher.finish();
+    result[0..8].copy_from_slice(&h1.to_le_bytes());
+
+    let mut hasher = RapidHasher::new(h1);
+    hasher.write(data);
+    let h2 = hasher.finish();
+    result[8..16].copy_from_slice(&h2.to_le_bytes());
+
+    let mut hasher = RapidHasher::new(h2);
+    hasher.write(data);
+    let h3 = hasher.finish();
+    result[16..24].copy_from_slice(&h3.to_le_bytes());
+
+    let mut hasher = RapidHasher::new(h3);
+    hasher.write(data);
+    let h4 = hasher.finish();
+    result[24..32].copy_from_slice(&h4.to_le_bytes());
+
+    InputHash(result)
+}

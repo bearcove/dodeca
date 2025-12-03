@@ -3,6 +3,7 @@
 mod cache_bust;
 mod cas;
 mod config;
+mod data;
 mod db;
 mod html_diff;
 mod image;
@@ -22,14 +23,14 @@ mod url_rewrite;
 
 use crate::config::ResolvedConfig;
 use crate::db::{
-    Database, OutputFile, QueryStats, SassFile, SassRegistry, SourceFile, SourceRegistry,
-    StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
+    DataFile, DataRegistry, Database, OutputFile, QueryStats, SassFile, SassRegistry, SourceFile,
+    SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
 };
 use crate::queries::build_site;
 use crate::tui::LogEvent;
 use crate::types::{
-    Route, SassContent, SassPath, SassPathRef, SourceContent, SourcePath, SourcePathRef,
-    StaticPath, TemplateContent, TemplatePath, TemplatePathRef,
+    DataContent, DataPath, Route, SassContent, SassPath, SassPathRef, SourceContent, SourcePath,
+    SourcePathRef, StaticPath, TemplateContent, TemplatePath, TemplatePathRef,
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use color_eyre::{Result, eyre::eyre};
@@ -414,6 +415,8 @@ pub struct BuildContext {
     pub sass_files: BTreeMap<SassPath, SassFile>,
     /// Static files keyed by static path
     pub static_files: BTreeMap<StaticPath, StaticFile>,
+    /// Data files keyed by data path
+    pub data_files: BTreeMap<DataPath, DataFile>,
     /// Query statistics (if tracking enabled)
     pub stats: Option<Arc<QueryStats>>,
 }
@@ -440,6 +443,7 @@ impl BuildContext {
             templates: BTreeMap::new(),
             sass_files: BTreeMap::new(),
             static_files: BTreeMap::new(),
+            data_files: BTreeMap::new(),
             stats,
         }
     }
@@ -466,6 +470,14 @@ impl BuildContext {
             .parent()
             .unwrap_or(&self.content_dir)
             .join("static")
+    }
+
+    /// Get the data directory (sibling to content dir)
+    pub fn data_dir(&self) -> Utf8PathBuf {
+        self.content_dir
+            .parent()
+            .unwrap_or(&self.content_dir)
+            .join("data")
     }
 
     /// Load all source files into the database
@@ -590,6 +602,46 @@ impl BuildContext {
             let static_path = StaticPath::new(relative);
             let static_file = StaticFile::new(&self.db, static_path.clone(), content);
             self.static_files.insert(static_path, static_file);
+        }
+
+        Ok(())
+    }
+
+    /// Load all data files into the database
+    pub fn load_data(&mut self) -> Result<()> {
+        let data_dir = self.data_dir();
+        if !data_dir.exists() {
+            return Ok(()); // No data directory is fine
+        }
+
+        let data_files: Vec<Utf8PathBuf> = WalkBuilder::new(&data_dir)
+            .build()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+            .filter(|e| {
+                // Only load supported data file formats
+                e.path()
+                    .extension()
+                    .map(|ext| {
+                        let ext = ext.to_string_lossy().to_lowercase();
+                        matches!(ext.as_str(), "kdl" | "json" | "toml" | "yaml" | "yml")
+                    })
+                    .unwrap_or(false)
+            })
+            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+            .collect();
+
+        for path in data_files {
+            let content = fs::read_to_string(&path)?;
+            let relative = path
+                .strip_prefix(&data_dir)
+                .map(|p| p.to_string())
+                .unwrap_or_else(|_| path.to_string());
+
+            let data_path = DataPath::new(relative);
+            let data_content = DataContent::new(content);
+            let data_file = DataFile::new(&self.db, data_path.clone(), data_content);
+            self.data_files.insert(data_path, data_file);
         }
 
         Ok(())
@@ -733,6 +785,7 @@ pub fn build(
     ctx.load_templates()?;
     ctx.load_sass()?;
     ctx.load_static()?;
+    ctx.load_data()?;
 
     if verbose {
         println!(
@@ -750,11 +803,13 @@ pub fn build(
     let template_vec: Vec<_> = ctx.templates.values().copied().collect();
     let sass_vec: Vec<_> = ctx.sass_files.values().copied().collect();
     let static_vec: Vec<_> = ctx.static_files.values().copied().collect();
+    let data_vec: Vec<_> = ctx.data_files.values().copied().collect();
 
     let source_registry = SourceRegistry::new(&ctx.db, source_vec);
     let template_registry = TemplateRegistry::new(&ctx.db, template_vec);
     let sass_registry = SassRegistry::new(&ctx.db, sass_vec);
     let static_registry = StaticRegistry::new(&ctx.db, static_vec);
+    let data_registry = DataRegistry::new(&ctx.db, data_vec);
 
     // Update progress: parsing phase
     if let Some(ref p) = progress {
@@ -768,6 +823,7 @@ pub fn build(
         template_registry,
         sass_registry,
         static_registry,
+        data_registry,
     );
 
     if let Some(ref p) = progress {
@@ -964,9 +1020,13 @@ fn build_with_mini_tui(
     ctx.load_templates()?;
     ctx.load_sass()?;
     ctx.load_static()?;
+    ctx.load_data()?;
 
-    let input_count =
-        ctx.sources.len() + ctx.templates.len() + ctx.sass_files.len() + ctx.static_files.len();
+    let input_count = ctx.sources.len()
+        + ctx.templates.len()
+        + ctx.sass_files.len()
+        + ctx.static_files.len()
+        + ctx.data_files.len();
 
     // Set up inline terminal (3 lines) - only if we have a TTY
     let mut terminal = if is_terminal {
@@ -1026,11 +1086,13 @@ fn build_with_mini_tui(
     let template_vec: Vec<_> = ctx.templates.values().copied().collect();
     let sass_vec: Vec<_> = ctx.sass_files.values().copied().collect();
     let static_vec: Vec<_> = ctx.static_files.values().copied().collect();
+    let data_vec: Vec<_> = ctx.data_files.values().copied().collect();
 
     let source_registry = SourceRegistry::new(&ctx.db, source_vec);
     let template_registry = TemplateRegistry::new(&ctx.db, template_vec);
     let sass_registry = SassRegistry::new(&ctx.db, sass_vec);
     let static_registry = StaticRegistry::new(&ctx.db, static_vec);
+    let data_registry = DataRegistry::new(&ctx.db, data_vec);
 
     draw_progress(&mut terminal, "Building...", &stats_for_display, 0, 0);
 
@@ -1041,6 +1103,7 @@ fn build_with_mini_tui(
         template_registry,
         sass_registry,
         static_registry,
+        data_registry,
     );
 
     draw_progress(&mut terminal, "Writing...", &stats_for_display, 0, 0);
@@ -1372,6 +1435,36 @@ async fn serve_plain(
         println!("  Loaded {count} static files");
     }
 
+    // Load data files into Salsa
+    let data_dir = parent_dir.join("data");
+    if data_dir.exists() {
+        let walker = WalkBuilder::new(&data_dir).build();
+        let db = server.db.lock().unwrap();
+        let mut data_files = server.data_files.write().unwrap();
+        let mut count = 0;
+
+        for entry in walker {
+            let entry = entry?;
+            let path = Utf8Path::from_path(entry.path())
+                .ok_or_else(|| eyre!("Non-UTF8 path in data directory"))?;
+
+            if path.is_file() {
+                // Only load supported data formats
+                let ext = path.extension().unwrap_or("");
+                if matches!(ext, "kdl" | "json" | "toml" | "yaml" | "yml") {
+                    let relative = path.strip_prefix(&data_dir)?;
+                    let content = fs::read_to_string(path)?;
+
+                    let data_path = DataPath::new(relative.to_string());
+                    let data_file = DataFile::new(&*db, data_path, DataContent::new(content));
+                    data_files.push(data_file);
+                    count += 1;
+                }
+            }
+        }
+        println!("  Loaded {count} data files");
+    }
+
     // Build search index in background
     println!("{}", "Building search index...".dimmed());
     let server_for_search = server.clone();
@@ -1398,6 +1491,7 @@ async fn serve_plain(
     // Set up file watcher for live reload
     let templates_dir = parent_dir.join("templates");
     let sass_dir = parent_dir.join("sass");
+    // data_dir already defined above when loading data files
 
     use notify::{RecommendedWatcher, RecursiveMode, Watcher};
     let (watcher_tx, watcher_rx) = std::sync::mpsc::channel();
@@ -1415,6 +1509,9 @@ async fn serve_plain(
     if static_dir.exists() {
         watcher.watch(static_dir.as_std_path(), RecursiveMode::Recursive)?;
     }
+    if data_dir.exists() {
+        watcher.watch(data_dir.as_std_path(), RecursiveMode::Recursive)?;
+    }
 
     // File watcher handler thread
     // Canonicalize paths for comparison with notify events (which return absolute paths)
@@ -1430,6 +1527,9 @@ async fn serve_plain(
     let static_dir_for_watcher = static_dir
         .canonicalize_utf8()
         .unwrap_or_else(|_| static_dir.clone());
+    let data_dir_for_watcher = data_dir
+        .canonicalize_utf8()
+        .unwrap_or_else(|_| data_dir.clone());
     let server_for_watcher = server.clone();
 
     std::thread::spawn(move || {
@@ -1464,10 +1564,11 @@ async fn serve_plain(
                                 return false;
                             }
                             let is_known_ext = p.extension()
-                                .map(|e| e == "md" || e == "scss" || e == "html")
+                                .map(|e| e == "md" || e == "scss" || e == "html" || e == "kdl" || e == "json" || e == "toml" || e == "yaml" || e == "yml")
                                 .unwrap_or(false);
                             let is_static = p.starts_with(static_dir_for_watcher.as_std_path());
-                            is_known_ext || is_static
+                            let is_data = p.starts_with(data_dir_for_watcher.as_std_path());
+                            is_known_ext || is_static || is_data
                         })
                         .filter_map(|p| Utf8PathBuf::from_path_buf(p.clone()).ok())
                         .collect();
@@ -1583,6 +1684,30 @@ async fn serve_plain(
                                     }
                                 }
                             }
+                        } else if path.starts_with(&data_dir_for_watcher) {
+                            if let Ok(relative) = path.strip_prefix(&data_dir_for_watcher) {
+                                if let Ok(content) = fs::read_to_string(path) {
+                                    let mut db = server_for_watcher.db.lock().unwrap();
+                                    let mut data_files = server_for_watcher.data_files.write().unwrap();
+                                    let relative_str = relative.to_string();
+                                    let mut found = false;
+                                    for data_file in data_files.iter() {
+                                        if data_file.path(&*db).as_str() == relative_str {
+                                            use salsa::Setter;
+                                            data_file.set_content(&mut *db).to(DataContent::new(content.clone()));
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+                                    if !found {
+                                        // New file - create and add it
+                                        let data_path = DataPath::new(relative_str);
+                                        let data_file = DataFile::new(&*db, data_path, DataContent::new(content));
+                                        data_files.push(data_file);
+                                        println!("  {} Added new data file: {}", "+".green(), relative);
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -1601,10 +1726,11 @@ async fn serve_plain(
                                 return false;
                             }
                             let is_known_ext = p.extension()
-                                .map(|e| e == "md" || e == "scss" || e == "html")
+                                .map(|e| e == "md" || e == "scss" || e == "html" || e == "kdl" || e == "json" || e == "toml" || e == "yaml" || e == "yml")
                                 .unwrap_or(false);
                             let is_static = p.starts_with(static_dir_for_watcher.as_std_path());
-                            is_known_ext || is_static
+                            let is_data = p.starts_with(data_dir_for_watcher.as_std_path());
+                            is_known_ext || is_static || is_data
                         })
                         .filter_map(|p| Utf8PathBuf::from_path_buf(p.clone()).ok())
                         .collect();
@@ -1654,6 +1780,15 @@ async fn serve_plain(
                                 let relative_str = relative.to_string();
                                 if let Some(pos) = static_files.iter().position(|s| s.path(&*db).as_str() == relative_str) {
                                     static_files.remove(pos);
+                                }
+                            }
+                        } else if path.starts_with(&data_dir_for_watcher) {
+                            if let Ok(relative) = path.strip_prefix(&data_dir_for_watcher) {
+                                let db = server_for_watcher.db.lock().unwrap();
+                                let mut data_files = server_for_watcher.data_files.write().unwrap();
+                                let relative_str = relative.to_string();
+                                if let Some(pos) = data_files.iter().position(|d| d.path(&*db).as_str() == relative_str) {
+                                    data_files.remove(pos);
                                 }
                             }
                         }
@@ -1719,6 +1854,7 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
     let template_registry = TemplateRegistry::new(&*db, templates.clone());
     let sass_registry = SassRegistry::new(&*db, sass_files.clone());
     let static_registry = StaticRegistry::new(&*db, vec![]); // Empty - search doesn't need static files
+    let data_registry = DataRegistry::new(&*db, vec![]); // Empty - search doesn't need data files
 
     // Build the site (Salsa will cache/reuse unchanged computations)
     let site_output = queries::build_site(
@@ -1727,6 +1863,7 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
         template_registry,
         sass_registry,
         static_registry,
+        data_registry,
     );
 
     // Drop locks before async work

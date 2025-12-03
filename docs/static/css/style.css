@@ -101,6 +101,7 @@ body {
 
 .site-nav-search {
     width: 240px;
+    height: 36px;
     position: relative;
 }
 
@@ -414,6 +415,11 @@ footer a:hover {
     --pagefind-ui-border-width: 1px;
     --pagefind-ui-border-radius: 6px;
     --pagefind-ui-font: inherit;
+    height: 36px;
+}
+
+.pagefind-ui__form {
+    height: 36px !important;
 }
 
 .pagefind-ui__search-input {

@@ -29,7 +29,12 @@ path = "src/main.rs"
 facet = { git = "https://github.com/facet-rs/facet" }
 facet-kdl = { git = "https://github.com/facet-rs/facet" }
 facet-toml = { git = "https://github.com/facet-rs/facet" }
+facet-json = { git = "https://github.com/facet-rs/facet" }
+facet-yaml = { git = "https://github.com/facet-rs/facet" }
 facet-value = { git = "https://github.com/facet-rs/facet" }
+
+# YAML parsing (for data files - facet-yaml doesn't support dynamic values)
+serde_yaml = "0.9"
 
 # Markdown & syntax highlighting
 pulldown-cmark = "0.13"
@@ -112,8 +117,7 @@ lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }  # CSS par
 oxc = { version = "0.100", features = ["full"] }  # JS parser/minifier
 
 # Font subsetting (static analysis + klippa backend)
-# TODO: Switch to git version once bearcove/fontcull#3 is fixed properly
-fontcull = { version = "1.0.4", default-features = false, features = ["klippa", "static-analysis"] }
+fontcull = { git = "https://github.com/bearcove/fontcull", default-features = false, features = ["klippa", "static-analysis"] }
 
 # Image processing (decode common formats, encode via plugins)
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif"] }

@@ -108,6 +108,15 @@ pub struct SassContent;
 #[braid(serde)]
 pub struct StaticPath;
 
+/// Relative path to a data file from the data directory.
+/// Example: "versions.toml", "config.json", "meta.kdl"
+#[braid]
+pub struct DataPath;
+
+/// Raw data file content.
+#[braid]
+pub struct DataContent;
+
 impl Route {
     /// Create the root route "/"
     pub fn root() -> Self {

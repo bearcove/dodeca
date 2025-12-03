@@ -373,6 +373,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "arraydeque"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d902e3d592a523def97af8f317b08ce16b7ab854c1985a0c671e6f15cebc236"
+
+[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1599,9 +1605,11 @@ dependencies = [
  "divan",
  "facet",
  "facet-args",
+ "facet-json",
  "facet-kdl",
  "facet-toml",
  "facet-value",
+ "facet-yaml",
  "fontcull",
  "futures",
  "futures-util",
@@ -1635,6 +1643,7 @@ dependencies = [
  "rgb",
  "salsa",
  "serde",
+ "serde_yaml 0.9.34+deprecated",
  "svag",
  "syntect",
  "thiserror 2.0.17",
@@ -1788,7 +1797,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1842,6 +1851,24 @@ dependencies = [
  "bitflags 2.10.0",
  "impls",
  "paste",
+]
+
+[[package]]
+name = "facet-json"
+version = "0.31.0"
+source = "git+https://github.com/facet-rs/facet#5344f743db558243e02accdf11bb117eeb028440"
+dependencies = [
+ "facet",
+ "facet-core",
+ "facet-reflect",
+ "facet-solver",
+ "itoa 1.0.15",
+ "lexical-parse-float",
+ "lexical-parse-integer",
+ "log",
+ "miette",
+ "ryu",
+ "strsim",
 ]
 
 [[package]]
@@ -1932,6 +1959,20 @@ source = "git+https://github.com/facet-rs/facet#5344f743db558243e02accdf11bb117e
 dependencies = [
  "facet-core",
  "facet-reflect",
+]
+
+[[package]]
+name = "facet-yaml"
+version = "0.31.0"
+source = "git+https://github.com/facet-rs/facet#5344f743db558243e02accdf11bb117eeb028440"
+dependencies = [
+ "facet",
+ "facet-core",
+ "facet-reflect",
+ "facet-solver",
+ "log",
+ "miette",
+ "saphyr-parser",
 ]
 
 [[package]]
@@ -2029,9 +2070,8 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "fontcull"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef5b7ff571dafbb2f23985bc23e781945e9b378d883654a31036fe8a15b4a4e5"
+version = "1.0.5"
+source = "git+https://github.com/bearcove/fontcull#e4a4ecd30c37b1c7620ce9e2d8efc0dfe63e691a"
 dependencies = [
  "clap",
  "color-eyre",
@@ -2052,8 +2092,7 @@ dependencies = [
 [[package]]
 name = "fontcull-font-types"
 version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18dafe7ba31eef588d7cce61a01cb248ff249c76ab0d65bc142e9efc052e9baf"
+source = "git+https://github.com/bearcove/fontcull#e4a4ecd30c37b1c7620ce9e2d8efc0dfe63e691a"
 dependencies = [
  "bytemuck",
 ]
@@ -2061,8 +2100,7 @@ dependencies = [
 [[package]]
 name = "fontcull-klippa"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46c186211a43e6e96679849ed4bd6911406619d4c2bc1239c67b6942bf7e1009"
+source = "git+https://github.com/bearcove/fontcull#e4a4ecd30c37b1c7620ce9e2d8efc0dfe63e691a"
 dependencies = [
  "clap",
  "fnv",
@@ -2076,8 +2114,7 @@ dependencies = [
 [[package]]
 name = "fontcull-read-fonts"
 version = "0.37.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c160080bb250bed1ec3c1477dca7dbff02e04c0331f621d46d6e1aecb22629fe"
+source = "git+https://github.com/bearcove/fontcull#e4a4ecd30c37b1c7620ce9e2d8efc0dfe63e691a"
 dependencies = [
  "bytemuck",
  "fontcull-font-types",
@@ -2086,8 +2123,7 @@ dependencies = [
 [[package]]
 name = "fontcull-skrifa"
 version = "0.39.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20c329ec72d22fcec12a5e437754531188cf268d986bdf4a25e501200a6fbe78"
+source = "git+https://github.com/bearcove/fontcull#e4a4ecd30c37b1c7620ce9e2d8efc0dfe63e691a"
 dependencies = [
  "bytemuck",
  "fontcull-read-fonts",
@@ -2096,8 +2132,7 @@ dependencies = [
 [[package]]
 name = "fontcull-write-fonts"
 version = "0.44.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc1a1abdefaa26e20e61d3f3d40b84cedb95ab71253b81c814d1ba3273a84d68"
+source = "git+https://github.com/bearcove/fontcull#e4a4ecd30c37b1c7620ce9e2d8efc0dfe63e691a"
 dependencies = [
  "fontcull-font-types",
  "fontcull-read-fonts",
@@ -3676,6 +3711,7 @@ dependencies = [
  "supports-color",
  "supports-hyperlinks",
  "supports-unicode",
+ "syntect",
  "terminal_size",
  "textwrap",
  "unicode-width 0.1.14",
@@ -3944,7 +3980,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5560,7 +5596,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.1",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6027,7 +6063,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6135,6 +6171,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "saphyr-parser"
+version = "0.0.6"
+source = "git+https://github.com/facet-rs/saphyr.git?branch=feat%2Fclone-parser-scanner#ee0aa7d802298d180d3fdc95d3a8f3c996b2c774"
+dependencies = [
+ "arraydeque",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -6357,6 +6402,19 @@ dependencies = [
  "ryu",
  "serde",
  "yaml-rust",
+]
+
+[[package]]
+name = "serde_yaml"
+version = "0.9.34+deprecated"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+dependencies = [
+ "indexmap 2.12.1",
+ "itoa 1.0.15",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
 ]
 
 [[package]]
@@ -6775,7 +6833,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7257,7 +7315,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
- "serde_yaml",
+ "serde_yaml 0.8.26",
  "thiserror 1.0.69",
  "toml",
 ]
@@ -7358,6 +7416,12 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "unsynn"
@@ -7803,7 +7867,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

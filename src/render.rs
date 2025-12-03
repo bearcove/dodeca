@@ -237,6 +237,7 @@ pub fn try_render_page_to_html(
     page: &Page,
     site_tree: &SiteTree,
     templates: &HashMap<String, String>,
+    data: Option<Value>,
 ) -> std::result::Result<String, String> {
     let mut loader = InMemoryLoader::new();
     for (path, content) in templates {
@@ -244,7 +245,7 @@ pub fn try_render_page_to_html(
     }
     let mut engine = Engine::new(loader);
 
-    let mut ctx = build_render_context(site_tree);
+    let mut ctx = build_render_context(site_tree, data);
     ctx.set("page", page_to_value(page));
     ctx.set(
         "current_path",
@@ -266,8 +267,10 @@ pub fn render_page_to_html(
     page: &Page,
     site_tree: &SiteTree,
     templates: &HashMap<String, String>,
+    data: Option<Value>,
 ) -> String {
-    try_render_page_to_html(page, site_tree, templates).unwrap_or_else(|e| render_error_page(&e))
+    try_render_page_to_html(page, site_tree, templates, data)
+        .unwrap_or_else(|e| render_error_page(&e))
 }
 
 /// Pure function to render a section to HTML (for Salsa tracking)
@@ -276,6 +279,7 @@ pub fn try_render_section_to_html(
     section: &Section,
     site_tree: &SiteTree,
     templates: &HashMap<String, String>,
+    data: Option<Value>,
 ) -> std::result::Result<String, String> {
     let mut loader = InMemoryLoader::new();
     for (path, content) in templates {
@@ -283,7 +287,7 @@ pub fn try_render_section_to_html(
     }
     let mut engine = Engine::new(loader);
 
-    let mut ctx = build_render_context(site_tree);
+    let mut ctx = build_render_context(site_tree, data);
     ctx.set("section", section_to_value(section, site_tree));
     ctx.set(
         "current_path",
@@ -306,8 +310,9 @@ pub fn render_section_to_html(
     section: &Section,
     site_tree: &SiteTree,
     templates: &HashMap<String, String>,
+    data: Option<Value>,
 ) -> String {
-    try_render_section_to_html(section, site_tree, templates)
+    try_render_section_to_html(section, site_tree, templates, data)
         .unwrap_or_else(|e| render_error_page(&e))
 }
 
@@ -387,7 +392,7 @@ fn render_error_page(error: &str) -> String {
 }
 
 /// Build the render context with config and global functions
-fn build_render_context(site_tree: &SiteTree) -> Context {
+fn build_render_context(site_tree: &SiteTree, data: Option<Value>) -> Context {
     let mut ctx = Context::new();
 
     // Add config
@@ -399,6 +404,13 @@ fn build_render_context(site_tree: &SiteTree) -> Context {
     );
     config_map.insert("base_url".to_string(), Value::String("/".to_string()));
     ctx.set("config", Value::Dict(config_map));
+
+    // Add data files (if any)
+    if let Some(data_value) = data {
+        ctx.set("data", data_value);
+    } else {
+        ctx.set("data", Value::Dict(HashMap::new()));
+    }
 
     // Add root section for sidebar navigation
     if let Some(root) = site_tree.sections.get(&Route::root()) {

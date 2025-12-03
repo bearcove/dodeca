@@ -1,6 +1,6 @@
 use crate::types::{
-    HtmlBody, Route, SassContent, SassPath, SourceContent, SourcePath, StaticPath, TemplateContent,
-    TemplatePath, Title,
+    DataContent, DataPath, HtmlBody, Route, SassContent, SassPath, SourceContent, SourcePath,
+    StaticPath, TemplateContent, TemplatePath, Title,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -156,6 +156,25 @@ pub struct StaticFile {
 pub struct StaticRegistry<'db> {
     #[returns(ref)]
     pub files: Vec<StaticFile>,
+}
+
+/// Input: A data file (KDL, JSON, TOML, YAML) with its content
+#[salsa::input]
+pub struct DataFile {
+    /// The path to this file (relative to data dir, e.g., "versions.toml")
+    #[returns(ref)]
+    pub path: DataPath,
+
+    /// The raw content of the file
+    #[returns(ref)]
+    pub content: DataContent,
+}
+
+/// Interned data file registry - allows Salsa to track data files as a whole
+#[salsa::interned]
+pub struct DataRegistry<'db> {
+    #[returns(ref)]
+    pub files: Vec<DataFile>,
 }
 
 /// Interned source registry - allows Salsa to track all source files as a whole

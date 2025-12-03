@@ -23,8 +23,8 @@ use std::time::Instant;
 use tokio::sync::{broadcast, watch};
 
 use crate::db::{
-    Database, SassFile, SassRegistry, SourceFile, SourceRegistry, StaticFile,
-    StaticRegistry, TemplateFile, TemplateRegistry,
+    Database, DataFile, DataRegistry, SassFile, SassRegistry, SourceFile, SourceRegistry,
+    StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
 };
 use crate::queries::{css_output, serve_html, static_file_output, process_image, build_tree};
 use crate::render::{RenderOptions, inject_livereload};
@@ -122,6 +122,8 @@ pub struct SiteServer {
     pub sass_files: RwLock<Vec<SassFile>>,
     /// Static files (in Salsa)
     pub static_files: RwLock<Vec<StaticFile>>,
+    /// Data files (for template variables)
+    pub data_files: RwLock<Vec<DataFile>>,
     /// Search index files (pagefind): path -> content
     pub search_files: RwLock<HashMap<String, Vec<u8>>>,
     /// Live reload broadcast
@@ -143,6 +145,7 @@ impl SiteServer {
             templates: RwLock::new(Vec::new()),
             sass_files: RwLock::new(Vec::new()),
             static_files: RwLock::new(Vec::new()),
+            data_files: RwLock::new(Vec::new()),
             search_files: RwLock::new(HashMap::new()),
             livereload_tx,
             render_options,
@@ -326,11 +329,13 @@ impl SiteServer {
         let templates = self.templates.read().ok()?;
         let sass_files = self.sass_files.read().ok()?;
         let static_files_vec = self.static_files.read().ok()?;
+        let data_files_vec = self.data_files.read().ok()?;
 
         let source_registry = SourceRegistry::new(&*db, sources.clone());
         let template_registry = TemplateRegistry::new(&*db, templates.clone());
         let sass_registry = SassRegistry::new(&*db, sass_files.clone());
         let static_registry = StaticRegistry::new(&*db, static_files_vec.clone());
+        let data_registry = DataRegistry::new(&*db, data_files_vec.clone());
 
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
@@ -359,13 +364,14 @@ impl SiteServer {
             template_registry,
             sass_registry,
             static_registry,
+            data_registry,
         ) {
             let html = inject_livereload(&html, self.render_options, known_routes.as_ref());
             return Some(ServeContent::Html(html));
         }
 
         // 2. Try to serve CSS (check if path matches cache-busted CSS path)
-        if let Some(css) = css_output(&*db, source_registry, template_registry, sass_registry, static_registry) {
+        if let Some(css) = css_output(&*db, source_registry, template_registry, sass_registry, static_registry, data_registry) {
             let css_url = format!("/{}", css.cache_busted_path);
             if path == css_url {
                 return Some(ServeContent::Css(css.content));
@@ -439,7 +445,7 @@ impl SiteServer {
                 }
             } else {
                 // Non-image static file
-                let output = static_file_output(&*db, *file, source_registry, template_registry, sass_registry, static_registry);
+                let output = static_file_output(&*db, *file, source_registry, template_registry, sass_registry, static_registry, data_registry);
                 let static_url = format!("/{}", output.cache_busted_path);
                 if path == static_url {
                     let mime = mime_from_extension(path);
