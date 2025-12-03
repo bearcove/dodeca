@@ -1718,6 +1718,40 @@ async fn serve_plain(
         println!("  Loaded {count} data files");
     }
 
+    // Load SASS files into Salsa (CSS compiled on-demand via query)
+    let sass_dir = parent_dir.join("sass");
+    if sass_dir.exists() {
+        let sass_files_list: Vec<Utf8PathBuf> = WalkBuilder::new(&sass_dir)
+            .build()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map(|ext| ext == "scss" || ext == "sass")
+                    .unwrap_or(false)
+            })
+            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+            .collect();
+
+        let db = server.db.lock().unwrap();
+        let mut sass_files = server.sass_files.write().unwrap();
+
+        for path in &sass_files_list {
+            let content = fs::read_to_string(path)?;
+            let relative = path
+                .strip_prefix(&sass_dir)
+                .map(|p| p.to_string())
+                .unwrap_or_else(|_| path.to_string());
+
+            let sass_path = SassPath::new(relative);
+            let sass_content = SassContent::new(content);
+            let sass_file = SassFile::new(&*db, sass_path, sass_content);
+            sass_files.push(sass_file);
+        }
+        println!("  Loaded {} SASS files", sass_files.len());
+    }
+
     // Build search index in background
     println!("{}", "Building search index...".dimmed());
     let server_for_search = server.clone();

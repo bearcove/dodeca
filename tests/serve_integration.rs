@@ -767,10 +767,8 @@ This page will be deleted.
 }
 
 /// Test that new section files (_index.md) are detected
-/// NOTE: This test is currently ignored because notify-rs doesn't watch newly created
-/// subdirectories by default. New files in EXISTING directories work fine.
+/// This tests that newly created subdirectories are watched (issue #9)
 #[test_log::test]
-#[ignore = "File watcher doesn't detect files in newly created subdirectories"]
 fn test_new_section_detected() {
     let server = start_server("sample-site");
     let new_section_dir = server.fixture_dir.join("content/new-section");
@@ -802,21 +800,31 @@ This is a dynamically created section.
 "#;
     std::fs::write(&new_section_path, section_content).expect("Failed to create section index");
 
-    // Wait for file watcher to pick up the change
-    // Note: New directories may need more time for the watcher to detect
-    std::thread::sleep(Duration::from_millis(1000));
+    // Poll until the new section is accessible (up to 10s)
+    let url = format!("http://127.0.0.1:{}/new-section/", port);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut last_status = None;
+    let resp = loop {
+        match client.get(&url).send() {
+            Ok(resp) if resp.status().is_success() => break resp,
+            Ok(resp) => {
+                last_status = Some(resp.status());
+            }
+            Err(_) => {}
+        }
 
-    // Verify the new section is now accessible
-    let resp = client
-        .get(format!("http://127.0.0.1:{}/new-section/", port))
-        .send()
-        .expect("Failed to fetch new section after creation");
+        if Instant::now() >= deadline {
+            let status = last_status
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "no response".to_string());
+            panic!(
+                "New section should be accessible after creation within 10s, last status: {}",
+                status
+            );
+        }
 
-    assert!(
-        resp.status().is_success(),
-        "New section should be accessible after creation, got status {}",
-        resp.status()
-    );
+        std::thread::sleep(Duration::from_millis(100));
+    };
 
     let body = resp.text().expect("Failed to read body");
     assert!(
@@ -826,6 +834,97 @@ This is a dynamically created section.
 
     // Clean up
     let _ = std::fs::remove_dir_all(&new_section_dir);
+
+    // Server cleanup handled by Drop
+}
+
+/// Test that file moves (renames) are detected correctly (issue #10)
+/// When a file is moved, the old route should 404 and the new route should work
+#[test_log::test]
+fn test_file_move_detected() {
+    let server = start_server("sample-site");
+    let port = server.port;
+
+    // Create a page in the 'guide' section first
+    let original_path = server.fixture_dir.join("content/guide/moveable.md");
+    let page_content = r#"+++
+title = "Moveable Page"
++++
+
+This page will be moved.
+"#;
+    std::fs::write(&original_path, page_content).expect("Failed to create moveable page");
+
+    let ready = wait_for_server(port, Duration::from_secs(30));
+    assert!(ready, "Server did not start within timeout");
+
+    let client = reqwest::blocking::Client::new();
+
+    // Wait for the page to be accessible at the original location
+    let original_url = format!("http://127.0.0.1:{}/guide/moveable/", port);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Ok(resp) = client.get(&original_url).send() {
+            if resp.status().is_success() {
+                break;
+            }
+        }
+        if Instant::now() >= deadline {
+            panic!("Original page should be accessible within 10s");
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    // Give debounce window time to clear
+    std::thread::sleep(Duration::from_millis(200));
+
+    // Move the file to a different location
+    let new_path = server.fixture_dir.join("content/moved-page.md");
+    std::fs::rename(&original_path, &new_path).expect("Failed to move file");
+
+    // Poll until the new location is accessible AND the old location returns 404
+    let new_url = format!("http://127.0.0.1:{}/moved-page/", port);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut old_is_404 = false;
+    let mut new_is_200 = false;
+
+    while Instant::now() < deadline {
+        // Check old URL returns 404
+        if let Ok(resp) = client.get(&original_url).send() {
+            old_is_404 = resp.status().as_u16() == 404;
+        }
+
+        // Check new URL returns 200
+        if let Ok(resp) = client.get(&new_url).send() {
+            new_is_200 = resp.status().is_success();
+        }
+
+        if old_is_404 && new_is_200 {
+            break;
+        }
+
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    assert!(
+        old_is_404,
+        "Old URL should return 404 after file move"
+    );
+    assert!(
+        new_is_200,
+        "New URL should be accessible after file move"
+    );
+
+    // Verify the content at the new location
+    let resp = client.get(&new_url).send().expect("Failed to fetch moved page");
+    let body = resp.text().expect("Failed to read body");
+    assert!(
+        body.contains("This page will be moved"),
+        "Moved page content should be present. Body:\n{body}"
+    );
+
+    // Clean up
+    let _ = std::fs::remove_file(&new_path);
 
     // Server cleanup handled by Drop
 }

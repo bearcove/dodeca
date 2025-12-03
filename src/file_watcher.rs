@@ -166,7 +166,7 @@ pub fn process_notify_event(
                         }
                     }
                 }
-                RenameMode::To | RenameMode::Any => {
+                RenameMode::To => {
                     // New path - treat as creation
                     for path in &event.paths {
                         if path.is_dir() {
@@ -180,6 +180,34 @@ pub fn process_notify_event(
                         } else if should_watch_path(path, config) {
                             if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
                                 events.push(FileEvent::Changed(utf8));
+                            }
+                        }
+                    }
+                }
+                RenameMode::Any => {
+                    // FSEvents (macOS) sends Any for both old and new paths
+                    // Check if file exists to determine if it's a creation or deletion
+                    for path in &event.paths {
+                        if path.exists() {
+                            // File exists at this path - it's the destination (new location)
+                            if path.is_dir() {
+                                if let Ok(mut w) = watcher.lock() {
+                                    let _ = w.watch(path, RecursiveMode::Recursive);
+                                    if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
+                                        events.push(FileEvent::DirectoryCreated(utf8));
+                                    }
+                                }
+                            } else if should_watch_path(path, config) {
+                                if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
+                                    events.push(FileEvent::Changed(utf8));
+                                }
+                            }
+                        } else {
+                            // File doesn't exist at this path - it's the source (old location)
+                            if should_watch_path(path, config) {
+                                if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
+                                    events.push(FileEvent::Removed(utf8));
+                                }
                             }
                         }
                     }
