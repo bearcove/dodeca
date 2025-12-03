@@ -12,5 +12,6 @@
 - name: Build livereload-client WASM
   shell: bash
   run: |
+    export PATH="$HOME/.cargo/bin:$PATH"
     cargo build -p livereload-client --target wasm32-unknown-unknown --release
     wasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm
