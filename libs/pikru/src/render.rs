@@ -1,7 +1,7 @@
 //! SVG rendering for pikchr diagrams
 
 use crate::ast::*;
-use crate::types::{Length as Inches, Point, Size, PtIn, BoxIn, Scaler};
+use crate::types::{Length as Inches, Point, Size, PtIn, BoxIn, Scaler, UnitVec};
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -28,16 +28,17 @@ impl Value {
     }
 }
 
-/// Default sizes and settings (in pixels)
+/// Default sizes and settings (all in inches to mirror C implementation)
 mod defaults {
-    // All expressed in inches to mirror the C implementation
-    pub const LINE_WIDTH: f64 = 0.5;       // linewid default
-    pub const BOX_WIDTH: f64 = 0.75;
-    pub const BOX_HEIGHT: f64 = 0.5;
-    pub const CIRCLE_RADIUS: f64 = 0.25;
-    pub const STROKE_WIDTH: f64 = 0.015;
-    pub const FONT_SIZE: f64 = 0.14;       // approx charht
-    pub const MARGIN: f64 = 0.0;
+    use super::Inches;
+
+    pub const LINE_WIDTH: Inches = Inches::inches(0.5);       // linewid default
+    pub const BOX_WIDTH: Inches = Inches::inches(0.75);
+    pub const BOX_HEIGHT: Inches = Inches::inches(0.5);
+    pub const CIRCLE_RADIUS: Inches = Inches::inches(0.25);
+    pub const STROKE_WIDTH: Inches = Inches::inches(0.015);
+    pub const FONT_SIZE: f64 = 0.14;       // approx charht (kept as f64 for text calculations)
+    pub const MARGIN: f64 = 0.0;           // kept as f64 for variable lookups
 }
 
 /// A point in 2D space
@@ -163,13 +164,13 @@ impl Default for ObjectStyle {
         Self {
             stroke: "black".to_string(),
             fill: "none".to_string(),
-            stroke_width: Inches(defaults::STROKE_WIDTH),
+            stroke_width: defaults::STROKE_WIDTH,
             dashed: false,
             dotted: false,
             arrow_start: false,
             arrow_end: false,
             invisible: false,
-            corner_radius: Inches(0.0),
+            corner_radius: Inches::ZERO,
             chop: false,
             fit: false,
             close_path: false,
@@ -477,20 +478,20 @@ fn render_object_stmt(
     // Determine base object properties
     let (class, mut width, mut height) = match &obj_stmt.basetype {
         BaseType::Class(cn) => match cn {
-            ClassName::Box => (ObjectClass::Box, Inches(defaults::BOX_WIDTH), Inches(defaults::BOX_HEIGHT)),
-            ClassName::Circle => (ObjectClass::Circle, Inches(defaults::CIRCLE_RADIUS * 2.0), Inches(defaults::CIRCLE_RADIUS * 2.0)),
-            ClassName::Ellipse => (ObjectClass::Ellipse, Inches(defaults::BOX_WIDTH), Inches(defaults::BOX_HEIGHT)),
-            ClassName::Oval => (ObjectClass::Oval, Inches(defaults::BOX_WIDTH), Inches(defaults::BOX_HEIGHT / 2.0)),
-            ClassName::Cylinder => (ObjectClass::Cylinder, Inches(defaults::BOX_WIDTH), Inches(defaults::BOX_HEIGHT)),
-            ClassName::Diamond => (ObjectClass::Diamond, Inches(defaults::BOX_WIDTH), Inches(defaults::BOX_HEIGHT)),
-            ClassName::File => (ObjectClass::File, Inches(defaults::BOX_WIDTH), Inches(defaults::BOX_HEIGHT)),
-            ClassName::Line => (ObjectClass::Line, Inches(defaults::LINE_WIDTH), Inches(0.0)),
-            ClassName::Arrow => (ObjectClass::Arrow, Inches(defaults::LINE_WIDTH), Inches(0.0)),
-            ClassName::Spline => (ObjectClass::Spline, Inches(defaults::LINE_WIDTH), Inches(0.0)),
-            ClassName::Arc => (ObjectClass::Arc, Inches(defaults::LINE_WIDTH), Inches(defaults::LINE_WIDTH)),
-            ClassName::Move => (ObjectClass::Move, Inches(defaults::LINE_WIDTH), Inches(0.0)),
+            ClassName::Box => (ObjectClass::Box, defaults::BOX_WIDTH, defaults::BOX_HEIGHT),
+            ClassName::Circle => (ObjectClass::Circle, defaults::CIRCLE_RADIUS * 2.0, defaults::CIRCLE_RADIUS * 2.0),
+            ClassName::Ellipse => (ObjectClass::Ellipse, defaults::BOX_WIDTH, defaults::BOX_HEIGHT),
+            ClassName::Oval => (ObjectClass::Oval, defaults::BOX_WIDTH, defaults::BOX_HEIGHT / 2.0),
+            ClassName::Cylinder => (ObjectClass::Cylinder, defaults::BOX_WIDTH, defaults::BOX_HEIGHT),
+            ClassName::Diamond => (ObjectClass::Diamond, defaults::BOX_WIDTH, defaults::BOX_HEIGHT),
+            ClassName::File => (ObjectClass::File, defaults::BOX_WIDTH, defaults::BOX_HEIGHT),
+            ClassName::Line => (ObjectClass::Line, defaults::LINE_WIDTH, Inches::ZERO),
+            ClassName::Arrow => (ObjectClass::Arrow, defaults::LINE_WIDTH, Inches::ZERO),
+            ClassName::Spline => (ObjectClass::Spline, defaults::LINE_WIDTH, Inches::ZERO),
+            ClassName::Arc => (ObjectClass::Arc, defaults::LINE_WIDTH, defaults::LINE_WIDTH),
+            ClassName::Move => (ObjectClass::Move, defaults::LINE_WIDTH, Inches::ZERO),
             ClassName::Dot => (ObjectClass::Dot, Inches(0.03), Inches(0.03)),
-            ClassName::Text => (ObjectClass::Text, Inches(0.0), Inches(0.0)),
+            ClassName::Text => (ObjectClass::Text, Inches::ZERO, Inches::ZERO),
         },
         BaseType::Text(s, _) => {
             // Estimate text dimensions
@@ -498,7 +499,7 @@ fn render_object_stmt(
             let h = defaults::FONT_SIZE * 1.2;
             (ObjectClass::Text, Inches(w), Inches(h))
         }
-        BaseType::Sublist(_) => (ObjectClass::Sublist, Inches(defaults::BOX_WIDTH), Inches(defaults::BOX_HEIGHT)),
+        BaseType::Sublist(_) => (ObjectClass::Sublist, defaults::BOX_WIDTH, defaults::BOX_HEIGHT),
     };
 
     let mut style = ObjectStyle::default();
@@ -531,12 +532,12 @@ fn render_object_stmt(
                     NumProperty::Width => width = val,
                     NumProperty::Height => height = val,
                     NumProperty::Radius => {
-                        // For circles/ellipses, radius sets size
+                        // For circles/ellipses, radius sets size (diameter = 2 * radius)
                         // For boxes, radius sets corner rounding
                         match class {
                             ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Arc => {
-                                width = Inches(val.0 * 2.0);
-                                height = Inches(val.0 * 2.0);
+                                width = val * 2.0;
+                                height = val * 2.0;
                             }
                             _ => {
                                 style.corner_radius = val;
@@ -569,8 +570,8 @@ fn render_object_stmt(
                     style.arrow_start = true;
                     style.arrow_end = true;
                 }
-                BoolProperty::Thick => style.stroke_width = Inches(defaults::STROKE_WIDTH * 2.0),
-                BoolProperty::Thin => style.stroke_width = Inches(defaults::STROKE_WIDTH * 0.5),
+                BoolProperty::Thick => style.stroke_width = defaults::STROKE_WIDTH * 2.0,
+                BoolProperty::Thin => style.stroke_width = defaults::STROKE_WIDTH * 0.5,
                 _ => {}
             },
             Attribute::StringAttr(s, pos) => {
@@ -677,8 +678,8 @@ fn render_object_stmt(
         let fit_height = Inches((center_lines as f64 * defaults::FONT_SIZE) + padding * 2.0);
 
         // Only expand, don't shrink
-        width = Inches(width.0.max(fit_width.0));
-        height = Inches(height.0.max(fit_height.0));
+        width = width.max(fit_width);
+        height = height.max(fit_height);
     }
 
     // Determine the effective direction and distance
@@ -697,7 +698,7 @@ fn render_object_stmt(
                 Direction::Right | Direction::Left => Point::new(target.x, start.y),
                 Direction::Up | Direction::Down => Point::new(start.x, target.y),
             };
-            let center = Point::new((start.x + end.x) / 2.0, (start.y + end.y) / 2.0);
+            let center = start.midpoint(end);
             (center, start, end, vec![start, end])
         } else {
         
@@ -730,7 +731,7 @@ fn render_object_stmt(
         }
 
         let end = *points.last().unwrap_or(&start);
-        let center = Point::new((start.x + end.x) / 2.0, (start.y + end.y) / 2.0);
+        let center = start.midpoint(end);
         (center, start, end, points)
         }
     } else if let Some((edge, target)) = with_clause {
@@ -913,12 +914,10 @@ fn eval_then_clause(
             } else {
                 default_distance
             };
-            // Get direction from edge point
-            let (dx, dy) = edge_point_offset(edge);
-            let next = Point::new(
-                current_pos.x + Inches(dx * distance.0),
-                current_pos.y + Inches(dy * distance.0),
-            );
+            // Get direction from edge point and compute displacement
+            let dir = edge_point_offset(edge);
+            let displacement = dir * distance;
+            let next = current_pos + displacement;
             Ok((next, current_dir))
         }
     }
@@ -970,10 +969,7 @@ fn calculate_object_position(
                 Direction::Up => Point::new(start.x, start.y - width),
                 Direction::Down => Point::new(start.x, start.y + width),
             };
-            let mid = Point::new(
-                Inches((start.x.0 + end.x.0) / 2.0),
-                Inches((start.y.0 + end.y.0) / 2.0),
-            );
+            let mid = start.midpoint(end);
             (start, end, mid)
         }
         _ => {
@@ -1246,8 +1242,8 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, miette:
             let d = eval_len(ctx, dist)?;
             let base = eval_position(ctx, base_pos)?;
             // Calculate offset based on edge direction
-            let (dx, dy) = edge_point_offset(edge);
-            Ok(Point::new(base.x + Inches(dx * d.0), base.y + Inches(dy * d.0)))
+            let dir = edge_point_offset(edge);
+            Ok(base + dir * d)
         }
         Position::Heading(dist, heading, base_pos) => {
             let d = eval_len(ctx, dist)?;
@@ -1273,19 +1269,19 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, miette:
 }
 
 /// Get the unit offset direction for an edge point
-fn edge_point_offset(edge: &EdgePoint) -> (f64, f64) {
+fn edge_point_offset(edge: &EdgePoint) -> UnitVec {
     match edge {
-        EdgePoint::North | EdgePoint::N | EdgePoint::Top | EdgePoint::T => (0.0, -1.0),
-        EdgePoint::South | EdgePoint::S | EdgePoint::Bottom => (0.0, 1.0),
-        EdgePoint::East | EdgePoint::E | EdgePoint::Right => (1.0, 0.0),
-        EdgePoint::West | EdgePoint::W | EdgePoint::Left => (-1.0, 0.0),
-        EdgePoint::NorthEast => (0.707, -0.707),
-        EdgePoint::NorthWest => (-0.707, -0.707),
-        EdgePoint::SouthEast => (0.707, 0.707),
-        EdgePoint::SouthWest => (-0.707, 0.707),
-        EdgePoint::Center | EdgePoint::C => (0.0, 0.0),
-        EdgePoint::Start => (-1.0, 0.0),
-        EdgePoint::End => (1.0, 0.0),
+        EdgePoint::North | EdgePoint::N | EdgePoint::Top | EdgePoint::T => UnitVec::NORTH,
+        EdgePoint::South | EdgePoint::S | EdgePoint::Bottom => UnitVec::SOUTH,
+        EdgePoint::East | EdgePoint::E | EdgePoint::Right => UnitVec::EAST,
+        EdgePoint::West | EdgePoint::W | EdgePoint::Left => UnitVec::WEST,
+        EdgePoint::NorthEast => UnitVec::NORTH_EAST,
+        EdgePoint::NorthWest => UnitVec::NORTH_WEST,
+        EdgePoint::SouthEast => UnitVec::SOUTH_EAST,
+        EdgePoint::SouthWest => UnitVec::SOUTH_WEST,
+        EdgePoint::Center | EdgePoint::C => UnitVec::ZERO,
+        EdgePoint::Start => UnitVec::WEST,  // Start is typically the entry direction
+        EdgePoint::End => UnitVec::EAST,    // End is typically the exit direction
     }
 }
 
@@ -1451,7 +1447,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     let right_margin = ctx.variables.get("rightmargin").copied().unwrap_or(0.0);
     let top_margin = ctx.variables.get("topmargin").copied().unwrap_or(0.0);
     let bottom_margin = ctx.variables.get("bottommargin").copied().unwrap_or(0.0);
-    let thickness = ctx.variables.get("thickness").copied().unwrap_or(defaults::STROKE_WIDTH);
+    let thickness = ctx.variables.get("thickness").copied().unwrap_or(defaults::STROKE_WIDTH.raw());
 
     let margin = margin_base + thickness;
     let r_scale = 144.0; // match pikchr.c rScale
@@ -1472,16 +1468,17 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     bounds.min.y -= Inches(margin + bottom_margin);
 
     // Use a small epsilon for zero-dimension check (thin lines are valid)
-    let view_width = bounds.width().max(0.01);
-    let view_height = bounds.height().max(0.01);
-    let offset_x = Inches(-bounds.min.x.0);
-    let offset_y = Inches(-bounds.min.y.0);
+    let min_dim = Inches(0.01);
+    let view_width = bounds.width().max(min_dim);
+    let view_height = bounds.height().max(min_dim);
+    let offset_x = -bounds.min.x;
+    let offset_y = -bounds.min.y;
 
     let mut svg = String::new();
 
     // SVG header (add class and pixel dimensions like C)
-    let width_px = view_width * scaler.r_scale;
-    let height_px = view_height * scaler.r_scale;
+    let width_px = scaler.px(view_width);
+    let height_px = scaler.px(view_height);
     writeln!(
         svg,
         r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" width="{:.0}" height="{:.0}" viewBox="0 0 {:.2} {:.2}" data-pikchr-date="">"#,
@@ -1553,7 +1550,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             }
             ObjectClass::Line | ObjectClass::Arrow => {
                 // Apply chop if needed (shorten line from both ends)
-                let chop_amount_px = if obj.style.chop { scaler.px(Inches(defaults::CIRCLE_RADIUS)) } else { 0.0 };
+                let chop_amount_px = if obj.style.chop { scaler.px(defaults::CIRCLE_RADIUS) } else { 0.0 };
                 let (draw_sx, draw_sy, draw_ex, draw_ey) = if chop_amount_px > 0.0 {
                     chop_line(sx, sy, ex, ey, chop_amount_px)
                 } else {
