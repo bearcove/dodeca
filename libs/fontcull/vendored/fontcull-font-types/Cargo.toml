@@ -1,6 +1,6 @@
 [package]
 name = "fontcull-font-types"
-version = "0.10.1"
+version = "0.10.2"
 description = "Scalar types used in fonts. (Vendored fork for fontcull)"
 readme = "README.md"
 categories = ["text-processing"]

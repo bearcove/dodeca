@@ -1,6 +1,6 @@
 [package]
 name = "fontcull-font-test-data"
-version = "0.6.1"
+version = "0.6.2"
 description = "Test data for the fontations crates. (Vendored fork for fontcull)"
 readme = "README.md"
 edition = "2021"
@@ -9,4 +9,4 @@ repository = "https://github.com/bearcove/fontcull"
 rust-version = "1.82"
 
 [dependencies]
-fontcull-font-types = { version = "0.10.1", path = "../fontcull-font-types" }
+fontcull-font-types = { version = "0.10.2", path = "../fontcull-font-types" }

@@ -7,14 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.44.3](https://github.com/bearcove/fontcull/compare/fontcull-write-fonts-v0.44.2...fontcull-write-fonts-v0.44.3) - 2025-12-03
+## [0.6.2](https://github.com/bearcove/fontcull/compare/fontcull-font-test-data-v0.6.1...fontcull-font-test-data-v0.6.2) - 2025-12-03
 
 ### Other
 
 - Remove pyftsubset, split into fontcull lib + fontcull-cli, add Windows support ([#9](https://github.com/bearcove/fontcull/pull/9))
-
-## [0.44.2](https://github.com/bearcove/fontcull/compare/fontcull-write-fonts-v0.44.1...fontcull-write-fonts-v0.44.2) - 2025-12-02
-
-### Other
-
-- Add core subsetting API + HTML/CSS parsing

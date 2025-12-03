@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/bearcove/fontcull/compare/fontcull-klippa-v0.1.1...fontcull-klippa-v0.1.2) - 2025-12-03
+
+### Other
+
+- Remove pyftsubset, split into fontcull lib + fontcull-cli, add Windows support ([#9](https://github.com/bearcove/fontcull/pull/9))
+
 ## [0.1.1](https://github.com/bearcove/fontcull/compare/fontcull-klippa-v0.1.0...fontcull-klippa-v0.1.1) - 2025-12-02
 
 ### Other

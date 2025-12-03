@@ -1,6 +1,6 @@
 [package]
 name = "fontcull"
-version = "1.0.5"
+version = "2.0.0"
 edition = "2024"
 authors = ["Amos Wenger <amos@bearcove.eu>"]
 description = "Pure Rust font subsetting library"
@@ -19,8 +19,8 @@ static-analysis = ["dep:scraper"]
 scraper = { version = "0.24", optional = true }
 
 # klippa backend (vendored from googlefonts/fontations)
-fontcull-klippa = { version = "0.1.1", path = "../vendored/fontcull-klippa" }
-fontcull-skrifa = { version = "0.39.1", path = "../vendored/fontcull-skrifa" }
-fontcull-write-fonts = { version = "0.44.2", path = "../vendored/fontcull-write-fonts" }
-fontcull-read-fonts = { version = "0.37.0", path = "../vendored/fontcull-read-fonts" }
+fontcull-klippa = { version = "0.1.2", path = "../vendored/fontcull-klippa" }
+fontcull-skrifa = { version = "0.39.2", path = "../vendored/fontcull-skrifa" }
+fontcull-write-fonts = { version = "0.44.3", path = "../vendored/fontcull-write-fonts" }
+fontcull-read-fonts = { version = "0.38.0", path = "../vendored/fontcull-read-fonts" }
 woofwoof = "1.0"

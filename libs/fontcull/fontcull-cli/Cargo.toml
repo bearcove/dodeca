@@ -21,7 +21,7 @@ name = "fontcull"
 path = "src/main.rs"
 
 [dependencies]
-fontcull = { version = "1.0.5", path = "../fontcull" }
+fontcull = { version = "2.0.0", path = "../fontcull" }
 
 # CLI dependencies
 clap = { version = "4", features = ["derive"] }
