@@ -80,11 +80,12 @@ A roadmap for achieving C-pikchr compatibility using Rust-first, zero-cost abstr
 - [x] **Scaler in emitter**: All coord/stroke/dash conversions via `Scaler`
 - [x] **Removed `to_px_len()`**: All 35+ call sites migrated to `scaler.px()`
 - [x] **Bounds fixes**: Zero-dim check after margins; line bounds include stroke padding
+- [x] **Text font size**: Respects `scale` variable via `Scaler`
+- [x] **Error diagnostics**: Print expressions show actual error messages (division-by-zero, sqrt of negative)
 
 ### In Progress
 
-- [ ] Text font size respects `scale` variable (currently hardcoded)
-- [ ] C-style error diagnostics for print/assert expressions
+- [ ] Full C parity for remaining layout semantics
 
 ### Pending
 
