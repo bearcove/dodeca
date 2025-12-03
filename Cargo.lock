@@ -1640,6 +1640,7 @@ dependencies = [
  "salsa",
  "serde",
  "serde_yaml 0.9.34+deprecated",
+ "tempfile",
  "test-log",
  "thiserror 2.0.17",
  "thumbhash",

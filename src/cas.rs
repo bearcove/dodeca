@@ -94,21 +94,36 @@ fn ensure_gitignore_has_cache(cache_dir: &Path) {
     // The cache directory name we want to ignore
     let cache_name = ".cache";
 
-    // Start from cache_dir's parent and search upward for .gitignore
+    // Start from cache_dir's parent and search upward for .git (repo root) or .gitignore
     let mut search_dir = cache_dir.parent();
     let mut found_gitignore: Option<PathBuf> = None;
+    let mut found_git_repo = false;
 
     while let Some(dir) = search_dir {
+        // Check if this is a git repo root
+        if dir.join(".git").exists() {
+            found_git_repo = true;
+            let gitignore_path = dir.join(".gitignore");
+            found_gitignore = Some(gitignore_path);
+            break;
+        }
+        // Also check for existing .gitignore (might be in a subdirectory of a repo)
         let gitignore_path = dir.join(".gitignore");
         if gitignore_path.exists() {
             found_gitignore = Some(gitignore_path);
+            found_git_repo = true; // Assume we're in a git repo if .gitignore exists
             break;
         }
         search_dir = dir.parent();
     }
 
+    // Only modify .gitignore if we're in a git repository
+    if !found_git_repo {
+        return;
+    }
+
     let gitignore_path = found_gitignore.unwrap_or_else(|| {
-        // No .gitignore found, create one as sibling to .cache
+        // No .gitignore found but we're in a git repo, create one as sibling to .cache
         cache_dir.parent().unwrap_or(cache_dir).join(".gitignore")
     });
 
@@ -153,6 +168,8 @@ fn ensure_gitignore_has_cache(cache_dir: &Path) {
 
 /// Initialize the global asset cache
 pub fn init_asset_cache(cache_dir: &Path) -> color_eyre::Result<()> {
+    tracing::info!(cache_dir = %cache_dir.display(), "init_asset_cache called");
+
     // Ensure .cache is gitignored before creating directories
     ensure_gitignore_has_cache(cache_dir);
 
@@ -163,10 +180,25 @@ pub fn init_asset_cache(cache_dir: &Path) -> color_eyre::Result<()> {
     let blob_path = cache_dir.join("blobs");
 
     // Ensure directories exist
+    tracing::debug!(db_path = %db_path.display(), blob_path = %blob_path.display(), "Creating cache directories");
     fs::create_dir_all(&db_path)?;
     fs::create_dir_all(&blob_path)?;
 
-    let db = Database::new(&db_path)?;
+    tracing::debug!(
+        path = %db_path.display(),
+        exists = db_path.exists(),
+        is_dir = db_path.is_dir(),
+        "Opening canopydb"
+    );
+    let db = Database::new(&db_path).map_err(|e| {
+        tracing::error!(
+            path = %db_path.display(),
+            exists = db_path.exists(),
+            error = %e,
+            "Failed to open canopydb"
+        );
+        e
+    })?;
     let _ = ASSET_CACHE.set(db);
     let _ = BLOB_DIR.set(blob_path.clone());
     tracing::info!("Asset cache initialized at {:?}", db_path);
