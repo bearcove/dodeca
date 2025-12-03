@@ -65,6 +65,32 @@ fn normalize_svg(svg: &str) -> String {
     re.replace_all(svg, "").to_string()
 }
 
+#[test]
+fn even_with_horizontal_matches_c() {
+    let source = r#"
+        box "A"
+        B: box at (2,1)
+        arrow right even with B
+    "#;
+
+    let c_out = normalize_svg(&run_c_pikchr(source));
+    let rust_out = normalize_svg(&pikru::pikchr(source).expect("rust pikchr failed"));
+    assert_eq!(rust_out, c_out, "right even with should align x to target");
+}
+
+#[test]
+fn until_even_vertical_matches_c() {
+    let source = r#"
+        box "A"
+        B: box at (1,2)
+        arrow down until even with B
+    "#;
+
+    let c_out = normalize_svg(&run_c_pikchr(source));
+    let rust_out = normalize_svg(&pikru::pikchr(source).expect("rust pikchr failed"));
+    assert_eq!(rust_out, c_out, "until even with should align y to target");
+}
+
 datatest_stable::harness! {
     { test = test_pikchr_file, root = concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/tests"), pattern = r"\.pikchr$" },
 }

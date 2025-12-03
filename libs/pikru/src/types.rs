@@ -120,7 +120,63 @@ impl Scaler {
     pub fn new(r_scale: f64) -> Self { Scaler { r_scale } }
 
     pub fn len(&self, l: Length) -> Px { l.to_px(self.r_scale) }
-    pub fn point(&self, p: crate::render::Point) -> (f64, f64) {
-        ((p.x.0) * self.r_scale, (p.y.0) * self.r_scale)
+    pub fn point(&self, p: Point<Length>) -> Point<Px> {
+        Point { x: self.len(p.x), y: self.len(p.y) }
     }
 }
+
+/// Generic 2D point
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Point<T> {
+    pub x: T,
+    pub y: T,
+}
+
+impl<T> Point<T> {
+    pub fn new(x: T, y: T) -> Self { Point { x, y } }
+}
+
+/// 2D size
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub struct Size<T> {
+    pub w: T,
+    pub h: T,
+}
+
+/// Axis-aligned bounding box
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BBox<T> {
+    pub min: Point<T>,
+    pub max: Point<T>,
+}
+
+impl BBox<Length> {
+    pub fn new() -> Self {
+        BBox {
+            min: Point { x: Length(f64::MAX), y: Length(f64::MAX) },
+            max: Point { x: Length(f64::MIN), y: Length(f64::MIN) },
+        }
+    }
+
+    pub fn expand_point(&mut self, p: Point<Length>) {
+        self.min.x = Length(self.min.x.0.min(p.x.0));
+        self.min.y = Length(self.min.y.0.min(p.y.0));
+        self.max.x = Length(self.max.x.0.max(p.x.0));
+        self.max.y = Length(self.max.y.0.max(p.y.0));
+    }
+
+    pub fn expand_rect(&mut self, center: Point<Length>, size: Size<Length>) {
+        let hw = size.w.0 / 2.0;
+        let hh = size.h.0 / 2.0;
+        self.expand_point(Point { x: Length(center.x.0 - hw), y: Length(center.y.0 - hh) });
+        self.expand_point(Point { x: Length(center.x.0 + hw), y: Length(center.y.0 + hh) });
+    }
+
+    pub fn width(&self) -> f64 { self.max.x.0 - self.min.x.0 }
+    pub fn height(&self) -> f64 { self.max.y.0 - self.min.y.0 }
+}
+
+/// Convenient aliases
+pub type PtIn = Point<Length>;
+pub type PtPx = Point<Px>;
+pub type BoxIn = BBox<Length>;
