@@ -1,7 +1,7 @@
 //! SVG rendering for pikchr diagrams
 
 use crate::ast::*;
-use crate::types::{Length as Inches};
+use crate::types::{Length as Inches, Point, Size, PtIn, BoxIn};
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -35,73 +35,20 @@ mod defaults {
     pub const BOX_WIDTH: f64 = 0.75;
     pub const BOX_HEIGHT: f64 = 0.5;
     pub const CIRCLE_RADIUS: f64 = 0.25;
-    pub const ARROW_HEAD_SIZE: f64 = 2.0;  // head size factor (matches arrowhead variable)
     pub const STROKE_WIDTH: f64 = 0.015;
     pub const FONT_SIZE: f64 = 0.14;       // approx charht
     pub const MARGIN: f64 = 0.0;
 }
 
 /// A point in 2D space
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Point {
-    pub x: Inches,
-    pub y: Inches,
-}
+pub type PointIn = PtIn;
 
-impl Point {
-    pub fn new(x: f64, y: f64) -> Self {
-        Self {
-            x: Inches(x),
-            y: Inches(y),
-        }
-    }
-
-    pub fn from_inches(x: Inches, y: Inches) -> Self {
-        Self { x, y }
-    }
+fn pin(x: f64, y: f64) -> PointIn {
+    Point::new(Inches(x), Inches(y))
 }
 
 /// Bounding box
-#[derive(Debug, Clone, Copy, Default)]
-pub struct BoundingBox {
-    pub min: Point,
-    pub max: Point,
-}
-
-impl BoundingBox {
-    pub fn new() -> Self {
-        Self {
-            min: Point::new(f64::MAX, f64::MAX),
-            max: Point::new(f64::MIN, f64::MIN),
-        }
-    }
-
-    pub fn expand(&mut self, p: Point) {
-        self.min.x = Inches(self.min.x.0.min(p.x.0));
-        self.min.y = Inches(self.min.y.0.min(p.y.0));
-        self.max.x = Inches(self.max.x.0.max(p.x.0));
-        self.max.y = Inches(self.max.y.0.max(p.y.0));
-    }
-
-    pub fn expand_rect(&mut self, center: Point, width: Inches, height: Inches) {
-        self.expand(Point::new(
-            center.x.0 - width.0 / 2.0,
-            center.y.0 - height.0 / 2.0,
-        ));
-        self.expand(Point::new(
-            center.x.0 + width.0 / 2.0,
-            center.y.0 + height.0 / 2.0,
-        ));
-    }
-
-    pub fn width(&self) -> f64 {
-        self.max.x.0 - self.min.x.0
-    }
-
-    pub fn height(&self) -> f64 {
-        self.max.y.0 - self.min.y.0
-    }
-}
+pub type BoundingBox = BoxIn;
 
 /// Text with optional positioning and styling attributes
 #[derive(Debug, Clone)]
@@ -163,13 +110,13 @@ impl PositionedText {
 pub struct RenderedObject {
     pub name: Option<String>,
     pub class: ObjectClass,
-    pub center: Point,
+    pub center: PointIn,
     pub width: Inches,
     pub height: Inches,
-    pub start: Point,
-    pub end: Point,
+    pub start: PointIn,
+    pub end: PointIn,
     /// Waypoints for multi-segment lines (includes start, intermediate points, and end)
-    pub waypoints: Vec<Point>,
+    pub waypoints: Vec<PointIn>,
     pub text: Vec<PositionedText>,
     pub style: ObjectStyle,
     /// Child objects for sublists
@@ -235,7 +182,7 @@ pub struct RenderContext {
     /// Current direction
     pub direction: Direction,
     /// Current position (where the next object will be placed)
-    pub position: Point,
+    pub position: PointIn,
     /// Named objects for reference
     pub objects: HashMap<String, RenderedObject>,
     /// All objects in order
@@ -250,7 +197,7 @@ impl Default for RenderContext {
     fn default() -> Self {
         let mut ctx = Self {
             direction: Direction::Right,
-            position: Point::new(0.0, 0.0),
+            position: pin(0.0, 0.0),
             objects: HashMap::new(),
             object_list: Vec::new(),
             variables: HashMap::new(),
@@ -401,17 +348,7 @@ impl RenderContext {
     /// Add an object to the context
     pub fn add_object(&mut self, obj: RenderedObject) {
         // Update bounds
-        match obj.class {
-            ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Arc => {
-                // Expand bounds to include all waypoints
-                for pt in &obj.waypoints {
-                    self.bounds.expand(*pt);
-                }
-            }
-            _ => {
-                self.bounds.expand_rect(obj.center, obj.width, obj.height);
-            }
-        }
+        expand_object_bounds(&mut self.bounds, &obj);
 
         // Update position to the exit point of the object
         self.position = obj.end;
@@ -422,6 +359,23 @@ impl RenderContext {
         }
 
         self.object_list.push(obj);
+    }
+}
+
+/// Expand a bounding box to include a rendered object (recursing into sublists)
+fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
+    match obj.class {
+        ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Arc => {
+            for pt in &obj.waypoints {
+                bounds.expand_point(*pt);
+            }
+        }
+        ObjectClass::Sublist => {
+            for child in &obj.children {
+                expand_object_bounds(bounds, child);
+            }
+        }
+        _ => bounds.expand_rect(obj.center, Size { w: obj.width, h: obj.height }),
     }
 }
 
@@ -546,13 +500,14 @@ fn render_object_stmt(
 
     let mut style = ObjectStyle::default();
     let mut text = Vec::new();
-    let mut explicit_position: Option<Point> = None;
-    let mut from_position: Option<Point> = None;
-    let mut to_position: Option<Point> = None;
+    let mut explicit_position: Option<PointIn> = None;
+    let mut from_position: Option<PointIn> = None;
+    let mut to_position: Option<PointIn> = None;
     let mut line_direction: Option<Direction> = None;
     let mut line_distance: Option<Inches> = None;
+    let mut even_clause: Option<(Direction, Position)> = None;
     let mut then_clauses: Vec<ThenClause> = Vec::new();
-    let mut with_clause: Option<(EdgePoint, Point)> = None; // (edge, target_position)
+    let mut with_clause: Option<(EdgePoint, PointIn)> = None; // (edge, target_position)
 
     // Extract text from basetype
     if let BaseType::Text(s, pos) = &obj_stmt.basetype {
@@ -641,6 +596,12 @@ fn render_object_stmt(
                     }
                 }
             }
+            Attribute::DirectionEven(_go, dir, pos) => {
+                even_clause = Some((*dir, pos.clone()));
+            }
+            Attribute::DirectionUntilEven(_go, dir, pos) => {
+                even_clause = Some((*dir, pos.clone()));
+            }
             Attribute::BareExpr(relexpr) => {
                 // A bare expression is typically a distance
                 if let Ok(d) = eval_len(ctx, &relexpr.expr) {
@@ -722,10 +683,21 @@ fn render_object_stmt(
     let effective_distance = line_distance.unwrap_or(width);
 
     // Calculate position based on object type
-    let (center, start, end, waypoints) = if from_position.is_some() || to_position.is_some() || line_direction.is_some() || !then_clauses.is_empty() {
+    let (center, start, end, waypoints) = if from_position.is_some() || to_position.is_some() || line_direction.is_some() || !then_clauses.is_empty() || even_clause.is_some() {
         // Line-like objects with explicit from/to, direction, or then clauses
         let start = from_position.unwrap_or(ctx.position);
 
+        if let Some((dir, pos_expr)) = even_clause.as_ref() {
+            // Single-segment move until even with target
+            let target = eval_position(ctx, pos_expr)?;
+            let end = match dir {
+                Direction::Right | Direction::Left => Point::new(target.x, start.y),
+                Direction::Up | Direction::Down => Point::new(start.x, target.y),
+            };
+            let center = Point::new((start.x + end.x) / 2.0, (start.y + end.y) / 2.0);
+            (center, start, end, vec![start, end])
+        } else {
+        
         // Build waypoints starting from start
         let mut points = vec![start];
         let mut current_pos = start;
@@ -755,8 +727,9 @@ fn render_object_stmt(
         }
 
         let end = *points.last().unwrap_or(&start);
-        let center = Point::from_inches((start.x + end.x) / 2.0, (start.y + end.y) / 2.0);
+        let center = Point::new((start.x + end.x) / 2.0, (start.y + end.y) / 2.0);
         (center, start, end, points)
+        }
     } else if let Some((edge, target)) = with_clause {
         // Position object so that specified edge is at target position
         let center = calculate_center_from_edge(edge, target, width, height);
@@ -771,12 +744,16 @@ fn render_object_stmt(
         (c, s, e, vec![s, e])
     };
 
-    // Handle sublist: render nested statements
-    let children = if let BaseType::Sublist(statements) = &obj_stmt.basetype {
+    // Handle sublist: render nested statements (local coords) then translate to this center
+    let mut children = if let BaseType::Sublist(statements) = &obj_stmt.basetype {
         render_sublist(ctx, statements)?
     } else {
         Vec::new()
     };
+
+    if !children.is_empty() {
+        translate_children(&mut children, center);
+    }
 
     Ok(RenderedObject {
         name,
@@ -793,65 +770,82 @@ fn render_object_stmt(
     })
 }
 
-/// Render a sublist of statements and return the rendered children
-fn render_sublist(ctx: &mut RenderContext, statements: &[Statement]) -> Result<Vec<RenderedObject>, miette::Report> {
-    // Save current context state
-    let saved_position = ctx.position;
-    let saved_direction = ctx.direction;
+/// Render a sublist of statements with local coordinates and return children (still local)
+fn render_sublist(parent_ctx: &RenderContext, statements: &[Statement]) -> Result<Vec<RenderedObject>, miette::Report> {
+    // Local context: starts at (0,0) but inherits variables and direction
+    let mut ctx = RenderContext::new();
+    ctx.direction = parent_ctx.direction;
+    ctx.variables = parent_ctx.variables.clone();
 
-    // Reset position for sublist (start from origin, will be offset later)
-    ctx.position = Point::new(0.0, 0.0);
-
-    // Render each statement in the sublist
-    let mut children = Vec::new();
     for stmt in statements {
         if let Statement::Object(obj_stmt) = stmt {
-            let rendered = render_object_stmt(ctx, obj_stmt, None)?;
-            children.push(rendered);
+            let obj = render_object_stmt(&mut ctx, obj_stmt, None)?;
+            ctx.add_object(obj);
         }
     }
 
-    // Restore context state
-    ctx.position = saved_position;
-    ctx.direction = saved_direction;
+    Ok(ctx.object_list)
+}
 
-    Ok(children)
+/// Translate children from local sublist space to a given offset (usually parent center)
+fn translate_children(children: &mut [RenderedObject], offset: PointIn) {
+    for child in children.iter_mut() {
+        translate_object(child, offset);
+    }
+}
+
+fn translate_object(obj: &mut RenderedObject, offset: PointIn) {
+    obj.center.x += offset.x;
+    obj.center.y += offset.y;
+    obj.start.x += offset.x;
+    obj.start.y += offset.y;
+    obj.end.x += offset.x;
+    obj.end.y += offset.y;
+
+    for pt in obj.waypoints.iter_mut() {
+        pt.x += offset.x;
+        pt.y += offset.y;
+    }
+
+    for child in obj.children.iter_mut() {
+        translate_object(child, offset);
+    }
 }
 
 /// Calculate center position given that a specific edge should be at target
-fn calculate_center_from_edge(edge: EdgePoint, target: Point, width: Inches, height: Inches) -> Point {
+fn calculate_center_from_edge(edge: EdgePoint, target: PointIn, width: Inches, height: Inches) -> PointIn {
     let hw = width / 2.0;
     let hh = height / 2.0;
 
     match edge {
         EdgePoint::North | EdgePoint::N | EdgePoint::Top | EdgePoint::T => {
-            Point::from_inches(target.x, target.y + hh)
+            Point::new(target.x, target.y + hh)
         }
         EdgePoint::South | EdgePoint::S | EdgePoint::Bottom => {
-            Point::from_inches(target.x, target.y - hh)
+            Point::new(target.x, target.y - hh)
         }
         EdgePoint::East | EdgePoint::E | EdgePoint::Right => {
-            Point::from_inches(target.x - hw, target.y)
+            Point::new(target.x - hw, target.y)
         }
         EdgePoint::West | EdgePoint::W | EdgePoint::Left => {
-            Point::from_inches(target.x + hw, target.y)
+            Point::new(target.x + hw, target.y)
         }
-        EdgePoint::NorthEast => Point::from_inches(target.x - hw, target.y + hh),
-        EdgePoint::NorthWest => Point::from_inches(target.x + hw, target.y + hh),
-        EdgePoint::SouthEast => Point::from_inches(target.x - hw, target.y - hh),
-        EdgePoint::SouthWest => Point::from_inches(target.x + hw, target.y - hh),
+        EdgePoint::NorthEast => Point::new(target.x - hw, target.y + hh),
+        EdgePoint::NorthWest => Point::new(target.x + hw, target.y + hh),
+        EdgePoint::SouthEast => Point::new(target.x - hw, target.y - hh),
+        EdgePoint::SouthWest => Point::new(target.x + hw, target.y - hh),
         EdgePoint::Center | EdgePoint::C => target,
         EdgePoint::Start | EdgePoint::End => target, // For lines, just use target
     }
 }
 
 /// Move a point in a direction by a distance
-fn move_in_direction(pos: Point, dir: Direction, distance: Inches) -> Point {
+fn move_in_direction(pos: PointIn, dir: Direction, distance: Inches) -> PointIn {
     match dir {
-        Direction::Right => Point::new(pos.x.0 + distance.0, pos.y.0),
-        Direction::Left => Point::new(pos.x.0 - distance.0, pos.y.0),
-        Direction::Up => Point::new(pos.x.0, pos.y.0 - distance.0),
-        Direction::Down => Point::new(pos.x.0, pos.y.0 + distance.0),
+        Direction::Right => Point::new(pos.x + distance, pos.y),
+        Direction::Left => Point::new(pos.x - distance, pos.y),
+        Direction::Up => Point::new(pos.x, pos.y - distance),
+        Direction::Down => Point::new(pos.x, pos.y + distance),
     }
 }
 
@@ -859,10 +853,10 @@ fn move_in_direction(pos: Point, dir: Direction, distance: Inches) -> Point {
 fn eval_then_clause(
     ctx: &RenderContext,
     clause: &ThenClause,
-    current_pos: Point,
+    current_pos: PointIn,
     current_dir: Direction,
     default_distance: Inches,
-) -> Result<(Point, Direction), miette::Report> {
+) -> Result<(PointIn, Direction), miette::Report> {
     match clause {
         ThenClause::To(pos) => {
             let target = eval_position(ctx, pos)?;
@@ -881,8 +875,8 @@ fn eval_then_clause(
             // Move in direction until even with position
             let target = eval_position(ctx, pos)?;
             let next = match dir {
-                Direction::Right | Direction::Left => Point::from_inches(target.x, current_pos.y),
-                Direction::Up | Direction::Down => Point::from_inches(current_pos.x, target.y),
+                Direction::Right | Direction::Left => Point::new(target.x, current_pos.y),
+                Direction::Up | Direction::Down => Point::new(current_pos.x, target.y),
             };
             Ok((next, *dir))
         }
@@ -890,8 +884,8 @@ fn eval_then_clause(
             // Same as DirectionEven
             let target = eval_position(ctx, pos)?;
             let next = match dir {
-                Direction::Right | Direction::Left => Point::from_inches(target.x, current_pos.y),
-                Direction::Up | Direction::Down => Point::from_inches(current_pos.x, target.y),
+                Direction::Right | Direction::Left => Point::new(target.x, current_pos.y),
+                Direction::Up | Direction::Down => Point::new(current_pos.x, target.y),
             };
             Ok((next, *dir))
         }
@@ -905,8 +899,8 @@ fn eval_then_clause(
             // Convert angle (degrees, 0 = north/up, clockwise) to radians
             let rad = (90.0 - angle).to_radians();
             let next = Point::new(
-                current_pos.x.0 + distance.0 * rad.cos(),
-                current_pos.y.0 - distance.0 * rad.sin(),
+                current_pos.x + Inches(distance.0 * rad.cos()),
+                current_pos.y - Inches(distance.0 * rad.sin()),
             );
             Ok((next, current_dir))
         }
@@ -919,8 +913,8 @@ fn eval_then_clause(
             // Get direction from edge point
             let (dx, dy) = edge_point_offset(edge);
             let next = Point::new(
-                current_pos.x.0 + dx * distance.0,
-                current_pos.y.0 + dy * distance.0,
+                current_pos.x + Inches(dx * distance.0),
+                current_pos.y + Inches(dy * distance.0),
             );
             Ok((next, current_dir))
         }
@@ -930,26 +924,26 @@ fn eval_then_clause(
 /// Calculate start/end points for an object at a specific center position
 fn calculate_object_position_at(
     direction: Direction,
-    center: Point,
+    center: PointIn,
     width: Inches,
     height: Inches,
-) -> (Point, Point, Point) {
+) -> (PointIn, PointIn, PointIn) {
     let (start, end) = match direction {
         Direction::Right => (
-            Point::new(center.x.0 - width.0 / 2.0, center.y.0),
-            Point::new(center.x.0 + width.0 / 2.0, center.y.0),
+            Point::new(center.x - width / 2.0, center.y),
+            Point::new(center.x + width / 2.0, center.y),
         ),
         Direction::Left => (
-            Point::new(center.x.0 + width.0 / 2.0, center.y.0),
-            Point::new(center.x.0 - width.0 / 2.0, center.y.0),
+            Point::new(center.x + width / 2.0, center.y),
+            Point::new(center.x - width / 2.0, center.y),
         ),
         Direction::Up => (
-            Point::new(center.x.0, center.y.0 + height.0 / 2.0),
-            Point::new(center.x.0, center.y.0 - height.0 / 2.0),
+            Point::new(center.x, center.y + height / 2.0),
+            Point::new(center.x, center.y - height / 2.0),
         ),
         Direction::Down => (
-            Point::new(center.x.0, center.y.0 - height.0 / 2.0),
-            Point::new(center.x.0, center.y.0 + height.0 / 2.0),
+            Point::new(center.x, center.y - height / 2.0),
+            Point::new(center.x, center.y + height / 2.0),
         ),
     };
     (center, start, end)
@@ -960,40 +954,40 @@ fn calculate_object_position(
     class: ObjectClass,
     width: Inches,
     height: Inches,
-) -> (Point, Point, Point) {
-    let start = ctx.position;
+) -> (PointIn, PointIn, PointIn) {
+    let center = ctx.position;
 
     // For line-like objects, calculate end based on direction and length
-    let (end, center) = match class {
+    let (start, end, center) = match class {
         ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Move => {
+            let start = center;
             let end = match ctx.direction {
-                Direction::Right => Point::new(start.x.0 + width.0, start.y.0),
-                Direction::Left => Point::new(start.x.0 - width.0, start.y.0),
-                Direction::Up => Point::new(start.x.0, start.y.0 - width.0),
-                Direction::Down => Point::new(start.x.0, start.y.0 + width.0),
+                Direction::Right => Point::new(start.x + width, start.y),
+                Direction::Left => Point::new(start.x - width, start.y),
+                Direction::Up => Point::new(start.x, start.y - width),
+                Direction::Down => Point::new(start.x, start.y + width),
             };
-            let center = Point::from_inches(
+            let mid = Point::new(
                 Inches((start.x.0 + end.x.0) / 2.0),
                 Inches((start.y.0 + end.y.0) / 2.0),
             );
-            (end, center)
+            (start, end, mid)
         }
         _ => {
-            // For shaped objects, center at the current position
-            // and adjust start/end to be entry/exit points
-            let center = match ctx.direction {
-                Direction::Right => Point::new(start.x.0 + width.0 / 2.0, start.y.0),
-                Direction::Left => Point::new(start.x.0 - width.0 / 2.0, start.y.0),
-                Direction::Up => Point::new(start.x.0, start.y.0 - height.0 / 2.0),
-                Direction::Down => Point::new(start.x.0, start.y.0 + height.0 / 2.0),
+            // For shaped objects, keep center at the current cursor; start/end are entry/exit along direction
+            let start = match ctx.direction {
+                Direction::Right => Point::new(center.x - width / 2.0, center.y),
+                Direction::Left => Point::new(center.x + width / 2.0, center.y),
+                Direction::Up => Point::new(center.x, center.y + height / 2.0),
+                Direction::Down => Point::new(center.x, center.y - height / 2.0),
             };
             let end = match ctx.direction {
-                Direction::Right => Point::new(center.x.0 + width.0 / 2.0, center.y.0),
-                Direction::Left => Point::new(center.x.0 - width.0 / 2.0, center.y.0),
-                Direction::Up => Point::new(center.x.0, center.y.0 - height.0 / 2.0),
-                Direction::Down => Point::new(center.x.0, center.y.0 + height.0 / 2.0),
+                Direction::Right => Point::new(center.x + width / 2.0, center.y),
+                Direction::Left => Point::new(center.x - width / 2.0, center.y),
+                Direction::Up => Point::new(center.x, center.y - height / 2.0),
+                Direction::Down => Point::new(center.x, center.y + height / 2.0),
             };
-            (end, center)
+            (start, end, center)
         }
     };
 
@@ -1184,12 +1178,12 @@ fn eval_rvalue(ctx: &RenderContext, rvalue: &RValue) -> Result<Value, miette::Re
     }
 }
 
-fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<Point, miette::Report> {
+fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, miette::Report> {
     match pos {
         Position::Coords(x, y) => {
             let px = eval_len(ctx, x)?;
             let py = eval_len(ctx, y)?;
-            Ok(Point::from_inches(px, py))
+            Ok(Point::new(px, py))
         }
         Position::Place(place) => eval_place(ctx, place),
         Position::PlaceOffset(place, op, dx, dy) => {
@@ -1197,13 +1191,13 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<Point, miette::R
             let dx_val = eval_len(ctx, dx)?;
             let dy_val = eval_len(ctx, dy)?;
             match op {
-                BinaryOp::Add => Ok(Point::from_inches(
-                    Inches(base.x.0 + dx_val.0),
-                    Inches(base.y.0 + dy_val.0),
+                BinaryOp::Add => Ok(Point::new(
+                    base.x + dx_val,
+                    base.y + dy_val,
                 )),
-                BinaryOp::Sub => Ok(Point::from_inches(
-                    Inches(base.x.0 - dx_val.0),
-                    Inches(base.y.0 - dy_val.0),
+                BinaryOp::Sub => Ok(Point::new(
+                    base.x - dx_val,
+                    base.y - dy_val,
                 )),
                 _ => Ok(base),
             }
@@ -1213,8 +1207,8 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<Point, miette::R
             let p1 = eval_position(ctx, pos1)?;
             let p2 = eval_position(ctx, pos2)?;
             Ok(Point::new(
-                p1.x.0 + (p2.x.0 - p1.x.0) * f,
-                p1.y.0 + (p2.y.0 - p1.y.0) * f,
+                p1.x + (p2.x - p1.x) * f,
+                p1.y + (p2.y - p1.y) * f,
             ))
         }
         Position::Bracket(factor, pos1, pos2) => {
@@ -1223,24 +1217,24 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<Point, miette::R
             let p1 = eval_position(ctx, pos1)?;
             let p2 = eval_position(ctx, pos2)?;
             Ok(Point::new(
-                p1.x.0 + (p2.x.0 - p1.x.0) * f,
-                p1.y.0 + (p2.y.0 - p1.y.0) * f,
+                p1.x + (p2.x - p1.x) * f,
+                p1.y + (p2.y - p1.y) * f,
             ))
         }
         Position::AboveBelow(dist, ab, base_pos) => {
             let d = eval_len(ctx, dist)?;
             let base = eval_position(ctx, base_pos)?;
             match ab {
-                AboveBelow::Above => Ok(Point::new(base.x.0, base.y.0 - d.0)),
-                AboveBelow::Below => Ok(Point::new(base.x.0, base.y.0 + d.0)),
+                AboveBelow::Above => Ok(Point::new(base.x, base.y - d)),
+                AboveBelow::Below => Ok(Point::new(base.x, base.y + d)),
             }
         }
         Position::LeftRightOf(dist, lr, base_pos) => {
             let d = eval_len(ctx, dist)?;
             let base = eval_position(ctx, base_pos)?;
             match lr {
-                LeftRight::Left => Ok(Point::new(base.x.0 - d.0, base.y.0)),
-                LeftRight::Right => Ok(Point::new(base.x.0 + d.0, base.y.0)),
+                LeftRight::Left => Ok(Point::new(base.x - d, base.y)),
+                LeftRight::Right => Ok(Point::new(base.x + d, base.y)),
             }
         }
         Position::EdgePointOf(dist, edge, base_pos) => {
@@ -1248,7 +1242,7 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<Point, miette::R
             let base = eval_position(ctx, base_pos)?;
             // Calculate offset based on edge direction
             let (dx, dy) = edge_point_offset(edge);
-            Ok(Point::new(base.x.0 + dx * d.0, base.y.0 + dy * d.0))
+            Ok(Point::new(base.x + Inches(dx * d.0), base.y + Inches(dy * d.0)))
         }
         Position::Heading(dist, heading, base_pos) => {
             let d = eval_len(ctx, dist)?;
@@ -1260,15 +1254,15 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<Point, miette::R
             // Convert angle (degrees, 0 = north, clockwise) to radians
             let rad = (90.0 - angle).to_radians();
             Ok(Point::new(
-                base.x.0 + d.0 * rad.cos(),
-                base.y.0 - d.0 * rad.sin(),
+                base.x + Inches(d.0 * rad.cos()),
+                base.y - Inches(d.0 * rad.sin()),
             ))
         }
         Position::Tuple(pos1, pos2) => {
             // Extract x from pos1, y from pos2
             let p1 = eval_position(ctx, pos1)?;
             let p2 = eval_position(ctx, pos2)?;
-            Ok(Point::new(p1.x.0, p2.y.0))
+            Ok(Point::new(p1.x, p2.y))
         }
     }
 }
@@ -1305,7 +1299,7 @@ fn edge_point_to_angle(edge: &EdgePoint) -> f64 {
     }
 }
 
-fn eval_place(ctx: &RenderContext, place: &Place) -> Result<Point, miette::Report> {
+fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, miette::Report> {
     match place {
         Place::Object(obj) => {
             if let Some(rendered) = resolve_object(ctx, obj) {
@@ -1400,21 +1394,21 @@ fn nth_class_to_object_class(nc: &NthClass) -> Option<ObjectClass> {
     }
 }
 
-fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> Point {
+fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
     let cx = obj.center.x.0;
     let cy = obj.center.y.0;
     let hw = obj.width.0 / 2.0;
     let hh = obj.height.0 / 2.0;
 
     match edge {
-        EdgePoint::North | EdgePoint::N | EdgePoint::Top | EdgePoint::T => Point::new(cx, cy - hh),
-        EdgePoint::South | EdgePoint::S | EdgePoint::Bottom => Point::new(cx, cy + hh),
-        EdgePoint::East | EdgePoint::E | EdgePoint::Right => Point::new(cx + hw, cy),
-        EdgePoint::West | EdgePoint::W | EdgePoint::Left => Point::new(cx - hw, cy),
-        EdgePoint::NorthEast => Point::new(cx + hw, cy - hh),
-        EdgePoint::NorthWest => Point::new(cx - hw, cy - hh),
-        EdgePoint::SouthEast => Point::new(cx + hw, cy + hh),
-        EdgePoint::SouthWest => Point::new(cx - hw, cy + hh),
+        EdgePoint::North | EdgePoint::N | EdgePoint::Top | EdgePoint::T => Point::new(Inches(cx), Inches(cy - hh)),
+        EdgePoint::South | EdgePoint::S | EdgePoint::Bottom => Point::new(Inches(cx), Inches(cy + hh)),
+        EdgePoint::East | EdgePoint::E | EdgePoint::Right => Point::new(Inches(cx + hw), Inches(cy)),
+        EdgePoint::West | EdgePoint::W | EdgePoint::Left => Point::new(Inches(cx - hw), Inches(cy)),
+        EdgePoint::NorthEast => Point::new(Inches(cx + hw), Inches(cy - hh)),
+        EdgePoint::NorthWest => Point::new(Inches(cx - hw), Inches(cy - hh)),
+        EdgePoint::SouthEast => Point::new(Inches(cx + hw), Inches(cy + hh)),
+        EdgePoint::SouthWest => Point::new(Inches(cx - hw), Inches(cy + hh)),
         EdgePoint::Center | EdgePoint::C => obj.center,
         EdgePoint::Start => obj.start,
         EdgePoint::End => obj.end,
@@ -1456,13 +1450,20 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
     let margin = margin_base + thickness;
     let r_scale = 144.0; // match pikchr.c rScale
+    let scale = ctx.variables.get("scale").copied().unwrap_or(1.0);
+    let eff_scale = r_scale * scale;
+    let arrow_ht = ctx.variables.get("arrowht").copied().unwrap_or(0.08);
+    let arrow_wid = ctx.variables.get("arrowwid").copied().unwrap_or(0.06);
+    let dashwid = ctx.variables.get("dashwid").copied().unwrap_or(0.05);
+    let arrow_len_px = arrow_ht * eff_scale;
+    let arrow_wid_px = arrow_wid * eff_scale;
     let mut bounds = ctx.bounds;
 
     // Ensure we have some content
     if bounds.width() <= 0.0 || bounds.height() <= 0.0 {
         bounds = BoundingBox {
-            min: Point::new(0.0, 0.0),
-            max: Point::new(100.0, 100.0),
+            min: Point::new(Inches(0.0), Inches(0.0)),
+            max: Point::new(Inches(100.0), Inches(100.0)),
         };
     }
 
@@ -1474,15 +1475,14 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
     let view_width = bounds.width();
     let view_height = bounds.height();
-    let offset_x = -bounds.min.x.0;
-    let offset_y = -bounds.min.y.0;
+    let offset_x = Inches(-bounds.min.x.0);
+    let offset_y = Inches(-bounds.min.y.0);
 
     let mut svg = String::new();
 
     // SVG header (add class and pixel dimensions like C)
-    let scale = ctx.variables.get("scale").copied().unwrap_or(1.0);
-    let width_px = view_width * r_scale * scale;
-    let height_px = view_height * r_scale * scale;
+    let width_px = view_width * eff_scale;
+    let height_px = view_height * eff_scale;
     writeln!(
         svg,
         r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" width="{:.0}" height="{:.0}" viewBox="0 0 {:.2} {:.2}" data-pikchr-date="">"#,
@@ -1501,62 +1501,62 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             continue;
         }
 
-        let tx = (obj.center.x.0 + offset_x) * r_scale;
-        let ty = (obj.center.y.0 + offset_y) * r_scale;
-        let sx = (obj.start.x.0 + offset_x) * r_scale;
-        let sy = (obj.start.y.0 + offset_y) * r_scale;
-        let ex = (obj.end.x.0 + offset_x) * r_scale;
-        let ey = (obj.end.y.0 + offset_y) * r_scale;
+        let tx = to_px_len(obj.center.x + offset_x, eff_scale);
+        let ty = to_px_len(obj.center.y + offset_y, eff_scale);
+        let sx = to_px_len(obj.start.x + offset_x, eff_scale);
+        let sy = to_px_len(obj.start.y + offset_y, eff_scale);
+        let ex = to_px_len(obj.end.x + offset_x, eff_scale);
+        let ey = to_px_len(obj.end.y + offset_y, eff_scale);
 
-        let stroke_style = format_stroke_style(&obj.style, r_scale);
+        let stroke_style = format_stroke_style(&obj.style, eff_scale, dashwid);
 
         match obj.class {
             ObjectClass::Box => {
-                let x = tx - (obj.width.0 * r_scale) / 2.0;
-                let y = ty - (obj.height.0 * r_scale) / 2.0;
+                let x = tx - to_px_len(obj.width / 2.0, eff_scale);
+                let y = ty - to_px_len(obj.height / 2.0, eff_scale);
                 if obj.style.corner_radius.0 > 0.0 {
                     writeln!(svg, r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" rx="{:.2}" ry="{:.2}" {}/>"#,
-                             x, y, obj.width.0 * r_scale, obj.height.0 * r_scale, obj.style.corner_radius.0 * r_scale, obj.style.corner_radius.0 * r_scale, stroke_style).unwrap();
+                             x, y, to_px_len(obj.width, eff_scale), to_px_len(obj.height, eff_scale), to_px_len(obj.style.corner_radius, eff_scale), to_px_len(obj.style.corner_radius, eff_scale), stroke_style).unwrap();
                 } else {
                     writeln!(svg, r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" {}/>"#,
-                             x, y, obj.width.0 * r_scale, obj.height.0 * r_scale, stroke_style).unwrap();
+                             x, y, to_px_len(obj.width, eff_scale), to_px_len(obj.height, eff_scale), stroke_style).unwrap();
                 }
             }
             ObjectClass::Circle => {
-                let r = obj.width.0 * r_scale / 2.0;
+                let r = to_px_len(obj.width / 2.0, eff_scale);
                 writeln!(svg, r#"  <circle cx="{:.2}" cy="{:.2}" r="{:.2}" {}/>"#,
                          tx, ty, r, stroke_style).unwrap();
             }
             ObjectClass::Dot => {
                 // Dot is a small filled circle
-                let r = obj.width.0 * r_scale / 2.0;
+                let r = to_px_len(obj.width / 2.0, eff_scale);
                 let fill = if obj.style.fill == "none" { &obj.style.stroke } else { &obj.style.fill };
                 writeln!(svg, r#"  <circle cx="{:.2}" cy="{:.2}" r="{:.2}" fill="{}" stroke="none"/>"#,
                          tx, ty, r, fill).unwrap();
             }
             ObjectClass::Ellipse => {
-                let rx = obj.width.0 * r_scale / 2.0;
-                let ry = obj.height.0 * r_scale / 2.0;
+                let rx = to_px_len(obj.width / 2.0, eff_scale);
+                let ry = to_px_len(obj.height / 2.0, eff_scale);
                 writeln!(svg, r#"  <ellipse cx="{:.2}" cy="{:.2}" rx="{:.2}" ry="{:.2}" {}/>"#,
                          tx, ty, rx, ry, stroke_style).unwrap();
             }
             ObjectClass::Oval => {
                 // Oval is a pill shape (rounded rectangle with fully rounded ends)
-                render_oval(&mut svg, tx, ty, obj.width.0, obj.height.0, &stroke_style);
+                render_oval(&mut svg, tx, ty, obj.width, obj.height, eff_scale, &stroke_style);
             }
             ObjectClass::Cylinder => {
                 // Cylinder: elliptical top/bottom with vertical sides
-                render_cylinder(&mut svg, tx, ty, obj.width.0, obj.height.0, &stroke_style, &obj.style);
+                render_cylinder(&mut svg, tx, ty, obj.width, obj.height, eff_scale, &stroke_style, &obj.style);
             }
             ObjectClass::File => {
                 // File: document shape with folded corner
-                render_file(&mut svg, tx, ty, obj.width.0, obj.height.0, &stroke_style);
+                render_file(&mut svg, tx, ty, obj.width, obj.height, eff_scale, &stroke_style);
             }
             ObjectClass::Line | ObjectClass::Arrow => {
                 // Apply chop if needed (shorten line from both ends)
-                let chop_amount = if obj.style.chop { defaults::CIRCLE_RADIUS } else { 0.0 };
-                let (draw_sx, draw_sy, draw_ex, draw_ey) = if chop_amount > 0.0 {
-                    chop_line(sx, sy, ex, ey, chop_amount)
+                let chop_amount_px = if obj.style.chop { defaults::CIRCLE_RADIUS * eff_scale } else { 0.0 };
+                let (draw_sx, draw_sy, draw_ex, draw_ey) = if chop_amount_px > 0.0 {
+                    chop_line(sx, sy, ex, ey, chop_amount_px)
                 } else {
                     (sx, sy, ex, ey)
                 };
@@ -1565,13 +1565,13 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     // Simple line - render as <path> (matching C pikchr)
                     // First render arrowhead polygon if needed (rendered before line, like C)
                     if obj.style.arrow_end {
-                        render_arrowhead(&mut svg, draw_sx, draw_sy, draw_ex, draw_ey, &obj.style);
+                        render_arrowhead(&mut svg, draw_sx, draw_sy, draw_ex, draw_ey, &obj.style, arrow_len_px, arrow_wid_px);
                     }
                     // Render the line path
                     writeln!(svg, r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}" {}/>"#,
                              draw_sx, draw_sy, draw_ex, draw_ey, stroke_style).unwrap();
                     if obj.style.arrow_start {
-                        render_arrowhead_start(&mut svg, draw_sx, draw_sy, draw_ex, draw_ey, &obj.style);
+                        render_arrowhead_start(&mut svg, draw_sx, draw_sy, draw_ex, draw_ey, &obj.style, arrow_len_px, arrow_wid_px);
                     }
                 } else {
                     // Multi-segment polyline - chop first and last segments
@@ -1580,22 +1580,22 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         // Chop start
                         let p0 = points[0];
                         let p1 = points[1];
-                        let (new_x, new_y, _, _) = chop_line(p0.x.0, p0.y.0, p1.x.0, p1.y.0, chop_amount);
-                        points[0] = Point::new(new_x, new_y);
+                        let (new_x, new_y, _, _) = chop_line(p0.x.0, p0.y.0, p1.x.0, p1.y.0, chop_amount_px);
+                        points[0] = Point::new(Inches(new_x), Inches(new_y));
 
                         // Chop end
                         let n = points.len();
                         let pn1 = points[n - 2];
                         let pn = points[n - 1];
-                        let (_, _, new_x, new_y) = chop_line(pn1.x.0, pn1.y.0, pn.x.0, pn.y.0, chop_amount);
-                        points[n - 1] = Point::new(new_x, new_y);
+                        let (_, _, new_x, new_y) = chop_line(pn1.x.0, pn1.y.0, pn.x.0, pn.y.0, chop_amount_px);
+                        points[n - 1] = Point::new(Inches(new_x), Inches(new_y));
                     }
 
                     // Build path string
                     let path_str: String = points.iter().enumerate()
                         .map(|(i, p)| {
                             let cmd = if i == 0 { "M" } else { "L" };
-                            format!("{}{:.2},{:.2}", cmd, p.x.0 + offset_x, p.y.0 + offset_y)
+                            format!("{}{:.2},{:.2}", cmd, to_px_len(p.x + offset_x, eff_scale), to_px_len(p.y + offset_y, eff_scale))
                         })
                         .collect::<Vec<_>>()
                         .join("");
@@ -1609,15 +1609,23 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         if obj.style.arrow_end && n >= 2 {
                             let p1 = points[n - 2];
                             let p2 = points[n - 1];
-                            render_arrowhead(&mut svg, p1.x.0 + offset_x, p1.y.0 + offset_y,
-                                             p2.x.0 + offset_x, p2.y.0 + offset_y, &obj.style);
+                            render_arrowhead(&mut svg,
+                                             to_px_len(p1.x + offset_x, eff_scale),
+                                             to_px_len(p1.y + offset_y, eff_scale),
+                                             to_px_len(p2.x + offset_x, eff_scale),
+                                             to_px_len(p2.y + offset_y, eff_scale),
+                                             &obj.style, arrow_len_px, arrow_wid_px);
                         }
                         writeln!(svg, r#"  <path d="{}" {}/>"#, path_str, stroke_style).unwrap();
                         if obj.style.arrow_start && n >= 2 {
                             let p1 = points[0];
                             let p2 = points[1];
-                            render_arrowhead_start(&mut svg, p1.x.0 + offset_x, p1.y.0 + offset_y,
-                                                    p2.x.0 + offset_x, p2.y.0 + offset_y, &obj.style);
+                            render_arrowhead_start(&mut svg,
+                                                    to_px_len(p1.x + offset_x, eff_scale),
+                                                    to_px_len(p1.y + offset_y, eff_scale),
+                                                    to_px_len(p2.x + offset_x, eff_scale),
+                                                    to_px_len(p2.y + offset_y, eff_scale),
+                                                    &obj.style, arrow_len_px, arrow_wid_px);
                         }
                     }
                 }
@@ -1626,21 +1634,21 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 if obj.waypoints.len() <= 2 {
                     // Simple line for spline with only 2 points
                     if obj.style.arrow_end {
-                        render_arrowhead(&mut svg, sx, sy, ex, ey, &obj.style);
+                        render_arrowhead(&mut svg, sx, sy, ex, ey, &obj.style, arrow_len_px, arrow_wid_px);
                     }
                     writeln!(svg, r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}" {}/>"#,
                              sx, sy, ex, ey, stroke_style).unwrap();
                     if obj.style.arrow_start {
-                        render_arrowhead_start(&mut svg, sx, sy, ex, ey, &obj.style);
+                        render_arrowhead_start(&mut svg, sx, sy, ex, ey, &obj.style, arrow_len_px, arrow_wid_px);
                     }
                 } else {
                     // Multi-segment spline - use a smooth path with curves
-                    render_spline_path(&mut svg, &obj.waypoints, offset_x, offset_y, &stroke_style, &obj.style);
+                    render_spline_path(&mut svg, &obj.waypoints, offset_x, offset_y, &stroke_style, &obj.style, arrow_len_px, arrow_wid_px);
                 }
             }
             ObjectClass::Arc => {
                 // Arc: quarter circle arc
-                render_arc(&mut svg, sx, sy, ex, ey, obj.width.0, &obj.style, &stroke_style);
+                render_arc(&mut svg, sx, sy, ex, ey, obj.width.0, &obj.style, &stroke_style, arrow_len_px, arrow_wid_px);
             }
             ObjectClass::Diamond => {
                 let points = format!("{:.2},{:.2} {:.2},{:.2} {:.2},{:.2} {:.2},{:.2}",
@@ -1659,13 +1667,13 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             }
             ObjectClass::Sublist => {
                 // Render sublist children with offset
-                render_sublist_children(&mut svg, &obj.children, tx, ty, r_scale);
-            }
+        render_sublist_children(&mut svg, &obj.children, offset_x, offset_y, eff_scale, dashwid);
+    }
         }
 
         // Render text labels inside objects
         if obj.class != ObjectClass::Text && !obj.text.is_empty() {
-                render_positioned_text(&mut svg, &obj.text, tx, ty, obj.width.0 * r_scale, obj.height.0 * r_scale);
+        render_positioned_text(&mut svg, &obj.text, tx, ty, obj.width.0 * eff_scale, obj.height.0 * eff_scale);
         }
     }
 
@@ -1718,7 +1726,7 @@ fn render_positioned_text(svg: &mut String, texts: &[PositionedText], cx: f64, c
 
 /// Get font size based on text style (big/small)
 fn get_font_size(text: &PositionedText) -> f64 {
-    let base = defaults::FONT_SIZE * 144.0; // convert inches to px for output
+    let base = defaults::FONT_SIZE * 144.0; // convert inches to px for output (scale already baked into caller coords)
     if text.big {
         base * 1.4
     } else if text.small {
@@ -1768,32 +1776,33 @@ fn get_text_anchor(text: &PositionedText, cx: f64, width: f64) -> (f64, &'static
     }
 }
 
-/// Render sublist children with an offset
-fn render_sublist_children(svg: &mut String, children: &[RenderedObject], offset_x: f64, offset_y: f64, r_scale: f64) {
+/// Render sublist children that are already in world coordinates; only apply global offset/margins.
+fn render_sublist_children(svg: &mut String, children: &[RenderedObject], offx: Inches, offy: Inches, eff_scale: f64, dashwid: f64) {
     for child in children {
-        let tx = (child.center.x.0 + offset_x) * r_scale;
-        let ty = (child.center.y.0 + offset_y) * r_scale;
-        let sx = (child.start.x.0 + offset_x) * r_scale;
-        let sy = (child.start.y.0 + offset_y) * r_scale;
-        let ex = (child.end.x.0 + offset_x) * r_scale;
-        let ey = (child.end.y.0 + offset_y) * r_scale;
+        let tx = to_px_len(child.center.x + offx, eff_scale);
+        let ty = to_px_len(child.center.y + offy, eff_scale);
+        let sx = to_px_len(child.start.x + offx, eff_scale);
+        let sy = to_px_len(child.start.y + offy, eff_scale);
+        let ex = to_px_len(child.end.x + offx, eff_scale);
+        let ey = to_px_len(child.end.y + offy, eff_scale);
 
-        let stroke_style = format_stroke_style(&child.style, r_scale);
+        // Sublist children inherit dash settings from caller
+        let stroke_style = format_stroke_style(&child.style, eff_scale, dashwid);
 
         match child.class {
             ObjectClass::Box => {
-                let x = tx - child.width.0 * r_scale / 2.0;
-                let y = ty - child.height.0 * r_scale / 2.0;
+                let x = tx - child.width.0 * eff_scale / 2.0;
+                let y = ty - child.height.0 * eff_scale / 2.0;
                 if child.style.corner_radius.0 > 0.0 {
                     writeln!(svg, r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" rx="{:.2}" ry="{:.2}" {}/>"#,
-                             x, y, child.width.0 * r_scale, child.height.0 * r_scale, child.style.corner_radius.0 * r_scale, child.style.corner_radius.0 * r_scale, stroke_style).unwrap();
+                             x, y, child.width.0 * eff_scale, child.height.0 * eff_scale, child.style.corner_radius.0 * eff_scale, child.style.corner_radius.0 * eff_scale, stroke_style).unwrap();
                 } else {
                     writeln!(svg, r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" {}/>"#,
-                             x, y, child.width.0 * r_scale, child.height.0 * r_scale, stroke_style).unwrap();
+                             x, y, child.width.0 * eff_scale, child.height.0 * eff_scale, stroke_style).unwrap();
                 }
             }
             ObjectClass::Circle => {
-                let r = child.width.0 * r_scale / 2.0;
+                let r = child.width.0 * eff_scale / 2.0;
                 writeln!(svg, r#"  <circle cx="{:.2}" cy="{:.2}" r="{:.2}" {}/>"#,
                          tx, ty, r, stroke_style).unwrap();
             }
@@ -1810,12 +1819,12 @@ fn render_sublist_children(svg: &mut String, children: &[RenderedObject], offset
 
         // Render text for child
         if !child.text.is_empty() {
-            render_positioned_text(svg, &child.text, tx, ty, child.width.0 * r_scale, child.height.0 * r_scale);
+            render_positioned_text(svg, &child.text, tx, ty, child.width.0 * eff_scale, child.height.0 * eff_scale);
         }
 
         // Recursively render nested sublists
         if !child.children.is_empty() {
-            render_sublist_children(svg, &child.children, tx, ty, r_scale);
+            render_sublist_children(svg, &child.children, offx, offy, eff_scale, dashwid);
         }
     }
 }
@@ -1848,8 +1857,10 @@ fn chop_line(x1: f64, y1: f64, x2: f64, y2: f64, amount: f64) -> (f64, f64, f64,
 }
 
 /// Render an oval (pill shape)
-fn render_oval(svg: &mut String, cx: f64, cy: f64, width: f64, height: f64, stroke_style: &str) {
-    // Oval is a rounded rectangle where the radius is half the smaller dimension
+fn render_oval(svg: &mut String, cx: f64, cy: f64, width_in: Inches, height_in: Inches, eff_scale: f64, stroke_style: &str) {
+    // Oval is a rounded rectangle where the radius is half the smaller dimension (still in inches until scaled)
+    let width = to_px_len(width_in, eff_scale);
+    let height = to_px_len(height_in, eff_scale);
     let radius = height.min(width) / 2.0;
     let x = cx - width / 2.0;
     let y = cy - height / 2.0;
@@ -1858,9 +1869,11 @@ fn render_oval(svg: &mut String, cx: f64, cy: f64, width: f64, height: f64, stro
 }
 
 /// Render a cylinder shape
-fn render_cylinder(svg: &mut String, cx: f64, cy: f64, width: f64, height: f64, _stroke_style: &str, style: &ObjectStyle) {
+fn render_cylinder(svg: &mut String, cx: f64, cy: f64, width_in: Inches, height_in: Inches, eff_scale: f64, _stroke_style: &str, style: &ObjectStyle) {
     // Cylinder has elliptical top and bottom
     // The ellipse height is about 1/4 of the total width for a nice 3D effect
+    let width = to_px_len(width_in, eff_scale);
+    let height = to_px_len(height_in, eff_scale);
     let rx = width / 2.0;
     let ry = width / 8.0; // Ellipse vertical radius
 
@@ -1899,8 +1912,10 @@ fn render_cylinder(svg: &mut String, cx: f64, cy: f64, width: f64, height: f64, 
 }
 
 /// Render a file shape (document with folded corner)
-fn render_file(svg: &mut String, cx: f64, cy: f64, width: f64, height: f64, stroke_style: &str) {
+fn render_file(svg: &mut String, cx: f64, cy: f64, width_in: Inches, height_in: Inches, eff_scale: f64, stroke_style: &str) {
     // File shape: rectangle with top-right corner folded
+    let width = to_px_len(width_in, eff_scale);
+    let height = to_px_len(height_in, eff_scale);
     let fold_size = width.min(height) * 0.2; // Fold is 20% of smaller dimension
 
     let x = cx - width / 2.0;
@@ -1933,11 +1948,13 @@ fn render_file(svg: &mut String, cx: f64, cy: f64, width: f64, height: f64, stro
 /// Render a spline path (smooth bezier curves through waypoints)
 fn render_spline_path(
     svg: &mut String,
-    waypoints: &[Point],
-    offset_x: f64,
-    offset_y: f64,
+    waypoints: &[PointIn],
+    offset_x: Inches,
+    offset_y: Inches,
     stroke_style: &str,
     style: &ObjectStyle,
+    arrow_len: f64,
+    arrow_width: f64,
 ) {
     if waypoints.is_empty() {
         return;
@@ -1946,7 +1963,7 @@ fn render_spline_path(
     // Convert waypoints to offset coordinates
     let points: Vec<(f64, f64)> = waypoints
         .iter()
-        .map(|p| (p.x.0 + offset_x, p.y.0 + offset_y))
+        .map(|p| (p.x.0 + offset_x.0, p.y.0 + offset_y.0))
         .collect();
 
     // Render arrowhead at end if needed
@@ -1954,7 +1971,7 @@ fn render_spline_path(
     if style.arrow_end && n >= 2 {
         let p1 = points[n - 2];
         let p2 = points[n - 1];
-        render_arrowhead(svg, p1.0, p1.1, p2.0, p2.1, style);
+        render_arrowhead(svg, p1.0, p1.1, p2.0, p2.1, style, arrow_len, arrow_width);
     }
 
     // Build a smooth bezier path through the points
@@ -1996,12 +2013,12 @@ fn render_spline_path(
     if style.arrow_start && n >= 2 {
         let p1 = points[0];
         let p2 = points[1];
-        render_arrowhead_start(svg, p1.0, p1.1, p2.0, p2.1, style);
+        render_arrowhead_start(svg, p1.0, p1.1, p2.0, p2.1, style, arrow_len, arrow_width);
     }
 }
 
 /// Render an arc
-fn render_arc(svg: &mut String, sx: f64, sy: f64, ex: f64, ey: f64, radius: f64, style: &ObjectStyle, stroke_style: &str) {
+fn render_arc(svg: &mut String, sx: f64, sy: f64, ex: f64, ey: f64, radius: f64, style: &ObjectStyle, stroke_style: &str, arrow_len: f64, arrow_width: f64) {
     // Determine arc direction and sweep
     let dx = ex - sx;
     let dy = ey - sy;
@@ -2016,7 +2033,7 @@ fn render_arc(svg: &mut String, sx: f64, sy: f64, ex: f64, ey: f64, radius: f64,
 
     // Render arrowheads as inline polygons
     if style.arrow_end {
-        render_arrowhead(svg, sx, sy, ex, ey, style);
+        render_arrowhead(svg, sx, sy, ex, ey, style, arrow_len, arrow_width);
     }
 
     let path = format!(
@@ -2026,11 +2043,11 @@ fn render_arc(svg: &mut String, sx: f64, sy: f64, ex: f64, ey: f64, radius: f64,
     writeln!(svg, r#"  <path d="{}" {}/>"#, path, stroke_style).unwrap();
 
     if style.arrow_start {
-        render_arrowhead_start(svg, sx, sy, ex, ey, style);
+        render_arrowhead_start(svg, sx, sy, ex, ey, style, arrow_len, arrow_width);
     }
 }
 
-fn format_stroke_style(style: &ObjectStyle, r_scale: f64) -> String {
+fn format_stroke_style(style: &ObjectStyle, r_scale: f64, dashwid: f64) -> String {
     let mut parts = Vec::new();
 
     parts.push(format!(r#"stroke="{}""#, style.stroke));
@@ -2038,12 +2055,11 @@ fn format_stroke_style(style: &ObjectStyle, r_scale: f64) -> String {
     parts.push(format!(r#"stroke-width="{:.2}""#, style.stroke_width.0 * r_scale));
 
     if style.dashed {
-        // C uses dashwid (in inches); we approximate with 0.05in default -> scale to px
-        let dash = 0.05 * r_scale;
-        parts.push(format!(r#"stroke-dasharray="{:.2},{:.2}""#, dash * 6.0, dash * 4.0));
+        let dash = dashwid * r_scale;
+        parts.push(format!("stroke-dasharray=\"{:.2},{:.2}\"", dash * 6.0, dash * 4.0));
     } else if style.dotted {
-        let dash = 0.05 * r_scale;
-        parts.push(format!(r#"stroke-dasharray="{:.2},{:.2}""#, dash * 2.0, dash * 2.0));
+        let dash = dashwid * r_scale;
+        parts.push(format!("stroke-dasharray=\"{:.2},{:.2}\"", dash * 2.0, dash * 2.0));
     }
 
     parts.join(" ")
@@ -2056,12 +2072,14 @@ fn escape_xml(s: &str) -> String {
      .replace('"', "&quot;")
 }
 
+/// Convert a length in inches to pixels using the effective scale.
+fn to_px_len(l: Inches, eff_scale: f64) -> f64 {
+    l.0 * eff_scale
+}
+
 /// Render an arrowhead polygon at the end of a line
 /// The arrowhead points in the direction from (sx, sy) to (ex, ey)
-fn render_arrowhead(svg: &mut String, sx: f64, sy: f64, ex: f64, ey: f64, style: &ObjectStyle) {
-    // Arrow dimensions (matching C pikchr proportions) scaled from inches
-    let arrow_len = 0.08 * 144.0;  // arrowht default (0.08in) -> px
-    let arrow_width = 0.06 * 144.0; // arrowwid default (0.06in) -> px
+fn render_arrowhead(svg: &mut String, sx: f64, sy: f64, ex: f64, ey: f64, style: &ObjectStyle, arrow_len: f64, arrow_width: f64) {
 
     // Calculate direction vector
     let dx = ex - sx;
@@ -2095,7 +2113,6 @@ fn render_arrowhead(svg: &mut String, sx: f64, sy: f64, ex: f64, ey: f64, style:
 }
 
 /// Render an arrowhead at the start of a line (pointing backwards)
-fn render_arrowhead_start(svg: &mut String, sx: f64, sy: f64, ex: f64, ey: f64, style: &ObjectStyle) {
-    // Just render arrowhead in the opposite direction
-    render_arrowhead(svg, ex, ey, sx, sy, style);
+fn render_arrowhead_start(svg: &mut String, sx: f64, sy: f64, ex: f64, ey: f64, style: &ObjectStyle, arrow_len: f64, arrow_width: f64) {
+    render_arrowhead(svg, ex, ey, sx, sy, style, arrow_len, arrow_width);
 }
