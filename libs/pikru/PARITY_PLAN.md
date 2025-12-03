@@ -82,22 +82,24 @@ A roadmap for achieving C-pikchr compatibility using Rust-first, zero-cost abstr
 - [x] **Bounds fixes**: Zero-dim check after margins; line bounds include stroke padding
 - [x] **Text font size**: Respects `scale` variable via `Scaler`
 - [x] **Error diagnostics**: Print expressions show actual error messages (division-by-zero, sqrt of negative)
+- [x] **Typed evaluator & angles (Step 4)**: `EvalValue` plumbing, `Length::try_new` on parsed numbers, overflow checks via `validate_value()`, typed math ops, and fully validated `Angle` constructors/accessors
 
 ### In Progress
 
-- [ ] Full C parity for remaining layout semantics
+- [ ] Step 3 – Layout semantics parity (advance/centering rules, chop + arrowheads, sublist local coords, bbox accumulation in inches)
 
 ### Pending
 
 | Step | Description |
 |------|-------------|
 | 3 | Layout semantics: advance, centering, chop/arrowheads, sublist local coords, bbox in inches |
-| 4 | Evaluator returns `EvalValue`; unit-safe arithmetic; math error diagnostics |
 | 5 | `Drawable<Length>` model populated from AST; styles from vars |
 | 6 | Emit: dash arrays from `dashwid`, arrow sizes, stroke widths via Scaler |
 | 7 | Print/assert: HTML output with `<br>` and C-like error lines |
 | 8 | Style parity: hex/rgb/rgba colors, fg/bg vars, font-size, `data-pikchr-date`, `class="pikchr"` |
 | 9 | Margins: margin + thickness + side margins in inches before viewBox |
+
+Step 4 closed on December 3, 2025; evaluator + angle safety are complete, so focus shifts to Step 3 before the downstream emit/styling work.
 
 ## Notes
 

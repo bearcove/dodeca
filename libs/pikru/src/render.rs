@@ -882,8 +882,12 @@ fn render_object_stmt(
         }
     }
 
+    // If no explicit name and there's text, use the first text value as implicit name
+    // This matches C pikchr behavior where `circle "C2"` can be referenced as C2
+    let final_name = name.or_else(|| text.first().map(|t| t.value.clone()));
+
     Ok(RenderedObject {
-        name,
+        name: final_name,
         class,
         center,
         width,
