@@ -73,16 +73,18 @@ A roadmap for achieving C-pikchr compatibility using Rust-first, zero-cost abstr
 
 - [x] **Primitives**: `Length`, `Px`, `Scalar`, `Angle`, `Color` newtypes
 - [x] **Geometry**: Generic `Point<T>`, `Size<T>`, `BBox<T>`
-- [x] **Scaler**: `len()`, `point()` for Length→Px conversion
+- [x] **Scaler**: `len()`, `point()`, `px()`, `size()`, `bbox()` methods
 - [x] **Operator traits**: `Add`, `Sub`, `Mul<f64>`, `Div<f64>`, `AddAssign`, `SubAssign` on `Length`
 - [x] **Tests**: `even_with` and `until_even_with` parity tests against C
 - [x] **Typed geometry in render.rs**: `PtIn`, `BoxIn` aliases used throughout
-- [x] **Scaler in emitter**: `format_stroke_style`, arrow/dash params use `Scaler` + typed `Inches`
+- [x] **Scaler in emitter**: All coord/stroke/dash conversions via `Scaler`
+- [x] **Removed `to_px_len()`**: All 35+ call sites migrated to `scaler.px()`
+- [x] **Bounds fixes**: Zero-dim check after margins; line bounds include stroke padding
 
 ### In Progress
 
-- [ ] Convert remaining `to_px_len()` calls to use `Scaler` methods (35+ call sites)
-- [ ] Add `Scaler::size()` for `Size<Length>` → `Size<Px>` conversion
+- [ ] Text font size respects `scale` variable (currently hardcoded)
+- [ ] C-style error diagnostics for print/assert expressions
 
 ### Pending
 
