@@ -451,7 +451,7 @@ fn render_statement(ctx: &mut RenderContext, stmt: &Statement, print_lines: &mut
                     PrintArg::Expr(e) => match eval_expr(ctx, e) {
                         Ok(Value::Scalar(v)) => format!("{}", v),
                         Ok(Value::Len(l)) => format!("{}", l.0),
-                        _ => "[err]".to_string(),
+                        Err(err) => format!("[{}]", err),
                     },
                     PrintArg::PlaceName(name) => name.clone(),
                 };
@@ -1088,7 +1088,9 @@ fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Report> 
                     Scalar(s) => Scalar(s.trunc()),
                 },
                 Function::Sqrt => match args[0] {
+                    Len(l) if l.0 < 0.0 => return Err(miette::miette!("sqrt of negative")),
                     Len(l) => Len(Inches(l.0.sqrt())),
+                    Scalar(s) if s < 0.0 => return Err(miette::miette!("sqrt of negative")),
                     Scalar(s) => Scalar(s.sqrt()),
                 },
                 Function::Max => {
@@ -1657,7 +1659,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 writeln!(svg, r#"  <polygon points="{}" {}/>"#, points, stroke_style).unwrap();
             }
             ObjectClass::Text => {
-                render_positioned_text(&mut svg, &obj.text, tx, ty, obj.width.0, obj.height.0);
+                render_positioned_text(&mut svg, &obj.text, tx, ty, scaler.px(obj.width), scaler.px(obj.height), &scaler);
             }
             ObjectClass::Move => {
                 // Move is invisible
@@ -1670,7 +1672,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
         // Render text labels inside objects
         if obj.class != ObjectClass::Text && !obj.text.is_empty() {
-        render_positioned_text(&mut svg, &obj.text, tx, ty, scaler.px(obj.width), scaler.px(obj.height));
+            render_positioned_text(&mut svg, &obj.text, tx, ty, scaler.px(obj.width), scaler.px(obj.height), &scaler);
         }
     }
 
@@ -1680,7 +1682,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 }
 
 /// Render positioned text labels
-fn render_positioned_text(svg: &mut String, texts: &[PositionedText], cx: f64, cy: f64, width: f64, height: f64) {
+fn render_positioned_text(svg: &mut String, texts: &[PositionedText], cx: f64, cy: f64, width: f64, height: f64, scaler: &Scaler) {
     // Group texts by their vertical position (above, below, or center)
     let mut above_texts: Vec<&PositionedText> = Vec::new();
     let mut center_texts: Vec<&PositionedText> = Vec::new();
@@ -1698,7 +1700,7 @@ fn render_positioned_text(svg: &mut String, texts: &[PositionedText], cx: f64, c
 
     // Render above texts (above the shape)
     for (i, text) in above_texts.iter().enumerate() {
-        let font_size = get_font_size(text);
+        let font_size = get_font_size(text, scaler);
         let text_y = cy - height / 2.0 - font_size * (above_texts.len() - i) as f64;
         let (text_x, anchor) = get_text_anchor(text, cx, width);
         render_styled_text(svg, text, text_x, text_y, anchor, font_size);
@@ -1706,7 +1708,7 @@ fn render_positioned_text(svg: &mut String, texts: &[PositionedText], cx: f64, c
 
     // Render center texts (inside the shape)
     for (i, text) in center_texts.iter().enumerate() {
-        let font_size = get_font_size(text);
+        let font_size = get_font_size(text, scaler);
         let text_y = cy + (i as f64 - center_texts.len() as f64 / 2.0 + 0.5) * font_size;
         let (text_x, anchor) = get_text_anchor(text, cx, width);
         render_styled_text(svg, text, text_x, text_y, anchor, font_size);
@@ -1714,7 +1716,7 @@ fn render_positioned_text(svg: &mut String, texts: &[PositionedText], cx: f64, c
 
     // Render below texts (below the shape)
     for (i, text) in below_texts.iter().enumerate() {
-        let font_size = get_font_size(text);
+        let font_size = get_font_size(text, scaler);
         let text_y = cy + height / 2.0 + font_size * (i + 1) as f64;
         let (text_x, anchor) = get_text_anchor(text, cx, width);
         render_styled_text(svg, text, text_x, text_y, anchor, font_size);
@@ -1722,8 +1724,8 @@ fn render_positioned_text(svg: &mut String, texts: &[PositionedText], cx: f64, c
 }
 
 /// Get font size based on text style (big/small)
-fn get_font_size(text: &PositionedText) -> f64 {
-    let base = defaults::FONT_SIZE * 144.0; // convert inches to px for output (scale already baked into caller coords)
+fn get_font_size(text: &PositionedText, scaler: &Scaler) -> f64 {
+    let base = scaler.px(Inches(defaults::FONT_SIZE));
     if text.big {
         base * 1.4
     } else if text.small {
@@ -1819,7 +1821,7 @@ fn render_sublist_children(svg: &mut String, children: &[RenderedObject], offx: 
 
         // Render text for child
         if !child.text.is_empty() {
-            render_positioned_text(svg, &child.text, tx, ty, scaler.px(child.width), scaler.px(child.height));
+            render_positioned_text(svg, &child.text, tx, ty, scaler.px(child.width), scaler.px(child.height), scaler);
         }
 
         // Recursively render nested sublists
