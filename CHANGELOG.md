@@ -1,3 +1,9 @@
+## 0.2.2 (2025-12-03)
+
+### Fixes
+
+- use facet crate attribute in plugcard macro
+
 ## 0.2.1 (2025-12-03)
 
 ### Fixes
