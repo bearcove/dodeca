@@ -161,6 +161,7 @@ pub struct Frontmatter {
 pub fn parse_file(db: &dyn Db, source: SourceFile) -> ParsedData {
     let content = source.content(db);
     let path = source.path(db);
+    let last_modified = source.last_modified(db);
 
     // Split frontmatter and body
     let (frontmatter_str, markdown) = split_frontmatter(content.as_str());
@@ -198,6 +199,7 @@ pub fn parse_file(db: &dyn Db, source: SourceFile) -> ParsedData {
         body_html,
         is_section,
         headings,
+        last_updated: last_modified,
     }
 }
 
@@ -225,6 +227,7 @@ pub fn build_tree<'db>(db: &'db dyn Db, sources: SourceRegistry<'db>) -> SiteTre
                 weight: data.weight,
                 body_html: data.body_html.clone(),
                 headings: data.headings.clone(),
+                last_updated: data.last_updated,
             },
         );
     }
@@ -236,6 +239,7 @@ pub fn build_tree<'db>(db: &'db dyn Db, sources: SourceRegistry<'db>) -> SiteTre
         weight: 0,
         body_html: HtmlBody::from_static(""),
         headings: Vec::new(),
+        last_updated: 0,
     });
 
     // Second pass: create pages and assign to sections
@@ -250,6 +254,7 @@ pub fn build_tree<'db>(db: &'db dyn Db, sources: SourceRegistry<'db>) -> SiteTre
                 body_html: data.body_html.clone(),
                 section_route,
                 headings: data.headings.clone(),
+                last_updated: data.last_updated,
             },
         );
     }

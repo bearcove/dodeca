@@ -492,6 +492,11 @@ impl BuildContext {
 
         for path in md_files {
             let content = fs::read_to_string(&path)?;
+            let last_modified = fs::metadata(&path)?
+                .modified()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
             let relative = path
                 .strip_prefix(&self.content_dir)
                 .map(|p| p.to_string())
@@ -499,7 +504,7 @@ impl BuildContext {
 
             let source_path = SourcePath::new(relative);
             let source_content = SourceContent::new(content);
-            let source = SourceFile::new(&self.db, source_path.clone(), source_content);
+            let source = SourceFile::new(&self.db, source_path.clone(), source_content, last_modified);
             self.sources.insert(source_path, source);
         }
 
@@ -658,16 +663,22 @@ impl BuildContext {
 
         let content = fs::read_to_string(&full_path)?;
         let source_content = SourceContent::new(content);
+        let last_modified = fs::metadata(&full_path)?
+            .modified()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
 
         // Check if we already have this source
         if let Some(existing) = self.sources.get(relative_path) {
-            // Update the content - Salsa will detect if it changed
+            // Update the content and mtime - Salsa will detect if they changed
             use salsa::Setter;
             existing.set_content(&mut self.db).to(source_content);
+            existing.set_last_modified(&mut self.db).to(last_modified);
         } else {
             // New file
             let source_path = SourcePath::new(relative_path.to_string());
-            let source = SourceFile::new(&self.db, source_path.clone(), source_content);
+            let source = SourceFile::new(&self.db, source_path.clone(), source_content, last_modified);
             self.sources.insert(source_path, source);
         }
 
@@ -1360,6 +1371,11 @@ async fn serve_plain(
 
         for path in &md_files {
             let content = fs::read_to_string(path)?;
+            let last_modified = fs::metadata(path)?
+                .modified()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
             let relative = path
                 .strip_prefix(content_dir)
                 .map(|p| p.to_string())
@@ -1367,7 +1383,7 @@ async fn serve_plain(
 
             let source_path = SourcePath::new(relative);
             let source_content = SourceContent::new(content);
-            let source = SourceFile::new(&*db, source_path, source_content);
+            let source = SourceFile::new(&*db, source_path, source_content, last_modified);
             sources.push(source);
         }
     }
@@ -1586,6 +1602,12 @@ async fn serve_plain(
                         if path.starts_with(&content_for_watcher) {
                             if let Ok(relative) = path.strip_prefix(&content_for_watcher) {
                                 if let Ok(content) = fs::read_to_string(path) {
+                                    let last_modified = fs::metadata(path)
+                                        .and_then(|m| m.modified())
+                                        .ok()
+                                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                        .map(|d| d.as_secs() as i64)
+                                        .unwrap_or(0);
                                     let mut db = server_for_watcher.db.lock().unwrap();
                                     let mut sources = server_for_watcher.sources.write().unwrap();
                                     let relative_str = relative.to_string();
@@ -1594,6 +1616,7 @@ async fn serve_plain(
                                         if source.path(&*db).as_str() == relative_str {
                                             use salsa::Setter;
                                             source.set_content(&mut *db).to(SourceContent::new(content.clone()));
+                                            source.set_last_modified(&mut *db).to(last_modified);
                                             found = true;
                                             break;
                                         }
@@ -1601,7 +1624,7 @@ async fn serve_plain(
                                     if !found {
                                         // New file - create and add it
                                         let source_path = SourcePath::new(relative_str);
-                                        let source = SourceFile::new(&*db, source_path, SourceContent::new(content));
+                                        let source = SourceFile::new(&*db, source_path, SourceContent::new(content), last_modified);
                                         sources.push(source);
                                         println!("  {} Added new source: {}", "+".green(), relative);
                                     }
@@ -1998,6 +2021,11 @@ async fn serve_with_tui(
 
         for path in &md_files {
             let content = fs::read_to_string(path)?;
+            let last_modified = fs::metadata(path)?
+                .modified()?
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0);
             let relative = path
                 .strip_prefix(content_dir)
                 .map(|p| p.to_string())
@@ -2005,7 +2033,7 @@ async fn serve_with_tui(
 
             let source_path = SourcePath::new(relative);
             let source_content = SourceContent::new(content);
-            let source = SourceFile::new(&*db, source_path, source_content);
+            let source = SourceFile::new(&*db, source_path, source_content, last_modified);
             sources.push(source);
         }
     }

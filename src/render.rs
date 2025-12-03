@@ -643,6 +643,10 @@ fn page_to_value(page: &Page, site_tree: &SiteTree) -> Value {
         "ancestors".to_string(),
         Value::List(build_ancestors(&page.section_route, site_tree)),
     );
+    map.insert(
+        "last_updated".to_string(),
+        Value::Int(page.last_updated),
+    );
     Value::Dict(map)
 }
 
@@ -666,6 +670,10 @@ fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
         Value::String(route_to_path(section.route.as_str())),
     );
     map.insert("weight".to_string(), Value::Int(section.weight as i64));
+    map.insert(
+        "last_updated".to_string(),
+        Value::Int(section.last_updated),
+    );
 
     // Add pages in this section (sorted by weight, including their headings)
     let mut pages: Vec<&Page> = site_tree

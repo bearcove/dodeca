@@ -99,6 +99,9 @@ pub struct SourceFile {
     /// The raw content of the file
     #[returns(ref)]
     pub content: SourceContent,
+
+    /// Last modification time as Unix timestamp (seconds since epoch)
+    pub last_modified: i64,
 }
 
 /// Input: A template file with its content
@@ -212,6 +215,8 @@ pub struct Section {
     pub body_html: HtmlBody,
     /// Headings extracted from content
     pub headings: Vec<Heading>,
+    /// Last modification time as Unix timestamp (seconds since epoch)
+    pub last_updated: i64,
 }
 
 /// A page in the site tree (non-index .md files)
@@ -224,6 +229,8 @@ pub struct Page {
     pub section_route: Route,
     /// Headings extracted from content
     pub headings: Vec<Heading>,
+    /// Last modification time as Unix timestamp (seconds since epoch)
+    pub last_updated: i64,
 }
 
 /// The complete site tree - sections and pages
@@ -254,6 +261,8 @@ pub struct ParsedData {
     pub is_section: bool,
     /// Headings extracted from content
     pub headings: Vec<Heading>,
+    /// Last modification time as Unix timestamp (seconds since epoch)
+    pub last_updated: i64,
 }
 
 /// A single output file to be written to disk
