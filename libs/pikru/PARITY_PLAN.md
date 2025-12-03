@@ -76,11 +76,13 @@ A roadmap for achieving C-pikchr compatibility using Rust-first, zero-cost abstr
 - [x] **Scaler**: `len()`, `point()` for Length→Px conversion
 - [x] **Operator traits**: `Add`, `Sub`, `Mul<f64>`, `Div<f64>`, `AddAssign`, `SubAssign` on `Length`
 - [x] **Tests**: `even_with` and `until_even_with` parity tests against C
+- [x] **Typed geometry in render.rs**: `PtIn`, `BoxIn` aliases used throughout
+- [x] **Scaler in emitter**: `format_stroke_style`, arrow/dash params use `Scaler` + typed `Inches`
 
 ### In Progress
 
-- [ ] Wire typed geometry into `render.rs` (replace `Point { x: Length, y: Length }` with `PtIn`)
-- [ ] Refactor emitter to use `Scaler` for all coord/stroke/dash conversions
+- [ ] Convert remaining `to_px_len()` calls to use `Scaler` methods (35+ call sites)
+- [ ] Add `Scaler::size()` for `Size<Length>` → `Size<Px>` conversion
 
 ### Pending
 
