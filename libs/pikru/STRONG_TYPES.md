@@ -76,8 +76,8 @@ Guidelines for keeping Pikru layout/emit code safe and unit-correct using Rust t
 - Evaluator uses `Length::try_new` for parsed numbers; validates results are finite after arithmetic
 - Evaluator uses typed ops (`a + b`, `a.abs()`, `a.checked_div(b)`) instead of raw `f64` access
 - `validate_value()` helper catches overflow to infinity/NaN in expression results
+- `Angle`: newtype with `try_new`, `degrees`, `from_radians`, `to_radians`, `raw`, `is_finite`, `normalized`
 
 ### Pending
 
 - Add compile-fail tests (trybuild) for invalid type combinations
-- `Angle::try_new`, `Angle::from_degrees`, `Angle::from_radians` with validation

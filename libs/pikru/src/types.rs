@@ -6,7 +6,7 @@
 //! - Conversions only via Scaler
 
 use std::fmt;
-use std::ops::{Add, Div, Mul, Neg, Sub, AddAssign, SubAssign};
+use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
 
 /// Error type for invalid numeric values
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -122,19 +122,27 @@ impl Length {
 
 impl Add for Length {
     type Output = Length;
-    fn add(self, rhs: Length) -> Length { Length(self.0 + rhs.0) }
+    fn add(self, rhs: Length) -> Length {
+        Length(self.0 + rhs.0)
+    }
 }
 impl Sub for Length {
     type Output = Length;
-    fn sub(self, rhs: Length) -> Length { Length(self.0 - rhs.0) }
+    fn sub(self, rhs: Length) -> Length {
+        Length(self.0 - rhs.0)
+    }
 }
 impl Mul<f64> for Length {
     type Output = Length;
-    fn mul(self, rhs: f64) -> Length { Length(self.0 * rhs) }
+    fn mul(self, rhs: f64) -> Length {
+        Length(self.0 * rhs)
+    }
 }
 impl Div<f64> for Length {
     type Output = Length;
-    fn div(self, rhs: f64) -> Length { Length(self.0 / rhs) }
+    fn div(self, rhs: f64) -> Length {
+        Length(self.0 / rhs)
+    }
 }
 
 // NOTE: Length / Length is intentionally NOT implemented as a trait.
@@ -143,7 +151,9 @@ impl Div<f64> for Length {
 
 impl Neg for Length {
     type Output = Length;
-    fn neg(self) -> Length { Length(-self.0) }
+    fn neg(self) -> Length {
+        Length(-self.0)
+    }
 }
 
 impl fmt::Display for Length {
@@ -276,13 +286,75 @@ impl Mul<Scalar> for Length {
     }
 }
 
-/// Angle in degrees
+/// Angle in degrees (pikchr uses degrees with 0 = north, clockwise)
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Default)]
-pub struct Angle(pub f64);
+#[repr(transparent)]
+pub struct Angle(f64);
+
+impl Angle {
+    /// Create an Angle with validation (rejects NaN/infinite)
+    #[inline]
+    pub fn try_new(degrees: f64) -> Result<Angle, NumericError> {
+        if degrees.is_nan() {
+            Err(NumericError::NaN)
+        } else if degrees.is_infinite() {
+            Err(NumericError::Infinite)
+        } else {
+            Ok(Angle(degrees))
+        }
+    }
+
+    /// Create an Angle from degrees (const-friendly, unchecked).
+    /// Use `try_new` for user-provided values.
+    #[inline]
+    pub const fn degrees(val: f64) -> Angle {
+        Angle(val)
+    }
+
+    /// Create an Angle from radians with validation
+    #[inline]
+    pub fn from_radians(radians: f64) -> Result<Angle, NumericError> {
+        if radians.is_nan() {
+            Err(NumericError::NaN)
+        } else if radians.is_infinite() {
+            Err(NumericError::Infinite)
+        } else {
+            Ok(Angle(radians.to_degrees()))
+        }
+    }
+
+    /// Convert to radians
+    #[inline]
+    pub fn to_radians(self) -> f64 {
+        self.0.to_radians()
+    }
+
+    /// Get the raw degrees value
+    #[inline]
+    pub fn raw(self) -> f64 {
+        self.0
+    }
+
+    /// Check if finite
+    #[inline]
+    pub fn is_finite(self) -> bool {
+        self.0.is_finite()
+    }
+
+    /// Normalize angle to [0, 360) range
+    #[inline]
+    pub fn normalized(self) -> Angle {
+        let mut d = self.0 % 360.0;
+        if d < 0.0 {
+            d += 360.0;
+        }
+        Angle(d)
+    }
+}
 
 impl fmt::Display for Angle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}°", self.0)
     }
 }
 
@@ -328,25 +400,38 @@ impl Scaler {
     }
 
     /// Convert a length in inches to pixels.
-    pub fn len(&self, l: Length) -> Px { l.to_px(self.r_scale) }
+    pub fn len(&self, l: Length) -> Px {
+        l.to_px(self.r_scale)
+    }
 
     /// Convert a length in inches to raw f64 pixels (convenience for SVG output).
     #[inline]
-    pub fn px(&self, l: Length) -> f64 { l.0 * self.r_scale }
+    pub fn px(&self, l: Length) -> f64 {
+        l.0 * self.r_scale
+    }
 
     /// Convert a point in inches to pixels.
     pub fn point(&self, p: Point<Length>) -> Point<Px> {
-        Point { x: self.len(p.x), y: self.len(p.y) }
+        Point {
+            x: self.len(p.x),
+            y: self.len(p.y),
+        }
     }
 
     /// Convert a size in inches to pixels.
     pub fn size(&self, s: Size<Length>) -> Size<Px> {
-        Size { w: self.len(s.w), h: self.len(s.h) }
+        Size {
+            w: self.len(s.w),
+            h: self.len(s.h),
+        }
     }
 
     /// Convert a bounding box in inches to pixels.
     pub fn bbox(&self, b: BBox<Length>) -> BBox<Px> {
-        BBox { min: self.point(b.min), max: self.point(b.max) }
+        BBox {
+            min: self.point(b.min),
+            max: self.point(b.max),
+        }
     }
 }
 
@@ -358,7 +443,9 @@ pub struct Point<T> {
 }
 
 impl<T> Point<T> {
-    pub fn new(x: T, y: T) -> Self { Point { x, y } }
+    pub fn new(x: T, y: T) -> Self {
+        Point { x, y }
+    }
 }
 
 impl Point<Length> {
@@ -389,8 +476,14 @@ impl BBox<Length> {
     /// Create an empty bounding box (will expand on first point)
     pub fn new() -> Self {
         BBox {
-            min: Point { x: Length(f64::MAX), y: Length(f64::MAX) },
-            max: Point { x: Length(f64::MIN), y: Length(f64::MIN) },
+            min: Point {
+                x: Length(f64::MAX),
+                y: Length(f64::MAX),
+            },
+            max: Point {
+                x: Length(f64::MIN),
+                y: Length(f64::MIN),
+            },
         }
     }
 
@@ -411,19 +504,32 @@ impl BBox<Length> {
     pub fn expand_rect(&mut self, center: Point<Length>, size: Size<Length>) {
         let hw = size.w / 2.0;
         let hh = size.h / 2.0;
-        self.expand_point(Point { x: center.x - hw, y: center.y - hh });
-        self.expand_point(Point { x: center.x + hw, y: center.y + hh });
+        self.expand_point(Point {
+            x: center.x - hw,
+            y: center.y - hh,
+        });
+        self.expand_point(Point {
+            x: center.x + hw,
+            y: center.y + hh,
+        });
     }
 
     /// Get the width as a typed Length
-    pub fn width(&self) -> Length { self.max.x - self.min.x }
+    pub fn width(&self) -> Length {
+        self.max.x - self.min.x
+    }
 
     /// Get the height as a typed Length
-    pub fn height(&self) -> Length { self.max.y - self.min.y }
+    pub fn height(&self) -> Length {
+        self.max.y - self.min.y
+    }
 
     /// Get the size as a typed Size<Length>
     pub fn size(&self) -> Size<Length> {
-        Size { w: self.width(), h: self.height() }
+        Size {
+            w: self.width(),
+            h: self.height(),
+        }
     }
 
     /// Get the center point
@@ -469,10 +575,22 @@ impl UnitVec {
     pub const SOUTH: UnitVec = UnitVec { dx: 0.0, dy: 1.0 };
     pub const EAST: UnitVec = UnitVec { dx: 1.0, dy: 0.0 };
     pub const WEST: UnitVec = UnitVec { dx: -1.0, dy: 0.0 };
-    pub const NORTH_EAST: UnitVec = UnitVec { dx: FRAC_1_SQRT_2, dy: -FRAC_1_SQRT_2 };
-    pub const NORTH_WEST: UnitVec = UnitVec { dx: -FRAC_1_SQRT_2, dy: -FRAC_1_SQRT_2 };
-    pub const SOUTH_EAST: UnitVec = UnitVec { dx: FRAC_1_SQRT_2, dy: FRAC_1_SQRT_2 };
-    pub const SOUTH_WEST: UnitVec = UnitVec { dx: -FRAC_1_SQRT_2, dy: FRAC_1_SQRT_2 };
+    pub const NORTH_EAST: UnitVec = UnitVec {
+        dx: FRAC_1_SQRT_2,
+        dy: -FRAC_1_SQRT_2,
+    };
+    pub const NORTH_WEST: UnitVec = UnitVec {
+        dx: -FRAC_1_SQRT_2,
+        dy: -FRAC_1_SQRT_2,
+    };
+    pub const SOUTH_EAST: UnitVec = UnitVec {
+        dx: FRAC_1_SQRT_2,
+        dy: FRAC_1_SQRT_2,
+    };
+    pub const SOUTH_WEST: UnitVec = UnitVec {
+        dx: -FRAC_1_SQRT_2,
+        dy: FRAC_1_SQRT_2,
+    };
 
     /// Create a normalized unit vector from components.
     /// Returns None if the input has zero length.
@@ -481,15 +599,22 @@ impl UnitVec {
         if len == 0.0 {
             None
         } else {
-            Some(UnitVec { dx: dx / len, dy: dy / len })
+            Some(UnitVec {
+                dx: dx / len,
+                dy: dy / len,
+            })
         }
     }
 
     /// Get dx component
-    pub fn dx(self) -> f64 { self.dx }
+    pub fn dx(self) -> f64 {
+        self.dx
+    }
 
     /// Get dy component
-    pub fn dy(self) -> f64 { self.dy }
+    pub fn dy(self) -> f64 {
+        self.dy
+    }
 }
 
 /// Multiply a unit vector by a length to get an offset (not a point!)
@@ -551,7 +676,10 @@ mod tests {
     #[test]
     fn length_try_new_rejects_infinity() {
         assert_eq!(Length::try_new(f64::INFINITY), Err(NumericError::Infinite));
-        assert_eq!(Length::try_new(f64::NEG_INFINITY), Err(NumericError::Infinite));
+        assert_eq!(
+            Length::try_new(f64::NEG_INFINITY),
+            Err(NumericError::Infinite)
+        );
     }
 
     #[test]
@@ -662,24 +790,30 @@ mod tests {
 
     #[test]
     fn unitvec_cardinal_directions_are_unit_length() {
-        let dirs = [
-            UnitVec::NORTH, UnitVec::SOUTH, UnitVec::EAST, UnitVec::WEST,
-        ];
+        let dirs = [UnitVec::NORTH, UnitVec::SOUTH, UnitVec::EAST, UnitVec::WEST];
         for dir in dirs {
             let len = (dir.dx() * dir.dx() + dir.dy() * dir.dy()).sqrt();
-            assert!((len - 1.0).abs() < 1e-10, "cardinal direction should have unit length");
+            assert!(
+                (len - 1.0).abs() < 1e-10,
+                "cardinal direction should have unit length"
+            );
         }
     }
 
     #[test]
     fn unitvec_diagonal_directions_are_unit_length() {
         let dirs = [
-            UnitVec::NORTH_EAST, UnitVec::NORTH_WEST,
-            UnitVec::SOUTH_EAST, UnitVec::SOUTH_WEST,
+            UnitVec::NORTH_EAST,
+            UnitVec::NORTH_WEST,
+            UnitVec::SOUTH_EAST,
+            UnitVec::SOUTH_WEST,
         ];
         for dir in dirs {
             let len = (dir.dx() * dir.dx() + dir.dy() * dir.dy()).sqrt();
-            assert!((len - 1.0).abs() < 1e-10, "diagonal direction should have unit length");
+            assert!(
+                (len - 1.0).abs() < 1e-10,
+                "diagonal direction should have unit length"
+            );
         }
     }
 
@@ -784,7 +918,10 @@ mod tests {
         let mut bb = BBox::<Length>::new();
         bb.expand_rect(
             Point::new(Length(5.0), Length(5.0)),
-            Size { w: Length(4.0), h: Length(2.0) }
+            Size {
+                w: Length(4.0),
+                h: Length(2.0),
+            },
         );
 
         // center (5,5), width 4, height 2 -> min (3,4), max (7,6)
@@ -792,5 +929,61 @@ mod tests {
         assert_eq!(bb.min.y, Length(4.0));
         assert_eq!(bb.max.x, Length(7.0));
         assert_eq!(bb.max.y, Length(6.0));
+    }
+
+    // ==================== Angle tests ====================
+
+    #[test]
+    fn angle_try_new_valid() {
+        assert!(Angle::try_new(0.0).is_ok());
+        assert!(Angle::try_new(90.0).is_ok());
+        assert!(Angle::try_new(-45.0).is_ok());
+        assert!(Angle::try_new(360.0).is_ok());
+    }
+
+    #[test]
+    fn angle_try_new_rejects_nan() {
+        assert_eq!(Angle::try_new(f64::NAN), Err(NumericError::NaN));
+    }
+
+    #[test]
+    fn angle_try_new_rejects_infinity() {
+        assert_eq!(Angle::try_new(f64::INFINITY), Err(NumericError::Infinite));
+        assert_eq!(
+            Angle::try_new(f64::NEG_INFINITY),
+            Err(NumericError::Infinite)
+        );
+    }
+
+    #[test]
+    fn angle_from_radians_valid() {
+        let a = Angle::from_radians(std::f64::consts::PI).unwrap();
+        assert!((a.raw() - 180.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn angle_from_radians_rejects_nan() {
+        assert_eq!(Angle::from_radians(f64::NAN), Err(NumericError::NaN));
+    }
+
+    #[test]
+    fn angle_to_radians() {
+        let a = Angle::degrees(180.0);
+        assert!((a.to_radians() - std::f64::consts::PI).abs() < 1e-10);
+    }
+
+    #[test]
+    fn angle_normalized() {
+        assert!((Angle::degrees(450.0).normalized().raw() - 90.0).abs() < 1e-10);
+        assert!((Angle::degrees(-90.0).normalized().raw() - 270.0).abs() < 1e-10);
+        assert!((Angle::degrees(0.0).normalized().raw() - 0.0).abs() < 1e-10);
+        assert!((Angle::degrees(360.0).normalized().raw() - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn angle_is_finite() {
+        assert!(Angle::degrees(45.0).is_finite());
+        assert!(!Angle::degrees(f64::INFINITY).is_finite());
+        assert!(!Angle::degrees(f64::NAN).is_finite());
     }
 }
