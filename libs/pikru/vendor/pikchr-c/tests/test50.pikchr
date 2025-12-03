@@ -1,0 +1,10 @@
+All: [
+CW: box "cwal"
+line <-
+S2: box "s2"
+line <-
+CL: box "client"
+arc -> color red cw from CL.s to CW.s
+]
+text "Red arc is fully visible" "Pikchr forum 2020-09-14" \
+  with .s at 5mm above All.n

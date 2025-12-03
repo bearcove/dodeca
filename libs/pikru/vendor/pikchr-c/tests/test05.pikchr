@@ -1,0 +1,15 @@
+print linewid
+linewid=0.8
+print linewid
+scale=2.0
+print scale
+print hotpink
+print 17 + linewid*1000;
+print sin(scale);
+print cos(scale)
+print sqrt(17)
+print min(5,10)
+print max(5,10)
+
+# NB: deliberate sqrt() error in order to test math logic
+print sqrt(-11)

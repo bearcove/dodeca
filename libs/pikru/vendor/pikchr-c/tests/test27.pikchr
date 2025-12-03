@@ -1,0 +1,9 @@
+line dotted right 1 then down 0.5 left 1 then right 1
+spline from start of first line color red \
+  right 1 then down 0.5 left 1 then right 1 <->
+spline from start of first line color blue radius 0.2 \
+  right 1 then down 0.5 left 1 then right 1 <->
+
+move down 1 from start of first line
+line radius 0.3 \
+  right 1 then down 0.5 left 1 then right 1 <->

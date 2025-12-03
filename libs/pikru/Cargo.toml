@@ -2,6 +2,7 @@
 name = "pikru"
 version = "0.1.0"
 edition = "2024"
+exclude = ["vendor/**"]
 
 [dependencies]
 camino = "1.2.1"

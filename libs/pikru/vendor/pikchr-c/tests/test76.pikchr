@@ -1,0 +1,9 @@
+box "Function test" width 5cm
+pi = 3.1415926
+print "abs(-10):",abs(-10)
+print "cos(pi/3):",cos(pi/3)
+print "int(18.5):",int(18.5)
+print "max(5,-18.23):", max(5,-18.23)
+print "min(5,-18.23):", min(5,-18.23)
+print "sin(pi/6):",sin(pi/6)
+print "sqrt(16):",sqrt(16)

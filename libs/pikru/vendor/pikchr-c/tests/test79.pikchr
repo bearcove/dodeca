@@ -1,0 +1,7 @@
+box "Negative" "Thickness" "Lines" fit
+move
+arrow "above" above "below" below
+move
+arrow "above" above "below" below thickness -0.1
+move
+arrow "above" above "below" below thickness -0.2

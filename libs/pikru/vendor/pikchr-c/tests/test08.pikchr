@@ -1,0 +1,28 @@
+     debug = 1;
+
+     box "one" width 80% height 80%
+     box "two" width 150% color DarkRed   # Comment does not mask newline
+     arrow "xyz" above                   // Comment does not mask newline
+     box "three" height 150% color DarkBlue
+     down
+     arrow
+B4:  box "four"
+B45: box "4.5" fill SkyBlue
+     move
+B5:  box "five"
+     left
+B6:  box "six"
+     up
+     box "seven" width 50% height 50%
+
+     line from 0.1 right of B4.e right 1 then down until even with B5 \
+         then to B5 rad 0.1 chop
+
+     arrow from B6 left even with 2nd box then up to 2nd box chop rad 0.1
+     arrow from 1/2 way between B6.w and B6.sw left until even with first box \
+         then up to first box rad 0.1 chop
+
+oval wid 25% ht B4.n.y - B45.s.y at (B6.x,B4.s.y)
+arrow from last box to last oval chop
+arrow <- from B4.w left until even with last oval.e
+arrow <- from B45 left until even with last oval.e chop

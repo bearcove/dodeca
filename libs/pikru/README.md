@@ -13,6 +13,10 @@ Pikchr (pronounced "picture") is a diagram description language designed for emb
 
 🚧 **Work in Progress** - Early-stage port of the C implementation.
 
+## Reference Source
+
+The original C implementation from upstream `pikchr` is vendored under `vendor/pikchr-c/` for easy access during parity work. It is not part of the Rust crate build.
+
 ## License
 
 MIT OR Apache-2.0

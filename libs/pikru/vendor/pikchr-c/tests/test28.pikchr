@@ -1,0 +1,19 @@
+box "Box"
+arrow
+cylinder "One"
+down
+arrow
+ellipse "Ellipse"
+up
+arrow from One.n
+circle "Circle"
+right
+arrow from One.e <-
+circle "E" radius 50%
+circle "NE" radius 50% at 0.5 ne of One.ne
+arrow from NE.sw to One.ne 
+circle "SE" radius 50% at 0.5 se of One.se
+arrow from SE.nw to One.se
+
+spline from One.sw left 0.2 down 0.2 then to Box.se ->
+spline from Circle.w left 0.3 then left 0.2 down 0.2 then to One.nw ->

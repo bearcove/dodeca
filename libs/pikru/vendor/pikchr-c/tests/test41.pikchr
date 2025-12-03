@@ -1,0 +1,86 @@
+# Corner test
+
+box "C"
+
+$d = 1in
+circle rad 50% "N" at $d n of C; arrow from last circle to C.n chop
+circle same "NE" at $d ne of C; arrow from last circle to C.ne chop
+circle same "E" at $d e of C; arrow from last circle to C.e chop
+circle same "SE" at $d se of C; arrow from last circle to C.se chop
+circle same "S" at $d s of C; arrow from last circle to C.s chop
+circle same "SW" at $d sw of C; arrow from last circle to C.sw chop
+circle same "W" at $d w of C; arrow from last circle to C.w chop
+circle same "NW" at $d nw of C; arrow from last circle to C.nw chop
+
+box "C" at 3*$d east of C radius 15px
+
+circle rad 50% "N" at $d n of C; arrow from last circle to C.n chop
+circle same "NE" at $d ne of C; arrow from last circle to C.ne chop
+circle same "E" at $d e of C; arrow from last circle to C.e chop
+circle same "SE" at $d se of C; arrow from last circle to C.se chop
+circle same "S" at $d s of C; arrow from last circle to C.s chop
+circle same "SW" at $d sw of C; arrow from last circle to C.sw chop
+circle same "W" at $d w of C; arrow from last circle to C.w chop
+circle same "NW" at $d nw of C; arrow from last circle to C.nw chop
+
+ellipse "C" at 2.5*$d south of 1st box
+
+circle rad 50% "N" at $d n of C; arrow from last circle to C.n chop
+circle same "NE" at $d ne of C; arrow from last circle to C.ne chop
+circle same "E" at $d e of C; arrow from last circle to C.e chop
+circle same "SE" at $d se of C; arrow from last circle to C.se chop
+circle same "S" at $d s of C; arrow from last circle to C.s chop
+circle same "SW" at $d sw of C; arrow from last circle to C.sw chop
+circle same "W" at $d w of C; arrow from last circle to C.w chop
+circle same "NW" at $d nw of C; arrow from last circle to C.nw chop
+
+circle "C" at 3*$d east of last ellipse
+
+circle rad 50% "N" at $d n of C; arrow from last circle to C.n chop
+circle same "NE" at $d ne of C; arrow from last circle to C.ne chop
+circle same "E" at $d e of C; arrow from last circle to C.e chop
+circle same "SE" at $d se of C; arrow from last circle to C.se chop
+circle same "S" at $d s of C; arrow from last circle to C.s chop
+circle same "SW" at $d sw of C; arrow from last circle to C.sw chop
+circle same "W" at $d w of C; arrow from last circle to C.w chop
+circle same "NW" at $d nw of C; arrow from last circle to C.nw chop
+
+cylinder "C" at 2.5*$d south of last ellipse
+circle rad 50% "N" at $d n of C; arrow from last circle to C.n chop
+circle same "NE" at $d ne of C; arrow from last circle to C.ne chop
+circle same "E" at $d e of C; arrow from last circle to C.e chop
+circle same "SE" at $d se of C; arrow from last circle to C.se chop
+circle same "S" at $d s of C; arrow from last circle to C.s chop
+circle same "SW" at $d sw of C; arrow from last circle to C.sw chop
+circle same "W" at $d w of C; arrow from last circle to C.w chop
+circle same "NW" at $d nw of C; arrow from last circle to C.nw chop
+
+oval "C" at 3*$d east of last cylinder
+circle rad 50% "N" at $d n of C; arrow from last circle to C.n chop
+circle same "NE" at $d ne of C; arrow from last circle to C.ne chop
+circle same "E" at $d e of C; arrow from last circle to C.e chop
+circle same "SE" at $d se of C; arrow from last circle to C.se chop
+circle same "S" at $d s of C; arrow from last circle to C.s chop
+circle same "SW" at $d sw of C; arrow from last circle to C.sw chop
+circle same "W" at $d w of C; arrow from last circle to C.w chop
+circle same "NW" at $d nw of C; arrow from last circle to C.nw chop
+
+file "C" at 2.5*$d south of last cylinder
+circle rad 50% "N" at $d n of C; arrow from last circle to C.n chop
+circle same "NE" at $d ne of C; arrow from last circle to C.ne chop
+circle same "E" at $d e of C; arrow from last circle to C.e chop
+circle same "SE" at $d se of C; arrow from last circle to C.se chop
+circle same "S" at $d s of C; arrow from last circle to C.s chop
+circle same "SW" at $d sw of C; arrow from last circle to C.sw chop
+circle same "W" at $d w of C; arrow from last circle to C.w chop
+circle same "NW" at $d nw of C; arrow from last circle to C.nw chop
+
+diamond "C" at 2.5*$d south of last oval
+circle rad 50% "N" at $d n of C; arrow from last circle to C.n chop
+circle same "NE" at $d ne of C; arrow from last circle to C.ne chop
+circle same "E" at $d e of C; arrow from last circle to C.e chop
+circle same "SE" at $d se of C; arrow from last circle to C.se chop
+circle same "S" at $d s of C; arrow from last circle to C.s chop
+circle same "SW" at $d sw of C; arrow from last circle to C.sw chop
+circle same "W" at $d w of C; arrow from last circle to C.w chop
+circle same "NW" at $d nw of C; arrow from last circle to C.nw chop

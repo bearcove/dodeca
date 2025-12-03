@@ -1,0 +1,12 @@
+/* Use of the "this" objectname
+*/
+A: box "a" fit ht this.wid
+B: box "bbbb" fit ht this.wid with .sw at previous.se
+C: box "ccccccccc" fit ht this.wid with .sw at previous.se
+
+D: box "a" fit ht this.wid rad 0.25*this.wid \
+     with .n at 1cm below A.s
+E: box "bbbb" fit ht this.wid rad 0.25*this.wid \
+     with .n at (previous.e.x+0.5*this.width, previous.n.y)
+F: box "ccccccccc" fit ht this.wid rad 0.25*this.wid \
+     with .n at (previous.e.x+0.5*this.wid, previous.n.y)

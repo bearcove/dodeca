@@ -1,0 +1,30 @@
+TITLE: text "'with .start at' tests..." \
+            "Top row should match bottom row" \
+            "Forum post a48fbe155b on 2024-06-25" fit
+
+B1: box with .nw at 1cm below TITLE.sw
+C1: circle with .start at B1.end
+
+B2: box with .n at 3cm below B1.n
+C2: circle
+
+down
+B3: box with .w at 1cm right of C1.e
+C3: circle with .start at B3.end
+
+B4: box with .n at 3cm below B3.n
+C4: circle
+
+left
+B5: box with .n at 4cm right of B3.n
+C5: circle with .start at B5.end
+
+B6: box with .n at 3cm below B5.n
+C6: circle
+
+up
+B7: box with .n at 2.5cm right of B5.s
+C7: circle with .start at B7.end
+
+B8: box with .n at 3cm below B7.n
+C7: circle

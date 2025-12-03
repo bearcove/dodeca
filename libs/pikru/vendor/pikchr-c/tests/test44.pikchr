@@ -1,0 +1,6 @@
+debug=1
+file "*.md" rad 20%
+arrow
+box rad 10px "Markdown" "Interpreter"
+arrow right 120% "HTML" above
+file " HTML "

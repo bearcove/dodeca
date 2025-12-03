@@ -1,0 +1,5 @@
+box "1cm top" "2cm bottom" "3cm right" "4cm left" fit
+topmargin = 1cm
+bottommargin = 2cm
+rightmargin = 3cm
+leftmargin = 4cm

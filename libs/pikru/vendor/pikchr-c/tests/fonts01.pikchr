@@ -1,0 +1,54 @@
+ROW1: \
+box "left" ljust \
+    "normal text"\
+    "right" rjust fit
+box "left" ljust italic \
+    "italic text" italic \
+    "right" rjust italic fit
+box "left" ljust bold \
+    "bold text" bold \
+    "right" rjust bold fit
+box "left" ljust mono \
+    "monospace text" monospace \
+    "right" rjust mono fit
+ROW2: \
+box "left" ljust bold italic\
+    "bold italic text" italic bold \
+   "right" rjust italic bold fit with nw at ROW1.sw
+box "left" ljust bold mono \
+    "bold monospace text" mono bold \
+    "right" rjust monospace bold fit
+box "left" ljust italic mono \
+    "italic monospace text" mono italic \
+    "right" rjust monospace italic fit
+ROW3: \
+box "left" ljust bold italic mono \
+    "bold italic text" italic monospace bold \
+    "right" rjust monospace italic bold fit with nw at ROW2.sw
+ROW4: \
+box "left" ljust big \
+    "normal big text" big\
+    "right" rjust big fit with nw at ROW3.sw
+box "left" ljust italic big \
+    "big italic text" italic big \
+    "right" rjust italic big fit
+box "left" big ljust bold \
+    "big bold text" big bold \
+    "right" rjust big bold fit
+box "left" ljust big mono \
+    "big monospace text" big monospace \
+    "right" rjust mono big fit
+ROW5: \
+box "left" ljust big bold italic\
+    "big bold italic text" big italic bold \
+   "right" rjust italic bold big fit with nw at ROW4.sw
+box "left" ljust bold mono big \
+    "big bold monospace text" mono big bold \
+    "right" rjust monospace bold big fit
+box "left" ljust italic mono big \
+    "big italic monospace text" mono big italic \
+    "right" rjust monospace italic big fit
+ROW6: \
+box "left" ljust bold italic big mono \
+    "big bold italic mono text" italic monospace big bold \
+    "right" rjust monospace italic bold big fit with nw at ROW5.sw

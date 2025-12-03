@@ -1,0 +1,9 @@
+box "Alternative spellings for arrow tokens <-, ->, and <->" invis fit
+line &rarr; "&amp;rarr;" above from (previous.s.x-1.5cm,previous.s.y-0.75cm) right 3cm;
+line &rightarrow; "&amp;rightarrow;" above from 0.75cm below previous.start right 3cm;
+line → "→" above from 0.75cm below previous.start right 3cm;
+line &larr; "&amp;larr;" above from 0.75cm below previous.start right 3cm;
+line &leftarrow; "&amp;leftarrow;" above from 0.75cm below previous.start right 3cm;
+line ← "←" above from 0.75cm below previous.start right 3cm;
+line &leftrightarrow; "&amp;leftrightarrow;" above from 0.75cm below previous.start right 3cm;
+line ↔ "↔" above from 0.75cm below previous.start right 3cm;

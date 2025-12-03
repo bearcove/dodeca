@@ -442,6 +442,16 @@ fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
                 bounds.expand_point(Point::new(pt.x - pad, pt.y - pad));
                 bounds.expand_point(Point::new(pt.x + pad, pt.y + pad));
             }
+            // Include text labels for lines (they extend above and below)
+            if !obj.text.is_empty() {
+                let charht = Inches(defaults::FONT_SIZE);
+                let (above_count, below_count) = count_text_above_below(&obj.text);
+                // Text extends above and below the line center
+                let text_above = charht * above_count as f64;
+                let text_below = charht * below_count as f64;
+                bounds.expand_point(Point::new(obj.center.x, obj.center.y - text_above));
+                bounds.expand_point(Point::new(obj.center.x, obj.center.y + text_below));
+            }
         }
         ObjectClass::Sublist => {
             for child in &obj.children {
@@ -456,6 +466,33 @@ fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
             },
         ),
     }
+}
+
+/// Count text labels above and below for lines
+fn count_text_above_below(texts: &[PositionedText]) -> (usize, usize) {
+    let mut above = 0;
+    let mut below = 0;
+    let mut center = 0;
+
+    for text in texts {
+        if text.above {
+            above += 1;
+        } else if text.below {
+            below += 1;
+        } else {
+            center += 1;
+        }
+    }
+
+    // For lines, center text is distributed: first half above, second half below
+    // If only center texts (no explicit above/below), distribute evenly
+    if above == 0 && below == 0 && center > 0 {
+        // C pikchr: first text above, rest below (for 2 texts: 1 above, 1 below)
+        above = (center + 1) / 2; // ceiling division
+        below = center / 2;
+    }
+
+    (above, below)
 }
 
 /// Compute the bounding box of a list of rendered objects (in local coordinates)
@@ -2023,10 +2060,9 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 .unwrap();
             }
             ObjectClass::Line | ObjectClass::Arrow => {
-                // Apply auto-chop only when chop attribute is set (matching C pikchr behavior)
-                let (draw_sx, draw_sy, draw_ex, draw_ey) = if obj.style.chop
-                    && obj.waypoints.len() <= 2
-                {
+                // Auto-chop always applies for object-attached endpoints (trims to boundary)
+                // The explicit "chop" attribute is for additional user-requested shortening
+                let (draw_sx, draw_sy, draw_ex, draw_ey) = if obj.waypoints.len() <= 2 {
                     apply_auto_chop_simple_line(&scaler, obj, sx, sy, ex, ey, offset_x, offset_y)
                 } else {
                     (sx, sy, ex, ey)
@@ -2259,20 +2295,6 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     arrow_wid_px.0,
                 );
             }
-            ObjectClass::Diamond => {
-                let points = format!(
-                    "{:.2},{:.2} {:.2},{:.2} {:.2},{:.2} {:.2},{:.2}",
-                    tx,
-                    ty - obj.height.0 / 2.0, // top
-                    tx + obj.width.0 / 2.0,
-                    ty, // right
-                    tx,
-                    ty + obj.height.0 / 2.0, // bottom
-                    tx - obj.width.0 / 2.0,
-                    ty // left
-                );
-                writeln!(svg, r#"  <polygon points="{}" {}/>"#, points, stroke_style).unwrap();
-            }
             ObjectClass::Text => {
                 render_positioned_text(
                     &mut svg,
@@ -2282,6 +2304,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     scaler.px(obj.width),
                     scaler.px(obj.height),
                     &scaler,
+                    false, // Text objects are not lines
                 );
             }
             ObjectClass::Move => {
@@ -2302,6 +2325,10 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
         // Render text labels inside objects
         if obj.class != ObjectClass::Text && !obj.text.is_empty() {
+            let is_line = matches!(
+                obj.class,
+                ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Arc
+            );
             render_positioned_text(
                 &mut svg,
                 &obj.text,
@@ -2310,6 +2337,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 scaler.px(obj.width),
                 scaler.px(obj.height),
                 &scaler,
+                is_line,
             );
         }
     }
@@ -2328,6 +2356,7 @@ fn render_positioned_text(
     width: f64,
     height: f64,
     scaler: &Scaler,
+    is_line: bool,
 ) {
     // Group texts by their vertical position (above, below, or center)
     let mut above_texts: Vec<&PositionedText> = Vec::new();
@@ -2344,15 +2373,38 @@ fn render_positioned_text(
         }
     }
 
-    // Render above texts (above the shape)
+    // For lines, distribute center texts above and below the line
+    // C pikchr: first center text goes above, second below, third above, etc.
+    if is_line && !center_texts.is_empty() {
+        for (i, text) in center_texts.iter().enumerate() {
+            if i % 2 == 0 {
+                above_texts.push(text);
+            } else {
+                below_texts.push(text);
+            }
+        }
+        center_texts.clear();
+    }
+
+    // For lines, use charht as the offset from line center
+    // For shapes, use height/2 as the base offset
+    let base_offset = if is_line {
+        0.0 // Text starts right above/below the line
+    } else {
+        height / 2.0
+    };
+
+    // Render above texts (above the shape/line)
     for (i, text) in above_texts.iter().enumerate() {
         let font_size = get_font_size(text, scaler);
-        let text_y = cy - height / 2.0 - font_size * (above_texts.len() - i) as f64;
+        // C pikchr positions text with charht spacing, offset by ~0.58*charht from line
+        let text_y =
+            cy - base_offset - font_size * 0.58 - font_size * (above_texts.len() - 1 - i) as f64;
         let (text_x, anchor) = get_text_anchor(text, cx, width);
         render_styled_text(svg, text, text_x, text_y, anchor, font_size);
     }
 
-    // Render center texts (inside the shape)
+    // Render center texts (inside the shape - only for non-lines)
     for (i, text) in center_texts.iter().enumerate() {
         let font_size = get_font_size(text, scaler);
         let text_y = cy + (i as f64 - center_texts.len() as f64 / 2.0 + 0.5) * font_size;
@@ -2360,10 +2412,11 @@ fn render_positioned_text(
         render_styled_text(svg, text, text_x, text_y, anchor, font_size);
     }
 
-    // Render below texts (below the shape)
+    // Render below texts (below the shape/line)
     for (i, text) in below_texts.iter().enumerate() {
         let font_size = get_font_size(text, scaler);
-        let text_y = cy + height / 2.0 + font_size * (i + 1) as f64;
+        // C pikchr positions text with charht spacing, offset by ~0.58*charht from line
+        let text_y = cy + base_offset + font_size * 0.58 + font_size * i as f64;
         let (text_x, anchor) = get_text_anchor(text, cx, width);
         render_styled_text(svg, text, text_x, text_y, anchor, font_size);
     }
@@ -2502,6 +2555,10 @@ fn render_sublist_children(
 
         // Render text for child
         if !child.text.is_empty() {
+            let is_line = matches!(
+                child.class,
+                ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Arc
+            );
             render_positioned_text(
                 svg,
                 &child.text,
@@ -2510,6 +2567,7 @@ fn render_sublist_children(
                 scaler.px(child.width),
                 scaler.px(child.height),
                 scaler,
+                is_line,
             );
         }
 

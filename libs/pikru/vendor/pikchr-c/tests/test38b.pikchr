@@ -1,0 +1,23 @@
+# Need fixing:
+#
+#    *  ".bot" as an abbreviation for ".bottom"
+#    *  "up from top of LA"
+#
+        arrow "source" "code"
+LA:     box "lexical" "analyzer"
+        arrow "tokens" above
+P:      box "parser"
+        arrow "intermediate" "code" wid 180%
+Sem:    box "semantic" "checker"
+        arrow
+        arrow <-> up from top of LA
+LC:     box "lexical" "corrector"
+        arrow <-> up from top of P
+Syn:    box "syntactic" "corrector"
+        arrow up
+DMP:    box "diagnostic" "message" "printer"
+        arrow <-> right  from east of DMP
+ST:     box "symbol" "table"
+        arrow from LC.ne to DMP.sw
+        arrow from Sem.nw to DMP.se
+        arrow <-> from Sem.top to ST.bot
