@@ -1,7 +1,7 @@
 //! SVG rendering for pikchr diagrams
 
 use crate::ast::*;
-use crate::types::{Length as Inches, Point, Size, PtIn, BoxIn};
+use crate::types::{Length as Inches, Point, Size, PtIn, BoxIn, Scaler};
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -1452,11 +1452,12 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     let r_scale = 144.0; // match pikchr.c rScale
     let scale = ctx.variables.get("scale").copied().unwrap_or(1.0);
     let eff_scale = r_scale * scale;
-    let arrow_ht = ctx.variables.get("arrowht").copied().unwrap_or(0.08);
-    let arrow_wid = ctx.variables.get("arrowwid").copied().unwrap_or(0.06);
-    let dashwid = ctx.variables.get("dashwid").copied().unwrap_or(0.05);
-    let arrow_len_px = arrow_ht * eff_scale;
-    let arrow_wid_px = arrow_wid * eff_scale;
+    let scaler = Scaler::new(eff_scale);
+    let arrow_ht = Inches(ctx.variables.get("arrowht").copied().unwrap_or(0.08));
+    let arrow_wid = Inches(ctx.variables.get("arrowwid").copied().unwrap_or(0.06));
+    let dashwid = Inches(ctx.variables.get("dashwid").copied().unwrap_or(0.05));
+    let arrow_len_px = scaler.len(arrow_ht);
+    let arrow_wid_px = scaler.len(arrow_wid);
     let mut bounds = ctx.bounds;
 
     // Ensure we have some content
@@ -1488,8 +1489,8 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" width="{:.0}" height="{:.0}" viewBox="0 0 {:.2} {:.2}" data-pikchr-date="">"#,
         width_px,
         height_px,
-        view_width,
-        view_height
+        width_px,
+        height_px
     )
     .unwrap();
 
@@ -1508,7 +1509,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         let ex = to_px_len(obj.end.x + offset_x, eff_scale);
         let ey = to_px_len(obj.end.y + offset_y, eff_scale);
 
-        let stroke_style = format_stroke_style(&obj.style, eff_scale, dashwid);
+        let stroke_style = format_stroke_style(&obj.style, &scaler, dashwid);
 
         match obj.class {
             ObjectClass::Box => {
@@ -1565,13 +1566,13 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     // Simple line - render as <path> (matching C pikchr)
                     // First render arrowhead polygon if needed (rendered before line, like C)
                     if obj.style.arrow_end {
-                        render_arrowhead(&mut svg, draw_sx, draw_sy, draw_ex, draw_ey, &obj.style, arrow_len_px, arrow_wid_px);
+                        render_arrowhead(&mut svg, draw_sx, draw_sy, draw_ex, draw_ey, &obj.style, arrow_len_px.0, arrow_wid_px.0);
                     }
                     // Render the line path
                     writeln!(svg, r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}" {}/>"#,
                              draw_sx, draw_sy, draw_ex, draw_ey, stroke_style).unwrap();
                     if obj.style.arrow_start {
-                        render_arrowhead_start(&mut svg, draw_sx, draw_sy, draw_ex, draw_ey, &obj.style, arrow_len_px, arrow_wid_px);
+                        render_arrowhead_start(&mut svg, draw_sx, draw_sy, draw_ex, draw_ey, &obj.style, arrow_len_px.0, arrow_wid_px.0);
                     }
                 } else {
                     // Multi-segment polyline - chop first and last segments
@@ -1614,7 +1615,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                                              to_px_len(p1.y + offset_y, eff_scale),
                                              to_px_len(p2.x + offset_x, eff_scale),
                                              to_px_len(p2.y + offset_y, eff_scale),
-                                             &obj.style, arrow_len_px, arrow_wid_px);
+                                             &obj.style, arrow_len_px.0, arrow_wid_px.0);
                         }
                         writeln!(svg, r#"  <path d="{}" {}/>"#, path_str, stroke_style).unwrap();
                         if obj.style.arrow_start && n >= 2 {
@@ -1625,7 +1626,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                                                     to_px_len(p1.y + offset_y, eff_scale),
                                                     to_px_len(p2.x + offset_x, eff_scale),
                                                     to_px_len(p2.y + offset_y, eff_scale),
-                                                    &obj.style, arrow_len_px, arrow_wid_px);
+                                                    &obj.style, arrow_len_px.0, arrow_wid_px.0);
                         }
                     }
                 }
@@ -1634,21 +1635,21 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 if obj.waypoints.len() <= 2 {
                     // Simple line for spline with only 2 points
                     if obj.style.arrow_end {
-                        render_arrowhead(&mut svg, sx, sy, ex, ey, &obj.style, arrow_len_px, arrow_wid_px);
+                        render_arrowhead(&mut svg, sx, sy, ex, ey, &obj.style, arrow_len_px.0, arrow_wid_px.0);
                     }
                     writeln!(svg, r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}" {}/>"#,
                              sx, sy, ex, ey, stroke_style).unwrap();
                     if obj.style.arrow_start {
-                        render_arrowhead_start(&mut svg, sx, sy, ex, ey, &obj.style, arrow_len_px, arrow_wid_px);
+                        render_arrowhead_start(&mut svg, sx, sy, ex, ey, &obj.style, arrow_len_px.0, arrow_wid_px.0);
                     }
                 } else {
                     // Multi-segment spline - use a smooth path with curves
-                    render_spline_path(&mut svg, &obj.waypoints, offset_x, offset_y, &stroke_style, &obj.style, arrow_len_px, arrow_wid_px);
+                    render_spline_path(&mut svg, &obj.waypoints, offset_x, offset_y, &stroke_style, &obj.style, arrow_len_px.0, arrow_wid_px.0);
                 }
             }
             ObjectClass::Arc => {
                 // Arc: quarter circle arc
-                render_arc(&mut svg, sx, sy, ex, ey, obj.width.0, &obj.style, &stroke_style, arrow_len_px, arrow_wid_px);
+                render_arc(&mut svg, sx, sy, ex, ey, obj.width.0, &obj.style, &stroke_style, arrow_len_px.0, arrow_wid_px.0);
             }
             ObjectClass::Diamond => {
                 let points = format!("{:.2},{:.2} {:.2},{:.2} {:.2},{:.2} {:.2},{:.2}",
@@ -1667,8 +1668,8 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             }
             ObjectClass::Sublist => {
                 // Render sublist children with offset
-        render_sublist_children(&mut svg, &obj.children, offset_x, offset_y, eff_scale, dashwid);
-    }
+                render_sublist_children(&mut svg, &obj.children, offset_x, offset_y, &scaler, dashwid);
+            }
         }
 
         // Render text labels inside objects
@@ -1777,7 +1778,8 @@ fn get_text_anchor(text: &PositionedText, cx: f64, width: f64) -> (f64, &'static
 }
 
 /// Render sublist children that are already in world coordinates; only apply global offset/margins.
-fn render_sublist_children(svg: &mut String, children: &[RenderedObject], offx: Inches, offy: Inches, eff_scale: f64, dashwid: f64) {
+fn render_sublist_children(svg: &mut String, children: &[RenderedObject], offx: Inches, offy: Inches, scaler: &Scaler, dashwid: Inches) {
+    let eff_scale = scaler.r_scale;
     for child in children {
         let tx = to_px_len(child.center.x + offx, eff_scale);
         let ty = to_px_len(child.center.y + offy, eff_scale);
@@ -1787,7 +1789,7 @@ fn render_sublist_children(svg: &mut String, children: &[RenderedObject], offx: 
         let ey = to_px_len(child.end.y + offy, eff_scale);
 
         // Sublist children inherit dash settings from caller
-        let stroke_style = format_stroke_style(&child.style, eff_scale, dashwid);
+        let stroke_style = format_stroke_style(&child.style, scaler, dashwid);
 
         match child.class {
             ObjectClass::Box => {
@@ -1824,7 +1826,7 @@ fn render_sublist_children(svg: &mut String, children: &[RenderedObject], offx: 
 
         // Recursively render nested sublists
         if !child.children.is_empty() {
-            render_sublist_children(svg, &child.children, offx, offy, eff_scale, dashwid);
+            render_sublist_children(svg, &child.children, offx, offy, scaler, dashwid);
         }
     }
 }
@@ -2047,18 +2049,18 @@ fn render_arc(svg: &mut String, sx: f64, sy: f64, ex: f64, ey: f64, radius: f64,
     }
 }
 
-fn format_stroke_style(style: &ObjectStyle, r_scale: f64, dashwid: f64) -> String {
+fn format_stroke_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> String {
     let mut parts = Vec::new();
 
     parts.push(format!(r#"stroke="{}""#, style.stroke));
     parts.push(format!(r#"fill="{}""#, style.fill));
-    parts.push(format!(r#"stroke-width="{:.2}""#, style.stroke_width.0 * r_scale));
+    parts.push(format!(r#"stroke-width="{:.2}""#, scaler.len(style.stroke_width).0));
 
     if style.dashed {
-        let dash = dashwid * r_scale;
+        let dash = scaler.len(dashwid).0;
         parts.push(format!("stroke-dasharray=\"{:.2},{:.2}\"", dash * 6.0, dash * 4.0));
     } else if style.dotted {
-        let dash = dashwid * r_scale;
+        let dash = scaler.len(dashwid).0;
         parts.push(format!("stroke-dasharray=\"{:.2},{:.2}\"", dash * 2.0, dash * 2.0));
     }
 
