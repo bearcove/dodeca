@@ -42,9 +42,10 @@ pub struct Length(pub f64);
 impl Length {
     pub const ZERO: Length = Length(0.0);
 
-    /// Create a Length from inches (const-friendly, unchecked)
+    /// Create a Length from inches (const-friendly, unchecked).
+    /// Use `try_new` for user-provided values.
     #[inline]
-    pub const fn inches(val: f64) -> Length {
+    pub(crate) const fn inches(val: f64) -> Length {
         Length(val)
     }
 
@@ -247,14 +248,15 @@ impl fmt::Display for Color {
 }
 
 /// Convert inches → px with a given scale (C uses 144.0).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Scaler {
     pub r_scale: f64,
 }
 
 impl Scaler {
-    /// Create a new Scaler (unchecked)
-    pub fn new(r_scale: f64) -> Self { Scaler { r_scale } }
+    /// Create a new Scaler (unchecked).
+    /// Use `try_new` for user-provided values.
+    pub(crate) fn new(r_scale: f64) -> Self { Scaler { r_scale } }
 
     /// Create a Scaler with validation (rejects NaN, infinite, zero, negative)
     pub fn try_new(r_scale: f64) -> Result<Self, NumericError> {
@@ -419,13 +421,13 @@ impl UnitVec {
     pub const SOUTH_WEST: UnitVec = UnitVec { dx: -FRAC_1_SQRT_2, dy: FRAC_1_SQRT_2 };
 
     /// Create a normalized unit vector from components.
-    /// Returns ZERO if the input has zero length.
-    pub fn normalized(dx: f64, dy: f64) -> Self {
+    /// Returns None if the input has zero length.
+    pub fn normalized(dx: f64, dy: f64) -> Option<Self> {
         let len = (dx * dx + dy * dy).sqrt();
         if len == 0.0 {
-            UnitVec::ZERO
+            None
         } else {
-            UnitVec { dx: dx / len, dy: dy / len }
+            Some(UnitVec { dx: dx / len, dy: dy / len })
         }
     }
 
@@ -473,3 +475,268 @@ impl Sub<Point<Length>> for Point<Length> {
 pub type PtIn = Point<Length>;
 pub type PtPx = Point<Px>;
 pub type BoxIn = BBox<Length>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== Length tests ====================
+
+    #[test]
+    fn length_try_new_valid() {
+        assert!(Length::try_new(1.0).is_ok());
+        assert!(Length::try_new(0.0).is_ok());
+        assert!(Length::try_new(-1.0).is_ok());
+    }
+
+    #[test]
+    fn length_try_new_rejects_nan() {
+        assert_eq!(Length::try_new(f64::NAN), Err(NumericError::NaN));
+    }
+
+    #[test]
+    fn length_try_new_rejects_infinity() {
+        assert_eq!(Length::try_new(f64::INFINITY), Err(NumericError::Infinite));
+        assert_eq!(Length::try_new(f64::NEG_INFINITY), Err(NumericError::Infinite));
+    }
+
+    #[test]
+    fn length_try_non_negative_valid() {
+        assert!(Length::try_non_negative(1.0).is_ok());
+        assert!(Length::try_non_negative(0.0).is_ok());
+    }
+
+    #[test]
+    fn length_try_non_negative_rejects_negative() {
+        assert_eq!(Length::try_non_negative(-1.0), Err(NumericError::Negative));
+    }
+
+    #[test]
+    fn length_arithmetic() {
+        let a = Length(3.0);
+        let b = Length(2.0);
+
+        assert_eq!(a + b, Length(5.0));
+        assert_eq!(a - b, Length(1.0));
+        assert_eq!(a * 2.0, Length(6.0));
+        assert_eq!(a / 2.0, Length(1.5));
+        assert_eq!(-a, Length(-3.0));
+    }
+
+    #[test]
+    fn length_min_max() {
+        let a = Length(3.0);
+        let b = Length(5.0);
+
+        assert_eq!(a.min(b), Length(3.0));
+        assert_eq!(a.max(b), Length(5.0));
+    }
+
+    #[test]
+    fn length_checked_div_valid() {
+        let a = Length(6.0);
+        let b = Length(2.0);
+        assert_eq!(a.checked_div(b), Some(Scalar(3.0)));
+    }
+
+    #[test]
+    fn length_checked_div_by_zero() {
+        let a = Length(6.0);
+        let b = Length(0.0);
+        assert_eq!(a.checked_div(b), None);
+    }
+
+    #[test]
+    fn length_is_finite() {
+        assert!(Length(1.0).is_finite());
+        assert!(!Length(f64::INFINITY).is_finite());
+        assert!(!Length(f64::NAN).is_finite());
+    }
+
+    // ==================== Scalar tests ====================
+
+    #[test]
+    fn scalar_mul_length() {
+        let s = Scalar(2.0);
+        let l = Length(3.0);
+        assert_eq!(s * l, Length(6.0));
+        assert_eq!(l * s, Length(6.0));
+    }
+
+    #[test]
+    fn scalar_is_finite() {
+        assert!(Scalar(1.0).is_finite());
+        assert!(!Scalar(f64::INFINITY).is_finite());
+    }
+
+    // ==================== Scaler tests ====================
+
+    #[test]
+    fn scaler_try_new_valid() {
+        assert!(Scaler::try_new(144.0).is_ok());
+        assert!(Scaler::try_new(1.0).is_ok());
+    }
+
+    #[test]
+    fn scaler_try_new_rejects_zero() {
+        assert_eq!(Scaler::try_new(0.0), Err(NumericError::Zero));
+    }
+
+    #[test]
+    fn scaler_try_new_rejects_negative() {
+        assert_eq!(Scaler::try_new(-1.0), Err(NumericError::Negative));
+    }
+
+    #[test]
+    fn scaler_try_new_rejects_nan() {
+        assert_eq!(Scaler::try_new(f64::NAN), Err(NumericError::NaN));
+    }
+
+    #[test]
+    fn scaler_try_new_rejects_infinity() {
+        assert_eq!(Scaler::try_new(f64::INFINITY), Err(NumericError::Infinite));
+    }
+
+    #[test]
+    fn scaler_converts_length_to_px() {
+        let scaler = Scaler::new(144.0);
+        let len = Length(1.0); // 1 inch
+        assert_eq!(scaler.px(len), 144.0); // 144 pixels
+    }
+
+    // ==================== UnitVec tests ====================
+
+    #[test]
+    fn unitvec_cardinal_directions_are_unit_length() {
+        let dirs = [
+            UnitVec::NORTH, UnitVec::SOUTH, UnitVec::EAST, UnitVec::WEST,
+        ];
+        for dir in dirs {
+            let len = (dir.dx() * dir.dx() + dir.dy() * dir.dy()).sqrt();
+            assert!((len - 1.0).abs() < 1e-10, "cardinal direction should have unit length");
+        }
+    }
+
+    #[test]
+    fn unitvec_diagonal_directions_are_unit_length() {
+        let dirs = [
+            UnitVec::NORTH_EAST, UnitVec::NORTH_WEST,
+            UnitVec::SOUTH_EAST, UnitVec::SOUTH_WEST,
+        ];
+        for dir in dirs {
+            let len = (dir.dx() * dir.dx() + dir.dy() * dir.dy()).sqrt();
+            assert!((len - 1.0).abs() < 1e-10, "diagonal direction should have unit length");
+        }
+    }
+
+    #[test]
+    fn unitvec_normalized_valid() {
+        let v = UnitVec::normalized(3.0, 4.0);
+        assert!(v.is_some());
+        let v = v.unwrap();
+        let len = (v.dx() * v.dx() + v.dy() * v.dy()).sqrt();
+        assert!((len - 1.0).abs() < 1e-10);
+        assert!((v.dx() - 0.6).abs() < 1e-10);
+        assert!((v.dy() - 0.8).abs() < 1e-10);
+    }
+
+    #[test]
+    fn unitvec_normalized_zero_returns_none() {
+        assert_eq!(UnitVec::normalized(0.0, 0.0), None);
+    }
+
+    #[test]
+    fn unitvec_mul_length_gives_offset() {
+        let dir = UnitVec::EAST;
+        let len = Length(5.0);
+        let offset = dir * len;
+        assert_eq!(offset.dx, Length(5.0));
+        assert_eq!(offset.dy, Length(0.0));
+    }
+
+    // ==================== Point/Offset tests ====================
+
+    #[test]
+    fn point_plus_offset_gives_point() {
+        let p = Point::new(Length(1.0), Length(2.0));
+        let o = Offset::new(Length(3.0), Length(4.0));
+        let result = p + o;
+        assert_eq!(result.x, Length(4.0));
+        assert_eq!(result.y, Length(6.0));
+    }
+
+    #[test]
+    fn point_minus_point_gives_offset() {
+        let p1 = Point::new(Length(5.0), Length(7.0));
+        let p2 = Point::new(Length(2.0), Length(3.0));
+        let offset = p1 - p2;
+        assert_eq!(offset.dx, Length(3.0));
+        assert_eq!(offset.dy, Length(4.0));
+    }
+
+    #[test]
+    fn point_midpoint() {
+        let p1 = Point::new(Length(0.0), Length(0.0));
+        let p2 = Point::new(Length(4.0), Length(6.0));
+        let mid = p1.midpoint(p2);
+        assert_eq!(mid.x, Length(2.0));
+        assert_eq!(mid.y, Length(3.0));
+    }
+
+    // ==================== BBox tests ====================
+
+    #[test]
+    fn bbox_new_is_empty() {
+        let bb = BBox::<Length>::new();
+        assert!(bb.is_empty());
+    }
+
+    #[test]
+    fn bbox_expand_point() {
+        let mut bb = BBox::<Length>::new();
+        bb.expand_point(Point::new(Length(1.0), Length(2.0)));
+        bb.expand_point(Point::new(Length(3.0), Length(4.0)));
+
+        assert!(!bb.is_empty());
+        assert_eq!(bb.min.x, Length(1.0));
+        assert_eq!(bb.min.y, Length(2.0));
+        assert_eq!(bb.max.x, Length(3.0));
+        assert_eq!(bb.max.y, Length(4.0));
+    }
+
+    #[test]
+    fn bbox_width_height() {
+        let mut bb = BBox::<Length>::new();
+        bb.expand_point(Point::new(Length(1.0), Length(2.0)));
+        bb.expand_point(Point::new(Length(5.0), Length(8.0)));
+
+        assert_eq!(bb.width(), Length(4.0));
+        assert_eq!(bb.height(), Length(6.0));
+    }
+
+    #[test]
+    fn bbox_center() {
+        let mut bb = BBox::<Length>::new();
+        bb.expand_point(Point::new(Length(0.0), Length(0.0)));
+        bb.expand_point(Point::new(Length(4.0), Length(6.0)));
+
+        let center = bb.center();
+        assert_eq!(center.x, Length(2.0));
+        assert_eq!(center.y, Length(3.0));
+    }
+
+    #[test]
+    fn bbox_expand_rect() {
+        let mut bb = BBox::<Length>::new();
+        bb.expand_rect(
+            Point::new(Length(5.0), Length(5.0)),
+            Size { w: Length(4.0), h: Length(2.0) }
+        );
+
+        // center (5,5), width 4, height 2 -> min (3,4), max (7,6)
+        assert_eq!(bb.min.x, Length(3.0));
+        assert_eq!(bb.min.y, Length(4.0));
+        assert_eq!(bb.max.x, Length(7.0));
+        assert_eq!(bb.max.y, Length(6.0));
+    }
+}
