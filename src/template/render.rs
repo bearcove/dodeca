@@ -30,6 +30,13 @@ struct MacroDef {
     body: Vec<Node>,
 }
 
+/// A block override with its source template (for error reporting)
+#[derive(Debug, Clone)]
+struct BlockDef {
+    nodes: Vec<Node>,
+    source: TemplateSource,
+}
+
 /// Stored macros organized by namespace
 /// Key is namespace ("self" for current template, or import alias)
 /// Value is map of macro_name -> MacroDef
@@ -159,7 +166,7 @@ impl Template {
         let mut output = String::new();
         let mut renderer = Renderer {
             ctx: ctx.clone(),
-            source: &self.source,
+            source: self.source.clone(),
             output: &mut output,
             blocks: HashMap::new(),
             loader: None,
@@ -214,8 +221,20 @@ impl Engine {
 
         // Check for extends
         if let Some(parent_path) = template.extends_path() {
-            // Collect blocks and imports from child template
-            let child_blocks = template.blocks();
+            // Collect blocks from child template, along with the source for error reporting
+            let child_blocks: HashMap<String, BlockDef> = template
+                .blocks()
+                .into_iter()
+                .map(|(name, nodes)| {
+                    (
+                        name,
+                        BlockDef {
+                            nodes: nodes.to_vec(),
+                            source: template.source.clone(),
+                        },
+                    )
+                })
+                .collect();
             let child_imports: Vec<(String, String)> = template
                 .imports()
                 .into_iter()
@@ -229,7 +248,7 @@ impl Engine {
             let mut output = String::new();
             let mut renderer = Renderer {
                 ctx: ctx.clone(),
-                source: &template.source,
+                source: template.source.clone(),
                 output: &mut output,
                 blocks: HashMap::new(),
                 loader: Some(self.loader.clone()),
@@ -245,7 +264,7 @@ impl Engine {
         &mut self,
         name: &str,
         ctx: &Context,
-        child_blocks: HashMap<String, &[Node]>,
+        child_blocks: HashMap<String, BlockDef>,
         child_imports: Vec<(String, String)>,
     ) -> Result<String> {
         let template = self.load(name)?;
@@ -254,15 +273,21 @@ impl Engine {
         if let Some(grandparent_path) = template.extends_path() {
             // Merge blocks: child blocks override parent blocks
             let parent_blocks = template.blocks();
-            let mut merged_blocks: HashMap<String, Vec<Node>> = HashMap::new();
+            let mut merged_blocks: HashMap<String, BlockDef> = HashMap::new();
 
-            // Add parent blocks first
+            // Add parent blocks first (with this template's source)
             for (name, nodes) in parent_blocks {
-                merged_blocks.insert(name, nodes.to_vec());
+                merged_blocks.insert(
+                    name,
+                    BlockDef {
+                        nodes: nodes.to_vec(),
+                        source: template.source.clone(),
+                    },
+                );
             }
-            // Child blocks override
-            for (name, nodes) in child_blocks {
-                merged_blocks.insert(name, nodes.to_vec());
+            // Child blocks override (keeping their original source)
+            for (name, block_def) in child_blocks {
+                merged_blocks.insert(name, block_def);
             }
 
             // Merge imports: add parent imports first, then child imports
@@ -274,27 +299,15 @@ impl Engine {
             let mut all_imports = parent_imports;
             all_imports.extend(child_imports);
 
-            // Convert to owned for recursive call
-            let merged: HashMap<String, &[Node]> = merged_blocks
-                .iter()
-                .map(|(k, v)| (k.clone(), v.as_slice()))
-                .collect();
-
-            self.render_with_blocks(grandparent_path, ctx, merged, all_imports)
+            self.render_with_blocks(grandparent_path, ctx, merged_blocks, all_imports)
         } else {
             // This is the root template, render it with block overrides
-            // Convert child_blocks to owned nodes
-            let owned_blocks: HashMap<String, Vec<Node>> = child_blocks
-                .into_iter()
-                .map(|(k, v)| (k, v.to_vec()))
-                .collect();
-
             let mut output = String::new();
             let mut renderer = Renderer {
                 ctx: ctx.clone(),
-                source: &template.source,
+                source: template.source.clone(),
                 output: &mut output,
-                blocks: owned_blocks,
+                blocks: child_blocks,
                 loader: Some(self.loader.clone()),
                 macros: HashMap::new(),
             };
@@ -314,10 +327,11 @@ impl Engine {
 /// Internal renderer state
 struct Renderer<'a> {
     ctx: Context,
-    source: &'a TemplateSource,
+    /// Current source for error reporting (may be swapped when rendering child blocks)
+    source: TemplateSource,
     output: &'a mut String,
-    /// Block overrides from child templates
-    blocks: HashMap<String, Vec<Node>>,
+    /// Block overrides from child templates (with their source for error reporting)
+    blocks: HashMap<String, BlockDef>,
     /// Template loader for includes and imports
     loader: Option<Rc<dyn TemplateLoader>>,
     /// Macro definitions by namespace
@@ -335,6 +349,18 @@ impl<'a> Renderer<'a> {
         Ok(LoopControl::None)
     }
 
+    /// Render nodes with a different source (for block overrides from child templates)
+    fn render_nodes_with_source(
+        &mut self,
+        nodes: &[Node],
+        source: TemplateSource,
+    ) -> Result<LoopControl> {
+        let original_source = std::mem::replace(&mut self.source, source);
+        let result = self.render_nodes(nodes);
+        self.source = original_source;
+        result
+    }
+
     fn render_node(&mut self, node: &Node) -> Result<LoopControl> {
         match node {
             Node::Text(text) => {
@@ -344,7 +370,7 @@ impl<'a> Renderer<'a> {
                 // Check if this is a macro call
                 if let Expr::MacroCall(macro_call) = &print.expr {
                     // Evaluate arguments
-                    let eval = Evaluator::new(&self.ctx, self.source);
+                    let eval = Evaluator::new(&self.ctx, &self.source);
                     let args: Vec<Value> = macro_call
                         .args
                         .iter()
@@ -366,7 +392,7 @@ impl<'a> Renderer<'a> {
                     // Macro output is already HTML, don't escape it
                     self.output.push_str(&result);
                 } else {
-                    let eval = Evaluator::new(&self.ctx, self.source);
+                    let eval = Evaluator::new(&self.ctx, &self.source);
                     let value = eval.eval(&print.expr)?;
                     // Skip escaping for safe values, auto-escape everything else
                     let s = if value.is_safe() {
@@ -378,7 +404,7 @@ impl<'a> Renderer<'a> {
                 }
             }
             Node::If(if_node) => {
-                let eval = Evaluator::new(&self.ctx, self.source);
+                let eval = Evaluator::new(&self.ctx, &self.source);
                 let condition = eval.eval(&if_node.condition)?;
 
                 if condition.is_truthy() {
@@ -390,7 +416,7 @@ impl<'a> Renderer<'a> {
                     // Check elif branches
                     let mut handled = false;
                     for elif in &if_node.elif_branches {
-                        let eval = Evaluator::new(&self.ctx, self.source);
+                        let eval = Evaluator::new(&self.ctx, &self.source);
                         let cond = eval.eval(&elif.condition)?;
                         if cond.is_truthy() {
                             let control = self.render_nodes(&elif.body)?;
@@ -414,7 +440,7 @@ impl<'a> Renderer<'a> {
                 }
             }
             Node::For(for_node) => {
-                let eval = Evaluator::new(&self.ctx, self.source);
+                let eval = Evaluator::new(&self.ctx, &self.source);
                 let iter_value = eval.eval(&for_node.iter)?;
 
                 let items: Vec<Value> = match iter_value {
@@ -497,14 +523,15 @@ impl<'a> Renderer<'a> {
             }
             Node::Block(block) => {
                 // Check if we have an override for this block
-                let control = if let Some(override_body) = self.blocks.get(&block.name.name).cloned()
-                {
-                    // Render the overridden block content
-                    self.render_nodes(&override_body)?
-                } else {
-                    // Render the default block content
-                    self.render_nodes(&block.body)?
-                };
+                let control =
+                    if let Some(block_def) = self.blocks.get(&block.name.name).cloned() {
+                        // Render the overridden block content with its original source
+                        // (for correct error reporting)
+                        self.render_nodes_with_source(&block_def.nodes, block_def.source)?
+                    } else {
+                        // Render the default block content
+                        self.render_nodes(&block.body)?
+                    };
                 if control != LoopControl::None {
                     return Ok(control);
                 }
@@ -517,7 +544,7 @@ impl<'a> Renderer<'a> {
                 // Comments are not rendered
             }
             Node::Set(set_node) => {
-                let eval = Evaluator::new(&self.ctx, self.source);
+                let eval = Evaluator::new(&self.ctx, &self.source);
                 let value = eval.eval(&set_node.value)?;
                 self.ctx.set(set_node.name.name.clone(), value);
             }
@@ -646,7 +673,7 @@ impl<'a> Renderer<'a> {
                 v.clone()
             } else if let Some(ref default_expr) = param.default {
                 // Evaluate default value
-                let eval = Evaluator::new(&self.ctx, self.source);
+                let eval = Evaluator::new(&self.ctx, &self.source);
                 eval.eval(default_expr)?
             } else {
                 Value::None
@@ -777,6 +804,24 @@ mod tests {
         let t = Template::parse("test", "{{ name | upper }}").unwrap();
         let result = t.render_with([("name", "alice")]).unwrap();
         assert_eq!(result, "ALICE");
+    }
+
+    #[test]
+    fn test_split_filter() {
+        // Test split with kwarg pat=
+        let t = Template::parse("test", r#"{% set parts = path | split(pat="/") %}{{ parts | first }}"#).unwrap();
+        let result = t.render_with([("path", "guide/getting-started")]).unwrap();
+        assert_eq!(result, "guide");
+
+        // Test split with positional arg
+        let t = Template::parse("test", r#"{% set parts = text | split(",") %}{{ parts | length }}"#).unwrap();
+        let result = t.render_with([("text", "a,b,c")]).unwrap();
+        assert_eq!(result, "3");
+
+        // Test split with default (space)
+        let t = Template::parse("test", r#"{% set words = text | split %}{{ words | first }}"#).unwrap();
+        let result = t.render_with([("text", "hello world")]).unwrap();
+        assert_eq!(result, "hello");
     }
 
     #[test]
@@ -1118,5 +1163,37 @@ mod tests {
         let items: Value = vec!["a", "b", "x", "c"].into();
         let result = t.render_with([("items", items)]).unwrap();
         assert_eq!(result, "ab");
+    }
+
+    #[test]
+    fn test_error_source_in_inherited_block() {
+        // Test that errors in child template blocks report the correct source file
+        // This is a regression test for a bug where errors in child template blocks
+        // would show the base template filename instead of the child template filename
+
+        let mut loader = InMemoryLoader::new();
+        loader.add(
+            "base.html",
+            "Header {% block content %}default{% endblock %} Footer",
+        );
+        loader.add(
+            "child.html",
+            r#"{% extends "base.html" %}{% block content %}{{ data | nonexistent_filter }}{% endblock %}"#,
+        );
+
+        let mut engine = Engine::new(loader);
+        let mut ctx = Context::new();
+        ctx.set("data", Value::String("test".to_string()));
+
+        let err = engine.render("child.html", &ctx).unwrap_err();
+
+        // The error should reference child.html in the source location, not base.html
+        // miette outputs source locations in the format: ╭─[filename:line:col]
+        let err_str = format!("{:?}", err);
+        assert!(
+            err_str.contains("╭─[child.html:"),
+            "Error source location should reference child.html, got: {}",
+            err_str
+        );
     }
 }
