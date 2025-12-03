@@ -2658,20 +2658,46 @@ fn render_sublist_children(
                 .unwrap();
             }
             ObjectClass::Line | ObjectClass::Arrow => {
-                let marker_end = if child.style.arrow_end {
-                    r#" marker-end="url(#arrowhead)""#
-                } else {
-                    ""
-                };
-                let marker_start = if child.style.arrow_start {
-                    r#" marker-start="url(#arrowhead-start)""#
-                } else {
-                    ""
-                };
+                // Render arrows with polygon+path like C pikchr (not marker-end)
+                let arrow_ht = scaler.px(Inches(0.08)); // default arrowht
+                let arrow_wid = scaler.px(Inches(0.06)); // default arrowwid
+
+                // Render arrowhead polygons first (before path, like C pikchr)
+                if child.style.arrow_end {
+                    render_arrowhead(svg, sx, sy, ex, ey, &child.style, arrow_ht, arrow_wid);
+                }
+                if child.style.arrow_start {
+                    render_arrowhead_start(svg, sx, sy, ex, ey, &child.style, arrow_ht, arrow_wid);
+                }
+
+                // Chop endpoints for arrowheads
+                let mut chopped_sx = sx;
+                let mut chopped_sy = sy;
+                let mut chopped_ex = ex;
+                let mut chopped_ey = ey;
+
+                let dx = ex - sx;
+                let dy = ey - sy;
+                let len = (dx * dx + dy * dy).sqrt();
+                if len > 0.001 {
+                    let ux = dx / len;
+                    let uy = dy / len;
+                    let chop_dist = arrow_ht / 2.0;
+                    if child.style.arrow_end {
+                        chopped_ex -= ux * chop_dist;
+                        chopped_ey -= uy * chop_dist;
+                    }
+                    if child.style.arrow_start {
+                        chopped_sx += ux * chop_dist;
+                        chopped_sy += uy * chop_dist;
+                    }
+                }
+
+                // Render line as path
                 writeln!(
                     svg,
-                    r#"  <line x1="{:.2}" y1="{:.2}" x2="{:.2}" y2="{:.2}" {}{}{}/>"#,
-                    sx, sy, ex, ey, stroke_style, marker_end, marker_start
+                    r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}" {}/>"#,
+                    chopped_sx, chopped_sy, chopped_ex, chopped_ey, stroke_style
                 )
                 .unwrap();
             }
