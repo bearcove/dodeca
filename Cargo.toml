@@ -153,6 +153,18 @@ futures = "0.3"        # For StreamExt in browser tests
 name = "html_diff"
 harness = false
 
+[[bench]]
+name = "link_checker"
+harness = false
+
+[[bench]]
+name = "ansi_to_html"
+harness = false
+
+[[bench]]
+name = "template"
+harness = false
+
 # Optimize dependencies in dev mode for faster tests
 # (keeps main crate unoptimized for fast incremental builds)
 [profile.dev.package."*"]

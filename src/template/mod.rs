@@ -30,12 +30,12 @@
 //! let output = template.render(&context)?;
 //! ```
 
-mod ast;
+pub mod ast;
 mod error;
 mod eval;
-mod lexer;
-mod parser;
+pub mod lexer;
+pub mod parser;
 mod render;
 
 pub use eval::{Context, Value};
-pub use render::{Engine, InMemoryLoader};
+pub use render::{Engine, InMemoryLoader, Template};
