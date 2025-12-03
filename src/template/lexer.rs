@@ -55,6 +55,8 @@ pub enum TokenKind {
     Is,
     As,
     Set,
+    Continue,
+    Break,
 
     // Delimiters
     ExprOpen,     // {{
@@ -124,6 +126,8 @@ impl TokenKind {
             "is" => TokenKind::Is,
             "as" => TokenKind::As,
             "set" => TokenKind::Set,
+            "continue" => TokenKind::Continue,
+            "break" => TokenKind::Break,
             _ => TokenKind::Ident(s.to_string()),
         }
     }

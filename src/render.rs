@@ -585,6 +585,7 @@ fn build_toc_subtree(headings: &[Heading], start: usize, parent_level: u8) -> (V
 }
 
 /// Build the ancestor chain for a page (ordered from root to immediate parent)
+/// Note: The content root ("/") is excluded from ancestors to avoid noisy breadcrumbs.
 fn build_ancestors(section_route: &Route, site_tree: &SiteTree) -> Vec<Value> {
     let mut ancestors = Vec::new();
     let mut current = section_route.clone();
@@ -592,21 +593,24 @@ fn build_ancestors(section_route: &Route, site_tree: &SiteTree) -> Vec<Value> {
     // Walk up the route hierarchy, collecting all ancestor sections
     loop {
         if let Some(section) = site_tree.sections.get(&current) {
-            let mut ancestor_map = HashMap::new();
-            ancestor_map.insert(
-                "title".to_string(),
-                Value::String(section.title.as_str().to_string()),
-            );
-            ancestor_map.insert(
-                "permalink".to_string(),
-                Value::String(section.route.as_str().to_string()),
-            );
-            ancestor_map.insert(
-                "path".to_string(),
-                Value::String(route_to_path(section.route.as_str())),
-            );
-            ancestor_map.insert("weight".to_string(), Value::Int(section.weight as i64));
-            ancestors.push(Value::Dict(ancestor_map));
+            // Skip the content root ("/") - it's not useful in breadcrumbs
+            if section.route.as_str() != "/" {
+                let mut ancestor_map = HashMap::new();
+                ancestor_map.insert(
+                    "title".to_string(),
+                    Value::String(section.title.as_str().to_string()),
+                );
+                ancestor_map.insert(
+                    "permalink".to_string(),
+                    Value::String(section.route.as_str().to_string()),
+                );
+                ancestor_map.insert(
+                    "path".to_string(),
+                    Value::String(route_to_path(section.route.as_str())),
+                );
+                ancestor_map.insert("weight".to_string(), Value::Int(section.weight as i64));
+                ancestors.push(Value::Dict(ancestor_map));
+            }
         }
 
         match current.parent() {

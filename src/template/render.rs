@@ -12,6 +12,17 @@ use miette::Result;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+/// Loop control flow signals
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoopControl {
+    /// Normal execution, continue to next node
+    None,
+    /// Skip to next loop iteration
+    Continue,
+    /// Exit the loop entirely
+    Break,
+}
+
 /// A stored macro definition
 #[derive(Debug, Clone)]
 struct MacroDef {
@@ -155,7 +166,7 @@ impl Template {
             macros: HashMap::new(),
         };
         renderer.collect_macros(&self.ast.body);
-        renderer.render_nodes(&self.ast.body)?;
+        let _ = renderer.render_nodes(&self.ast.body)?;
         Ok(output)
     }
 
@@ -225,7 +236,7 @@ impl Engine {
                 macros: HashMap::new(),
             };
             renderer.collect_macros(&template.ast.body);
-            renderer.render_nodes(&template.ast.body)?;
+            let _ = renderer.render_nodes(&template.ast.body)?;
             Ok(output)
         }
     }
@@ -294,7 +305,7 @@ impl Engine {
             }
 
             renderer.collect_macros(&template.ast.body);
-            renderer.render_nodes(&template.ast.body)?;
+            let _ = renderer.render_nodes(&template.ast.body)?;
             Ok(output)
         }
     }
@@ -314,14 +325,17 @@ struct Renderer<'a> {
 }
 
 impl<'a> Renderer<'a> {
-    fn render_nodes(&mut self, nodes: &[Node]) -> Result<()> {
+    fn render_nodes(&mut self, nodes: &[Node]) -> Result<LoopControl> {
         for node in nodes {
-            self.render_node(node)?;
+            let control = self.render_node(node)?;
+            if control != LoopControl::None {
+                return Ok(control);
+            }
         }
-        Ok(())
+        Ok(LoopControl::None)
     }
 
-    fn render_node(&mut self, node: &Node) -> Result<()> {
+    fn render_node(&mut self, node: &Node) -> Result<LoopControl> {
         match node {
             Node::Text(text) => {
                 self.output.push_str(&text.text);
@@ -368,7 +382,10 @@ impl<'a> Renderer<'a> {
                 let condition = eval.eval(&if_node.condition)?;
 
                 if condition.is_truthy() {
-                    self.render_nodes(&if_node.then_body)?;
+                    let control = self.render_nodes(&if_node.then_body)?;
+                    if control != LoopControl::None {
+                        return Ok(control);
+                    }
                 } else {
                     // Check elif branches
                     let mut handled = false;
@@ -376,7 +393,10 @@ impl<'a> Renderer<'a> {
                         let eval = Evaluator::new(&self.ctx, self.source);
                         let cond = eval.eval(&elif.condition)?;
                         if cond.is_truthy() {
-                            self.render_nodes(&elif.body)?;
+                            let control = self.render_nodes(&elif.body)?;
+                            if control != LoopControl::None {
+                                return Ok(control);
+                            }
                             handled = true;
                             break;
                         }
@@ -385,7 +405,10 @@ impl<'a> Renderer<'a> {
                     // Else branch
                     if !handled {
                         if let Some(else_body) = &if_node.else_body {
-                            self.render_nodes(else_body)?;
+                            let control = self.render_nodes(else_body)?;
+                            if control != LoopControl::None {
+                                return Ok(control);
+                            }
                         }
                     }
                 }
@@ -412,11 +435,14 @@ impl<'a> Renderer<'a> {
                 if items.is_empty() {
                     // Render else body if present
                     if let Some(else_body) = &for_node.else_body {
-                        self.render_nodes(else_body)?;
+                        let control = self.render_nodes(else_body)?;
+                        if control != LoopControl::None {
+                            return Ok(control);
+                        }
                     }
                 } else {
                     let len = items.len();
-                    for (index, item) in items.into_iter().enumerate() {
+                    'for_loop: for (index, item) in items.into_iter().enumerate() {
                         self.ctx.push_scope();
 
                         // Bind loop variable(s)
@@ -454,8 +480,14 @@ impl<'a> Renderer<'a> {
                         loop_var.insert("length".to_string(), Value::Int(len as i64));
                         self.ctx.set("loop", Value::Dict(loop_var));
 
-                        self.render_nodes(&for_node.body)?;
+                        let control = self.render_nodes(&for_node.body)?;
                         self.ctx.pop_scope();
+
+                        match control {
+                            LoopControl::None => {}
+                            LoopControl::Continue => continue 'for_loop,
+                            LoopControl::Break => break 'for_loop,
+                        }
                     }
                 }
             }
@@ -465,12 +497,16 @@ impl<'a> Renderer<'a> {
             }
             Node::Block(block) => {
                 // Check if we have an override for this block
-                if let Some(override_body) = self.blocks.get(&block.name.name).cloned() {
+                let control = if let Some(override_body) = self.blocks.get(&block.name.name).cloned()
+                {
                     // Render the overridden block content
-                    self.render_nodes(&override_body)?;
+                    self.render_nodes(&override_body)?
                 } else {
                     // Render the default block content
-                    self.render_nodes(&block.body)?;
+                    self.render_nodes(&block.body)?
+                };
+                if control != LoopControl::None {
+                    return Ok(control);
                 }
             }
             Node::Extends(_extends) => {
@@ -512,9 +548,15 @@ impl<'a> Renderer<'a> {
             Node::Macro(_macro_def) => {
                 // Macro definitions are collected by collect_macros before rendering
             }
+            Node::Continue(_) => {
+                return Ok(LoopControl::Continue);
+            }
+            Node::Break(_) => {
+                return Ok(LoopControl::Break);
+            }
         }
 
-        Ok(())
+        Ok(LoopControl::None)
     }
 
     /// Collect macro definitions from the template body into the "self" namespace
@@ -612,8 +654,8 @@ impl<'a> Renderer<'a> {
             self.ctx.set(param.name.name.clone(), value);
         }
 
-        // Render macro body
-        self.render_nodes(&macro_def.body)?;
+        // Render macro body (ignore loop control - macros don't propagate continue/break)
+        let _ = self.render_nodes(&macro_def.body)?;
 
         // Restore scope
         self.ctx.pop_scope();
@@ -1024,5 +1066,57 @@ mod tests {
         .unwrap();
         let result = t.render(&Context::new()).unwrap();
         assert_eq!(result, "<ul><li>One</li><li>Two</li><li>Three</li></ul>");
+    }
+
+    #[test]
+    fn test_continue_in_loop() {
+        // Test continue skips the rest of the iteration
+        let t = Template::parse(
+            "test",
+            r#"{% for i in items %}{% if i == "skip" %}{% continue %}{% endif %}{{ i }} {% endfor %}"#,
+        )
+        .unwrap();
+        let items: Value = vec!["a", "skip", "b", "c"].into();
+        let result = t.render_with([("items", items)]).unwrap();
+        assert_eq!(result, "a b c ");
+    }
+
+    #[test]
+    fn test_break_in_loop() {
+        // Test break exits the loop entirely
+        let t = Template::parse(
+            "test",
+            r#"{% for i in items %}{% if i == "stop" %}{% break %}{% endif %}{{ i }} {% endfor %}"#,
+        )
+        .unwrap();
+        let items: Value = vec!["a", "b", "stop", "c", "d"].into();
+        let result = t.render_with([("items", items)]).unwrap();
+        assert_eq!(result, "a b ");
+    }
+
+    #[test]
+    fn test_continue_with_loop_index() {
+        // Test continue preserves loop counter correctly
+        let t = Template::parse(
+            "test",
+            r#"{% for i in items %}{% if loop.index == 2 %}{% continue %}{% endif %}{{ loop.index }}{% endfor %}"#,
+        )
+        .unwrap();
+        let items: Value = vec!["a", "b", "c", "d"].into();
+        let result = t.render_with([("items", items)]).unwrap();
+        assert_eq!(result, "134");
+    }
+
+    #[test]
+    fn test_break_in_nested_if() {
+        // Test break works inside nested conditionals
+        let t = Template::parse(
+            "test",
+            r#"{% for i in items %}{% if i == "x" %}{% if true %}{% break %}{% endif %}{% endif %}{{ i }}{% endfor %}"#,
+        )
+        .unwrap();
+        let items: Value = vec!["a", "b", "x", "c"].into();
+        let result = t.render_with([("items", items)]).unwrap();
+        assert_eq!(result, "ab");
     }
 }

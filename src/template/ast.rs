@@ -47,6 +47,10 @@ pub enum Node {
     Import(ImportNode),
     /// Macro definition: {% macro name(args) %}...{% endmacro %}
     Macro(MacroNode),
+    /// Continue statement: {% continue %}
+    Continue(ContinueNode),
+    /// Break statement: {% break %}
+    Break(BreakNode),
 }
 
 impl Node {
@@ -63,6 +67,8 @@ impl Node {
             Node::Set(n) => n.span,
             Node::Import(n) => n.span,
             Node::Macro(n) => n.span,
+            Node::Continue(n) => n.span,
+            Node::Break(n) => n.span,
         }
     }
 }
@@ -201,6 +207,18 @@ pub struct MacroNode {
 pub struct MacroParam {
     pub name: Ident,
     pub default: Option<Expr>,
+}
+
+/// Continue statement: {% continue %}
+#[derive(Debug, Clone)]
+pub struct ContinueNode {
+    pub span: Span,
+}
+
+/// Break statement: {% break %}
+#[derive(Debug, Clone)]
+pub struct BreakNode {
+    pub span: Span,
 }
 
 // ============================================================================

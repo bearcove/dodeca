@@ -108,12 +108,14 @@ impl Parser {
             TokenKind::Import => self.parse_import(start),
             TokenKind::Macro => self.parse_macro(start),
             TokenKind::Set => self.parse_set(start),
+            TokenKind::Continue => self.parse_continue(start),
+            TokenKind::Break => self.parse_break(start),
             _ => {
                 let span = self.current.span;
                 let found = format!("{:?}", self.current.kind);
                 Err(SyntaxError {
                     found,
-                    expected: "if, for, block, extends, include, import, macro, or set".to_string(),
+                    expected: "if, for, block, extends, include, import, macro, set, continue, or break".to_string(),
                     span,
                     src: self.source.named_source(),
                 })?
@@ -175,12 +177,14 @@ impl Parser {
             TokenKind::Import => self.parse_import(start)?,
             TokenKind::Macro => self.parse_macro(start)?,
             TokenKind::Set => self.parse_set(start)?,
+            TokenKind::Continue => self.parse_continue(start)?,
+            TokenKind::Break => self.parse_break(start)?,
             _ => {
                 let span = self.current.span;
                 let found = format!("{:?}", self.current.kind);
                 return Err(SyntaxError {
                     found,
-                    expected: "if, for, block, extends, include, import, macro, or set".to_string(),
+                    expected: "if, for, block, extends, include, import, macro, set, continue, or break".to_string(),
                     span,
                     src: self.source.named_source(),
                 })?;
@@ -451,6 +455,30 @@ impl Parser {
             name,
             params,
             body,
+            span: span(start.offset(), end.offset() + end.len() - start.offset()),
+        }))
+    }
+
+    /// Parse continue statement: {% continue %}
+    fn parse_continue(&mut self, start: Span) -> Result<Node> {
+        self.expect(&TokenKind::Continue)?;
+        self.expect(&TokenKind::TagClose)?;
+
+        let end = self.previous.span;
+
+        Ok(Node::Continue(ContinueNode {
+            span: span(start.offset(), end.offset() + end.len() - start.offset()),
+        }))
+    }
+
+    /// Parse break statement: {% break %}
+    fn parse_break(&mut self, start: Span) -> Result<Node> {
+        self.expect(&TokenKind::Break)?;
+        self.expect(&TokenKind::TagClose)?;
+
+        let end = self.previous.span;
+
+        Ok(Node::Break(BreakNode {
             span: span(start.offset(), end.offset() + end.len() - start.offset()),
         }))
     }
