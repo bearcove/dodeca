@@ -6,11 +6,13 @@
 //! - Lexing (tokenization)
 //! - Parsing (AST generation)
 //! - Full render (parse + evaluate)
+//! - Comparison with minijinja
 
 use divan::{black_box, Bencher};
 use dodeca::template::{Context, Engine, InMemoryLoader, Value};
 use dodeca::template::lexer::Lexer;
 use dodeca::template::parser::Parser;
+use minijinja;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -396,4 +398,139 @@ fn render_loop_scaling(bencher: Bencher, iterations: usize) {
         let mut engine = Engine::new(loader);
         black_box(engine.render("bench", &ctx))
     });
+}
+
+// ============================================================================
+// minijinja comparison benchmarks
+// ============================================================================
+
+mod minijinja_comparison {
+    use super::*;
+    use minijinja::{context, Environment, Value as MiniValue};
+
+    // Helper to create minijinja context equivalent to simple_context()
+    fn mj_simple_context() -> MiniValue {
+        context! {
+            name => "Alice",
+            site_name => "My Site",
+            created_date => "2024-01-15",
+            message_count => 42,
+        }
+    }
+
+    // Helper to create minijinja context equivalent to loop_context()
+    fn mj_loop_context() -> MiniValue {
+        let items: Vec<MiniValue> = (0..10)
+            .map(|i| {
+                context! {
+                    name => format!("Item {}", i),
+                    price => i as f64 * 9.99,
+                }
+            })
+            .collect();
+        context! {
+            items => items,
+        }
+    }
+
+    // Helper to create minijinja context equivalent to complex_context()
+    fn mj_complex_context() -> MiniValue {
+        let page = context! {
+            title => "My Blog Post",
+            date => "2024-03-15",
+            author => "John Doe",
+            content => "<p>This is the post content with <strong>HTML</strong>.</p>",
+            tags => vec!["rust", "programming", "web"],
+        };
+
+        let site = context! {
+            name => "My Blog",
+            year => 2024,
+        };
+
+        let nav_links = vec![
+            context! { url => "/", label => "Home", active => false },
+            context! { url => "/blog", label => "Blog", active => true },
+            context! { url => "/about", label => "About", active => false },
+        ];
+
+        let related_posts: Vec<MiniValue> = (0..3)
+            .map(|i| {
+                context! {
+                    url => format!("/posts/related-{}", i),
+                    title => format!("Related Post {}", i + 1),
+                }
+            })
+            .collect();
+
+        context! {
+            page => page,
+            site => site,
+            nav_links => nav_links,
+            related_posts => related_posts,
+        }
+    }
+
+    #[divan::bench]
+    fn mj_render_simple(bencher: Bencher) {
+        let source = simple_text();
+        let mut env = Environment::new();
+        env.add_template("bench", source).unwrap();
+
+        bencher.bench(|| {
+            let tmpl = env.get_template("bench").unwrap();
+            black_box(tmpl.render(context! {}))
+        });
+    }
+
+    #[divan::bench]
+    fn mj_render_with_variables(bencher: Bencher) {
+        let source = with_variables();
+        let mut env = Environment::new();
+        env.add_template("bench", source).unwrap();
+        let ctx = mj_simple_context();
+
+        bencher.bench(|| {
+            let tmpl = env.get_template("bench").unwrap();
+            black_box(tmpl.render(&ctx))
+        });
+    }
+
+    #[divan::bench]
+    fn mj_render_with_loops(bencher: Bencher) {
+        let source = with_loops();
+        let mut env = Environment::new();
+        env.add_template("bench", source).unwrap();
+        let ctx = mj_loop_context();
+
+        bencher.bench(|| {
+            let tmpl = env.get_template("bench").unwrap();
+            black_box(tmpl.render(&ctx))
+        });
+    }
+
+    #[divan::bench]
+    fn mj_render_complex(bencher: Bencher) {
+        let source = complex_template();
+        let mut env = Environment::new();
+        env.add_template("bench", source).unwrap();
+        let ctx = mj_complex_context();
+
+        bencher.bench(|| {
+            let tmpl = env.get_template("bench").unwrap();
+            black_box(tmpl.render(&ctx))
+        });
+    }
+
+    #[divan::bench(args = [10, 100, 1000])]
+    fn mj_render_loop_scaling(bencher: Bencher, iterations: usize) {
+        let source = large_loop_template(iterations);
+        let mut env = Environment::new();
+        env.add_template("bench", &source).unwrap();
+
+        bencher.bench(|| {
+            let tmpl = env.get_template("bench").unwrap();
+            black_box(tmpl.render(context! {}))
+        });
+    }
 }

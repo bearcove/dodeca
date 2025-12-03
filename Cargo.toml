@@ -133,6 +133,7 @@ nom = "7"     # 7+ drops lexical-core 0.7 (broken usize/u32 ops)
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["blocking"] }
 divan = "0.1"
+minijinja = "2"  # For template engine benchmarks
 test-log = { version = "0.2", features = ["trace"] }
 regex = "1"  # For test assertions
 tempfile = "3"  # For isolated test fixtures
