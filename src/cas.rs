@@ -4,7 +4,8 @@
 //! Tracks which files have been written and their content hashes to avoid
 //! unnecessary disk writes.
 //!
-//! Also provides image caching to avoid re-processing images across restarts.
+//! Blobs (processed images, decompressed fonts) are stored on disk rather than
+//! in the database to keep the database lean and fast for metadata queries.
 
 use crate::db::ProcessedImages;
 use camino::Utf8Path;
@@ -12,11 +13,14 @@ use canopydb::Database;
 use rapidhash::fast::RapidHasher;
 use std::fs;
 use std::hash::Hasher;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-// Global asset cache instance (images, OG images, etc.)
+// Global asset cache instance (for metadata only)
 static ASSET_CACHE: OnceLock<Database> = OnceLock::new();
+
+// Global blob storage directory
+static BLOB_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 /// Content-addressed storage for build outputs
 pub struct ContentStore {
@@ -90,13 +94,39 @@ pub fn init_asset_cache(cache_dir: &Path) -> color_eyre::Result<()> {
     // canopydb stores data in a directory, not a single file
     let db_path = cache_dir.join("assets.canopy");
 
-    // Ensure the database directory exists
+    // Blob storage directory (for processed images, decompressed fonts)
+    let blob_path = cache_dir.join("blobs");
+
+    // Ensure directories exist
     fs::create_dir_all(&db_path)?;
+    fs::create_dir_all(&blob_path)?;
 
     let db = Database::new(&db_path)?;
     let _ = ASSET_CACHE.set(db);
+    let _ = BLOB_DIR.set(blob_path.clone());
     tracing::info!("Asset cache initialized at {:?}", db_path);
+    tracing::info!("Blob storage initialized at {:?}", blob_path);
     Ok(())
+}
+
+/// Encode bytes as lowercase hex string
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
+    let mut result = String::with_capacity(bytes.len() * 2);
+    for &byte in bytes {
+        result.push(HEX_CHARS[(byte >> 4) as usize] as char);
+        result.push(HEX_CHARS[(byte & 0x0f) as usize] as char);
+    }
+    result
+}
+
+/// Get the blob path for a given hash
+fn blob_path(hash: &InputHash, extension: &str) -> Option<PathBuf> {
+    let blob_dir = BLOB_DIR.get()?;
+    // Use first 2 bytes as subdirectory for file system efficiency
+    let hex = hex_encode(&hash.0);
+    let subdir = &hex[0..4];
+    Some(blob_dir.join(subdir).join(format!("{}.{}", hex, extension)))
 }
 
 /// Image processing pipeline version - bump this when encoding settings change
@@ -163,23 +193,21 @@ pub fn content_hash_32(data: &[u8]) -> InputHash {
 
 /// Get cached processed images by input content hash
 pub fn get_cached_image(content_hash: &InputHash) -> Option<ProcessedImages> {
-    let db = ASSET_CACHE.get()?;
-    let rx = db.begin_read().ok()?;
-    let tree = rx.get_tree(b"processed").ok()??;
-    let data = tree.get(&content_hash.0).ok()??;
+    let path = blob_path(content_hash, "img")?;
+    let data = fs::read(&path).ok()?;
     postcard::from_bytes(&data).ok()
 }
 
 /// Store processed images by input content hash
 pub fn put_cached_image(content_hash: &InputHash, images: &ProcessedImages) {
-    let Some(db) = ASSET_CACHE.get() else { return };
+    let Some(path) = blob_path(content_hash, "img") else { return };
     let Ok(data) = postcard::to_allocvec(images) else { return };
 
-    let Ok(tx) = db.begin_write() else { return };
-    let Ok(mut tree) = tx.get_or_create_tree(b"processed") else { return };
-    let _ = tree.insert(&content_hash.0, &data);
-    drop(tree);
-    let _ = tx.commit();
+    // Ensure subdirectory exists
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(&path, &data);
 }
 
 // ============================================================================
@@ -191,22 +219,19 @@ pub const FONT_PIPELINE_VERSION: u64 = 1;
 
 /// Get cached decompressed font (TTF) by input content hash
 pub fn get_cached_decompressed_font(content_hash: &InputHash) -> Option<Vec<u8>> {
-    let db = ASSET_CACHE.get()?;
-    let rx = db.begin_read().ok()?;
-    let tree = rx.get_tree(b"fonts_decompressed").ok()??;
-    let data = tree.get(&content_hash.0).ok()??;
-    Some(data.as_ref().to_vec())
+    let path = blob_path(content_hash, "ttf")?;
+    fs::read(&path).ok()
 }
 
 /// Store decompressed font (TTF) by input content hash
 pub fn put_cached_decompressed_font(content_hash: &InputHash, ttf_data: &[u8]) {
-    let Some(db) = ASSET_CACHE.get() else { return };
+    let Some(path) = blob_path(content_hash, "ttf") else { return };
 
-    let Ok(tx) = db.begin_write() else { return };
-    let Ok(mut tree) = tx.get_or_create_tree(b"fonts_decompressed") else { return };
-    let _ = tree.insert(&content_hash.0, ttf_data);
-    drop(tree);
-    let _ = tx.commit();
+    // Ensure subdirectory exists
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let _ = fs::write(&path, ttf_data);
 }
 
 /// Compute font content hash (includes font pipeline version)

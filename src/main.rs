@@ -965,7 +965,28 @@ pub fn build(
             );
         }
 
-        // TODO: build_search_index(output_dir).await?;
+        // Build search index in a separate thread (pagefind is async)
+        let output_for_search = site_output.clone();
+        let search_files = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(search::build_search_index(&output_for_search))
+        })
+        .join()
+        .map_err(|_| eyre!("search thread panicked"))??;
+
+        // Write search index files
+        for (path, content) in &search_files {
+            let dest = output_dir.join(path.trim_start_matches('/'));
+            store.write_if_changed(&dest, content)?;
+        }
+
+        if verbose {
+            println!("{} {} search files", "Indexed".cyan(), search_files.len());
+        }
+
         if let Some(ref p) = progress {
             p.update(|prog| prog.search.finish());
         }
