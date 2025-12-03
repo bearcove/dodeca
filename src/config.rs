@@ -36,11 +36,25 @@ pub struct DodecaConfig {
 }
 
 /// Link checking configuration
-#[derive(Debug, Clone, Default, Facet)]
+#[derive(Debug, Clone, Facet)]
 pub struct LinkCheckConfig {
     /// Domains to skip checking (anti-bot policies, known flaky, etc.)
     #[facet(kdl::children, default)]
     pub skip_domains: Vec<SkipDomain>,
+
+    /// Minimum delay between requests to the same domain (milliseconds)
+    /// Default: 1000ms (1 second)
+    #[facet(kdl::property, default)]
+    pub rate_limit_ms: Option<u64>,
+}
+
+impl Default for LinkCheckConfig {
+    fn default() -> Self {
+        Self {
+            skip_domains: Vec::new(),
+            rate_limit_ms: None, // Use link_checker's default
+        }
+    }
 }
 
 /// Stable assets configuration (served at original paths without cache-busting)
@@ -90,6 +104,8 @@ pub struct ResolvedConfig {
     pub output_dir: Utf8PathBuf,
     /// Domains to skip during external link checking
     pub skip_domains: Vec<String>,
+    /// Rate limit for external link checking (milliseconds between requests to same domain)
+    pub rate_limit_ms: Option<u64>,
     /// Asset paths that should be served at original paths (no cache-busting)
     pub stable_assets: Vec<String>,
 }
@@ -176,6 +192,9 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         .map(|s| s.domain)
         .collect();
 
+    // Extract rate limit
+    let rate_limit_ms = config.link_check.rate_limit_ms;
+
     // Extract stable asset paths
     let stable_assets = config
         .stable_assets
@@ -189,6 +208,7 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         content_dir,
         output_dir,
         skip_domains,
+        rate_limit_ms,
         stable_assets,
     })
 }

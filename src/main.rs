@@ -208,6 +208,7 @@ struct ResolvedBuildConfig {
     content_dir: Utf8PathBuf,
     output_dir: Utf8PathBuf,
     skip_domains: Vec<String>,
+    rate_limit_ms: Option<u64>,
     stable_assets: Vec<String>,
 }
 
@@ -228,6 +229,7 @@ fn resolve_dirs(
             content_dir: c.clone(),
             output_dir: o.clone(),
             skip_domains: vec![],
+            rate_limit_ms: None,
             stable_assets: vec![],
         });
     }
@@ -247,6 +249,7 @@ fn resolve_dirs(
                 content_dir,
                 output_dir,
                 skip_domains: cfg.skip_domains,
+                rate_limit_ms: cfg.rate_limit_ms,
                 stable_assets: cfg.stable_assets,
             })
         }
@@ -282,7 +285,7 @@ async fn main() -> Result<()> {
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
 
             // Always use the mini build TUI for now
-            build_with_mini_tui(&cfg.content_dir, &cfg.output_dir, &cfg.skip_domains)?;
+            build_with_mini_tui(&cfg.content_dir, &cfg.output_dir, &cfg.skip_domains, cfg.rate_limit_ms)?;
         }
         Command::Serve(args) => {
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
@@ -1018,6 +1021,7 @@ fn build_with_mini_tui(
     content_dir: &Utf8PathBuf,
     output_dir: &Utf8PathBuf,
     skip_domains: &[String],
+    rate_limit_ms: Option<u64>,
 ) -> Result<()> {
     use crossterm::cursor;
     use ratatui::prelude::*;
@@ -1227,8 +1231,11 @@ fn build_with_mini_tui(
 
     // Check external links with date-based caching
     let today = chrono::Local::now().date_naive();
-    let external_options =
+    let mut external_options =
         link_checker::ExternalLinkOptions::new().skip_domains(skip_domains.iter().cloned());
+    if let Some(ms) = rate_limit_ms {
+        external_options = external_options.rate_limit_ms(ms);
+    }
 
     // Run external link checking in a separate thread with its own runtime
     let extracted_external = extracted.external.clone();
