@@ -7,7 +7,7 @@ use std::path::Path;
 
 /// A loaded plugin.
 pub struct Plugin {
-    #[allow(dead_code)]
+    #[allow(dead_code)] // Kept alive to maintain library loaded
     library: Library,
     methods: &'static [MethodSignature],
     dispatch: unsafe extern "C" fn(*mut MethodCallData),

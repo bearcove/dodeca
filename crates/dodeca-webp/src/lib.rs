@@ -79,3 +79,8 @@ mod tests {
         assert!(matches!(result, PlugResult::Err(_)));
     }
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn debug_struct_size() -> usize {
+    std::mem::size_of::<plugcard::MethodSignature>()
+}

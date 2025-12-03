@@ -73,6 +73,11 @@ pub fn encode_jxl(pixels: Vec<u8>, width: u32, height: u32, quality: u8) -> Plug
     PlugResult::Ok(result.data.to_vec())
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn debug_struct_size() -> usize {
+    std::mem::size_of::<plugcard::MethodSignature>()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

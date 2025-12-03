@@ -112,6 +112,7 @@ lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }  # CSS par
 oxc = { version = "0.100", features = ["full"] }  # JS parser/minifier
 
 # Font subsetting (static analysis + klippa backend)
+# TODO: Switch to git version once bearcove/fontcull#3 is fixed properly
 fontcull = { version = "1.0.4", default-features = false, features = ["klippa", "static-analysis"] }
 
 # Image processing (decode common formats, encode via plugins)
