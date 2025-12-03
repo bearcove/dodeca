@@ -1617,7 +1617,6 @@ dependencies = [
  "if-addrs",
  "ignore",
  "image",
- "lightningcss",
  "livereload-client",
  "lol_html 2.7.0",
  "markup5ever_rcdom",
@@ -1627,7 +1626,6 @@ dependencies = [
  "notify",
  "open",
  "owo-colors",
- "oxc",
  "pagefind",
  "phf 0.11.3",
  "plugcard",
@@ -1642,7 +1640,6 @@ dependencies = [
  "salsa",
  "serde",
  "serde_yaml 0.9.34+deprecated",
- "syntect",
  "test-log",
  "thiserror 2.0.17",
  "thumbhash",
@@ -1659,6 +1656,26 @@ dependencies = [
  "linkme",
  "plugcard",
  "postcard-schema",
+]
+
+[[package]]
+name = "dodeca-css"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "lightningcss",
+ "linkme",
+ "plugcard",
+]
+
+[[package]]
+name = "dodeca-js"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "linkme",
+ "oxc",
+ "plugcard",
 ]
 
 [[package]]

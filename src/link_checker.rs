@@ -171,12 +171,6 @@ impl ExternalLinkOptions {
         self
     }
 
-    /// Set the minimum delay between requests to the same domain
-    pub fn rate_limit(mut self, delay: Duration) -> Self {
-        self.rate_limit = delay;
-        self
-    }
-
     /// Set the rate limit in milliseconds
     pub fn rate_limit_ms(mut self, ms: u64) -> Self {
         self.rate_limit = Duration::from_millis(ms);

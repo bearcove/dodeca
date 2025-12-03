@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/livereload-client", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "xtask"]
+members = [".", "crates/livereload-client", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "xtask"]
 
 [package]
 name = "dodeca"
@@ -36,9 +36,8 @@ facet-value = { git = "https://github.com/facet-rs/facet" }
 # YAML parsing (for data files - facet-yaml doesn't support dynamic values)
 serde_yaml = "0.9"
 
-# Markdown & syntax highlighting
+# Markdown parsing
 pulldown-cmark = "0.13"
-syntect = "5"
 
 # HTML generation
 maud = "0.27"
@@ -108,10 +107,8 @@ aliri_braid = "0.4"  # Strongly-typed string wrappers
 regex = "1"  # For HTML heading extraction
 url = "2"  # URL parsing for domain extraction
 
-# URL rewriting (precise, parser-based)
+# URL rewriting (HTML only - CSS/JS via plugins)
 lol_html = "2.7"        # Streaming HTML rewriter
-lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }  # CSS parser/transformer
-oxc = { version = "0.100", features = ["full"] }  # JS parser/minifier
 
 # Font subsetting (static analysis + klippa backend)
 fontcull = { git = "https://github.com/bearcove/fontcull", default-features = false, features = ["klippa", "static-analysis"] }

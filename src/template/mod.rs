@@ -38,4 +38,4 @@ pub mod parser;
 mod render;
 
 pub use eval::{Context, Value};
-pub use render::{Engine, InMemoryLoader, Template};
+pub use render::{Engine, InMemoryLoader};

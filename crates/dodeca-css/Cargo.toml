@@ -1,0 +1,19 @@
+[package]
+name = "dodeca-css"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "CSS URL rewriting and minification plugin for dodeca"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+plugcard = { path = "../plugcard" }
+facet = { git = "https://github.com/facet-rs/facet" }
+linkme = "0.3"
+
+# CSS parsing and transformation
+lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }

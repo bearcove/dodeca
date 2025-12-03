@@ -33,6 +33,10 @@ pub struct PluginRegistry {
     pub svgo: Option<Plugin>,
     /// SASS/SCSS compilation plugin
     pub sass: Option<Plugin>,
+    /// CSS URL rewriting plugin
+    pub css: Option<Plugin>,
+    /// JS string literal rewriting plugin
+    pub js: Option<Plugin>,
 }
 
 impl PluginRegistry {
@@ -43,8 +47,10 @@ impl PluginRegistry {
         let minify = Self::try_load_plugin(dir, "dodeca_minify");
         let svgo = Self::try_load_plugin(dir, "dodeca_svgo");
         let sass = Self::try_load_plugin(dir, "dodeca_sass");
+        let css = Self::try_load_plugin(dir, "dodeca_css");
+        let js = Self::try_load_plugin(dir, "dodeca_js");
 
-        PluginRegistry { webp, jxl, minify, svgo, sass }
+        PluginRegistry { webp, jxl, minify, svgo, sass, css, js }
     }
 
     /// Check if any plugins were loaded
@@ -54,6 +60,8 @@ impl PluginRegistry {
             || self.minify.is_some()
             || self.svgo.is_some()
             || self.sass.is_some()
+            || self.css.is_some()
+            || self.js.is_some()
     }
 
     fn try_load_plugin(dir: &Path, name: &str) -> Option<Plugin> {
@@ -136,6 +144,8 @@ pub fn plugins() -> &'static PluginRegistry {
             minify: None,
             svgo: None,
             sass: None,
+            css: None,
+            js: None,
         }
     })
 }
@@ -315,6 +325,71 @@ pub fn compile_sass_plugin(
 
     match plugin.call::<SassInput, PlugResult<String>>("compile_sass", &input) {
         Ok(PlugResult::Ok(css)) => Ok(css),
+        Ok(PlugResult::Err(e)) => Err(e),
+        Err(e) => Err(format!("plugin call failed: {}", e)),
+    }
+}
+
+/// Input for CSS URL rewriting
+#[derive(Facet)]
+struct CssRewriteInput {
+    css: String,
+    path_map: std::collections::HashMap<String, String>,
+}
+
+/// Rewrite URLs in CSS and minify using the plugin.
+///
+/// # Panics
+/// Panics if the css plugin is not loaded.
+pub fn rewrite_urls_in_css_plugin(
+    css: &str,
+    path_map: &std::collections::HashMap<String, String>,
+) -> Result<String, String> {
+    let plugin = plugins()
+        .css
+        .as_ref()
+        .expect("dodeca-css plugin not loaded");
+
+    let input = CssRewriteInput {
+        css: css.to_string(),
+        path_map: path_map.clone(),
+    };
+
+    match plugin.call::<CssRewriteInput, PlugResult<String>>("rewrite_urls_in_css", &input) {
+        Ok(PlugResult::Ok(result)) => Ok(result),
+        Ok(PlugResult::Err(e)) => Err(e),
+        Err(e) => Err(format!("plugin call failed: {}", e)),
+    }
+}
+
+/// Input for JS string literal rewriting
+#[derive(Facet)]
+struct JsRewriteInput {
+    js: String,
+    path_map: std::collections::HashMap<String, String>,
+}
+
+/// Rewrite string literals in JS using the plugin.
+///
+/// # Panics
+/// Panics if the js plugin is not loaded.
+pub fn rewrite_string_literals_in_js_plugin(
+    js: &str,
+    path_map: &std::collections::HashMap<String, String>,
+) -> Result<String, String> {
+    let plugin = plugins()
+        .js
+        .as_ref()
+        .expect("dodeca-js plugin not loaded");
+
+    let input = JsRewriteInput {
+        js: js.to_string(),
+        path_map: path_map.clone(),
+    };
+
+    match plugin.call::<JsRewriteInput, PlugResult<String>>("rewrite_string_literals_in_js", &input)
+    {
+        Ok(PlugResult::Ok(result)) => Ok(result),
         Ok(PlugResult::Err(e)) => Err(e),
         Err(e) => Err(format!("plugin call failed: {}", e)),
     }
