@@ -6,7 +6,6 @@
 //! - Expression REPL for evaluating template expressions
 
 use dioxus::prelude::*;
-use glade::{GLADE_BASE_CSS, GLADE_STYLANCE_CSS};
 use wasm_bindgen::prelude::*;
 
 mod protocol;
@@ -15,6 +14,12 @@ mod components;
 
 pub use protocol::{ClientMessage, ErrorInfo, ServerMessage, ScopeValue};
 pub use state::DevtoolsState;
+
+/// Glade base CSS (color variables, etc.)
+const GLADE_BASE_CSS: &str = include_str!("../css/glade-base.css");
+
+/// Glade component styles (from stylance)
+const GLADE_STYLANCE_CSS: &str = include_str!("../css/glade-stylance.css");
 
 /// Mount the devtools overlay into the page
 #[wasm_bindgen]
@@ -60,9 +65,9 @@ fn App() -> Element {
     });
 
     rsx! {
-        // Load Glade CSS for component styling
-        document::Link { rel: "stylesheet", href: GLADE_BASE_CSS }
-        document::Link { rel: "stylesheet", href: GLADE_STYLANCE_CSS }
+        // Inject Glade CSS as style tags
+        style { {GLADE_BASE_CSS} }
+        style { {GLADE_STYLANCE_CSS} }
 
         components::DevtoolsOverlay {}
     }
