@@ -1,0 +1,10 @@
+[package]
+name = "facet-svg"
+version = "0.1.0"
+edition = "2024"
+description = "Facet-derived types for SVG parsing and serialization"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+facet = { git = "https://github.com/facet-rs/facet" }
+facet-xml = { git = "https://github.com/facet-rs/facet" }

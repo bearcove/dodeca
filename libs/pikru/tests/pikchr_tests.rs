@@ -1,4 +1,7 @@
 use datatest_stable::Utf8Path;
+use facet_svg::{
+    Circle, Ellipse, Line, Path, Polygon, Polyline, Rect, Svg, SvgNode, Text, facet_xml,
+};
 use std::collections::HashMap;
 use std::process::Command;
 
@@ -10,7 +13,7 @@ const C_PIKCHR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/pikchr");
 const FLOAT_TOLERANCE: f64 = 0.05;
 
 // =============================================================================
-// SVG Comparison Types
+// SVG Comparison Types (flattened for comparison)
 // =============================================================================
 
 /// A parsed SVG element for comparison
@@ -42,55 +45,72 @@ struct PathCommand {
 
 /// Parse an SVG string into a list of comparable elements
 fn parse_svg(svg: &str) -> Result<Vec<SvgElement>, String> {
-    let doc = roxmltree::Document::parse(svg).map_err(|e| format!("XML parse error: {}", e))?;
+    let doc: Svg = facet_xml::from_str(svg).map_err(|e| format!("XML parse error: {}", e))?;
 
     let mut elements = Vec::new();
-
-    for node in doc.descendants() {
-        if !node.is_element() {
-            continue;
-        }
-
-        let tag = node.tag_name().name();
-
-        // Skip container elements
-        if matches!(tag, "svg" | "g" | "defs" | "style") {
-            continue;
-        }
-
-        let element = match tag {
-            "rect" => parse_rect(&node),
-            "circle" => parse_circle(&node),
-            "ellipse" => parse_ellipse(&node),
-            "line" => parse_line(&node),
-            "path" => parse_path(&node),
-            "polygon" => parse_polygon(&node),
-            "polyline" => parse_polyline(&node),
-            "text" => parse_text(&node),
-            _ => continue,
-        };
-
-        elements.push(element);
-    }
-
+    collect_elements(&doc.children, &mut elements);
     Ok(elements)
 }
 
-fn parse_rect(node: &roxmltree::Node) -> SvgElement {
+/// Recursively collect elements from SVG children
+fn collect_elements(children: &[SvgNode], elements: &mut Vec<SvgElement>) {
+    for child in children {
+        match child {
+            SvgNode::G(g) => collect_elements(&g.children, elements),
+            SvgNode::Defs(d) => collect_elements(&d.children, elements),
+            SvgNode::Style(_) => {} // Skip style elements
+            SvgNode::Rect(r) => elements.push(rect_to_element(r)),
+            SvgNode::Circle(c) => elements.push(circle_to_element(c)),
+            SvgNode::Ellipse(e) => elements.push(ellipse_to_element(e)),
+            SvgNode::Line(l) => elements.push(line_to_element(l)),
+            SvgNode::Path(p) => elements.push(path_to_element(p)),
+            SvgNode::Polygon(p) => elements.push(polygon_to_element(p)),
+            SvgNode::Polyline(p) => elements.push(polyline_to_element(p)),
+            SvgNode::Text(t) => elements.push(text_to_element(t)),
+        }
+    }
+}
+
+fn rect_to_element(r: &Rect) -> SvgElement {
     let mut attrs = HashMap::new();
     let mut str_attrs = HashMap::new();
 
-    for attr in ["x", "y", "width", "height", "rx", "ry"] {
-        if let Some(v) = get_num_attr(node, attr) {
-            attrs.insert(attr.to_string(), v);
-        }
+    if let Some(x) = r.x {
+        attrs.insert("x".to_string(), x);
+    }
+    if let Some(y) = r.y {
+        attrs.insert("y".to_string(), y);
+    }
+    if let Some(w) = r.width {
+        attrs.insert("width".to_string(), w);
+    }
+    if let Some(h) = r.height {
+        attrs.insert("height".to_string(), h);
+    }
+    if let Some(rx) = r.rx {
+        attrs.insert("rx".to_string(), rx);
+    }
+    if let Some(ry) = r.ry {
+        attrs.insert("ry".to_string(), ry);
     }
 
-    parse_style_attrs(node, &mut str_attrs);
+    if let Some(ref f) = r.fill {
+        str_attrs.insert("fill".to_string(), normalize_color(f));
+    }
+    if let Some(ref s) = r.stroke {
+        str_attrs.insert("stroke".to_string(), normalize_color(s));
+    }
+    if let Some(ref sw) = r.stroke_width {
+        str_attrs.insert("stroke-width".to_string(), sw.clone());
+    }
+    if let Some(ref sd) = r.stroke_dasharray {
+        str_attrs.insert("stroke-dasharray".to_string(), sd.clone());
+    }
+    if let Some(ref st) = r.style {
+        str_attrs.insert("style".to_string(), st.clone());
+    }
 
-    let x = attrs.get("x").copied();
-    let y = attrs.get("y").copied();
-    let pos = match (x, y) {
+    let pos = match (r.x, r.y) {
         (Some(x), Some(y)) => Some((x, y)),
         _ => None,
     };
@@ -105,21 +125,37 @@ fn parse_rect(node: &roxmltree::Node) -> SvgElement {
     }
 }
 
-fn parse_circle(node: &roxmltree::Node) -> SvgElement {
+fn circle_to_element(c: &Circle) -> SvgElement {
     let mut attrs = HashMap::new();
     let mut str_attrs = HashMap::new();
 
-    for attr in ["cx", "cy", "r"] {
-        if let Some(v) = get_num_attr(node, attr) {
-            attrs.insert(attr.to_string(), v);
-        }
+    if let Some(cx) = c.cx {
+        attrs.insert("cx".to_string(), cx);
+    }
+    if let Some(cy) = c.cy {
+        attrs.insert("cy".to_string(), cy);
+    }
+    if let Some(r) = c.r {
+        attrs.insert("r".to_string(), r);
     }
 
-    parse_style_attrs(node, &mut str_attrs);
+    if let Some(ref f) = c.fill {
+        str_attrs.insert("fill".to_string(), normalize_color(f));
+    }
+    if let Some(ref s) = c.stroke {
+        str_attrs.insert("stroke".to_string(), normalize_color(s));
+    }
+    if let Some(ref sw) = c.stroke_width {
+        str_attrs.insert("stroke-width".to_string(), sw.clone());
+    }
+    if let Some(ref sd) = c.stroke_dasharray {
+        str_attrs.insert("stroke-dasharray".to_string(), sd.clone());
+    }
+    if let Some(ref st) = c.style {
+        str_attrs.insert("style".to_string(), st.clone());
+    }
 
-    let cx = attrs.get("cx").copied();
-    let cy = attrs.get("cy").copied();
-    let pos = match (cx, cy) {
+    let pos = match (c.cx, c.cy) {
         (Some(x), Some(y)) => Some((x, y)),
         _ => None,
     };
@@ -134,21 +170,40 @@ fn parse_circle(node: &roxmltree::Node) -> SvgElement {
     }
 }
 
-fn parse_ellipse(node: &roxmltree::Node) -> SvgElement {
+fn ellipse_to_element(e: &Ellipse) -> SvgElement {
     let mut attrs = HashMap::new();
     let mut str_attrs = HashMap::new();
 
-    for attr in ["cx", "cy", "rx", "ry"] {
-        if let Some(v) = get_num_attr(node, attr) {
-            attrs.insert(attr.to_string(), v);
-        }
+    if let Some(cx) = e.cx {
+        attrs.insert("cx".to_string(), cx);
+    }
+    if let Some(cy) = e.cy {
+        attrs.insert("cy".to_string(), cy);
+    }
+    if let Some(rx) = e.rx {
+        attrs.insert("rx".to_string(), rx);
+    }
+    if let Some(ry) = e.ry {
+        attrs.insert("ry".to_string(), ry);
     }
 
-    parse_style_attrs(node, &mut str_attrs);
+    if let Some(ref f) = e.fill {
+        str_attrs.insert("fill".to_string(), normalize_color(f));
+    }
+    if let Some(ref s) = e.stroke {
+        str_attrs.insert("stroke".to_string(), normalize_color(s));
+    }
+    if let Some(ref sw) = e.stroke_width {
+        str_attrs.insert("stroke-width".to_string(), sw.clone());
+    }
+    if let Some(ref sd) = e.stroke_dasharray {
+        str_attrs.insert("stroke-dasharray".to_string(), sd.clone());
+    }
+    if let Some(ref st) = e.style {
+        str_attrs.insert("style".to_string(), st.clone());
+    }
 
-    let cx = attrs.get("cx").copied();
-    let cy = attrs.get("cy").copied();
-    let pos = match (cx, cy) {
+    let pos = match (e.cx, e.cy) {
         (Some(x), Some(y)) => Some((x, y)),
         _ => None,
     };
@@ -163,21 +218,40 @@ fn parse_ellipse(node: &roxmltree::Node) -> SvgElement {
     }
 }
 
-fn parse_line(node: &roxmltree::Node) -> SvgElement {
+fn line_to_element(l: &Line) -> SvgElement {
     let mut attrs = HashMap::new();
     let mut str_attrs = HashMap::new();
 
-    for attr in ["x1", "y1", "x2", "y2"] {
-        if let Some(v) = get_num_attr(node, attr) {
-            attrs.insert(attr.to_string(), v);
-        }
+    if let Some(x1) = l.x1 {
+        attrs.insert("x1".to_string(), x1);
+    }
+    if let Some(y1) = l.y1 {
+        attrs.insert("y1".to_string(), y1);
+    }
+    if let Some(x2) = l.x2 {
+        attrs.insert("x2".to_string(), x2);
+    }
+    if let Some(y2) = l.y2 {
+        attrs.insert("y2".to_string(), y2);
     }
 
-    parse_style_attrs(node, &mut str_attrs);
+    if let Some(ref f) = l.fill {
+        str_attrs.insert("fill".to_string(), normalize_color(f));
+    }
+    if let Some(ref s) = l.stroke {
+        str_attrs.insert("stroke".to_string(), normalize_color(s));
+    }
+    if let Some(ref sw) = l.stroke_width {
+        str_attrs.insert("stroke-width".to_string(), sw.clone());
+    }
+    if let Some(ref sd) = l.stroke_dasharray {
+        str_attrs.insert("stroke-dasharray".to_string(), sd.clone());
+    }
+    if let Some(ref st) = l.style {
+        str_attrs.insert("style".to_string(), st.clone());
+    }
 
-    let x1 = attrs.get("x1").copied();
-    let y1 = attrs.get("y1").copied();
-    let pos = match (x1, y1) {
+    let pos = match (l.x1, l.y1) {
         (Some(x), Some(y)) => Some((x, y)),
         _ => None,
     };
@@ -192,17 +266,27 @@ fn parse_line(node: &roxmltree::Node) -> SvgElement {
     }
 }
 
-fn parse_path(node: &roxmltree::Node) -> SvgElement {
+fn path_to_element(p: &Path) -> SvgElement {
     let attrs = HashMap::new();
     let mut str_attrs = HashMap::new();
 
-    parse_style_attrs(node, &mut str_attrs);
+    if let Some(ref f) = p.fill {
+        str_attrs.insert("fill".to_string(), normalize_color(f));
+    }
+    if let Some(ref s) = p.stroke {
+        str_attrs.insert("stroke".to_string(), normalize_color(s));
+    }
+    if let Some(ref sw) = p.stroke_width {
+        str_attrs.insert("stroke-width".to_string(), sw.clone());
+    }
+    if let Some(ref sd) = p.stroke_dasharray {
+        str_attrs.insert("stroke-dasharray".to_string(), sd.clone());
+    }
+    if let Some(ref st) = p.style {
+        str_attrs.insert("style".to_string(), st.clone());
+    }
 
-    let path_commands = if let Some(d) = node.attribute("d") {
-        parse_path_data(d)
-    } else {
-        vec![]
-    };
+    let path_commands = p.d.as_ref().map(|d| parse_path_data(d)).unwrap_or_default();
 
     // Use first command's position as element position
     let pos = path_commands.first().and_then(|cmd| {
@@ -223,18 +307,32 @@ fn parse_path(node: &roxmltree::Node) -> SvgElement {
     }
 }
 
-fn parse_polygon(node: &roxmltree::Node) -> SvgElement {
+fn polygon_to_element(p: &Polygon) -> SvgElement {
     let attrs = HashMap::new();
     let mut str_attrs = HashMap::new();
 
-    parse_style_attrs(node, &mut str_attrs);
+    if let Some(ref f) = p.fill {
+        str_attrs.insert("fill".to_string(), normalize_color(f));
+    }
+    if let Some(ref s) = p.stroke {
+        str_attrs.insert("stroke".to_string(), normalize_color(s));
+    }
+    if let Some(ref sw) = p.stroke_width {
+        str_attrs.insert("stroke-width".to_string(), sw.clone());
+    }
+    if let Some(ref sd) = p.stroke_dasharray {
+        str_attrs.insert("stroke-dasharray".to_string(), sd.clone());
+    }
+    if let Some(ref st) = p.style {
+        str_attrs.insert("style".to_string(), st.clone());
+    }
 
     // Parse points attribute
-    let points = if let Some(p) = node.attribute("points") {
-        parse_points(p)
-    } else {
-        vec![]
-    };
+    let points = p
+        .points
+        .as_ref()
+        .map(|pts| parse_points(pts))
+        .unwrap_or_default();
 
     // Convert points to path commands for easier comparison
     let path_commands: Vec<PathCommand> = points
@@ -258,34 +356,86 @@ fn parse_polygon(node: &roxmltree::Node) -> SvgElement {
     }
 }
 
-fn parse_polyline(node: &roxmltree::Node) -> SvgElement {
-    let mut el = parse_polygon(node);
-    el.tag = "polyline".to_string();
-    el
+fn polyline_to_element(p: &Polyline) -> SvgElement {
+    let attrs = HashMap::new();
+    let mut str_attrs = HashMap::new();
+
+    if let Some(ref f) = p.fill {
+        str_attrs.insert("fill".to_string(), normalize_color(f));
+    }
+    if let Some(ref s) = p.stroke {
+        str_attrs.insert("stroke".to_string(), normalize_color(s));
+    }
+    if let Some(ref sw) = p.stroke_width {
+        str_attrs.insert("stroke-width".to_string(), sw.clone());
+    }
+    if let Some(ref sd) = p.stroke_dasharray {
+        str_attrs.insert("stroke-dasharray".to_string(), sd.clone());
+    }
+    if let Some(ref st) = p.style {
+        str_attrs.insert("style".to_string(), st.clone());
+    }
+
+    // Parse points attribute
+    let points = p
+        .points
+        .as_ref()
+        .map(|pts| parse_points(pts))
+        .unwrap_or_default();
+
+    // Convert points to path commands for easier comparison
+    let path_commands: Vec<PathCommand> = points
+        .iter()
+        .enumerate()
+        .map(|(i, (x, y))| PathCommand {
+            cmd: if i == 0 { 'M' } else { 'L' },
+            args: vec![*x, *y],
+        })
+        .collect();
+
+    let pos = points.first().copied();
+
+    SvgElement {
+        tag: "polyline".to_string(),
+        pos,
+        attrs,
+        str_attrs,
+        text_content: None,
+        path_commands,
+    }
 }
 
-fn parse_text(node: &roxmltree::Node) -> SvgElement {
+fn text_to_element(t: &Text) -> SvgElement {
     let mut attrs = HashMap::new();
     let mut str_attrs = HashMap::new();
 
-    for attr in ["x", "y"] {
-        if let Some(v) = get_num_attr(node, attr) {
-            attrs.insert(attr.to_string(), v);
-        }
+    if let Some(x) = t.x {
+        attrs.insert("x".to_string(), x);
+    }
+    if let Some(y) = t.y {
+        attrs.insert("y".to_string(), y);
     }
 
-    parse_style_attrs(node, &mut str_attrs);
+    if let Some(ref f) = t.fill {
+        str_attrs.insert("fill".to_string(), normalize_color(f));
+    }
+    if let Some(ref s) = t.stroke {
+        str_attrs.insert("stroke".to_string(), normalize_color(s));
+    }
+    if let Some(ref sw) = t.stroke_width {
+        str_attrs.insert("stroke-width".to_string(), sw.clone());
+    }
+    if let Some(ref st) = t.style {
+        str_attrs.insert("style".to_string(), st.clone());
+    }
+    if let Some(ref ta) = t.text_anchor {
+        str_attrs.insert("text-anchor".to_string(), ta.clone());
+    }
+    if let Some(ref db) = t.dominant_baseline {
+        str_attrs.insert("dominant-baseline".to_string(), db.clone());
+    }
 
-    // Get text content
-    let text_content: String = node
-        .descendants()
-        .filter(|n| n.is_text())
-        .map(|n| n.text().unwrap_or(""))
-        .collect();
-
-    let x = attrs.get("x").copied();
-    let y = attrs.get("y").copied();
-    let pos = match (x, y) {
+    let pos = match (t.x, t.y) {
         (Some(x), Some(y)) => Some((x, y)),
         _ => None,
     };
@@ -295,26 +445,8 @@ fn parse_text(node: &roxmltree::Node) -> SvgElement {
         pos,
         attrs,
         str_attrs,
-        text_content: Some(text_content),
+        text_content: Some(t.content.clone()),
         path_commands: vec![],
-    }
-}
-
-fn get_num_attr(node: &roxmltree::Node, name: &str) -> Option<f64> {
-    node.attribute(name).and_then(|v| v.parse().ok())
-}
-
-fn parse_style_attrs(node: &roxmltree::Node, str_attrs: &mut HashMap<String, String>) {
-    for attr in [
-        "fill",
-        "stroke",
-        "stroke-width",
-        "stroke-dasharray",
-        "style",
-    ] {
-        if let Some(v) = node.attribute(attr) {
-            str_attrs.insert(attr.to_string(), normalize_color(v));
-        }
     }
 }
 
