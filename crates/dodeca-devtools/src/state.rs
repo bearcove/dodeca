@@ -1,6 +1,7 @@
 //! Devtools state management and WebSocket connection
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use dioxus::prelude::*;
 use wasm_bindgen::prelude::*;
 use web_sys::{MessageEvent, WebSocket};
@@ -42,6 +43,12 @@ pub struct DevtoolsState {
 
     /// Next request ID for scope/eval requests
     pub next_request_id: u32,
+
+    /// Pending scope requests: request_id -> path
+    pub pending_scope_requests: HashMap<u32, Vec<String>>,
+
+    /// Cached scope children by path (joined with ".")
+    pub scope_children: HashMap<String, Vec<ScopeEntry>>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -291,14 +298,28 @@ fn handle_server_message(mut state: Signal<DevtoolsState>, msg: ServerMessage) {
         // Note: DOM patches are sent as binary WebSocket messages and handled
         // directly in the message handler, not as JSON ServerMessage
 
-        ServerMessage::ScopeResponse { request_id: _, scope } => {
+        ServerMessage::ScopeResponse { request_id, scope } => {
             let mut s = state.write();
-            s.scope_loading = false;
-            s.scope_entries = scope;
-            tracing::info!(
-                "[devtools] scope response: {} entries",
-                s.scope_entries.len()
-            );
+
+            // Check if this is a response to a pending child request
+            if let Some(path) = s.pending_scope_requests.remove(&request_id) {
+                let path_key = path.join(".");
+                tracing::info!(
+                    "[devtools] scope children response for {}: {} entries",
+                    path_key, scope.len()
+                );
+                s.scope_children.insert(path_key, scope);
+            } else {
+                // Top-level scope response
+                s.scope_loading = false;
+                s.scope_entries = scope;
+                // Clear children cache when refreshing
+                s.scope_children.clear();
+                tracing::info!(
+                    "[devtools] scope response: {} entries",
+                    s.scope_entries.len()
+                );
+            }
         }
 
         ServerMessage::EvalResponse { request_id, result } => {

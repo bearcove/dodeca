@@ -6,8 +6,8 @@ use glade::components::{
     icons::{IconChevronRight, IconChevronDown, IconRefreshCw},
 };
 
-use crate::protocol::{ScopeEntry, ScopeValue};
-use crate::state::DevtoolsState;
+use crate::protocol::{ClientMessage, ScopeEntry, ScopeValue};
+use crate::state::{send_message, DevtoolsState};
 
 /// Tree view for exploring template scope variables
 #[component]
@@ -73,7 +73,11 @@ pub fn ScopeExplorer() -> Element {
                     }
                 } else {
                     for entry in scope_entries {
-                        ScopeEntryRow { entry: entry.clone(), depth: 0 }
+                        ScopeEntryRow {
+                            entry: entry.clone(),
+                            path: vec![entry.name.clone()],
+                            depth: 0,
+                        }
                     }
                 }
             }
@@ -83,11 +87,24 @@ pub fn ScopeExplorer() -> Element {
 
 /// A single entry in the scope tree
 #[component]
-fn ScopeEntryRow(entry: ScopeEntry, depth: u32) -> Element {
+fn ScopeEntryRow(entry: ScopeEntry, path: Vec<String>, depth: u32) -> Element {
+    let mut state = use_context::<Signal<DevtoolsState>>();
     let mut expanded = use_signal(|| false);
+
     let indent = depth * 16;
     let cursor = if entry.expandable { "pointer" } else { "default" };
     let padding_left = indent + 8;
+
+    // Get path key for cache lookup
+    let path_key = path.join(".");
+
+    // Check if we have cached children for this path
+    let children = state.read().scope_children.get(&path_key).cloned().unwrap_or_default();
+    let is_loading = expanded() && children.is_empty() && entry.expandable;
+
+    // Clone for closures
+    let path_for_click = path.clone();
+    let entry_expandable = entry.expandable;
 
     rsx! {
         div {
@@ -102,10 +119,32 @@ fn ScopeEntryRow(entry: ScopeEntry, depth: u32) -> Element {
                     background: transparent;
                     transition: background 0.1s;
                 ",
-                onmouseenter: move |_| {},
                 onclick: move |_| {
-                    if entry.expandable {
-                        expanded.set(!expanded());
+                    if entry_expandable {
+                        let is_expanded = expanded();
+                        if !is_expanded {
+                            // Check if we need to fetch children
+                            let path_key = path_for_click.join(".");
+                            let has_children = state.read().scope_children.contains_key(&path_key);
+
+                            if !has_children {
+                                // Fetch children
+                                let request_id = {
+                                    let mut s = state.write();
+                                    let id = s.next_request_id;
+                                    s.next_request_id += 1;
+                                    s.pending_scope_requests.insert(id, path_for_click.clone());
+                                    id
+                                };
+
+                                send_message(&ClientMessage::GetScope {
+                                    request_id,
+                                    snapshot_id: None,
+                                    path: Some(path_for_click.clone()),
+                                });
+                            }
+                        }
+                        expanded.set(!is_expanded);
                     }
                 },
 
@@ -120,7 +159,9 @@ fn ScopeEntryRow(entry: ScopeEntry, depth: u32) -> Element {
                             justify-content: center;
                             color: #737373;
                         ",
-                        if expanded() {
+                        if is_loading {
+                            span { style: "font-size: 0.6rem;", "..." }
+                        } else if expanded() {
                             IconChevronDown {}
                         } else {
                             IconChevronRight {}
@@ -150,7 +191,21 @@ fn ScopeEntryRow(entry: ScopeEntry, depth: u32) -> Element {
             }
 
             // Children (when expanded)
-            // TODO: Load children from server
+            if expanded() && !children.is_empty() {
+                div {
+                    for child in children {
+                        ScopeEntryRow {
+                            entry: child.clone(),
+                            path: {
+                                let mut p = path.clone();
+                                p.push(child.name.clone());
+                                p
+                            },
+                            depth: depth + 1,
+                        }
+                    }
+                }
+            }
         }
     }
 }
