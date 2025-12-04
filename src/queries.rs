@@ -36,6 +36,48 @@ pub fn load_all_templates<'db>(
     result
 }
 
+/// Build a lookup table from template path to TemplateFile
+/// This is tracked so changes to the registry invalidate the lookup
+#[salsa::tracked]
+pub fn template_lookup<'db>(
+    db: &'db dyn Db,
+    registry: TemplateRegistry,
+) -> HashMap<String, TemplateFile> {
+    registry
+        .templates(db)
+        .iter()
+        .map(|t| (t.path(db).as_str().to_string(), *t))
+        .collect()
+}
+
+/// A template loader that uses Salsa tracked queries for fine-grained dependency tracking.
+/// When a template is loaded, Salsa records it as a dependency of the current query,
+/// enabling incremental rebuilds that only re-render pages whose templates changed.
+pub struct SalsaTemplateLoader<'db> {
+    db: &'db dyn Db,
+    lookup: HashMap<String, TemplateFile>,
+}
+
+impl<'db> SalsaTemplateLoader<'db> {
+    /// Create a new loader for the given template registry
+    pub fn new(db: &'db dyn Db, registry: TemplateRegistry) -> Self {
+        Self {
+            db,
+            lookup: template_lookup(db, registry),
+        }
+    }
+}
+
+impl gingembre::TemplateLoader for SalsaTemplateLoader<'_> {
+    fn load(&self, name: &str) -> Option<String> {
+        let template = self.lookup.get(name)?;
+        // This call to load_template is tracked by Salsa!
+        // The current query (e.g., render_page) will depend on this specific template.
+        let content = load_template(self.db, *template);
+        Some(content.as_str().to_string())
+    }
+}
+
 /// Load a sass file's content - tracked by Salsa for dependency tracking
 #[salsa::tracked]
 pub fn load_sass(db: &dyn Db, sass: SassFile) -> SassContent {
@@ -238,7 +280,8 @@ fn find_parent_section(route: &Route, sections: &BTreeMap<Route, Section>) -> Ro
 }
 
 /// Render a single page to HTML
-/// This tracked query depends on the page content, templates, data files, and site tree
+/// This tracked query depends on the page content, templates actually used, data files, and site tree.
+/// Template dependencies are tracked lazily - only templates loaded during rendering are recorded.
 #[salsa::tracked]
 #[tracing::instrument(skip_all, name = "render_page")]
 pub fn render_page<'db>(
@@ -248,13 +291,13 @@ pub fn render_page<'db>(
     templates: TemplateRegistry,
     data: DataRegistry,
 ) -> RenderedHtml {
-    use crate::render::render_page_to_html;
+    use crate::render::render_page_with_loader;
 
     // Build tree (cached by Salsa)
     let site_tree = build_tree(db, sources);
 
-    // Load templates (cached by Salsa)
-    let template_map = load_all_templates(db, templates);
+    // Create a lazy template loader that tracks dependencies via Salsa
+    let loader = SalsaTemplateLoader::new(db, templates);
 
     // Load data files (cached by Salsa) and convert to template Value
     let raw_data = load_all_data_raw(db, data);
@@ -266,13 +309,14 @@ pub fn render_page<'db>(
         .get(&route)
         .expect("Page not found for route");
 
-    // Render to HTML
-    let html = render_page_to_html(page, &site_tree, &template_map, Some(data_value));
+    // Render to HTML - template loads are tracked as dependencies
+    let html = render_page_with_loader(page, &site_tree, loader, Some(data_value));
     RenderedHtml(html)
 }
 
 /// Render a single section to HTML
-/// This tracked query depends on the section content, templates, data files, and site tree
+/// This tracked query depends on the section content, templates actually used, data files, and site tree.
+/// Template dependencies are tracked lazily - only templates loaded during rendering are recorded.
 #[salsa::tracked]
 #[tracing::instrument(skip_all, name = "render_section")]
 pub fn render_section<'db>(
@@ -282,13 +326,13 @@ pub fn render_section<'db>(
     templates: TemplateRegistry,
     data: DataRegistry,
 ) -> RenderedHtml {
-    use crate::render::render_section_to_html;
+    use crate::render::render_section_with_loader;
 
     // Build tree (cached by Salsa)
     let site_tree = build_tree(db, sources);
 
-    // Load templates (cached by Salsa)
-    let template_map = load_all_templates(db, templates);
+    // Create a lazy template loader that tracks dependencies via Salsa
+    let loader = SalsaTemplateLoader::new(db, templates);
 
     // Load data files (cached by Salsa) and convert to template Value
     let raw_data = load_all_data_raw(db, data);
@@ -300,8 +344,8 @@ pub fn render_section<'db>(
         .get(&route)
         .expect("Section not found for route");
 
-    // Render to HTML
-    let html = render_section_to_html(section, &site_tree, &template_map, Some(data_value));
+    // Render to HTML - template loads are tracked as dependencies
+    let html = render_section_with_loader(section, &site_tree, loader, Some(data_value));
     RenderedHtml(html)
 }
 

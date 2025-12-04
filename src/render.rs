@@ -1,6 +1,8 @@
 use crate::db::{Heading, Page, Section, SiteTree};
 use crate::error_pages::render_error_page;
-use crate::template::{Context, Engine, InMemoryLoader, VArray, VObject, VString, Value, ValueExt};
+use crate::template::{
+    Context, Engine, InMemoryLoader, TemplateLoader, VArray, VObject, VString, Value, ValueExt,
+};
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
 use std::collections::{HashMap, HashSet};
@@ -162,21 +164,17 @@ pub fn inject_livereload(html: &str, options: RenderOptions, known_routes: Optio
 }
 
 // ============================================================================
-// Pure render functions for Salsa tracked queries
+// Render functions for Salsa tracked queries
 // ============================================================================
 
-/// Pure function to render a page to HTML (for Salsa tracking)
+/// Render a page to HTML using a template loader.
 /// Returns Result - caller decides whether to show error page (dev) or fail (prod)
-pub fn try_render_page_to_html(
+pub fn try_render_page_with_loader<L: TemplateLoader>(
     page: &Page,
     site_tree: &SiteTree,
-    templates: &HashMap<String, String>,
+    loader: L,
     data: Option<Value>,
 ) -> std::result::Result<String, String> {
-    let mut loader = InMemoryLoader::new();
-    for (path, content) in templates {
-        loader.add(path.clone(), content.clone());
-    }
     let mut engine = Engine::new(loader);
 
     let mut ctx = build_render_context(site_tree, data);
@@ -193,29 +191,25 @@ pub fn try_render_page_to_html(
         .map_err(|e| format!("{e:?}"))
 }
 
-/// Render page - development mode (shows error page on failure)
-pub fn render_page_to_html(
+/// Render page with a loader - development mode (shows error page on failure)
+pub fn render_page_with_loader<L: TemplateLoader>(
     page: &Page,
     site_tree: &SiteTree,
-    templates: &HashMap<String, String>,
+    loader: L,
     data: Option<Value>,
 ) -> String {
-    try_render_page_to_html(page, site_tree, templates, data)
+    try_render_page_with_loader(page, site_tree, loader, data)
         .unwrap_or_else(|e| render_error_page(&e))
 }
 
-/// Pure function to render a section to HTML (for Salsa tracking)
+/// Render a section to HTML using a template loader.
 /// Returns Result - caller decides whether to show error page (dev) or fail (prod)
-pub fn try_render_section_to_html(
+pub fn try_render_section_with_loader<L: TemplateLoader>(
     section: &Section,
     site_tree: &SiteTree,
-    templates: &HashMap<String, String>,
+    loader: L,
     data: Option<Value>,
 ) -> std::result::Result<String, String> {
-    let mut loader = InMemoryLoader::new();
-    for (path, content) in templates {
-        loader.add(path.clone(), content.clone());
-    }
     let mut engine = Engine::new(loader);
 
     let mut ctx = build_render_context(site_tree, data);
@@ -235,6 +229,62 @@ pub fn try_render_section_to_html(
         .map_err(|e| format!("{e:?}"))
 }
 
+/// Render section with a loader - development mode (shows error page on failure)
+pub fn render_section_with_loader<L: TemplateLoader>(
+    section: &Section,
+    site_tree: &SiteTree,
+    loader: L,
+    data: Option<Value>,
+) -> String {
+    try_render_section_with_loader(section, site_tree, loader, data)
+        .unwrap_or_else(|e| render_error_page(&e))
+}
+
+// ============================================================================
+// Convenience functions using HashMap (backward compatibility)
+// ============================================================================
+
+/// Helper to create an InMemoryLoader from a HashMap
+fn loader_from_map(templates: &HashMap<String, String>) -> InMemoryLoader {
+    let mut loader = InMemoryLoader::new();
+    for (path, content) in templates {
+        loader.add(path.clone(), content.clone());
+    }
+    loader
+}
+
+/// Pure function to render a page to HTML (for Salsa tracking)
+/// Returns Result - caller decides whether to show error page (dev) or fail (prod)
+pub fn try_render_page_to_html(
+    page: &Page,
+    site_tree: &SiteTree,
+    templates: &HashMap<String, String>,
+    data: Option<Value>,
+) -> std::result::Result<String, String> {
+    try_render_page_with_loader(page, site_tree, loader_from_map(templates), data)
+}
+
+/// Render page - development mode (shows error page on failure)
+pub fn render_page_to_html(
+    page: &Page,
+    site_tree: &SiteTree,
+    templates: &HashMap<String, String>,
+    data: Option<Value>,
+) -> String {
+    render_page_with_loader(page, site_tree, loader_from_map(templates), data)
+}
+
+/// Pure function to render a section to HTML (for Salsa tracking)
+/// Returns Result - caller decides whether to show error page (dev) or fail (prod)
+pub fn try_render_section_to_html(
+    section: &Section,
+    site_tree: &SiteTree,
+    templates: &HashMap<String, String>,
+    data: Option<Value>,
+) -> std::result::Result<String, String> {
+    try_render_section_with_loader(section, site_tree, loader_from_map(templates), data)
+}
+
 /// Render section - development mode (shows error page on failure)
 pub fn render_section_to_html(
     section: &Section,
@@ -242,8 +292,7 @@ pub fn render_section_to_html(
     templates: &HashMap<String, String>,
     data: Option<Value>,
 ) -> String {
-    try_render_section_to_html(section, site_tree, templates, data)
-        .unwrap_or_else(|e| render_error_page(&e))
+    render_section_with_loader(section, site_tree, loader_from_map(templates), data)
 }
 
 /// Build the render context with config and global functions
