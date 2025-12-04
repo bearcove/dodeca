@@ -219,8 +219,14 @@ pub fn render_section_with_loader<L: TemplateLoader>(
     loader: L,
     data: Option<Value>,
 ) -> String {
-    try_render_section_with_loader(section, site_tree, loader, data)
-        .unwrap_or_else(|e| render_error_page(&e))
+    let result = try_render_section_with_loader(section, site_tree, loader, data);
+    match result {
+        Ok(html) => html,
+        Err(e) => {
+            tracing::warn!("Template error in {}: {}", section.route.as_str(), e);
+            render_error_page(&e)
+        }
+    }
 }
 
 // ============================================================================

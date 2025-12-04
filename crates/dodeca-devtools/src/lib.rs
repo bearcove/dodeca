@@ -6,6 +6,7 @@
 //! - Expression REPL for evaluating template expressions
 
 use dioxus::prelude::*;
+use glade::{GLADE_BASE_CSS, GLADE_STYLANCE_CSS};
 use wasm_bindgen::prelude::*;
 
 mod protocol;
@@ -59,6 +60,10 @@ fn App() -> Element {
     });
 
     rsx! {
+        // Load Glade CSS for component styling
+        document::Link { rel: "stylesheet", href: GLADE_BASE_CSS }
+        document::Link { rel: "stylesheet", href: GLADE_STYLANCE_CSS }
+
         components::DevtoolsOverlay {}
     }
 }

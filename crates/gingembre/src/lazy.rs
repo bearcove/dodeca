@@ -415,6 +415,8 @@ impl LazyValue {
                 DestructuredRef::Array(_) => "list",
                 DestructuredRef::Object(_) => "dict",
                 DestructuredRef::DateTime(_) => "datetime",
+                DestructuredRef::QName(_) => "qname",
+                DestructuredRef::Uuid(_) => "uuid",
             },
         }
     }

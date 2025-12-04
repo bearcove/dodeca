@@ -1930,21 +1930,18 @@ async fn serve_plain(
 /// Takes a snapshot of the server's current state, builds all HTML via Salsa,
 /// and updates the search index. Salsa memoization makes this fast for unchanged pages.
 fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::SearchFiles> {
-    // Lock the database and use the stored registries
-    let db = server.db.lock().map_err(|_| eyre!("db lock poisoned"))?;
+    // Snapshot pattern: lock, clone, release, then query the clone
+    let db = server.db.lock().map_err(|_| eyre!("db lock poisoned"))?.clone();
 
     // Build the site (Salsa will cache/reuse unchanged computations)
     let site_output = queries::build_site(
-        &*db,
+        &db,
         server.source_registry,
         server.template_registry,
         server.sass_registry,
         server.static_registry,
         server.data_registry,
     );
-
-    // Drop lock before async work
-    drop(db);
 
     // Build search index (plugin blocks internally)
     let output = site_output.clone();
@@ -2480,6 +2477,16 @@ async fn serve_with_tui(
                                             for template in templates.iter() {
                                                 if template.path(&*db).as_str() == relative_str {
                                                     use salsa::Setter;
+                                                    let content_hash = {
+                                                        use std::hash::{Hash, Hasher};
+                                                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                                                        content.hash(&mut hasher);
+                                                        hasher.finish()
+                                                    };
+                                                    tracing::info!(
+                                                        "📝 template changed: {} (content hash: {:016x}, {} bytes)",
+                                                        relative_str, content_hash, content.len()
+                                                    );
                                                     template
                                                         .set_content(&mut *db)
                                                         .to(TemplateContent::new(content.clone()));

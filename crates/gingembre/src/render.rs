@@ -1221,4 +1221,29 @@ mod tests {
         let items: Value = VArray::from_iter([Value::from(item1), Value::from(item2), Value::from(item3)]).into();
         assert_eq!(t.render_with([("items", items)]).unwrap(), "Alice, Carol");
     }
+
+    #[test]
+    fn test_unclosed_expression_error() {
+        // Unclosed {{ should produce a parse error
+        let result = Template::parse("test", "Hello {{ name");
+        assert!(result.is_err(), "Unclosed expression should produce parse error");
+    }
+
+    #[test]
+    fn test_unclosed_expression_in_html_template() {
+        // Test with content similar to the actual test case
+        let template = r#"<!DOCTYPE html>
+<html>
+<head>
+  <title>{{ section.title</title>
+</head>
+<body>
+  <h1>{{ section.title</h1>
+  {{ section.content | safe }}
+</body>
+</html>"#;
+        let result = Template::parse("index.html", template);
+        println!("\n\nResult: {:?}\n\n", result);
+        assert!(result.is_err(), "Template with unclosed expression should produce parse error");
+    }
 }

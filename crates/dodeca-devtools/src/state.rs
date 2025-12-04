@@ -19,6 +19,9 @@ pub struct DevtoolsState {
     /// Whether the devtools panel is visible
     pub panel_visible: bool,
 
+    /// Panel size (normal or expanded)
+    pub panel_size: PanelSize,
+
     /// Which tab is active in the panel
     pub active_tab: DevtoolsTab,
 
@@ -38,6 +41,13 @@ pub enum DevtoolsTab {
     Errors,
     Scope,
     Repl,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum PanelSize {
+    #[default]
+    Normal,
+    Expanded,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -78,7 +88,7 @@ pub async fn connect_websocket(mut state: Signal<DevtoolsState>) -> Result<(), S
         "ws:"
     };
     let host = location.host().map_err(|_| "no host")?;
-    let url = format!("{}//{host}/__dodeca", protocol);
+    let url = format!("{}//{host}/_/ws", protocol);
 
     state.write().connection_state = ConnectionState::Connecting;
 

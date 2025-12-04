@@ -130,7 +130,8 @@ fn summarize_patches(patches: &[crate::html_diff::Patch]) -> String {
 /// Shared state for the dev server
 pub struct SiteServer {
     /// The Salsa database - all queries go through here
-    /// Uses Mutex instead of RwLock because Database contains RefCell (not Sync)
+    /// Uses Mutex because Database contains RefCell (not Sync).
+    /// For queries, we use snapshot pattern: lock, clone, release, then query the clone.
     pub db: Mutex<Database>,
     /// Source registry (Salsa input - update this to invalidate queries)
     pub source_registry: SourceRegistry,
@@ -303,6 +304,8 @@ impl SiteServer {
             return;
         }
 
+        tracing::debug!("trigger_reload: checking {} cached routes", cached_routes.len());
+
         for route in cached_routes {
             // Get old HTML from cache
             let old_html = {
@@ -310,20 +313,28 @@ impl SiteServer {
                 cache.get(&route).cloned()
             };
 
-            // Get new HTML (re-render)
+            // Get new HTML (re-render) - this creates a fresh snapshot
+            tracing::debug!("trigger_reload: re-rendering {}", route);
             let new_html = self.find_content(&route).and_then(|c| match c {
                 ServeContent::Html(html) => Some(html),
                 _ => None,
             });
 
             if let (Some(old), Some(new)) = (old_html, new_html.clone()) {
+                let old_has_error = old.contains(crate::render::RENDER_ERROR_MARKER);
+                let new_has_error = new.contains(crate::render::RENDER_ERROR_MARKER);
+                tracing::debug!(
+                    "trigger_reload: {} - old_has_error={}, new_has_error={}, html_changed={}",
+                    route, old_has_error, new_has_error, old != new
+                );
+
                 if old != new {
                     // If the new HTML is an error page, don't patch it in
                     // The error has already been sent to devtools via LiveReloadMsg::Error
                     // and we want to keep the old working HTML in cache
-                    if new.contains(crate::render::RENDER_ERROR_MARKER) {
+                    if new_has_error {
                         tracing::info!(
-                            "🔴 {} - template error, sending error to devtools",
+                            "🔴 {} - template error detected in trigger_reload",
                             route
                         );
                         continue;
@@ -412,10 +423,11 @@ impl SiteServer {
 
     /// Get current CSS path from database
     fn get_current_css_path(&self) -> Option<String> {
-        let db = self.db.lock().ok()?;
+        // Snapshot pattern: read lock, clone, release, then query
+        let db = self.db.lock().ok()?.clone();
 
         css_output(
-            &*db,
+            &db,
             self.source_registry,
             self.template_registry,
             self.sass_registry,
@@ -503,11 +515,12 @@ impl SiteServer {
 
     /// Find content for a given path using lazy Salsa queries
     fn find_content(&self, path: &str) -> Option<ServeContent> {
-        let db = self.db.lock().ok()?;
+        // Snapshot pattern: read lock, clone, release, then query
+        let db = self.db.lock().ok()?.clone();
 
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
-            let site_tree = build_tree(&*db, self.source_registry);
+            let site_tree = build_tree(&db, self.source_registry);
             let routes: HashSet<String> = site_tree.sections.keys()
                 .chain(site_tree.pages.keys())
                 .map(|r| r.as_str().to_string())
@@ -526,7 +539,7 @@ impl SiteServer {
 
         let route = Route::new(route_path.clone());
         if let Some(html) = serve_html(
-            &*db,
+            &db,
             route,
             self.source_registry,
             self.template_registry,
@@ -569,19 +582,29 @@ impl SiteServer {
                     available_variables: vec![],
                 };
 
+                tracing::info!(
+                    "🔴 find_content: error detected for {}, sending LiveReloadMsg::Error",
+                    path
+                );
+
                 // Store for newly connecting clients
                 {
                     let mut errors = self.current_errors.write().unwrap();
                     errors.insert(path.to_string(), error_info.clone());
                 }
 
-                let _ = self.livereload_tx.send(LiveReloadMsg::Error {
-                    route: error_info.route,
-                    message: error_info.message,
-                    template: error_info.template,
+                let send_result = self.livereload_tx.send(LiveReloadMsg::Error {
+                    route: error_info.route.clone(),
+                    message: error_info.message.clone(),
+                    template: error_info.template.clone(),
                     line: error_info.line,
-                    snapshot_id: error_info.snapshot_id,
+                    snapshot_id: error_info.snapshot_id.clone(),
                 });
+                tracing::debug!(
+                    "🔴 find_content: LiveReloadMsg::Error send result: {:?} (receivers: {})",
+                    send_result.is_ok(),
+                    self.livereload_tx.receiver_count()
+                );
             } else {
                 // Page rendered successfully - clear any previous error
                 {
@@ -598,7 +621,7 @@ impl SiteServer {
         }
 
         // 2. Try to serve CSS (check if path matches cache-busted CSS path)
-        if let Some(css) = css_output(&*db, self.source_registry, self.template_registry, self.sass_registry, self.static_registry, self.data_registry) {
+        if let Some(css) = css_output(&db, self.source_registry, self.template_registry, self.sass_registry, self.static_registry, self.data_registry) {
             let css_url = format!("/{}", css.cache_busted_path);
             if path == css_url {
                 return Some(ServeContent::Css(css.content));
@@ -606,8 +629,8 @@ impl SiteServer {
         }
 
         // 3. Try to serve static files (match cache-busted paths)
-        for file in self.static_registry.files(&*db) {
-            let original_path = file.path(&*db).as_str();
+        for file in self.static_registry.files(&db) {
+            let original_path = file.path(&db).as_str();
 
             // Check if this is a processable image
             if InputFormat::is_processable(original_path) {
@@ -615,8 +638,8 @@ impl SiteServer {
                 use crate::queries::{image_metadata, image_input_hash};
 
                 // Get metadata and input hash (fast - no encoding)
-                let Some(metadata) = image_metadata(&*db, *file) else { continue };
-                let input_hash = image_input_hash(&*db, *file);
+                let Some(metadata) = image_metadata(&db, *file) else { continue };
+                let input_hash = image_input_hash(&db, *file);
 
                 // Check each possible variant URL
                 for &width in &metadata.variant_widths {
@@ -638,7 +661,7 @@ impl SiteServer {
                     );
                     if path == format!("/{jxl_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) = process_image(&*db, *file) {
+                        if let Some(processed) = process_image(&db, *file) {
                             if let Some(variant) = processed.jxl_variants.iter().find(|v| v.width == width) {
                                 return Some(ServeContent::Static(variant.data.clone(), "image/jxl"));
                             }
@@ -663,7 +686,7 @@ impl SiteServer {
                     );
                     if path == format!("/{webp_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) = process_image(&*db, *file) {
+                        if let Some(processed) = process_image(&db, *file) {
                             if let Some(variant) = processed.webp_variants.iter().find(|v| v.width == width) {
                                 return Some(ServeContent::Static(variant.data.clone(), "image/webp"));
                             }
@@ -672,7 +695,7 @@ impl SiteServer {
                 }
             } else {
                 // Non-image static file
-                let output = static_file_output(&*db, *file, self.source_registry, self.template_registry, self.sass_registry, self.static_registry, self.data_registry);
+                let output = static_file_output(&db, *file, self.source_registry, self.template_registry, self.sass_registry, self.static_registry, self.data_registry);
                 let static_url = format!("/{}", output.cache_busted_path);
                 if path == static_url {
                     let mime = mime_from_extension(path);
@@ -695,12 +718,13 @@ impl SiteServer {
 
     /// Find routes similar to the requested path (for 404 suggestions)
     fn find_similar_routes(&self, path: &str) -> Vec<(String, String)> {
+        // Snapshot pattern: lock, clone, release, then query the clone
         let db = match self.db.lock() {
-            Ok(db) => db,
+            Ok(db) => db.clone(),
             Err(_) => return Vec::new(),
         };
 
-        let site_tree = build_tree(&*db, self.source_registry);
+        let site_tree = build_tree(&db, self.source_registry);
 
         let requested = path.trim_matches('/').to_lowercase();
         let requested_parts: Vec<&str> = requested.split('/').collect();
@@ -906,9 +930,13 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                         }
                     }
                     Ok(LiveReloadMsg::Error { route, message, template, line, snapshot_id }) => {
+                        tracing::info!(
+                            "🔴 WebSocket: received LiveReloadMsg::Error for {}, forwarding to browser",
+                            route
+                        );
                         // Send error as JSON to devtools
                         let msg = ServerMessage::Error(dodeca_protocol::ErrorInfo {
-                            route,
+                            route: route.clone(),
                             message,
                             template,
                             line,
@@ -918,9 +946,12 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                             available_variables: vec![],
                         });
                         if let Ok(json) = serde_json::to_string(&msg) {
+                            tracing::debug!("🔴 WebSocket: sending error JSON: {}", json);
                             if sender.send(Message::Text(json.into())).await.is_err() {
+                                tracing::warn!("🔴 WebSocket: failed to send error to browser");
                                 break;
                             }
+                            tracing::info!("🔴 WebSocket: error sent to browser for {}", route);
                         }
                     }
                     Ok(LiveReloadMsg::ErrorResolved { route }) => {
@@ -1037,8 +1068,8 @@ pub fn devtools_urls() -> (String, String) {
         let js_hash = compute_hash(DEVTOOLS_JS.as_bytes());
         let wasm_hash = compute_hash(DEVTOOLS_WASM);
         (
-            format!("/__dodeca.{}.js", js_hash),
-            format!("/__dodeca.{}.wasm", wasm_hash),
+            format!("/_/{}.js", js_hash),
+            format!("/_/{}.wasm", wasm_hash),
         )
     });
     URLS.clone()
@@ -1097,35 +1128,53 @@ async fn devtools_snippet_handler(
         .unwrap()
 }
 
-/// Handler for devtools WASM JS module
-async fn devtools_js_handler() -> Response {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/javascript")
-        .body(Body::from(DEVTOOLS_JS))
-        .unwrap()
+/// Rewrite relative snippet imports to absolute paths
+fn rewrite_devtools_js() -> String {
+    // The generated JS has imports like:
+    //   import { X } from './snippets/foo/bar.js';
+    // We need to rewrite them to absolute paths:
+    //   import { X } from '/_/snippets/foo/bar.js';
+    DEVTOOLS_JS.replace("from './snippets/", "from '/_/snippets/")
 }
 
-/// Handler for devtools WASM binary
-async fn devtools_wasm_handler() -> Response {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/wasm")
-        .body(Body::from(DEVTOOLS_WASM.to_vec()))
-        .unwrap()
+/// Handler for devtools assets (JS and WASM) - routes based on extension
+async fn devtools_asset_handler(
+    axum::extract::Path(path): axum::extract::Path<String>,
+) -> Response {
+    if path.ends_with(".js") {
+        Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/javascript")
+            .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+            .body(Body::from(rewrite_devtools_js()))
+            .unwrap()
+    } else if path.ends_with(".wasm") {
+        Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/wasm")
+            .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+            .body(Body::from(DEVTOOLS_WASM.to_vec()))
+            .unwrap()
+    } else {
+        Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("Not found"))
+            .unwrap()
+    }
 }
 
 /// Build the axum router
 pub fn build_router(server: Arc<SiteServer>) -> Router {
     Router::new()
-        // Devtools endpoint (WebSocket + WASM)
-        .route("/__dodeca", get(devtools_ws_handler))
-        // Cache-busted devtools assets (hash in filename for cache invalidation)
-        .route("/__dodeca.{hash}.js", get(devtools_js_handler))
-        .route("/__dodeca.{hash}.wasm", get(devtools_wasm_handler))
+        // Devtools WebSocket endpoint
+        .route("/_/ws", get(devtools_ws_handler))
         // Dioxus JS snippets (dynamically imported by the WASM module)
-        .route("/snippets/{*path}", get(devtools_snippet_handler))
-        // Legacy endpoint for backwards compat
+        // Must come before the catch-all since snippets are under /_/
+        .route("/_/snippets/{*path}", get(devtools_snippet_handler))
+        // Cache-busted devtools assets (hash in filename, extension-based routing)
+        .route("/_/{*path}", get(devtools_asset_handler))
+        // Legacy endpoints for backwards compat
+        .route("/__dodeca", get(devtools_ws_handler))
         .route("/__livereload", get(devtools_ws_handler))
         .fallback(content_handler)
         .with_state(server)

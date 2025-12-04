@@ -8,6 +8,7 @@ mod basic;
 mod cache_busting;
 mod content;
 mod dead_links;
+mod error_detection;
 mod sass;
 mod section_pages;
 mod static_assets;

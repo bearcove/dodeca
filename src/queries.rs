@@ -17,7 +17,19 @@ use std::collections::{BTreeMap, HashMap};
 /// Load a template file's content - tracked by Salsa for dependency tracking
 #[salsa::tracked]
 pub fn load_template(db: &dyn Db, template: TemplateFile) -> TemplateContent {
-    template.content(db).clone()
+    let content = template.content(db).clone();
+    let content_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        content.as_str().hash(&mut hasher);
+        hasher.finish()
+    };
+    tracing::debug!(
+        "🔄 load_template: {} (content hash: {:016x})",
+        template.path(db).as_str(),
+        content_hash
+    );
+    content
 }
 
 /// Load all templates and return a map of path -> content
@@ -1034,6 +1046,7 @@ pub fn all_rendered_html<'db>(
     templates: TemplateRegistry,
     data: DataRegistry,
 ) -> AllRenderedHtml {
+    tracing::info!("🔄 all_rendered_html: EXECUTING (not cached)");
     let site_tree = build_tree(db, sources);
     let template_map = load_all_templates(db, templates);
 
@@ -1340,8 +1353,12 @@ pub fn serve_html<'db>(
     // Transform <img> to <picture> for responsive images
     let transformed_html = transform_images_to_picture(&rewritten_html, &image_variants);
 
-    // Minify HTML
-    let final_html = crate::svg::minify_html(&transformed_html);
+    // Minify HTML (but skip for error pages to preserve the error marker comment)
+    let final_html = if raw_html.contains(crate::render::RENDER_ERROR_MARKER) {
+        transformed_html
+    } else {
+        crate::svg::minify_html(&transformed_html)
+    };
 
     Some(final_html)
 }

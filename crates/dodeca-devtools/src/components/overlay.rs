@@ -4,10 +4,10 @@ use dioxus::prelude::*;
 use glade::components::{
     button::{Button, ButtonVariant},
     icon_button::{IconButton, IconButtonSize},
-    icons::{IconTriangleAlert, IconSearch, IconX},
+    icons::{IconTriangleAlert, IconSearch, IconX, IconMaximize, IconMinimize},
 };
 
-use crate::state::{DevtoolsState, DevtoolsTab};
+use crate::state::{DevtoolsState, DevtoolsTab, PanelSize};
 use super::{ErrorPanel, ScopeExplorer, Repl};
 
 /// The main devtools overlay that floats above the page
@@ -15,17 +15,24 @@ use super::{ErrorPanel, ScopeExplorer, Repl};
 pub fn DevtoolsOverlay() -> Element {
     let mut state = use_context::<Signal<DevtoolsState>>();
     let panel_visible = state.read().panel_visible;
+    let panel_size = state.read().panel_size;
     let has_errors = state.read().has_errors();
     let error_count = state.read().error_count();
+    let connection_state = state.read().connection_state;
 
-    // Don't render anything if no errors and panel is hidden
-    if !panel_visible && !has_errors {
-        return rsx! {};
-    }
+    // Panel height based on size
+    let panel_height = match panel_size {
+        PanelSize::Normal => "50vh",
+        PanelSize::Expanded => "85vh",
+    };
+    let min_height = match panel_size {
+        PanelSize::Normal => "350px",
+        PanelSize::Expanded => "500px",
+    };
 
     rsx! {
-        // Floating error indicator (always visible when errors exist)
-        if has_errors && !panel_visible {
+        // Always show a small badge in the corner to prove devtools is rendering
+        if !panel_visible {
             div {
                 class: "dodeca-devtools-indicator",
                 style: "
@@ -34,16 +41,51 @@ pub fn DevtoolsOverlay() -> Element {
                     right: 1rem;
                     z-index: 99999;
                 ",
-                Button {
-                    variant: ButtonVariant::Danger,
-                    onclick: move |_| {
-                        state.write().panel_visible = true;
-                    },
-                    IconTriangleAlert {}
-                    if error_count == 1 {
-                        " 1 error"
-                    } else {
-                        " {error_count} errors"
+                if has_errors {
+                    // Error button
+                    Button {
+                        variant: ButtonVariant::Danger,
+                        onclick: move |_| {
+                            state.write().panel_visible = true;
+                        },
+                        IconTriangleAlert {}
+                        if error_count == 1 {
+                            " 1 error"
+                        } else {
+                            " {error_count} errors"
+                        }
+                    }
+                } else {
+                    // Status badge (click to open devtools)
+                    button {
+                        style: "
+                            display: flex;
+                            align-items: center;
+                            gap: 0.25rem;
+                            padding: 0.25rem 0.5rem;
+                            background: #252525;
+                            color: #a3a3a3;
+                            border: 1px solid #333;
+                            border-radius: 0.375rem;
+                            cursor: pointer;
+                            font-size: 0.75rem;
+                            font-family: system-ui, -apple-system, sans-serif;
+                        ",
+                        onclick: move |_| {
+                            state.write().panel_visible = true;
+                        },
+                        "🔷"
+                        match connection_state {
+                            crate::state::ConnectionState::Connected => rsx! {
+                                span { style: "color: #22c55e;", "●" }
+                            },
+                            crate::state::ConnectionState::Connecting => rsx! {
+                                span { style: "color: #f59e0b;", "●" }
+                            },
+                            crate::state::ConnectionState::Disconnected => rsx! {
+                                span { style: "color: #ef4444;", "●" }
+                            },
+                        }
                     }
                 }
             }
@@ -58,9 +100,9 @@ pub fn DevtoolsOverlay() -> Element {
                     bottom: 0;
                     left: 0;
                     right: 0;
-                    height: 40vh;
-                    min-height: 300px;
-                    max-height: 80vh;
+                    height: {panel_height};
+                    min-height: {min_height};
+                    max-height: 90vh;
                     z-index: 99999;
                     background: #1a1a1a;
                     border-top: 1px solid #333;
@@ -68,6 +110,7 @@ pub fn DevtoolsOverlay() -> Element {
                     flex-direction: column;
                     font-family: system-ui, -apple-system, sans-serif;
                     color: #e5e5e5;
+                    transition: height 0.2s ease;
                 ",
 
                 // Header
@@ -103,14 +146,37 @@ pub fn DevtoolsOverlay() -> Element {
                     // Tabs
                     DevtoolsTabs {}
 
-                    // Close button
-                    IconButton {
-                        size: IconButtonSize::Small,
-                        aria_label: "Close devtools".to_string(),
-                        onclick: move |_| {
-                            state.write().panel_visible = false;
-                        },
-                        IconX {}
+                    // Control buttons
+                    div {
+                        style: "display: flex; gap: 0.25rem;",
+
+                        // Expand/collapse button
+                        IconButton {
+                            size: IconButtonSize::Small,
+                            aria_label: if panel_size == PanelSize::Expanded { "Collapse panel".to_string() } else { "Expand panel".to_string() },
+                            onclick: move |_| {
+                                let mut s = state.write();
+                                s.panel_size = match s.panel_size {
+                                    PanelSize::Normal => PanelSize::Expanded,
+                                    PanelSize::Expanded => PanelSize::Normal,
+                                };
+                            },
+                            if panel_size == PanelSize::Expanded {
+                                IconMinimize {}
+                            } else {
+                                IconMaximize {}
+                            }
+                        }
+
+                        // Close button
+                        IconButton {
+                            size: IconButtonSize::Small,
+                            aria_label: "Close devtools".to_string(),
+                            onclick: move |_| {
+                                state.write().panel_visible = false;
+                            },
+                            IconX {}
+                        }
                     }
                 }
 
