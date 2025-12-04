@@ -29,14 +29,6 @@ pub const TARGETS: &[Target] = &[
         archive_ext: "tar.xz",
     },
     Target {
-        triple: "x86_64-apple-darwin",
-        os: "macos-latest",
-        runner: "depot-macos-latest",
-        lib_ext: "dylib",
-        lib_prefix: "lib",
-        archive_ext: "tar.xz",
-    },
-    Target {
         triple: "aarch64-apple-darwin",
         os: "macos-latest",
         runner: "depot-macos-latest",
@@ -83,7 +75,6 @@ impl Target {
         match self.triple {
             "x86_64-unknown-linux-gnu" => "linux-x64",
             "aarch64-unknown-linux-gnu" => "linux-arm64",
-            "x86_64-apple-darwin" => "macos-x64",
             "aarch64-apple-darwin" => "macos-arm64",
             "x86_64-pc-windows-msvc" => "windows-x64",
             _ => self.triple,
@@ -454,11 +445,18 @@ cargo install wasm-bindgen-cli --version $(cargo metadata --format-version 1 | j
 
         // Add wasm32 target and build WASM crates (livereload-client and dodeca-devtools)
         steps.push(Step::run("Add wasm32 target", "rustup target add wasm32-unknown-unknown"));
-        steps.push(Step::run("Build WASM crates", r#"
+
+        // Use full path on Windows since ~/.cargo/bin isn't in PATH
+        let wasm_bindgen_cmd = if target.triple.contains("windows") {
+            "$HOME/.cargo/bin/wasm-bindgen"
+        } else {
+            "wasm-bindgen"
+        };
+        steps.push(Step::run("Build WASM crates", format!(r#"
 cargo build -p livereload-client -p dodeca-devtools --target wasm32-unknown-unknown --release
-wasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm
-wasm-bindgen --target web --out-dir crates/dodeca-devtools/pkg target/wasm32-unknown-unknown/release/dodeca_devtools.wasm
-"#.trim()).shell("bash"));
+{wasm_bindgen_cmd} --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm
+{wasm_bindgen_cmd} --target web --out-dir crates/dodeca-devtools/pkg target/wasm32-unknown-unknown/release/dodeca_devtools.wasm
+"#).trim()).shell("bash"));
 
         // Build ddc
         let build_env = if target.triple == "aarch64-unknown-linux-gnu" {
