@@ -3261,6 +3261,7 @@ fn escape_xml(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+        .replace(' ', "\u{00A0}") // Use non-breaking space like C pikchr
 }
 
 /// Render an arrowhead polygon at the end of a line
