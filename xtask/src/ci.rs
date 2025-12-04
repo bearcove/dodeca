@@ -452,11 +452,12 @@ pub fn build_release_workflow() -> Workflow {
 cargo install wasm-bindgen-cli --version $(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version' | head -1)
 "#.trim()).shell("bash"));
 
-        // Add wasm32 target and build livereload client
+        // Add wasm32 target and build WASM crates (livereload-client and dodeca-devtools)
         steps.push(Step::run("Add wasm32 target", "rustup target add wasm32-unknown-unknown"));
-        steps.push(Step::run("Build livereload WASM", r#"
-cargo build -p livereload-client --target wasm32-unknown-unknown --release
+        steps.push(Step::run("Build WASM crates", r#"
+cargo build -p livereload-client -p dodeca-devtools --target wasm32-unknown-unknown --release
 wasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm
+wasm-bindgen --target web --out-dir crates/dodeca-devtools/pkg target/wasm32-unknown-unknown/release/dodeca_devtools.wasm
 "#.trim()).shell("bash"));
 
         // Build ddc

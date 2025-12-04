@@ -44,8 +44,8 @@ jobs:
         name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - 
-        name: Build livereload WASM
-        run: "cargo build -p livereload-client --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm"
+        name: Build WASM crates
+        run: "cargo build -p livereload-client -p dodeca-devtools --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm\nwasm-bindgen --target web --out-dir crates/dodeca-devtools/pkg target/wasm32-unknown-unknown/release/dodeca_devtools.wasm"
         shell: bash
       - 
         name: Build ddc
@@ -92,8 +92,8 @@ jobs:
         name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - 
-        name: Build livereload WASM
-        run: "cargo build -p livereload-client --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm"
+        name: Build WASM crates
+        run: "cargo build -p livereload-client -p dodeca-devtools --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm\nwasm-bindgen --target web --out-dir crates/dodeca-devtools/pkg target/wasm32-unknown-unknown/release/dodeca_devtools.wasm"
         shell: bash
       - 
         name: Build ddc
@@ -143,8 +143,8 @@ jobs:
         name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - 
-        name: Build livereload WASM
-        run: "cargo build -p livereload-client --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm"
+        name: Build WASM crates
+        run: "cargo build -p livereload-client -p dodeca-devtools --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm\nwasm-bindgen --target web --out-dir crates/dodeca-devtools/pkg target/wasm32-unknown-unknown/release/dodeca_devtools.wasm"
         shell: bash
       - 
         name: Build ddc
@@ -188,8 +188,8 @@ jobs:
         name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - 
-        name: Build livereload WASM
-        run: "cargo build -p livereload-client --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm"
+        name: Build WASM crates
+        run: "cargo build -p livereload-client -p dodeca-devtools --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm\nwasm-bindgen --target web --out-dir crates/dodeca-devtools/pkg target/wasm32-unknown-unknown/release/dodeca_devtools.wasm"
         shell: bash
       - 
         name: Build ddc
@@ -236,8 +236,8 @@ jobs:
         name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - 
-        name: Build livereload WASM
-        run: "cargo build -p livereload-client --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm"
+        name: Build WASM crates
+        run: "cargo build -p livereload-client -p dodeca-devtools --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm\nwasm-bindgen --target web --out-dir crates/dodeca-devtools/pkg target/wasm32-unknown-unknown/release/dodeca_devtools.wasm"
         shell: bash
       - 
         name: Build ddc
