@@ -1172,9 +1172,20 @@ fn render_sublist(
     ctx.variables = parent_ctx.variables.clone();
 
     for stmt in statements {
-        if let Statement::Object(obj_stmt) = stmt {
-            let obj = render_object_stmt(&mut ctx, obj_stmt, None)?;
-            ctx.add_object(obj);
+        match stmt {
+            Statement::Object(obj_stmt) => {
+                let obj = render_object_stmt(&mut ctx, obj_stmt, None)?;
+                ctx.add_object(obj);
+            }
+            Statement::Labeled(labeled) => {
+                if let LabeledContent::Object(obj_stmt) = &labeled.content {
+                    let obj = render_object_stmt(&mut ctx, obj_stmt, Some(labeled.label.clone()))?;
+                    ctx.add_object(obj);
+                }
+            }
+            _ => {
+                // Skip other statement types in sublists for now
+            }
         }
     }
 
