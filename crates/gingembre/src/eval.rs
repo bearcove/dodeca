@@ -48,6 +48,8 @@ impl ValueExt for Value {
             DestructuredRef::Array(arr) => !arr.is_empty(),
             DestructuredRef::Object(obj) => !obj.is_empty(),
             DestructuredRef::DateTime(_) => true,
+            DestructuredRef::QName(_) => true,
+            DestructuredRef::Uuid(_) => true,
         }
     }
 
@@ -61,6 +63,8 @@ impl ValueExt for Value {
             DestructuredRef::Array(_) => "list",
             DestructuredRef::Object(_) => "dict",
             DestructuredRef::DateTime(_) => "datetime",
+            DestructuredRef::QName(_) => "qname",
+            DestructuredRef::Uuid(_) => "uuid",
         }
     }
 
@@ -89,6 +93,8 @@ impl ValueExt for Value {
             }
             DestructuredRef::Object(_) => "[object]".to_string(),
             DestructuredRef::DateTime(dt) => format!("{:?}", dt),
+            DestructuredRef::QName(qn) => format!("{:?}", qn),
+            DestructuredRef::Uuid(uuid) => format!("{:?}", uuid),
         }
     }
 

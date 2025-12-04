@@ -154,6 +154,17 @@ impl Lexer {
         }
     }
 
+    /// Create a new lexer that starts in code/expression mode
+    /// (for parsing standalone expressions without {{ }} wrappers)
+    pub fn new_expression(source: Arc<String>) -> Self {
+        Self {
+            source,
+            pos: 0,
+            in_code: true,
+            pending: Vec::new(),
+        }
+    }
+
     /// Get the source string
     pub fn source(&self) -> &Arc<String> {
         &self.source

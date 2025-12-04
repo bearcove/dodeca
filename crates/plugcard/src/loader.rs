@@ -192,9 +192,9 @@ impl Plugin {
     /// ```rust,ignore
     /// let result: String = plugin.call("greet", &"World".to_string())?;
     /// ```
-    pub fn call<'a, I, O>(&self, name: &str, input: &'a I) -> Result<O, CallError>
+    pub fn call<I, O>(&self, name: &str, input: &I) -> Result<O, CallError>
     where
-        I: Facet<'a>,
+        I: Facet<'static>,
         O: Facet<'static>,
     {
         let method = self.find_method(name).ok_or(CallError::UnknownMethod)?;

@@ -1,0 +1,67 @@
+/* Glade Base CSS - Color System
+ * Based on Radix Colors "Green" scale
+ * https://www.radix-ui.com/colors
+ *
+ * Light mode values | Dark mode values
+ * --green-1:  #fbfefc | #0e1512
+ * --green-2:  #f4fbf6 | #121b17
+ * --green-3:  #e6f6eb | #132d21
+ * --green-4:  #d6f1df | #113b29
+ * --green-5:  #c4e8d1 | #174933
+ * --green-6:  #adddc0 | #20573e
+ * --green-7:  #8eceaa | #28684a
+ * --green-8:  #5bb98b | #2f7c57
+ * --green-9:  #30a46c | #30a46c
+ * --green-10: #2b9a66 | #33b074
+ * --green-11: #218358 | #3dd68c
+ * --green-12: #193b2d | #b1f1cb
+ */
+
+:root {
+    color-scheme: light dark;
+
+    /* Primary / Accent - Custom green */
+    --color-primary: light-dark(#4d9c77, #386952);
+    --color-primary-hover: light-dark(#5aab86, #437a5f);
+    --color-primary-active: light-dark(#408a68, #2d5844);
+    --color-primary-border: light-dark(#3d8060, #2d5844);
+    --color-primary-text: light-dark(#3d8060, #6bb895);
+    --color-primary-alpha: light-dark(#e8f4ee, #1a2e24);
+    --color-primary-focus: light-dark(rgba(77, 156, 119, 0.25), rgba(56, 105, 82, 0.3));
+
+    /* Danger - Red */
+    --color-danger: light-dark(#d96363, #ef4444);
+    --color-danger-hover: light-dark(#c85757, #f87171);
+    --color-danger-active: light-dark(#b54a4a, #dc2626);
+    --color-danger-border: light-dark(#c85757, #dc2626);
+    --color-danger-alpha: light-dark(rgba(217, 99, 99, 0.15), rgba(239, 68, 68, 0.15));
+
+    /* Neutral colors */
+    --color-text: light-dark(#1a1a1a, #f1f5f9);
+    --color-text-muted: light-dark(#4a5568, #94a3b8);
+    --color-bg: light-dark(#fafafa, #0f1419);
+    --color-bg-hover: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.05));
+    --color-bg-elevated: light-dark(#ffffff, #1a1f26);
+    --color-border: light-dark(#e2e8f0, #2d3748);
+    --color-border-strong: light-dark(#cbd5e0, #4a5568);
+
+    /* Link colors */
+    --color-link: light-dark(#4a5568, #94a3b8);
+    --color-link-hover: light-dark(#2d3748, #cbd5e1);
+}
+
+/* Base link styles - muted by default */
+a {
+    color: var(--color-link);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    transition: color 0.15s ease;
+}
+
+a:hover {
+    color: var(--color-link-hover);
+}
+
+a:visited {
+    color: var(--color-link);
+}

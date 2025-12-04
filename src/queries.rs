@@ -17,7 +17,19 @@ use std::collections::{BTreeMap, HashMap};
 /// Load a template file's content - tracked by Salsa for dependency tracking
 #[salsa::tracked]
 pub fn load_template(db: &dyn Db, template: TemplateFile) -> TemplateContent {
-    template.content(db).clone()
+    let content = template.content(db).clone();
+    let content_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        content.as_str().hash(&mut hasher);
+        hasher.finish()
+    };
+    tracing::debug!(
+        "🔄 load_template: {} (content hash: {:016x})",
+        template.path(db).as_str(),
+        content_hash
+    );
+    content
 }
 
 /// Load all templates and return a map of path -> content
@@ -368,7 +380,7 @@ pub fn compile_sass<'db>(db: &'db dyn Db, registry: SassRegistry) -> Option<Comp
 
 /// Frontmatter parsed from TOML
 ///
-/// Known fields are extracted; unknown fields are ignored.
+/// Known fields are extracted; the `extra` table is preserved as-is for template access.
 #[derive(Debug, Clone, Default, Facet)]
 #[allow(dead_code)] // Fields reserved for future template use
 pub struct Frontmatter {
@@ -378,6 +390,9 @@ pub struct Frontmatter {
     pub weight: i32,
     pub description: Option<String>,
     pub template: Option<String>,
+    /// Custom fields from the `[extra]` table in frontmatter
+    #[facet(default)]
+    pub extra: Value,
 }
 
 /// Parse a source file into ParsedData
@@ -426,6 +441,7 @@ pub fn parse_file(db: &dyn Db, source: SourceFile) -> ParsedData {
         is_section,
         headings,
         last_updated: last_modified,
+        extra: frontmatter.extra,
     }
 }
 
@@ -455,6 +471,7 @@ pub fn build_tree<'db>(db: &'db dyn Db, sources: SourceRegistry) -> SiteTree {
                 body_html: data.body_html.clone(),
                 headings: data.headings.clone(),
                 last_updated: data.last_updated,
+                extra: data.extra.clone(),
             },
         );
     }
@@ -468,6 +485,7 @@ pub fn build_tree<'db>(db: &'db dyn Db, sources: SourceRegistry) -> SiteTree {
         body_html: HtmlBody::from_static(""),
         headings: Vec::new(),
         last_updated: 0,
+        extra: Value::default(),
     });
 
     // Second pass: create pages and assign to sections
@@ -483,6 +501,7 @@ pub fn build_tree<'db>(db: &'db dyn Db, sources: SourceRegistry) -> SiteTree {
                 section_route,
                 headings: data.headings.clone(),
                 last_updated: data.last_updated,
+                extra: data.extra.clone(),
             },
         );
     }
@@ -1027,6 +1046,7 @@ pub fn all_rendered_html<'db>(
     templates: TemplateRegistry,
     data: DataRegistry,
 ) -> AllRenderedHtml {
+    tracing::info!("🔄 all_rendered_html: EXECUTING (not cached)");
     let site_tree = build_tree(db, sources);
     let template_map = load_all_templates(db, templates);
 
@@ -1333,8 +1353,12 @@ pub fn serve_html<'db>(
     // Transform <img> to <picture> for responsive images
     let transformed_html = transform_images_to_picture(&rewritten_html, &image_variants);
 
-    // Minify HTML
-    let final_html = crate::svg::minify_html(&transformed_html);
+    // Minify HTML (but skip for error pages to preserve the error marker comment)
+    let final_html = if raw_html.contains(crate::render::RENDER_ERROR_MARKER) {
+        transformed_html
+    } else {
+        crate::svg::minify_html(&transformed_html)
+    };
 
     Some(final_html)
 }

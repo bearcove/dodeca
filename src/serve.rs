@@ -36,6 +36,9 @@ use crate::types::Route;
 use crate::image::{InputFormat, OutputFormat, add_width_suffix};
 use std::collections::HashSet;
 
+use dodeca_protocol::{ClientMessage, ServerMessage, ScopeEntry, ScopeValue};
+use facet_value::DestructuredRef;
+
 /// Format bytes as human-readable size (KB, MB, GB)
 fn format_bytes(bytes: usize) -> String {
     const KB: usize = 1024;
@@ -53,6 +56,150 @@ fn format_bytes(bytes: usize) -> String {
     }
 }
 
+// ============================================================================
+// Scope conversion for devtools
+// ============================================================================
+
+/// Convert a facet_value::Value to a ScopeValue for the devtools protocol
+fn value_to_scope_value(value: &facet_value::Value) -> ScopeValue {
+    match value.destructure_ref() {
+        DestructuredRef::Null => ScopeValue::Null,
+        DestructuredRef::Bool(b) => ScopeValue::Bool(b),
+        DestructuredRef::Number(n) => {
+            let f = n.to_f64().unwrap_or(0.0);
+            ScopeValue::Number(f)
+        }
+        DestructuredRef::String(s) => {
+            let s_str = s.to_string();
+            // Truncate long strings for preview
+            if s_str.len() > 100 {
+                ScopeValue::String(format!("{}...", &s_str[..100]))
+            } else {
+                ScopeValue::String(s_str)
+            }
+        }
+        DestructuredRef::Bytes(b) => ScopeValue::String(format!("<{} bytes>", b.len())),
+        DestructuredRef::Array(arr) => {
+            let len = arr.len();
+            let preview = if len == 0 {
+                "[]".to_string()
+            } else if len <= 3 {
+                let items: Vec<String> = arr.iter().take(3).map(|v| value_preview(v)).collect();
+                format!("[{}]", items.join(", "))
+            } else {
+                let items: Vec<String> = arr.iter().take(3).map(|v| value_preview(v)).collect();
+                format!("[{}, ...]", items.join(", "))
+            };
+            ScopeValue::Array { length: len, preview }
+        }
+        DestructuredRef::Object(obj) => {
+            let fields = obj.len();
+            let preview = if fields == 0 {
+                "{}".to_string()
+            } else {
+                let keys: Vec<String> = obj.keys().take(3).map(|k| k.to_string()).collect();
+                if fields <= 3 {
+                    format!("{{{}}}", keys.join(", "))
+                } else {
+                    format!("{{{}, ...}}", keys.join(", "))
+                }
+            };
+            ScopeValue::Object { fields, preview }
+        }
+        DestructuredRef::DateTime(dt) => ScopeValue::String(format!("{:?}", dt)),
+        DestructuredRef::QName(qn) => ScopeValue::String(format!("{:?}", qn)),
+        DestructuredRef::Uuid(uuid) => ScopeValue::String(format!("{:?}", uuid)),
+    }
+}
+
+/// Generate a short preview string for a value
+fn value_preview(value: &facet_value::Value) -> String {
+    match value.destructure_ref() {
+        DestructuredRef::Null => "null".to_string(),
+        DestructuredRef::Bool(b) => b.to_string(),
+        DestructuredRef::Number(n) => n.to_f64().map(|f| f.to_string()).unwrap_or("0".to_string()),
+        DestructuredRef::String(s) => {
+            let s_str = s.to_string();
+            if s_str.len() > 20 {
+                format!("\"{}...\"", &s_str[..20])
+            } else {
+                format!("\"{}\"", s_str)
+            }
+        }
+        DestructuredRef::Bytes(b) => format!("<{} bytes>", b.len()),
+        DestructuredRef::Array(arr) => format!("[{} items]", arr.len()),
+        DestructuredRef::Object(obj) => format!("{{{} fields}}", obj.len()),
+        DestructuredRef::DateTime(_) => "<datetime>".to_string(),
+        DestructuredRef::QName(_) => "<qname>".to_string(),
+        DestructuredRef::Uuid(_) => "<uuid>".to_string(),
+    }
+}
+
+/// Check if a value can be expanded (has children)
+fn value_is_expandable(value: &facet_value::Value) -> bool {
+    match value.destructure_ref() {
+        DestructuredRef::Array(arr) => !arr.is_empty(),
+        DestructuredRef::Object(obj) => !obj.is_empty(),
+        _ => false,
+    }
+}
+
+/// Convert a facet_value::Value to a list of ScopeEntry (for the top-level or expanded path)
+fn value_to_scope_entries(value: &facet_value::Value, path: &[String]) -> Vec<ScopeEntry> {
+    // Navigate to the requested path
+    let target = navigate_value(value, path);
+    let target = match target {
+        Some(v) => v,
+        None => return vec![],
+    };
+
+    match target.destructure_ref() {
+        DestructuredRef::Object(obj) => {
+            obj.iter()
+                .map(|(key, val)| ScopeEntry {
+                    name: key.to_string(),
+                    value: value_to_scope_value(val),
+                    expandable: value_is_expandable(val),
+                })
+                .collect()
+        }
+        DestructuredRef::Array(arr) => {
+            arr.iter()
+                .enumerate()
+                .map(|(idx, val)| ScopeEntry {
+                    name: idx.to_string(),
+                    value: value_to_scope_value(val),
+                    expandable: value_is_expandable(val),
+                })
+                .collect()
+        }
+        _ => {
+            // Scalar value at path - return as single entry
+            vec![ScopeEntry {
+                name: path.last().cloned().unwrap_or_else(|| "value".to_string()),
+                value: value_to_scope_value(&target),
+                expandable: false,
+            }]
+        }
+    }
+}
+
+/// Navigate into a value by path
+fn navigate_value(value: &facet_value::Value, path: &[String]) -> Option<facet_value::Value> {
+    let mut current = value.clone();
+    for segment in path {
+        current = match current.destructure_ref() {
+            DestructuredRef::Object(obj) => obj.get(segment.as_str())?.clone(),
+            DestructuredRef::Array(arr) => {
+                let idx: usize = segment.parse().ok()?;
+                arr.get(idx)?.clone()
+            }
+            _ => return None,
+        };
+    }
+    Some(current)
+}
+
 /// Message types for livereload WebSocket
 #[derive(Clone, Debug)]
 pub enum LiveReloadMsg {
@@ -62,6 +209,16 @@ pub enum LiveReloadMsg {
     Patches { route: String, data: Vec<u8> },
     /// CSS update (new cache-busted path)
     CssUpdate { path: String },
+    /// Template error occurred
+    Error {
+        route: String,
+        message: String,
+        template: Option<String>,
+        line: Option<u32>,
+        snapshot_id: String,
+    },
+    /// Error was resolved (template renders successfully now)
+    ErrorResolved { route: String },
 }
 
 /// Summarize patch operations for logging
@@ -118,7 +275,8 @@ fn summarize_patches(patches: &[crate::html_diff::Patch]) -> String {
 /// Shared state for the dev server
 pub struct SiteServer {
     /// The Salsa database - all queries go through here
-    /// Uses Mutex instead of RwLock because Database contains RefCell (not Sync)
+    /// Uses Mutex because Database contains RefCell (not Sync).
+    /// For queries, we use snapshot pattern: lock, clone, release, then query the clone.
     pub db: Mutex<Database>,
     /// Source registry (Salsa input - update this to invalidate queries)
     pub source_registry: SourceRegistry,
@@ -142,6 +300,8 @@ pub struct SiteServer {
     css_cache: RwLock<Option<String>>,
     /// Asset paths that should be served at original paths (no cache-busting)
     stable_assets: Vec<String>,
+    /// Current errors by route (for sending to newly connected clients)
+    current_errors: RwLock<HashMap<String, dodeca_protocol::ErrorInfo>>,
 }
 
 impl SiteServer {
@@ -169,7 +329,13 @@ impl SiteServer {
             html_cache: RwLock::new(HashMap::new()),
             css_cache: RwLock::new(None),
             stable_assets,
+            current_errors: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Get current error for a route (if any)
+    pub fn get_error(&self, route: &str) -> Option<dodeca_protocol::ErrorInfo> {
+        self.current_errors.read().unwrap().get(route).cloned()
     }
 
     /// Check if a path is configured as a stable asset
@@ -277,14 +443,14 @@ impl SiteServer {
         };
 
         if cached_routes.is_empty() {
-            if !css_changed {
-                tracing::info!("No cached routes, sending full reload");
-                let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
-            }
+            // No pages have been visited yet - nothing to patch
+            // This can happen if files change before any page is loaded
+            tracing::debug!("No cached routes, nothing to patch");
             return;
         }
 
-        let mut any_html_changed = false;
+        tracing::debug!("trigger_reload: checking {} cached routes", cached_routes.len());
+
         for route in cached_routes {
             // Get old HTML from cache
             let old_html = {
@@ -292,15 +458,45 @@ impl SiteServer {
                 cache.get(&route).cloned()
             };
 
-            // Get new HTML (re-render)
+            // Get new HTML (re-render) - this creates a fresh snapshot
+            tracing::debug!("trigger_reload: re-rendering {}", route);
             let new_html = self.find_content(&route).and_then(|c| match c {
                 ServeContent::Html(html) => Some(html),
                 _ => None,
             });
 
+            // Handle case where route was deleted (old exists, new doesn't)
+            if old_html.is_some() && new_html.is_none() {
+                tracing::info!("{} - route deleted, sending full reload", route);
+                // Remove from cache
+                {
+                    let mut cache = self.html_cache.write().unwrap();
+                    cache.remove(&route);
+                }
+                // Send full page reload since we can't patch a deleted page
+                let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
+                continue;
+            }
+
             if let (Some(old), Some(new)) = (old_html, new_html.clone()) {
+                let old_has_error = old.contains(crate::render::RENDER_ERROR_MARKER);
+                let new_has_error = new.contains(crate::render::RENDER_ERROR_MARKER);
+                tracing::debug!(
+                    "trigger_reload: {} - old_has_error={}, new_has_error={}, html_changed={}",
+                    route, old_has_error, new_has_error, old != new
+                );
+
                 if old != new {
-                    any_html_changed = true;
+                    // If the new HTML is an error page, don't patch it in
+                    // The error has already been sent to devtools via LiveReloadMsg::Error
+                    // and we want to keep the old working HTML in cache
+                    if new_has_error {
+                        tracing::info!(
+                            "🔴 {} - template error detected in trigger_reload",
+                            route
+                        );
+                        continue;
+                    }
 
                     // Update cache
                     {
@@ -320,11 +516,11 @@ impl SiteServer {
 
                             if diff_result.patches.is_empty() {
                                 // DOM structure identical but HTML differs (whitespace/comments?)
-                                tracing::info!(
-                                    "🔄 {} - HTML changed but DOM identical, full reload",
+                                // This is a no-op - no need to reload for invisible changes
+                                tracing::debug!(
+                                    "{} - HTML changed but DOM identical, no-op",
                                     route
                                 );
-                                let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
                             } else {
                                 // Summarize patch operations
                                 let summary = summarize_patches(&diff_result.patches);
@@ -341,39 +537,34 @@ impl SiteServer {
                                         });
                                     }
                                     Err(e) => {
-                                        tracing::warn!(
-                                            "🔄 {} - patch serialization failed: {}, full reload",
+                                        tracing::error!(
+                                            "🔴 {} - patch serialization failed: {} - THIS IS A BUG",
                                             route, e
                                         );
-                                        let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
                                     }
                                 }
                             }
                         }
                         (None, _) => {
-                            tracing::warn!(
-                                "🔄 {} - failed to parse old HTML, full reload",
+                            tracing::error!(
+                                "🔴 {} - failed to parse old HTML - THIS IS A BUG",
                                 route
                             );
-                            let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
                         }
                         (_, None) => {
-                            tracing::warn!(
-                                "🔄 {} - failed to parse new HTML, full reload",
+                            tracing::error!(
+                                "🔴 {} - failed to parse new HTML - THIS IS A BUG",
                                 route
                             );
-                            let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
                         }
                     }
                 }
             }
         }
 
-        // If neither HTML nor CSS changed, send a generic reload (for static assets, etc.)
-        if !any_html_changed && !css_changed {
-            tracing::info!("No HTML/CSS changes detected, refreshing for static assets");
-            let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
-        }
+        // Note: we don't send a fallback reload here. All meaningful changes
+        // (templates, content, CSS, static assets) result in cache-busted URL
+        // changes which appear as HTML patches. If nothing changed, nothing changed.
     }
 
     /// Cache HTML for a route (called when serving pages)
@@ -390,10 +581,11 @@ impl SiteServer {
 
     /// Get current CSS path from database
     fn get_current_css_path(&self) -> Option<String> {
-        let db = self.db.lock().ok()?;
+        // Snapshot pattern: read lock, clone, release, then query
+        let db = self.db.lock().ok()?.clone();
 
         css_output(
-            &*db,
+            &db,
             self.source_registry,
             self.template_registry,
             self.sass_registry,
@@ -481,11 +673,12 @@ impl SiteServer {
 
     /// Find content for a given path using lazy Salsa queries
     fn find_content(&self, path: &str) -> Option<ServeContent> {
-        let db = self.db.lock().ok()?;
+        // Snapshot pattern: read lock, clone, release, then query
+        let db = self.db.lock().ok()?.clone();
 
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
-            let site_tree = build_tree(&*db, self.source_registry);
+            let site_tree = build_tree(&db, self.source_registry);
             let routes: HashSet<String> = site_tree.sections.keys()
                 .chain(site_tree.pages.keys())
                 .map(|r| r.as_str().to_string())
@@ -504,7 +697,7 @@ impl SiteServer {
 
         let route = Route::new(route_path.clone());
         if let Some(html) = serve_html(
-            &*db,
+            &db,
             route,
             self.source_registry,
             self.template_registry,
@@ -512,12 +705,71 @@ impl SiteServer {
             self.static_registry,
             self.data_registry,
         ) {
+            // Check if this is an error page and notify devtools
+            if html.contains(crate::render::RENDER_ERROR_MARKER) {
+                // Extract error message HTML from between <pre> tags
+                // Keep the HTML spans for color - they'll be displayed with dangerous_inner_html
+                let error_msg = html
+                    .split("<pre>")
+                    .nth(1)
+                    .and_then(|s| s.split("</pre>").next())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "Unknown template error".to_string());
+
+                let error_info = dodeca_protocol::ErrorInfo {
+                    route: path.to_string(),
+                    message: error_msg,
+                    template: None, // TODO: extract from error message
+                    line: None,     // TODO: extract from error message
+                    column: None,
+                    source_snippet: None,
+                    snapshot_id: format!("error-{}", std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis()),
+                    available_variables: vec![],
+                };
+
+                tracing::info!(
+                    "🔴 find_content: error detected for {}, sending LiveReloadMsg::Error",
+                    path
+                );
+
+                // Store for newly connecting clients
+                {
+                    let mut errors = self.current_errors.write().unwrap();
+                    errors.insert(path.to_string(), error_info.clone());
+                }
+
+                let send_result = self.livereload_tx.send(LiveReloadMsg::Error {
+                    route: error_info.route.clone(),
+                    message: error_info.message.clone(),
+                    template: error_info.template.clone(),
+                    line: error_info.line,
+                    snapshot_id: error_info.snapshot_id.clone(),
+                });
+                tracing::debug!(
+                    "🔴 find_content: LiveReloadMsg::Error send result: {:?} (receivers: {})",
+                    send_result.is_ok(),
+                    self.livereload_tx.receiver_count()
+                );
+            } else {
+                // Page rendered successfully - clear any previous error
+                {
+                    let mut errors = self.current_errors.write().unwrap();
+                    errors.remove(path);
+                }
+                let _ = self.livereload_tx.send(LiveReloadMsg::ErrorResolved {
+                    route: path.to_string(),
+                });
+            }
+
             let html = inject_livereload(&html, self.render_options, known_routes.as_ref());
             return Some(ServeContent::Html(html));
         }
 
         // 2. Try to serve CSS (check if path matches cache-busted CSS path)
-        if let Some(css) = css_output(&*db, self.source_registry, self.template_registry, self.sass_registry, self.static_registry, self.data_registry) {
+        if let Some(css) = css_output(&db, self.source_registry, self.template_registry, self.sass_registry, self.static_registry, self.data_registry) {
             let css_url = format!("/{}", css.cache_busted_path);
             if path == css_url {
                 return Some(ServeContent::Css(css.content));
@@ -525,8 +777,8 @@ impl SiteServer {
         }
 
         // 3. Try to serve static files (match cache-busted paths)
-        for file in self.static_registry.files(&*db) {
-            let original_path = file.path(&*db).as_str();
+        for file in self.static_registry.files(&db) {
+            let original_path = file.path(&db).as_str();
 
             // Check if this is a processable image
             if InputFormat::is_processable(original_path) {
@@ -534,8 +786,8 @@ impl SiteServer {
                 use crate::queries::{image_metadata, image_input_hash};
 
                 // Get metadata and input hash (fast - no encoding)
-                let Some(metadata) = image_metadata(&*db, *file) else { continue };
-                let input_hash = image_input_hash(&*db, *file);
+                let Some(metadata) = image_metadata(&db, *file) else { continue };
+                let input_hash = image_input_hash(&db, *file);
 
                 // Check each possible variant URL
                 for &width in &metadata.variant_widths {
@@ -557,7 +809,7 @@ impl SiteServer {
                     );
                     if path == format!("/{jxl_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) = process_image(&*db, *file) {
+                        if let Some(processed) = process_image(&db, *file) {
                             if let Some(variant) = processed.jxl_variants.iter().find(|v| v.width == width) {
                                 return Some(ServeContent::Static(variant.data.clone(), "image/jxl"));
                             }
@@ -582,7 +834,7 @@ impl SiteServer {
                     );
                     if path == format!("/{webp_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) = process_image(&*db, *file) {
+                        if let Some(processed) = process_image(&db, *file) {
                             if let Some(variant) = processed.webp_variants.iter().find(|v| v.width == width) {
                                 return Some(ServeContent::Static(variant.data.clone(), "image/webp"));
                             }
@@ -591,7 +843,7 @@ impl SiteServer {
                 }
             } else {
                 // Non-image static file
-                let output = static_file_output(&*db, *file, self.source_registry, self.template_registry, self.sass_registry, self.static_registry, self.data_registry);
+                let output = static_file_output(&db, *file, self.source_registry, self.template_registry, self.sass_registry, self.static_registry, self.data_registry);
                 let static_url = format!("/{}", output.cache_busted_path);
                 if path == static_url {
                     let mime = mime_from_extension(path);
@@ -612,14 +864,196 @@ impl SiteServer {
         None
     }
 
+    /// Get the template scope for a route (for devtools scope explorer)
+    ///
+    /// Returns a list of top-level scope entries that can be expanded.
+    /// The `path` parameter is used to drill into nested values.
+    pub fn get_scope_for_route(&self, route_path: &str, path: &[String]) -> Vec<ScopeEntry> {
+        use facet_value::{VObject, VString};
+
+        // Snapshot pattern: lock, clone, release, then query the clone
+        let db = match self.db.lock() {
+            Ok(db) => db.clone(),
+            Err(_) => return vec![],
+        };
+
+        let site_tree = build_tree(&db, self.source_registry);
+
+        // Normalize route
+        let route_str = if route_path == "/" {
+            "/".to_string()
+        } else {
+            let trimmed = route_path.trim_end_matches('/');
+            if trimmed.is_empty() { "/".to_string() } else { trimmed.to_string() }
+        };
+        let route = Route::new(route_str);
+
+        // Build scope based on whether this is a section or page
+        let mut scope = VObject::new();
+
+        // Add config (same as build_render_context_base)
+        let mut config_map = VObject::new();
+        let (site_title, site_description) = site_tree
+            .sections
+            .get(&Route::root())
+            .map(|root| (root.title.to_string(), root.description.clone().unwrap_or_default()))
+            .unwrap_or_else(|| ("Untitled".to_string(), String::new()));
+        config_map.insert(VString::from("title"), facet_value::Value::from(site_title.as_str()));
+        config_map.insert(VString::from("description"), facet_value::Value::from(site_description.as_str()));
+        config_map.insert(VString::from("base_url"), facet_value::Value::from("/"));
+        scope.insert(VString::from("config"), facet_value::Value::from(config_map));
+
+        // Add current_path
+        scope.insert(VString::from("current_path"), facet_value::Value::from(route.as_str()));
+
+        // Check if it's a section or page
+        if let Some(section) = site_tree.sections.get(&route) {
+            // Add section data
+            let mut section_map = VObject::new();
+            section_map.insert(VString::from("title"), facet_value::Value::from(section.title.as_str()));
+            section_map.insert(VString::from("permalink"), facet_value::Value::from(section.route.as_str()));
+            section_map.insert(VString::from("weight"), facet_value::Value::from(section.weight as i64));
+            if let Some(ref desc) = section.description {
+                section_map.insert(VString::from("description"), facet_value::Value::from(desc.as_str()));
+            }
+            section_map.insert(VString::from("extra"), section.extra.clone());
+
+            // Count pages in this section
+            let page_count = site_tree.pages.values()
+                .filter(|p| p.section_route == section.route)
+                .count();
+            section_map.insert(VString::from("pages_count"), facet_value::Value::from(page_count as i64));
+
+            scope.insert(VString::from("section"), facet_value::Value::from(section_map));
+        } else if let Some(page) = site_tree.pages.get(&route) {
+            // Add page data
+            let mut page_map = VObject::new();
+            page_map.insert(VString::from("title"), facet_value::Value::from(page.title.as_str()));
+            page_map.insert(VString::from("permalink"), facet_value::Value::from(page.route.as_str()));
+            page_map.insert(VString::from("weight"), facet_value::Value::from(page.weight as i64));
+            page_map.insert(VString::from("extra"), page.extra.clone());
+            page_map.insert(VString::from("headings_count"), facet_value::Value::from(page.headings.len() as i64));
+            scope.insert(VString::from("page"), facet_value::Value::from(page_map));
+
+            // Add parent section
+            if let Some(section) = site_tree.sections.get(&page.section_route) {
+                let mut section_map = VObject::new();
+                section_map.insert(VString::from("title"), facet_value::Value::from(section.title.as_str()));
+                section_map.insert(VString::from("permalink"), facet_value::Value::from(section.route.as_str()));
+                scope.insert(VString::from("section"), facet_value::Value::from(section_map));
+            }
+        }
+
+        // Add root section info
+        if let Some(root) = site_tree.sections.get(&Route::root()) {
+            let mut root_map = VObject::new();
+            root_map.insert(VString::from("title"), facet_value::Value::from(root.title.as_str()));
+
+            // Count total sections and pages
+            let section_count = site_tree.sections.len();
+            let page_count = site_tree.pages.len();
+            root_map.insert(VString::from("sections_count"), facet_value::Value::from(section_count as i64));
+            root_map.insert(VString::from("pages_count"), facet_value::Value::from(page_count as i64));
+
+            scope.insert(VString::from("root"), facet_value::Value::from(root_map));
+        }
+
+        // Load actual data files
+        let raw_data = crate::queries::load_all_data_raw(&db, self.data_registry);
+        let data_value = crate::data::parse_raw_data_files(&raw_data);
+        scope.insert(VString::from("data"), data_value);
+
+        // Convert scope to entries
+        let scope_value: facet_value::Value = scope.into();
+        value_to_scope_entries(&scope_value, path)
+    }
+
+    /// Evaluate an expression against the scope for a route (for REPL)
+    pub fn eval_expression_for_route(&self, route_path: &str, expression: &str) -> Result<ScopeValue, String> {
+        use facet_value::{VObject, VString};
+
+        // Snapshot pattern: lock, clone, release, then query the clone
+        let db = match self.db.lock() {
+            Ok(db) => db.clone(),
+            Err(_) => return Err("Failed to acquire database lock".to_string()),
+        };
+
+        let site_tree = build_tree(&db, self.source_registry);
+
+        // Normalize route
+        let route_str = if route_path == "/" {
+            "/".to_string()
+        } else {
+            let trimmed = route_path.trim_end_matches('/');
+            if trimmed.is_empty() { "/".to_string() } else { trimmed.to_string() }
+        };
+        let route = Route::new(route_str);
+
+        // Build gingembre Context with scope values
+        let mut ctx = gingembre::Context::new();
+
+        // Add config
+        let mut config_map = VObject::new();
+        let (site_title, site_description) = site_tree
+            .sections
+            .get(&Route::root())
+            .map(|root| (root.title.to_string(), root.description.clone().unwrap_or_default()))
+            .unwrap_or_else(|| ("Untitled".to_string(), String::new()));
+        config_map.insert(VString::from("title"), facet_value::Value::from(site_title.as_str()));
+        config_map.insert(VString::from("description"), facet_value::Value::from(site_description.as_str()));
+        config_map.insert(VString::from("base_url"), facet_value::Value::from("/"));
+        ctx.set("config", facet_value::Value::from(config_map));
+
+        // Add current_path
+        ctx.set("current_path", facet_value::Value::from(route.as_str()));
+
+        // Check if it's a section or page and add appropriate data
+        if let Some(section) = site_tree.sections.get(&route) {
+            let section_value = crate::render::section_to_value(section, &site_tree);
+            ctx.set("section", section_value);
+            ctx.set("page", facet_value::Value::NULL);
+        } else if let Some(page) = site_tree.pages.get(&route) {
+            let page_value = crate::render::page_to_value(page, &site_tree);
+            ctx.set("page", page_value);
+
+            // Add parent section
+            if let Some(section) = site_tree.sections.get(&page.section_route) {
+                let section_value = crate::render::section_to_value(section, &site_tree);
+                ctx.set("section", section_value);
+            }
+        }
+
+        // Add site tree info
+        if let Some(root) = site_tree.sections.get(&Route::root()) {
+            let root_value = crate::render::section_to_value(root, &site_tree);
+            ctx.set("root", root_value);
+        }
+
+        // Load data files
+        let raw_data = crate::queries::load_all_data_raw(&db, self.data_registry);
+        let data_value = crate::data::parse_raw_data_files(&raw_data);
+        ctx.set("data", data_value);
+
+        // Evaluate the expression
+        match gingembre::eval_expression(expression, &ctx) {
+            Ok(value) => Ok(value_to_scope_value(&value)),
+            Err(e) => {
+                // Convert ANSI error to HTML for display in devtools
+                let ansi_error = format!("{:?}", e);
+                Err(crate::error_pages::ansi_to_html(&ansi_error))
+            }
+        }
+    }
+
     /// Find routes similar to the requested path (for 404 suggestions)
     fn find_similar_routes(&self, path: &str) -> Vec<(String, String)> {
+        // Snapshot pattern: lock, clone, release, then query the clone
         let db = match self.db.lock() {
-            Ok(db) => db,
+            Ok(db) => db.clone(),
             Err(_) => return Vec::new(),
         };
 
-        let site_tree = build_tree(&*db, self.source_registry);
+        let site_tree = build_tree(&db, self.source_registry);
 
         let requested = path.trim_matches('/').to_lowercase();
         let requested_parts: Vec<&str> = requested.split('/').collect();
@@ -777,15 +1211,15 @@ async fn content_handler(State(server): State<Arc<SiteServer>>, request: Request
     StatusCode::NOT_FOUND.into_response()
 }
 
-/// WebSocket handler for live reload
-async fn livereload_handler(
+/// WebSocket handler for devtools (live reload, error reporting, etc.)
+async fn devtools_ws_handler(
     ws: WebSocketUpgrade,
     State(server): State<Arc<SiteServer>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_livereload_socket(socket, server))
+    ws.on_upgrade(|socket| handle_devtools_socket(socket, server))
 }
 
-async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
+async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
     let (mut sender, mut receiver) = socket.split();
     let mut reload_rx = server.livereload_tx.subscribe();
 
@@ -794,16 +1228,16 @@ async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
 
     tracing::info!("Browser connected for live reload");
 
-    // Send initial connection confirmation
-    let _ = sender.send(Message::Text("connected".into())).await;
-
     loop {
         tokio::select! {
             result = reload_rx.recv() => {
                 match result {
                     Ok(LiveReloadMsg::Reload) => {
-                        if sender.send(Message::Text("reload".into())).await.is_err() {
-                            break;
+                        let msg = ServerMessage::Reload;
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            if sender.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
                         }
                     }
                     Ok(LiveReloadMsg::Patches { route, data }) => {
@@ -816,9 +1250,46 @@ async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
                         }
                     }
                     Ok(LiveReloadMsg::CssUpdate { path }) => {
-                        // Send CSS update as text message with css: prefix
-                        if sender.send(Message::Text(format!("css:{}", path).into())).await.is_err() {
-                            break;
+                        // Send CSS update as JSON message
+                        let msg = ServerMessage::CssChanged { path };
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            if sender.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Ok(LiveReloadMsg::Error { route, message, template, line, snapshot_id }) => {
+                        tracing::info!(
+                            "🔴 WebSocket: received LiveReloadMsg::Error for {}, forwarding to browser",
+                            route
+                        );
+                        // Send error as JSON to devtools
+                        let msg = ServerMessage::Error(dodeca_protocol::ErrorInfo {
+                            route: route.clone(),
+                            message,
+                            template,
+                            line,
+                            column: None,
+                            source_snippet: None,
+                            snapshot_id,
+                            available_variables: vec![],
+                        });
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            tracing::debug!("🔴 WebSocket: sending error JSON: {}", json);
+                            if sender.send(Message::Text(json.into())).await.is_err() {
+                                tracing::warn!("🔴 WebSocket: failed to send error to browser");
+                                break;
+                            }
+                            tracing::info!("🔴 WebSocket: error sent to browser for {}", route);
+                        }
+                    }
+                    Ok(LiveReloadMsg::ErrorResolved { route }) => {
+                        // Send resolution as JSON to devtools
+                        let msg = ServerMessage::ErrorResolved { route };
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            if sender.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
                         }
                     }
                     Err(_) => break,
@@ -833,8 +1304,69 @@ async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
                         }
                     }
                     Some(Ok(Message::Text(text))) => {
-                        // Client can send its current route
-                        if let Some(route) = text.strip_prefix("route:") {
+                        // Try to parse as JSON devtools message first
+                        if let Ok(msg) = serde_json::from_str::<ClientMessage>(&text) {
+                            match msg {
+                                ClientMessage::Route { path } => {
+                                    tracing::info!("Browser viewing {}", path);
+                                    current_route = Some(path.clone());
+
+                                    // Send any existing error for this route
+                                    if let Some(error_info) = server.get_error(&path) {
+                                        let msg = ServerMessage::Error(error_info);
+                                        if let Ok(json) = serde_json::to_string(&msg) {
+                                            if sender.send(Message::Text(json.into())).await.is_err() {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                ClientMessage::GetScope { request_id, snapshot_id: _, path } => {
+                                    // Get scope for current route (snapshot_id is ignored for now)
+                                    let route = current_route.clone().unwrap_or_else(|| "/".to_string());
+                                    let scope_path = path.unwrap_or_default();
+                                    let scope = server.get_scope_for_route(&route, &scope_path);
+
+                                    tracing::info!(
+                                        "[devtools] GetScope request {request_id}: route={}, path={:?}, entries={}",
+                                        route, scope_path, scope.len()
+                                    );
+
+                                    let msg = ServerMessage::ScopeResponse {
+                                        request_id,
+                                        scope,
+                                    };
+                                    if let Ok(json) = serde_json::to_string(&msg) {
+                                        if sender.send(Message::Text(json.into())).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                }
+                                ClientMessage::Eval { request_id, snapshot_id: _, expression } => {
+                                    // Evaluate expression against the current route's scope
+                                    let route = current_route.clone().unwrap_or_else(|| "/".to_string());
+                                    tracing::info!(
+                                        "[devtools] Eval request {request_id}: route={}, expr={}",
+                                        route, expression
+                                    );
+
+                                    let result = server.eval_expression_for_route(&route, &expression);
+                                    let msg = ServerMessage::EvalResponse {
+                                        request_id,
+                                        result,
+                                    };
+                                    if let Ok(json) = serde_json::to_string(&msg) {
+                                        if sender.send(Message::Text(json.into())).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                }
+                                ClientMessage::DismissError { route } => {
+                                    tracing::info!("[devtools] Dismissing error for {}", route);
+                                }
+                            }
+                        } else if let Some(route) = text.strip_prefix("route:") {
+                            // Legacy format for backwards compat
                             tracing::info!("Browser viewing {}", route);
                             current_route = Some(route.to_string());
                         }
@@ -871,34 +1403,134 @@ async fn log_requests(request: Request, next: Next) -> Response {
     response
 }
 
-/// Embedded WASM client files (built by build.rs)
-const LIVERELOAD_JS: &str = include_str!("../crates/livereload-client/pkg/livereload_client.js");
-const LIVERELOAD_WASM: &[u8] = include_bytes!("../crates/livereload-client/pkg/livereload_client_bg.wasm");
+/// Embedded devtools WASM client files (built by build.rs)
+const DEVTOOLS_JS: &str = include_str!("../crates/dodeca-devtools/pkg/dodeca_devtools.js");
+const DEVTOOLS_WASM: &[u8] =
+    include_bytes!("../crates/dodeca-devtools/pkg/dodeca_devtools_bg.wasm");
 
-/// Handler for livereload WASM JS module
-async fn livereload_js_handler() -> Response {
+/// Compute a short hash for cache busting
+fn compute_hash(data: &[u8]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    data.hash(&mut hasher);
+    format!("{:012x}", hasher.finish())
+}
+
+/// Get cache-busted devtools URLs
+pub fn devtools_urls() -> (String, String) {
+    use std::sync::LazyLock;
+    static URLS: LazyLock<(String, String)> = LazyLock::new(|| {
+        let js_hash = compute_hash(DEVTOOLS_JS.as_bytes());
+        let wasm_hash = compute_hash(DEVTOOLS_WASM);
+        (
+            format!("/_/{}.js", js_hash),
+            format!("/_/{}.wasm", wasm_hash),
+        )
+    });
+    URLS.clone()
+}
+
+/// Embedded JS snippets required by Dioxus WASM
+const SNIPPETS: &[(&str, &str)] = &[
+    (
+        "snippets/dioxus-cli-config-e5fab7f8a0eb9fbb/inline0.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-cli-config-e5fab7f8a0eb9fbb/inline0.js"),
+    ),
+    (
+        "snippets/dioxus-interpreter-js-267e64abc8a52eaa/inline0.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/inline0.js"),
+    ),
+    (
+        "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/patch_console.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/patch_console.js"),
+    ),
+    (
+        "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/hydrate.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/hydrate.js"),
+    ),
+    (
+        "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/set_attribute.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/set_attribute.js"),
+    ),
+    (
+        "snippets/dioxus-web-807c31b5ece9dd6a/inline0.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-web-807c31b5ece9dd6a/inline0.js"),
+    ),
+    (
+        "snippets/dioxus-web-807c31b5ece9dd6a/src/js/eval.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-web-807c31b5ece9dd6a/src/js/eval.js"),
+    ),
+];
+
+/// Handler for devtools JS snippets
+async fn devtools_snippet_handler(
+    axum::extract::Path(path): axum::extract::Path<String>,
+) -> Response {
+    // The path comes in without the leading "snippets/" since that's part of the route
+    let full_path = format!("snippets/{}", path);
+    for (snippet_path, content) in SNIPPETS {
+        if full_path == *snippet_path {
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/javascript")
+                .body(Body::from(*content))
+                .unwrap();
+        }
+    }
     Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/javascript")
-        .body(Body::from(LIVERELOAD_JS))
+        .status(StatusCode::NOT_FOUND)
+        .body(Body::from("Snippet not found"))
         .unwrap()
 }
 
-/// Handler for livereload WASM binary
-async fn livereload_wasm_handler() -> Response {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/wasm")
-        .body(Body::from(LIVERELOAD_WASM.to_vec()))
-        .unwrap()
+/// Rewrite relative snippet imports to absolute paths
+fn rewrite_devtools_js() -> String {
+    // The generated JS has imports like:
+    //   import { X } from './snippets/foo/bar.js';
+    // We need to rewrite them to absolute paths:
+    //   import { X } from '/_/snippets/foo/bar.js';
+    DEVTOOLS_JS.replace("from './snippets/", "from '/_/snippets/")
+}
+
+/// Handler for devtools assets (JS and WASM) - routes based on extension
+async fn devtools_asset_handler(
+    axum::extract::Path(path): axum::extract::Path<String>,
+) -> Response {
+    if path.ends_with(".js") {
+        Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/javascript")
+            .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+            .body(Body::from(rewrite_devtools_js()))
+            .unwrap()
+    } else if path.ends_with(".wasm") {
+        Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/wasm")
+            .header(header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+            .body(Body::from(DEVTOOLS_WASM.to_vec()))
+            .unwrap()
+    } else {
+        Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .body(Body::from("Not found"))
+            .unwrap()
+    }
 }
 
 /// Build the axum router
 pub fn build_router(server: Arc<SiteServer>) -> Router {
     Router::new()
-        .route("/__livereload", get(livereload_handler))
-        .route("/__livereload.js", get(livereload_js_handler))
-        .route("/__livereload.wasm", get(livereload_wasm_handler))
+        // Devtools WebSocket endpoint
+        .route("/_/ws", get(devtools_ws_handler))
+        // Dioxus JS snippets (dynamically imported by the WASM module)
+        // Must come before the catch-all since snippets are under /_/
+        .route("/_/snippets/{*path}", get(devtools_snippet_handler))
+        // Cache-busted devtools assets (hash in filename, extension-based routing)
+        .route("/_/{*path}", get(devtools_asset_handler))
+        // Legacy endpoints for backwards compat
+        .route("/__dodeca", get(devtools_ws_handler))
+        .route("/__livereload", get(devtools_ws_handler))
         .fallback(content_handler)
         .with_state(server)
         .layer(middleware::from_fn(log_requests))

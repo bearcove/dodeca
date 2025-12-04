@@ -40,6 +40,23 @@ impl Parser {
         }
     }
 
+    /// Create a parser for standalone expressions (starts in code mode)
+    pub fn new_expression(name: impl Into<String>, source: impl Into<String>) -> Self {
+        let source_str: String = source.into();
+        let source_arc = Arc::new(source_str.clone());
+        let template_source = TemplateSource::new(name, source_str);
+
+        let mut lexer = Lexer::new_expression(source_arc);
+        let current = lexer.next_token();
+        Self {
+            lexer,
+            source: template_source,
+            current: current.clone(),
+            previous: current,
+            pending: None,
+        }
+    }
+
     /// Parse the full template
     pub fn parse(mut self) -> Result<Template> {
         let start = self.current.span;
@@ -50,6 +67,16 @@ impl Parser {
             body,
             span: span(start.offset(), end.offset() + end.len() - start.offset()),
         })
+    }
+
+    /// Parse a standalone expression (for REPL evaluation)
+    pub fn parse_expression(mut self) -> Result<Expr> {
+        self.parse_expr()
+    }
+
+    /// Get the template source for error reporting
+    pub fn source(&self) -> &TemplateSource {
+        &self.source
     }
 
     /// Parse template body until we hit a terminator

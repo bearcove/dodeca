@@ -44,8 +44,8 @@ jobs:
         name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - 
-        name: Build livereload WASM
-        run: "cargo build -p livereload-client --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm"
+        name: Build WASM crates
+        run: "cargo build -p livereload-client -p dodeca-devtools --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm\nwasm-bindgen --target web --out-dir crates/dodeca-devtools/pkg target/wasm32-unknown-unknown/release/dodeca_devtools.wasm"
         shell: bash
       - 
         name: Build ddc
@@ -92,8 +92,8 @@ jobs:
         name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - 
-        name: Build livereload WASM
-        run: "cargo build -p livereload-client --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm"
+        name: Build WASM crates
+        run: "cargo build -p livereload-client -p dodeca-devtools --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm\nwasm-bindgen --target web --out-dir crates/dodeca-devtools/pkg target/wasm32-unknown-unknown/release/dodeca_devtools.wasm"
         shell: bash
       - 
         name: Build ddc
@@ -117,51 +117,6 @@ jobs:
         with: 
           name: build-linux-arm64
           path: dodeca-aarch64-unknown-linux-gnu.tar.xz
-
-
-  build-macos-x64: 
-    name: Build (macos-x64)
-    runs-on: depot-macos-latest
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with: 
-          targets: x86_64-apple-darwin
-
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-      - 
-        name: Install wasm-bindgen
-        run: "cargo install wasm-bindgen-cli --version $(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == \"wasm-bindgen\") | .version' | head -1)"
-        shell: bash
-      - 
-        name: Add wasm32 target
-        run: rustup target add wasm32-unknown-unknown
-      - 
-        name: Build livereload WASM
-        run: "cargo build -p livereload-client --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm"
-        shell: bash
-      - 
-        name: Build ddc
-        run: cargo build --release --target x86_64-apple-darwin -p dodeca
-      - 
-        name: Build plugins
-        run: cargo build --release --target x86_64-apple-darwin -p dodeca-baseline -p dodeca-css -p dodeca-js -p dodeca-jxl -p dodeca-minify -p dodeca-pagefind -p dodeca-sass -p dodeca-svgo -p dodeca-webp
-      - 
-        name: Assemble archive
-        run: "mkdir -p staging\ncp target/x86_64-apple-darwin/release/ddc staging/\nmkdir -p staging/plugins\ncp target/x86_64-apple-darwin/release/libdodeca_baseline.dylib target/x86_64-apple-darwin/release/libdodeca_css.dylib target/x86_64-apple-darwin/release/libdodeca_js.dylib target/x86_64-apple-darwin/release/libdodeca_jxl.dylib target/x86_64-apple-darwin/release/libdodeca_minify.dylib target/x86_64-apple-darwin/release/libdodeca_pagefind.dylib target/x86_64-apple-darwin/release/libdodeca_sass.dylib target/x86_64-apple-darwin/release/libdodeca_svgo.dylib target/x86_64-apple-darwin/release/libdodeca_webp.dylib staging/plugins/\ntar -cJf \"dodeca-x86_64-apple-darwin.tar.xz\" -C staging ."
-        shell: bash
-      - 
-        name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with: 
-          name: build-macos-x64
-          path: dodeca-x86_64-apple-darwin.tar.xz
 
 
   build-macos-arm64: 
@@ -188,8 +143,8 @@ jobs:
         name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - 
-        name: Build livereload WASM
-        run: "cargo build -p livereload-client --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm"
+        name: Build WASM crates
+        run: "cargo build -p livereload-client -p dodeca-devtools --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm\nwasm-bindgen --target web --out-dir crates/dodeca-devtools/pkg target/wasm32-unknown-unknown/release/dodeca_devtools.wasm"
         shell: bash
       - 
         name: Build ddc
@@ -236,8 +191,8 @@ jobs:
         name: Add wasm32 target
         run: rustup target add wasm32-unknown-unknown
       - 
-        name: Build livereload WASM
-        run: "cargo build -p livereload-client --target wasm32-unknown-unknown --release\nwasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm"
+        name: Build WASM crates
+        run: "cargo build -p livereload-client -p dodeca-devtools --target wasm32-unknown-unknown --release\n$HOME/.cargo/bin/wasm-bindgen --target web --out-dir crates/livereload-client/pkg target/wasm32-unknown-unknown/release/livereload_client.wasm\n$HOME/.cargo/bin/wasm-bindgen --target web --out-dir crates/dodeca-devtools/pkg target/wasm32-unknown-unknown/release/dodeca_devtools.wasm"
         shell: bash
       - 
         name: Build ddc
@@ -263,7 +218,6 @@ jobs:
     needs: 
       - build-linux-x64
       - build-linux-arm64
-      - build-macos-x64
       - build-macos-arm64
       - build-windows-x64
 
