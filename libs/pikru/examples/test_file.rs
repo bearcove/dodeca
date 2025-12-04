@@ -1,7 +1,7 @@
 fn main() {
     let path = std::env::args()
         .nth(1)
-        .unwrap_or_else(|| "../pikchr/tests/test01.pikchr".to_string());
+        .unwrap_or_else(|| "vendor/pikchr-c/tests/test01.pikchr".to_string());
     let input =
         std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("Failed to read file: {}", path));
     match pikru::pikchr(&input) {

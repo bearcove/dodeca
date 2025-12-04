@@ -1,5 +1,5 @@
 fn main() {
-    let test_dir = std::path::Path::new("../pikchr/tests");
+    let test_dir = std::path::Path::new("vendor/pikchr-c/tests");
 
     println!("=== Files that render EMPTY ===");
     for entry in std::fs::read_dir(test_dir).unwrap() {

@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn parse_test01() {
-        let input = include_str!("../../pikchr/tests/test01.pikchr");
+        let input = include_str!("../vendor/pikchr-c/tests/test01.pikchr");
         let result = PikchrParser::parse(Rule::program, input);
         assert!(
             result.is_ok(),
@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn parse_test02() {
-        let input = include_str!("../../pikchr/tests/test02.pikchr");
+        let input = include_str!("../vendor/pikchr-c/tests/test02.pikchr");
         let result = PikchrParser::parse(Rule::program, input);
         assert!(
             result.is_ok(),
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     fn parse_test03() {
-        let input = include_str!("../../pikchr/tests/test03.pikchr");
+        let input = include_str!("../vendor/pikchr-c/tests/test03.pikchr");
         let result = PikchrParser::parse(Rule::program, input);
         assert!(
             result.is_ok(),
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn parse_test10() {
-        let input = include_str!("../../pikchr/tests/test10.pikchr");
+        let input = include_str!("../vendor/pikchr-c/tests/test10.pikchr");
         let result = PikchrParser::parse(Rule::program, input);
         assert!(
             result.is_ok(),
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn parse_expr_file() {
-        let input = include_str!("../../pikchr/tests/expr.pikchr");
+        let input = include_str!("../vendor/pikchr-c/tests/expr.pikchr");
         let result = PikchrParser::parse(Rule::program, input);
         assert!(
             result.is_ok(),
@@ -333,8 +333,10 @@ mod tests {
         // Files that are intentionally testing error handling (contain intentional syntax errors)
         let error_test_files = ["test60.pikchr", "test62.pikchr"];
 
-        let test_dir =
-            std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/tests"));
+        let test_dir = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/vendor/pikchr-c/tests"
+        ));
         let mut pass = 0;
         let mut fail = 0;
         let mut expected_errors = 0;
@@ -400,7 +402,7 @@ mod tests {
 
     #[test]
     fn ast_test01_file() {
-        let input = include_str!("../../pikchr/tests/test01.pikchr");
+        let input = include_str!("../vendor/pikchr-c/tests/test01.pikchr");
         let result = crate::parse::parse(input);
         assert!(
             result.is_ok(),
@@ -411,7 +413,7 @@ mod tests {
 
     #[test]
     fn ast_test02_file() {
-        let input = include_str!("../../pikchr/tests/test02.pikchr");
+        let input = include_str!("../vendor/pikchr-c/tests/test02.pikchr");
         let result = crate::parse::parse(input);
         assert!(
             result.is_ok(),
@@ -422,7 +424,7 @@ mod tests {
 
     #[test]
     fn ast_test03_file() {
-        let input = include_str!("../../pikchr/tests/test03.pikchr");
+        let input = include_str!("../vendor/pikchr-c/tests/test03.pikchr");
         let result = crate::parse::parse(input);
         assert!(
             result.is_ok(),
@@ -436,8 +438,10 @@ mod tests {
         // Files that are intentionally testing error handling
         let error_test_files = ["test60.pikchr", "test62.pikchr"];
 
-        let test_dir =
-            std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/tests"));
+        let test_dir = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/vendor/pikchr-c/tests"
+        ));
         let mut pass = 0;
         let mut fail = 0;
         let mut expected_errors = 0;
@@ -531,8 +535,10 @@ mod tests {
         // Files that are intentionally testing error handling
         let error_test_files = ["test60.pikchr", "test62.pikchr"];
 
-        let test_dir =
-            std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/tests"));
+        let test_dir = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/vendor/pikchr-c/tests"
+        ));
         let mut pass = 0;
         let mut fail = 0;
         let mut expected_errors = 0;

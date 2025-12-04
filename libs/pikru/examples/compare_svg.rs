@@ -7,9 +7,9 @@ use std::process::Command;
 
 fn main() {
     let test_files = [
-        "../pikchr/tests/test01.pikchr",
-        "../pikchr/tests/test03.pikchr",
-        "../pikchr/tests/test10.pikchr",
+        "vendor/pikchr-c/tests/test01.pikchr",
+        "vendor/pikchr-c/tests/test03.pikchr",
+        "vendor/pikchr-c/tests/test10.pikchr",
     ];
 
     for file in test_files {
@@ -21,7 +21,7 @@ fn main() {
 
 fn compare_file(path: &str) {
     // Get C pikchr output
-    let c_output = Command::new("../pikchr/pikchr")
+    let c_output = Command::new("vendor/pikchr-c/pikchr")
         .arg("--svg-only")
         .arg(path)
         .output()

@@ -1,7 +1,7 @@
 use facet_svg::{Svg, SvgNode, facet_xml};
 
 fn main() {
-    let input = std::fs::read_to_string("../pikchr/tests/test03.pikchr").unwrap();
+    let input = std::fs::read_to_string("vendor/pikchr-c/tests/test03.pikchr").unwrap();
     let rust_svg = pikru::pikchr(&input).unwrap();
 
     println!("SVG length: {}", rust_svg.len());

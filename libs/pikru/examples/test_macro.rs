@@ -3,7 +3,7 @@ fn main() {
     let file = args
         .get(1)
         .map(|s| s.as_str())
-        .unwrap_or("../pikchr/tests/test63.pikchr");
+        .unwrap_or("vendor/pikchr-c/tests/test63.pikchr");
 
     let input = std::fs::read_to_string(file).expect("Failed to read file");
     match pikru::pikchr(&input) {

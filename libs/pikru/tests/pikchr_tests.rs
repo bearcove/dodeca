@@ -6,8 +6,8 @@ use facet_svg::{
 };
 use std::process::Command;
 
-/// Path to the C pikchr binary (built from ../pikchr)
-const C_PIKCHR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/pikchr");
+/// Path to the C pikchr binary (built from vendor/pikchr-c)
+const C_PIKCHR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/pikchr-c/pikchr");
 
 /// Tolerance for floating-point comparisons (pikchr uses single precision)
 /// Use 0.05 to allow for rounding differences between C and Rust implementations
@@ -115,5 +115,5 @@ fn until_even_vertical_matches_c() {
 }
 
 datatest_stable::harness! {
-    { test = test_pikchr_file, root = concat!(env!("CARGO_MANIFEST_DIR"), "/../pikchr/tests"), pattern = r"\.pikchr$" },
+    { test = test_pikchr_file, root = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/pikchr-c/tests"), pattern = r"\.pikchr$" },
 }

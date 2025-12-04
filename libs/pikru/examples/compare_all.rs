@@ -1,5 +1,5 @@
 fn main() {
-    let test_dir = std::path::Path::new("../pikchr/tests");
+    let test_dir = std::path::Path::new("vendor/pikchr-c/tests");
     let mut success = 0;
     let mut empty = 0;
     let mut error = 0;
