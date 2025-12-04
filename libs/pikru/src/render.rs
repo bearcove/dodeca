@@ -298,6 +298,8 @@ pub struct RenderContext {
     pub variables: HashMap<String, EvalValue>,
     /// Bounding box of all objects
     pub bounds: BoundingBox,
+    /// Current object being constructed (for `this` keyword support)
+    pub current_object: Option<RenderedObject>,
 }
 
 impl Default for RenderContext {
@@ -309,6 +311,7 @@ impl Default for RenderContext {
             object_list: Vec::new(),
             variables: HashMap::new(),
             bounds: BoundingBox::new(),
+            current_object: None,
         };
         // Initialize built-in variables
         ctx.init_builtin_variables();
@@ -689,6 +692,42 @@ fn render_statement(
     Ok(())
 }
 
+/// Create a partial RenderedObject for `this` keyword resolution during attribute processing.
+/// This allows expressions like `ht this.wid` to access the current object's computed properties.
+fn make_partial_object(
+    class: ObjectClass,
+    width: Inches,
+    height: Inches,
+    style: &ObjectStyle,
+) -> RenderedObject {
+    RenderedObject {
+        name: None,
+        class,
+        center: pin(0.0, 0.0),
+        width,
+        height,
+        start: pin(0.0, 0.0),
+        end: pin(0.0, 0.0),
+        start_attachment: None,
+        end_attachment: None,
+        waypoints: Vec::new(),
+        text: Vec::new(),
+        style: style.clone(),
+        children: Vec::new(),
+    }
+}
+
+/// Update the current_object in context with latest dimensions
+fn update_current_object(
+    ctx: &mut RenderContext,
+    class: ObjectClass,
+    width: Inches,
+    height: Inches,
+    style: &ObjectStyle,
+) {
+    ctx.current_object = Some(make_partial_object(class, width, height, style));
+}
+
 fn render_object_stmt(
     ctx: &mut RenderContext,
     obj_stmt: &ObjectStatement,
@@ -795,6 +834,43 @@ fn render_object_stmt(
         style.arrow_end = true;
     }
 
+    // Pre-scan for `fit` and string attributes to apply fit sizing early.
+    // This allows `this.wid` to access the fit-computed width during attribute processing.
+    let has_fit = obj_stmt
+        .attributes
+        .iter()
+        .any(|a| matches!(a, Attribute::Fit));
+    if has_fit {
+        // Collect all text (from basetype and string attributes)
+        let mut fit_text = text.clone();
+        for attr in &obj_stmt.attributes {
+            if let Attribute::StringAttr(s, pos) = attr {
+                fit_text.push(PositionedText::from_textposition(
+                    s.value.clone(),
+                    pos.as_ref(),
+                ));
+            }
+        }
+        // Apply fit sizing
+        if !fit_text.is_empty() {
+            let char_width = defaults::FONT_SIZE * 0.6;
+            let padding = defaults::FONT_SIZE;
+            let max_text_width = fit_text
+                .iter()
+                .map(|t| t.value.len() as f64 * char_width)
+                .fold(0.0_f64, |a, b| a.max(b));
+            let center_lines = fit_text.iter().filter(|t| !t.above && !t.below).count();
+            let fit_width = Inches(max_text_width + padding * 2.0);
+            let fit_height = Inches((center_lines as f64 * defaults::FONT_SIZE) + padding * 2.0);
+            width = width.max(fit_width);
+            height = height.max(fit_height);
+            style.fit = true;
+        }
+    }
+
+    // Initialize current_object for `this` keyword support
+    update_current_object(ctx, class, width, height, &style);
+
     // Process attributes
     for attr in &obj_stmt.attributes {
         match attr {
@@ -823,8 +899,14 @@ fn render_object_stmt(
                     raw_val
                 };
                 match prop {
-                    NumProperty::Width => width = val,
-                    NumProperty::Height => height = val,
+                    NumProperty::Width => {
+                        width = val;
+                        update_current_object(ctx, class, width, height, &style);
+                    }
+                    NumProperty::Height => {
+                        height = val;
+                        update_current_object(ctx, class, width, height, &style);
+                    }
                     NumProperty::Radius => {
                         // For circles/ellipses, radius sets size (diameter = 2 * radius)
                         // For boxes, radius sets corner rounding
@@ -832,6 +914,7 @@ fn render_object_stmt(
                             ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Arc => {
                                 width = val * 2.0;
                                 height = val * 2.0;
+                                update_current_object(ctx, class, width, height, &style);
                             }
                             _ => {
                                 style.corner_radius = val;
@@ -841,6 +924,7 @@ fn render_object_stmt(
                     NumProperty::Diameter => {
                         width = val;
                         height = val;
+                        update_current_object(ctx, class, width, height, &style);
                     }
                     NumProperty::Thickness => style.stroke_width = val,
                 }
@@ -1143,6 +1227,9 @@ fn render_object_stmt(
     // If no explicit name and there's text, use the first text value as implicit name
     // This matches C pikchr behavior where `circle "C2"` can be referenced as C2
     let final_name = name.or_else(|| text.first().map(|t| t.value.clone()));
+
+    // Clear current_object now that we're done building this object
+    ctx.current_object = None;
 
     Ok(RenderedObject {
         name: final_name,
@@ -1814,7 +1901,7 @@ fn resolve_object<'a>(ctx: &'a RenderContext, obj: &Object) -> Option<&'a Render
             // First resolve the base object
             let base_obj = match &name.base {
                 ObjectNameBase::PlaceName(n) => ctx.get_object(n),
-                ObjectNameBase::This => ctx.last_object(),
+                ObjectNameBase::This => ctx.current_object.as_ref().or_else(|| ctx.last_object()),
             }?;
 
             // Then follow the path through sublists (e.g., Main.A -> Main's child A)
@@ -2068,9 +2155,9 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 let x2 = tx + scaler.px(obj.width / 2.0);
                 let y2 = ty + scaler.px(obj.height / 2.0);
                 if obj.style.corner_radius.0 > 0.0 {
-                    // Rounded corners - keep using rect for now (C pikchr also uses path but complex)
-                    writeln!(svg, r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" rx="{:.2}" ry="{:.2}" {}/>"#,
-                             x1, y1, scaler.px(obj.width), scaler.px(obj.height), scaler.px(obj.style.corner_radius), scaler.px(obj.style.corner_radius), stroke_style).unwrap();
+                    // Rounded corners - render as path to match C pikchr
+                    let r = scaler.px(obj.style.corner_radius);
+                    render_rounded_box_path(&mut svg, x1, y1, x2, y2, r, &stroke_style);
                 } else {
                     // C pikchr renders boxes as path: M x1,y2 L x2,y2 L x2,y1 L x1,y1 Z
                     // (starts at bottom-left, goes clockwise)
@@ -2646,9 +2733,9 @@ fn render_sublist_children(
                 let x2 = tx + scaler.px(child.width / 2.0);
                 let y2 = ty + scaler.px(child.height / 2.0);
                 if child.style.corner_radius.0 > 0.0 {
+                    // Rounded corners - render as path to match C pikchr
                     let r = scaler.px(child.style.corner_radius);
-                    writeln!(svg, r#"  <rect x="{:.2}" y="{:.2}" width="{:.2}" height="{:.2}" rx="{:.2}" ry="{:.2}" {}/>"#,
-                             x1, y1, scaler.px(child.width), scaler.px(child.height), r, r, stroke_style).unwrap();
+                    render_rounded_box_path(svg, x1, y1, x2, y2, r, &stroke_style);
                 } else {
                     // C pikchr renders boxes as path
                     writeln!(
@@ -2966,6 +3053,45 @@ fn chop_against_diamond(
 }
 
 /// Render an oval (pill shape)
+/// Render a rounded box as a path (matching C pikchr output)
+fn render_rounded_box_path(
+    svg: &mut String,
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+    r: f64,
+    stroke_style: &str,
+) {
+    // C pikchr path format for rounded box:
+    // Start at bottom-left corner (after radius), go clockwise
+    // M x1+r,y2 (bottom-left, after radius)
+    // L x2-r,y2 (bottom-right, before radius)
+    // A r,r 0 0 0 x2,y2-r (arc to right edge)
+    // L x2,y1+r (up to top-right, before radius)
+    // A r,r 0 0 0 x2-r,y1 (arc to top edge)
+    // L x1+r,y1 (left to top-left, after radius)
+    // A r,r 0 0 0 x1,y1+r (arc to left edge)
+    // L x1,y2-r (down to bottom-left, before radius)
+    // A r,r 0 0 0 x1+r,y2 (arc back to start)
+    // Z (close path)
+    writeln!(
+        svg,
+        r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}A{:.2} {:.2} 0 0 0 {:.2} {:.2}L{:.2},{:.2}A{:.2} {:.2} 0 0 0 {:.2} {:.2}L{:.2},{:.2}A{:.2} {:.2} 0 0 0 {:.2} {:.2}L{:.2},{:.2}A{:.2} {:.2} 0 0 0 {:.2} {:.2}Z" {}/>"#,
+        x1 + r, y2,           // M: start at bottom-left after radius
+        x2 - r, y2,           // L: to bottom-right before radius
+        r, r, x2, y2 - r,     // A: arc to right edge
+        x2, y1 + r,           // L: up to top-right before radius
+        r, r, x2 - r, y1,     // A: arc to top edge
+        x1 + r, y1,           // L: left to top-left after radius
+        r, r, x1, y1 + r,     // A: arc to left edge
+        x1, y2 - r,           // L: down to bottom-left before radius
+        r, r, x1 + r, y2,     // A: arc back to start
+        stroke_style
+    )
+    .unwrap();
+}
+
 fn render_oval(
     svg: &mut String,
     cx: f64,
