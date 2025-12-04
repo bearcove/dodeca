@@ -7,6 +7,9 @@
 //! Blobs (processed images, decompressed fonts) are stored on disk rather than
 //! in the database to keep the database lean and fast for metadata queries.
 
+/// CAS/canopy database version - bump this when making incompatible changes
+pub const CAS_VERSION: u32 = 4;
+
 use crate::db::ProcessedImages;
 use camino::Utf8Path;
 use canopydb::Database;
@@ -179,10 +182,36 @@ pub fn init_asset_cache(cache_dir: &Path) -> color_eyre::Result<()> {
     // Blob storage directory (for processed images, decompressed fonts)
     let blob_path = cache_dir.join("blobs");
 
+    // Check version file - if missing or mismatched, delete the cache directories
+    let version_path = cache_dir.join("cas.version");
+    let version_ok = if version_path.exists() {
+        match fs::read_to_string(&version_path) {
+            Ok(v) => v.trim().parse::<u32>().ok() == Some(CAS_VERSION),
+            Err(_) => false,
+        }
+    } else {
+        false
+    };
+
+    if !version_ok {
+        // Delete stale cache if it exists
+        if db_path.exists() || blob_path.exists() {
+            tracing::info!(
+                "CAS version mismatch (expected v{}), deleting stale cache",
+                CAS_VERSION
+            );
+            let _ = fs::remove_dir_all(&db_path);
+            let _ = fs::remove_dir_all(&blob_path);
+        }
+    }
+
     // Ensure directories exist
     tracing::debug!(db_path = %db_path.display(), blob_path = %blob_path.display(), "Creating cache directories");
     fs::create_dir_all(&db_path)?;
     fs::create_dir_all(&blob_path)?;
+
+    // Write version file
+    fs::write(&version_path, CAS_VERSION.to_string())?;
 
     tracing::debug!(
         path = %db_path.display(),

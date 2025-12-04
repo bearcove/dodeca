@@ -3,6 +3,9 @@
 //! No files are read from disk - everything is queried from Salsa on demand.
 //! This enables instant incremental rebuilds with zero disk I/O.
 
+/// Salsa cache version - bump this when making incompatible changes to Salsa inputs/queries
+pub const SALSA_CACHE_VERSION: u32 = 4;
+
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::{
     Router,
@@ -402,6 +405,28 @@ impl SiteServer {
 
     /// Load cached query results from disk
     pub fn load_cache(&self, cache_path: &std::path::Path) -> Result<()> {
+        // Check version file first - if missing or mismatched, delete the cache
+        let version_path = cache_path.with_extension("version");
+        let version_ok = if version_path.exists() {
+            match std::fs::read_to_string(&version_path) {
+                Ok(v) => v.trim().parse::<u32>().ok() == Some(SALSA_CACHE_VERSION),
+                Err(_) => false,
+            }
+        } else {
+            false
+        };
+
+        if !version_ok {
+            if cache_path.exists() {
+                tracing::info!(
+                    "Salsa cache version mismatch (expected v{}), deleting stale cache",
+                    SALSA_CACHE_VERSION
+                );
+                let _ = std::fs::remove_file(cache_path);
+            }
+            return Ok(());
+        }
+
         if !cache_path.exists() {
             tracing::info!("No cache file found, starting fresh");
             return Ok(());
@@ -424,11 +449,13 @@ impl SiteServer {
             Ok(Err(e)) => {
                 tracing::warn!("Cache corrupted, deleting: {e}");
                 let _ = std::fs::remove_file(cache_path);
+                let _ = std::fs::remove_file(&version_path);
                 Ok(())
             }
             Err(_) => {
                 tracing::warn!("Cache incompatible (schema changed), deleting");
                 let _ = std::fs::remove_file(cache_path);
+                let _ = std::fs::remove_file(&version_path);
                 Ok(())
             }
         }
@@ -443,6 +470,10 @@ impl SiteServer {
         let temp_path = cache_path.with_extension("tmp");
         std::fs::write(&temp_path, &data)?;
         std::fs::rename(&temp_path, cache_path)?;
+
+        // Write version file
+        let version_path = cache_path.with_extension("version");
+        std::fs::write(&version_path, SALSA_CACHE_VERSION.to_string())?;
 
         tracing::info!("Saved cache ({})", format_bytes(data.len()));
         Ok(())
