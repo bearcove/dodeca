@@ -1,0 +1,16 @@
+[package]
+name = "gingembre"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+authors = ["Amos Wenger <amos@bearcove.eu>"]
+license = "MIT OR Apache-2.0"
+description = "A Jinja-like template engine with rich diagnostics"
+repository = "https://github.com/bearcove/dodeca"
+keywords = ["template", "jinja", "templating"]
+categories = ["template-engine", "web-programming"]
+
+[dependencies]
+miette = { version = "7", features = ["fancy"] }
+thiserror = "2"
+camino = "1"
