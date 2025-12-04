@@ -1,89 +1,100 @@
 //! Expression evaluator
 //!
-//! Evaluates template expressions against a Facet context.
-//! Expressions → Values (not strings yet, that's the render phase).
+//! Evaluates template expressions against a context using facet_value::Value.
 
 use super::ast::*;
 use super::error::{
     TemplateSource, TypeError, UndefinedError, UnknownFieldError, UnknownFilterError,
     UnknownTestError,
 };
+use facet_value::{DestructuredRef, VArray, VObject, VString};
 use miette::Result;
 use std::collections::HashMap;
 
-/// A runtime value in the template
-#[derive(Debug, Clone)]
-pub enum Value {
-    None,
-    Bool(bool),
-    Int(i64),
-    Float(f64),
-    String(String),
-    List(Vec<Value>),
-    Dict(HashMap<String, Value>),
-    /// A Facet value (opaque, accessed via reflection)
-    Facet(FacetValue),
-    /// A "safe" value that should not be HTML-escaped when rendered
-    Safe(Box<Value>),
+/// Re-export facet_value::Value as the template Value type
+pub use facet_value::Value;
+
+/// Helper trait to extend Value with template-specific operations
+pub trait ValueExt {
+    /// Check if the value is truthy (for conditionals)
+    fn is_truthy(&self) -> bool;
+
+    /// Get a human-readable type name
+    fn type_name(&self) -> &'static str;
+
+    /// Render the value to a string for output
+    fn render_to_string(&self) -> String;
+
+    /// Check if this value is marked as "safe" (should not be HTML-escaped)
+    fn is_safe(&self) -> bool;
 }
 
-/// A wrapped Facet value for template evaluation
-#[derive(Debug, Clone)]
-pub struct FacetValue {
-    // TODO: This will hold a reference to the actual Facet data
-    // For now, placeholder
-    _placeholder: (),
-}
-
-impl Value {
-    pub fn is_truthy(&self) -> bool {
-        match self {
-            Value::None => false,
-            Value::Bool(b) => *b,
-            Value::Int(i) => *i != 0,
-            Value::Float(f) => *f != 0.0,
-            Value::String(s) => !s.is_empty(),
-            Value::List(l) => !l.is_empty(),
-            Value::Dict(d) => !d.is_empty(),
-            Value::Facet(_) => true,
-            Value::Safe(inner) => inner.is_truthy(),
+impl ValueExt for Value {
+    fn is_truthy(&self) -> bool {
+        match self.destructure_ref() {
+            DestructuredRef::Null => false,
+            DestructuredRef::Bool(b) => b,
+            DestructuredRef::Number(n) => {
+                if let Some(i) = n.to_i64() {
+                    i != 0
+                } else if let Some(f) = n.to_f64() {
+                    f != 0.0
+                } else {
+                    true
+                }
+            }
+            DestructuredRef::String(s) => !s.is_empty(),
+            DestructuredRef::Bytes(b) => !b.is_empty(),
+            DestructuredRef::Array(arr) => !arr.is_empty(),
+            DestructuredRef::Object(obj) => !obj.is_empty(),
+            DestructuredRef::DateTime(_) => true,
         }
     }
 
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            Value::None => "none",
-            Value::Bool(_) => "bool",
-            Value::Int(_) => "int",
-            Value::Float(_) => "float",
-            Value::String(_) => "string",
-            Value::List(_) => "list",
-            Value::Dict(_) => "dict",
-            Value::Facet(_) => "object",
-            Value::Safe(inner) => inner.type_name(),
+    fn type_name(&self) -> &'static str {
+        match self.destructure_ref() {
+            DestructuredRef::Null => "none",
+            DestructuredRef::Bool(_) => "bool",
+            DestructuredRef::Number(_) => "number",
+            DestructuredRef::String(_) => "string",
+            DestructuredRef::Bytes(_) => "bytes",
+            DestructuredRef::Array(_) => "list",
+            DestructuredRef::Object(_) => "dict",
+            DestructuredRef::DateTime(_) => "datetime",
         }
     }
 
-    pub fn render_to_string(&self) -> String {
-        match self {
-            Value::None => "".to_string(),
-            Value::Bool(b) => if *b { "true" } else { "false" }.to_string(),
-            Value::Int(i) => i.to_string(),
-            Value::Float(f) => f.to_string(),
-            Value::String(s) => s.clone(),
-            Value::List(l) => {
-                let items: Vec<_> = l.iter().map(|v| v.render_to_string()).collect();
+    fn render_to_string(&self) -> String {
+        match self.destructure_ref() {
+            DestructuredRef::Null => String::new(),
+            DestructuredRef::Bool(b) => if b { "true" } else { "false" }.to_string(),
+            DestructuredRef::Number(n) => {
+                if let Some(i) = n.to_i64() {
+                    i.to_string()
+                } else if let Some(f) = n.to_f64() {
+                    f.to_string()
+                } else {
+                    // Fallback for numbers that don't fit i64 or f64
+                    "0".to_string()
+                }
+            }
+            DestructuredRef::String(s) => s.to_string(),
+            DestructuredRef::Bytes(b) => {
+                // Render bytes as hex or base64
+                format!("<bytes: {} bytes>", b.len())
+            }
+            DestructuredRef::Array(arr) => {
+                let items: Vec<String> = arr.iter().map(|v| v.render_to_string()).collect();
                 format!("[{}]", items.join(", "))
             }
-            Value::Dict(_) => "[object]".to_string(),
-            Value::Facet(_) => "[object]".to_string(),
-            Value::Safe(inner) => inner.render_to_string(),
+            DestructuredRef::Object(_) => "[object]".to_string(),
+            DestructuredRef::DateTime(dt) => format!("{:?}", dt),
         }
     }
 
-    /// Check if this value is marked as safe (should not be HTML-escaped)
-    pub fn is_safe(&self) -> bool {
-        matches!(self, Value::Safe(_))
+    fn is_safe(&self) -> bool {
+        // Check if this is a safe string using VSafeString's flag
+        self.as_string().is_some_and(|s| s.is_safe())
     }
 }
 
@@ -140,6 +151,18 @@ impl Context {
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(name.into(), value);
         }
+    }
+
+    /// Set a variable as "safe" (won't be HTML-escaped when rendered)
+    /// If the value is a string, it will be converted to a VSafeString
+    pub fn set_safe(&mut self, name: impl Into<String>, value: Value) {
+        // Convert string values to safe strings
+        let safe_value = if let Some(s) = value.as_string() {
+            s.clone().into_safe().into_value()
+        } else {
+            value
+        };
+        self.set(name, safe_value);
     }
 
     /// Get a variable (searches all scopes)
@@ -205,31 +228,30 @@ impl<'a> Evaluator<'a> {
             Expr::Test(test) => self.eval_test(test),
             Expr::MacroCall(_macro_call) => {
                 // Macro calls are evaluated during rendering, not expression evaluation
-                // Return None for now - the renderer will handle macro expansion
-                Ok(Value::None)
+                Ok(Value::NULL)
             }
         }
     }
 
     fn eval_literal(&self, lit: &Literal) -> Result<Value> {
         Ok(match lit {
-            Literal::None(_) => Value::None,
-            Literal::Bool(b) => Value::Bool(b.value),
-            Literal::Int(i) => Value::Int(i.value),
-            Literal::Float(f) => Value::Float(f.value),
-            Literal::String(s) => Value::String(s.value.clone()),
+            Literal::None(_) => Value::NULL,
+            Literal::Bool(b) => Value::from(b.value),
+            Literal::Int(i) => Value::from(i.value),
+            Literal::Float(f) => Value::from(f.value),
+            Literal::String(s) => Value::from(s.value.as_str()),
             Literal::List(l) => {
                 let elements: Result<Vec<_>> = l.elements.iter().map(|e| self.eval(e)).collect();
-                Value::List(elements?)
+                VArray::from_iter(elements?).into()
             }
             Literal::Dict(d) => {
-                let mut map = HashMap::new();
+                let mut obj = VObject::new();
                 for (k, v) in &d.entries {
                     let key = self.eval(k)?.render_to_string();
                     let value = self.eval(v)?;
-                    map.insert(key, value);
+                    obj.insert(VString::from(key.as_str()), value);
                 }
-                Value::Dict(map)
+                obj.into()
             }
         })
     }
@@ -249,18 +271,19 @@ impl<'a> Evaluator<'a> {
     fn eval_field(&self, field: &FieldExpr) -> Result<Value> {
         let base = self.eval(&field.base)?;
 
-        match &base {
-            Value::Dict(map) => map.get(&field.field.name).cloned().ok_or_else(|| {
-                UnknownFieldError {
-                    base_type: "dict".to_string(),
-                    field: field.field.name.clone(),
-                    known_fields: map.keys().cloned().collect(),
-                    span: field.field.span,
-                    src: self.source.named_source(),
-                }
-                .into()
-            }),
-            // TODO: Handle Facet values
+        match base.destructure_ref() {
+            DestructuredRef::Object(obj) => {
+                obj.get(&field.field.name).cloned().ok_or_else(|| {
+                    UnknownFieldError {
+                        base_type: "dict".to_string(),
+                        field: field.field.name.clone(),
+                        known_fields: obj.keys().map(|k| k.to_string()).collect(),
+                        span: field.field.span,
+                        src: self.source.named_source(),
+                    }
+                    .into()
+                })
+            }
             _ => Err(TypeError {
                 expected: "object or dict".to_string(),
                 found: base.type_name().to_string(),
@@ -275,16 +298,17 @@ impl<'a> Evaluator<'a> {
         let base = self.eval(&index.base)?;
         let idx = self.eval(&index.index)?;
 
-        match (&base, &idx) {
-            (Value::List(list), Value::Int(i)) => {
-                let i = if *i < 0 {
-                    (list.len() as i64 + *i) as usize
+        match (base.destructure_ref(), idx.destructure_ref()) {
+            (DestructuredRef::Array(arr), DestructuredRef::Number(n)) => {
+                let i = n.to_i64().unwrap_or(0);
+                let i = if i < 0 {
+                    (arr.len() as i64 + i) as usize
                 } else {
-                    *i as usize
+                    i as usize
                 };
-                list.get(i).cloned().ok_or_else(|| {
+                arr.get(i).cloned().ok_or_else(|| {
                     TypeError {
-                        expected: format!("index < {}", list.len()),
+                        expected: format!("index < {}", arr.len()),
                         found: format!("index {i}"),
                         context: "list index".to_string(),
                         span: index.index.span(),
@@ -293,28 +317,29 @@ impl<'a> Evaluator<'a> {
                     .into()
                 })
             }
-            (Value::Dict(map), Value::String(key)) => map.get(key).cloned().ok_or_else(|| {
-                UnknownFieldError {
-                    base_type: "dict".to_string(),
-                    field: key.clone(),
-                    known_fields: map.keys().cloned().collect(),
-                    span: index.index.span(),
-                    src: self.source.named_source(),
-                }
-                .into()
-            }),
-            (Value::String(s), Value::Int(i)) => {
-                let i = if *i < 0 {
-                    (s.len() as i64 + *i) as usize
-                } else {
-                    *i as usize
-                };
-                s.chars()
+            (DestructuredRef::Object(obj), DestructuredRef::String(key)) => {
+                obj.get(key.as_str()).cloned().ok_or_else(|| {
+                    UnknownFieldError {
+                        base_type: "dict".to_string(),
+                        field: key.to_string(),
+                        known_fields: obj.keys().map(|k| k.to_string()).collect(),
+                        span: index.index.span(),
+                        src: self.source.named_source(),
+                    }
+                    .into()
+                })
+            }
+            (DestructuredRef::String(s), DestructuredRef::Number(n)) => {
+                let i = n.to_i64().unwrap_or(0);
+                let len = s.len();
+                let i = if i < 0 { (len as i64 + i) as usize } else { i as usize };
+                s.as_str()
+                    .chars()
                     .nth(i)
-                    .map(|c| Value::String(c.to_string()))
+                    .map(|c| Value::from(c.to_string().as_str()))
                     .ok_or_else(|| {
                         TypeError {
-                            expected: format!("index < {}", s.len()),
+                            expected: format!("index < {}", len),
                             found: format!("index {i}"),
                             context: "string index".to_string(),
                             span: index.index.span(),
@@ -379,87 +404,40 @@ impl<'a> Evaluator<'a> {
         let right = self.eval(&binary.right)?;
 
         Ok(match binary.op {
-            BinaryOp::Add => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Value::Int(a + b),
-                (Value::Float(a), Value::Float(b)) => Value::Float(a + b),
-                (Value::Int(a), Value::Float(b)) => Value::Float(*a as f64 + b),
-                (Value::Float(a), Value::Int(b)) => Value::Float(a + *b as f64),
-                (Value::String(a), Value::String(b)) => Value::String(format!("{a}{b}")),
-                (Value::List(a), Value::List(b)) => {
-                    let mut result = a.clone();
-                    result.extend(b.clone());
-                    Value::List(result)
-                }
-                _ => Value::None,
-            },
-            BinaryOp::Sub => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Value::Int(a - b),
-                (Value::Float(a), Value::Float(b)) => Value::Float(a - b),
-                (Value::Int(a), Value::Float(b)) => Value::Float(*a as f64 - b),
-                (Value::Float(a), Value::Int(b)) => Value::Float(a - *b as f64),
-                _ => Value::None,
-            },
-            BinaryOp::Mul => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) => Value::Int(a * b),
-                (Value::Float(a), Value::Float(b)) => Value::Float(a * b),
-                (Value::Int(a), Value::Float(b)) => Value::Float(*a as f64 * b),
-                (Value::Float(a), Value::Int(b)) => Value::Float(a * *b as f64),
-                (Value::String(s), Value::Int(n)) | (Value::Int(n), Value::String(s)) => {
-                    Value::String(s.repeat(*n as usize))
-                }
-                _ => Value::None,
-            },
-            BinaryOp::Div => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) if *b != 0 => Value::Float(*a as f64 / *b as f64),
-                (Value::Float(a), Value::Float(b)) if *b != 0.0 => Value::Float(a / b),
-                (Value::Int(a), Value::Float(b)) if *b != 0.0 => Value::Float(*a as f64 / b),
-                (Value::Float(a), Value::Int(b)) if *b != 0 => Value::Float(a / *b as f64),
-                _ => Value::None,
-            },
-            BinaryOp::FloorDiv => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) if *b != 0 => Value::Int(a / b),
-                _ => Value::None,
-            },
-            BinaryOp::Mod => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) if *b != 0 => Value::Int(a % b),
-                _ => Value::None,
-            },
-            BinaryOp::Pow => match (&left, &right) {
-                (Value::Int(a), Value::Int(b)) if *b >= 0 => Value::Int(a.pow(*b as u32)),
-                (Value::Float(a), Value::Float(b)) => Value::Float(a.powf(*b)),
-                (Value::Int(a), Value::Float(b)) => Value::Float((*a as f64).powf(*b)),
-                (Value::Float(a), Value::Int(b)) => Value::Float(a.powi(*b as i32)),
-                _ => Value::None,
-            },
-            BinaryOp::Eq => Value::Bool(values_equal(&left, &right)),
-            BinaryOp::Ne => Value::Bool(!values_equal(&left, &right)),
-            BinaryOp::Lt => Value::Bool(
+            BinaryOp::Add => binary_add(&left, &right),
+            BinaryOp::Sub => binary_sub(&left, &right),
+            BinaryOp::Mul => binary_mul(&left, &right),
+            BinaryOp::Div => binary_div(&left, &right),
+            BinaryOp::FloorDiv => binary_floor_div(&left, &right),
+            BinaryOp::Mod => binary_mod(&left, &right),
+            BinaryOp::Pow => binary_pow(&left, &right),
+            BinaryOp::Eq => Value::from(values_equal(&left, &right)),
+            BinaryOp::Ne => Value::from(!values_equal(&left, &right)),
+            BinaryOp::Lt => Value::from(
                 compare_values(&left, &right)
                     .map(|o| o.is_lt())
                     .unwrap_or(false),
             ),
-            BinaryOp::Le => Value::Bool(
+            BinaryOp::Le => Value::from(
                 compare_values(&left, &right)
                     .map(|o| o.is_le())
                     .unwrap_or(false),
             ),
-            BinaryOp::Gt => Value::Bool(
+            BinaryOp::Gt => Value::from(
                 compare_values(&left, &right)
                     .map(|o| o.is_gt())
                     .unwrap_or(false),
             ),
-            BinaryOp::Ge => Value::Bool(
+            BinaryOp::Ge => Value::from(
                 compare_values(&left, &right)
                     .map(|o| o.is_ge())
                     .unwrap_or(false),
             ),
-            BinaryOp::In => Value::Bool(value_in(&left, &right)),
-            BinaryOp::NotIn => Value::Bool(!value_in(&left, &right)),
-            BinaryOp::Concat => Value::String(format!(
-                "{}{}",
-                left.render_to_string(),
-                right.render_to_string()
-            )),
+            BinaryOp::In => Value::from(value_in(&left, &right)),
+            BinaryOp::NotIn => Value::from(!value_in(&left, &right)),
+            BinaryOp::Concat => {
+                Value::from(format!("{}{}", left.render_to_string(), right.render_to_string()).as_str())
+            }
             BinaryOp::And | BinaryOp::Or => unreachable!(), // Handled above
         })
     }
@@ -468,17 +446,27 @@ impl<'a> Evaluator<'a> {
         let value = self.eval(&unary.expr)?;
 
         Ok(match unary.op {
-            UnaryOp::Not => Value::Bool(!value.is_truthy()),
-            UnaryOp::Neg => match value {
-                Value::Int(i) => Value::Int(-i),
-                Value::Float(f) => Value::Float(-f),
-                _ => Value::None,
-            },
-            UnaryOp::Pos => match value {
-                Value::Int(i) => Value::Int(i),
-                Value::Float(f) => Value::Float(f),
-                _ => Value::None,
-            },
+            UnaryOp::Not => Value::from(!value.is_truthy()),
+            UnaryOp::Neg => {
+                match value.destructure_ref() {
+                    DestructuredRef::Number(n) => {
+                        if let Some(i) = n.to_i64() {
+                            Value::from(-i)
+                        } else if let Some(f) = n.to_f64() {
+                            Value::from(-f)
+                        } else {
+                            Value::NULL
+                        }
+                    }
+                    _ => Value::NULL,
+                }
+            }
+            UnaryOp::Pos => {
+                match value.destructure_ref() {
+                    DestructuredRef::Number(_) => value,
+                    _ => Value::NULL,
+                }
+            }
         })
     }
 
@@ -504,7 +492,7 @@ impl<'a> Evaluator<'a> {
         }
 
         // Method calls on values (like .items(), etc.) - not implemented yet
-        Ok(Value::None)
+        Ok(Value::NULL)
     }
 
     fn eval_ternary(&self, ternary: &TernaryExpr) -> Result<Value> {
@@ -527,63 +515,94 @@ impl<'a> Evaluator<'a> {
         let result = match test.test_name.name.as_str() {
             // String tests
             "starting_with" | "startswith" => {
-                if let (Value::String(s), Some(Value::String(prefix))) = (&value, args.first()) {
-                    s.starts_with(prefix)
+                if let (DestructuredRef::String(s), Some(prefix)) = (value.destructure_ref(), args.first()) {
+                    if let DestructuredRef::String(p) = prefix.destructure_ref() {
+                        s.as_str().starts_with(p.as_str())
+                    } else {
+                        false
+                    }
                 } else {
                     false
                 }
             }
             "ending_with" | "endswith" => {
-                if let (Value::String(s), Some(Value::String(suffix))) = (&value, args.first()) {
-                    s.ends_with(suffix)
+                if let (DestructuredRef::String(s), Some(suffix)) = (value.destructure_ref(), args.first()) {
+                    if let DestructuredRef::String(p) = suffix.destructure_ref() {
+                        s.as_str().ends_with(p.as_str())
+                    } else {
+                        false
+                    }
                 } else {
                     false
                 }
             }
             "containing" | "contains" => {
-                if let (Value::String(s), Some(Value::String(needle))) = (&value, args.first()) {
-                    s.contains(needle)
-                } else if let Value::List(list) = &value {
-                    args.first()
-                        .map(|needle| list.iter().any(|item| values_equal(item, needle)))
-                        .unwrap_or(false)
+                match value.destructure_ref() {
+                    DestructuredRef::String(s) => {
+                        if let Some(needle) = args.first() {
+                            if let DestructuredRef::String(n) = needle.destructure_ref() {
+                                s.as_str().contains(n.as_str())
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    }
+                    DestructuredRef::Array(arr) => {
+                        args.first()
+                            .map(|needle| arr.iter().any(|item| values_equal(item, needle)))
+                            .unwrap_or(false)
+                    }
+                    _ => false,
+                }
+            }
+            // Type tests
+            "defined" => !value.is_null(),
+            "undefined" => value.is_null(),
+            "none" => value.is_null(),
+            "string" => value.is_string(),
+            "number" => value.is_number(),
+            "integer" => {
+                if let DestructuredRef::Number(n) = value.destructure_ref() {
+                    n.to_i64().is_some() && n.to_f64().map(|f| f.fract() == 0.0).unwrap_or(false)
                 } else {
                     false
                 }
             }
-            // Type tests
-            "defined" => !matches!(value, Value::None),
-            "undefined" => matches!(value, Value::None),
-            "none" => matches!(value, Value::None),
-            "string" => matches!(value, Value::String(_)),
-            "number" => matches!(value, Value::Int(_) | Value::Float(_)),
-            "integer" => matches!(value, Value::Int(_)),
-            "float" => matches!(value, Value::Float(_)),
-            "mapping" | "dict" => matches!(value, Value::Dict(_)),
+            "float" => {
+                if let DestructuredRef::Number(n) = value.destructure_ref() {
+                    n.to_f64().map(|f| f.fract() != 0.0).unwrap_or(false)
+                } else {
+                    false
+                }
+            }
+            "mapping" | "dict" => value.is_object(),
             "iterable" | "sequence" => {
-                matches!(value, Value::List(_) | Value::String(_) | Value::Dict(_))
+                matches!(value.destructure_ref(),
+                    DestructuredRef::Array(_) | DestructuredRef::String(_) | DestructuredRef::Object(_))
             }
             // Value tests
             "odd" => {
-                if let Value::Int(n) = value {
-                    n % 2 != 0
+                if let DestructuredRef::Number(n) = value.destructure_ref() {
+                    n.to_i64().map(|i| i % 2 != 0).unwrap_or(false)
                 } else {
                     false
                 }
             }
             "even" => {
-                if let Value::Int(n) = value {
-                    n % 2 == 0
+                if let DestructuredRef::Number(n) = value.destructure_ref() {
+                    n.to_i64().map(|i| i % 2 == 0).unwrap_or(false)
                 } else {
                     false
                 }
             }
             "truthy" => value.is_truthy(),
             "falsy" => !value.is_truthy(),
-            "empty" => match &value {
-                Value::String(s) => s.is_empty(),
-                Value::List(l) => l.is_empty(),
-                Value::Dict(d) => d.is_empty(),
+            "empty" => match value.destructure_ref() {
+                DestructuredRef::String(s) => s.is_empty(),
+                DestructuredRef::Array(arr) => arr.is_empty(),
+                DestructuredRef::Object(obj) => obj.is_empty(),
                 _ => false,
             },
             // Comparison tests
@@ -596,19 +615,15 @@ impl<'a> Evaluator<'a> {
                 .map(|other| !values_equal(&value, other))
                 .unwrap_or(false),
             "lt" | "lessthan" => {
-                if let (Value::Int(a), Some(Value::Int(b))) = (&value, args.first()) {
-                    a < b
-                } else if let (Value::Float(a), Some(Value::Float(b))) = (&value, args.first()) {
-                    a < b
+                if let Some(other) = args.first() {
+                    compare_values(&value, other).map(|o| o.is_lt()).unwrap_or(false)
                 } else {
                     false
                 }
             }
             "gt" | "greaterthan" => {
-                if let (Value::Int(a), Some(Value::Int(b))) = (&value, args.first()) {
-                    a > b
-                } else if let (Value::Float(a), Some(Value::Float(b))) = (&value, args.first()) {
-                    a > b
+                if let Some(other) = args.first() {
+                    compare_values(&value, other).map(|o| o.is_gt()).unwrap_or(false)
                 } else {
                     false
                 }
@@ -622,50 +637,164 @@ impl<'a> Evaluator<'a> {
             }
         };
 
-        Ok(Value::Bool(if test.negated { !result } else { result }))
+        Ok(Value::from(if test.negated { !result } else { result }))
+    }
+}
+
+// === Binary operation helpers ===
+
+fn binary_add(left: &Value, right: &Value) -> Value {
+    match (left.destructure_ref(), right.destructure_ref()) {
+        (DestructuredRef::Number(a), DestructuredRef::Number(b)) => {
+            if let (Some(ai), Some(bi)) = (a.to_i64(), b.to_i64()) {
+                Value::from(ai + bi)
+            } else if let (Some(af), Some(bf)) = (a.to_f64(), b.to_f64()) {
+                Value::from(af + bf)
+            } else {
+                Value::NULL
+            }
+        }
+        (DestructuredRef::String(a), DestructuredRef::String(b)) => {
+            Value::from(format!("{}{}", a.as_str(), b.as_str()).as_str())
+        }
+        (DestructuredRef::Array(a), DestructuredRef::Array(b)) => {
+            let mut result: Vec<Value> = a.iter().cloned().collect();
+            result.extend(b.iter().cloned());
+            VArray::from_iter(result).into()
+        }
+        _ => Value::NULL,
+    }
+}
+
+fn binary_sub(left: &Value, right: &Value) -> Value {
+    match (left.destructure_ref(), right.destructure_ref()) {
+        (DestructuredRef::Number(a), DestructuredRef::Number(b)) => {
+            if let (Some(ai), Some(bi)) = (a.to_i64(), b.to_i64()) {
+                Value::from(ai - bi)
+            } else if let (Some(af), Some(bf)) = (a.to_f64(), b.to_f64()) {
+                Value::from(af - bf)
+            } else {
+                Value::NULL
+            }
+        }
+        _ => Value::NULL,
+    }
+}
+
+fn binary_mul(left: &Value, right: &Value) -> Value {
+    match (left.destructure_ref(), right.destructure_ref()) {
+        (DestructuredRef::Number(a), DestructuredRef::Number(b)) => {
+            if let (Some(ai), Some(bi)) = (a.to_i64(), b.to_i64()) {
+                Value::from(ai * bi)
+            } else if let (Some(af), Some(bf)) = (a.to_f64(), b.to_f64()) {
+                Value::from(af * bf)
+            } else {
+                Value::NULL
+            }
+        }
+        (DestructuredRef::String(s), DestructuredRef::Number(n)) |
+        (DestructuredRef::Number(n), DestructuredRef::String(s)) => {
+            if let Some(count) = n.to_i64() {
+                Value::from(s.as_str().repeat(count as usize).as_str())
+            } else {
+                Value::NULL
+            }
+        }
+        _ => Value::NULL,
+    }
+}
+
+fn binary_div(left: &Value, right: &Value) -> Value {
+    match (left.destructure_ref(), right.destructure_ref()) {
+        (DestructuredRef::Number(a), DestructuredRef::Number(b)) => {
+            if let (Some(af), Some(bf)) = (a.to_f64(), b.to_f64()) {
+                if bf != 0.0 {
+                    Value::from(af / bf)
+                } else {
+                    Value::NULL
+                }
+            } else {
+                Value::NULL
+            }
+        }
+        _ => Value::NULL,
+    }
+}
+
+fn binary_floor_div(left: &Value, right: &Value) -> Value {
+    match (left.destructure_ref(), right.destructure_ref()) {
+        (DestructuredRef::Number(a), DestructuredRef::Number(b)) => {
+            if let (Some(ai), Some(bi)) = (a.to_i64(), b.to_i64()) {
+                if bi != 0 {
+                    Value::from(ai / bi)
+                } else {
+                    Value::NULL
+                }
+            } else {
+                Value::NULL
+            }
+        }
+        _ => Value::NULL,
+    }
+}
+
+fn binary_mod(left: &Value, right: &Value) -> Value {
+    match (left.destructure_ref(), right.destructure_ref()) {
+        (DestructuredRef::Number(a), DestructuredRef::Number(b)) => {
+            if let (Some(ai), Some(bi)) = (a.to_i64(), b.to_i64()) {
+                if bi != 0 {
+                    Value::from(ai % bi)
+                } else {
+                    Value::NULL
+                }
+            } else {
+                Value::NULL
+            }
+        }
+        _ => Value::NULL,
+    }
+}
+
+fn binary_pow(left: &Value, right: &Value) -> Value {
+    match (left.destructure_ref(), right.destructure_ref()) {
+        (DestructuredRef::Number(a), DestructuredRef::Number(b)) => {
+            if let (Some(ai), Some(bi)) = (a.to_i64(), b.to_i64()) {
+                if bi >= 0 {
+                    Value::from(ai.pow(bi as u32))
+                } else {
+                    Value::NULL
+                }
+            } else if let (Some(af), Some(bf)) = (a.to_f64(), b.to_f64()) {
+                Value::from(af.powf(bf))
+            } else {
+                Value::NULL
+            }
+        }
+        _ => Value::NULL,
     }
 }
 
 fn values_equal(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::None, Value::None) => true,
-        (Value::Bool(a), Value::Bool(b)) => a == b,
-        (Value::Int(a), Value::Int(b)) => a == b,
-        (Value::Float(a), Value::Float(b)) => a == b,
-        (Value::Int(a), Value::Float(b)) => (*a as f64) == *b,
-        (Value::Float(a), Value::Int(b)) => *a == (*b as f64),
-        (Value::String(a), Value::String(b)) => a == b,
-        (Value::List(a), Value::List(b)) => {
-            a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| values_equal(x, y))
-        }
-        _ => false,
-    }
+    a == b
 }
 
 fn compare_values(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
-    match (a, b) {
-        (Value::Int(a), Value::Int(b)) => Some(a.cmp(b)),
-        (Value::Float(a), Value::Float(b)) => a.partial_cmp(b),
-        (Value::Int(a), Value::Float(b)) => (*a as f64).partial_cmp(b),
-        (Value::Float(a), Value::Int(b)) => a.partial_cmp(&(*b as f64)),
-        (Value::String(a), Value::String(b)) => Some(a.cmp(b)),
-        _ => None,
-    }
+    a.partial_cmp(b)
 }
 
 fn value_in(needle: &Value, haystack: &Value) -> bool {
-    match haystack {
-        Value::List(list) => list.iter().any(|v| values_equal(needle, v)),
-        Value::Dict(map) => {
-            if let Value::String(key) = needle {
-                map.contains_key(key)
+    match haystack.destructure_ref() {
+        DestructuredRef::Array(arr) => arr.iter().any(|v| values_equal(needle, v)),
+        DestructuredRef::Object(obj) => {
+            if let DestructuredRef::String(key) = needle.destructure_ref() {
+                obj.contains_key(key.as_str())
             } else {
                 false
             }
         }
-        Value::String(s) => {
-            if let Value::String(sub) = needle {
-                s.contains(sub.as_str())
+        DestructuredRef::String(s) => {
+            if let DestructuredRef::String(sub) = needle.destructure_ref() {
+                s.as_str().contains(sub.as_str())
             } else {
                 false
             }
@@ -706,92 +835,105 @@ fn apply_filter(
         |key: &str| -> Option<&Value> { kwargs.iter().find(|(k, _)| k == key).map(|(_, v)| v) };
 
     Ok(match name {
-        "upper" => Value::String(value.render_to_string().to_uppercase()),
-        "lower" => Value::String(value.render_to_string().to_lowercase()),
+        "upper" => Value::from(value.render_to_string().to_uppercase().as_str()),
+        "lower" => Value::from(value.render_to_string().to_lowercase().as_str()),
         "capitalize" => {
             let s = value.render_to_string();
             let mut chars = s.chars();
             match chars.next() {
-                None => Value::String(String::new()),
-                Some(first) => Value::String(first.to_uppercase().chain(chars).collect()),
+                None => Value::from(""),
+                Some(first) => {
+                    let result: String = first.to_uppercase().chain(chars).collect();
+                    Value::from(result.as_str())
+                }
             }
         }
         "title" => {
             let s = value.render_to_string();
-            Value::String(
-                s.split_whitespace()
-                    .map(|word| {
-                        let mut chars = word.chars();
-                        match chars.next() {
-                            None => String::new(),
-                            Some(first) => first.to_uppercase().chain(chars).collect(),
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            )
+            let result = s
+                .split_whitespace()
+                .map(|word| {
+                    let mut chars = word.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().chain(chars).collect(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+            Value::from(result.as_str())
         }
-        "trim" => Value::String(value.render_to_string().trim().to_string()),
-        "length" => match &value {
-            Value::String(s) => Value::Int(s.len() as i64),
-            Value::List(l) => Value::Int(l.len() as i64),
-            Value::Dict(d) => Value::Int(d.len() as i64),
-            _ => Value::Int(0),
+        "trim" => Value::from(value.render_to_string().trim()),
+        "length" => match value.destructure_ref() {
+            DestructuredRef::String(s) => Value::from(s.len() as i64),
+            DestructuredRef::Array(arr) => Value::from(arr.len() as i64),
+            DestructuredRef::Object(obj) => Value::from(obj.len() as i64),
+            _ => Value::from(0i64),
         },
-        "first" => match value {
-            Value::List(mut l) if !l.is_empty() => l.remove(0),
-            Value::String(s) => s
+        "first" => match value.destructure_ref() {
+            DestructuredRef::Array(arr) if !arr.is_empty() => arr.get(0).cloned().unwrap_or(Value::NULL),
+            DestructuredRef::String(s) => s
+                .as_str()
                 .chars()
                 .next()
-                .map(|c| Value::String(c.to_string()))
-                .unwrap_or(Value::None),
-            _ => Value::None,
+                .map(|c| Value::from(c.to_string().as_str()))
+                .unwrap_or(Value::NULL),
+            _ => Value::NULL,
         },
-        "last" => match value {
-            Value::List(mut l) if !l.is_empty() => l.pop().unwrap_or(Value::None),
-            Value::String(s) => s
+        "last" => match value.destructure_ref() {
+            DestructuredRef::Array(arr) if !arr.is_empty() => {
+                arr.get(arr.len() - 1).cloned().unwrap_or(Value::NULL)
+            }
+            DestructuredRef::String(s) => s
+                .as_str()
                 .chars()
                 .last()
-                .map(|c| Value::String(c.to_string()))
-                .unwrap_or(Value::None),
-            _ => Value::None,
+                .map(|c| Value::from(c.to_string().as_str()))
+                .unwrap_or(Value::NULL),
+            _ => Value::NULL,
         },
-        "reverse" => match value {
-            Value::List(mut l) => {
-                l.reverse();
-                Value::List(l)
+        "reverse" => match value.destructure_ref() {
+            DestructuredRef::Array(arr) => {
+                let reversed: Vec<Value> = arr.iter().rev().cloned().collect();
+                VArray::from_iter(reversed).into()
             }
-            Value::String(s) => Value::String(s.chars().rev().collect()),
+            DestructuredRef::String(s) => {
+                let reversed: String = s.as_str().chars().rev().collect();
+                Value::from(reversed.as_str())
+            }
             _ => value,
         },
-        "sort" => match value {
-            Value::List(mut l) => {
-                // Check for attribute= kwarg for sorting dicts by field
-                if let Some(Value::String(attr)) = get_kwarg("attribute") {
-                    l.sort_by(|a, b| {
-                        let a_val = if let Value::Dict(d) = a {
-                            d.get(attr)
-                        } else {
-                            None
-                        };
-                        let b_val = if let Value::Dict(d) = b {
-                            d.get(attr)
-                        } else {
-                            None
-                        };
-                        match (a_val, b_val) {
-                            (Some(a), Some(b)) => {
-                                compare_values(a, b).unwrap_or(std::cmp::Ordering::Equal)
+        "sort" => match value.destructure_ref() {
+            DestructuredRef::Array(arr) => {
+                let mut items: Vec<Value> = arr.iter().cloned().collect();
+                // Check for attribute= kwarg for sorting objects by field
+                if let Some(attr_val) = get_kwarg("attribute") {
+                    if let DestructuredRef::String(attr) = attr_val.destructure_ref() {
+                        items.sort_by(|a, b| {
+                            let a_val = if let DestructuredRef::Object(obj) = a.destructure_ref() {
+                                obj.get(attr.as_str())
+                            } else {
+                                None
+                            };
+                            let b_val = if let DestructuredRef::Object(obj) = b.destructure_ref() {
+                                obj.get(attr.as_str())
+                            } else {
+                                None
+                            };
+                            match (a_val, b_val) {
+                                (Some(a), Some(b)) => {
+                                    compare_values(a, b).unwrap_or(std::cmp::Ordering::Equal)
+                                }
+                                (Some(_), None) => std::cmp::Ordering::Less,
+                                (None, Some(_)) => std::cmp::Ordering::Greater,
+                                (None, None) => std::cmp::Ordering::Equal,
                             }
-                            (Some(_), None) => std::cmp::Ordering::Less,
-                            (None, Some(_)) => std::cmp::Ordering::Greater,
-                            (None, None) => std::cmp::Ordering::Equal,
-                        }
-                    });
+                        });
+                    }
                 } else {
-                    l.sort_by(|a, b| compare_values(a, b).unwrap_or(std::cmp::Ordering::Equal));
+                    items.sort_by(|a, b| compare_values(a, b).unwrap_or(std::cmp::Ordering::Equal));
                 }
-                Value::List(l)
+                VArray::from_iter(items).into()
             }
             _ => value,
         },
@@ -800,10 +942,10 @@ fn apply_filter(
                 .first()
                 .map(|v| v.render_to_string())
                 .unwrap_or_default();
-            match value {
-                Value::List(l) => {
-                    let strings: Vec<_> = l.iter().map(|v| v.render_to_string()).collect();
-                    Value::String(strings.join(&sep))
+            match value.destructure_ref() {
+                DestructuredRef::Array(arr) => {
+                    let strings: Vec<String> = arr.iter().map(|v| v.render_to_string()).collect();
+                    Value::from(strings.join(&sep).as_str())
                 }
                 _ => value,
             }
@@ -815,34 +957,47 @@ fn apply_filter(
                 .or_else(|| args.first().map(|v| v.render_to_string()))
                 .unwrap_or_else(|| " ".to_string());
             let s = value.render_to_string();
-            let parts: Vec<Value> = s.split(&pat).map(|p| Value::String(p.to_string())).collect();
-            Value::List(parts)
+            let parts: Vec<Value> = s.split(&pat).map(|p| Value::from(p)).collect();
+            VArray::from_iter(parts).into()
         }
         "default" => {
             // Support both positional: default("fallback") and kwarg: default(value="fallback")
             let default_val = get_kwarg("value")
                 .cloned()
                 .or_else(|| args.first().cloned())
-                .unwrap_or(Value::None);
+                .unwrap_or(Value::NULL);
 
-            if matches!(value, Value::None) || (matches!(&value, Value::String(s) if s.is_empty()))
-            {
+            if value.is_null() {
                 default_val
+            } else if let DestructuredRef::String(s) = value.destructure_ref() {
+                if s.is_empty() {
+                    default_val
+                } else {
+                    value
+                }
             } else {
                 value
             }
         }
         "escape" => {
             let s = value.render_to_string();
-            Value::String(
-                s.replace('&', "&amp;")
-                    .replace('<', "&lt;")
-                    .replace('>', "&gt;")
-                    .replace('"', "&quot;")
-                    .replace('\'', "&#x27;"),
-            )
+            let escaped = s
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+                .replace('"', "&quot;")
+                .replace('\'', "&#x27;");
+            Value::from(escaped.as_str())
         }
-        "safe" => Value::Safe(Box::new(value)),
+        "safe" => {
+            // Convert string to safe string using VSafeString
+            if let Some(s) = value.as_string() {
+                s.clone().into_safe().into_value()
+            } else {
+                // Non-strings can't be marked safe, return as-is
+                value
+            }
+        }
         _ => {
             return Err(UnknownFilterError {
                 name: name.to_string(),
