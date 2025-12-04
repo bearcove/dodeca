@@ -642,7 +642,7 @@ pub fn load_all_static<'db>(
 #[tracing::instrument(skip_all, name = "decompress_font")]
 pub fn decompress_font(db: &dyn Db, font_file: StaticFile) -> Option<Vec<u8>> {
     use crate::cas::{font_content_hash, get_cached_decompressed_font, put_cached_decompressed_font};
-    use fontcull::decompress_font as fc_decompress;
+    use crate::plugins::decompress_font_plugin;
 
     let font_data = font_file.content(db);
     let content_hash = font_content_hash(font_data);
@@ -653,9 +653,9 @@ pub fn decompress_font(db: &dyn Db, font_file: StaticFile) -> Option<Vec<u8>> {
         return Some(cached);
     }
 
-    // Decompress the font
-    match fc_decompress(font_data) {
-        Ok(decompressed) => {
+    // Decompress the font via plugin
+    match decompress_font_plugin(font_data) {
+        Some(decompressed) => {
             // Cache the result
             put_cached_decompressed_font(&content_hash, &decompressed);
             tracing::debug!("Decompressed font {} ({} -> {} bytes)",
@@ -665,11 +665,10 @@ pub fn decompress_font(db: &dyn Db, font_file: StaticFile) -> Option<Vec<u8>> {
             );
             Some(decompressed)
         }
-        Err(e) => {
+        None => {
             tracing::warn!(
-                "Failed to decompress font {}: {}",
-                font_file.path(db).as_str(),
-                e
+                "Failed to decompress font {}",
+                font_file.path(db).as_str()
             );
             None
         }
@@ -685,44 +684,41 @@ pub fn subset_font<'db>(
     font_file: StaticFile,
     chars: CharSet<'db>,
 ) -> Option<Vec<u8>> {
-    use fontcull::{compress_to_woff2, subset_font_data};
-    use std::collections::HashSet;
+    use crate::plugins::{compress_to_woff2_plugin, subset_font_plugin};
 
     // First, decompress the font (handles WOFF2/WOFF1 -> TTF)
     let decompressed = decompress_font(db, font_file)?;
 
-    let char_set: HashSet<char> = chars.chars(db).iter().copied().collect();
+    let char_vec: Vec<char> = chars.chars(db).iter().copied().collect();
 
-    // Subset the decompressed TTF
-    let subsetted = match subset_font_data(&decompressed, &char_set) {
-        Ok(data) => data,
-        Err(e) => {
+    // Subset the decompressed TTF via plugin
+    let subsetted = match subset_font_plugin(&decompressed, &char_vec) {
+        Some(data) => data,
+        None => {
             tracing::warn!(
-                "Failed to subset font {}: {}",
-                font_file.path(db).as_str(),
-                e
+                "Failed to subset font {}",
+                font_file.path(db).as_str()
             );
             return None;
         }
     };
 
-    // Compress back to WOFF2
-    match compress_to_woff2(&subsetted) {
-        Ok(woff2) => {
+    // Compress back to WOFF2 via plugin
+    match compress_to_woff2_plugin(&subsetted) {
+        Some(woff2) => {
             tracing::debug!(
                 "Subsetted font {} ({} chars, {} -> {} bytes)",
                 font_file.path(db).as_str(),
-                char_set.len(),
+                char_vec.len(),
                 decompressed.len(),
                 woff2.len()
             );
             Some(woff2)
         }
-        Err(e) => {
+        None => {
             tracing::warn!(
-                "Failed to compress font {} to WOFF2: {}",
-                font_file.path(db).as_str(),
-                e
+                "Failed to compress font {} to WOFF2",
+                font_file.path(db).as_str()
             );
             None
         }
@@ -854,9 +850,9 @@ pub fn build_site<'db>(
     // --- Phase 3: Analyze fonts for subsetting ---
     let html_refs: Vec<&str> = html_outputs.iter().map(|(_, h)| h.as_str()).collect();
     let combined_html = html_refs.join("\n");
-    let inline_css = fontcull::extract_css_from_html(&combined_html);
+    let inline_css = crate::plugins::extract_css_from_html_plugin(&combined_html);
     let all_css = format!("{sass_str}\n{static_css}\n{inline_css}");
-    let font_analysis = fontcull::analyze_fonts(&combined_html, &all_css);
+    let font_analysis = crate::plugins::analyze_fonts_plugin(&combined_html, &all_css);
 
     // --- Phase 4: Process static files (with font subsetting and image transcoding) ---
     // Maps original path (e.g., "fonts/Inter.woff2") to (new_path, content)
@@ -1089,7 +1085,7 @@ pub fn font_char_analysis<'db>(
     sass: SassRegistry,
     static_files: StaticRegistry,
     data: DataRegistry,
-) -> fontcull::FontAnalysis {
+) -> crate::plugins::FontAnalysis {
 
     let all_html = all_rendered_html(db, sources, templates, data);
     let sass_css = compile_sass(db, sass);
@@ -1110,10 +1106,10 @@ pub fn font_char_analysis<'db>(
 
     // Combine all HTML for analysis
     let combined_html: String = all_html.pages.values().cloned().collect::<Vec<_>>().join("\n");
-    let inline_css = fontcull::extract_css_from_html(&combined_html);
+    let inline_css = crate::plugins::extract_css_from_html_plugin(&combined_html);
     let all_css = format!("{sass_str}\n{static_css}\n{inline_css}");
 
-    fontcull::analyze_fonts(&combined_html, &all_css)
+    crate::plugins::analyze_fonts_plugin(&combined_html, &all_css)
 }
 
 /// Process a single static file and return its cache-busted output
@@ -1375,7 +1371,7 @@ fn is_font_file(path: &str) -> bool {
 /// Find the character set needed for a font file based on @font-face analysis
 fn find_chars_for_font_file(
     path: &str,
-    analysis: &fontcull::FontAnalysis,
+    analysis: &crate::plugins::FontAnalysis,
 ) -> Option<std::collections::HashSet<char>> {
     // Normalize path: remove leading slash and 'static/' prefix
     // File paths are like "static/fonts/Foo.woff2"
@@ -1389,7 +1385,9 @@ fn find_chars_for_font_file(
         let face_src = face.src.trim_start_matches('/');
         if face_src == normalized {
             // Found a match - return chars for this font-family
-            return analysis.chars_per_font.get(&face.family).cloned();
+            // Convert Vec<char> to HashSet<char>
+            return analysis.chars_per_font.get(&face.family)
+                .map(|chars| chars.iter().copied().collect());
         }
     }
 

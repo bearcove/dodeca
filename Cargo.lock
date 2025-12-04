@@ -2045,7 +2045,6 @@ dependencies = [
  "facet-toml",
  "facet-value",
  "facet-yaml",
- "fontcull",
  "futures",
  "futures-util",
  "gingembre",
@@ -2124,6 +2123,16 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+]
+
+[[package]]
+name = "dodeca-fonts"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "fontcull",
+ "linkme",
+ "plugcard",
 ]
 
 [[package]]

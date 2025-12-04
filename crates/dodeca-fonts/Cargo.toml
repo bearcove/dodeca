@@ -1,0 +1,19 @@
+[package]
+name = "dodeca-fonts"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Font processing plugin for dodeca (analysis, subsetting, compression)"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+plugcard = { path = "../plugcard" }
+facet = { git = "https://github.com/facet-rs/facet" }
+linkme = "0.3"
+
+# Font processing
+fontcull = { version = "2.0", default-features = false, features = ["static-analysis"] }

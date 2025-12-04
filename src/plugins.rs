@@ -41,6 +41,8 @@ pub struct PluginRegistry {
     pub pagefind: Option<Plugin>,
     /// Image processing plugin (decode, resize, thumbhash)
     pub image: Option<Plugin>,
+    /// Font processing plugin (analysis, subsetting, compression)
+    pub fonts: Option<Plugin>,
 }
 
 impl PluginRegistry {
@@ -55,8 +57,9 @@ impl PluginRegistry {
         let js = Self::try_load_plugin(dir, "dodeca_js");
         let pagefind = Self::try_load_plugin(dir, "dodeca_pagefind");
         let image = Self::try_load_plugin(dir, "dodeca_image");
+        let fonts = Self::try_load_plugin(dir, "dodeca_fonts");
 
-        PluginRegistry { webp, jxl, minify, svgo, sass, css, js, pagefind, image }
+        PluginRegistry { webp, jxl, minify, svgo, sass, css, js, pagefind, image, fonts }
     }
 
     /// Check if any plugins were loaded
@@ -70,6 +73,7 @@ impl PluginRegistry {
             || self.js.is_some()
             || self.pagefind.is_some()
             || self.image.is_some()
+            || self.fonts.is_some()
     }
 
     fn try_load_plugin(dir: &Path, name: &str) -> Option<Plugin> {
@@ -159,6 +163,7 @@ pub fn plugins() -> &'static PluginRegistry {
             js: None,
             pagefind: None,
             image: None,
+            fonts: None,
         }
     })
 }
@@ -594,6 +599,149 @@ pub fn generate_thumbhash_plugin(pixels: &[u8], width: u32, height: u32) -> Opti
         }
         Err(e) => {
             warn!("thumbhash plugin call failed: {}", e);
+            None
+        }
+    }
+}
+
+// ============================================================================
+// Font processing plugin functions
+// ============================================================================
+
+/// A parsed @font-face rule
+#[derive(Facet, Debug, Clone, PartialEq, Eq)]
+pub struct FontFace {
+    pub family: String,
+    pub src: String,
+    pub weight: Option<String>,
+    pub style: Option<String>,
+}
+
+/// Result of analyzing CSS for font information
+#[derive(Facet, Debug, Clone, PartialEq, Eq)]
+pub struct FontAnalysis {
+    /// Map of font-family name -> characters used
+    pub chars_per_font: std::collections::HashMap<String, Vec<char>>,
+    /// Parsed @font-face rules
+    pub font_faces: Vec<FontFace>,
+}
+
+/// Analyze HTML and CSS to collect font usage information.
+///
+/// # Panics
+/// Panics if the fonts plugin is not loaded.
+pub fn analyze_fonts_plugin(html: &str, css: &str) -> FontAnalysis {
+    let plugin = plugins()
+        .fonts
+        .as_ref()
+        .expect("dodeca-fonts plugin not loaded");
+
+    #[derive(Facet)]
+    struct Input {
+        html: String,
+        css: String,
+    }
+
+    let input = Input {
+        html: html.to_string(),
+        css: css.to_string(),
+    };
+
+    match plugin.call::<Input, PlugResult<FontAnalysis>>("analyze_fonts", &input) {
+        Ok(PlugResult::Ok(analysis)) => analysis,
+        Ok(PlugResult::Err(e)) => panic!("font analysis plugin error: {}", e),
+        Err(e) => panic!("font analysis plugin call failed: {}", e),
+    }
+}
+
+/// Extract inline CSS from HTML (from <style> tags).
+///
+/// # Panics
+/// Panics if the fonts plugin is not loaded.
+pub fn extract_css_from_html_plugin(html: &str) -> String {
+    let plugin = plugins()
+        .fonts
+        .as_ref()
+        .expect("dodeca-fonts plugin not loaded");
+
+    match plugin.call::<String, PlugResult<String>>("extract_css_from_html", &html.to_string()) {
+        Ok(PlugResult::Ok(css)) => css,
+        Ok(PlugResult::Err(e)) => panic!("extract css plugin error: {}", e),
+        Err(e) => panic!("extract css plugin call failed: {}", e),
+    }
+}
+
+/// Decompress a WOFF2/WOFF font to TTF.
+pub fn decompress_font_plugin(data: &[u8]) -> Option<Vec<u8>> {
+    let plugin = plugins().fonts.as_ref()?;
+
+    #[derive(Facet)]
+    struct Input {
+        data: Vec<u8>,
+    }
+
+    let input = Input { data: data.to_vec() };
+
+    match plugin.call::<Input, PlugResult<Vec<u8>>>("decompress_font", &input) {
+        Ok(PlugResult::Ok(decompressed)) => Some(decompressed),
+        Ok(PlugResult::Err(e)) => {
+            warn!("decompress font plugin error: {}", e);
+            None
+        }
+        Err(e) => {
+            warn!("decompress font plugin call failed: {}", e);
+            None
+        }
+    }
+}
+
+/// Subset a font to only include specified characters.
+pub fn subset_font_plugin(data: &[u8], chars: &[char]) -> Option<Vec<u8>> {
+    let plugin = plugins().fonts.as_ref()?;
+
+    #[derive(Facet)]
+    struct Input {
+        data: Vec<u8>,
+        chars: Vec<char>,
+    }
+
+    let input = Input {
+        data: data.to_vec(),
+        chars: chars.to_vec(),
+    };
+
+    match plugin.call::<Input, PlugResult<Vec<u8>>>("subset_font", &input) {
+        Ok(PlugResult::Ok(subsetted)) => Some(subsetted),
+        Ok(PlugResult::Err(e)) => {
+            warn!("subset font plugin error: {}", e);
+            None
+        }
+        Err(e) => {
+            warn!("subset font plugin call failed: {}", e);
+            None
+        }
+    }
+}
+
+/// Compress TTF font data to WOFF2.
+pub fn compress_to_woff2_plugin(data: &[u8]) -> Option<Vec<u8>> {
+    let plugin = plugins().fonts.as_ref()?;
+
+    #[derive(Facet)]
+    struct Input {
+        data: Vec<u8>,
+    }
+
+    let input = Input { data: data.to_vec() };
+
+    match plugin.call::<Input, PlugResult<Vec<u8>>>("compress_to_woff2", &input) {
+        Ok(PlugResult::Ok(woff2)) => Some(woff2),
+        Ok(PlugResult::Err(e)) => {
+            warn!("compress to woff2 plugin error: {}", e);
+            None
+        }
+        Err(e) => {
+            warn!("compress to woff2 plugin call failed: {}", e);
             None
         }
     }

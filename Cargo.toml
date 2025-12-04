@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/gingembre", "crates/livereload-client", "crates/dodeca-devtools", "crates/dodeca-protocol", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "crates/dodeca-pagefind", "crates/dodeca-image", "xtask"]
+members = [".", "crates/gingembre", "crates/livereload-client", "crates/dodeca-devtools", "crates/dodeca-protocol", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "crates/dodeca-pagefind", "crates/dodeca-image", "crates/dodeca-fonts", "xtask"]
 
 [package]
 name = "dodeca"
@@ -111,8 +111,7 @@ url = "2"  # URL parsing for domain extraction
 # URL rewriting (HTML only - CSS/JS via plugins)
 lol_html = "2.7"        # Streaming HTML rewriter
 
-# Font subsetting (static analysis + klippa backend)
-fontcull = { version = "2.0", default-features = false, features = ["static-analysis"] }
+# Font subsetting is now handled via the dodeca-fonts plugin
 
 # Image processing is now handled entirely via plugins (dodeca-image, dodeca-webp, dodeca-jxl)
 
