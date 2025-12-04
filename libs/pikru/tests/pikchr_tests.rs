@@ -38,9 +38,21 @@ fn run_c_pikchr(source: &str) -> String {
     String::from_utf8(output.stdout).expect("C pikchr output not UTF-8")
 }
 
+/// Extract SVG portion from output (skipping any print statements before it)
+fn extract_svg(output: &str) -> Option<&str> {
+    if let Some(start) = output.find("<svg") {
+        if let Some(end) = output.rfind("</svg>") {
+            return Some(&output[start..end + 6]);
+        }
+    }
+    None
+}
+
 /// Parse SVG string into typed Svg struct
 fn parse_svg(svg: &str) -> Result<Svg, String> {
-    facet_xml::from_str(svg).map_err(|e| format!("XML parse error: {}", e))
+    // Extract just the SVG portion in case there's print output before it
+    let svg_only = extract_svg(svg).unwrap_or(svg);
+    facet_xml::from_str(svg_only).map_err(|e| format!("XML parse error: {}", e))
 }
 
 /// Options for SVG comparison with float tolerance
@@ -54,8 +66,11 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
     // Get expected output from C implementation
     let c_output = run_c_pikchr(&source);
 
-    // Check if C output is an error (not valid SVG)
-    let c_is_error = !c_output.trim_start().starts_with('<');
+    // Check if C output is an error (contains ERROR:)
+    let c_is_error = c_output.contains("ERROR:");
+
+    // Check if C output contains SVG
+    let c_has_svg = c_output.contains("<svg");
 
     // Get output from our Rust implementation
     let rust_result = pikru::pikchr(&source);
@@ -68,6 +83,20 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
                     path, c_output
                 );
             }
+
+            // If neither has SVG, compare raw output (e.g., empty diagram comments)
+            if !c_has_svg && !rust_output.contains("<svg") {
+                // Both produced non-SVG output - compare as strings (trimmed)
+                let c_trimmed = c_output.trim();
+                let rust_trimmed = rust_output.trim();
+                assert_eq!(
+                    c_trimmed, rust_trimmed,
+                    "Non-SVG output mismatch for {}\nC: {}\nRust: {}",
+                    path, c_trimmed, rust_trimmed
+                );
+                return Ok(());
+            }
+
             // Parse both SVGs
             let c_svg =
                 parse_svg(&c_output).map_err(|e| format!("Failed to parse C SVG: {}", e))?;

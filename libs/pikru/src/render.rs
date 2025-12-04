@@ -674,11 +674,13 @@ fn render_statement(
             for arg in &p.args {
                 let s = match arg {
                     PrintArg::String(s) => s.clone(),
-                    PrintArg::Expr(e) => match eval_expr(ctx, e) {
-                        Ok(Value::Scalar(v)) => format!("{}", v),
-                        Ok(Value::Len(l)) => format!("{}", l.0),
-                        Err(err) => format!("[{}]", err),
-                    },
+                    PrintArg::Expr(e) => {
+                        let val = eval_expr(ctx, e)?;
+                        match val {
+                            Value::Scalar(v) => format!("{}", v),
+                            Value::Len(l) => format!("{}", l.0),
+                        }
+                    }
                     PrintArg::PlaceName(name) => name.clone(),
                 };
                 parts.push(s);
@@ -1638,8 +1640,20 @@ fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Report> 
                     Len(l) => Len(l.abs()), // typed abs
                     Scalar(s) => Scalar(s.abs()),
                 },
-                Function::Cos => Scalar(args[0].as_scalar()?.to_radians().cos()),
-                Function::Sin => Scalar(args[0].as_scalar()?.to_radians().sin()),
+                Function::Cos => {
+                    let v = match args[0] {
+                        Len(l) => l.raw(),
+                        Scalar(s) => s,
+                    };
+                    Scalar(v.to_radians().cos())
+                }
+                Function::Sin => {
+                    let v = match args[0] {
+                        Len(l) => l.raw(),
+                        Scalar(s) => s,
+                    };
+                    Scalar(v.to_radians().sin())
+                }
                 Function::Int => match args[0] {
                     Len(l) => Len(Inches::inches(l.raw().trunc())),
                     Scalar(s) => Scalar(s.trunc()),
@@ -1651,13 +1665,25 @@ fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Report> 
                     Scalar(s) => Scalar(s.sqrt()),
                 },
                 Function::Max => {
-                    let a = args[0].as_scalar()?;
-                    let b = args[1].as_scalar()?;
+                    let a = match args[0] {
+                        Len(l) => l.raw(),
+                        Scalar(s) => s,
+                    };
+                    let b = match args[1] {
+                        Len(l) => l.raw(),
+                        Scalar(s) => s,
+                    };
                     Scalar(a.max(b))
                 }
                 Function::Min => {
-                    let a = args[0].as_scalar()?;
-                    let b = args[1].as_scalar()?;
+                    let a = match args[0] {
+                        Len(l) => l.raw(),
+                        Scalar(s) => s,
+                    };
+                    let b = match args[1] {
+                        Len(l) => l.raw(),
+                        Scalar(s) => s,
+                    };
                     Scalar(a.min(b))
                 }
             };
