@@ -1,6 +1,6 @@
 use crate::db::{Heading, Page, Section, SiteTree};
 use crate::error_pages::render_error_page;
-use crate::template::{Context, Engine, InMemoryLoader, Value};
+use crate::template::{Context, Engine, InMemoryLoader, VArray, VObject, VString, Value, ValueExt};
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
 use std::collections::{HashMap, HashSet};
@@ -181,10 +181,7 @@ pub fn try_render_page_to_html(
 
     let mut ctx = build_render_context(site_tree, data);
     ctx.set("page", page_to_value(page, site_tree));
-    ctx.set(
-        "current_path",
-        Value::String(page.route.as_str().to_string()),
-    );
+    ctx.set("current_path", Value::from(page.route.as_str()));
 
     // Find the parent section for sidebar navigation
     if let Some(section) = find_parent_section(&page.route, site_tree) {
@@ -223,12 +220,9 @@ pub fn try_render_section_to_html(
 
     let mut ctx = build_render_context(site_tree, data);
     ctx.set("section", section_to_value(section, site_tree));
-    ctx.set(
-        "current_path",
-        Value::String(section.route.as_str().to_string()),
-    );
-    // Set page to None so templates can use `{% if page %}` without error
-    ctx.set("page", Value::None);
+    ctx.set("current_path", Value::from(section.route.as_str()));
+    // Set page to NULL so templates can use `{% if page %}` without error
+    ctx.set("page", Value::NULL);
 
     let template_name = if section.route.as_str() == "/" {
         "index.html"
@@ -257,7 +251,7 @@ fn build_render_context(site_tree: &SiteTree, data: Option<Value>) -> Context {
     let mut ctx = Context::new();
 
     // Add config - derive title/description from root section's frontmatter
-    let mut config_map = HashMap::new();
+    let mut config_map = VObject::new();
     let (site_title, site_description) = site_tree
         .sections
         .get(&Route::root())
@@ -268,16 +262,16 @@ fn build_render_context(site_tree: &SiteTree, data: Option<Value>) -> Context {
             )
         })
         .unwrap_or_else(|| ("Untitled".to_string(), String::new()));
-    config_map.insert("title".to_string(), Value::String(site_title));
-    config_map.insert("description".to_string(), Value::String(site_description));
-    config_map.insert("base_url".to_string(), Value::String("/".to_string()));
-    ctx.set("config", Value::Dict(config_map));
+    config_map.insert(VString::from("title"), Value::from(site_title.as_str()));
+    config_map.insert(VString::from("description"), Value::from(site_description.as_str()));
+    config_map.insert(VString::from("base_url"), Value::from("/"));
+    ctx.set("config", config_map.into());
 
     // Add data files (if any)
     if let Some(data_value) = data {
         ctx.set("data", data_value);
     } else {
-        ctx.set("data", Value::Dict(HashMap::new()));
+        ctx.set("data", VObject::new().into());
     }
 
     // Add root section for sidebar navigation
@@ -302,7 +296,7 @@ fn build_render_context(site_tree: &SiteTree, data: Option<Value>) -> Context {
             } else {
                 format!("/{path}")
             };
-            Ok(Value::String(url))
+            Ok(Value::from(url.as_str()))
         }),
     );
 
@@ -321,45 +315,45 @@ fn build_render_context(site_tree: &SiteTree, data: Option<Value>) -> Context {
             let route = path_to_route(&path);
 
             if let Some(section) = sections.get(&route) {
-                let mut section_map = HashMap::new();
+                let mut section_map = VObject::new();
                 section_map.insert(
-                    "title".to_string(),
-                    Value::String(section.title.as_str().to_string()),
+                    VString::from("title"),
+                    Value::from(section.title.as_str()),
                 );
                 section_map.insert(
-                    "permalink".to_string(),
-                    Value::String(section.route.as_str().to_string()),
+                    VString::from("permalink"),
+                    Value::from(section.route.as_str()),
                 );
-                section_map.insert("path".to_string(), Value::String(path.clone()));
+                section_map.insert(VString::from("path"), Value::from(path.as_str()));
                 section_map.insert(
-                    "content".to_string(),
-                    Value::String(section.body_html.as_str().to_string()),
+                    VString::from("content"),
+                    Value::from(section.body_html.as_str()),
                 );
-                section_map.insert("toc".to_string(), headings_to_toc(&section.headings));
+                section_map.insert(VString::from("toc"), headings_to_toc(&section.headings));
 
                 let section_pages: Vec<Value> = pages
                     .values()
                     .filter(|p| p.section_route == section.route)
                     .map(|p| {
-                        let mut page_map = HashMap::new();
+                        let mut page_map = VObject::new();
                         page_map.insert(
-                            "title".to_string(),
-                            Value::String(p.title.as_str().to_string()),
+                            VString::from("title"),
+                            Value::from(p.title.as_str()),
                         );
                         page_map.insert(
-                            "permalink".to_string(),
-                            Value::String(p.route.as_str().to_string()),
+                            VString::from("permalink"),
+                            Value::from(p.route.as_str()),
                         );
                         page_map.insert(
-                            "path".to_string(),
-                            Value::String(route_to_path(p.route.as_str())),
+                            VString::from("path"),
+                            Value::from(route_to_path(p.route.as_str()).as_str()),
                         );
-                        page_map.insert("weight".to_string(), Value::Int(p.weight as i64));
-                        page_map.insert("toc".to_string(), headings_to_toc(&p.headings));
-                        Value::Dict(page_map)
+                        page_map.insert(VString::from("weight"), Value::from(p.weight as i64));
+                        page_map.insert(VString::from("toc"), headings_to_toc(&p.headings));
+                        page_map.into()
                     })
                     .collect();
-                section_map.insert("pages".to_string(), Value::List(section_pages));
+                section_map.insert(VString::from("pages"), VArray::from_iter(section_pages));
 
                 let subsections: Vec<Value> = sections
                     .values()
@@ -373,13 +367,13 @@ fn build_render_context(site_tree: &SiteTree, data: Option<Value>) -> Context {
                                 .count()
                                 == 0
                     })
-                    .map(|s| Value::String(route_to_path(s.route.as_str())))
+                    .map(|s| Value::from(route_to_path(s.route.as_str()).as_str()))
                     .collect();
-                section_map.insert("subsections".to_string(), Value::List(subsections));
+                section_map.insert(VString::from("subsections"), VArray::from_iter(subsections));
 
-                Ok(Value::Dict(section_map))
+                Ok(section_map.into())
             } else {
-                Ok(Value::None)
+                Ok(Value::NULL)
             }
         }),
     );
@@ -389,13 +383,13 @@ fn build_render_context(site_tree: &SiteTree, data: Option<Value>) -> Context {
 
 /// Convert a heading to a Value dict with children field
 fn heading_to_value(h: &Heading, children: Vec<Value>) -> Value {
-    let mut map = HashMap::new();
-    map.insert("title".to_string(), Value::String(h.title.clone()));
-    map.insert("id".to_string(), Value::String(h.id.clone()));
-    map.insert("level".to_string(), Value::Int(h.level as i64));
-    map.insert("permalink".to_string(), Value::String(format!("#{}", h.id)));
-    map.insert("children".to_string(), Value::List(children));
-    Value::Dict(map)
+    let mut map = VObject::new();
+    map.insert(VString::from("title"), Value::from(h.title.as_str()));
+    map.insert(VString::from("id"), Value::from(h.id.as_str()));
+    map.insert(VString::from("level"), Value::from(h.level as i64));
+    map.insert(VString::from("permalink"), Value::from(format!("#{}", h.id).as_str()));
+    map.insert(VString::from("children"), VArray::from_iter(children));
+    map.into()
 }
 
 /// Convert headings to a hierarchical TOC Value (Zola-style nested structure)
@@ -411,7 +405,7 @@ fn headings_to_value(headings: &[Heading]) -> Value {
 /// Build a hierarchical tree from a flat list of headings
 fn build_toc_tree(headings: &[Heading]) -> Value {
     if headings.is_empty() {
-        return Value::List(vec![]);
+        return VArray::new().into();
     }
 
     // Find the minimum level to use as the "top level"
@@ -419,7 +413,7 @@ fn build_toc_tree(headings: &[Heading]) -> Value {
 
     // Build tree recursively
     let (result, _) = build_toc_subtree(headings, 0, min_level);
-    Value::List(result)
+    VArray::from_iter(result).into()
 }
 
 /// Recursively build TOC subtree, returns (list of Value nodes, next index to process)
@@ -461,21 +455,21 @@ fn build_ancestors(section_route: &Route, site_tree: &SiteTree) -> Vec<Value> {
         if let Some(section) = site_tree.sections.get(&current) {
             // Skip the content root ("/") - it's not useful in breadcrumbs
             if section.route.as_str() != "/" {
-                let mut ancestor_map = HashMap::new();
+                let mut ancestor_map = VObject::new();
                 ancestor_map.insert(
-                    "title".to_string(),
-                    Value::String(section.title.as_str().to_string()),
+                    VString::from("title"),
+                    Value::from(section.title.as_str()),
                 );
                 ancestor_map.insert(
-                    "permalink".to_string(),
-                    Value::String(section.route.as_str().to_string()),
+                    VString::from("permalink"),
+                    Value::from(section.route.as_str()),
                 );
                 ancestor_map.insert(
-                    "path".to_string(),
-                    Value::String(route_to_path(section.route.as_str())),
+                    VString::from("path"),
+                    Value::from(route_to_path(section.route.as_str()).as_str()),
                 );
-                ancestor_map.insert("weight".to_string(), Value::Int(section.weight as i64));
-                ancestors.push(Value::Dict(ancestor_map));
+                ancestor_map.insert(VString::from("weight"), Value::from(section.weight as i64));
+                ancestors.push(ancestor_map.into());
             }
         }
 
@@ -492,60 +486,36 @@ fn build_ancestors(section_route: &Route, site_tree: &SiteTree) -> Vec<Value> {
 
 /// Convert a Page to a Value for template context
 fn page_to_value(page: &Page, site_tree: &SiteTree) -> Value {
-    let mut map = HashMap::new();
+    let mut map = VObject::new();
+    map.insert(VString::from("title"), Value::from(page.title.as_str()));
+    map.insert(VString::from("content"), Value::from(page.body_html.as_str()));
+    map.insert(VString::from("permalink"), Value::from(page.route.as_str()));
     map.insert(
-        "title".to_string(),
-        Value::String(page.title.as_str().to_string()),
+        VString::from("path"),
+        Value::from(route_to_path(page.route.as_str()).as_str()),
     );
+    map.insert(VString::from("weight"), Value::from(page.weight as i64));
+    map.insert(VString::from("toc"), headings_to_value(&page.headings));
     map.insert(
-        "content".to_string(),
-        Value::String(page.body_html.as_str().to_string()),
+        VString::from("ancestors"),
+        VArray::from_iter(build_ancestors(&page.section_route, site_tree)),
     );
-    map.insert(
-        "permalink".to_string(),
-        Value::String(page.route.as_str().to_string()),
-    );
-    map.insert(
-        "path".to_string(),
-        Value::String(route_to_path(page.route.as_str())),
-    );
-    map.insert("weight".to_string(), Value::Int(page.weight as i64));
-    map.insert("toc".to_string(), headings_to_value(&page.headings));
-    map.insert(
-        "ancestors".to_string(),
-        Value::List(build_ancestors(&page.section_route, site_tree)),
-    );
-    map.insert(
-        "last_updated".to_string(),
-        Value::Int(page.last_updated),
-    );
-    Value::Dict(map)
+    map.insert(VString::from("last_updated"), Value::from(page.last_updated));
+    map.into()
 }
 
 /// Convert a Section to a Value for template context
 fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
-    let mut map = HashMap::new();
+    let mut map = VObject::new();
+    map.insert(VString::from("title"), Value::from(section.title.as_str()));
+    map.insert(VString::from("content"), Value::from(section.body_html.as_str()));
+    map.insert(VString::from("permalink"), Value::from(section.route.as_str()));
     map.insert(
-        "title".to_string(),
-        Value::String(section.title.as_str().to_string()),
+        VString::from("path"),
+        Value::from(route_to_path(section.route.as_str()).as_str()),
     );
-    map.insert(
-        "content".to_string(),
-        Value::String(section.body_html.as_str().to_string()),
-    );
-    map.insert(
-        "permalink".to_string(),
-        Value::String(section.route.as_str().to_string()),
-    );
-    map.insert(
-        "path".to_string(),
-        Value::String(route_to_path(section.route.as_str())),
-    );
-    map.insert("weight".to_string(), Value::Int(section.weight as i64));
-    map.insert(
-        "last_updated".to_string(),
-        Value::Int(section.last_updated),
-    );
+    map.insert(VString::from("weight"), Value::from(section.weight as i64));
+    map.insert(VString::from("last_updated"), Value::from(section.last_updated));
 
     // Add pages in this section (sorted by weight, including their headings)
     let mut pages: Vec<&Page> = site_tree
@@ -557,25 +527,19 @@ fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
     let section_pages: Vec<Value> = pages
         .into_iter()
         .map(|p| {
-            let mut page_map = HashMap::new();
+            let mut page_map = VObject::new();
+            page_map.insert(VString::from("title"), Value::from(p.title.as_str()));
+            page_map.insert(VString::from("permalink"), Value::from(p.route.as_str()));
             page_map.insert(
-                "title".to_string(),
-                Value::String(p.title.as_str().to_string()),
+                VString::from("path"),
+                Value::from(route_to_path(p.route.as_str()).as_str()),
             );
-            page_map.insert(
-                "permalink".to_string(),
-                Value::String(p.route.as_str().to_string()),
-            );
-            page_map.insert(
-                "path".to_string(),
-                Value::String(route_to_path(p.route.as_str())),
-            );
-            page_map.insert("weight".to_string(), Value::Int(p.weight as i64));
-            page_map.insert("toc".to_string(), headings_to_value(&p.headings));
-            Value::Dict(page_map)
+            page_map.insert(VString::from("weight"), Value::from(p.weight as i64));
+            page_map.insert(VString::from("toc"), headings_to_value(&p.headings));
+            page_map.into()
         })
         .collect();
-    map.insert("pages".to_string(), Value::List(section_pages));
+    map.insert(VString::from("pages"), VArray::from_iter(section_pages));
 
     // Add subsections (full objects, sorted by weight)
     let mut child_sections: Vec<&Section> = site_tree
@@ -597,24 +561,18 @@ fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
         .into_iter()
         .map(|s| subsection_to_value(s, site_tree))
         .collect();
-    map.insert("subsections".to_string(), Value::List(subsections));
-    map.insert("toc".to_string(), headings_to_value(&section.headings));
+    map.insert(VString::from("subsections"), VArray::from_iter(subsections));
+    map.insert(VString::from("toc"), headings_to_value(&section.headings));
 
-    Value::Dict(map)
+    map.into()
 }
 
 /// Convert a subsection to a value (includes pages but not recursive subsections)
 fn subsection_to_value(section: &Section, site_tree: &SiteTree) -> Value {
-    let mut map = HashMap::new();
-    map.insert(
-        "title".to_string(),
-        Value::String(section.title.as_str().to_string()),
-    );
-    map.insert(
-        "permalink".to_string(),
-        Value::String(section.route.as_str().to_string()),
-    );
-    map.insert("weight".to_string(), Value::Int(section.weight as i64));
+    let mut map = VObject::new();
+    map.insert(VString::from("title"), Value::from(section.title.as_str()));
+    map.insert(VString::from("permalink"), Value::from(section.route.as_str()));
+    map.insert(VString::from("weight"), Value::from(section.weight as i64));
 
     // Add pages in this section, sorted by weight
     let mut section_pages: Vec<&Page> = site_tree
@@ -627,22 +585,16 @@ fn subsection_to_value(section: &Section, site_tree: &SiteTree) -> Value {
     let pages: Vec<Value> = section_pages
         .into_iter()
         .map(|p| {
-            let mut page_map = HashMap::new();
-            page_map.insert(
-                "title".to_string(),
-                Value::String(p.title.as_str().to_string()),
-            );
-            page_map.insert(
-                "permalink".to_string(),
-                Value::String(p.route.as_str().to_string()),
-            );
-            page_map.insert("weight".to_string(), Value::Int(p.weight as i64));
-            Value::Dict(page_map)
+            let mut page_map = VObject::new();
+            page_map.insert(VString::from("title"), Value::from(p.title.as_str()));
+            page_map.insert(VString::from("permalink"), Value::from(p.route.as_str()));
+            page_map.insert(VString::from("weight"), Value::from(p.weight as i64));
+            page_map.into()
         })
         .collect();
-    map.insert("pages".to_string(), Value::List(pages));
+    map.insert(VString::from("pages"), VArray::from_iter(pages));
 
-    Value::Dict(map)
+    map.into()
 }
 
 /// Convert a source path like "learn/_index.md" to a route like "/learn"

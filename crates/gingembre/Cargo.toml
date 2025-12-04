@@ -14,3 +14,4 @@ categories = ["template-engine", "web-programming"]
 miette = { version = "7", features = ["fancy"] }
 thiserror = "2"
 camino = "1"
+facet-value = { git = "https://github.com/facet-rs/facet" }

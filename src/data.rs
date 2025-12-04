@@ -18,8 +18,7 @@
 //! ```
 
 use crate::db::DataFile;
-use crate::template::Value;
-use std::collections::HashMap;
+use crate::template::{VObject, VString, Value};
 
 /// Supported data file formats
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,139 +54,63 @@ pub fn parse_data_file(content: &str, format: DataFormat) -> Result<Value, Strin
 }
 
 fn parse_kdl(content: &str) -> Result<Value, String> {
-    let value: facet_value::Value =
-        facet_kdl::from_str(content).map_err(|e| format!("KDL parse error: {e}"))?;
-    Ok(facet_value_to_template_value(value))
+    facet_kdl::from_str(content).map_err(|e| format!("KDL parse error: {e}"))
 }
 
 fn parse_json(content: &str) -> Result<Value, String> {
-    let value: facet_value::Value =
-        facet_json::from_str(content).map_err(|e| format!("JSON parse error: {e}"))?;
-    Ok(facet_value_to_template_value(value))
+    facet_json::from_str(content).map_err(|e| format!("JSON parse error: {e}"))
 }
 
 fn parse_toml(content: &str) -> Result<Value, String> {
-    let value: facet_value::Value =
-        facet_toml::from_str(content).map_err(|e| format!("TOML parse error: {e}"))?;
-    Ok(facet_value_to_template_value(value))
+    facet_toml::from_str(content).map_err(|e| format!("TOML parse error: {e}"))
 }
 
 fn parse_yaml(content: &str) -> Result<Value, String> {
-    // Use serde_yaml because facet-yaml doesn't support dynamic values
+    // Use serde_yaml because facet-yaml doesn't support dynamic values yet
     let serde_value: serde_yaml::Value =
         serde_yaml::from_str(content).map_err(|e| format!("YAML parse error: {e}"))?;
-    Ok(serde_value_to_template_value(serde_value))
+    Ok(serde_value_to_facet_value(serde_value))
 }
 
-/// Convert a serde_yaml::Value to a template Value
-fn serde_value_to_template_value(v: serde_yaml::Value) -> Value {
+/// Convert a serde_yaml::Value to facet_value::Value
+fn serde_value_to_facet_value(v: serde_yaml::Value) -> Value {
     match v {
-        serde_yaml::Value::Null => Value::None,
-        serde_yaml::Value::Bool(b) => Value::Bool(b),
+        serde_yaml::Value::Null => Value::NULL,
+        serde_yaml::Value::Bool(b) => Value::from(b),
         serde_yaml::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                Value::Int(i)
+                Value::from(i)
             } else if let Some(f) = n.as_f64() {
-                Value::Float(f)
+                Value::from(f)
             } else {
-                Value::Int(0)
+                Value::from(0i64)
             }
         }
-        serde_yaml::Value::String(s) => Value::String(s),
+        serde_yaml::Value::String(s) => Value::from(s.as_str()),
         serde_yaml::Value::Sequence(arr) => {
-            let items: Vec<Value> = arr.into_iter().map(serde_value_to_template_value).collect();
-            Value::List(items)
+            let items: Vec<Value> = arr.into_iter().map(serde_value_to_facet_value).collect();
+            facet_value::VArray::from_iter(items).into()
         }
         serde_yaml::Value::Mapping(map) => {
-            let mut result = HashMap::new();
+            let mut result = VObject::new();
             for (key, val) in map {
                 if let serde_yaml::Value::String(k) = key {
-                    result.insert(k, serde_value_to_template_value(val));
+                    result.insert(VString::from(k.as_str()), serde_value_to_facet_value(val));
                 }
             }
-            Value::Dict(result)
+            result.into()
         }
         serde_yaml::Value::Tagged(tagged) => {
             // Unwrap tagged values
-            serde_value_to_template_value(tagged.value)
+            serde_value_to_facet_value(tagged.value)
         }
     }
 }
 
-/// Convert a facet_value::Value to a template Value
-fn facet_value_to_template_value(v: facet_value::Value) -> Value {
-    use facet_value::ValueType;
-
-    match v.value_type() {
-        ValueType::Null => Value::None,
-        ValueType::Bool => Value::Bool(v.as_bool().unwrap_or(false)),
-        ValueType::Number => {
-            if let Some(num) = v.as_number() {
-                // Try integer first, then float
-                if let Some(i) = num.to_i64() {
-                    Value::Int(i)
-                } else if let Some(f) = num.to_f64() {
-                    Value::Float(f)
-                } else {
-                    Value::Int(0)
-                }
-            } else {
-                Value::Int(0)
-            }
-        }
-        ValueType::String => {
-            if let Some(s) = v.as_string() {
-                Value::String(s.as_str().to_string())
-            } else {
-                Value::String(String::new())
-            }
-        }
-        ValueType::Bytes => {
-            if let Some(b) = v.as_bytes() {
-                // Convert bytes to base64 string
-                use base64::Engine;
-                Value::String(base64::engine::general_purpose::STANDARD.encode(b.as_slice()))
-            } else {
-                Value::String(String::new())
-            }
-        }
-        ValueType::Array => {
-            if let Some(arr) = v.as_array() {
-                let items: Vec<Value> = arr
-                    .iter()
-                    .map(|item| facet_value_to_template_value(item.clone()))
-                    .collect();
-                Value::List(items)
-            } else {
-                Value::List(vec![])
-            }
-        }
-        ValueType::Object => {
-            if let Some(obj) = v.as_object() {
-                let mut map = HashMap::new();
-                for (key, val) in obj.iter() {
-                    map.insert(key.to_string(), facet_value_to_template_value(val.clone()));
-                }
-                Value::Dict(map)
-            } else {
-                Value::Dict(HashMap::new())
-            }
-        }
-        ValueType::DateTime => {
-            // Convert datetime to string representation
-            if let Some(dt) = v.as_datetime() {
-                Value::String(format!("{:?}", dt))
-            } else {
-                Value::None
-            }
-        }
-    }
-}
-
-/// Parse raw data files (path, content) and merge into a single Value::Dict
-/// Each file becomes a key in the dict (filename without extension)
+/// Parse raw data files (path, content) and merge into a single Value object
+/// Each file becomes a key in the object (filename without extension)
 pub fn parse_raw_data_files(files: &[(String, String)]) -> Value {
-    let mut data_map = HashMap::new();
+    let mut data_map = VObject::new();
 
     for (path, content) in files {
         // Get filename without extension as the key
@@ -204,7 +127,7 @@ pub fn parse_raw_data_files(files: &[(String, String)]) -> Value {
 
         match parse_data_file(content, format) {
             Ok(value) => {
-                data_map.insert(key.to_string(), value);
+                data_map.insert(VString::from(key), value);
             }
             Err(e) => {
                 tracing::warn!("Failed to parse data file {}: {}", path, e);
@@ -212,14 +135,14 @@ pub fn parse_raw_data_files(files: &[(String, String)]) -> Value {
         }
     }
 
-    Value::Dict(data_map)
+    data_map.into()
 }
 
-/// Load all data files and merge them into a single Value::Dict
-/// Each file becomes a key in the dict (filename without extension)
+/// Load all data files and merge them into a single Value object
+/// Each file becomes a key in the object (filename without extension)
 #[allow(dead_code)]
 pub fn load_data_files(db: &dyn crate::db::Db, data_files: &[DataFile]) -> Value {
-    let mut data_map = HashMap::new();
+    let mut data_map = VObject::new();
 
     for file in data_files {
         let path = file.path(db).as_str();
@@ -239,7 +162,7 @@ pub fn load_data_files(db: &dyn crate::db::Db, data_files: &[DataFile]) -> Value
 
         match parse_data_file(content, format) {
             Ok(value) => {
-                data_map.insert(key.to_string(), value);
+                data_map.insert(VString::from(key), value);
             }
             Err(e) => {
                 tracing::warn!("Failed to parse data file {}: {}", path, e);
@@ -247,12 +170,13 @@ pub fn load_data_files(db: &dyn crate::db::Db, data_files: &[DataFile]) -> Value
         }
     }
 
-    Value::Dict(data_map)
+    data_map.into()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use facet_value::DestructuredRef;
 
     #[test]
     fn test_format_from_extension() {
@@ -272,21 +196,35 @@ name = "dodeca"
 version = "0.1.0"
 "#;
         let value = parse_toml(content).unwrap();
-        if let Value::Dict(map) = value {
-            if let Some(Value::Dict(project)) = map.get("project") {
-                match project.get("name") {
-                    Some(Value::String(s)) => assert_eq!(s, "dodeca"),
-                    other => panic!("Expected name to be 'dodeca', got {:?}", other),
-                }
-                match project.get("version") {
-                    Some(Value::String(s)) => assert_eq!(s, "0.1.0"),
-                    other => panic!("Expected version to be '0.1.0', got {:?}", other),
+        if let DestructuredRef::Object(map) = value.destructure_ref() {
+            if let Some(project) = map.get("project") {
+                if let DestructuredRef::Object(project_map) = project.destructure_ref() {
+                    if let Some(name) = project_map.get("name") {
+                        if let DestructuredRef::String(s) = name.destructure_ref() {
+                            assert_eq!(s.as_str(), "dodeca");
+                        } else {
+                            panic!("Expected name to be a string");
+                        }
+                    } else {
+                        panic!("Expected name field");
+                    }
+                    if let Some(version) = project_map.get("version") {
+                        if let DestructuredRef::String(s) = version.destructure_ref() {
+                            assert_eq!(s.as_str(), "0.1.0");
+                        } else {
+                            panic!("Expected version to be a string");
+                        }
+                    } else {
+                        panic!("Expected version field");
+                    }
+                } else {
+                    panic!("Expected project to be an object");
                 }
             } else {
-                panic!("Expected project to be a dict");
+                panic!("Expected project field");
             }
         } else {
-            panic!("Expected dict");
+            panic!("Expected object");
         }
     }
 
@@ -294,17 +232,27 @@ version = "0.1.0"
     fn test_parse_json() {
         let content = r#"{"name": "test", "count": 42}"#;
         let value = parse_json(content).unwrap();
-        if let Value::Dict(map) = value {
-            match map.get("name") {
-                Some(Value::String(s)) => assert_eq!(s, "test"),
-                other => panic!("Expected name to be 'test', got {:?}", other),
+        if let DestructuredRef::Object(map) = value.destructure_ref() {
+            if let Some(name) = map.get("name") {
+                if let DestructuredRef::String(s) = name.destructure_ref() {
+                    assert_eq!(s.as_str(), "test");
+                } else {
+                    panic!("Expected name to be a string");
+                }
+            } else {
+                panic!("Expected name field");
             }
-            match map.get("count") {
-                Some(Value::Int(n)) => assert_eq!(*n, 42),
-                other => panic!("Expected count to be 42, got {:?}", other),
+            if let Some(count) = map.get("count") {
+                if let DestructuredRef::Number(n) = count.destructure_ref() {
+                    assert_eq!(n.to_i64(), Some(42));
+                } else {
+                    panic!("Expected count to be a number");
+                }
+            } else {
+                panic!("Expected count field");
             }
         } else {
-            panic!("Expected dict");
+            panic!("Expected object");
         }
     }
 
@@ -317,22 +265,32 @@ items:
   - two
 "#;
         let value = parse_yaml(content).unwrap();
-        if let Value::Dict(map) = value {
-            match map.get("name") {
-                Some(Value::String(s)) => assert_eq!(s, "test"),
-                other => panic!("Expected name to be 'test', got {:?}", other),
-            }
-            if let Some(Value::List(items)) = map.get("items") {
-                assert_eq!(items.len(), 2);
-                match &items[0] {
-                    Value::String(s) => assert_eq!(s, "one"),
-                    other => panic!("Expected first item to be 'one', got {:?}", other),
+        if let DestructuredRef::Object(map) = value.destructure_ref() {
+            if let Some(name) = map.get("name") {
+                if let DestructuredRef::String(s) = name.destructure_ref() {
+                    assert_eq!(s.as_str(), "test");
+                } else {
+                    panic!("Expected name to be a string");
                 }
             } else {
-                panic!("Expected items to be a list");
+                panic!("Expected name field");
+            }
+            if let Some(items) = map.get("items") {
+                if let DestructuredRef::Array(arr) = items.destructure_ref() {
+                    assert_eq!(arr.len(), 2);
+                    if let DestructuredRef::String(s) = arr.get(0).unwrap().destructure_ref() {
+                        assert_eq!(s.as_str(), "one");
+                    } else {
+                        panic!("Expected first item to be a string");
+                    }
+                } else {
+                    panic!("Expected items to be an array");
+                }
+            } else {
+                panic!("Expected items field");
             }
         } else {
-            panic!("Expected dict");
+            panic!("Expected object");
         }
     }
 }

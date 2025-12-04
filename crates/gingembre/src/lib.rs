@@ -46,5 +46,8 @@ pub mod lexer;
 pub mod parser;
 mod render;
 
-pub use eval::{Context, Value};
+pub use eval::{Context, GlobalFn, SafeValue, Value, ValueExt};
 pub use render::{Engine, InMemoryLoader, TemplateLoader};
+
+// Re-export facet_value types for convenience
+pub use facet_value::{VArray, VObject, VString};
