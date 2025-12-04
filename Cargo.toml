@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/gingembre", "crates/livereload-client", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "xtask"]
+members = [".", "crates/gingembre", "crates/livereload-client", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "crates/dodeca-pagefind", "xtask"]
 
 [package]
 name = "dodeca"
@@ -90,9 +90,6 @@ postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary seria
 # Content-addressed storage
 rapidhash = "4"
 canopydb = "0.2.5"
-
-# Search indexing
-pagefind = "1.3"
 
 # HTTP client (for external link checking)
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }

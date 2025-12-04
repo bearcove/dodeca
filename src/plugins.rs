@@ -37,6 +37,8 @@ pub struct PluginRegistry {
     pub css: Option<Plugin>,
     /// JS string literal rewriting plugin
     pub js: Option<Plugin>,
+    /// Search indexing plugin
+    pub pagefind: Option<Plugin>,
 }
 
 impl PluginRegistry {
@@ -49,8 +51,9 @@ impl PluginRegistry {
         let sass = Self::try_load_plugin(dir, "dodeca_sass");
         let css = Self::try_load_plugin(dir, "dodeca_css");
         let js = Self::try_load_plugin(dir, "dodeca_js");
+        let pagefind = Self::try_load_plugin(dir, "dodeca_pagefind");
 
-        PluginRegistry { webp, jxl, minify, svgo, sass, css, js }
+        PluginRegistry { webp, jxl, minify, svgo, sass, css, js, pagefind }
     }
 
     /// Check if any plugins were loaded
@@ -62,6 +65,7 @@ impl PluginRegistry {
             || self.sass.is_some()
             || self.css.is_some()
             || self.js.is_some()
+            || self.pagefind.is_some()
     }
 
     fn try_load_plugin(dir: &Path, name: &str) -> Option<Plugin> {
@@ -146,6 +150,7 @@ pub fn plugins() -> &'static PluginRegistry {
             sass: None,
             css: None,
             js: None,
+            pagefind: None,
         }
     })
 }
@@ -390,6 +395,51 @@ pub fn rewrite_string_literals_in_js_plugin(
     match plugin.call::<JsRewriteInput, PlugResult<String>>("rewrite_string_literals_in_js", &input)
     {
         Ok(PlugResult::Ok(result)) => Ok(result),
+        Ok(PlugResult::Err(e)) => Err(e),
+        Err(e) => Err(format!("plugin call failed: {}", e)),
+    }
+}
+
+/// A page to be indexed for search
+#[derive(Facet)]
+pub struct SearchPage {
+    pub url: String,
+    pub html: String,
+}
+
+/// Output file from search indexing
+#[derive(Facet)]
+pub struct SearchFile {
+    pub path: String,
+    pub contents: Vec<u8>,
+}
+
+/// Input for building search index
+#[derive(Facet)]
+struct SearchIndexInput {
+    pages: Vec<SearchPage>,
+}
+
+/// Output from building search index
+#[derive(Facet)]
+struct SearchIndexOutput {
+    files: Vec<SearchFile>,
+}
+
+/// Build a search index from HTML pages using the plugin.
+///
+/// # Panics
+/// Panics if the pagefind plugin is not loaded.
+pub fn build_search_index_plugin(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, String> {
+    let plugin = plugins()
+        .pagefind
+        .as_ref()
+        .expect("dodeca-pagefind plugin not loaded");
+
+    let input = SearchIndexInput { pages };
+
+    match plugin.call::<SearchIndexInput, PlugResult<SearchIndexOutput>>("build_search_index", &input) {
+        Ok(PlugResult::Ok(output)) => Ok(output.files),
         Ok(PlugResult::Err(e)) => Err(e),
         Err(e) => Err(format!("plugin call failed: {}", e)),
     }

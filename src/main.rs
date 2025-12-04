@@ -973,11 +973,7 @@ pub fn build(
         // Build search index in a separate thread (pagefind is async)
         let output_for_search = site_output.clone();
         let search_files = std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            rt.block_on(search::build_search_index(&output_for_search))
+            search::build_search_index(&output_for_search)
         })
         .join()
         .map_err(|_| eyre!("search thread panicked"))??;
@@ -1301,15 +1297,11 @@ fn build_with_mini_tui(
         skipped,
     );
 
-    // Use a new runtime for pagefind since we're called from sync context within tokio
+    // Build search index (plugin blocks internally)
     let search_files = {
         let output = site_output.clone();
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            rt.block_on(search::build_search_index(&output))
+            search::build_search_index(&output)
         })
         .join()
         .map_err(|_| eyre!("search thread panicked"))??
@@ -1954,14 +1946,10 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
     // Drop lock before async work
     drop(db);
 
-    // Build search index in a separate thread with its own runtime
+    // Build search index (plugin blocks internally)
     let output = site_output.clone();
     std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(search::build_search_index(&output))
+        search::build_search_index(&output)
     })
     .join()
     .map_err(|_| eyre!("search thread panicked"))?

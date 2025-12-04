@@ -1649,7 +1649,6 @@ dependencies = [
  "notify",
  "open",
  "owo-colors",
- "pagefind",
  "phf 0.11.3",
  "plugcard",
  "postcard",
@@ -1720,6 +1719,17 @@ dependencies = [
  "linkme",
  "minify-html",
  "plugcard",
+]
+
+[[package]]
+name = "dodeca-pagefind"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "linkme",
+ "pagefind",
+ "plugcard",
+ "tokio",
 ]
 
 [[package]]
