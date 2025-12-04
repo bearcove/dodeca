@@ -2168,6 +2168,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dodeca-linkcheck"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "linkme",
+ "plugcard",
+ "reqwest",
+ "url",
+]
+
+[[package]]
 name = "dodeca-minify"
 version = "0.1.0"
 dependencies = [

@@ -7,5 +7,6 @@ pub mod error_pages;
 pub mod file_watcher;
 pub mod html_diff;
 pub mod link_checker;
+pub mod plugins;
 pub mod template;
 pub mod types;

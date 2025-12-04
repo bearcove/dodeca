@@ -43,6 +43,8 @@ pub struct PluginRegistry {
     pub image: Option<Plugin>,
     /// Font processing plugin (analysis, subsetting, compression)
     pub fonts: Option<Plugin>,
+    /// External link checking plugin
+    pub linkcheck: Option<Plugin>,
 }
 
 impl PluginRegistry {
@@ -58,8 +60,9 @@ impl PluginRegistry {
         let pagefind = Self::try_load_plugin(dir, "dodeca_pagefind");
         let image = Self::try_load_plugin(dir, "dodeca_image");
         let fonts = Self::try_load_plugin(dir, "dodeca_fonts");
+        let linkcheck = Self::try_load_plugin(dir, "dodeca_linkcheck");
 
-        PluginRegistry { webp, jxl, minify, svgo, sass, css, js, pagefind, image, fonts }
+        PluginRegistry { webp, jxl, minify, svgo, sass, css, js, pagefind, image, fonts, linkcheck }
     }
 
     /// Check if any plugins were loaded
@@ -74,6 +77,7 @@ impl PluginRegistry {
             || self.pagefind.is_some()
             || self.image.is_some()
             || self.fonts.is_some()
+            || self.linkcheck.is_some()
     }
 
     fn try_load_plugin(dir: &Path, name: &str) -> Option<Plugin> {
@@ -164,6 +168,7 @@ pub fn plugins() -> &'static PluginRegistry {
             pagefind: None,
             image: None,
             fonts: None,
+            linkcheck: None,
         }
     })
 }
@@ -745,4 +750,81 @@ pub fn compress_to_woff2_plugin(data: &[u8]) -> Option<Vec<u8>> {
             None
         }
     }
+}
+
+// ============================================================================
+// Link checking plugin functions
+// ============================================================================
+
+/// Status of an external link check (from plugin)
+#[derive(Facet, Debug, Clone, PartialEq, Eq)]
+pub struct LinkStatus {
+    /// "ok", "error", "failed", or "skipped"
+    pub status: String,
+    /// HTTP status code (for "error" status)
+    pub code: Option<u16>,
+    /// Error message (for "failed" status)
+    pub message: Option<String>,
+}
+
+/// Options for link checking (from plugin)
+#[derive(Facet, Debug, Clone)]
+pub struct CheckOptions {
+    /// Domains to skip checking
+    pub skip_domains: Vec<String>,
+    /// Minimum delay between requests to the same domain (milliseconds)
+    pub rate_limit_ms: u64,
+    /// Request timeout in seconds
+    pub timeout_secs: u64,
+}
+
+impl Default for CheckOptions {
+    fn default() -> Self {
+        Self {
+            skip_domains: Vec::new(),
+            rate_limit_ms: 1000,
+            timeout_secs: 10,
+        }
+    }
+}
+
+/// Result of checking multiple URLs (from plugin)
+#[derive(Facet, Debug, Clone)]
+pub struct CheckResult {
+    /// Status for each URL (in same order as input)
+    pub statuses: Vec<LinkStatus>,
+    /// Number of URLs that were actually checked (not skipped)
+    pub checked_count: u32,
+}
+
+/// Check external URLs using the linkcheck plugin.
+///
+/// Returns None if the plugin is not loaded.
+pub fn check_urls_plugin(urls: Vec<String>, options: CheckOptions) -> Option<CheckResult> {
+    let plugin = plugins().linkcheck.as_ref()?;
+
+    #[derive(Facet)]
+    struct Input {
+        urls: Vec<String>,
+        options: CheckOptions,
+    }
+
+    let input = Input { urls, options };
+
+    match plugin.call::<Input, PlugResult<CheckResult>>("check_urls", &input) {
+        Ok(PlugResult::Ok(result)) => Some(result),
+        Ok(PlugResult::Err(e)) => {
+            warn!("linkcheck plugin error: {}", e);
+            None
+        }
+        Err(e) => {
+            warn!("linkcheck plugin call failed: {}", e);
+            None
+        }
+    }
+}
+
+/// Check if the linkcheck plugin is available.
+pub fn has_linkcheck_plugin() -> bool {
+    plugins().linkcheck.is_some()
 }
