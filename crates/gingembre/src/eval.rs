@@ -98,14 +98,21 @@ impl ValueExt for Value {
     }
 }
 
-/// A global function that can be called from templates
+use crate::lazy::{DataPath, DataResolver, LazyValue};
+
+/// A global function that can be called from templates.
+/// Functions receive resolved (concrete) values and return concrete values.
 pub type GlobalFn = Box<dyn Fn(&[Value], &[(String, Value)]) -> Result<Value> + Send + Sync>;
 
 /// Evaluation context (variables in scope)
+///
+/// The context stores [`LazyValue`]s, which can be either concrete values or
+/// lazy references that resolve on demand. This enables fine-grained dependency
+/// tracking for incremental computation.
 #[derive(Clone)]
 pub struct Context {
     /// Variable scopes (innermost last)
-    scopes: Vec<HashMap<String, Value>>,
+    scopes: Vec<HashMap<String, LazyValue>>,
     /// Global functions available in this context (shared via Arc)
     global_fns: std::sync::Arc<HashMap<String, std::sync::Arc<GlobalFn>>>,
 }
@@ -146,10 +153,10 @@ impl Context {
         self.global_fns.get(name).map(|f| f(args, kwargs))
     }
 
-    /// Set a variable in the current scope
-    pub fn set(&mut self, name: impl Into<String>, value: Value) {
+    /// Set a variable in the current scope (concrete value)
+    pub fn set(&mut self, name: impl Into<String>, value: impl Into<LazyValue>) {
         if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name.into(), value);
+            scope.insert(name.into(), value.into());
         }
     }
 
@@ -165,8 +172,16 @@ impl Context {
         self.set(name, safe_value);
     }
 
+    /// Set a lazy data resolver as the "data" variable.
+    ///
+    /// This creates a lazy value at the root path that will resolve fields
+    /// on demand, enabling fine-grained dependency tracking.
+    pub fn set_data_resolver(&mut self, resolver: std::sync::Arc<dyn DataResolver>) {
+        self.set("data", LazyValue::lazy(resolver, DataPath::root()));
+    }
+
     /// Get a variable (searches all scopes)
-    pub fn get(&self, name: &str) -> Option<&Value> {
+    pub fn get(&self, name: &str) -> Option<&LazyValue> {
         for scope in self.scopes.iter().rev() {
             if let Some(value) = scope.get(name) {
                 return Some(value);
@@ -203,6 +218,10 @@ impl Default for Context {
 }
 
 /// Expression evaluator
+///
+/// The evaluator returns [`LazyValue`]s, which may be either concrete or lazy.
+/// Field and index access on lazy values extends the path without resolving.
+/// Operations that need concrete values (arithmetic, comparison) force resolution.
 pub struct Evaluator<'a> {
     ctx: &'a Context,
     source: &'a TemplateSource,
@@ -213,8 +232,8 @@ impl<'a> Evaluator<'a> {
         Self { ctx, source }
     }
 
-    /// Evaluate an expression to a value
-    pub fn eval(&self, expr: &Expr) -> Result<Value> {
+    /// Evaluate an expression to a (possibly lazy) value
+    pub fn eval(&self, expr: &Expr) -> Result<LazyValue> {
         match expr {
             Expr::Literal(lit) => self.eval_literal(lit),
             Expr::Var(ident) => self.eval_var(ident),
@@ -228,35 +247,41 @@ impl<'a> Evaluator<'a> {
             Expr::Test(test) => self.eval_test(test),
             Expr::MacroCall(_macro_call) => {
                 // Macro calls are evaluated during rendering, not expression evaluation
-                Ok(Value::NULL)
+                Ok(LazyValue::concrete(Value::NULL))
             }
         }
     }
 
-    fn eval_literal(&self, lit: &Literal) -> Result<Value> {
-        Ok(match lit {
+    /// Evaluate and resolve to a concrete value (forces lazy resolution)
+    pub fn eval_concrete(&self, expr: &Expr) -> Result<Value> {
+        self.eval(expr)?.resolve()
+    }
+
+    fn eval_literal(&self, lit: &Literal) -> Result<LazyValue> {
+        Ok(LazyValue::concrete(match lit {
             Literal::None(_) => Value::NULL,
             Literal::Bool(b) => Value::from(b.value),
             Literal::Int(i) => Value::from(i.value),
             Literal::Float(f) => Value::from(f.value),
             Literal::String(s) => Value::from(s.value.as_str()),
             Literal::List(l) => {
-                let elements: Result<Vec<_>> = l.elements.iter().map(|e| self.eval(e)).collect();
+                // List elements are resolved to concrete values
+                let elements: Result<Vec<_>> = l.elements.iter().map(|e| self.eval_concrete(e)).collect();
                 VArray::from_iter(elements?).into()
             }
             Literal::Dict(d) => {
                 let mut obj = VObject::new();
                 for (k, v) in &d.entries {
                     let key = self.eval(k)?.render_to_string();
-                    let value = self.eval(v)?;
+                    let value = self.eval_concrete(v)?;
                     obj.insert(VString::from(key.as_str()), value);
                 }
                 obj.into()
             }
-        })
+        }))
     }
 
-    fn eval_var(&self, ident: &Ident) -> Result<Value> {
+    fn eval_var(&self, ident: &Ident) -> Result<LazyValue> {
         self.ctx.get(&ident.name).cloned().ok_or_else(|| {
             UndefinedError {
                 name: ident.name.clone(),
@@ -268,105 +293,113 @@ impl<'a> Evaluator<'a> {
         })
     }
 
-    fn eval_field(&self, field: &FieldExpr) -> Result<Value> {
+    fn eval_field(&self, field: &FieldExpr) -> Result<LazyValue> {
         let base = self.eval(&field.base)?;
-
-        match base.destructure_ref() {
-            DestructuredRef::Object(obj) => {
-                obj.get(&field.field.name).cloned().ok_or_else(|| {
-                    UnknownFieldError {
-                        base_type: "dict".to_string(),
-                        field: field.field.name.clone(),
-                        known_fields: obj.keys().map(|k| k.to_string()).collect(),
-                        span: field.field.span,
-                        src: self.source.named_source(),
-                    }
-                    .into()
-                })
-            }
-            _ => Err(TypeError {
-                expected: "object or dict".to_string(),
-                found: base.type_name().to_string(),
-                context: "field access".to_string(),
-                span: field.base.span(),
-                src: self.source.named_source(),
-            })?,
-        }
+        // Use LazyValue's field method - extends path for lazy, normal access for concrete
+        base.field(&field.field.name, field.field.span, self.source)
     }
 
-    fn eval_index(&self, index: &IndexExpr) -> Result<Value> {
+    fn eval_index(&self, index: &IndexExpr) -> Result<LazyValue> {
         let base = self.eval(&index.base)?;
         let idx = self.eval(&index.index)?;
 
-        match (base.destructure_ref(), idx.destructure_ref()) {
-            (DestructuredRef::Array(arr), DestructuredRef::Number(n)) => {
-                let i = n.to_i64().unwrap_or(0);
-                let i = if i < 0 {
-                    (arr.len() as i64 + i) as usize
-                } else {
-                    i as usize
-                };
-                arr.get(i).cloned().ok_or_else(|| {
-                    TypeError {
-                        expected: format!("index < {}", arr.len()),
-                        found: format!("index {i}"),
-                        context: "list index".to_string(),
+        // For lazy base, we need to resolve the index to get a concrete key/index
+        match &base {
+            LazyValue::Lazy { .. } => {
+                // Resolve the index to get the key
+                let idx_resolved = idx.resolve()?;
+                match idx_resolved.destructure_ref() {
+                    DestructuredRef::Number(n) => {
+                        let i = n.to_i64().unwrap_or(0);
+                        base.index(i, index.index.span(), self.source)
+                    }
+                    DestructuredRef::String(s) => {
+                        base.index_str(s.as_str(), index.index.span(), self.source)
+                    }
+                    _ => Err(TypeError {
+                        expected: "number or string".to_string(),
+                        found: idx.type_name().to_string(),
+                        context: "index".to_string(),
                         span: index.index.span(),
                         src: self.source.named_source(),
-                    }
-                    .into()
-                })
+                    }.into())
+                }
             }
-            (DestructuredRef::Object(obj), DestructuredRef::String(key)) => {
-                obj.get(key.as_str()).cloned().ok_or_else(|| {
-                    UnknownFieldError {
-                        base_type: "dict".to_string(),
-                        field: key.to_string(),
-                        known_fields: obj.keys().map(|k| k.to_string()).collect(),
-                        span: index.index.span(),
+            LazyValue::Concrete(base_val) => {
+                // Original concrete logic
+                let idx_resolved = idx.resolve()?;
+                match (base_val.destructure_ref(), idx_resolved.destructure_ref()) {
+                    (DestructuredRef::Array(arr), DestructuredRef::Number(n)) => {
+                        let i = n.to_i64().unwrap_or(0);
+                        let i = if i < 0 {
+                            (arr.len() as i64 + i) as usize
+                        } else {
+                            i as usize
+                        };
+                        arr.get(i).cloned().map(LazyValue::concrete).ok_or_else(|| {
+                            TypeError {
+                                expected: format!("index < {}", arr.len()),
+                                found: format!("index {i}"),
+                                context: "list index".to_string(),
+                                span: index.index.span(),
+                                src: self.source.named_source(),
+                            }
+                            .into()
+                        })
+                    }
+                    (DestructuredRef::Object(obj), DestructuredRef::String(key)) => {
+                        obj.get(key.as_str()).cloned().map(LazyValue::concrete).ok_or_else(|| {
+                            UnknownFieldError {
+                                base_type: "dict".to_string(),
+                                field: key.to_string(),
+                                known_fields: obj.keys().map(|k| k.to_string()).collect(),
+                                span: index.index.span(),
+                                src: self.source.named_source(),
+                            }
+                            .into()
+                        })
+                    }
+                    (DestructuredRef::String(s), DestructuredRef::Number(n)) => {
+                        let i = n.to_i64().unwrap_or(0);
+                        let len = s.len();
+                        let i = if i < 0 { (len as i64 + i) as usize } else { i as usize };
+                        s.as_str()
+                            .chars()
+                            .nth(i)
+                            .map(|c| LazyValue::concrete(Value::from(c.to_string().as_str())))
+                            .ok_or_else(|| {
+                                TypeError {
+                                    expected: format!("index < {}", len),
+                                    found: format!("index {i}"),
+                                    context: "string index".to_string(),
+                                    span: index.index.span(),
+                                    src: self.source.named_source(),
+                                }
+                                .into()
+                            })
+                    }
+                    _ => Err(TypeError {
+                        expected: "list, dict, or string".to_string(),
+                        found: base.type_name().to_string(),
+                        context: "index access".to_string(),
+                        span: index.base.span(),
                         src: self.source.named_source(),
-                    }
-                    .into()
-                })
+                    })?,
+                }
             }
-            (DestructuredRef::String(s), DestructuredRef::Number(n)) => {
-                let i = n.to_i64().unwrap_or(0);
-                let len = s.len();
-                let i = if i < 0 { (len as i64 + i) as usize } else { i as usize };
-                s.as_str()
-                    .chars()
-                    .nth(i)
-                    .map(|c| Value::from(c.to_string().as_str()))
-                    .ok_or_else(|| {
-                        TypeError {
-                            expected: format!("index < {}", len),
-                            found: format!("index {i}"),
-                            context: "string index".to_string(),
-                            span: index.index.span(),
-                            src: self.source.named_source(),
-                        }
-                        .into()
-                    })
-            }
-            _ => Err(TypeError {
-                expected: "list, dict, or string".to_string(),
-                found: base.type_name().to_string(),
-                context: "index access".to_string(),
-                span: index.base.span(),
-                src: self.source.named_source(),
-            })?,
         }
     }
 
-    fn eval_filter(&self, filter: &FilterExpr) -> Result<Value> {
-        let value = self.eval(&filter.expr)?;
-        let args: Result<Vec<_>> = filter.args.iter().map(|a| self.eval(a)).collect();
+    fn eval_filter(&self, filter: &FilterExpr) -> Result<LazyValue> {
+        // Filters always work on concrete values
+        let value = self.eval_concrete(&filter.expr)?;
+        let args: Result<Vec<_>> = filter.args.iter().map(|a| self.eval_concrete(a)).collect();
         let args = args?;
 
         let kwargs: Result<Vec<(String, Value)>> = filter
             .kwargs
             .iter()
-            .map(|(ident, expr)| Ok((ident.name.clone(), self.eval(expr)?)))
+            .map(|(ident, expr)| Ok((ident.name.clone(), self.eval_concrete(expr)?)))
             .collect();
         let kwargs = kwargs?;
 
@@ -378,10 +411,11 @@ impl<'a> Evaluator<'a> {
             filter.filter.span,
             self.source,
         )
+        .map(LazyValue::concrete)
     }
 
-    fn eval_binary(&self, binary: &BinaryExpr) -> Result<Value> {
-        // Short-circuit for and/or
+    fn eval_binary(&self, binary: &BinaryExpr) -> Result<LazyValue> {
+        // Short-circuit for and/or - these can stay lazy
         match binary.op {
             BinaryOp::And => {
                 let left = self.eval(&binary.left)?;
@@ -400,10 +434,11 @@ impl<'a> Evaluator<'a> {
             _ => {}
         }
 
-        let left = self.eval(&binary.left)?;
-        let right = self.eval(&binary.right)?;
+        // All other binary ops need concrete values
+        let left = self.eval_concrete(&binary.left)?;
+        let right = self.eval_concrete(&binary.right)?;
 
-        Ok(match binary.op {
+        Ok(LazyValue::concrete(match binary.op {
             BinaryOp::Add => binary_add(&left, &right),
             BinaryOp::Sub => binary_sub(&left, &right),
             BinaryOp::Mul => binary_mul(&left, &right),
@@ -439,13 +474,14 @@ impl<'a> Evaluator<'a> {
                 Value::from(format!("{}{}", left.render_to_string(), right.render_to_string()).as_str())
             }
             BinaryOp::And | BinaryOp::Or => unreachable!(), // Handled above
-        })
+        }))
     }
 
-    fn eval_unary(&self, unary: &UnaryExpr) -> Result<Value> {
-        let value = self.eval(&unary.expr)?;
+    fn eval_unary(&self, unary: &UnaryExpr) -> Result<LazyValue> {
+        // Unary ops need concrete values
+        let value = self.eval_concrete(&unary.expr)?;
 
-        Ok(match unary.op {
+        Ok(LazyValue::concrete(match unary.op {
             UnaryOp::Not => Value::from(!value.is_truthy()),
             UnaryOp::Neg => {
                 match value.destructure_ref() {
@@ -467,35 +503,35 @@ impl<'a> Evaluator<'a> {
                     _ => Value::NULL,
                 }
             }
-        })
+        }))
     }
 
-    fn eval_call(&self, call: &CallExpr) -> Result<Value> {
-        // Evaluate arguments
+    fn eval_call(&self, call: &CallExpr) -> Result<LazyValue> {
+        // Function calls require concrete argument values
         let args: Vec<Value> = call
             .args
             .iter()
-            .map(|a| self.eval(a))
+            .map(|a| self.eval_concrete(a))
             .collect::<Result<Vec<_>>>()?;
 
         let kwargs: Vec<(String, Value)> = call
             .kwargs
             .iter()
-            .map(|(ident, expr)| Ok((ident.name.clone(), self.eval(expr)?)))
+            .map(|(ident, expr)| Ok((ident.name.clone(), self.eval_concrete(expr)?)))
             .collect::<Result<Vec<_>>>()?;
 
         // Check if this is a global function call
         if let Expr::Var(ident) = &*call.func {
             if let Some(result) = self.ctx.call_fn(&ident.name, &args, &kwargs) {
-                return result;
+                return result.map(LazyValue::concrete);
             }
         }
 
         // Method calls on values (like .items(), etc.) - not implemented yet
-        Ok(Value::NULL)
+        Ok(LazyValue::concrete(Value::NULL))
     }
 
-    fn eval_ternary(&self, ternary: &TernaryExpr) -> Result<Value> {
+    fn eval_ternary(&self, ternary: &TernaryExpr) -> Result<LazyValue> {
         let condition = self.eval(&ternary.condition)?;
         if condition.is_truthy() {
             self.eval(&ternary.value)
@@ -504,12 +540,13 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    fn eval_test(&self, test: &TestExpr) -> Result<Value> {
-        let value = self.eval(&test.expr)?;
+    fn eval_test(&self, test: &TestExpr) -> Result<LazyValue> {
+        // Tests require concrete values
+        let value = self.eval_concrete(&test.expr)?;
         let args: Vec<Value> = test
             .args
             .iter()
-            .map(|a| self.eval(a))
+            .map(|a| self.eval_concrete(a))
             .collect::<Result<Vec<_>>>()?;
 
         let result = match test.test_name.name.as_str() {
@@ -637,7 +674,7 @@ impl<'a> Evaluator<'a> {
             }
         };
 
-        Ok(Value::from(if test.negated { !result } else { result }))
+        Ok(LazyValue::concrete(Value::from(if test.negated { !result } else { result })))
     }
 }
 

@@ -1,11 +1,13 @@
 use crate::db::{Heading, Page, Section, SiteTree};
 use crate::error_pages::render_error_page;
 use crate::template::{
-    Context, Engine, InMemoryLoader, TemplateLoader, VArray, VObject, VString, Value, ValueExt,
+    Context, DataResolver, Engine, InMemoryLoader, TemplateLoader, VArray, VObject, VString,
+    Value, ValueExt,
 };
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 // Re-export for backwards compatibility
 pub use crate::error_pages::RENDER_ERROR_MARKER;
@@ -241,6 +243,83 @@ pub fn render_section_with_loader<L: TemplateLoader>(
 }
 
 // ============================================================================
+// Lazy data resolver variants (for fine-grained Salsa tracking)
+// ============================================================================
+
+/// Render a page to HTML with lazy data resolver.
+/// Each data path access becomes a tracked Salsa dependency.
+pub fn try_render_page_with_resolver<L: TemplateLoader>(
+    page: &Page,
+    site_tree: &SiteTree,
+    loader: L,
+    resolver: Arc<dyn DataResolver>,
+) -> std::result::Result<String, String> {
+    let mut engine = Engine::new(loader);
+
+    let mut ctx = build_render_context_with_resolver(site_tree, resolver);
+    ctx.set("page", page_to_value(page, site_tree));
+    ctx.set("current_path", Value::from(page.route.as_str()));
+
+    // Find the parent section for sidebar navigation
+    if let Some(section) = find_parent_section(&page.route, site_tree) {
+        ctx.set("section", section_to_value(section, site_tree));
+    }
+
+    engine
+        .render("page.html", &ctx)
+        .map_err(|e| format!("{e:?}"))
+}
+
+/// Render page with lazy resolver - development mode (shows error page on failure)
+pub fn render_page_with_resolver<L: TemplateLoader>(
+    page: &Page,
+    site_tree: &SiteTree,
+    loader: L,
+    resolver: Arc<dyn DataResolver>,
+) -> String {
+    try_render_page_with_resolver(page, site_tree, loader, resolver)
+        .unwrap_or_else(|e| render_error_page(&e))
+}
+
+/// Render a section to HTML with lazy data resolver.
+/// Each data path access becomes a tracked Salsa dependency.
+pub fn try_render_section_with_resolver<L: TemplateLoader>(
+    section: &Section,
+    site_tree: &SiteTree,
+    loader: L,
+    resolver: Arc<dyn DataResolver>,
+) -> std::result::Result<String, String> {
+    let mut engine = Engine::new(loader);
+
+    let mut ctx = build_render_context_with_resolver(site_tree, resolver);
+    ctx.set("section", section_to_value(section, site_tree));
+    ctx.set("current_path", Value::from(section.route.as_str()));
+    // Set page to NULL so templates can use `{% if page %}` without error
+    ctx.set("page", Value::NULL);
+
+    let template_name = if section.route.as_str() == "/" {
+        "index.html"
+    } else {
+        "section.html"
+    };
+
+    engine
+        .render(template_name, &ctx)
+        .map_err(|e| format!("{e:?}"))
+}
+
+/// Render section with lazy resolver - development mode (shows error page on failure)
+pub fn render_section_with_resolver<L: TemplateLoader>(
+    section: &Section,
+    site_tree: &SiteTree,
+    loader: L,
+    resolver: Arc<dyn DataResolver>,
+) -> String {
+    try_render_section_with_resolver(section, site_tree, loader, resolver)
+        .unwrap_or_else(|e| render_error_page(&e))
+}
+
+// ============================================================================
 // Convenience functions using HashMap (backward compatibility)
 // ============================================================================
 
@@ -297,6 +376,36 @@ pub fn render_section_to_html(
 
 /// Build the render context with config and global functions
 fn build_render_context(site_tree: &SiteTree, data: Option<Value>) -> Context {
+    let mut ctx = build_render_context_base(site_tree);
+
+    // Add data files (if any)
+    if let Some(data_value) = data {
+        ctx.set("data", data_value);
+    } else {
+        ctx.set("data", Value::from(VObject::new()));
+    }
+
+    ctx
+}
+
+/// Build the render context with a lazy data resolver
+///
+/// Instead of loading all data upfront, this uses a resolver that will
+/// fetch data on-demand. Each data path access becomes a tracked Salsa dependency.
+fn build_render_context_with_resolver(
+    site_tree: &SiteTree,
+    resolver: Arc<dyn DataResolver>,
+) -> Context {
+    let mut ctx = build_render_context_base(site_tree);
+
+    // Set the data resolver for lazy data loading
+    ctx.set_data_resolver(resolver);
+
+    ctx
+}
+
+/// Base context builder with config and global functions (no data)
+fn build_render_context_base(site_tree: &SiteTree) -> Context {
     let mut ctx = Context::new();
 
     // Add config - derive title/description from root section's frontmatter
@@ -314,14 +423,7 @@ fn build_render_context(site_tree: &SiteTree, data: Option<Value>) -> Context {
     config_map.insert(VString::from("title"), Value::from(site_title.as_str()));
     config_map.insert(VString::from("description"), Value::from(site_description.as_str()));
     config_map.insert(VString::from("base_url"), Value::from("/"));
-    ctx.set("config", config_map.into());
-
-    // Add data files (if any)
-    if let Some(data_value) = data {
-        ctx.set("data", data_value);
-    } else {
-        ctx.set("data", VObject::new().into());
-    }
+    ctx.set("config", Value::from(config_map));
 
     // Add root section for sidebar navigation
     if let Some(root) = site_tree.sections.get(&Route::root()) {

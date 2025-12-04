@@ -42,11 +42,13 @@
 pub mod ast;
 mod error;
 mod eval;
+mod lazy;
 pub mod lexer;
 pub mod parser;
 mod render;
 
 pub use eval::{Context, GlobalFn, Value, ValueExt};
+pub use lazy::{DataPath, DataResolver, LazyValue};
 pub use render::{Engine, InMemoryLoader, TemplateLoader};
 
 // Re-export facet_value types for convenience

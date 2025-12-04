@@ -5,7 +5,8 @@
 
 use super::ast::{self, Expr, Node, Target};
 use super::error::TemplateSource;
-use super::eval::{Context, Evaluator, Value, ValueExt};
+use super::eval::{Context, Evaluator, Value};
+use super::lazy::LazyValue;
 use super::parser::Parser;
 use camino::{Utf8Path, Utf8PathBuf};
 use facet_value::{DestructuredRef, VObject, VString};
@@ -379,17 +380,17 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
             Node::Print(print) => {
                 // Check if this is a macro call
                 if let Expr::MacroCall(macro_call) = &print.expr {
-                    // Evaluate arguments
+                    // Evaluate arguments (macros need concrete values)
                     let eval = Evaluator::new(&self.ctx, &self.source);
                     let args: Vec<Value> = macro_call
                         .args
                         .iter()
-                        .map(|a| eval.eval(a))
+                        .map(|a| eval.eval_concrete(a))
                         .collect::<Result<Vec<_>>>()?;
                     let kwargs: Vec<(String, Value)> = macro_call
                         .kwargs
                         .iter()
-                        .map(|(ident, expr)| Ok((ident.name.clone(), eval.eval(expr)?)))
+                        .map(|(ident, expr)| Ok((ident.name.clone(), eval.eval_concrete(expr)?)))
                         .collect::<Result<Vec<_>>>()?;
 
                     // Call the macro
@@ -453,24 +454,8 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                 let eval = Evaluator::new(&self.ctx, &self.source);
                 let iter_value = eval.eval(&for_node.iter)?;
 
-                let items: Vec<Value> = match iter_value.destructure_ref() {
-                    DestructuredRef::Array(arr) => arr.iter().cloned().collect(),
-                    DestructuredRef::Object(obj) => obj
-                        .iter()
-                        .map(|(k, v)| {
-                            let mut entry = VObject::new();
-                            entry.insert(VString::from("key"), Value::from(k.as_str()));
-                            entry.insert(VString::from("value"), v.clone());
-                            entry.into()
-                        })
-                        .collect(),
-                    DestructuredRef::String(s) => s
-                        .as_str()
-                        .chars()
-                        .map(|c| Value::from(c.to_string().as_str()))
-                        .collect(),
-                    _ => Vec::new(),
-                };
+                // Use LazyValue's iteration which handles lazy/concrete uniformly
+                let items: Vec<LazyValue> = iter_value.iter_values();
 
                 if items.is_empty() {
                     // Render else body if present
@@ -491,8 +476,9 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                                 self.ctx.set(name.clone(), item);
                             }
                             Target::Tuple { names, .. } => {
-                                // For tuple unpacking, expect item to be an array
-                                match item.destructure_ref() {
+                                // For tuple unpacking, resolve to get the concrete value
+                                let resolved = item.try_resolve().unwrap_or(Value::NULL);
+                                match resolved.destructure_ref() {
                                     DestructuredRef::Array(parts) => {
                                         for (i, (name, _)) in names.iter().enumerate() {
                                             let val = parts.get(i).cloned().unwrap_or(Value::NULL);
@@ -522,7 +508,7 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                         loop_var.insert(VString::from("first"), Value::from(index == 0));
                         loop_var.insert(VString::from("last"), Value::from(index == len - 1));
                         loop_var.insert(VString::from("length"), Value::from(len as i64));
-                        self.ctx.set("loop", loop_var.into());
+                        self.ctx.set("loop", Value::from(loop_var));
 
                         let control = self.render_nodes(&for_node.body)?;
                         self.ctx.pop_scope();
@@ -685,16 +671,16 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
 
         // Bind positional arguments
         for (i, param) in macro_def.params.iter().enumerate() {
-            let value = if i < args.len() {
-                args[i].clone()
+            let value: LazyValue = if i < args.len() {
+                LazyValue::concrete(args[i].clone())
             } else if let Some((_, v)) = kwargs.iter().find(|(k, _)| k == &param.name.name) {
-                v.clone()
+                LazyValue::concrete(v.clone())
             } else if let Some(ref default_expr) = param.default {
                 // Evaluate default value
                 let eval = Evaluator::new(&self.ctx, &self.source);
                 eval.eval(default_expr)?
             } else {
-                Value::NULL
+                LazyValue::concrete(Value::NULL)
             };
             self.ctx.set(param.name.name.clone(), value);
         }
@@ -731,6 +717,7 @@ fn html_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::eval::ValueExt;
     use facet_value::VArray;
 
     #[test]

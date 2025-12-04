@@ -117,6 +117,233 @@ pub fn load_all_data_raw<'db>(
         .collect()
 }
 
+// ============================================================================
+// LAZY DATA LOADING
+// ============================================================================
+
+use crate::data::{DataFormat, parse_data_file};
+use crate::db::DataFile;
+use facet_value::DestructuredRef;
+use gingembre::{DataPath, DataResolver};
+use std::sync::Arc;
+
+/// An interned path through the data tree.
+///
+/// For example, `["versions", "dodeca", "version"]` represents `data.versions.dodeca.version`.
+/// Interning ensures efficient comparison and hashing.
+#[salsa::interned]
+pub struct DataValuePath<'db> {
+    #[returns(ref)]
+    pub segments: Vec<String>,
+}
+
+/// Build a lookup table from data key (filename without extension) to DataFile.
+/// This is tracked so changes to the registry invalidate the lookup.
+#[salsa::tracked]
+pub fn data_file_lookup<'db>(
+    db: &'db dyn Db,
+    registry: DataRegistry,
+) -> HashMap<String, DataFile> {
+    registry
+        .files(db)
+        .iter()
+        .map(|f| {
+            let path = f.path(db).as_str();
+            let key = extract_filename_without_extension(path);
+            (key, *f)
+        })
+        .collect()
+}
+
+/// Get all data file keys (filenames without extension).
+/// Used for iteration over `data`.
+#[salsa::tracked]
+pub fn data_file_keys<'db>(db: &'db dyn Db, registry: DataRegistry) -> Vec<String> {
+    registry
+        .files(db)
+        .iter()
+        .map(|f| extract_filename_without_extension(f.path(db).as_str()))
+        .collect()
+}
+
+/// Load and parse a single data file.
+/// Each file load is individually tracked by Salsa.
+#[salsa::tracked]
+pub fn load_and_parse_data_file(db: &dyn Db, file: DataFile) -> Option<Value> {
+    let path = file.path(db).as_str();
+    let content = file.content(db).as_str();
+
+    let format = DataFormat::from_extension(path)?;
+    parse_data_file(content, format).ok()
+}
+
+/// Resolve a value at a specific path through the data tree.
+///
+/// THIS IS THE KEY QUERY - each unique path is tracked separately by Salsa!
+/// When a path is resolved, Salsa records it as a dependency of the current query.
+#[salsa::tracked]
+pub fn resolve_data_value<'db>(
+    db: &'db dyn Db,
+    registry: DataRegistry,
+    path: DataValuePath<'db>,
+) -> Option<Value> {
+    let segments = path.segments(db);
+
+    if segments.is_empty() {
+        // Root path - can't return a single value, caller should use keys
+        return None;
+    }
+
+    // First segment is the file key (filename without extension)
+    let file_key = &segments[0];
+    let lookup = data_file_lookup(db, registry);
+    let file = lookup.get(file_key)?;
+
+    // Load and parse the file (this is tracked!)
+    let parsed = load_and_parse_data_file(db, *file)?;
+
+    // Navigate to the specific path within the parsed value
+    let mut current = parsed;
+    for segment in segments.iter().skip(1) {
+        current = match current.destructure_ref() {
+            DestructuredRef::Object(obj) => obj.get(segment.as_str())?.clone(),
+            DestructuredRef::Array(arr) => {
+                let idx: usize = segment.parse().ok()?;
+                arr.get(idx)?.clone()
+            }
+            _ => return None,
+        };
+    }
+
+    Some(current)
+}
+
+/// Get child keys at a path (for iteration).
+/// Returns the keys at that path if it's an object, or indices if it's an array.
+#[salsa::tracked]
+pub fn data_keys_at_path<'db>(
+    db: &'db dyn Db,
+    registry: DataRegistry,
+    path: DataValuePath<'db>,
+) -> Vec<String> {
+    let segments = path.segments(db);
+
+    if segments.is_empty() {
+        // Root path - return all data file keys
+        return data_file_keys(db, registry);
+    }
+
+    // First, resolve the value at this path
+    let value = match resolve_data_value(db, registry, path) {
+        Some(v) => v,
+        None => return Vec::new(),
+    };
+
+    // Return keys based on the value type
+    match value.destructure_ref() {
+        DestructuredRef::Object(obj) => obj.keys().map(|k| k.to_string()).collect(),
+        DestructuredRef::Array(arr) => (0..arr.len()).map(|i| i.to_string()).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Extract filename without extension from a path.
+fn extract_filename_without_extension(path: &str) -> String {
+    let filename = path.rsplit('/').next().unwrap_or(path);
+    if let Some(dot_pos) = filename.rfind('.') {
+        filename[..dot_pos].to_string()
+    } else {
+        filename.to_string()
+    }
+}
+
+/// A data resolver backed by Salsa queries.
+///
+/// Each path resolution becomes a tracked dependency, enabling fine-grained
+/// incremental recomputation. Change `versions.toml`? Only pages that access
+/// `data.versions.*` are re-rendered.
+///
+/// # Safety
+///
+/// This struct uses a raw pointer to the database to work around lifetime
+/// constraints with `Arc<dyn DataResolver>`. The resolver MUST NOT outlive
+/// the database reference it was created from.
+///
+/// This is safe within Salsa tracked queries because:
+/// - The resolver is created at the start of the query
+/// - The resolver is only used during the query's render call
+/// - The resolver is dropped before the query returns
+/// - The database reference is valid for the entire query duration
+pub struct SalsaDataResolver {
+    // Raw pointer to avoid lifetime issues with Arc<dyn DataResolver>
+    // SAFETY: Must not outlive the database
+    db: *const dyn Db,
+    registry: DataRegistry,
+}
+
+// SAFETY: The Salsa database is Send + Sync, and we ensure the resolver
+// doesn't outlive the database by only using it within tracked queries.
+unsafe impl Send for SalsaDataResolver {}
+unsafe impl Sync for SalsaDataResolver {}
+
+impl SalsaDataResolver {
+    /// Create a new data resolver for the given data registry.
+    ///
+    /// # Safety
+    ///
+    /// The returned resolver must not outlive `db`. This is typically ensured
+    /// by only using the resolver within the same Salsa tracked query where
+    /// the database reference is valid.
+    pub fn new<'db>(db: &'db dyn Db, registry: DataRegistry) -> Self {
+        Self {
+            db: db as *const dyn Db,
+            registry,
+        }
+    }
+
+    /// Create an Arc-wrapped resolver (for use with gingembre Context).
+    ///
+    /// # Safety
+    ///
+    /// The Arc MUST be dropped before the database reference becomes invalid.
+    /// This is safe within Salsa tracked queries when the Arc is only used
+    /// for a single render call.
+    pub fn new_arc<'db>(db: &'db dyn Db, registry: DataRegistry) -> Arc<dyn DataResolver> {
+        Arc::new(Self::new(db, registry))
+    }
+
+    fn db(&self) -> &dyn Db {
+        // SAFETY: Caller ensures the resolver doesn't outlive the database
+        unsafe { &*self.db }
+    }
+
+    fn intern_path(&self, path: &DataPath) -> DataValuePath<'_> {
+        DataValuePath::new(self.db(), path.segments().to_vec())
+    }
+}
+
+impl DataResolver for SalsaDataResolver {
+    fn resolve(&self, path: &DataPath) -> Option<Value> {
+        let path_id = self.intern_path(path);
+        resolve_data_value(self.db(), self.registry, path_id)
+    }
+
+    fn keys_at(&self, path: &DataPath) -> Option<Vec<String>> {
+        let path_id = self.intern_path(path);
+        let keys = data_keys_at_path(self.db(), self.registry, path_id);
+        if keys.is_empty() && !path.segments().is_empty() {
+            // Empty keys for a non-root path means the path doesn't exist or isn't iterable
+            None
+        } else {
+            Some(keys)
+        }
+    }
+
+    fn len_at(&self, path: &DataPath) -> Option<usize> {
+        self.keys_at(path).map(|k| k.len())
+    }
+}
+
 /// Compiled CSS output
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CompiledCss(pub String);
@@ -282,6 +509,7 @@ fn find_parent_section(route: &Route, sections: &BTreeMap<Route, Section>) -> Ro
 /// Render a single page to HTML
 /// This tracked query depends on the page content, templates actually used, data files, and site tree.
 /// Template dependencies are tracked lazily - only templates loaded during rendering are recorded.
+/// Data dependencies are also tracked lazily - only data paths actually accessed become dependencies.
 #[salsa::tracked]
 #[tracing::instrument(skip_all, name = "render_page")]
 pub fn render_page<'db>(
@@ -291,7 +519,7 @@ pub fn render_page<'db>(
     templates: TemplateRegistry,
     data: DataRegistry,
 ) -> RenderedHtml {
-    use crate::render::render_page_with_loader;
+    use crate::render::render_page_with_resolver;
 
     // Build tree (cached by Salsa)
     let site_tree = build_tree(db, sources);
@@ -299,9 +527,8 @@ pub fn render_page<'db>(
     // Create a lazy template loader that tracks dependencies via Salsa
     let loader = SalsaTemplateLoader::new(db, templates);
 
-    // Load data files (cached by Salsa) and convert to template Value
-    let raw_data = load_all_data_raw(db, data);
-    let data_value = crate::data::parse_raw_data_files(&raw_data);
+    // Create a lazy data resolver - each data path access becomes a tracked dependency
+    let resolver = SalsaDataResolver::new_arc(db, data);
 
     // Find the page
     let page = site_tree
@@ -309,14 +536,15 @@ pub fn render_page<'db>(
         .get(&route)
         .expect("Page not found for route");
 
-    // Render to HTML - template loads are tracked as dependencies
-    let html = render_page_with_loader(page, &site_tree, loader, Some(data_value));
+    // Render to HTML - template and data loads are tracked as dependencies
+    let html = render_page_with_resolver(page, &site_tree, loader, resolver);
     RenderedHtml(html)
 }
 
 /// Render a single section to HTML
 /// This tracked query depends on the section content, templates actually used, data files, and site tree.
 /// Template dependencies are tracked lazily - only templates loaded during rendering are recorded.
+/// Data dependencies are also tracked lazily - only data paths actually accessed become dependencies.
 #[salsa::tracked]
 #[tracing::instrument(skip_all, name = "render_section")]
 pub fn render_section<'db>(
@@ -326,7 +554,7 @@ pub fn render_section<'db>(
     templates: TemplateRegistry,
     data: DataRegistry,
 ) -> RenderedHtml {
-    use crate::render::render_section_with_loader;
+    use crate::render::render_section_with_resolver;
 
     // Build tree (cached by Salsa)
     let site_tree = build_tree(db, sources);
@@ -334,9 +562,8 @@ pub fn render_section<'db>(
     // Create a lazy template loader that tracks dependencies via Salsa
     let loader = SalsaTemplateLoader::new(db, templates);
 
-    // Load data files (cached by Salsa) and convert to template Value
-    let raw_data = load_all_data_raw(db, data);
-    let data_value = crate::data::parse_raw_data_files(&raw_data);
+    // Create a lazy data resolver - each data path access becomes a tracked dependency
+    let resolver = SalsaDataResolver::new_arc(db, data);
 
     // Find the section
     let section = site_tree
@@ -344,8 +571,8 @@ pub fn render_section<'db>(
         .get(&route)
         .expect("Section not found for route");
 
-    // Render to HTML - template loads are tracked as dependencies
-    let html = render_section_with_loader(section, &site_tree, loader, Some(data_value));
+    // Render to HTML - template and data loads are tracked as dependencies
+    let html = render_section_with_resolver(section, &site_tree, loader, resolver);
     RenderedHtml(html)
 }
 
