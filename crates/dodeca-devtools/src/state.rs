@@ -6,7 +6,16 @@ use dioxus::prelude::*;
 use wasm_bindgen::prelude::*;
 use web_sys::{MessageEvent, WebSocket};
 
-use crate::protocol::{ClientMessage, ErrorInfo, ServerMessage, ScopeEntry};
+use crate::protocol::{ClientMessage, ErrorInfo, ScopeValue, ServerMessage, ScopeEntry};
+
+/// A single REPL entry with expression and result
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReplEntry {
+    /// The expression that was evaluated
+    pub expression: String,
+    /// The result (None if still pending)
+    pub result: Option<Result<ScopeValue, String>>,
+}
 
 /// Global devtools state
 #[derive(Debug, Clone, Default)]
@@ -26,11 +35,14 @@ pub struct DevtoolsState {
     /// Which tab is active in the panel
     pub active_tab: DevtoolsTab,
 
-    /// REPL input history
-    pub repl_history: Vec<String>,
+    /// REPL history entries (expression + result)
+    pub repl_history: Vec<ReplEntry>,
 
     /// Current REPL input
     pub repl_input: String,
+
+    /// Pending REPL evaluations: request_id -> expression
+    pub pending_evals: HashMap<u32, String>,
 
     /// WebSocket connection state
     pub connection_state: ConnectionState,
@@ -323,7 +335,14 @@ fn handle_server_message(mut state: Signal<DevtoolsState>, msg: ServerMessage) {
         }
 
         ServerMessage::EvalResponse { request_id, result } => {
-            // TODO: update REPL state
+            let mut s = state.write();
+            // Find the pending entry and update it with the result
+            if let Some(expr) = s.pending_evals.remove(&request_id) {
+                // Find the entry in history and update it
+                if let Some(entry) = s.repl_history.iter_mut().find(|e| e.expression == expr && e.result.is_none()) {
+                    entry.result = Some(result.clone());
+                }
+            }
             tracing::info!("[devtools] eval response {request_id}: {:?}", result);
         }
     }

@@ -4,6 +4,9 @@
 
 use serde::{Deserialize, Serialize};
 
+mod ansi;
+pub use ansi::ansi_to_html;
+
 /// Messages sent from server to client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]

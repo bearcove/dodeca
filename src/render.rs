@@ -623,7 +623,7 @@ fn build_ancestors(section_route: &Route, site_tree: &SiteTree) -> Vec<Value> {
 }
 
 /// Convert a Page to a Value for template context
-fn page_to_value(page: &Page, site_tree: &SiteTree) -> Value {
+pub fn page_to_value(page: &Page, site_tree: &SiteTree) -> Value {
     let mut map = VObject::new();
     map.insert(VString::from("title"), Value::from(page.title.as_str()));
     map.insert(VString::from("content"), Value::from(page.body_html.as_str()));
@@ -644,7 +644,7 @@ fn page_to_value(page: &Page, site_tree: &SiteTree) -> Value {
 }
 
 /// Convert a Section to a Value for template context
-fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
+pub fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
     let mut map = VObject::new();
     map.insert(VString::from("title"), Value::from(section.title.as_str()));
     map.insert(VString::from("content"), Value::from(section.body_html.as_str()));

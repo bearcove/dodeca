@@ -81,7 +81,7 @@ fn ErrorCard(error: ErrorInfo) -> Element {
                 }
             }
 
-            // Error message
+            // Error message (already contains HTML spans for colors from server)
             div {
                 style: "padding: 1rem;",
 
@@ -93,13 +93,13 @@ fn ErrorCard(error: ErrorInfo) -> Element {
                         padding: 0.75rem;
                         margin: 0;
                         overflow-x: auto;
-                        font-family: 'SF Mono', Consolas, monospace;
-                        font-size: 0.875rem;
-                        color: #f87171;
+                        font-family: 'Fira Code', 'SF Mono', Consolas, monospace;
+                        font-size: 0.8125rem;
+                        color: #ccc;
                         white-space: pre-wrap;
                         word-wrap: break-word;
                     ",
-                    "{error.message}"
+                    dangerous_inner_html: "{error.message}",
                 }
             }
 
@@ -151,7 +151,7 @@ fn ErrorCard(error: ErrorInfo) -> Element {
                                     background: #333;
                                     padding: 0.125rem 0.5rem;
                                     border-radius: 0.25rem;
-                                    font-family: 'SF Mono', Consolas, monospace;
+                                    font-family: 'Fira Code', 'SF Mono', Consolas, monospace;
                                     font-size: 0.75rem;
                                 ",
                                 "{var}"
@@ -228,7 +228,7 @@ fn SourceLine(number: u32, content: String, is_error: bool) -> Element {
                     color: #525252;
                     background: #0a0a0a;
                     user-select: none;
-                    font-family: 'SF Mono', Consolas, monospace;
+                    font-family: 'Fira Code', 'SF Mono', Consolas, monospace;
                     font-size: 0.75rem;
                 ",
                 "{number}"
@@ -243,8 +243,8 @@ fn SourceLine(number: u32, content: String, is_error: bool) -> Element {
                             flex: 1;
                             margin: 0;
                             padding: 0.25rem 0.75rem;
-                            font-family: 'SF Mono', Consolas, monospace;
-                            font-size: 0.875rem;
+                            font-family: 'Fira Code', 'SF Mono', Consolas, monospace;
+                            font-size: 0.8125rem;
                             color: {color};
                         ",
                         "{content}"

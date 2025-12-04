@@ -53,3 +53,16 @@ pub use render::{Engine, InMemoryLoader, TemplateLoader};
 
 // Re-export facet_value types for convenience
 pub use facet_value::{VArray, VObject, VSafeString, VString};
+
+/// Evaluate a standalone expression string against a context.
+/// Useful for REPL-style evaluation.
+pub fn eval_expression(expr: &str, ctx: &Context) -> miette::Result<Value> {
+    use error::TemplateSource;
+
+    // Use expression parser (starts in code mode, not template mode)
+    let parser = parser::Parser::new_expression("<repl>", expr);
+    let source = TemplateSource::new("<repl>", expr);
+    let ast = parser.parse_expression()?;
+    let evaluator = eval::Evaluator::new(ctx, &source);
+    evaluator.eval_concrete(&ast)
+}

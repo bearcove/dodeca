@@ -707,23 +707,13 @@ impl SiteServer {
         ) {
             // Check if this is an error page and notify devtools
             if html.contains(crate::render::RENDER_ERROR_MARKER) {
-                // Extract error message from the HTML (between <pre> tags)
+                // Extract error message HTML from between <pre> tags
+                // Keep the HTML spans for color - they'll be displayed with dangerous_inner_html
                 let error_msg = html
                     .split("<pre>")
                     .nth(1)
                     .and_then(|s| s.split("</pre>").next())
-                    .map(|s| {
-                        // Basic HTML entity decoding
-                        s.replace("&lt;", "<")
-                            .replace("&gt;", ">")
-                            .replace("&amp;", "&")
-                            .replace("&quot;", "\"")
-                            .replace("&#39;", "'")
-                            // Strip remaining HTML tags (from ANSI color conversion)
-                            .split('<')
-                            .filter_map(|part| part.split('>').nth(1).or(Some(part)))
-                            .collect::<String>()
-                    })
+                    .map(|s| s.to_string())
                     .unwrap_or_else(|| "Unknown template error".to_string());
 
                 let error_info = dodeca_protocol::ErrorInfo {
@@ -968,18 +958,91 @@ impl SiteServer {
             scope.insert(VString::from("root"), facet_value::Value::from(root_map));
         }
 
-        // Get data file keys (show available data files)
-        let data_keys = crate::queries::data_file_keys(&db, self.data_registry);
-        let mut data_map = VObject::new();
-        for key in data_keys {
-            // For each data key, show it exists (could be expanded later)
-            data_map.insert(VString::from(key.as_str()), facet_value::Value::from("<data file>"));
-        }
-        scope.insert(VString::from("data"), facet_value::Value::from(data_map));
+        // Load actual data files
+        let raw_data = crate::queries::load_all_data_raw(&db, self.data_registry);
+        let data_value = crate::data::parse_raw_data_files(&raw_data);
+        scope.insert(VString::from("data"), data_value);
 
         // Convert scope to entries
         let scope_value: facet_value::Value = scope.into();
         value_to_scope_entries(&scope_value, path)
+    }
+
+    /// Evaluate an expression against the scope for a route (for REPL)
+    pub fn eval_expression_for_route(&self, route_path: &str, expression: &str) -> Result<ScopeValue, String> {
+        use facet_value::{VObject, VString};
+
+        // Snapshot pattern: lock, clone, release, then query the clone
+        let db = match self.db.lock() {
+            Ok(db) => db.clone(),
+            Err(_) => return Err("Failed to acquire database lock".to_string()),
+        };
+
+        let site_tree = build_tree(&db, self.source_registry);
+
+        // Normalize route
+        let route_str = if route_path == "/" {
+            "/".to_string()
+        } else {
+            let trimmed = route_path.trim_end_matches('/');
+            if trimmed.is_empty() { "/".to_string() } else { trimmed.to_string() }
+        };
+        let route = Route::new(route_str);
+
+        // Build gingembre Context with scope values
+        let mut ctx = gingembre::Context::new();
+
+        // Add config
+        let mut config_map = VObject::new();
+        let (site_title, site_description) = site_tree
+            .sections
+            .get(&Route::root())
+            .map(|root| (root.title.to_string(), root.description.clone().unwrap_or_default()))
+            .unwrap_or_else(|| ("Untitled".to_string(), String::new()));
+        config_map.insert(VString::from("title"), facet_value::Value::from(site_title.as_str()));
+        config_map.insert(VString::from("description"), facet_value::Value::from(site_description.as_str()));
+        config_map.insert(VString::from("base_url"), facet_value::Value::from("/"));
+        ctx.set("config", facet_value::Value::from(config_map));
+
+        // Add current_path
+        ctx.set("current_path", facet_value::Value::from(route.as_str()));
+
+        // Check if it's a section or page and add appropriate data
+        if let Some(section) = site_tree.sections.get(&route) {
+            let section_value = crate::render::section_to_value(section, &site_tree);
+            ctx.set("section", section_value);
+            ctx.set("page", facet_value::Value::NULL);
+        } else if let Some(page) = site_tree.pages.get(&route) {
+            let page_value = crate::render::page_to_value(page, &site_tree);
+            ctx.set("page", page_value);
+
+            // Add parent section
+            if let Some(section) = site_tree.sections.get(&page.section_route) {
+                let section_value = crate::render::section_to_value(section, &site_tree);
+                ctx.set("section", section_value);
+            }
+        }
+
+        // Add site tree info
+        if let Some(root) = site_tree.sections.get(&Route::root()) {
+            let root_value = crate::render::section_to_value(root, &site_tree);
+            ctx.set("root", root_value);
+        }
+
+        // Load data files
+        let raw_data = crate::queries::load_all_data_raw(&db, self.data_registry);
+        let data_value = crate::data::parse_raw_data_files(&raw_data);
+        ctx.set("data", data_value);
+
+        // Evaluate the expression
+        match gingembre::eval_expression(expression, &ctx) {
+            Ok(value) => Ok(value_to_scope_value(&value)),
+            Err(e) => {
+                // Convert ANSI error to HTML for display in devtools
+                let ansi_error = format!("{:?}", e);
+                Err(crate::error_pages::ansi_to_html(&ansi_error))
+            }
+        }
     }
 
     /// Find routes similar to the requested path (for 404 suggestions)
@@ -1279,12 +1342,24 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                                         }
                                     }
                                 }
-                                ClientMessage::Eval { request_id, snapshot_id, expression } => {
-                                    // TODO: Evaluate expression in snapshot context
+                                ClientMessage::Eval { request_id, snapshot_id: _, expression } => {
+                                    // Evaluate expression against the current route's scope
+                                    let route = current_route.clone().unwrap_or_else(|| "/".to_string());
                                     tracing::info!(
-                                        "[devtools] Eval request {request_id}: snapshot={}, expr={}",
-                                        snapshot_id, expression
+                                        "[devtools] Eval request {request_id}: route={}, expr={}",
+                                        route, expression
                                     );
+
+                                    let result = server.eval_expression_for_route(&route, &expression);
+                                    let msg = ServerMessage::EvalResponse {
+                                        request_id,
+                                        result,
+                                    };
+                                    if let Ok(json) = serde_json::to_string(&msg) {
+                                        if sender.send(Message::Text(json.into())).await.is_err() {
+                                            break;
+                                        }
+                                    }
                                 }
                                 ClientMessage::DismissError { route } => {
                                     tracing::info!("[devtools] Dismissing error for {}", route);

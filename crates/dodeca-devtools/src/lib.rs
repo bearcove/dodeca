@@ -65,6 +65,21 @@ fn App() -> Element {
     });
 
     rsx! {
+        // Load Fira Code font from Google Fonts
+        link {
+            rel: "preconnect",
+            href: "https://fonts.googleapis.com",
+        }
+        link {
+            rel: "preconnect",
+            href: "https://fonts.gstatic.com",
+            crossorigin: "anonymous",
+        }
+        link {
+            rel: "stylesheet",
+            href: "https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&display=swap",
+        }
+
         // Inject Glade CSS as style tags
         style { {GLADE_BASE_CSS} }
         style { {GLADE_STYLANCE_CSS} }

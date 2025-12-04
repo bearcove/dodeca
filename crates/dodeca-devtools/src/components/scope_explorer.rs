@@ -32,12 +32,13 @@ pub fn ScopeExplorer() -> Element {
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    padding: 0.5rem;
-                    border-bottom: 1px solid #333;
+                    padding: 0.5rem 0.75rem;
                     background: #252525;
+                    border-radius: 0.375rem;
+                    margin-bottom: 0.5rem;
                 ",
                 span {
-                    style: "font-weight: 600; color: #e5e5e5;",
+                    style: "font-weight: 500; color: #a3a3a3; font-size: 0.8125rem;",
                     "Template Scope"
                 }
                 Button {
@@ -57,26 +58,32 @@ pub fn ScopeExplorer() -> Element {
                 style: "
                     flex: 1;
                     overflow: auto;
-                    font-family: 'SF Mono', Consolas, monospace;
-                    font-size: 0.875rem;
+                    font-family: 'Fira Code', 'SF Mono', Consolas, monospace;
+                    font-size: 0.8125rem;
+                    background: #0d0d0d;
+                    border: 1px solid #333;
+                    border-radius: 0.375rem;
                 ",
 
                 if scope_loading {
                     div {
-                        style: "padding: 1rem; color: #737373; text-align: center;",
+                        style: "padding: 1.5rem; color: #525252; text-align: center;",
                         "Loading scope..."
                     }
                 } else if scope_entries.is_empty() {
                     div {
-                        style: "padding: 1rem; color: #737373; text-align: center;",
+                        style: "padding: 1.5rem; color: #525252; text-align: center;",
                         "No scope data available. Navigate to a page to see its template scope."
                     }
                 } else {
-                    for entry in scope_entries {
-                        ScopeEntryRow {
-                            entry: entry.clone(),
-                            path: vec![entry.name.clone()],
-                            depth: 0,
+                    div {
+                        style: "padding: 0.25rem 0;",
+                        for entry in scope_entries {
+                            ScopeEntryRow {
+                                entry: entry.clone(),
+                                path: vec![entry.name.clone()],
+                                depth: 0,
+                            }
                         }
                     }
                 }
@@ -91,7 +98,7 @@ fn ScopeEntryRow(entry: ScopeEntry, path: Vec<String>, depth: u32) -> Element {
     let mut state = use_context::<Signal<DevtoolsState>>();
     let mut expanded = use_signal(|| false);
 
-    let indent = depth * 16;
+    let indent = depth * 12;
     let cursor = if entry.expandable { "pointer" } else { "default" };
     let padding_left = indent + 8;
 
@@ -113,11 +120,12 @@ fn ScopeEntryRow(entry: ScopeEntry, path: Vec<String>, depth: u32) -> Element {
                 style: "
                     display: flex;
                     align-items: center;
-                    padding: 0.25rem 0.5rem;
+                    padding: 0.1875rem 0.5rem;
                     padding-left: {padding_left}px;
                     cursor: {cursor};
                     background: transparent;
                     transition: background 0.1s;
+                    line-height: 1.4;
                 ",
                 onclick: move |_| {
                     if entry_expandable {
@@ -173,16 +181,12 @@ fn ScopeEntryRow(entry: ScopeEntry, path: Vec<String>, depth: u32) -> Element {
 
                 // Name
                 span {
-                    style: "
-                        color: #93c5fd;
-                        font-family: 'SF Mono', Consolas, monospace;
-                        font-size: 0.875rem;
-                    ",
+                    style: "color: #93c5fd;",
                     "{entry.name}"
                 }
 
                 span {
-                    style: "color: #525252; margin: 0 0.25rem;",
+                    style: "color: #404040; margin: 0 0.25rem;",
                     ":"
                 }
 
@@ -213,7 +217,7 @@ fn ScopeEntryRow(entry: ScopeEntry, path: Vec<String>, depth: u32) -> Element {
 #[component]
 fn ScopeValueDisplay(value: ScopeValue) -> Element {
     let (color, text) = match &value {
-        ScopeValue::Null => ("#737373", "null".to_string()),
+        ScopeValue::Null => ("#525252", "null".to_string()),
         ScopeValue::Bool(b) => ("#c084fc", b.to_string()),
         ScopeValue::Number(n) => ("#4ade80", n.to_string()),
         ScopeValue::String(s) => {
@@ -230,11 +234,7 @@ fn ScopeValueDisplay(value: ScopeValue) -> Element {
 
     rsx! {
         span {
-            style: "
-                color: {color};
-                font-family: 'SF Mono', Consolas, monospace;
-                font-size: 0.875rem;
-            ",
+            style: "color: {color};",
             "{text}"
         }
     }
