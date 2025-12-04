@@ -217,10 +217,10 @@ pub fn list_methods() -> &'static [MethodSignature] {
 }
 
 // Re-exports for macro use
-pub use linkme;
 pub use facet;
 pub use facet_postcard;
 pub use libloading;
+pub use linkme;
 
 // Re-export the proc macro
 pub use plugcard_macros::plugcard;
