@@ -2,6 +2,7 @@
 //!
 //! Parses both SVGs and compares semantic values (positions, sizes, colors)
 
+use facet_svg::{Svg, SvgNode, facet_xml};
 use std::process::Command;
 
 fn main() {
@@ -63,60 +64,39 @@ fn compare_file(path: &str) {
     }
 }
 
-#[derive(Debug)]
-struct SvgElement {
-    tag: String,
-    x: Option<f64>,
-    y: Option<f64>,
-    width: Option<f64>,
-    height: Option<f64>,
-    r: Option<f64>,
-    cx: Option<f64>,
-    cy: Option<f64>,
-}
-
-fn parse_svg_elements(svg: &str) -> Vec<SvgElement> {
-    let mut elements = Vec::new();
-
-    let doc = match roxmltree::Document::parse(svg) {
+fn parse_svg_elements(svg: &str) -> Vec<String> {
+    let doc: Svg = match facet_xml::from_str(svg) {
         Ok(d) => d,
-        Err(_) => return elements,
+        Err(_) => return vec![],
     };
 
-    for node in doc.descendants() {
-        if !node.is_element() {
-            continue;
-        }
-
-        let tag = node.tag_name().name();
-        if matches!(
-            tag,
-            "rect" | "circle" | "ellipse" | "line" | "path" | "polygon" | "polyline" | "text"
-        ) {
-            elements.push(SvgElement {
-                tag: tag.to_string(),
-                x: parse_attr_f64(node.attribute("x").or_else(|| node.attribute("x1"))),
-                y: parse_attr_f64(node.attribute("y").or_else(|| node.attribute("y1"))),
-                width: parse_attr_f64(node.attribute("width")),
-                height: parse_attr_f64(node.attribute("height")),
-                r: parse_attr_f64(node.attribute("r")),
-                cx: parse_attr_f64(node.attribute("cx")),
-                cy: parse_attr_f64(node.attribute("cy")),
-            });
-        }
-    }
-
+    let mut elements = Vec::new();
+    collect_element_tags(&doc.children, &mut elements);
     elements
 }
 
-fn parse_attr_f64(s: Option<&str>) -> Option<f64> {
-    s.and_then(|v| v.parse().ok())
+fn collect_element_tags(children: &[SvgNode], elements: &mut Vec<String>) {
+    for child in children {
+        match child {
+            SvgNode::G(g) => collect_element_tags(&g.children, elements),
+            SvgNode::Defs(d) => collect_element_tags(&d.children, elements),
+            SvgNode::Style(_) => {}
+            SvgNode::Rect(_) => elements.push("rect".to_string()),
+            SvgNode::Circle(_) => elements.push("circle".to_string()),
+            SvgNode::Ellipse(_) => elements.push("ellipse".to_string()),
+            SvgNode::Line(_) => elements.push("line".to_string()),
+            SvgNode::Path(_) => elements.push("path".to_string()),
+            SvgNode::Polygon(_) => elements.push("polygon".to_string()),
+            SvgNode::Polyline(_) => elements.push("polyline".to_string()),
+            SvgNode::Text(_) => elements.push("text".to_string()),
+        }
+    }
 }
 
-fn count_by_type(elements: &[SvgElement]) -> std::collections::HashMap<String, usize> {
+fn count_by_type(elements: &[String]) -> std::collections::HashMap<String, usize> {
     let mut counts = std::collections::HashMap::new();
     for el in elements {
-        *counts.entry(el.tag.clone()).or_insert(0) += 1;
+        *counts.entry(el.clone()).or_insert(0) += 1;
     }
     counts
 }

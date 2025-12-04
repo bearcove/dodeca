@@ -1,3 +1,5 @@
+use facet_svg::{Svg, SvgNode, facet_xml};
+
 fn main() {
     let input = std::fs::read_to_string("../pikchr/tests/test03.pikchr").unwrap();
     let rust_svg = pikru::pikchr(&input).unwrap();
@@ -5,22 +7,31 @@ fn main() {
     println!("SVG length: {}", rust_svg.len());
 
     // Try parsing
-    match roxmltree::Document::parse(&rust_svg) {
+    match facet_xml::from_str::<Svg>(&rust_svg) {
         Ok(doc) => {
-            let mut count = 0;
-            for node in doc.descendants() {
-                if node.is_element() {
-                    let tag = node.tag_name().name();
-                    if matches!(
-                        tag,
-                        "rect" | "circle" | "line" | "text" | "polygon" | "path"
-                    ) {
-                        count += 1;
-                    }
-                }
-            }
+            let count = count_elements(&doc.children);
             println!("Elements found: {}", count);
         }
         Err(e) => println!("Parse error: {}", e),
     }
+}
+
+fn count_elements(children: &[SvgNode]) -> usize {
+    let mut count = 0;
+    for child in children {
+        match child {
+            SvgNode::G(g) => count += count_elements(&g.children),
+            SvgNode::Defs(d) => count += count_elements(&d.children),
+            SvgNode::Style(_) => {}
+            SvgNode::Rect(_)
+            | SvgNode::Circle(_)
+            | SvgNode::Ellipse(_)
+            | SvgNode::Line(_)
+            | SvgNode::Path(_)
+            | SvgNode::Polygon(_)
+            | SvgNode::Polyline(_)
+            | SvgNode::Text(_) => count += 1,
+        }
+    }
+    count
 }
