@@ -118,24 +118,27 @@ pub fn inject_livereload(html: &str, options: RenderOptions, known_routes: Optio
         // Only inject dead link styles if there are actually dead links
         let styles = if has_dead_links { DEAD_LINK_STYLES } else { "" };
 
+        // Get cache-busted URLs for devtools assets
+        let (js_url, wasm_url) = crate::serve::devtools_urls();
+
         // Load dodeca-devtools WASM module which handles:
         // - WebSocket connection to /__dodeca
         // - DOM patching for live updates
         // - CSS hot reload
         // - Error overlay with source context
         // - Scope explorer and REPL (future)
-        let devtools_script = r##"<script type="module">
-(async function() {
-    try {
-        const { default: init, mount_devtools } = await import('/__dodeca.js');
-        await init('/__dodeca.wasm');
+        let devtools_script = format!(r##"<script type="module">
+(async function() {{
+    try {{
+        const {{ default: init, mount_devtools }} = await import('{js_url}');
+        await init('{wasm_url}');
         mount_devtools();
         console.log('[dodeca] devtools loaded');
-    } catch (e) {
+    }} catch (e) {{
         console.error('[dodeca] failed to load devtools:', e);
-    }
-})();
-</script>"##;
+    }}
+}})();
+</script>"##);
         // Inject styles and script after <html> - always present even after minification
         result.replacen("<html", &format!("{styles}{devtools_script}<html"), 1)
     } else {

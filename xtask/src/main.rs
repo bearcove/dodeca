@@ -98,10 +98,10 @@ fn build_all(release: bool) -> bool {
 }
 
 fn build_wasm() -> bool {
-    eprintln!("Building livereload-client WASM...");
+    eprintln!("Building dodeca-devtools WASM...");
 
     let status = Command::new("wasm-pack")
-        .args(["build", "--target", "web", "crates/livereload-client"])
+        .args(["build", "--target", "web", "crates/dodeca-devtools"])
         .status();
 
     match status {

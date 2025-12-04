@@ -154,6 +154,8 @@ pub struct SiteServer {
     css_cache: RwLock<Option<String>>,
     /// Asset paths that should be served at original paths (no cache-busting)
     stable_assets: Vec<String>,
+    /// Current errors by route (for sending to newly connected clients)
+    current_errors: RwLock<HashMap<String, dodeca_protocol::ErrorInfo>>,
 }
 
 impl SiteServer {
@@ -181,7 +183,13 @@ impl SiteServer {
             html_cache: RwLock::new(HashMap::new()),
             css_cache: RwLock::new(None),
             stable_assets,
+            current_errors: RwLock::new(HashMap::new()),
         }
+    }
+
+    /// Get current error for a route (if any)
+    pub fn get_error(&self, route: &str) -> Option<dodeca_protocol::ErrorInfo> {
+        self.current_errors.read().unwrap().get(route).cloned()
     }
 
     /// Check if a path is configured as a stable asset
@@ -547,18 +555,39 @@ impl SiteServer {
                     })
                     .unwrap_or_else(|| "Unknown template error".to_string());
 
-                let _ = self.livereload_tx.send(LiveReloadMsg::Error {
+                let error_info = dodeca_protocol::ErrorInfo {
                     route: path.to_string(),
                     message: error_msg,
                     template: None, // TODO: extract from error message
                     line: None,     // TODO: extract from error message
+                    column: None,
+                    source_snippet: None,
                     snapshot_id: format!("error-{}", std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .unwrap_or_default()
                         .as_millis()),
+                    available_variables: vec![],
+                };
+
+                // Store for newly connecting clients
+                {
+                    let mut errors = self.current_errors.write().unwrap();
+                    errors.insert(path.to_string(), error_info.clone());
+                }
+
+                let _ = self.livereload_tx.send(LiveReloadMsg::Error {
+                    route: error_info.route,
+                    message: error_info.message,
+                    template: error_info.template,
+                    line: error_info.line,
+                    snapshot_id: error_info.snapshot_id,
                 });
             } else {
                 // Page rendered successfully - clear any previous error
+                {
+                    let mut errors = self.current_errors.write().unwrap();
+                    errors.remove(path);
+                }
                 let _ = self.livereload_tx.send(LiveReloadMsg::ErrorResolved {
                     route: path.to_string(),
                 });
@@ -920,7 +949,17 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                             match msg {
                                 ClientMessage::Route { path } => {
                                     tracing::info!("Browser viewing {}", path);
-                                    current_route = Some(path);
+                                    current_route = Some(path.clone());
+
+                                    // Send any existing error for this route
+                                    if let Some(error_info) = server.get_error(&path) {
+                                        let msg = ServerMessage::Error(error_info);
+                                        if let Ok(json) = serde_json::to_string(&msg) {
+                                            if sender.send(Message::Text(json.into())).await.is_err() {
+                                                break;
+                                            }
+                                        }
+                                    }
                                 }
                                 ClientMessage::GetScope { request_id, snapshot_id, path } => {
                                     // TODO: Look up snapshot and return scope
@@ -982,6 +1021,28 @@ async fn log_requests(request: Request, next: Next) -> Response {
 const DEVTOOLS_JS: &str = include_str!("../crates/dodeca-devtools/pkg/dodeca_devtools.js");
 const DEVTOOLS_WASM: &[u8] =
     include_bytes!("../crates/dodeca-devtools/pkg/dodeca_devtools_bg.wasm");
+
+/// Compute a short hash for cache busting
+fn compute_hash(data: &[u8]) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    data.hash(&mut hasher);
+    format!("{:012x}", hasher.finish())
+}
+
+/// Get cache-busted devtools URLs
+pub fn devtools_urls() -> (String, String) {
+    use std::sync::LazyLock;
+    static URLS: LazyLock<(String, String)> = LazyLock::new(|| {
+        let js_hash = compute_hash(DEVTOOLS_JS.as_bytes());
+        let wasm_hash = compute_hash(DEVTOOLS_WASM);
+        (
+            format!("/__dodeca.{}.js", js_hash),
+            format!("/__dodeca.{}.wasm", wasm_hash),
+        )
+    });
+    URLS.clone()
+}
 
 /// Embedded JS snippets required by Dioxus WASM
 const SNIPPETS: &[(&str, &str)] = &[
@@ -1059,8 +1120,9 @@ pub fn build_router(server: Arc<SiteServer>) -> Router {
     Router::new()
         // Devtools endpoint (WebSocket + WASM)
         .route("/__dodeca", get(devtools_ws_handler))
-        .route("/__dodeca.js", get(devtools_js_handler))
-        .route("/__dodeca.wasm", get(devtools_wasm_handler))
+        // Cache-busted devtools assets (hash in filename for cache invalidation)
+        .route("/__dodeca.{hash}.js", get(devtools_js_handler))
+        .route("/__dodeca.{hash}.wasm", get(devtools_wasm_handler))
         // Dioxus JS snippets (dynamically imported by the WASM module)
         .route("/snippets/{*path}", get(devtools_snippet_handler))
         // Legacy endpoint for backwards compat
