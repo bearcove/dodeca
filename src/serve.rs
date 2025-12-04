@@ -320,6 +320,19 @@ impl SiteServer {
                 _ => None,
             });
 
+            // Handle case where route was deleted (old exists, new doesn't)
+            if old_html.is_some() && new_html.is_none() {
+                tracing::info!("{} - route deleted, sending full reload", route);
+                // Remove from cache
+                {
+                    let mut cache = self.html_cache.write().unwrap();
+                    cache.remove(&route);
+                }
+                // Send full page reload since we can't patch a deleted page
+                let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
+                continue;
+            }
+
             if let (Some(old), Some(new)) = (old_html, new_html.clone()) {
                 let old_has_error = old.contains(crate::render::RENDER_ERROR_MARKER);
                 let new_has_error = new.contains(crate::render::RENDER_ERROR_MARKER);
