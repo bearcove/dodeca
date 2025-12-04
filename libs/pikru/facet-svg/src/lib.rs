@@ -316,5 +316,6 @@ impl PresentationAttrs for Text {
     }
 }
 
-// Re-export facet_xml for convenience
+// Re-export dependencies for convenience
+pub use facet_assert;
 pub use facet_xml;

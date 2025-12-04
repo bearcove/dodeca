@@ -8,3 +8,4 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 facet = { git = "https://github.com/facet-rs/facet" }
 facet-xml = { git = "https://github.com/facet-rs/facet" }
+facet-assert = { git = "https://github.com/facet-rs/facet" }
