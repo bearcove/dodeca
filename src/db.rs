@@ -223,6 +223,8 @@ pub struct Section {
     pub headings: Vec<Heading>,
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
+    /// Custom fields from the `[extra]` table in frontmatter
+    pub extra: facet_value::Value,
 }
 
 /// A page in the site tree (non-index .md files)
@@ -237,6 +239,8 @@ pub struct Page {
     pub headings: Vec<Heading>,
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
+    /// Custom fields from the `[extra]` table in frontmatter
+    pub extra: facet_value::Value,
 }
 
 /// The complete site tree - sections and pages
@@ -271,6 +275,8 @@ pub struct ParsedData {
     pub headings: Vec<Heading>,
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
+    /// Custom fields from the `[extra]` table in frontmatter
+    pub extra: facet_value::Value,
 }
 
 /// A single output file to be written to disk

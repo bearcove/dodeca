@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/gingembre", "crates/livereload-client", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "crates/dodeca-pagefind", "xtask"]
+members = [".", "crates/gingembre", "crates/livereload-client", "crates/dodeca-devtools", "crates/dodeca-protocol", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "crates/dodeca-pagefind", "xtask"]
 
 [package]
 name = "dodeca"
@@ -85,7 +85,11 @@ salsa = { version = "0.24", features = ["persistence"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary serialization with serde
+
+# Devtools protocol (shared types between server and WASM client)
+dodeca-protocol = { path = "crates/dodeca-protocol" }
 
 # Content-addressed storage
 rapidhash = "4"

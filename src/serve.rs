@@ -36,6 +36,8 @@ use crate::types::Route;
 use crate::image::{InputFormat, OutputFormat, add_width_suffix};
 use std::collections::HashSet;
 
+use dodeca_protocol::{ClientMessage, ServerMessage};
+
 /// Format bytes as human-readable size (KB, MB, GB)
 fn format_bytes(bytes: usize) -> String {
     const KB: usize = 1024;
@@ -62,6 +64,16 @@ pub enum LiveReloadMsg {
     Patches { route: String, data: Vec<u8> },
     /// CSS update (new cache-busted path)
     CssUpdate { path: String },
+    /// Template error occurred
+    Error {
+        route: String,
+        message: String,
+        template: Option<String>,
+        line: Option<u32>,
+        snapshot_id: String,
+    },
+    /// Error was resolved (template renders successfully now)
+    ErrorResolved { route: String },
 }
 
 /// Summarize patch operations for logging
@@ -277,14 +289,12 @@ impl SiteServer {
         };
 
         if cached_routes.is_empty() {
-            if !css_changed {
-                tracing::info!("No cached routes, sending full reload");
-                let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
-            }
+            // No pages have been visited yet - nothing to patch
+            // This can happen if files change before any page is loaded
+            tracing::debug!("No cached routes, nothing to patch");
             return;
         }
 
-        let mut any_html_changed = false;
         for route in cached_routes {
             // Get old HTML from cache
             let old_html = {
@@ -300,7 +310,16 @@ impl SiteServer {
 
             if let (Some(old), Some(new)) = (old_html, new_html.clone()) {
                 if old != new {
-                    any_html_changed = true;
+                    // If the new HTML is an error page, don't patch it in
+                    // The error has already been sent to devtools via LiveReloadMsg::Error
+                    // and we want to keep the old working HTML in cache
+                    if new.contains(crate::render::RENDER_ERROR_MARKER) {
+                        tracing::info!(
+                            "🔴 {} - template error, sending error to devtools",
+                            route
+                        );
+                        continue;
+                    }
 
                     // Update cache
                     {
@@ -320,11 +339,11 @@ impl SiteServer {
 
                             if diff_result.patches.is_empty() {
                                 // DOM structure identical but HTML differs (whitespace/comments?)
-                                tracing::info!(
-                                    "🔄 {} - HTML changed but DOM identical, full reload",
+                                // This is a no-op - no need to reload for invisible changes
+                                tracing::debug!(
+                                    "{} - HTML changed but DOM identical, no-op",
                                     route
                                 );
-                                let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
                             } else {
                                 // Summarize patch operations
                                 let summary = summarize_patches(&diff_result.patches);
@@ -341,39 +360,34 @@ impl SiteServer {
                                         });
                                     }
                                     Err(e) => {
-                                        tracing::warn!(
-                                            "🔄 {} - patch serialization failed: {}, full reload",
+                                        tracing::error!(
+                                            "🔴 {} - patch serialization failed: {} - THIS IS A BUG",
                                             route, e
                                         );
-                                        let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
                                     }
                                 }
                             }
                         }
                         (None, _) => {
-                            tracing::warn!(
-                                "🔄 {} - failed to parse old HTML, full reload",
+                            tracing::error!(
+                                "🔴 {} - failed to parse old HTML - THIS IS A BUG",
                                 route
                             );
-                            let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
                         }
                         (_, None) => {
-                            tracing::warn!(
-                                "🔄 {} - failed to parse new HTML, full reload",
+                            tracing::error!(
+                                "🔴 {} - failed to parse new HTML - THIS IS A BUG",
                                 route
                             );
-                            let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
                         }
                     }
                 }
             }
         }
 
-        // If neither HTML nor CSS changed, send a generic reload (for static assets, etc.)
-        if !any_html_changed && !css_changed {
-            tracing::info!("No HTML/CSS changes detected, refreshing for static assets");
-            let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
-        }
+        // Note: we don't send a fallback reload here. All meaningful changes
+        // (templates, content, CSS, static assets) result in cache-busted URL
+        // changes which appear as HTML patches. If nothing changed, nothing changed.
     }
 
     /// Cache HTML for a route (called when serving pages)
@@ -512,6 +526,44 @@ impl SiteServer {
             self.static_registry,
             self.data_registry,
         ) {
+            // Check if this is an error page and notify devtools
+            if html.contains(crate::render::RENDER_ERROR_MARKER) {
+                // Extract error message from the HTML (between <pre> tags)
+                let error_msg = html
+                    .split("<pre>")
+                    .nth(1)
+                    .and_then(|s| s.split("</pre>").next())
+                    .map(|s| {
+                        // Basic HTML entity decoding
+                        s.replace("&lt;", "<")
+                            .replace("&gt;", ">")
+                            .replace("&amp;", "&")
+                            .replace("&quot;", "\"")
+                            .replace("&#39;", "'")
+                            // Strip remaining HTML tags (from ANSI color conversion)
+                            .split('<')
+                            .filter_map(|part| part.split('>').nth(1).or(Some(part)))
+                            .collect::<String>()
+                    })
+                    .unwrap_or_else(|| "Unknown template error".to_string());
+
+                let _ = self.livereload_tx.send(LiveReloadMsg::Error {
+                    route: path.to_string(),
+                    message: error_msg,
+                    template: None, // TODO: extract from error message
+                    line: None,     // TODO: extract from error message
+                    snapshot_id: format!("error-{}", std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis()),
+                });
+            } else {
+                // Page rendered successfully - clear any previous error
+                let _ = self.livereload_tx.send(LiveReloadMsg::ErrorResolved {
+                    route: path.to_string(),
+                });
+            }
+
             let html = inject_livereload(&html, self.render_options, known_routes.as_ref());
             return Some(ServeContent::Html(html));
         }
@@ -777,15 +829,15 @@ async fn content_handler(State(server): State<Arc<SiteServer>>, request: Request
     StatusCode::NOT_FOUND.into_response()
 }
 
-/// WebSocket handler for live reload
-async fn livereload_handler(
+/// WebSocket handler for devtools (live reload, error reporting, etc.)
+async fn devtools_ws_handler(
     ws: WebSocketUpgrade,
     State(server): State<Arc<SiteServer>>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_livereload_socket(socket, server))
+    ws.on_upgrade(|socket| handle_devtools_socket(socket, server))
 }
 
-async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
+async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
     let (mut sender, mut receiver) = socket.split();
     let mut reload_rx = server.livereload_tx.subscribe();
 
@@ -794,16 +846,16 @@ async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
 
     tracing::info!("Browser connected for live reload");
 
-    // Send initial connection confirmation
-    let _ = sender.send(Message::Text("connected".into())).await;
-
     loop {
         tokio::select! {
             result = reload_rx.recv() => {
                 match result {
                     Ok(LiveReloadMsg::Reload) => {
-                        if sender.send(Message::Text("reload".into())).await.is_err() {
-                            break;
+                        let msg = ServerMessage::Reload;
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            if sender.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
                         }
                     }
                     Ok(LiveReloadMsg::Patches { route, data }) => {
@@ -816,9 +868,39 @@ async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
                         }
                     }
                     Ok(LiveReloadMsg::CssUpdate { path }) => {
-                        // Send CSS update as text message with css: prefix
-                        if sender.send(Message::Text(format!("css:{}", path).into())).await.is_err() {
-                            break;
+                        // Send CSS update as JSON message
+                        let msg = ServerMessage::CssChanged { path };
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            if sender.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Ok(LiveReloadMsg::Error { route, message, template, line, snapshot_id }) => {
+                        // Send error as JSON to devtools
+                        let msg = ServerMessage::Error(dodeca_protocol::ErrorInfo {
+                            route,
+                            message,
+                            template,
+                            line,
+                            column: None,
+                            source_snippet: None,
+                            snapshot_id,
+                            available_variables: vec![],
+                        });
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            if sender.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Ok(LiveReloadMsg::ErrorResolved { route }) => {
+                        // Send resolution as JSON to devtools
+                        let msg = ServerMessage::ErrorResolved { route };
+                        if let Ok(json) = serde_json::to_string(&msg) {
+                            if sender.send(Message::Text(json.into())).await.is_err() {
+                                break;
+                            }
                         }
                     }
                     Err(_) => break,
@@ -833,8 +915,33 @@ async fn handle_livereload_socket(socket: WebSocket, server: Arc<SiteServer>) {
                         }
                     }
                     Some(Ok(Message::Text(text))) => {
-                        // Client can send its current route
-                        if let Some(route) = text.strip_prefix("route:") {
+                        // Try to parse as JSON devtools message first
+                        if let Ok(msg) = serde_json::from_str::<ClientMessage>(&text) {
+                            match msg {
+                                ClientMessage::Route { path } => {
+                                    tracing::info!("Browser viewing {}", path);
+                                    current_route = Some(path);
+                                }
+                                ClientMessage::GetScope { request_id, snapshot_id, path } => {
+                                    // TODO: Look up snapshot and return scope
+                                    tracing::info!(
+                                        "[devtools] GetScope request {request_id}: snapshot={:?}, path={:?}",
+                                        snapshot_id, path
+                                    );
+                                }
+                                ClientMessage::Eval { request_id, snapshot_id, expression } => {
+                                    // TODO: Evaluate expression in snapshot context
+                                    tracing::info!(
+                                        "[devtools] Eval request {request_id}: snapshot={}, expr={}",
+                                        snapshot_id, expression
+                                    );
+                                }
+                                ClientMessage::DismissError { route } => {
+                                    tracing::info!("[devtools] Dismissing error for {}", route);
+                                }
+                            }
+                        } else if let Some(route) = text.strip_prefix("route:") {
+                            // Legacy format for backwards compat
                             tracing::info!("Browser viewing {}", route);
                             current_route = Some(route.to_string());
                         }
@@ -871,34 +978,93 @@ async fn log_requests(request: Request, next: Next) -> Response {
     response
 }
 
-/// Embedded WASM client files (built by build.rs)
-const LIVERELOAD_JS: &str = include_str!("../crates/livereload-client/pkg/livereload_client.js");
-const LIVERELOAD_WASM: &[u8] = include_bytes!("../crates/livereload-client/pkg/livereload_client_bg.wasm");
+/// Embedded devtools WASM client files (built by build.rs)
+const DEVTOOLS_JS: &str = include_str!("../crates/dodeca-devtools/pkg/dodeca_devtools.js");
+const DEVTOOLS_WASM: &[u8] =
+    include_bytes!("../crates/dodeca-devtools/pkg/dodeca_devtools_bg.wasm");
 
-/// Handler for livereload WASM JS module
-async fn livereload_js_handler() -> Response {
+/// Embedded JS snippets required by Dioxus WASM
+const SNIPPETS: &[(&str, &str)] = &[
+    (
+        "snippets/dioxus-cli-config-e5fab7f8a0eb9fbb/inline0.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-cli-config-e5fab7f8a0eb9fbb/inline0.js"),
+    ),
+    (
+        "snippets/dioxus-interpreter-js-267e64abc8a52eaa/inline0.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/inline0.js"),
+    ),
+    (
+        "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/patch_console.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/patch_console.js"),
+    ),
+    (
+        "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/hydrate.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/hydrate.js"),
+    ),
+    (
+        "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/set_attribute.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/set_attribute.js"),
+    ),
+    (
+        "snippets/dioxus-web-807c31b5ece9dd6a/inline0.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-web-807c31b5ece9dd6a/inline0.js"),
+    ),
+    (
+        "snippets/dioxus-web-807c31b5ece9dd6a/src/js/eval.js",
+        include_str!("../crates/dodeca-devtools/pkg/snippets/dioxus-web-807c31b5ece9dd6a/src/js/eval.js"),
+    ),
+];
+
+/// Handler for devtools JS snippets
+async fn devtools_snippet_handler(
+    axum::extract::Path(path): axum::extract::Path<String>,
+) -> Response {
+    // The path comes in without the leading "snippets/" since that's part of the route
+    let full_path = format!("snippets/{}", path);
+    for (snippet_path, content) in SNIPPETS {
+        if full_path == *snippet_path {
+            return Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/javascript")
+                .body(Body::from(*content))
+                .unwrap();
+        }
+    }
     Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "application/javascript")
-        .body(Body::from(LIVERELOAD_JS))
+        .status(StatusCode::NOT_FOUND)
+        .body(Body::from("Snippet not found"))
         .unwrap()
 }
 
-/// Handler for livereload WASM binary
-async fn livereload_wasm_handler() -> Response {
+/// Handler for devtools WASM JS module
+async fn devtools_js_handler() -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/javascript")
+        .body(Body::from(DEVTOOLS_JS))
+        .unwrap()
+}
+
+/// Handler for devtools WASM binary
+async fn devtools_wasm_handler() -> Response {
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/wasm")
-        .body(Body::from(LIVERELOAD_WASM.to_vec()))
+        .body(Body::from(DEVTOOLS_WASM.to_vec()))
         .unwrap()
 }
 
 /// Build the axum router
 pub fn build_router(server: Arc<SiteServer>) -> Router {
     Router::new()
-        .route("/__livereload", get(livereload_handler))
-        .route("/__livereload.js", get(livereload_js_handler))
-        .route("/__livereload.wasm", get(livereload_wasm_handler))
+        // Devtools endpoint (WebSocket + WASM)
+        .route("/__dodeca", get(devtools_ws_handler))
+        .route("/__dodeca.js", get(devtools_js_handler))
+        .route("/__dodeca.wasm", get(devtools_wasm_handler))
+        // Dioxus JS snippets (dynamically imported by the WASM module)
+        .route("/snippets/{*path}", get(devtools_snippet_handler))
+        // Legacy endpoint for backwards compat
+        .route("/__livereload", get(devtools_ws_handler))
         .fallback(content_handler)
         .with_state(server)
         .layer(middleware::from_fn(log_requests))

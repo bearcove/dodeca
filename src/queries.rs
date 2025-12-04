@@ -368,7 +368,7 @@ pub fn compile_sass<'db>(db: &'db dyn Db, registry: SassRegistry) -> Option<Comp
 
 /// Frontmatter parsed from TOML
 ///
-/// Known fields are extracted; unknown fields are ignored.
+/// Known fields are extracted; the `extra` table is preserved as-is for template access.
 #[derive(Debug, Clone, Default, Facet)]
 #[allow(dead_code)] // Fields reserved for future template use
 pub struct Frontmatter {
@@ -378,6 +378,9 @@ pub struct Frontmatter {
     pub weight: i32,
     pub description: Option<String>,
     pub template: Option<String>,
+    /// Custom fields from the `[extra]` table in frontmatter
+    #[facet(default)]
+    pub extra: Value,
 }
 
 /// Parse a source file into ParsedData
@@ -426,6 +429,7 @@ pub fn parse_file(db: &dyn Db, source: SourceFile) -> ParsedData {
         is_section,
         headings,
         last_updated: last_modified,
+        extra: frontmatter.extra,
     }
 }
 
@@ -455,6 +459,7 @@ pub fn build_tree<'db>(db: &'db dyn Db, sources: SourceRegistry) -> SiteTree {
                 body_html: data.body_html.clone(),
                 headings: data.headings.clone(),
                 last_updated: data.last_updated,
+                extra: data.extra.clone(),
             },
         );
     }
@@ -468,6 +473,7 @@ pub fn build_tree<'db>(db: &'db dyn Db, sources: SourceRegistry) -> SiteTree {
         body_html: HtmlBody::from_static(""),
         headings: Vec::new(),
         last_updated: 0,
+        extra: Value::default(),
     });
 
     // Second pass: create pages and assign to sections
@@ -483,6 +489,7 @@ pub fn build_tree<'db>(db: &'db dyn Db, sources: SourceRegistry) -> SiteTree {
                 section_route,
                 headings: data.headings.clone(),
                 last_updated: data.last_updated,
+                extra: data.extra.clone(),
             },
         );
     }

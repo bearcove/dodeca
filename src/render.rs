@@ -48,7 +48,52 @@ a[data-dead] {
 }
 </style>"#;
 
-/// Inject livereload script and optionally mark dead links
+/// Script and styles for copy button on code blocks (always injected)
+const CODE_COPY_SCRIPT: &str = r##"<style>
+pre { position: relative; }
+pre .copy-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 0.25rem;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+pre:hover .copy-btn { opacity: 1; }
+pre .copy-btn:hover { background: rgba(255,255,255,0.2); }
+pre .copy-btn.copied { background: rgba(50,205,50,0.3); }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('pre > code').forEach(function(code) {
+        var pre = code.parentElement;
+        if (pre.querySelector('.copy-btn')) return;
+        var btn = document.createElement('button');
+        btn.className = 'copy-btn';
+        btn.textContent = 'Copy';
+        btn.setAttribute('aria-label', 'Copy code to clipboard');
+        btn.onclick = function() {
+            navigator.clipboard.writeText(code.textContent).then(function() {
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                setTimeout(function() {
+                    btn.textContent = 'Copy';
+                    btn.classList.remove('copied');
+                }, 2000);
+            });
+        };
+        pre.appendChild(btn);
+    });
+});
+</script>"##;
+
+/// Inject livereload script, copy buttons, and optionally mark dead links
 pub fn inject_livereload(html: &str, options: RenderOptions, known_routes: Option<&HashSet<String>>) -> String {
     let mut result = html.to_string();
     let mut has_dead_links = false;
@@ -60,106 +105,39 @@ pub fn inject_livereload(html: &str, options: RenderOptions, known_routes: Optio
         has_dead_links = had_dead;
     }
 
+    // Always inject copy button script for code blocks
+    // Try to inject after <html, but fall back to after <!doctype html> if <html not found
+    if result.contains("<html") {
+        result = result.replacen("<html", &format!("{CODE_COPY_SCRIPT}<html"), 1);
+    } else if let Some(pos) = result.to_lowercase().find("<!doctype html>") {
+        let end = pos + "<!doctype html>".len();
+        result.insert_str(end, CODE_COPY_SCRIPT);
+    }
+
     if options.livereload {
         // Only inject dead link styles if there are actually dead links
         let styles = if has_dead_links { DEAD_LINK_STYLES } else { "" };
 
-        // WASM-powered livereload client:
-        // - Loads WASM module for DOM patching
-        // - Binary WebSocket messages = patches (apply via WASM)
-        // - Text "reload" message = full page reload (fallback)
-        // - Text "css:/path" message = CSS hot reload
-        let livereload_script = r##"<script type="module">
+        // Load dodeca-devtools WASM module which handles:
+        // - WebSocket connection to /__dodeca
+        // - DOM patching for live updates
+        // - CSS hot reload
+        // - Error overlay with source context
+        // - Scope explorer and REPL (future)
+        let devtools_script = r##"<script type="module">
 (async function() {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = protocol + '//' + window.location.host + '/__livereload';
-    let ws;
-    let reconnectTimer;
-    let applyPatches = null;
-
-    // Load WASM module
     try {
-        const { default: init, apply_patches } = await import('/__livereload.js');
-        await init('/__livereload.wasm');
-        applyPatches = apply_patches;
-        console.log('[livereload] WASM loaded, smart reload enabled');
+        const { default: init, mount_devtools } = await import('/__dodeca.js');
+        await init('/__dodeca.wasm');
+        mount_devtools();
+        console.log('[dodeca] devtools loaded');
     } catch (e) {
-        console.warn('[livereload] WASM not available, using full reload:', e);
+        console.error('[dodeca] failed to load devtools:', e);
     }
-
-    // Hot-reload CSS by swapping stylesheet links
-    function hotReloadCss(newPath) {
-        // Find all stylesheet links that match /main.*.css pattern
-        const links = document.querySelectorAll('link[rel="stylesheet"]');
-        let updated = 0;
-        for (const link of links) {
-            const href = link.getAttribute('href');
-            // Match /main.*.css or /css/style.*.css patterns
-            if (href && (href.match(/^\/main\.[^/]+\.css/) || href.match(/^\/css\/style\.[^/]+\.css/) || href === '/main.css' || href === '/css/style.css')) {
-                // Create new link element
-                const newLink = document.createElement('link');
-                newLink.rel = 'stylesheet';
-                newLink.href = newPath;
-                // Insert new link after old one, then remove old after load
-                link.parentNode.insertBefore(newLink, link.nextSibling);
-                newLink.onload = () => {
-                    link.remove();
-                    console.log('[livereload] CSS updated:', newPath);
-                };
-                newLink.onerror = () => {
-                    console.error('[livereload] CSS load failed:', newPath);
-                    newLink.remove();
-                };
-                updated++;
-            }
-        }
-        if (updated === 0) {
-            console.warn('[livereload] No matching stylesheets found for CSS update');
-        }
-    }
-
-    function connect() {
-        ws = new WebSocket(wsUrl);
-        ws.binaryType = 'arraybuffer';
-        ws.onopen = function() {
-            console.log('[livereload] connected');
-            // Tell server which route we're viewing
-            ws.send('route:' + window.location.pathname);
-        };
-        ws.onmessage = async function(event) {
-            if (typeof event.data === 'string') {
-                if (event.data === 'reload') {
-                    console.log('[livereload] full reload');
-                    window.location.reload();
-                } else if (event.data.startsWith('css:')) {
-                    // CSS hot reload
-                    const newPath = event.data.substring(4);
-                    console.log('[livereload] CSS changed:', newPath);
-                    hotReloadCss(newPath);
-                }
-            } else if (event.data instanceof ArrayBuffer && applyPatches) {
-                // Binary message = patches
-                try {
-                    const bytes = new Uint8Array(event.data);
-                    const count = applyPatches(bytes);
-                    console.log('[livereload] applied', count, 'patches');
-                } catch (e) {
-                    console.error('[livereload] patch error, falling back to reload:', e);
-                    window.location.reload();
-                }
-            }
-        };
-        ws.onclose = function() {
-            console.log('[livereload] disconnected, reconnecting...');
-            clearTimeout(reconnectTimer);
-            reconnectTimer = setTimeout(connect, 1000);
-        };
-    }
-    connect();
 })();
 </script>"##;
         // Inject styles and script after <html> - always present even after minification
-        result.replacen("<html", &format!("{styles}{livereload_script}<html"), 1)
+        result.replacen("<html", &format!("{styles}{devtools_script}<html"), 1)
     } else {
         result
     }
@@ -652,6 +630,7 @@ fn page_to_value(page: &Page, site_tree: &SiteTree) -> Value {
         VArray::from_iter(build_ancestors(&page.section_route, site_tree)),
     );
     map.insert(VString::from("last_updated"), Value::from(page.last_updated));
+    map.insert(VString::from("extra"), page.extra.clone());
     map.into()
 }
 
@@ -687,6 +666,7 @@ fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
             );
             page_map.insert(VString::from("weight"), Value::from(p.weight as i64));
             page_map.insert(VString::from("toc"), headings_to_value(&p.headings));
+            page_map.insert(VString::from("extra"), p.extra.clone());
             page_map.into()
         })
         .collect();
@@ -714,6 +694,7 @@ fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
         .collect();
     map.insert(VString::from("subsections"), VArray::from_iter(subsections));
     map.insert(VString::from("toc"), headings_to_value(&section.headings));
+    map.insert(VString::from("extra"), section.extra.clone());
 
     map.into()
 }
@@ -724,6 +705,7 @@ fn subsection_to_value(section: &Section, site_tree: &SiteTree) -> Value {
     map.insert(VString::from("title"), Value::from(section.title.as_str()));
     map.insert(VString::from("permalink"), Value::from(section.route.as_str()));
     map.insert(VString::from("weight"), Value::from(section.weight as i64));
+    map.insert(VString::from("extra"), section.extra.clone());
 
     // Add pages in this section, sorted by weight
     let mut section_pages: Vec<&Page> = site_tree
@@ -740,6 +722,7 @@ fn subsection_to_value(section: &Section, site_tree: &SiteTree) -> Value {
             page_map.insert(VString::from("title"), Value::from(p.title.as_str()));
             page_map.insert(VString::from("permalink"), Value::from(p.route.as_str()));
             page_map.insert(VString::from("weight"), Value::from(p.weight as i64));
+            page_map.insert(VString::from("extra"), p.extra.clone());
             page_map.into()
         })
         .collect();
