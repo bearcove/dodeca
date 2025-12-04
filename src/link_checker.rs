@@ -3,17 +3,18 @@
 //! Query-based: works directly with HTML content from SiteOutput,
 //! no disk I/O needed. External links are cached by (url, date).
 //!
-//! External link checking includes per-domain rate limiting to avoid
-//! hammering servers.
+//! External link checking is done via the linkcheck plugin, which handles
+//! per-domain rate limiting internally.
 
 use crate::db::ExternalLinkStatus;
+use crate::plugins::{check_urls_plugin, has_linkcheck_plugin, CheckOptions};
 use crate::types::Route;
 use chrono::NaiveDate;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
-use std::time::{Duration, Instant};
-use url::Url;
+use std::time::Duration;
+use tracing::warn;
 
 /// A broken link found during checking
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,110 +203,119 @@ impl ExternalLinkOptions {
     }
 }
 
-/// Extract domain from URL
-fn get_domain(url: &str) -> Option<String> {
-    Url::parse(url)
-        .ok()
-        .and_then(|u| u.host_str().map(|s| s.to_string()))
-}
-
-/// Check external links with HTTP requests
+/// Check external links using the linkcheck plugin
 /// Uses date for cache key - same URL + same date = cached
-/// Implements per-domain rate limiting to avoid hammering servers
+/// The plugin handles per-domain rate limiting internally
 pub async fn check_external_links(
     extracted: &ExtractedLinks,
     cache: &mut HashMap<(String, NaiveDate), ExternalLinkStatus>,
     date: NaiveDate,
     options: &ExternalLinkOptions,
 ) -> (Vec<BrokenLink>, usize) {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .user_agent("dodeca-link-checker/1.0")
-        .build()
-        .expect("failed to build HTTP client");
+    if !has_linkcheck_plugin() {
+        warn!("linkcheck plugin not loaded, skipping external link checks");
+        return (Vec::new(), 0);
+    }
 
     let mut broken = Vec::new();
-    let mut skipped = 0usize;
 
-    // Track last request time per domain for rate limiting
-    let mut domain_last_request: HashMap<String, Instant> = HashMap::new();
-
-    // Group URLs by domain for efficient rate limiting
-    let mut urls_by_domain: HashMap<String, Vec<(&str, Vec<&ExtractedLink>)>> = HashMap::new();
-
-    // Deduplicate URLs and group by domain
+    // Deduplicate URLs and track which links use each URL
     let mut unique_urls: HashMap<&str, Vec<&ExtractedLink>> = HashMap::new();
     for link in &extracted.external {
         unique_urls.entry(&link.href).or_default().push(link);
     }
 
-    let total_unique = unique_urls.len();
+    // Separate cached and uncached URLs
+    let mut cached_results: HashMap<&str, ExternalLinkStatus> = HashMap::new();
+    let mut urls_to_check: Vec<String> = Vec::new();
+    let mut url_order: Vec<&str> = Vec::new(); // Track order for matching results
 
-    for (url, links) in unique_urls {
-        if let Some(domain) = get_domain(url) {
-            // Check if domain should be skipped
-            if options.skip_domains.contains(&domain) {
-                skipped += 1;
-                continue;
-            }
-            urls_by_domain
-                .entry(domain)
-                .or_default()
-                .push((url, links));
+    for url in unique_urls.keys() {
+        let cache_key = ((*url).to_string(), date);
+        if let Some(status) = cache.get(&cache_key) {
+            cached_results.insert(*url, status.clone());
         } else {
-            // Invalid URL, can't extract domain - skip it
-            skipped += 1;
+            urls_to_check.push((*url).to_string());
+            url_order.push(*url);
         }
     }
 
-    // Process URLs domain by domain
-    for (domain, urls) in urls_by_domain {
-        for (url, links) in urls {
-            let cache_key = (url.to_string(), date);
+    // Call the plugin for uncached URLs (blocking, so we spawn_blocking)
+    let checked_count = if !urls_to_check.is_empty() {
+        let plugin_options = CheckOptions {
+            skip_domains: options.skip_domains.iter().cloned().collect(),
+            rate_limit_ms: options.rate_limit.as_millis() as u64,
+            timeout_secs: 10,
+        };
 
-            // Check cache first (no rate limiting needed for cached results)
-            let status = if let Some(status) = cache.get(&cache_key) {
-                status.clone()
-            } else {
-                // Apply rate limiting before making request
-                if let Some(&last_request) = domain_last_request.get(&domain) {
-                    let elapsed = last_request.elapsed();
-                    if elapsed < options.rate_limit {
-                        let wait_time = options.rate_limit - elapsed;
-                        tokio::time::sleep(wait_time).await;
-                    }
-                }
+        // The plugin uses blocking HTTP, so wrap in spawn_blocking
+        let plugin_result = tokio::task::spawn_blocking(move || {
+            check_urls_plugin(urls_to_check, plugin_options)
+        })
+        .await
+        .ok()
+        .flatten();
 
-                // Make HTTP HEAD request
-                let (status, retry_after) = check_url_with_retry_after(&client, url).await;
-
-                // Update last request time
-                domain_last_request.insert(domain.clone(), Instant::now());
-
-                // If we got a Retry-After header, respect it for future requests
-                if let Some(retry_secs) = retry_after {
-                    // Add extra delay based on Retry-After
-                    let retry_delay = Duration::from_secs(retry_secs.min(60)); // Cap at 60s
-                    if retry_delay > options.rate_limit {
-                        tokio::time::sleep(retry_delay - options.rate_limit).await;
-                    }
-                }
-
-                cache.insert(cache_key, status.clone());
-                status
-            };
-
-            // Report broken links
-            if let ExternalLinkStatus::Ok = status {
-                // Link is fine
-            } else {
-                let reason = match &status {
-                    ExternalLinkStatus::Ok => unreachable!(),
-                    ExternalLinkStatus::Error(code) => format!("HTTP {code}"),
-                    ExternalLinkStatus::Failed(msg) => msg.clone(),
+        if let Some(result) = plugin_result {
+            // Map results back to URLs and update cache
+            for (url, status) in url_order.iter().zip(result.statuses.iter()) {
+                let external_status = match status.status.as_str() {
+                    "ok" => ExternalLinkStatus::Ok,
+                    "error" => ExternalLinkStatus::Error(status.code.unwrap_or(0)),
+                    "failed" => ExternalLinkStatus::Failed(
+                        status.message.clone().unwrap_or_else(|| "unknown error".to_string()),
+                    ),
+                    "skipped" => continue, // Don't cache or report skipped URLs
+                    _ => ExternalLinkStatus::Failed(format!("unknown status: {}", status.status)),
                 };
 
-                // Report for each page that uses this URL
+                // Cache the result
+                cache.insert(((*url).to_string(), date), external_status.clone());
+
+                // Report if broken
+                if let ExternalLinkStatus::Ok = external_status {
+                    // Link is fine
+                } else {
+                    let reason = match &external_status {
+                        ExternalLinkStatus::Ok => unreachable!(),
+                        ExternalLinkStatus::Error(code) => format!("HTTP {code}"),
+                        ExternalLinkStatus::Failed(msg) => msg.clone(),
+                    };
+
+                    if let Some(links) = unique_urls.get(url) {
+                        for link in links {
+                            broken.push(BrokenLink {
+                                source_route: link.source_route.clone(),
+                                href: link.href.clone(),
+                                reason: reason.clone(),
+                                is_external: true,
+                            });
+                        }
+                    }
+                }
+            }
+            result.checked_count as usize
+        } else {
+            warn!("linkcheck plugin call failed");
+            0
+        }
+    } else {
+        0
+    };
+
+    // Process cached results
+    let cached_count = cached_results.len();
+    for (url, status) in cached_results {
+        if let ExternalLinkStatus::Ok = status {
+            // Link is fine
+        } else {
+            let reason = match &status {
+                ExternalLinkStatus::Ok => unreachable!(),
+                ExternalLinkStatus::Error(code) => format!("HTTP {code}"),
+                ExternalLinkStatus::Failed(msg) => msg.clone(),
+            };
+
+            if let Some(links) = unique_urls.get(url) {
                 for link in links {
                     broken.push(BrokenLink {
                         source_route: link.source_route.clone(),
@@ -318,35 +328,7 @@ pub async fn check_external_links(
         }
     }
 
-    (broken, total_unique - skipped)
-}
-
-/// Check a single URL, returning status and optional Retry-After value in seconds
-async fn check_url_with_retry_after(
-    client: &reqwest::Client,
-    url: &str,
-) -> (ExternalLinkStatus, Option<u64>) {
-    match client.head(url).send().await {
-        Ok(response) => {
-            let status_code = response.status().as_u16();
-
-            // Extract Retry-After header if present (for 429 or 503 responses)
-            let retry_after = response
-                .headers()
-                .get("retry-after")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.parse::<u64>().ok());
-
-            let status = if (200..400).contains(&status_code) {
-                ExternalLinkStatus::Ok
-            } else {
-                ExternalLinkStatus::Error(status_code)
-            };
-
-            (status, retry_after)
-        }
-        Err(e) => (ExternalLinkStatus::Failed(e.to_string()), None),
-    }
+    (broken, checked_count + cached_count)
 }
 
 /// Check all links (internal only, for backwards compatibility)
