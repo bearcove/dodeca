@@ -26,10 +26,7 @@ pub trait ValueExt {
     fn render_to_string(&self) -> String;
 
     /// Check if this value is marked as "safe" (should not be HTML-escaped)
-    /// Note: facet_value doesn't have a Safe variant, so we track this separately
-    fn is_safe(&self) -> bool {
-        false // By default, values are not safe
-    }
+    fn is_safe(&self) -> bool;
 }
 
 impl ValueExt for Value {
@@ -94,15 +91,10 @@ impl ValueExt for Value {
             DestructuredRef::DateTime(dt) => format!("{:?}", dt),
         }
     }
-}
 
-/// A "safe" wrapper that marks a value as not needing HTML escaping
-#[derive(Debug, Clone)]
-pub struct SafeValue(pub Value);
-
-impl SafeValue {
-    pub fn into_inner(self) -> Value {
-        self.0
+    fn is_safe(&self) -> bool {
+        // Check if this is a safe string using VSafeString's flag
+        self.as_string().is_some_and(|s| s.is_safe())
     }
 }
 
@@ -114,8 +106,6 @@ pub type GlobalFn = Box<dyn Fn(&[Value], &[(String, Value)]) -> Result<Value> + 
 pub struct Context {
     /// Variable scopes (innermost last)
     scopes: Vec<HashMap<String, Value>>,
-    /// Set of keys that are marked as "safe" (won't be HTML-escaped)
-    safe_keys: std::collections::HashSet<String>,
     /// Global functions available in this context (shared via Arc)
     global_fns: std::sync::Arc<HashMap<String, std::sync::Arc<GlobalFn>>>,
 }
@@ -136,7 +126,6 @@ impl Context {
     pub fn new() -> Self {
         Self {
             scopes: vec![HashMap::new()],
-            safe_keys: std::collections::HashSet::new(),
             global_fns: std::sync::Arc::new(HashMap::new()),
         }
     }
@@ -165,15 +154,15 @@ impl Context {
     }
 
     /// Set a variable as "safe" (won't be HTML-escaped when rendered)
+    /// If the value is a string, it will be converted to a VSafeString
     pub fn set_safe(&mut self, name: impl Into<String>, value: Value) {
-        let name = name.into();
-        self.safe_keys.insert(name.clone());
-        self.set(name, value);
-    }
-
-    /// Check if a variable is marked as safe
-    pub fn is_safe(&self, name: &str) -> bool {
-        self.safe_keys.contains(name)
+        // Convert string values to safe strings
+        let safe_value = if let Some(s) = value.as_string() {
+            s.clone().into_safe().into_value()
+        } else {
+            value
+        };
+        self.set(name, safe_value);
     }
 
     /// Get a variable (searches all scopes)
@@ -1001,9 +990,13 @@ fn apply_filter(
             Value::from(escaped.as_str())
         }
         "safe" => {
-            // For now, just return the value as-is
-            // The renderer will need to track safe values separately
-            value
+            // Convert string to safe string using VSafeString
+            if let Some(s) = value.as_string() {
+                s.clone().into_safe().into_value()
+            } else {
+                // Non-strings can't be marked safe, return as-is
+                value
+            }
         }
         _ => {
             return Err(UnknownFilterError {
