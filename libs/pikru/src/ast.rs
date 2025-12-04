@@ -23,10 +23,18 @@ pub enum Statement {
     Assert(Assert),
     /// Print statement: print "hello", value
     Print(Print),
+    /// Error statement: error "message" - produces an error
+    Error(ErrorStmt),
     /// Labeled statement: A: box "hello"
     Labeled(LabeledStatement),
     /// Object statement: box "hello" width 2
     Object(ObjectStatement),
+}
+
+/// Error statement - produces an intentional error
+#[derive(Debug, Clone)]
+pub struct ErrorStmt {
+    pub message: String,
 }
 
 /// Direction: up, down, left, right

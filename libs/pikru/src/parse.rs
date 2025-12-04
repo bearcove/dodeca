@@ -44,6 +44,7 @@ fn parse_statement(pair: Pair<Rule>) -> Result<Statement, miette::Report> {
         Rule::macro_call => Ok(Statement::MacroCall(parse_macro_call(inner)?)),
         Rule::assert_stmt => Ok(Statement::Assert(parse_assert(inner)?)),
         Rule::print_stmt => Ok(Statement::Print(parse_print(inner)?)),
+        Rule::error_stmt => Ok(Statement::Error(parse_error_stmt(inner)?)),
         Rule::object_stmt => Ok(Statement::Object(parse_object_stmt(inner)?)),
         _ => Err(miette::miette!(
             "Unexpected rule in statement: {:?}",
@@ -223,6 +224,12 @@ fn parse_print(pair: Pair<Rule>) -> Result<Print, miette::Report> {
         }
     }
     Ok(Print { args })
+}
+
+fn parse_error_stmt(pair: Pair<Rule>) -> Result<ErrorStmt, miette::Report> {
+    let inner = pair.into_inner().next().unwrap();
+    let message = parse_string(inner)?;
+    Ok(ErrorStmt { message })
 }
 
 fn parse_labeled_statement(pair: Pair<Rule>) -> Result<LabeledStatement, miette::Report> {

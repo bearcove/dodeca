@@ -300,6 +300,8 @@ pub struct RenderContext {
     pub bounds: BoundingBox,
     /// Current object being constructed (for `this` keyword support)
     pub current_object: Option<RenderedObject>,
+    /// Macro definitions (name -> body)
+    pub macros: HashMap<String, String>,
 }
 
 impl Default for RenderContext {
@@ -312,6 +314,7 @@ impl Default for RenderContext {
             variables: HashMap::new(),
             bounds: BoundingBox::new(),
             current_object: None,
+            macros: HashMap::new(),
         };
         // Initialize built-in variables
         ctx.init_builtin_variables();
@@ -685,8 +688,31 @@ fn render_statement(
         Statement::Assert(_) => {
             // Not rendered
         }
-        Statement::Define(_) | Statement::MacroCall(_) => {
-            // Already handled earlier
+        Statement::Define(def) => {
+            // Store macro definition (later definitions override earlier ones)
+            // Strip the surrounding braces from the body
+            let body = def.body.trim();
+            let body = if body.starts_with('{') && body.ends_with('}') {
+                &body[1..body.len() - 1]
+            } else {
+                body
+            };
+            ctx.macros.insert(def.name.clone(), body.to_string());
+        }
+        Statement::MacroCall(call) => {
+            // Expand and render macro
+            if let Some(body) = ctx.macros.get(&call.name).cloned() {
+                // Parse and render the macro body
+                let parsed = crate::parse::parse(&body)?;
+                for inner_stmt in &parsed.statements {
+                    render_statement(ctx, inner_stmt, print_lines)?;
+                }
+            }
+            // If macro not found, treat as custom object type (ignore for now)
+        }
+        Statement::Error(e) => {
+            // Error statement produces an intentional error
+            return Err(miette::miette!("error: {}", e.message));
         }
     }
     Ok(())

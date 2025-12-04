@@ -13,9 +13,13 @@ statement = {
   | define
   | assert_stmt
   | print_stmt
+  | error_stmt
   | object_stmt
   | macro_call  // must be last - matches any IDENT
 }
+
+// Error statement - produces a syntax error with message
+error_stmt = { "error" ~ STRING }
 
 labeled_statement = { PLACENAME ~ ":" ~ (position | object_stmt) }
 
@@ -231,7 +235,7 @@ keyword = @{
   | "bold" | "italic" | "mono" | "monospace" | "big" | "small" | "aligned" | "ljust" | "rjust"
   | "height" | "ht" | "width" | "wid" | "radius" | "rad" | "diameter" | "thickness"
   | "fill" | "color" | "dotted" | "dashed"
-  | "define" | "assert" | "print"
+  | "define" | "assert" | "print" | "error"
   | "abs" | "cos" | "sin" | "int" | "sqrt" | "max" | "min" | "dist") ~ !ASCII_ALPHANUMERIC
 }
 

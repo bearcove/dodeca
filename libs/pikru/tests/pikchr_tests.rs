@@ -54,11 +54,20 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
     // Get expected output from C implementation
     let c_output = run_c_pikchr(&source);
 
+    // Check if C output is an error (not valid SVG)
+    let c_is_error = !c_output.trim_start().starts_with('<');
+
     // Get output from our Rust implementation
     let rust_result = pikru::pikchr(&source);
 
     match rust_result {
         Ok(rust_output) => {
+            if c_is_error {
+                panic!(
+                    "C pikchr produced error but Rust succeeded for {}\nC output: {}",
+                    path, c_output
+                );
+            }
             // Parse both SVGs
             let c_svg =
                 parse_svg(&c_output).map_err(|e| format!("Failed to parse C SVG: {}", e))?;
@@ -75,6 +84,10 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
             );
         }
         Err(e) => {
+            if c_is_error {
+                // Both implementations produced errors - this is expected for tests with `error` statements
+                return Ok(());
+            }
             panic!("Rust implementation failed for {}: {}", path, e);
         }
     }
