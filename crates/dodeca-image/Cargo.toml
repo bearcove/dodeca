@@ -1,0 +1,25 @@
+[package]
+name = "dodeca-image"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Image processing plugin for dodeca (decode, resize, thumbhash)"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+plugcard = { path = "../plugcard" }
+facet = { git = "https://github.com/facet-rs/facet" }
+linkme = "0.3"
+
+# Image decoding and processing
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif"] }
+
+# Thumbhash for compact image placeholders
+thumbhash = "0.1"
+
+# Base64 encoding for data URLs
+base64 = "0.22"

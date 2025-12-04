@@ -4,15 +4,13 @@
 //! - JPEG-XL (best compression, future-proof)
 //! - WebP (wide browser support, fallback)
 //!
-//! Encoding and decoding of WebP/JXL is done via plugins.
+//! All image processing (decoding, resizing, thumbhash) is done via plugins.
 //!
 //! Also generates:
 //! - Multiple width variants for srcset
 //! - Thumbhash placeholders for instant loading
 
-use base64::Engine;
-use image::{DynamicImage, ImageDecoder, ImageEncoder, Rgb, Rgba};
-use std::io::Cursor;
+use crate::plugins::{self, DecodedImage};
 
 /// Standard responsive breakpoints (in pixels)
 /// Only widths smaller than the original will be generated
@@ -101,142 +99,46 @@ pub struct ProcessedImageSet {
 /// Get dimensions of an image without fully decoding it
 #[allow(dead_code)]
 pub fn get_dimensions(data: &[u8], format: InputFormat) -> Option<(u32, u32)> {
-    let cursor = Cursor::new(data);
+    let decoded = decode_image(data, format)?;
+    Some((decoded.width, decoded.height))
+}
 
+/// Decode an image from bytes using the appropriate plugin
+fn decode_image(data: &[u8], format: InputFormat) -> Option<DecodedImage> {
     match format {
-        InputFormat::Png => image::codecs::png::PngDecoder::new(cursor)
-            .ok()
-            .map(|d| d.dimensions()),
-        InputFormat::Jpg => image::codecs::jpeg::JpegDecoder::new(cursor)
-            .ok()
-            .map(|d| d.dimensions()),
-        InputFormat::Gif => image::codecs::gif::GifDecoder::new(cursor)
-            .ok()
-            .map(|d| d.dimensions()),
-        // For WebP/JXL, we need to decode via plugin to get dimensions
-        InputFormat::WebP => {
-            let decoded = crate::plugins::decode_webp_plugin(data)?;
-            Some((decoded.width, decoded.height))
-        }
-        InputFormat::Jxl => {
-            let decoded = crate::plugins::decode_jxl_plugin(data)?;
-            Some((decoded.width, decoded.height))
-        }
+        InputFormat::Png => plugins::decode_png_plugin(data),
+        InputFormat::Jpg => plugins::decode_jpeg_plugin(data),
+        InputFormat::Gif => plugins::decode_gif_plugin(data),
+        InputFormat::WebP => plugins::decode_webp_plugin(data),
+        InputFormat::Jxl => plugins::decode_jxl_plugin(data),
     }
 }
 
-/// Decode an image from bytes
-fn decode_image(data: &[u8], format: InputFormat) -> Option<DynamicImage> {
-    match format {
-        InputFormat::Png => {
-            image::load_from_memory_with_format(data, image::ImageFormat::Png).ok()
-        }
-        InputFormat::Jpg => {
-            image::load_from_memory_with_format(data, image::ImageFormat::Jpeg).ok()
-        }
-        InputFormat::Gif => {
-            image::load_from_memory_with_format(data, image::ImageFormat::Gif).ok()
-        }
-        InputFormat::WebP => decode_webp_via_plugin(data),
-        InputFormat::Jxl => decode_jxl_via_plugin(data),
-    }
-}
-
-/// Decode a WebP image using the plugin
-fn decode_webp_via_plugin(data: &[u8]) -> Option<DynamicImage> {
-    let decoded = crate::plugins::decode_webp_plugin(data)?;
-    pixels_to_dynamic_image(&decoded.pixels, decoded.width, decoded.height, decoded.channels)
-}
-
-/// Decode a JPEG-XL image using the plugin
-fn decode_jxl_via_plugin(data: &[u8]) -> Option<DynamicImage> {
-    let decoded = crate::plugins::decode_jxl_plugin(data)?;
-    pixels_to_dynamic_image(&decoded.pixels, decoded.width, decoded.height, decoded.channels)
-}
-
-/// Convert raw pixels to DynamicImage
-fn pixels_to_dynamic_image(pixels: &[u8], width: u32, height: u32, channels: u8) -> Option<DynamicImage> {
-    match channels {
-        3 => {
-            let img_buf = image::ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(
-                width,
-                height,
-                pixels.to_vec(),
-            )?;
-            Some(DynamicImage::from(img_buf))
-        }
-        4 => {
-            let img_buf = image::ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(
-                width,
-                height,
-                pixels.to_vec(),
-            )?;
-            Some(DynamicImage::from(img_buf))
-        }
-        _ => None,
-    }
-}
-
-/// Encode an image to WebP format (via plugin)
-fn encode_webp(img: &DynamicImage) -> Option<Vec<u8>> {
-    let rgba = img.to_rgba8();
-    crate::plugins::encode_webp_plugin(rgba.as_raw(), img.width(), img.height(), 82)
-}
-
-/// Encode an image to JPEG-XL format (via plugin)
-fn encode_jxl(img: &DynamicImage) -> Option<Vec<u8>> {
-    let rgba = img.to_rgba8();
-    // Quality 80 maps to distance ~3 in the plugin (high quality)
-    crate::plugins::encode_jxl_plugin(rgba.as_raw(), img.width(), img.height(), 80)
+/// Resize an image to a target width, maintaining aspect ratio
+fn resize_image(decoded: &DecodedImage, target_width: u32) -> Option<DecodedImage> {
+    plugins::resize_image_plugin(
+        &decoded.pixels,
+        decoded.width,
+        decoded.height,
+        decoded.channels,
+        target_width,
+    )
 }
 
 /// Generate a thumbhash and encode it as a data URL
-fn generate_thumbhash_data_url(img: &DynamicImage) -> Option<String> {
-    // Thumbhash works best with small images, resize if needed
-    let thumb_img = if img.width() > 100 || img.height() > 100 {
-        img.resize(100, 100, image::imageops::FilterType::Triangle)
-    } else {
-        img.clone()
-    };
-
-    let rgba = thumb_img.to_rgba8();
-    let hash = thumbhash::rgba_to_thumb_hash(
-        thumb_img.width() as usize,
-        thumb_img.height() as usize,
-        rgba.as_raw(),
-    );
-
-    // Decode thumbhash back to RGBA for the placeholder image
-    let (w, h, rgba_pixels) = thumbhash::thumb_hash_to_rgba(&hash).ok()?;
-
-    // Create a tiny PNG from the decoded thumbhash
-    let img_buf: image::RgbaImage = image::ImageBuffer::from_raw(w as u32, h as u32, rgba_pixels)?;
-
-    let mut png_bytes = Vec::new();
-    let encoder = image::codecs::png::PngEncoder::new(&mut png_bytes);
-    encoder
-        .write_image(
-            img_buf.as_raw(),
-            img_buf.width(),
-            img_buf.height(),
-            image::ExtendedColorType::Rgba8,
-        )
-        .ok()?;
-
-    // Encode as data URL
-    let base64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
-    Some(format!("data:image/png;base64,{}", base64))
+fn generate_thumbhash_data_url(decoded: &DecodedImage) -> Option<String> {
+    plugins::generate_thumbhash_plugin(&decoded.pixels, decoded.width, decoded.height)
 }
 
-/// Resize an image maintaining aspect ratio
-fn resize_image(img: &DynamicImage, target_width: u32) -> DynamicImage {
-    let aspect = img.height() as f64 / img.width() as f64;
-    let target_height = (target_width as f64 * aspect).round() as u32;
-    img.resize_exact(
-        target_width,
-        target_height,
-        image::imageops::FilterType::Lanczos3,
-    )
+/// Encode pixels to WebP format (via plugin)
+fn encode_webp(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
+    plugins::encode_webp_plugin(pixels, width, height, 82)
+}
+
+/// Encode pixels to JPEG-XL format (via plugin)
+fn encode_jxl(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
+    // Quality 80 maps to distance ~3 in the plugin (high quality)
+    plugins::encode_jxl_plugin(pixels, width, height, 80)
 }
 
 /// Image metadata without the processed bytes
@@ -255,9 +157,9 @@ pub struct ImageMetadata {
 
 /// Get image metadata without processing (fast - decode only, no encode)
 pub fn get_image_metadata(data: &[u8], input_format: InputFormat) -> Option<ImageMetadata> {
-    let img = decode_image(data, input_format)?;
-    let (width, height) = (img.width(), img.height());
-    let thumbhash_data_url = generate_thumbhash_data_url(&img)?;
+    let decoded = decode_image(data, input_format)?;
+    let (width, height) = (decoded.width, decoded.height);
+    let thumbhash_data_url = generate_thumbhash_data_url(&decoded)?;
 
     // Compute which widths we'll generate (same logic as process_image)
     let mut variant_widths: Vec<u32> = RESPONSIVE_WIDTHS
@@ -280,11 +182,11 @@ pub fn get_image_metadata(data: &[u8], input_format: InputFormat) -> Option<Imag
 ///
 /// Returns None if the image cannot be processed (unsupported format, decode error, etc.)
 pub fn process_image(data: &[u8], input_format: InputFormat) -> Option<ProcessedImageSet> {
-    let img = decode_image(data, input_format)?;
-    let (original_width, original_height) = (img.width(), img.height());
+    let decoded = decode_image(data, input_format)?;
+    let (original_width, original_height) = (decoded.width, decoded.height);
 
     // Generate thumbhash placeholder
-    let thumbhash_data_url = generate_thumbhash_data_url(&img)?;
+    let thumbhash_data_url = generate_thumbhash_data_url(&decoded)?;
 
     // Determine which widths to generate (only those smaller than original, plus original)
     let mut widths: Vec<u32> = RESPONSIVE_WIDTHS
@@ -302,15 +204,21 @@ pub fn process_image(data: &[u8], input_format: InputFormat) -> Option<Processed
 
     for &width in &widths {
         let resized = if width == original_width {
-            img.clone()
+            // Use original decoded image
+            DecodedImage {
+                pixels: decoded.pixels.clone(),
+                width: decoded.width,
+                height: decoded.height,
+                channels: decoded.channels,
+            }
         } else {
-            resize_image(&img, width)
+            resize_image(&decoded, width)?
         };
 
-        let height = resized.height();
+        let height = resized.height;
 
         // Encode to both formats
-        if let Some(jxl_data) = encode_jxl(&resized) {
+        if let Some(jxl_data) = encode_jxl(&resized.pixels, resized.width, resized.height) {
             jxl_variants.push(ImageVariant {
                 data: jxl_data,
                 width,
@@ -318,7 +226,7 @@ pub fn process_image(data: &[u8], input_format: InputFormat) -> Option<Processed
             });
         }
 
-        if let Some(webp_data) = encode_webp(&resized) {
+        if let Some(webp_data) = encode_webp(&resized.pixels, resized.width, resized.height) {
             webp_variants.push(ImageVariant {
                 data: webp_data,
                 width,

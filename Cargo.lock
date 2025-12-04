@@ -2052,7 +2052,6 @@ dependencies = [
  "html5ever 0.36.1",
  "if-addrs",
  "ignore",
- "image",
  "livereload-client",
  "lol_html 2.7.0",
  "markup5ever_rcdom",
@@ -2072,7 +2071,6 @@ dependencies = [
  "rayon",
  "regex",
  "reqwest",
- "rgb",
  "salsa",
  "serde",
  "serde_json",
@@ -2080,7 +2078,6 @@ dependencies = [
  "tempfile",
  "test-log",
  "thiserror 2.0.17",
- "thumbhash",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2127,6 +2124,18 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-bindgen-test",
  "web-sys",
+]
+
+[[package]]
+name = "dodeca-image"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "facet",
+ "image",
+ "linkme",
+ "plugcard",
+ "thumbhash",
 ]
 
 [[package]]
@@ -6829,15 +6838,6 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "webpki-roots",
-]
-
-[[package]]
-name = "rgb"
-version = "0.8.52"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c6a884d2998352bb4daf0183589aec883f16a6da1f4dde84d8e2e9a5409a1ce"
-dependencies = [
- "bytemuck",
 ]
 
 [[package]]

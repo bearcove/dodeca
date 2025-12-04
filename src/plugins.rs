@@ -39,6 +39,8 @@ pub struct PluginRegistry {
     pub js: Option<Plugin>,
     /// Search indexing plugin
     pub pagefind: Option<Plugin>,
+    /// Image processing plugin (decode, resize, thumbhash)
+    pub image: Option<Plugin>,
 }
 
 impl PluginRegistry {
@@ -52,8 +54,9 @@ impl PluginRegistry {
         let css = Self::try_load_plugin(dir, "dodeca_css");
         let js = Self::try_load_plugin(dir, "dodeca_js");
         let pagefind = Self::try_load_plugin(dir, "dodeca_pagefind");
+        let image = Self::try_load_plugin(dir, "dodeca_image");
 
-        PluginRegistry { webp, jxl, minify, svgo, sass, css, js, pagefind }
+        PluginRegistry { webp, jxl, minify, svgo, sass, css, js, pagefind, image }
     }
 
     /// Check if any plugins were loaded
@@ -66,6 +69,7 @@ impl PluginRegistry {
             || self.css.is_some()
             || self.js.is_some()
             || self.pagefind.is_some()
+            || self.image.is_some()
     }
 
     fn try_load_plugin(dir: &Path, name: &str) -> Option<Plugin> {
@@ -154,6 +158,7 @@ pub fn plugins() -> &'static PluginRegistry {
             css: None,
             js: None,
             pagefind: None,
+            image: None,
         }
     })
 }
@@ -445,5 +450,151 @@ pub fn build_search_index_plugin(pages: Vec<SearchPage>) -> Result<Vec<SearchFil
         Ok(PlugResult::Ok(output)) => Ok(output.files),
         Ok(PlugResult::Err(e)) => Err(e),
         Err(e) => Err(format!("plugin call failed: {}", e)),
+    }
+}
+
+// ============================================================================
+// Image processing plugin functions
+// ============================================================================
+
+/// Decode a PNG image using the plugin.
+pub fn decode_png_plugin(data: &[u8]) -> Option<DecodedImage> {
+    let plugin = plugins().image.as_ref()?;
+
+    #[derive(Facet)]
+    struct Input {
+        data: Vec<u8>,
+    }
+
+    let input = Input { data: data.to_vec() };
+
+    match plugin.call::<Input, PlugResult<DecodedImage>>("decode_png", &input) {
+        Ok(PlugResult::Ok(decoded)) => Some(decoded),
+        Ok(PlugResult::Err(e)) => {
+            warn!("png decode plugin error: {}", e);
+            None
+        }
+        Err(e) => {
+            warn!("png decode plugin call failed: {}", e);
+            None
+        }
+    }
+}
+
+/// Decode a JPEG image using the plugin.
+pub fn decode_jpeg_plugin(data: &[u8]) -> Option<DecodedImage> {
+    let plugin = plugins().image.as_ref()?;
+
+    #[derive(Facet)]
+    struct Input {
+        data: Vec<u8>,
+    }
+
+    let input = Input { data: data.to_vec() };
+
+    match plugin.call::<Input, PlugResult<DecodedImage>>("decode_jpeg", &input) {
+        Ok(PlugResult::Ok(decoded)) => Some(decoded),
+        Ok(PlugResult::Err(e)) => {
+            warn!("jpeg decode plugin error: {}", e);
+            None
+        }
+        Err(e) => {
+            warn!("jpeg decode plugin call failed: {}", e);
+            None
+        }
+    }
+}
+
+/// Decode a GIF image using the plugin.
+pub fn decode_gif_plugin(data: &[u8]) -> Option<DecodedImage> {
+    let plugin = plugins().image.as_ref()?;
+
+    #[derive(Facet)]
+    struct Input {
+        data: Vec<u8>,
+    }
+
+    let input = Input { data: data.to_vec() };
+
+    match plugin.call::<Input, PlugResult<DecodedImage>>("decode_gif", &input) {
+        Ok(PlugResult::Ok(decoded)) => Some(decoded),
+        Ok(PlugResult::Err(e)) => {
+            warn!("gif decode plugin error: {}", e);
+            None
+        }
+        Err(e) => {
+            warn!("gif decode plugin call failed: {}", e);
+            None
+        }
+    }
+}
+
+/// Resize an image using the plugin.
+pub fn resize_image_plugin(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    channels: u8,
+    target_width: u32,
+) -> Option<DecodedImage> {
+    let plugin = plugins().image.as_ref()?;
+
+    #[derive(Facet)]
+    struct Input {
+        pixels: Vec<u8>,
+        width: u32,
+        height: u32,
+        channels: u8,
+        target_width: u32,
+    }
+
+    let input = Input {
+        pixels: pixels.to_vec(),
+        width,
+        height,
+        channels,
+        target_width,
+    };
+
+    match plugin.call::<Input, PlugResult<DecodedImage>>("resize_image", &input) {
+        Ok(PlugResult::Ok(resized)) => Some(resized),
+        Ok(PlugResult::Err(e)) => {
+            warn!("resize plugin error: {}", e);
+            None
+        }
+        Err(e) => {
+            warn!("resize plugin call failed: {}", e);
+            None
+        }
+    }
+}
+
+/// Generate a thumbhash data URL using the plugin.
+pub fn generate_thumbhash_plugin(pixels: &[u8], width: u32, height: u32) -> Option<String> {
+    let plugin = plugins().image.as_ref()?;
+
+    #[derive(Facet)]
+    struct Input {
+        pixels: Vec<u8>,
+        width: u32,
+        height: u32,
+    }
+
+    let input = Input {
+        pixels: pixels.to_vec(),
+        width,
+        height,
+    };
+
+    match plugin.call::<Input, PlugResult<String>>("generate_thumbhash_data_url", &input) {
+        Ok(PlugResult::Ok(data_url)) => Some(data_url),
+        Ok(PlugResult::Err(e)) => {
+            warn!("thumbhash plugin error: {}", e);
+            None
+        }
+        Err(e) => {
+            warn!("thumbhash plugin call failed: {}", e);
+            None
+        }
     }
 }

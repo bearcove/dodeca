@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/gingembre", "crates/livereload-client", "crates/dodeca-devtools", "crates/dodeca-protocol", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "crates/dodeca-pagefind", "xtask"]
+members = [".", "crates/gingembre", "crates/livereload-client", "crates/dodeca-devtools", "crates/dodeca-protocol", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "crates/dodeca-pagefind", "crates/dodeca-image", "xtask"]
 
 [package]
 name = "dodeca"
@@ -114,10 +114,7 @@ lol_html = "2.7"        # Streaming HTML rewriter
 # Font subsetting (static analysis + klippa backend)
 fontcull = { version = "2.0", default-features = false, features = ["static-analysis"] }
 
-# Image processing (decode common formats, encode via plugins)
-image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif"] }
-rgb = "0.8"
-thumbhash = "0.1"  # Compact image placeholders (~28 bytes)
+# Image processing is now handled entirely via plugins (dodeca-image, dodeca-webp, dodeca-jxl)
 
 # Plugin system for image encoding/decoding, minification, etc.
 plugcard = { path = "crates/plugcard" }
