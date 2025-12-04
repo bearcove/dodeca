@@ -11,7 +11,6 @@ use camino::{Utf8Path, Utf8PathBuf};
 use facet_value::{DestructuredRef, VObject, VString};
 use miette::Result;
 use std::collections::HashMap;
-use std::rc::Rc;
 
 /// Loop control flow signals
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +46,17 @@ type MacroRegistry = HashMap<String, HashMap<String, MacroDef>>;
 pub trait TemplateLoader {
     /// Load a template by path/name, returning the source code
     fn load(&self, name: &str) -> Option<String>;
+}
+
+/// A null loader that never finds any templates.
+/// Used when rendering a template without inheritance/include support.
+#[derive(Default, Clone, Copy)]
+pub struct NullLoader;
+
+impl TemplateLoader for NullLoader {
+    fn load(&self, _name: &str) -> Option<String> {
+        None
+    }
 }
 
 /// A simple in-memory template loader
@@ -165,12 +175,13 @@ impl Template {
     /// Render the template with the given context (no inheritance support)
     pub fn render(&self, ctx: &Context) -> Result<String> {
         let mut output = String::new();
+        let null_loader = NullLoader;
         let mut renderer = Renderer {
             ctx: ctx.clone(),
             source: self.source.clone(),
             output: &mut output,
             blocks: HashMap::new(),
-            loader: None,
+            loader: Some(&null_loader),
             macros: HashMap::new(),
         };
         renderer.collect_macros(&self.ast.body);
@@ -194,16 +205,14 @@ impl Template {
 }
 
 /// Template engine with support for inheritance and includes
-pub struct Engine {
-    loader: Rc<dyn TemplateLoader>,
+pub struct Engine<L: TemplateLoader> {
+    loader: L,
 }
 
-impl Engine {
+impl<L: TemplateLoader> Engine<L> {
     /// Create a new engine with the given loader
-    pub fn new(loader: impl TemplateLoader + 'static) -> Self {
-        Self {
-            loader: Rc::new(loader),
-        }
+    pub fn new(loader: L) -> Self {
+        Self { loader }
     }
 
     /// Load a template (no caching - that's Salsa's job)
@@ -252,7 +261,7 @@ impl Engine {
                 source: template.source.clone(),
                 output: &mut output,
                 blocks: HashMap::new(),
-                loader: Some(self.loader.clone()),
+                loader: Some(&self.loader),
                 macros: HashMap::new(),
             };
             renderer.collect_macros(&template.ast.body);
@@ -309,7 +318,7 @@ impl Engine {
                 source: template.source.clone(),
                 output: &mut output,
                 blocks: child_blocks,
-                loader: Some(self.loader.clone()),
+                loader: Some(&self.loader),
                 macros: HashMap::new(),
             };
 
@@ -326,7 +335,7 @@ impl Engine {
 }
 
 /// Internal renderer state
-struct Renderer<'a> {
+struct Renderer<'a, L: TemplateLoader> {
     ctx: Context,
     /// Current source for error reporting (may be swapped when rendering child blocks)
     source: TemplateSource,
@@ -334,12 +343,12 @@ struct Renderer<'a> {
     /// Block overrides from child templates (with their source for error reporting)
     blocks: HashMap<String, BlockDef>,
     /// Template loader for includes and imports
-    loader: Option<Rc<dyn TemplateLoader>>,
+    loader: Option<&'a L>,
     /// Macro definitions by namespace
     macros: MacroRegistry,
 }
 
-impl<'a> Renderer<'a> {
+impl<'a, L: TemplateLoader> Renderer<'a, L> {
     fn render_nodes(&mut self, nodes: &[Node]) -> Result<LoopControl> {
         for node in nodes {
             let control = self.render_node(node)?;
