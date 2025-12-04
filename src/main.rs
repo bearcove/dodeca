@@ -1248,6 +1248,7 @@ fn build_with_mini_tui(
             internal: vec![],
             external: extracted_external,
             known_routes,
+            heading_ids: std::collections::HashMap::new(), // Not needed for external links
         };
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()

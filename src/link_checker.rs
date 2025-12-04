@@ -56,6 +56,10 @@ impl LinkCheckResult {
 static HREF_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"<a\s[^>]*href=["']([^"']+)["']"#).unwrap());
 
+/// Regex to extract id attributes from heading tags (h1-h6)
+static HEADING_ID_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"<h[1-6][^>]*\sid=["']([^"']+)["']"#).unwrap());
+
 /// A page with its route and HTML content
 pub struct Page<'a> {
     pub route: &'a Route,
@@ -77,6 +81,16 @@ pub fn extract_links<'a>(pages: impl Iterator<Item = Page<'a>>) -> ExtractedLink
     result.known_routes = pages.iter().map(|p| p.route.as_str().to_string()).collect();
 
     for page in &pages {
+        // Extract heading IDs for fragment validation
+        let mut heading_ids = HashSet::new();
+        for cap in HEADING_ID_REGEX.captures_iter(page.html) {
+            heading_ids.insert(cap[1].to_string());
+        }
+        result
+            .heading_ids
+            .insert(page.route.as_str().to_string(), heading_ids);
+
+        // Extract links
         for cap in HREF_REGEX.captures_iter(page.html) {
             let href = &cap[1];
             result.total += 1;
@@ -86,12 +100,17 @@ pub fn extract_links<'a>(pages: impl Iterator<Item = Page<'a>>) -> ExtractedLink
                     source_route: page.route.clone(),
                     href: href.to_string(),
                 });
-            } else if href.starts_with('#')
-                || href.starts_with("mailto:")
+            } else if href.starts_with('#') {
+                // Same-page anchor - validate against current page's headings
+                result.internal.push(ExtractedLink {
+                    source_route: page.route.clone(),
+                    href: href.to_string(),
+                });
+            } else if href.starts_with("mailto:")
                 || href.starts_with("tel:")
                 || href.starts_with("javascript:")
             {
-                // Skip anchors and special links
+                // Skip special links
             } else {
                 result.internal.push(ExtractedLink {
                     source_route: page.route.clone(),
@@ -111,6 +130,8 @@ pub struct ExtractedLinks {
     pub internal: Vec<ExtractedLink>,
     pub external: Vec<ExtractedLink>,
     pub known_routes: HashSet<String>,
+    /// Heading IDs per route (for fragment validation)
+    pub heading_ids: HashMap<String, HashSet<String>>,
 }
 
 /// Check internal links only (fast, no network)
@@ -123,9 +144,12 @@ pub fn check_internal_links(extracted: &ExtractedLinks) -> LinkCheckResult {
     };
 
     for link in &extracted.internal {
-        if let Some(reason) =
-            check_internal_link(&link.source_route, &link.href, &extracted.known_routes)
-        {
+        if let Some(reason) = check_internal_link(
+            &link.source_route,
+            &link.href,
+            &extracted.known_routes,
+            &extracted.heading_ids,
+        ) {
             result.broken_links.push(BrokenLink {
                 source_route: link.source_route.clone(),
                 href: link.href.clone(),
@@ -337,15 +361,27 @@ fn check_internal_link(
     source_route: &Route,
     href: &str,
     known_routes: &HashSet<String>,
+    heading_ids: &HashMap<String, HashSet<String>>,
 ) -> Option<String> {
     // Split href into path and fragment
-    let (path, _fragment) = match href.find('#') {
+    let (path, fragment) = match href.find('#') {
         Some(idx) => (&href[..idx], Some(&href[idx + 1..])),
         None => (href, None),
     };
 
-    // Empty path means same-page anchor - always valid
+    // Empty path means same-page anchor
     if path.is_empty() {
+        // Validate fragment against current page's headings
+        if let Some(frag) = fragment {
+            if !frag.is_empty() {
+                let source_key = source_route.as_str().to_string();
+                if let Some(ids) = heading_ids.get(&source_key) {
+                    if !ids.contains(frag) {
+                        return Some(format!("anchor '#{frag}' not found on page"));
+                    }
+                }
+            }
+        }
         return None;
     }
 
@@ -359,32 +395,51 @@ fn check_internal_link(
         normalize_route(&format!("{base}/{path}"))
     };
 
-    // Check if route exists
-    if known_routes.contains(&target_route) {
-        return None;
+    // Check if route exists (try various forms)
+    let route_exists = known_routes.contains(&target_route)
+        || {
+            let without_slash = target_route.trim_end_matches('/');
+            !without_slash.is_empty()
+                && without_slash != target_route
+                && known_routes.contains(without_slash)
+        }
+        || {
+            let with_slash = format!("{}/", target_route.trim_end_matches('/'));
+            known_routes.contains(&with_slash)
+        };
+
+    if !route_exists {
+        // Check for static files (e.g., /main.css, /favicon.ico)
+        // These won't be in known_routes but are valid
+        if is_likely_static_file(path) {
+            return None;
+        }
+        return Some(format!("target '{target_route}' not found"));
     }
 
-    // Also try with trailing slash (some links may have it)
-    let without_slash = target_route.trim_end_matches('/');
-    if !without_slash.is_empty()
-        && without_slash != target_route
-        && known_routes.contains(without_slash)
-    {
-        return None;
-    }
-    // Also try without trailing slash
-    let with_slash = format!("{}/", target_route.trim_end_matches('/'));
-    if known_routes.contains(&with_slash) {
-        return None;
+    // Route exists - now validate fragment if present
+    if let Some(frag) = fragment {
+        if !frag.is_empty() {
+            // Find the target route's heading IDs (try with/without trailing slash)
+            let target_ids = heading_ids
+                .get(&target_route)
+                .or_else(|| heading_ids.get(target_route.trim_end_matches('/')))
+                .or_else(|| {
+                    let with_slash = format!("{}/", target_route.trim_end_matches('/'));
+                    heading_ids.get(&with_slash)
+                });
+
+            if let Some(ids) = target_ids {
+                if !ids.contains(frag) {
+                    return Some(format!("anchor '#{frag}' not found on target page"));
+                }
+            }
+            // If we can't find heading IDs for the target, don't fail
+            // (could be a static file or external page)
+        }
     }
 
-    // Check for static files (e.g., /main.css, /favicon.ico)
-    // These won't be in known_routes but are valid
-    if is_likely_static_file(path) {
-        return None;
-    }
-
-    Some(format!("target '{target_route}' not found"))
+    None
 }
 
 /// Check if a path looks like a static file
@@ -481,14 +536,15 @@ mod tests {
         let root = Route::from_static("/");
         let pages = vec![Page {
             route: &root,
-            html: "<a href=\"https://example.com\">external</a>\
+            html: "<h2 id=\"anchor\">Anchor Section</h2>\
+                   <a href=\"https://example.com\">external</a>\
                    <a href=\"#anchor\">anchor</a>\
                    <a href=\"mailto:x@y.z\">email</a>\
                    <a href=\"/style.css\">static</a>",
         }];
 
         let result = check_links(pages.into_iter());
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "broken: {:?}", result.broken_links);
         assert_eq!(result.external_links, 1);
     }
 
@@ -505,6 +561,90 @@ mod tests {
         let extracted = extract_links(pages.into_iter());
         assert_eq!(extracted.total, 3);
         assert_eq!(extracted.external.len(), 1);
-        assert_eq!(extracted.internal.len(), 1);
+        // Now same-page anchors are also internal (for validation)
+        assert_eq!(extracted.internal.len(), 2);
+    }
+
+    #[test]
+    fn test_hash_fragment_valid() {
+        let page = Route::from_static("/page");
+        let pages = vec![Page {
+            route: &page,
+            html: "<h2 id=\"section\">Section One</h2>\
+                   <a href=\"#section\">link to section</a>",
+        }];
+
+        let result = check_links(pages.into_iter());
+        assert!(result.is_ok(), "broken: {:?}", result.broken_links);
+    }
+
+    #[test]
+    fn test_hash_fragment_invalid() {
+        let page = Route::from_static("/page");
+        let pages = vec![Page {
+            route: &page,
+            html: "<h2 id=\"section\">Section One</h2>\
+                   <a href=\"#nonexistent\">link to missing section</a>",
+        }];
+
+        let result = check_links(pages.into_iter());
+        assert_eq!(result.broken_links.len(), 1);
+        assert!(result.broken_links[0].reason.contains("#nonexistent"));
+    }
+
+    #[test]
+    fn test_cross_page_hash_fragment_valid() {
+        let page1 = Route::from_static("/page1");
+        let page2 = Route::from_static("/page2");
+        let pages = vec![
+            Page {
+                route: &page1,
+                html: "<a href=\"/page2#section\">link to page2 section</a>",
+            },
+            Page {
+                route: &page2,
+                html: "<h2 id=\"section\">Section</h2>",
+            },
+        ];
+
+        let result = check_links(pages.into_iter());
+        assert!(result.is_ok(), "broken: {:?}", result.broken_links);
+    }
+
+    #[test]
+    fn test_cross_page_hash_fragment_invalid() {
+        let page1 = Route::from_static("/page1");
+        let page2 = Route::from_static("/page2");
+        let pages = vec![
+            Page {
+                route: &page1,
+                html: "<a href=\"/page2#missing\">link to missing section</a>",
+            },
+            Page {
+                route: &page2,
+                html: "<h2 id=\"section\">Section</h2>",
+            },
+        ];
+
+        let result = check_links(pages.into_iter());
+        assert_eq!(result.broken_links.len(), 1);
+        assert!(result.broken_links[0].reason.contains("#missing"));
+    }
+
+    #[test]
+    fn test_extract_heading_ids() {
+        let page = Route::from_static("/page");
+        let pages = vec![Page {
+            route: &page,
+            html: "<h1 id=\"title\">Title</h1>\
+                   <h2 id=\"intro\">Intro</h2>\
+                   <h3 id=\"details\">Details</h3>",
+        }];
+
+        let extracted = extract_links(pages.into_iter());
+        let ids = extracted.heading_ids.get("/page").unwrap();
+        assert!(ids.contains("title"));
+        assert!(ids.contains("intro"));
+        assert!(ids.contains("details"));
     }
 }
