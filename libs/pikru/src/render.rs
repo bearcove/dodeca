@@ -2924,6 +2924,16 @@ fn apply_auto_chop_simple_line(
         return (sx, sy, ex, ey);
     }
 
+    // Pikchr auto-chop semantics:
+    // - If explicit "chop" attribute is set: chop both endpoints
+    // - If line connects two objects (both attachments): chop both endpoints
+    // - If line has only end attachment (to Object): chop end only
+    // - If line has only start attachment (from Object): do NOT chop start
+    let has_explicit_chop = obj.style.chop;
+    let has_both_attachments = obj.start_attachment.is_some() && obj.end_attachment.is_some();
+    let should_chop_start = has_explicit_chop || has_both_attachments;
+    let should_chop_end = obj.end_attachment.is_some(); // Always chop end if attached
+
     // Convert attachment centers to pixels with offset applied
     let end_center_px = obj
         .end_attachment
@@ -2946,22 +2956,26 @@ fn apply_auto_chop_simple_line(
         .unwrap_or((sx, sy));
 
     let mut new_start = (sx, sy);
-    if let Some(ref start_info) = obj.start_attachment {
-        // Chop against start object, toward the end object's center
-        if let Some(chopped) =
-            chop_against_endpoint(scaler, start_info, end_center_px, offset_x, offset_y)
-        {
-            new_start = chopped;
+    if should_chop_start {
+        if let Some(ref start_info) = obj.start_attachment {
+            // Chop against start object, toward the end object's center
+            if let Some(chopped) =
+                chop_against_endpoint(scaler, start_info, end_center_px, offset_x, offset_y)
+            {
+                new_start = chopped;
+            }
         }
     }
 
     let mut new_end = (ex, ey);
-    if let Some(ref end_info) = obj.end_attachment {
-        // Chop against end object, toward the start object's center
-        if let Some(chopped) =
-            chop_against_endpoint(scaler, end_info, start_center_px, offset_x, offset_y)
-        {
-            new_end = chopped;
+    if should_chop_end {
+        if let Some(ref end_info) = obj.end_attachment {
+            // Chop against end object, toward the start object's center
+            if let Some(chopped) =
+                chop_against_endpoint(scaler, end_info, start_center_px, offset_x, offset_y)
+            {
+                new_end = chopped;
+            }
         }
     }
 

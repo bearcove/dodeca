@@ -1,6 +1,7 @@
 use pest_derive::Parser;
 
 pub mod ast;
+pub mod compare;
 pub mod macros;
 pub mod parse;
 pub mod render;

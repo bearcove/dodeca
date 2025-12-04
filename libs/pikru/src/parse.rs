@@ -1228,30 +1228,6 @@ fn parse_position(pair: Pair<Rule>) -> Result<Position, miette::Report> {
                     };
                     let pos = parse_position(inner.next().unwrap())?;
                     Ok(Position::LeftRightOf(first_expr, lr, Box::new(pos)))
-                } else if next_str == "heading" || next_str == "on" {
-                    // expr on? heading (EDGEPT | expr) (of | from) position
-                    if next_str == "on" {
-                        inner.next(); // skip "on"
-                    }
-                    inner.next(); // skip "heading"
-
-                    let heading_pair = inner.next().unwrap();
-                    let heading = if heading_pair.as_rule() == Rule::EDGEPT {
-                        HeadingDir::EdgePoint(parse_edgepoint(heading_pair)?)
-                    } else {
-                        HeadingDir::Expr(parse_expr(heading_pair)?)
-                    };
-
-                    // Skip "of" or "from"
-                    if inner
-                        .peek()
-                        .map(|p| p.as_str() == "of" || p.as_str() == "from")
-                        .unwrap_or(false)
-                    {
-                        inner.next();
-                    }
-                    let pos = parse_position(inner.next().unwrap())?;
-                    Ok(Position::Heading(first_expr, heading, Box::new(pos)))
                 } else if next.as_rule() == Rule::EDGEPT {
                     // expr EDGEPT of position
                     let ep = parse_edgepoint(inner.next().unwrap())?;
@@ -1262,9 +1238,32 @@ fn parse_position(pair: Pair<Rule>) -> Result<Position, miette::Report> {
                     let pos = parse_position(inner.next().unwrap())?;
                     Ok(Position::EdgePointOf(first_expr, ep, Box::new(pos)))
                 } else if next.as_rule() == Rule::expr {
-                    // expr, expr - coordinate pair
-                    let second_expr = parse_expr(inner.next().unwrap())?;
-                    Ok(Position::Coords(first_expr, second_expr))
+                    // Could be:
+                    // - expr, expr - coordinate pair (2 children: expr, expr)
+                    // - expr heading expr from position (3 children: expr, expr, position)
+                    //   (pest silently consumes "heading" and "from" keywords)
+                    let second_pair = inner.next().unwrap();
+
+                    // Check if there's a position after the second expr
+                    if inner
+                        .peek()
+                        .map(|p| p.as_rule() == Rule::position)
+                        .unwrap_or(false)
+                    {
+                        // This is: expr heading (expr|EDGEPT) from position
+                        // second_pair is the heading angle/direction
+                        let heading = if second_pair.as_rule() == Rule::EDGEPT {
+                            HeadingDir::EdgePoint(parse_edgepoint(second_pair)?)
+                        } else {
+                            HeadingDir::Expr(parse_expr(second_pair)?)
+                        };
+                        let pos = parse_position(inner.next().unwrap())?;
+                        Ok(Position::Heading(first_expr, heading, Box::new(pos)))
+                    } else {
+                        // Just expr, expr - coordinate pair
+                        let second_expr = parse_expr(second_pair)?;
+                        Ok(Position::Coords(first_expr, second_expr))
+                    }
                 } else if next.as_rule() == Rule::position {
                     // This can happen when pest parses "expr EDGEPT of object" where
                     // "EDGEPT of object" becomes a place->position
