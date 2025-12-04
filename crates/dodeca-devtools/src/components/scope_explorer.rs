@@ -2,8 +2,8 @@
 
 use dioxus::prelude::*;
 use glade::components::{
-    empty_state::EmptyState,
-    icons::{IconChevronRight, IconChevronDown, IconSearch},
+    button::{Button, ButtonVariant, ButtonSize},
+    icons::{IconChevronRight, IconChevronDown, IconRefreshCw},
 };
 
 use crate::protocol::{ScopeEntry, ScopeValue};
@@ -12,16 +12,71 @@ use crate::state::DevtoolsState;
 /// Tree view for exploring template scope variables
 #[component]
 pub fn ScopeExplorer() -> Element {
-    let _state = use_context::<Signal<DevtoolsState>>();
+    let mut state = use_context::<Signal<DevtoolsState>>();
 
-    // TODO: Load scope from current error or current route
-    // For now, show placeholder
+    // Request scope when component mounts
+    use_effect(move || {
+        state.write().request_scope();
+    });
+
+    let scope_entries = state.read().scope_entries.clone();
+    let scope_loading = state.read().scope_loading;
 
     rsx! {
-        EmptyState {
-            icon: rsx! { IconSearch {} },
-            title: "Scope Explorer".to_string(),
-            description: "Select an error to explore its template scope, or evaluate expressions in the REPL.".to_string(),
+        div {
+            style: "display: flex; flex-direction: column; height: 100%;",
+
+            // Header with refresh button
+            div {
+                style: "
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 0.5rem;
+                    border-bottom: 1px solid #333;
+                    background: #252525;
+                ",
+                span {
+                    style: "font-weight: 600; color: #e5e5e5;",
+                    "Template Scope"
+                }
+                Button {
+                    variant: ButtonVariant::Ghost,
+                    size: ButtonSize::Small,
+                    disabled: scope_loading,
+                    onclick: move |_| {
+                        state.write().request_scope();
+                    },
+                    IconRefreshCw {}
+                    " Refresh"
+                }
+            }
+
+            // Scope entries
+            div {
+                style: "
+                    flex: 1;
+                    overflow: auto;
+                    font-family: 'SF Mono', Consolas, monospace;
+                    font-size: 0.875rem;
+                ",
+
+                if scope_loading {
+                    div {
+                        style: "padding: 1rem; color: #737373; text-align: center;",
+                        "Loading scope..."
+                    }
+                } else if scope_entries.is_empty() {
+                    div {
+                        style: "padding: 1rem; color: #737373; text-align: center;",
+                        "No scope data available. Navigate to a page to see its template scope."
+                    }
+                } else {
+                    for entry in scope_entries {
+                        ScopeEntryRow { entry: entry.clone(), depth: 0 }
+                    }
+                }
+            }
         }
     }
 }

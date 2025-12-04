@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 use wasm_bindgen::prelude::*;
 use web_sys::{MessageEvent, WebSocket};
 
-use crate::protocol::{ClientMessage, ErrorInfo, ServerMessage};
+use crate::protocol::{ClientMessage, ErrorInfo, ServerMessage, ScopeEntry};
 
 /// Global devtools state
 #[derive(Debug, Clone, Default)]
@@ -33,6 +33,15 @@ pub struct DevtoolsState {
 
     /// WebSocket connection state
     pub connection_state: ConnectionState,
+
+    /// Scope entries for the current route (from server)
+    pub scope_entries: Vec<ScopeEntry>,
+
+    /// Whether we're waiting for scope data
+    pub scope_loading: bool,
+
+    /// Next request ID for scope/eval requests
+    pub next_request_id: u32,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -69,6 +78,18 @@ impl DevtoolsState {
 
     pub fn current_error(&self) -> Option<&ErrorInfo> {
         self.errors.first()
+    }
+
+    /// Request scope from the server for the current route
+    pub fn request_scope(&mut self) {
+        self.scope_loading = true;
+        let request_id = self.next_request_id;
+        self.next_request_id += 1;
+        send_message(&ClientMessage::GetScope {
+            request_id,
+            snapshot_id: None, // Use current route
+            path: None,        // Get top-level scope
+        });
     }
 }
 
@@ -270,11 +291,13 @@ fn handle_server_message(mut state: Signal<DevtoolsState>, msg: ServerMessage) {
         // Note: DOM patches are sent as binary WebSocket messages and handled
         // directly in the message handler, not as JSON ServerMessage
 
-        ServerMessage::ScopeResponse { request_id, scope } => {
-            // TODO: update scope explorer state
+        ServerMessage::ScopeResponse { request_id: _, scope } => {
+            let mut s = state.write();
+            s.scope_loading = false;
+            s.scope_entries = scope;
             tracing::info!(
-                "[devtools] scope response {request_id}: {} entries",
-                scope.len()
+                "[devtools] scope response: {} entries",
+                s.scope_entries.len()
             );
         }
 

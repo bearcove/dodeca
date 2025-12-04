@@ -36,7 +36,8 @@ use crate::types::Route;
 use crate::image::{InputFormat, OutputFormat, add_width_suffix};
 use std::collections::HashSet;
 
-use dodeca_protocol::{ClientMessage, ServerMessage};
+use dodeca_protocol::{ClientMessage, ServerMessage, ScopeEntry, ScopeValue};
+use facet_value::DestructuredRef;
 
 /// Format bytes as human-readable size (KB, MB, GB)
 fn format_bytes(bytes: usize) -> String {
@@ -53,6 +54,150 @@ fn format_bytes(bytes: usize) -> String {
     } else {
         format!("{} bytes", bytes)
     }
+}
+
+// ============================================================================
+// Scope conversion for devtools
+// ============================================================================
+
+/// Convert a facet_value::Value to a ScopeValue for the devtools protocol
+fn value_to_scope_value(value: &facet_value::Value) -> ScopeValue {
+    match value.destructure_ref() {
+        DestructuredRef::Null => ScopeValue::Null,
+        DestructuredRef::Bool(b) => ScopeValue::Bool(b),
+        DestructuredRef::Number(n) => {
+            let f = n.to_f64().unwrap_or(0.0);
+            ScopeValue::Number(f)
+        }
+        DestructuredRef::String(s) => {
+            let s_str = s.to_string();
+            // Truncate long strings for preview
+            if s_str.len() > 100 {
+                ScopeValue::String(format!("{}...", &s_str[..100]))
+            } else {
+                ScopeValue::String(s_str)
+            }
+        }
+        DestructuredRef::Bytes(b) => ScopeValue::String(format!("<{} bytes>", b.len())),
+        DestructuredRef::Array(arr) => {
+            let len = arr.len();
+            let preview = if len == 0 {
+                "[]".to_string()
+            } else if len <= 3 {
+                let items: Vec<String> = arr.iter().take(3).map(|v| value_preview(v)).collect();
+                format!("[{}]", items.join(", "))
+            } else {
+                let items: Vec<String> = arr.iter().take(3).map(|v| value_preview(v)).collect();
+                format!("[{}, ...]", items.join(", "))
+            };
+            ScopeValue::Array { length: len, preview }
+        }
+        DestructuredRef::Object(obj) => {
+            let fields = obj.len();
+            let preview = if fields == 0 {
+                "{}".to_string()
+            } else {
+                let keys: Vec<String> = obj.keys().take(3).map(|k| k.to_string()).collect();
+                if fields <= 3 {
+                    format!("{{{}}}", keys.join(", "))
+                } else {
+                    format!("{{{}, ...}}", keys.join(", "))
+                }
+            };
+            ScopeValue::Object { fields, preview }
+        }
+        DestructuredRef::DateTime(dt) => ScopeValue::String(format!("{:?}", dt)),
+        DestructuredRef::QName(qn) => ScopeValue::String(format!("{:?}", qn)),
+        DestructuredRef::Uuid(uuid) => ScopeValue::String(format!("{:?}", uuid)),
+    }
+}
+
+/// Generate a short preview string for a value
+fn value_preview(value: &facet_value::Value) -> String {
+    match value.destructure_ref() {
+        DestructuredRef::Null => "null".to_string(),
+        DestructuredRef::Bool(b) => b.to_string(),
+        DestructuredRef::Number(n) => n.to_f64().map(|f| f.to_string()).unwrap_or("0".to_string()),
+        DestructuredRef::String(s) => {
+            let s_str = s.to_string();
+            if s_str.len() > 20 {
+                format!("\"{}...\"", &s_str[..20])
+            } else {
+                format!("\"{}\"", s_str)
+            }
+        }
+        DestructuredRef::Bytes(b) => format!("<{} bytes>", b.len()),
+        DestructuredRef::Array(arr) => format!("[{} items]", arr.len()),
+        DestructuredRef::Object(obj) => format!("{{{} fields}}", obj.len()),
+        DestructuredRef::DateTime(_) => "<datetime>".to_string(),
+        DestructuredRef::QName(_) => "<qname>".to_string(),
+        DestructuredRef::Uuid(_) => "<uuid>".to_string(),
+    }
+}
+
+/// Check if a value can be expanded (has children)
+fn value_is_expandable(value: &facet_value::Value) -> bool {
+    match value.destructure_ref() {
+        DestructuredRef::Array(arr) => !arr.is_empty(),
+        DestructuredRef::Object(obj) => !obj.is_empty(),
+        _ => false,
+    }
+}
+
+/// Convert a facet_value::Value to a list of ScopeEntry (for the top-level or expanded path)
+fn value_to_scope_entries(value: &facet_value::Value, path: &[String]) -> Vec<ScopeEntry> {
+    // Navigate to the requested path
+    let target = navigate_value(value, path);
+    let target = match target {
+        Some(v) => v,
+        None => return vec![],
+    };
+
+    match target.destructure_ref() {
+        DestructuredRef::Object(obj) => {
+            obj.iter()
+                .map(|(key, val)| ScopeEntry {
+                    name: key.to_string(),
+                    value: value_to_scope_value(val),
+                    expandable: value_is_expandable(val),
+                })
+                .collect()
+        }
+        DestructuredRef::Array(arr) => {
+            arr.iter()
+                .enumerate()
+                .map(|(idx, val)| ScopeEntry {
+                    name: idx.to_string(),
+                    value: value_to_scope_value(val),
+                    expandable: value_is_expandable(val),
+                })
+                .collect()
+        }
+        _ => {
+            // Scalar value at path - return as single entry
+            vec![ScopeEntry {
+                name: path.last().cloned().unwrap_or_else(|| "value".to_string()),
+                value: value_to_scope_value(&target),
+                expandable: false,
+            }]
+        }
+    }
+}
+
+/// Navigate into a value by path
+fn navigate_value(value: &facet_value::Value, path: &[String]) -> Option<facet_value::Value> {
+    let mut current = value.clone();
+    for segment in path {
+        current = match current.destructure_ref() {
+            DestructuredRef::Object(obj) => obj.get(segment.as_str())?.clone(),
+            DestructuredRef::Array(arr) => {
+                let idx: usize = segment.parse().ok()?;
+                arr.get(idx)?.clone()
+            }
+            _ => return None,
+        };
+    }
+    Some(current)
 }
 
 /// Message types for livereload WebSocket
@@ -729,6 +874,114 @@ impl SiteServer {
         None
     }
 
+    /// Get the template scope for a route (for devtools scope explorer)
+    ///
+    /// Returns a list of top-level scope entries that can be expanded.
+    /// The `path` parameter is used to drill into nested values.
+    pub fn get_scope_for_route(&self, route_path: &str, path: &[String]) -> Vec<ScopeEntry> {
+        use facet_value::{VObject, VString};
+
+        // Snapshot pattern: lock, clone, release, then query the clone
+        let db = match self.db.lock() {
+            Ok(db) => db.clone(),
+            Err(_) => return vec![],
+        };
+
+        let site_tree = build_tree(&db, self.source_registry);
+
+        // Normalize route
+        let route_str = if route_path == "/" {
+            "/".to_string()
+        } else {
+            let trimmed = route_path.trim_end_matches('/');
+            if trimmed.is_empty() { "/".to_string() } else { trimmed.to_string() }
+        };
+        let route = Route::new(route_str);
+
+        // Build scope based on whether this is a section or page
+        let mut scope = VObject::new();
+
+        // Add config (same as build_render_context_base)
+        let mut config_map = VObject::new();
+        let (site_title, site_description) = site_tree
+            .sections
+            .get(&Route::root())
+            .map(|root| (root.title.to_string(), root.description.clone().unwrap_or_default()))
+            .unwrap_or_else(|| ("Untitled".to_string(), String::new()));
+        config_map.insert(VString::from("title"), facet_value::Value::from(site_title.as_str()));
+        config_map.insert(VString::from("description"), facet_value::Value::from(site_description.as_str()));
+        config_map.insert(VString::from("base_url"), facet_value::Value::from("/"));
+        scope.insert(VString::from("config"), facet_value::Value::from(config_map));
+
+        // Add current_path
+        scope.insert(VString::from("current_path"), facet_value::Value::from(route.as_str()));
+
+        // Check if it's a section or page
+        if let Some(section) = site_tree.sections.get(&route) {
+            // Add section data
+            let mut section_map = VObject::new();
+            section_map.insert(VString::from("title"), facet_value::Value::from(section.title.as_str()));
+            section_map.insert(VString::from("permalink"), facet_value::Value::from(section.route.as_str()));
+            section_map.insert(VString::from("weight"), facet_value::Value::from(section.weight as i64));
+            if let Some(ref desc) = section.description {
+                section_map.insert(VString::from("description"), facet_value::Value::from(desc.as_str()));
+            }
+            section_map.insert(VString::from("extra"), section.extra.clone());
+
+            // Count pages in this section
+            let page_count = site_tree.pages.values()
+                .filter(|p| p.section_route == section.route)
+                .count();
+            section_map.insert(VString::from("pages_count"), facet_value::Value::from(page_count as i64));
+
+            scope.insert(VString::from("section"), facet_value::Value::from(section_map));
+        } else if let Some(page) = site_tree.pages.get(&route) {
+            // Add page data
+            let mut page_map = VObject::new();
+            page_map.insert(VString::from("title"), facet_value::Value::from(page.title.as_str()));
+            page_map.insert(VString::from("permalink"), facet_value::Value::from(page.route.as_str()));
+            page_map.insert(VString::from("weight"), facet_value::Value::from(page.weight as i64));
+            page_map.insert(VString::from("extra"), page.extra.clone());
+            page_map.insert(VString::from("headings_count"), facet_value::Value::from(page.headings.len() as i64));
+            scope.insert(VString::from("page"), facet_value::Value::from(page_map));
+
+            // Add parent section
+            if let Some(section) = site_tree.sections.get(&page.section_route) {
+                let mut section_map = VObject::new();
+                section_map.insert(VString::from("title"), facet_value::Value::from(section.title.as_str()));
+                section_map.insert(VString::from("permalink"), facet_value::Value::from(section.route.as_str()));
+                scope.insert(VString::from("section"), facet_value::Value::from(section_map));
+            }
+        }
+
+        // Add root section info
+        if let Some(root) = site_tree.sections.get(&Route::root()) {
+            let mut root_map = VObject::new();
+            root_map.insert(VString::from("title"), facet_value::Value::from(root.title.as_str()));
+
+            // Count total sections and pages
+            let section_count = site_tree.sections.len();
+            let page_count = site_tree.pages.len();
+            root_map.insert(VString::from("sections_count"), facet_value::Value::from(section_count as i64));
+            root_map.insert(VString::from("pages_count"), facet_value::Value::from(page_count as i64));
+
+            scope.insert(VString::from("root"), facet_value::Value::from(root_map));
+        }
+
+        // Get data file keys (show available data files)
+        let data_keys = crate::queries::data_file_keys(&db, self.data_registry);
+        let mut data_map = VObject::new();
+        for key in data_keys {
+            // For each data key, show it exists (could be expanded later)
+            data_map.insert(VString::from(key.as_str()), facet_value::Value::from("<data file>"));
+        }
+        scope.insert(VString::from("data"), facet_value::Value::from(data_map));
+
+        // Convert scope to entries
+        let scope_value: facet_value::Value = scope.into();
+        value_to_scope_entries(&scope_value, path)
+    }
+
     /// Find routes similar to the requested path (for 404 suggestions)
     fn find_similar_routes(&self, path: &str) -> Vec<(String, String)> {
         // Snapshot pattern: lock, clone, release, then query the clone
@@ -1005,12 +1258,26 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                                         }
                                     }
                                 }
-                                ClientMessage::GetScope { request_id, snapshot_id, path } => {
-                                    // TODO: Look up snapshot and return scope
+                                ClientMessage::GetScope { request_id, snapshot_id: _, path } => {
+                                    // Get scope for current route (snapshot_id is ignored for now)
+                                    let route = current_route.clone().unwrap_or_else(|| "/".to_string());
+                                    let scope_path = path.unwrap_or_default();
+                                    let scope = server.get_scope_for_route(&route, &scope_path);
+
                                     tracing::info!(
-                                        "[devtools] GetScope request {request_id}: snapshot={:?}, path={:?}",
-                                        snapshot_id, path
+                                        "[devtools] GetScope request {request_id}: route={}, path={:?}, entries={}",
+                                        route, scope_path, scope.len()
                                     );
+
+                                    let msg = ServerMessage::ScopeResponse {
+                                        request_id,
+                                        scope,
+                                    };
+                                    if let Ok(json) = serde_json::to_string(&msg) {
+                                        if sender.send(Message::Text(json.into())).await.is_err() {
+                                            break;
+                                        }
+                                    }
                                 }
                                 ClientMessage::Eval { request_id, snapshot_id, expression } => {
                                     // TODO: Evaluate expression in snapshot context
