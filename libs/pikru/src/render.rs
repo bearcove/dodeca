@@ -2220,7 +2220,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         stroke: None,
                         stroke_width: None,
                         stroke_dasharray: None,
-                        style: Some(svg_style.clone()),
+                        style: svg_style.clone(),
                     };
                     svg_children.push(SvgNode::Rect(rect));
                 } else {
@@ -2243,7 +2243,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         stroke: None,
                         stroke_width: None,
                         stroke_dasharray: None,
-                        style: Some(svg_style),
+                        style: svg_style,
                     };
                     svg_children.push(SvgNode::Path(path));
                 }
@@ -2258,7 +2258,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style),
+                    style: svg_style,
                 };
                 svg_children.push(SvgNode::Circle(circle));
             }
@@ -2282,7 +2282,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(dot_style),
+                    style: dot_style,
                 };
                 svg_children.push(SvgNode::Circle(circle));
             }
@@ -2298,7 +2298,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style.clone()),
+                    style: svg_style.clone(),
                 };
                 svg_children.push(SvgNode::Ellipse(ellipse));
             }
@@ -2322,7 +2322,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style.clone()),
+                    style: svg_style.clone(),
                 };
                 svg_children.push(SvgNode::Rect(rect));
             }
@@ -2350,7 +2350,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style.clone()),
+                    style: svg_style.clone(),
                 };
                 svg_children.push(SvgNode::Rect(rect));
 
@@ -2364,7 +2364,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style.clone()),
+                    style: svg_style.clone(),
                 };
                 svg_children.push(SvgNode::Ellipse(top_ellipse));
 
@@ -2378,7 +2378,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style.clone()),
+                    style: svg_style.clone(),
                 };
                 svg_children.push(SvgNode::Ellipse(bottom_ellipse));
             }
@@ -2415,7 +2415,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style),
+                    style: svg_style,
                 };
                 svg_children.push(SvgNode::Path(path));
             }
@@ -2445,7 +2445,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style),
+                    style: svg_style,
                 };
                 svg_children.push(SvgNode::Path(path));
             }
@@ -2523,7 +2523,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         stroke: None,
                         stroke_width: None,
                         stroke_dasharray: None,
-                        style: Some(svg_style),
+                        style: svg_style,
                     };
                     svg_children.push(SvgNode::Path(line_path));
                 } else {
@@ -2573,7 +2573,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                             stroke: None,
                             stroke_width: None,
                             stroke_dasharray: None,
-                            style: Some(svg_style),
+                            style: svg_style,
                         };
                         svg_children.push(SvgNode::Path(path));
                     } else {
@@ -2624,7 +2624,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                             stroke: None,
                             stroke_width: None,
                             stroke_dasharray: None,
-                            style: Some(svg_style),
+                            style: svg_style,
                         };
                         svg_children.push(SvgNode::Path(path));
                     }
@@ -2647,7 +2647,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         stroke: None,
                         stroke_width: None,
                         stroke_dasharray: None,
-                        style: Some(svg_style),
+                        style: svg_style,
                     };
                     svg_children.push(SvgNode::Path(spline_path));
                 } else {
@@ -2669,7 +2669,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style),
+                    style: svg_style,
                 };
                 svg_children.push(SvgNode::Path(move_path));
             }
@@ -2690,7 +2690,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style),
+                    style: svg_style,
                 };
                 svg_children.push(SvgNode::Path(arc_path));
             }
@@ -2703,7 +2703,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         fill: None,
                         stroke: None,
                         stroke_width: None,
-                        style: None,
+                        style: SvgStyle::default(),
                         text_anchor: Some("middle".to_string()),
                         dominant_baseline: Some("central".to_string()),
                         content: positioned_text.value.clone(),
@@ -2743,7 +2743,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                                 stroke: None,
                                 stroke_width: None,
                                 stroke_dasharray: None,
-                                style: Some(child_svg_style),
+                                style: child_svg_style,
                             };
                             svg_children.push(SvgNode::Path(path));
                         }
@@ -2757,7 +2757,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                                 stroke: None,
                                 stroke_width: None,
                                 stroke_dasharray: None,
-                                style: Some(child_svg_style.clone()),
+                                style: child_svg_style.clone(),
                             };
                             svg_children.push(SvgNode::Circle(circle));
                         }
@@ -2772,7 +2772,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                                 stroke: None,
                                 stroke_width: None,
                                 stroke_dasharray: None,
-                                style: Some(child_svg_style.clone()),
+                                style: child_svg_style.clone(),
                             };
                             svg_children.push(SvgNode::Circle(circle));
                         }
@@ -2790,7 +2790,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     fill: Some("rgb(0,0,0)".to_string()),
                     stroke: None,
                     stroke_width: None,
-                    style: None,
+                    style: SvgStyle::default(),
                     text_anchor: Some("middle".to_string()),
                     dominant_baseline: Some("central".to_string()),
                     content: positioned_text.value.clone(),
@@ -3660,7 +3660,7 @@ fn render_arrowhead_dom(
         stroke: None,
         stroke_width: None,
         stroke_dasharray: None,
-        style: Some(SvgStyle::new().add("fill", &fill_color.to_string())),
+        style: SvgStyle::new().add("fill", &fill_color.to_string()),
     })
 }
 

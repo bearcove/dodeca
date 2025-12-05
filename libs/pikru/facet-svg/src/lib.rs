@@ -127,7 +127,7 @@ pub struct Rect {
     #[facet(xml::attribute)]
     pub stroke_dasharray: Option<String>,
     #[facet(xml::attribute, proxy = SvgStyleProxy)]
-    pub style: Option<SvgStyle>,
+    pub style: SvgStyle,
 }
 
 /// SVG circle element (`<circle>`)
@@ -149,7 +149,7 @@ pub struct Circle {
     #[facet(xml::attribute)]
     pub stroke_dasharray: Option<String>,
     #[facet(xml::attribute, proxy = SvgStyleProxy)]
-    pub style: Option<SvgStyle>,
+    pub style: SvgStyle,
 }
 
 /// SVG ellipse element (`<ellipse>`)
@@ -173,7 +173,7 @@ pub struct Ellipse {
     #[facet(xml::attribute)]
     pub stroke_dasharray: Option<String>,
     #[facet(xml::attribute, proxy = SvgStyleProxy)]
-    pub style: Option<SvgStyle>,
+    pub style: SvgStyle,
 }
 
 /// SVG line element (`<line>`)
@@ -197,7 +197,7 @@ pub struct Line {
     #[facet(xml::attribute)]
     pub stroke_dasharray: Option<String>,
     #[facet(xml::attribute, proxy = SvgStyleProxy)]
-    pub style: Option<SvgStyle>,
+    pub style: SvgStyle,
 }
 
 /// SVG path element (`<path>`)
@@ -215,7 +215,7 @@ pub struct Path {
     #[facet(xml::attribute, rename = "stroke-dasharray")]
     pub stroke_dasharray: Option<String>,
     #[facet(xml::attribute, proxy = SvgStyleProxy)]
-    pub style: Option<SvgStyle>,
+    pub style: SvgStyle,
 }
 
 /// SVG polygon element (`<polygon>`)
@@ -233,7 +233,7 @@ pub struct Polygon {
     #[facet(xml::attribute, rename = "stroke-dasharray")]
     pub stroke_dasharray: Option<String>,
     #[facet(xml::attribute, proxy = SvgStyleProxy)]
-    pub style: Option<SvgStyle>,
+    pub style: SvgStyle,
 }
 
 /// SVG polyline element (`<polyline>`)
@@ -251,7 +251,7 @@ pub struct Polyline {
     #[facet(xml::attribute, rename = "stroke-dasharray")]
     pub stroke_dasharray: Option<String>,
     #[facet(xml::attribute, proxy = SvgStyleProxy)]
-    pub style: Option<SvgStyle>,
+    pub style: SvgStyle,
 }
 
 /// SVG text element (`<text>`)
@@ -269,7 +269,7 @@ pub struct Text {
     #[facet(xml::attribute, rename = "stroke-width")]
     pub stroke_width: Option<String>,
     #[facet(xml::attribute, proxy = SvgStyleProxy)]
-    pub style: Option<SvgStyle>,
+    pub style: SvgStyle,
     #[facet(xml::attribute, rename = "text-anchor")]
     pub text_anchor: Option<String>,
     #[facet(xml::attribute, rename = "dominant-baseline")]

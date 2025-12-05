@@ -375,7 +375,7 @@ mod tests {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: Some(facet_svg::SvgStyle::new().add("stroke", "black")),
+            style: facet_svg::SvgStyle::new().add("stroke", "black"),
         };
 
         let svg = Svg {
@@ -432,7 +432,7 @@ mod tests {
                 stroke: None,
                 stroke_width: None,
                 stroke_dasharray: None,
-                style: None,
+                style: facet_svg::SvgStyle::default(),
             })],
         };
 

@@ -193,7 +193,11 @@ pub struct SvgStyleProxy(pub String);
 impl TryFrom<SvgStyleProxy> for SvgStyle {
     type Error = StyleParseError;
     fn try_from(proxy: SvgStyleProxy) -> Result<Self, Self::Error> {
-        SvgStyle::parse(&proxy.0)
+        if proxy.0.is_empty() {
+            Ok(SvgStyle::default())
+        } else {
+            SvgStyle::parse(&proxy.0)
+        }
     }
 }
 
@@ -201,23 +205,6 @@ impl TryFrom<&SvgStyle> for SvgStyleProxy {
     type Error = std::convert::Infallible;
     fn try_from(v: &SvgStyle) -> Result<Self, Self::Error> {
         Ok(SvgStyleProxy(v.to_string()))
-    }
-}
-
-// Option impls for facet proxy support
-impl From<SvgStyleProxy> for Option<SvgStyle> {
-    fn from(proxy: SvgStyleProxy) -> Self {
-        SvgStyle::parse(&proxy.0).ok()
-    }
-}
-
-impl TryFrom<&Option<SvgStyle>> for SvgStyleProxy {
-    type Error = std::convert::Infallible;
-    fn try_from(v: &Option<SvgStyle>) -> Result<Self, Self::Error> {
-        match v {
-            Some(style) => Ok(SvgStyleProxy(style.to_string())),
-            None => Ok(SvgStyleProxy(String::new())),
-        }
     }
 }
 
