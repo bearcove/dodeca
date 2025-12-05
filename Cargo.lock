@@ -2037,6 +2037,7 @@ dependencies = [
  "color-eyre",
  "crossterm",
  "divan",
+ "dodeca-code-execution",
  "dodeca-protocol",
  "facet",
  "facet-args",

@@ -294,7 +294,33 @@ pub enum OutputFile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteOutput {
     pub files: Vec<OutputFile>,
-    // TODO: Add code execution results after plugin integration
+    /// Code execution results for validation
+    pub code_execution_results: Vec<CodeExecutionResult>,
+}
+
+/// Result of executing a code sample during build
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeExecutionResult {
+    /// Source file where the code sample was found
+    pub source_path: String,
+    /// Line number in the source file
+    pub line: u32,
+    /// Programming language of the code sample
+    pub language: String,
+    /// The actual code that was executed
+    pub code: String,
+    /// Whether execution was successful
+    pub success: bool,
+    /// Exit code from execution
+    pub exit_code: Option<i32>,
+    /// Standard output
+    pub stdout: String,
+    /// Standard error output
+    pub stderr: String,
+    /// Execution duration in milliseconds
+    pub duration_ms: u64,
+    /// Error message if execution failed
+    pub error: Option<String>,
 }
 
 /// Result of checking an external link
