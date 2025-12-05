@@ -79,7 +79,8 @@ pub fn extract_pre_svg_text(output: &str) -> Option<&str> {
 pub fn parse_svg(svg: &str) -> Result<Svg, String> {
     // Extract just the SVG portion in case there's print output before it
     let svg_only = extract_svg(svg).unwrap_or(svg);
-    facet_xml::from_str(svg_only).map_err(|e| format!("XML parse error: {}", e))
+    facet_xml::from_str(svg_only)
+        .map_err(|e| format!("XML parse error: {:?}", miette::Report::new(e)))
 }
 
 /// Options for SVG comparison with float tolerance

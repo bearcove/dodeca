@@ -31,6 +31,12 @@ fn run_c_pikchr(source: &str) -> String {
 }
 
 fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
+    // Install miette fancy GraphicalReporter for better error display
+    miette::set_hook(Box::new(
+        |_| Box::new(miette::GraphicalReportHandler::new()),
+    ))
+    .ok();
+
     let source = std::fs::read_to_string(path)?;
 
     // Get expected output from C implementation

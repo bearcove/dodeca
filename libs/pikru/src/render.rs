@@ -2,6 +2,7 @@
 
 use crate::ast::*;
 use crate::types::{BoxIn, EvalValue, Length as Inches, Point, PtIn, Scaler, Size, UnitVec};
+use facet_svg::facet_xml::SerializeOptions;
 use facet_svg::{
     Circle, Color, Ellipse, Path, PathData, Polygon, Rect, Svg, SvgNode, SvgStyle, Text, facet_xml,
     fmt_num,
@@ -2802,8 +2803,18 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     // Set children on the SVG element
     svg.children = svg_children;
 
-    // Serialize to string using facet_xml
-    facet_xml::to_string(&svg).map_err(|e| miette::miette!("XML serialization error: {}", e))
+    // Create wrapper function for fmt_num to match the expected signature
+    fn format_float(value: f64, writer: &mut dyn std::io::Write) -> Result<(), std::io::Error> {
+        write!(writer, "{}", fmt_num(value))
+    }
+
+    // Serialize to string using facet_xml with custom f64 formatter to match C pikchr precision
+    let options = SerializeOptions {
+        float_formatter: Some(format_float),
+        ..Default::default()
+    };
+    facet_xml::to_string_with_options(&svg, &options)
+        .map_err(|e| miette::miette!("XML serialization error: {}", e))
 }
 
 /// Render positioned text labels
