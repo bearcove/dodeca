@@ -4,14 +4,14 @@
 //! to ensure they work correctly during the build process.
 
 use facet::Facet;
-use plugcard::{plugcard, PlugResult};
+use plugcard::{PlugResult, plugcard};
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
 use std::collections::HashMap;
+use std::fs;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
-use std::fs;
 
 plugcard::export_plugin!();
 
@@ -57,18 +57,14 @@ impl Default for CodeExecutionConfig {
             timeout_secs: 30,
             cache_dir: ".cache/code-execution".to_string(),
             languages: vec!["rust".to_string()],
-            dependencies: vec![
-                Dependency {
-                    name: "facet".to_string(),
-                    version: "0.1.0".to_string(),
-                    git: Some("https://github.com/facet-rs/facet".to_string()),
-                    rev: Some("main".to_string()), // Would be actual commit hash in real config
-                    branch: None,
-                },
-            ],
-            language_config: HashMap::from([
-                ("rust".to_string(), LanguageConfig::rust()),
-            ]),
+            dependencies: vec![Dependency {
+                name: "facet".to_string(),
+                version: "0.1.0".to_string(),
+                git: Some("https://github.com/facet-rs/facet".to_string()),
+                rev: Some("main".to_string()), // Would be actual commit hash in real config
+                branch: None,
+            }],
+            language_config: HashMap::from([("rust".to_string(), LanguageConfig::rust())]),
         }
     }
 }
@@ -96,7 +92,11 @@ impl LanguageConfig {
     fn rust() -> Self {
         Self {
             command: "cargo".to_string(),
-            args: vec!["run".to_string(), "--quiet".to_string(), "--release".to_string()],
+            args: vec![
+                "run".to_string(),
+                "--quiet".to_string(),
+                "--release".to_string(),
+            ],
             extension: "rs".to_string(),
             prepare_code: true,
             auto_imports: vec![
@@ -205,7 +205,7 @@ pub fn extract_code_samples(input: ExtractSamplesInput) -> PlugResult<ExtractSam
                 if in_code_block {
                     // Check if this code block should be executed
                     let executable = should_execute(&current_language);
-                    
+
                     samples.push(CodeSample {
                         source_path: input.source_path.clone(),
                         line: code_start_line,
@@ -214,7 +214,7 @@ pub fn extract_code_samples(input: ExtractSamplesInput) -> PlugResult<ExtractSam
                         executable,
                         expected_errors: vec![],
                     });
-                    
+
                     in_code_block = false;
                     current_language.clear();
                     current_code.clear();
@@ -247,12 +247,12 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
     let mut results = Vec::new();
 
     if !input.config.enabled {
-        return Ok(ExecuteSamplesOutput { results });
+        return PlugResult::Ok(ExecuteSamplesOutput { results });
     }
 
     // Ensure cache directory exists
     if let Err(e) = fs::create_dir_all(&input.config.cache_dir) {
-        return Err(format!("Failed to create cache directory: {}", e).into());
+        return PlugResult::Err(format!("Failed to create cache directory: {}", e));
     }
 
     for sample in input.samples {
@@ -267,7 +267,9 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
             }
         } else {
             // Check if this language is enabled
-            if !input.config.languages.is_empty() && !input.config.languages.contains(&sample.language) {
+            if !input.config.languages.is_empty()
+                && !input.config.languages.contains(&sample.language)
+            {
                 ExecutionResult {
                     success: true,
                     exit_code: Some(0),
@@ -284,51 +286,11 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
         results.push((sample, result));
     }
 
-    return Ok(ExecuteSamplesOutput { results });
-}
-
-    // Ensure cache directory exists
-    if let Err(e) = fs::create_dir_all(&input.config.cache_dir) {
-        return Err(format!("Failed to create cache directory: {}", e).into());
-    }
-
-    for sample in input.samples {
-        let result = if !sample.executable {
-            ExecutionResult {
-                success: true,
-                exit_code: Some(0),
-                stdout: String::new(),
-                stderr: String::new(),
-                duration_ms: 0,
-                error: None,
-            }
-        } else {
-            // Check if this language is enabled
-            if !input.config.languages.is_empty() && !input.config.languages.contains(&sample.language) {
-                ExecutionResult {
-                    success: true,
-                    exit_code: Some(0),
-                    stdout: format!("Skipped execution for language: {}", sample.language),
-                    stderr: String::new(),
-                    duration_ms: 0,
-                    error: None,
-                }
-            } else {
-                execute_single_sample(&sample, &input.config)
-            }
-        };
-
-        results.push((sample, result));
-    }
-
-     Ok(ExecuteSamplesOutput { results })
+    PlugResult::Ok(ExecuteSamplesOutput { results })
 }
 
 /// Execute a single code sample
-fn execute_single_sample(
-    sample: &CodeSample,
-    config: &CodeExecutionConfig,
-) -> ExecutionResult {
+fn execute_single_sample(sample: &CodeSample, config: &CodeExecutionConfig) -> ExecutionResult {
     let start_time = std::time::Instant::now();
 
     let lang_config = match config.language_config.get(&sample.language) {
@@ -340,7 +302,10 @@ fn execute_single_sample(
                 stdout: String::new(),
                 stderr: String::new(),
                 duration_ms: 0,
-                error: Some(format!("No configuration for language: {}", sample.language)),
+                error: Some(format!(
+                    "No configuration for language: {}",
+                    sample.language
+                )),
             };
         }
     };
@@ -371,7 +336,7 @@ fn execute_rust_sample(
     let temp_dir = std::env::temp_dir();
     let project_name = format!("dodeca_sample_{}", std::process::id());
     let project_dir = temp_dir.join(&project_name);
-    
+
     if let Err(e) = fs::create_dir_all(&project_dir) {
         return ExecutionResult {
             success: false,
@@ -451,7 +416,7 @@ fn execute_rust_sample(
     };
 
     let success = output.status.success();
-    
+
     // Check for expected compilation errors
     let final_success = if !success && !sample.expected_errors.is_empty() {
         let stderr_str = String::from_utf8_lossy(&output.stderr);
@@ -468,8 +433,13 @@ fn execute_rust_sample(
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
         duration_ms: start_time.elapsed().as_millis() as u64,
-        error: if final_success { None } else { 
-            Some(format!("Process exited with code: {:?}", output.status.code())) 
+        error: if final_success {
+            None
+        } else {
+            Some(format!(
+                "Process exited with code: {:?}",
+                output.status.code()
+            ))
         },
     };
 
@@ -492,9 +462,15 @@ fn generate_cargo_toml(dependencies: &[Dependency]) -> String {
     for dep in dependencies {
         if let Some(ref git) = dep.git {
             if let Some(ref rev) = dep.rev {
-                lines.push(format!("{} = {{ git = \"{}\", rev = \"{}\" }}", dep.name, git, rev));
+                lines.push(format!(
+                    "{} = {{ git = \"{}\", rev = \"{}\" }}",
+                    dep.name, git, rev
+                ));
             } else if let Some(ref branch) = dep.branch {
-                lines.push(format!("{} = {{ git = \"{}\", branch = \"{}\" }}", dep.name, git, branch));
+                lines.push(format!(
+                    "{} = {{ git = \"{}\", branch = \"{}\" }}",
+                    dep.name, git, branch
+                ));
             } else {
                 lines.push(format!("{} = {{ git = \"{}\" }}", dep.name, git));
             }
@@ -509,17 +485,17 @@ fn generate_cargo_toml(dependencies: &[Dependency]) -> String {
 /// Prepare Rust code with auto-imports and main function
 fn prepare_rust_code(code: &str, auto_imports: &[String]) -> String {
     let mut result = String::new();
-    
+
     // Add auto-imports
     for import in auto_imports {
         result.push_str(import);
         result.push('\n');
     }
-    
+
     if !auto_imports.is_empty() {
         result.push('\n');
     }
-    
+
     // Check if code already has a main function
     if code.contains("fn main(") {
         result.push_str(code);
@@ -532,7 +508,7 @@ fn prepare_rust_code(code: &str, auto_imports: &[String]) -> String {
         }
         result.push_str("}\n");
     }
-    
+
     result
 }
 
@@ -566,7 +542,13 @@ fn prepare_code_for_language(language: &str, code: &str) -> Result<String, Strin
 /// Indent all lines of a string
 fn indent_lines(text: &str, indent: &str) -> String {
     text.lines()
-        .map(|line| if line.trim().is_empty() { line.to_string() } else { format!("{}{}", indent, line) })
+        .map(|line| {
+            if line.trim().is_empty() {
+                line.to_string()
+            } else {
+                format!("{}{}", indent, line)
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -579,13 +561,13 @@ fn execute_rust_code(
 ) -> ExecutionResult {
     let start_time = std::time::Instant::now();
     let executable_path = source_file.with_extension("");
-    
+
     // Compile
     let mut compile_cmd = Command::new(&config.command);
     compile_cmd.args(&config.args);
     compile_cmd.arg(&executable_path);
     compile_cmd.arg(source_file);
-    
+
     let compile_output = match compile_cmd.output() {
         Ok(output) => output,
         Err(e) => {
@@ -636,8 +618,13 @@ fn execute_rust_code(
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
         duration_ms: start_time.elapsed().as_millis() as u64,
-        error: if output.status.success() { None } else { 
-            Some(format!("Process exited with code: {:?}", output.status.code())) 
+        error: if output.status.success() {
+            None
+        } else {
+            Some(format!(
+                "Process exited with code: {:?}",
+                output.status.code()
+            ))
         },
     }
 }
@@ -649,7 +636,7 @@ fn execute_script(
     timeout_secs: u64,
 ) -> ExecutionResult {
     let start_time = std::time::Instant::now();
-    
+
     let mut cmd = Command::new(&config.command);
     cmd.args(&config.args);
     cmd.arg(script_file);
@@ -676,40 +663,49 @@ fn execute_script(
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
         duration_ms: start_time.elapsed().as_millis() as u64,
-        error: if output.status.success() { None } else { 
-            Some(format!("Process exited with code: {:?}", output.status.code())) 
+        error: if output.status.success() {
+            None
+        } else {
+            Some(format!(
+                "Process exited with code: {:?}",
+                output.status.code()
+            ))
         },
     }
 }
 
 /// Execute a command with timeout
 fn execute_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<Output, String> {
-    let mut child = cmd.spawn()
+    use std::time::Instant;
+
+    let mut child = cmd
+        .spawn()
         .map_err(|e| format!("Failed to start process: {}", e))?;
-    
+
     let timeout = Duration::from_secs(timeout_secs);
-    
-    // Wait for completion with timeout
-    match thread::sleep(timeout) {
-        // Sleep completed, check if process is still running
-        _ => {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    // Process finished, get output
-                    match child.wait_with_output() {
-                        Ok(output) => Ok(output),
-                        Err(e) => Err(format!("Failed to get process output: {}", e)),
-                    }
-                }
-                Ok(None) => {
-                    // Process still running, kill it
+    let start = Instant::now();
+
+    // Poll for completion with timeout
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => {
+                // Process finished, get output
+                return child
+                    .wait_with_output()
+                    .map_err(|e| format!("Failed to get process output: {}", e));
+            }
+            Ok(None) => {
+                // Process still running, check timeout
+                if start.elapsed() > timeout {
                     if let Err(e) = child.kill() {
                         return Err(format!("Failed to kill process: {}", e));
                     }
-                    Err(format!("Process timed out after {} seconds", timeout_secs))
+                    return Err(format!("Process timed out after {} seconds", timeout_secs));
                 }
-                Err(e) => Err(format!("Failed to wait for process: {}", e)),
+                // Wait a bit before checking again
+                thread::sleep(Duration::from_millis(100));
             }
+            Err(e) => return Err(format!("Failed to check process status: {}", e)),
         }
     }
 }
