@@ -99,6 +99,9 @@ fn compare_html() {
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        html {{
+            color-scheme: light dark;
+        }}
         * {{
             box-sizing: border-box;
         }}
@@ -106,8 +109,8 @@ fn compare_html() {
             font-family: 'Public Sans', system-ui, sans-serif;
             margin: 0;
             padding: 0;
-            background: #eee;
-            color: #333;
+            background: light-dark(#eee, #1a1a1a);
+            color: light-dark(#333, #e0e0e0);
         }}
         .page {{
             max-width: 1200px;
@@ -118,15 +121,15 @@ fn compare_html() {
         h1 {{
             font-weight: 600;
             font-size: 20px;
-            color: #1a1a1a;
+            color: light-dark(#1a1a1a, #e0e0e0);
             margin: 0 0 24px 0;
         }}
 
         /* Test card */
         .test-card {{
-            background: white;
+            background: light-dark(white, #2a2a2a);
             border-radius: 8px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            box-shadow: 0 1px 3px light-dark(rgba(0,0,0,0.08), rgba(0,0,0,0.3));
             margin-bottom: 16px;
             overflow: hidden;
         }}
@@ -135,13 +138,13 @@ fn compare_html() {
             align-items: center;
             justify-content: space-between;
             padding: 12px 16px;
-            border-bottom: 1px solid #eee;
-            background: #fafafa;
+            border-bottom: 1px solid light-dark(#eee, #444);
+            background: light-dark(#fafafa, #333);
         }}
         .test-title {{
             font-weight: 600;
             font-size: 13px;
-            color: #333;
+            color: light-dark(#333, #e0e0e0);
         }}
         .test-status {{
             font-size: 11px;
@@ -166,7 +169,7 @@ fn compare_html() {
             gap: 12px;
         }}
         .column {{
-            border: 1px solid #e5e5e5;
+            border: 1px solid light-dark(#e5e5e5, #444);
             border-radius: 6px;
             overflow: hidden;
         }}
@@ -176,19 +179,19 @@ fn compare_html() {
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.3px;
-            border-bottom: 1px solid #e5e5e5;
+            border-bottom: 1px solid light-dark(#e5e5e5, #444);
         }}
         .c-output .column-header {{
-            background: #eff6ff;
-            color: #1d4ed8;
+            background: light-dark(#eff6ff, #1e3a8a);
+            color: light-dark(#1d4ed8, #93c5fd);
         }}
         .rust-output .column-header {{
-            background: #fff7ed;
-            color: #c2410c;
+            background: light-dark(#fff7ed, #7c2d12);
+            color: light-dark(#c2410c, #fdba74);
         }}
         .svg-container {{
             padding: 12px;
-            background: #fafafa;
+            background: light-dark(#fafafa, #333);
             min-height: 60px;
             display: flex;
             align-items: center;
@@ -199,21 +202,26 @@ fn compare_html() {
             height: auto;
             max-height: 300px;
         }}
+        @media (prefers-color-scheme: dark) {{
+            .svg-container svg {{
+                filter: invert(1);
+            }}
+        }}
         .print-output {{
-            background: #f0f4ff;
-            border-bottom: 1px solid #c0d0f0;
+            background: light-dark(#f0f4ff, #1e3a8a);
+            border-bottom: 1px solid light-dark(#c0d0f0, #3730a3);
             padding: 8px 12px;
             font-family: 'SF Mono', Monaco, monospace;
             font-size: 11px;
             white-space: pre-wrap;
-            color: #336;
+            color: light-dark(#336, #93c5fd);
         }}
         .error {{
-            color: #991b1b;
+            color: light-dark(#991b1b, #fca5a5);
             font-family: 'SF Mono', Monaco, monospace;
             font-size: 11px;
             white-space: pre-wrap;
-            background: #fef2f2;
+            background: light-dark(#fef2f2, #7f1d1d);
             padding: 12px;
         }}
         details {{
@@ -223,15 +231,15 @@ fn compare_html() {
             cursor: pointer;
             font-size: 11px;
             font-weight: 500;
-            color: #666;
+            color: light-dark(#666, #999);
             padding: 4px 0;
         }}
         summary:hover {{
-            color: #333;
+            color: light-dark(#333, #e0e0e0);
         }}
         .source {{
-            background: #f8f8f8;
-            border: 1px solid #e0e0e0;
+            background: light-dark(#f8f8f8, #2a2a2a);
+            border: 1px solid light-dark(#e0e0e0, #444);
             padding: 8px 10px;
             font-family: 'SF Mono', Monaco, monospace;
             font-size: 11px;
@@ -273,21 +281,21 @@ fn compare_html() {
             right: 0;
             width: 180px;
             height: 100vh;
-            background: white;
-            border-left: 1px solid #ddd;
+            background: light-dark(white, #2a2a2a);
+            border-left: 1px solid light-dark(#ddd, #444);
             font-size: 11px;
-            box-shadow: -2px 0 8px rgba(0,0,0,0.05);
+            box-shadow: -2px 0 8px light-dark(rgba(0,0,0,0.05), rgba(0,0,0,0.3));
             display: flex;
             flex-direction: column;
         }}
         .nav-header {{
             padding: 12px;
-            border-bottom: 1px solid #eee;
+            border-bottom: 1px solid light-dark(#eee, #444);
             font-weight: 600;
             font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
-            color: #666;
+            color: light-dark(#666, #999);
             flex-shrink: 0;
         }}
         .nav-list {{
@@ -300,13 +308,13 @@ fn compare_html() {
             align-items: center;
             padding: 5px 8px;
             text-decoration: none;
-            color: #333;
+            color: light-dark(#333, #e0e0e0);
             border-radius: 4px;
             margin: 1px 0;
             transition: background 0.15s ease;
         }}
         nav a:hover {{
-            background: #f0f0f0;
+            background: light-dark(#f0f0f0, #444);
         }}
         .status-dot {{
             width: 6px;
