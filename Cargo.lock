@@ -2037,6 +2037,7 @@ dependencies = [
  "color-eyre",
  "crossterm",
  "divan",
+ "dodeca-code-execution",
  "dodeca-protocol",
  "facet",
  "facet-args",
@@ -2090,6 +2091,17 @@ dependencies = [
  "linkme",
  "plugcard",
  "postcard-schema",
+]
+
+[[package]]
+name = "dodeca-code-execution"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "facet-json",
+ "linkme",
+ "plugcard",
+ "pulldown-cmark",
 ]
 
 [[package]]

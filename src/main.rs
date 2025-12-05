@@ -120,15 +120,15 @@ enum Command {
 }
 
 fn print_usage() {
-    eprintln!(
-        "{} - Static site generator\n",
-        "ddc".cyan().bold()
-    );
+    eprintln!("{} - Static site generator\n", "ddc".cyan().bold());
     eprintln!("{}", "USAGE:".yellow());
     eprintln!("    ddc <COMMAND> [OPTIONS]\n");
     eprintln!("{}", "COMMANDS:".yellow());
     eprintln!("    {}      Build the site", "build".green());
-    eprintln!("    {}      Build and serve with live reload", "serve".green());
+    eprintln!(
+        "    {}      Build and serve with live reload",
+        "serve".green()
+    );
     eprintln!("    {}      Clear all caches", "clean".green());
     eprintln!("\n{}", "BUILD OPTIONS:".yellow());
     eprintln!("    [path]           Project directory");
@@ -287,7 +287,12 @@ async fn main() -> Result<()> {
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
 
             // Always use the mini build TUI for now
-            build_with_mini_tui(&cfg.content_dir, &cfg.output_dir, &cfg.skip_domains, cfg.rate_limit_ms)?;
+            build_with_mini_tui(
+                &cfg.content_dir,
+                &cfg.output_dir,
+                &cfg.skip_domains,
+                cfg.rate_limit_ms,
+            )?;
         }
         Command::Serve(args) => {
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
@@ -297,11 +302,27 @@ async fn main() -> Result<()> {
             let use_tui = args.force_tui || (!args.no_tui && std::io::stdout().is_terminal());
 
             if use_tui {
-                serve_with_tui(&cfg.content_dir, &cfg.output_dir, &args.address, args.port, args.open, cfg.stable_assets, args.public_access).await?;
+                serve_with_tui(
+                    &cfg.content_dir,
+                    &cfg.output_dir,
+                    &args.address,
+                    args.port,
+                    args.open,
+                    cfg.stable_assets,
+                    args.public_access,
+                )
+                .await?;
             } else {
                 // Plain mode - no TUI, serve from Salsa
                 logging::init_standard_tracing();
-                serve_plain(&cfg.content_dir, &args.address, args.port, args.open, cfg.stable_assets).await?;
+                serve_plain(
+                    &cfg.content_dir,
+                    &args.address,
+                    args.port,
+                    args.open,
+                    cfg.stable_assets,
+                )
+                .await?;
             }
         }
         Command::Clean(args) => {
@@ -309,7 +330,10 @@ async fn main() -> Result<()> {
             let base_dir = if let Some(p) = args.path {
                 Utf8PathBuf::from(p)
             } else if let Some(cfg) = ResolvedConfig::discover()? {
-                cfg.content_dir.parent().map(|p| p.to_owned()).unwrap_or(cfg.content_dir)
+                cfg.content_dir
+                    .parent()
+                    .map(|p| p.to_owned())
+                    .unwrap_or(cfg.content_dir)
             } else {
                 Utf8PathBuf::from(".")
             };
@@ -509,7 +533,8 @@ impl BuildContext {
 
             let source_path = SourcePath::new(relative);
             let source_content = SourceContent::new(content);
-            let source = SourceFile::new(&self.db, source_path.clone(), source_content, last_modified);
+            let source =
+                SourceFile::new(&self.db, source_path.clone(), source_content, last_modified);
             self.sources.insert(source_path, source);
         }
 
@@ -683,7 +708,8 @@ impl BuildContext {
         } else {
             // New file
             let source_path = SourcePath::new(relative_path.to_string());
-            let source = SourceFile::new(&self.db, source_path.clone(), source_content, last_modified);
+            let source =
+                SourceFile::new(&self.db, source_path.clone(), source_content, last_modified);
             self.sources.insert(source_path, source);
         }
 
@@ -842,6 +868,51 @@ pub fn build(
         data_registry,
     );
 
+    // Code execution validation
+    let failed_executions: Vec<_> = site_output
+        .code_execution_results
+        .iter()
+        .filter(|result| !result.success)
+        .collect();
+
+    if !failed_executions.is_empty() {
+        for failure in &failed_executions {
+            eprintln!(
+                "{}Code execution failed in {}:{} ({}): {}",
+                "✗ ".red(),
+                failure.source_path,
+                failure.line,
+                failure.language,
+                failure.error.as_deref().unwrap_or("Unknown error")
+            );
+            if !failure.stderr.is_empty() {
+                eprintln!("  stderr: {}", failure.stderr);
+            }
+        }
+
+        // In production mode, fail the build on code execution errors
+        if !render_options.dev_mode {
+            return Err(eyre!(
+                "Build failed: {} code sample(s) failed execution",
+                failed_executions.len()
+            ));
+        } else {
+            eprintln!(
+                "{}Warning: {} code sample(s) failed execution (continuing in dev mode)",
+                "⚠ ".yellow(),
+                failed_executions.len()
+            );
+        }
+    } else if !site_output.code_execution_results.is_empty() {
+        if verbose {
+            println!(
+                "{} {} code samples executed successfully",
+                "✓".green(),
+                site_output.code_execution_results.len()
+            );
+        }
+    }
+
     if let Some(ref p) = progress {
         p.update(|prog| {
             prog.parse.finish();
@@ -972,11 +1043,10 @@ pub fn build(
 
         // Build search index in a separate thread (pagefind is async)
         let output_for_search = site_output.clone();
-        let search_files = std::thread::spawn(move || {
-            search::build_search_index(&output_for_search)
-        })
-        .join()
-        .map_err(|_| eyre!("search thread panicked"))??;
+        let search_files =
+            std::thread::spawn(move || search::build_search_index(&output_for_search))
+                .join()
+                .map_err(|_| eyre!("search thread panicked"))??;
 
         // Write search index files
         for (path, content) in &search_files {
@@ -1140,6 +1210,47 @@ fn build_with_mini_tui(
         data_registry,
     );
 
+    // Code execution validation
+    let failed_executions: Vec<_> = site_output
+        .code_execution_results
+        .iter()
+        .filter(|result| !result.success)
+        .collect();
+
+    if !failed_executions.is_empty() {
+        // Clean up terminal before showing errors
+        if terminal.is_some() {
+            drop(terminal);
+            crossterm::execute!(io::stdout(), cursor::Show)?;
+        }
+
+        for failure in &failed_executions {
+            eprintln!(
+                "{}Code execution failed in {}:{} ({}): {}",
+                "✗ ".red(),
+                failure.source_path,
+                failure.line,
+                failure.language,
+                failure.error.as_deref().unwrap_or("Unknown error")
+            );
+            if !failure.stderr.is_empty() {
+                eprintln!("  stderr: {}", failure.stderr);
+            }
+        }
+
+        // In build mode, always fail on code execution errors
+        return Err(eyre!(
+            "Build failed: {} code sample(s) failed execution",
+            failed_executions.len()
+        ));
+    } else if !site_output.code_execution_results.is_empty() {
+        println!(
+            "{} {} code samples executed successfully",
+            "✓".green(),
+            site_output.code_execution_results.len()
+        );
+    }
+
     draw_progress(&mut terminal, "Writing...", &stats_for_display, 0, 0);
 
     // Write outputs
@@ -1300,11 +1411,9 @@ fn build_with_mini_tui(
     // Build search index (plugin blocks internally)
     let search_files = {
         let output = site_output.clone();
-        std::thread::spawn(move || {
-            search::build_search_index(&output)
-        })
-        .join()
-        .map_err(|_| eyre!("search thread panicked"))??
+        std::thread::spawn(move || search::build_search_index(&output))
+            .join()
+            .map_err(|_| eyre!("search thread panicked"))??
     };
 
     // Write search index files
@@ -1385,7 +1494,9 @@ fn handle_file_changed(
                 for source in sources.iter() {
                     if source.path(&*db).as_str() == relative_str {
                         use salsa::Setter;
-                        source.set_content(&mut *db).to(SourceContent::new(content.clone()));
+                        source
+                            .set_content(&mut *db)
+                            .to(SourceContent::new(content.clone()));
                         source.set_last_modified(&mut *db).to(last_modified);
                         found = true;
                         break;
@@ -1393,7 +1504,12 @@ fn handle_file_changed(
                 }
                 if !found {
                     let source_path = SourcePath::new(relative_str);
-                    let source = SourceFile::new(&*db, source_path, SourceContent::new(content), last_modified);
+                    let source = SourceFile::new(
+                        &*db,
+                        source_path,
+                        SourceContent::new(content),
+                        last_modified,
+                    );
                     sources.push(source);
                     use salsa::Setter;
                     server.source_registry.set_sources(&mut *db).to(sources);
@@ -1411,17 +1527,23 @@ fn handle_file_changed(
                 for template in templates.iter() {
                     if template.path(&*db).as_str() == relative_str {
                         use salsa::Setter;
-                        template.set_content(&mut *db).to(TemplateContent::new(content.clone()));
+                        template
+                            .set_content(&mut *db)
+                            .to(TemplateContent::new(content.clone()));
                         found = true;
                         break;
                     }
                 }
                 if !found {
                     let template_path = TemplatePath::new(relative_str);
-                    let template = TemplateFile::new(&*db, template_path, TemplateContent::new(content));
+                    let template =
+                        TemplateFile::new(&*db, template_path, TemplateContent::new(content));
                     templates.push(template);
                     use salsa::Setter;
-                    server.template_registry.set_templates(&mut *db).to(templates);
+                    server
+                        .template_registry
+                        .set_templates(&mut *db)
+                        .to(templates);
                     println!("  {} Added new template: {}", "+".green(), relative);
                 }
             }
@@ -1436,7 +1558,9 @@ fn handle_file_changed(
                 for sass_file in sass_files.iter() {
                     if sass_file.path(&*db).as_str() == relative_str {
                         use salsa::Setter;
-                        sass_file.set_content(&mut *db).to(SassContent::new(content.clone()));
+                        sass_file
+                            .set_content(&mut *db)
+                            .to(SassContent::new(content.clone()));
                         found = true;
                         break;
                     }
@@ -1495,7 +1619,9 @@ fn handle_file_changed(
                 for data_file in data_files.iter() {
                     if data_file.path(&*db).as_str() == relative_str {
                         use salsa::Setter;
-                        data_file.set_content(&mut *db).to(DataContent::new(content.clone()));
+                        data_file
+                            .set_content(&mut *db)
+                            .to(DataContent::new(content.clone()));
                         found = true;
                         break;
                     }
@@ -1537,7 +1663,10 @@ fn handle_file_removed(
             let mut db = server.db.lock().unwrap();
             // Access registry directly (don't use get_sources() which would deadlock)
             let mut sources = server.source_registry.sources(&*db).clone();
-            if let Some(pos) = sources.iter().position(|s| s.path(&*db).as_str() == relative_str) {
+            if let Some(pos) = sources
+                .iter()
+                .position(|s| s.path(&*db).as_str() == relative_str)
+            {
                 sources.remove(pos);
                 server.source_registry.set_sources(&mut *db).to(sources);
             }
@@ -1546,16 +1675,25 @@ fn handle_file_removed(
             let mut db = server.db.lock().unwrap();
             // Access registry directly (don't use get_templates() which would deadlock)
             let mut templates = server.template_registry.templates(&*db).clone();
-            if let Some(pos) = templates.iter().position(|t| t.path(&*db).as_str() == relative_str) {
+            if let Some(pos) = templates
+                .iter()
+                .position(|t| t.path(&*db).as_str() == relative_str)
+            {
                 templates.remove(pos);
-                server.template_registry.set_templates(&mut *db).to(templates);
+                server
+                    .template_registry
+                    .set_templates(&mut *db)
+                    .to(templates);
             }
         }
         PathCategory::Sass => {
             let mut db = server.db.lock().unwrap();
             // Access registry directly (don't use get_sass_files() which would deadlock)
             let mut sass_files = server.sass_registry.files(&*db).clone();
-            if let Some(pos) = sass_files.iter().position(|s| s.path(&*db).as_str() == relative_str) {
+            if let Some(pos) = sass_files
+                .iter()
+                .position(|s| s.path(&*db).as_str() == relative_str)
+            {
                 sass_files.remove(pos);
                 server.sass_registry.set_files(&mut *db).to(sass_files);
             }
@@ -1564,7 +1702,10 @@ fn handle_file_removed(
             let mut db = server.db.lock().unwrap();
             // Access registry directly (don't use get_static_files() which would deadlock)
             let mut static_files = server.static_registry.files(&*db).clone();
-            if let Some(pos) = static_files.iter().position(|s| s.path(&*db).as_str() == relative_str) {
+            if let Some(pos) = static_files
+                .iter()
+                .position(|s| s.path(&*db).as_str() == relative_str)
+            {
                 static_files.remove(pos);
                 server.static_registry.set_files(&mut *db).to(static_files);
             }
@@ -1573,7 +1714,10 @@ fn handle_file_removed(
             let mut db = server.db.lock().unwrap();
             // Access registry directly (don't use get_data_files() which would deadlock)
             let mut data_files = server.data_registry.files(&*db).clone();
-            if let Some(pos) = data_files.iter().position(|d| d.path(&*db).as_str() == relative_str) {
+            if let Some(pos) = data_files
+                .iter()
+                .position(|d| d.path(&*db).as_str() == relative_str)
+            {
                 data_files.remove(pos);
                 server.data_registry.set_files(&mut *db).to(data_files);
             }
@@ -1792,11 +1936,11 @@ async fn serve_plain(
                 let mut paths: Vec<_> = search_files.keys().collect();
                 paths.sort();
                 for path in &paths {
-                    println!("  Search file: {path}");
+                    tracing::debug!("  Search file: {path}");
                 }
                 let mut sf = server_for_search.search_files.write().unwrap();
                 *sf = search_files;
-                println!("  Search index ready ({count} files)");
+                tracing::info!("  Search index ready ({count} files)");
             }
             Err(e) => {
                 eprintln!("{} Search index error: {}", "error:".red(), e);
@@ -1815,11 +1959,21 @@ async fn serve_plain(
 
     // Canonicalize paths for comparison with notify events
     let watcher_config = file_watcher::WatcherConfig {
-        content_dir: content_dir.canonicalize_utf8().unwrap_or_else(|_| content_dir.clone()),
-        templates_dir: templates_dir.canonicalize_utf8().unwrap_or_else(|_| templates_dir.clone()),
-        sass_dir: sass_dir.canonicalize_utf8().unwrap_or_else(|_| sass_dir.clone()),
-        static_dir: static_dir.canonicalize_utf8().unwrap_or_else(|_| static_dir.clone()),
-        data_dir: data_dir.canonicalize_utf8().unwrap_or_else(|_| data_dir.clone()),
+        content_dir: content_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| content_dir.clone()),
+        templates_dir: templates_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| templates_dir.clone()),
+        sass_dir: sass_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| sass_dir.clone()),
+        static_dir: static_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| static_dir.clone()),
+        data_dir: data_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| data_dir.clone()),
     };
 
     let (watcher, watcher_rx) = file_watcher::create_watcher(&watcher_config)?;
@@ -1844,7 +1998,8 @@ async fn serve_plain(
                 Err(_) => continue,
             };
 
-            let mut file_events = file_watcher::process_notify_event(event, &watcher_config, &watcher);
+            let mut file_events =
+                file_watcher::process_notify_event(event, &watcher_config, &watcher);
             if file_events.is_empty() {
                 continue;
             }
@@ -1878,11 +2033,19 @@ async fn serve_plain(
                         handle_file_changed(&path, &watcher_config, &server_for_watcher);
                     }
                     file_watcher::FileEvent::Removed(path) => {
-                        println!("  {} Removed: {}", "-".red(), path.file_name().unwrap_or("?"));
+                        println!(
+                            "  {} Removed: {}",
+                            "-".red(),
+                            path.file_name().unwrap_or("?")
+                        );
                         handle_file_removed(&path, &watcher_config, &server_for_watcher);
                     }
                     file_watcher::FileEvent::DirectoryCreated(path) => {
-                        println!("  {} New directory: {}", "+".green(), path.file_name().unwrap_or("?"));
+                        println!(
+                            "  {} New directory: {}",
+                            "+".green(),
+                            path.file_name().unwrap_or("?")
+                        );
                     }
                 }
             }
@@ -1931,7 +2094,11 @@ async fn serve_plain(
 /// and updates the search index. Salsa memoization makes this fast for unchanged pages.
 fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::SearchFiles> {
     // Snapshot pattern: lock, clone, release, then query the clone
-    let db = server.db.lock().map_err(|_| eyre!("db lock poisoned"))?.clone();
+    let db = server
+        .db
+        .lock()
+        .map_err(|_| eyre!("db lock poisoned"))?
+        .clone();
 
     // Build the site (Salsa will cache/reuse unchanged computations)
     let site_output = queries::build_site(
@@ -1945,11 +2112,9 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
 
     // Build search index (plugin blocks internally)
     let output = site_output.clone();
-    std::thread::spawn(move || {
-        search::build_search_index(&output)
-    })
-    .join()
-    .map_err(|_| eyre!("search thread panicked"))?
+    std::thread::spawn(move || search::build_search_index(&output))
+        .join()
+        .map_err(|_| eyre!("search thread panicked"))?
 }
 
 /// Serve with TUI progress display and file watching
@@ -1993,7 +2158,10 @@ async fn serve_with_tui(
     let server = Arc::new(serve::SiteServer::new(render_options, stable_assets));
 
     // Load cached query results (e.g., processed images) from disk
-    let cache_path = content_dir.parent().unwrap_or(content_dir).join(".cache/dodeca.bin");
+    let cache_path = content_dir
+        .parent()
+        .unwrap_or(content_dir)
+        .join(".cache/dodeca.bin");
     if let Err(e) = server.load_cache(cache_path.as_std_path()) {
         let _ = event_tx.send(LogEvent::warn(format!("Failed to load cache: {e}")));
     }
@@ -2132,10 +2300,7 @@ async fn serve_with_tui(
         drop(db);
         server.set_templates(templates);
 
-        let _ = event_tx.send(LogEvent::build(format!(
-            "Loaded {} templates",
-            count
-        )));
+        let _ = event_tx.send(LogEvent::build(format!("Loaded {} templates", count)));
     }
 
     // Load static files into Salsa
@@ -2205,10 +2370,7 @@ async fn serve_with_tui(
         drop(db);
         server.set_sass_files(sass_files);
 
-        let _ = event_tx.send(LogEvent::build(format!(
-            "Loaded {} SASS files",
-            count
-        )));
+        let _ = event_tx.send(LogEvent::build(format!("Loaded {} SASS files", count)));
     }
 
     // Build initial search index in background
@@ -2227,7 +2389,7 @@ async fn serve_with_tui(
         Err(e) => {
             let _ = event_tx_for_search.send(
                 LogEvent::error(format!("Search index error: {e}"))
-                    .with_kind(crate::tui::EventKind::Search)
+                    .with_kind(crate::tui::EventKind::Search),
             );
         }
     });
@@ -2238,7 +2400,9 @@ async fn serve_with_tui(
         prog.sass.finish();
     });
 
-    let _ = event_tx.send(LogEvent::server("Server ready - content served from memory"));
+    let _ = event_tx.send(LogEvent::server(
+        "Server ready - content served from memory",
+    ));
 
     // Set up file watcher for content and templates
     let (watch_tx, watch_rx) = mpsc::channel();
@@ -2412,10 +2576,12 @@ async fn serve_with_tui(
                                     if path_str.contains(".tmp.") || path_str.ends_with("~") {
                                         return false;
                                     }
-                                    let is_known_ext = p.extension()
+                                    let is_known_ext = p
+                                        .extension()
                                         .map(|e| e == "md" || e == "scss" || e == "html")
                                         .unwrap_or(false);
-                                    let is_static = p.starts_with(static_dir_for_watcher.as_std_path());
+                                    let is_static =
+                                        p.starts_with(static_dir_for_watcher.as_std_path());
                                     is_known_ext || is_static
                                 })
                                 .filter_map(|p| Utf8PathBuf::from_path_buf(p.clone()).ok())
@@ -2435,13 +2601,17 @@ async fn serve_with_tui(
                                     Some("scss") | Some("sass") => "style",
                                     Some("css") => "css",
                                     Some("js") | Some("ts") => "script",
-                                    Some("png") | Some("jpg") | Some("jpeg") | Some("gif") | Some("svg") | Some("webp") | Some("avif") => "image",
-                                    Some("woff") | Some("woff2") | Some("ttf") | Some("otf") => "font",
+                                    Some("png") | Some("jpg") | Some("jpeg") | Some("gif")
+                                    | Some("svg") | Some("webp") | Some("avif") => "image",
+                                    Some("woff") | Some("woff2") | Some("ttf") | Some("otf") => {
+                                        "font"
+                                    }
                                     _ => "file",
                                 };
-                                let _ = event_tx_for_watcher.send(
-                                    LogEvent::file_change(format!("{} changed: {}", file_type, filename))
-                                );
+                                let _ = event_tx_for_watcher.send(LogEvent::file_change(format!(
+                                    "{} changed: {}",
+                                    file_type, filename
+                                )));
 
                                 // Update the file in the server's Salsa database
                                 // Access registry directly (don't use get_*() helpers which would deadlock)
@@ -2449,7 +2619,10 @@ async fn serve_with_tui(
                                     if let Ok(relative) = path.strip_prefix(&content_for_watcher) {
                                         if let Ok(content) = fs::read_to_string(path) {
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let sources = server_for_watcher.source_registry.sources(&*db).clone();
+                                            let sources = server_for_watcher
+                                                .source_registry
+                                                .sources(&*db)
+                                                .clone();
 
                                             // Find existing source and update it
                                             let relative_str = relative.to_string();
@@ -2470,7 +2643,10 @@ async fn serve_with_tui(
                                     {
                                         if let Ok(content) = fs::read_to_string(path) {
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let templates = server_for_watcher.template_registry.templates(&*db).clone();
+                                            let templates = server_for_watcher
+                                                .template_registry
+                                                .templates(&*db)
+                                                .clone();
 
                                             // Find existing template and update it
                                             let relative_str = relative.to_string();
@@ -2485,7 +2661,9 @@ async fn serve_with_tui(
                                                     };
                                                     tracing::info!(
                                                         "📝 template changed: {} (content hash: {:016x}, {} bytes)",
-                                                        relative_str, content_hash, content.len()
+                                                        relative_str,
+                                                        content_hash,
+                                                        content.len()
                                                     );
                                                     template
                                                         .set_content(&mut *db)
@@ -2499,7 +2677,10 @@ async fn serve_with_tui(
                                     if let Ok(relative) = path.strip_prefix(&sass_dir_for_watcher) {
                                         if let Ok(content) = fs::read_to_string(path) {
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let sass_files = server_for_watcher.sass_registry.files(&*db).clone();
+                                            let sass_files = server_for_watcher
+                                                .sass_registry
+                                                .files(&*db)
+                                                .clone();
 
                                             // Find existing sass file and update it
                                             let relative_str = relative.to_string();
@@ -2516,22 +2697,31 @@ async fn serve_with_tui(
                                     }
                                 } else if path.starts_with(&static_dir_for_watcher) {
                                     // Static file changed (CSS, fonts, images, etc.)
-                                    if let Ok(relative) = path.strip_prefix(&static_dir_for_watcher) {
+                                    if let Ok(relative) = path.strip_prefix(&static_dir_for_watcher)
+                                    {
                                         if let Ok(content) = fs::read(path) {
                                             // Skip empty files (transient state during git operations)
                                             if content.is_empty() {
                                                 continue;
                                             }
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let static_files = server_for_watcher.static_registry.files(&*db).clone();
+                                            let static_files = server_for_watcher
+                                                .static_registry
+                                                .files(&*db)
+                                                .clone();
 
                                             // Find existing static file and update it
                                             let relative_str = relative.to_string();
-                                            tracing::debug!("Looking for static file: {relative_str}");
+                                            tracing::debug!(
+                                                "Looking for static file: {relative_str}"
+                                            );
                                             for static_file in static_files.iter() {
-                                                let stored_path = static_file.path(&*db).as_str().to_string();
+                                                let stored_path =
+                                                    static_file.path(&*db).as_str().to_string();
                                                 if stored_path == relative_str {
-                                                    tracing::info!("Updating static file: {relative_str}");
+                                                    tracing::info!(
+                                                        "Updating static file: {relative_str}"
+                                                    );
                                                     use salsa::Setter;
                                                     static_file
                                                         .set_content(&mut *db)
@@ -2558,14 +2748,14 @@ async fn serve_with_tui(
                                         let mut sf =
                                             server_for_search.search_files.write().unwrap();
                                         *sf = search_files;
-                                        let _ = event_tx_for_search.send(
-                                            LogEvent::search(format!("Search index updated ({count} pages)"))
-                                        );
+                                        let _ = event_tx_for_search.send(LogEvent::search(
+                                            format!("Search index updated ({count} pages)"),
+                                        ));
                                     }
                                     Err(e) => {
                                         let _ = event_tx_for_search.send(
                                             LogEvent::error(format!("Search rebuild failed: {e}"))
-                                                .with_kind(crate::tui::EventKind::Search)
+                                                .with_kind(crate::tui::EventKind::Search),
                                         );
                                     }
                                 }

@@ -65,3 +65,16 @@ ddc serve
 ```
 
 Open http://localhost:4000 and start editing. Changes appear instantly.
+
+## Code samples
+
+Add Rust code to your markdown - it runs automatically to make sure it works:
+
+```markdown
+​```rust  
+let message = "Hello from dodeca!";
+println!("{}", message);
+​```
+```
+
+If the code breaks, your build fails. No more embarrassing broken examples in your docs!
