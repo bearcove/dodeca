@@ -3,7 +3,8 @@
 use facet::Facet;
 
 /// A single SVG path command
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
 pub enum PathCommand {
     /// Move to (absolute)
     MoveTo { x: f64, y: f64 },
