@@ -478,8 +478,8 @@ impl RenderContext {
         match self.direction {
             Direction::Right => self.position.x += distance,
             Direction::Left => self.position.x -= distance,
-            Direction::Up => self.position.y -= distance,
-            Direction::Down => self.position.y += distance,
+            Direction::Up => self.position.y += distance,
+            Direction::Down => self.position.y -= distance,
         }
     }
 
@@ -504,11 +504,10 @@ impl RenderContext {
 fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
     match obj.class {
         ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Arc => {
-            // Include stroke thickness padding for lines
-            let pad = obj.style.stroke_width / 2.0;
+            // C pikchr does not enlarge the bounding box by stroke width for line-like objects.
+            // Using the raw waypoints here keeps the computed viewBox identical to the C output.
             for pt in &obj.waypoints {
-                bounds.expand_point(Point::new(pt.x - pad, pt.y - pad));
-                bounds.expand_point(Point::new(pt.x + pad, pt.y + pad));
+                bounds.expand_point(Point::new(pt.x, pt.y));
             }
             // Include text labels for lines (they extend above and below)
             if !obj.text.is_empty() {
@@ -1035,8 +1034,8 @@ fn render_object_stmt(
                 match dir {
                     Direction::Right => direction_offset_x += distance,
                     Direction::Left => direction_offset_x -= distance,
-                    Direction::Up => direction_offset_y -= distance,
-                    Direction::Down => direction_offset_y += distance,
+                    Direction::Up => direction_offset_y += distance,
+                    Direction::Down => direction_offset_y -= distance,
                 }
             }
             Attribute::DirectionEven(_go, dir, pos) => {
@@ -1059,8 +1058,8 @@ fn render_object_stmt(
                     match ctx.direction {
                         Direction::Right => direction_offset_x += val,
                         Direction::Left => direction_offset_x -= val,
-                        Direction::Up => direction_offset_y -= val,
-                        Direction::Down => direction_offset_y += val,
+                        Direction::Up => direction_offset_y += val,
+                        Direction::Down => direction_offset_y -= val,
                     }
                 }
             }
@@ -1384,8 +1383,8 @@ fn move_in_direction(pos: PointIn, dir: Direction, distance: Inches) -> PointIn 
     match dir {
         Direction::Right => Point::new(pos.x + distance, pos.y),
         Direction::Left => Point::new(pos.x - distance, pos.y),
-        Direction::Up => Point::new(pos.x, pos.y - distance),
-        Direction::Down => Point::new(pos.x, pos.y + distance),
+        Direction::Up => Point::new(pos.x, pos.y + distance),
+        Direction::Down => Point::new(pos.x, pos.y - distance),
     }
 }
 
@@ -1476,12 +1475,12 @@ fn calculate_object_position_at(
             Point::new(center.x - width / 2.0, center.y),
         ),
         Direction::Up => (
-            Point::new(center.x, center.y + height / 2.0),
             Point::new(center.x, center.y - height / 2.0),
+            Point::new(center.x, center.y + height / 2.0),
         ),
         Direction::Down => (
-            Point::new(center.x, center.y - height / 2.0),
             Point::new(center.x, center.y + height / 2.0),
+            Point::new(center.x, center.y - height / 2.0),
         ),
     };
     (center, start, end)
@@ -1500,8 +1499,8 @@ fn calculate_object_position(
             let end = match ctx.direction {
                 Direction::Right => Point::new(start.x + width, start.y),
                 Direction::Left => Point::new(start.x - width, start.y),
-                Direction::Up => Point::new(start.x, start.y - width),
-                Direction::Down => Point::new(start.x, start.y + width),
+                Direction::Up => Point::new(start.x, start.y + width),
+                Direction::Down => Point::new(start.x, start.y - width),
             };
             let mid = start.midpoint(end);
             (start, end, mid)
@@ -1514,20 +1513,20 @@ fn calculate_object_position(
             let center = match ctx.direction {
                 Direction::Right => Point::new(ctx.position.x + half_w, ctx.position.y),
                 Direction::Left => Point::new(ctx.position.x - half_w, ctx.position.y),
-                Direction::Up => Point::new(ctx.position.x, ctx.position.y - half_h),
-                Direction::Down => Point::new(ctx.position.x, ctx.position.y + half_h),
+                Direction::Up => Point::new(ctx.position.x, ctx.position.y + half_h),
+                Direction::Down => Point::new(ctx.position.x, ctx.position.y - half_h),
             };
             let start = match ctx.direction {
                 Direction::Right => Point::new(center.x - half_w, center.y),
                 Direction::Left => Point::new(center.x + half_w, center.y),
-                Direction::Up => Point::new(center.x, center.y + half_h),
-                Direction::Down => Point::new(center.x, center.y - half_h),
+                Direction::Up => Point::new(center.x, center.y - half_h),
+                Direction::Down => Point::new(center.x, center.y + half_h),
             };
             let end = match ctx.direction {
                 Direction::Right => Point::new(center.x + half_w, center.y),
                 Direction::Left => Point::new(center.x - half_w, center.y),
-                Direction::Up => Point::new(center.x, center.y - half_h),
-                Direction::Down => Point::new(center.x, center.y + half_h),
+                Direction::Up => Point::new(center.x, center.y + half_h),
+                Direction::Down => Point::new(center.x, center.y - half_h),
             };
             (start, end, center)
         }
@@ -1791,8 +1790,8 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, miette:
             // Pikchr uses Y-UP semantics in user syntax, but we use Y-DOWN internally.
             // So adding Y moves up (smaller Y in our system), subtracting moves down.
             match op {
-                BinaryOp::Add => Ok(Point::new(base.x + dx_val, base.y - dy_val)),
-                BinaryOp::Sub => Ok(Point::new(base.x - dx_val, base.y + dy_val)),
+                BinaryOp::Add => Ok(Point::new(base.x + dx_val, base.y + dy_val)),
+                BinaryOp::Sub => Ok(Point::new(base.x - dx_val, base.y - dy_val)),
                 _ => Ok(base),
             }
         }
@@ -1819,8 +1818,8 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, miette:
             let d = eval_len(ctx, dist)?;
             let base = eval_position(ctx, base_pos)?;
             match ab {
-                AboveBelow::Above => Ok(Point::new(base.x, base.y - d)),
-                AboveBelow::Below => Ok(Point::new(base.x, base.y + d)),
+                AboveBelow::Above => Ok(Point::new(base.x, base.y + d)),
+                AboveBelow::Below => Ok(Point::new(base.x, base.y - d)),
             }
         }
         Position::LeftRightOf(dist, lr, base_pos) => {
@@ -1846,10 +1845,11 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, miette:
                 HeadingDir::Expr(e) => eval_scalar(ctx, e).unwrap_or(0.0),
             };
             // Convert angle (degrees, 0 = north, clockwise) to radians
-            let rad = (90.0 - angle).to_radians();
+            // Matching C pikchr: pt.x += dist*sin(r); pt.y += dist*cos(r);
+            let rad = angle.to_radians();
             Ok(Point::new(
-                base.x + Inches(d.0 * rad.cos()),
-                base.y - Inches(d.0 * rad.sin()),
+                base.x + Inches(d.0 * rad.sin()),
+                base.y + Inches(d.0 * rad.cos()),
             ))
         }
         Position::Tuple(pos1, pos2) => {
@@ -2932,6 +2932,86 @@ fn apply_auto_chop_simple_line(
     (new_start.0, new_start.1, new_end.0, new_end.1)
 }
 
+/// Compass points for discrete attachment like C pikchr
+#[derive(Debug, Clone, Copy)]
+enum CompassPoint {
+    North,
+    NorthEast,
+    East,
+    SouthEast,
+    South,
+    SouthWest,
+    West,
+    NorthWest,
+}
+
+/// Chop against box using discrete compass points like C pikchr
+fn chop_against_box_compass_point(
+    cx: f64,
+    cy: f64,
+    half_w: f64,
+    half_h: f64,
+    toward: (f64, f64),
+) -> Option<(f64, f64)> {
+    if half_w <= 0.0 || half_h <= 0.0 {
+        return None;
+    }
+
+    // Calculate direction from box center to target point
+    let dx = toward.0 - cx;
+    // SVG Y increases downward; flip dy for compass math so 0° = north like C pikchr
+    let dy = -(toward.1 - cy);
+
+    // C pikchr logic: determine compass point based on angle
+    // Uses slope thresholds to divide 360 degrees into 8 sectors
+    let compass_point = if dx > 0.0 {
+        if dy >= 2.414 * dx {
+            CompassPoint::North // > 67.5 degrees
+        } else if dy > 0.414 * dx {
+            CompassPoint::NorthEast // 22.5 to 67.5 degrees
+        } else if dy > -0.414 * dx {
+            CompassPoint::East // -22.5 to 22.5 degrees
+        } else if dy > -2.414 * dx {
+            CompassPoint::SouthEast // -67.5 to -22.5 degrees
+        } else {
+            CompassPoint::South // < -67.5 degrees
+        }
+    } else if dx < 0.0 {
+        if dy >= -2.414 * dx {
+            CompassPoint::North // > 67.5 degrees
+        } else if dy > -0.414 * dx {
+            CompassPoint::NorthWest // 22.5 to 67.5 degrees
+        } else if dy > 0.414 * dx {
+            CompassPoint::West // -22.5 to 22.5 degrees
+        } else if dy > 2.414 * dx {
+            CompassPoint::SouthWest // -67.5 to -22.5 degrees
+        } else {
+            CompassPoint::South // < -67.5 degrees
+        }
+    } else {
+        // dx == 0, vertical line
+        if dy >= 0.0 {
+            CompassPoint::North
+        } else {
+            CompassPoint::South
+        }
+    };
+
+    // Return coordinates of the specific compass point
+    let result = match compass_point {
+        CompassPoint::North => (cx, cy - half_h),
+        CompassPoint::NorthEast => (cx + half_w, cy - half_h),
+        CompassPoint::East => (cx + half_w, cy),
+        CompassPoint::SouthEast => (cx + half_w, cy + half_h),
+        CompassPoint::South => (cx, cy + half_h),
+        CompassPoint::SouthWest => (cx - half_w, cy + half_h),
+        CompassPoint::West => (cx - half_w, cy),
+        CompassPoint::NorthWest => (cx - half_w, cy - half_h),
+    };
+
+    Some(result)
+}
+
 fn chop_against_endpoint(
     scaler: &Scaler,
     endpoint: &EndpointObject,
@@ -2948,7 +3028,9 @@ fn chop_against_endpoint(
         ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval | ObjectClass::Cylinder => {
             chop_against_ellipse(cx, cy, half_w, half_h, toward)
         }
-        ObjectClass::Box | ObjectClass::File => chop_against_box(cx, cy, half_w, half_h, toward),
+        ObjectClass::Box | ObjectClass::File => {
+            chop_against_box_compass_point(cx, cy, half_w, half_h, toward)
+        }
         ObjectClass::Diamond => chop_against_diamond(cx, cy, half_w, half_h, toward),
         _ => None,
     }

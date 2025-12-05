@@ -738,3 +738,22 @@ mod tests {
         // assert!(failures.is_empty(), "{} files failed to render unexpectedly", fail);
     }
 }
+
+#[test]
+fn test_debug_chop() {
+    let input = r#"C: box "box"
+line from C to 3cm heading 0 from C chop;
+line from C to 3cm heading 90 from C chop;"#;
+
+    let result = pikchr(input).unwrap();
+
+    // Write to file for inspection
+    std::fs::write("debug_minimal_rust.svg", &result).expect("Failed to write SVG");
+    println!("Generated debug_minimal_rust.svg");
+    println!("Rust output:");
+    println!("{}", result);
+
+    // Check that the result contains expected elements
+    assert!(result.contains("box"));
+    assert!(result.contains("<path"));
+}

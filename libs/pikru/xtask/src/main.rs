@@ -1,7 +1,9 @@
 use pikru::compare::{compare_outputs, extract_pre_svg_text, extract_svg, CompareResult};
+use rayon::prelude::*;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -9,11 +11,13 @@ fn main() {
         eprintln!("Usage: cargo xtask <command>");
         eprintln!("Commands:");
         eprintln!("  compare-html    Generate HTML comparison of all test outputs");
+        eprintln!("  generate-pngs   Generate PNG files from SVG outputs for visual debugging");
         std::process::exit(1);
     }
 
     match args[1].as_str() {
         "compare-html" => compare_html(),
+        "generate-pngs" => generate_pngs(),
         _ => {
             eprintln!("Unknown command: {}", args[1]);
             std::process::exit(1);
@@ -534,4 +538,87 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+fn generate_pngs() {
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let debug_svg_dir = Path::new(manifest_dir).join("../debug-svg");
+
+    if !debug_svg_dir.exists() {
+        eprintln!(
+            "debug-svg directory not found. Run 'cargo test' or 'cargo xtask compare-html' first."
+        );
+        std::process::exit(1);
+    }
+
+    // Check if rsvg-convert is available
+    if Command::new("rsvg-convert")
+        .arg("--version")
+        .output()
+        .is_err()
+    {
+        eprintln!("rsvg-convert not found. Please install librsvg2-bin (Ubuntu/Debian) or librsvg (macOS)");
+        std::process::exit(1);
+    }
+
+    println!("Generating PNG files from SVG outputs...");
+
+    let entries = fs::read_dir(&debug_svg_dir).expect("Failed to read debug-svg directory");
+    let mut svg_files = Vec::new();
+
+    for entry in entries {
+        let entry = entry.expect("Failed to read directory entry");
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) == Some("svg") {
+            svg_files.push(path);
+        }
+    }
+
+    if svg_files.is_empty() {
+        eprintln!("No SVG files found in debug-svg directory");
+        std::process::exit(1);
+    }
+
+    let processed = AtomicUsize::new(0);
+    let total = svg_files.len();
+
+    svg_files.par_iter().for_each(|svg_file| {
+        let png_file = svg_file.with_extension("png");
+
+        let output = Command::new("rsvg-convert")
+            .arg("-w")
+            .arg("400") // Set width to 400px for consistent sizing
+            .arg("-h")
+            .arg("400") // Set height to 400px
+            .arg(&svg_file)
+            .arg("-o")
+            .arg(&png_file)
+            .output()
+            .expect("Failed to run rsvg-convert");
+
+        let count = processed.fetch_add(1, Ordering::Relaxed) + 1;
+        if output.status.success() {
+            println!(
+                "[{}/{}] Converted {} ✓",
+                count,
+                total,
+                svg_file.file_name().unwrap().to_str().unwrap()
+            );
+        } else {
+            eprintln!(
+                "[{}/{}] Failed to convert {}: {}",
+                count,
+                total,
+                svg_file.display(),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    });
+
+    println!(
+        "Generated {} PNG files in {}",
+        svg_files.len(),
+        debug_svg_dir.display()
+    );
+    println!("You can now view the PNG files to visually compare C vs Rust outputs.");
 }
