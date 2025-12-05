@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/gingembre", "crates/livereload-client", "crates/dodeca-devtools", "crates/dodeca-protocol", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "crates/dodeca-pagefind", "crates/dodeca-image", "crates/dodeca-fonts", "crates/dodeca-linkcheck", "xtask"]
+members = [".", "crates/gingembre", "crates/livereload-client", "crates/dodeca-devtools", "crates/dodeca-protocol", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "crates/dodeca-pagefind", "crates/dodeca-image", "crates/dodeca-fonts", "crates/dodeca-linkcheck", "crates/dodeca-code-execution", "xtask"]
 
 [package]
 name = "dodeca"

@@ -4,7 +4,7 @@ use crate::db::{
     SiteOutput, SiteTree, SourceFile, SourceRegistry, StaticFile, StaticFileOutput, StaticRegistry,
     TemplateFile, TemplateRegistry,
 };
-use crate::code_execution::{execute_samples_from_source, CodeExecutionConfig, format_execution_error};
+
 use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
 use crate::url_rewrite::{
@@ -63,31 +63,7 @@ pub fn build_template_lookup<'db>(
     lookup
 }
 
-/// Execute code samples from all source files
-#[salsa::tracked]
-pub fn execute_code_samples<'db>(
-    db: &'db dyn Db,
-    sources: SourceRegistry,
-    config: CodeExecutionConfig,
-) -> Vec<(crate::types::SourcePath, Vec<(crate::code_execution::CodeSample, crate::code_execution::ExecutionResult)>)> {
-    let mut all_results = Vec::new();
-    
-    if !config.enabled {
-        return all_results;
-    }
 
-    for source in sources.files(db) {
-        let source_path = source.path(db);
-        let content = load_source(db, *source);
-        let results = execute_samples_from_source(source_path, content.as_str(), &config);
-        
-        if !results.is_empty() {
-            all_results.push((source_path.clone(), results));
-        }
-    }
-
-    all_results
-}
 
 /// A template loader that uses Salsa tracked queries for fine-grained dependency tracking.
 /// When a template is loaded, Salsa records it as a dependency of the current query,
@@ -102,7 +78,7 @@ impl<'db> SalsaTemplateLoader<'db> {
     pub fn new(db: &'db dyn Db, registry: TemplateRegistry) -> Self {
         Self {
             db,
-            lookup: template_lookup(db, registry),
+            lookup: build_template_lookup(db, registry),
         }
     }
 }
@@ -1053,14 +1029,8 @@ pub fn build_site<'db>(
         });
     }
 
-    // --- Phase 8: Execute code samples (validation) ---
-    // Use default config for now - this could be made configurable later
-    let code_config = CodeExecutionConfig::default();
-    let execution_results = execute_code_samples(db, sources, code_config);
-
     SiteOutput { 
         files,
-        code_execution_results: execution_results,
     }
 }
 
