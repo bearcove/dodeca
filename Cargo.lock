@@ -2093,6 +2093,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dodeca-code-execution"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "facet-json",
+ "linkme",
+ "plugcard",
+ "pulldown-cmark",
+]
+
+[[package]]
 name = "dodeca-css"
 version = "0.1.0"
 dependencies = [

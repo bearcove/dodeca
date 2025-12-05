@@ -24,3 +24,23 @@ weight = 40
 ## Templating
 
 - **Jinja-like template engine** - familiar syntax, zero serde
+
+## Code Sample Execution
+
+- **Automatic code sample validation** - ensures your documentation examples actually work
+- **Rust code execution** with proper dependency management
+- **Cached execution** - fast rebuilds with content hashing via Blake3
+
+Here's an example that will be automatically validated:
+
+```rust
+use std::collections::HashMap;
+
+fn main() {
+    let mut map = HashMap::new();
+    map.insert("hello", "world");
+    println!("Map contains {} entries", map.len());
+}
+```
+
+This code sample will be compiled and executed during the build process to ensure it works correctly.

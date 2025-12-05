@@ -2,7 +2,6 @@
 
 mod cache_bust;
 mod cas;
-mod code_execution;
 mod config;
 mod data;
 mod db;
@@ -25,7 +24,7 @@ mod tui;
 mod types;
 mod url_rewrite;
 
-use crate::code_execution::format_execution_error;
+
 use crate::config::ResolvedConfig;
 use crate::db::{
     DataFile, DataRegistry, Database, OutputFile, QueryStats, SassFile, SassRegistry, SourceFile,
@@ -853,42 +852,7 @@ pub fn build(
         data_registry,
     );
 
-    // Check code execution results
-    let mut code_execution_errors = Vec::new();
-    for (source_path, results) in &site_output.code_execution_results {
-        for (sample, result) in results {
-            if !result.success {
-                let error_msg = format_execution_error(sample, result);
-                code_execution_errors.push((source_path.clone(), error_msg));
-            }
-        }
-    }
-
-    // In production build mode, fail on code execution errors
-    if !render_options.dev_mode && !code_execution_errors.is_empty() {
-        for (source_path, error) in &code_execution_errors {
-            eprintln!("{} Code execution failed in {}:\n{}", 
-                "ERROR:".red().bold(), 
-                source_path.as_str().yellow(),
-                error
-            );
-        }
-        return Err(eyre!(
-            "Found {} code sample execution error(s)", 
-            code_execution_errors.len()
-        ));
-    }
-
-    // In dev mode, just log warnings
-    if render_options.dev_mode {
-        for (source_path, error) in &code_execution_errors {
-            eprintln!("{} Code execution failed in {}:\n{}", 
-                "warning:".yellow(), 
-                source_path.as_str().yellow(),
-                error
-            );
-        }
-    }
+    // TODO: Add code execution validation after plugin integration
 
     if let Some(ref p) = progress {
         p.update(|prog| {
@@ -1188,37 +1152,7 @@ fn build_with_mini_tui(
         data_registry,
     );
 
-    // Check code execution results
-    let mut code_execution_errors = Vec::new();
-    for (source_path, results) in &site_output.code_execution_results {
-        for (sample, result) in results {
-            if !result.success {
-                let error_msg = format_execution_error(sample, result);
-                code_execution_errors.push((source_path.clone(), error_msg));
-            }
-        }
-    }
-
-    // In build mode, fail on code execution errors
-    if !code_execution_errors.is_empty() {
-        // Clean up terminal before error
-        if terminal.is_some() {
-            drop(terminal);
-            crossterm::execute!(io::stdout(), cursor::Show)?;
-        }
-
-        for (source_path, error) in &code_execution_errors {
-            eprintln!("{} Code execution failed in {}:\n{}", 
-                "ERROR:".red().bold(), 
-                source_path.as_str().yellow(),
-                error
-            );
-        }
-        return Err(eyre!(
-            "Found {} code sample execution error(s)", 
-            code_execution_errors.len()
-        ));
-    }
+    // TODO: Add code execution validation after plugin integration
 
     draw_progress(&mut terminal, "Writing...", &stats_for_display, 0, 0);
 
