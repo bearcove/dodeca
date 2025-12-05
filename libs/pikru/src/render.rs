@@ -2310,34 +2310,27 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 svg_children.push(SvgNode::Rect(rect));
             }
             ObjectClass::Cylinder => {
-                // Cylinder: elliptical top/bottom with vertical sides
+                // Cylinder: proper path-based rendering matching C pikchr
                 let width = scaler.px(obj.width);
                 let height = scaler.px(obj.height);
                 let rx = width / 2.0;
-                let ry = height / 8.0; // Ellipse height is 1/8 of cylinder height
+                let ry = width / 8.0; // Ellipse vertical radius
+                let top_y = ty - height / 2.0 + ry;
 
-                let x = tx - width / 2.0;
-                let y = ty - height / 2.0;
-                let top_y = y + ry;
-                let bottom_y = y + height - ry;
+                let (body_path, bottom_arc_path) = create_cylinder_paths(tx, ty, width, height);
 
-                // Main body rectangle
-                let rect = Rect {
-                    x: Some(x),
-                    y: Some(top_y),
-                    width: Some(width),
-                    height: Some(height - 2.0 * ry),
-                    rx: None,
-                    ry: None,
+                // Body path with fill
+                let body = Path {
+                    d: Some(body_path),
                     fill: None,
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
                     style: svg_style.clone(),
                 };
-                svg_children.push(SvgNode::Rect(rect));
+                svg_children.push(SvgNode::Path(body));
 
-                // Top ellipse
+                // Top ellipse (full ellipse, filled)
                 let top_ellipse = Ellipse {
                     cx: Some(tx),
                     cy: Some(top_y),
@@ -2351,56 +2344,61 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 };
                 svg_children.push(SvgNode::Ellipse(top_ellipse));
 
-                // Bottom ellipse
-                let bottom_ellipse = Ellipse {
-                    cx: Some(tx),
-                    cy: Some(bottom_y),
-                    rx: Some(rx),
-                    ry: Some(ry),
+                // Bottom arc (only front half, stroke only)
+                let mut bottom_arc_style = svg_style.clone();
+                bottom_arc_style
+                    .properties
+                    .insert("fill".to_string(), "none".to_string());
+
+                let bottom_arc = Path {
+                    d: Some(bottom_arc_path),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: bottom_arc_style,
+                };
+                svg_children.push(SvgNode::Path(bottom_arc));
+            }
+            ObjectClass::File => {
+                // File: proper path-based rendering with fold matching C pikchr
+                let width = scaler.px(obj.width);
+                let height = scaler.px(obj.height);
+
+                let (main_path, fold_path) = create_file_paths(tx, ty, width, height);
+
+                // Main outline path
+                let main = Path {
+                    d: Some(main_path),
                     fill: None,
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
                     style: svg_style.clone(),
                 };
-                svg_children.push(SvgNode::Ellipse(bottom_ellipse));
-            }
-            ObjectClass::File => {
-                // File: document shape with folded corner
-                let width = scaler.px(obj.width);
-                let height = scaler.px(obj.height);
-                let fold_size = width * 0.15; // 15% fold
-                let x1 = tx - width / 2.0;
-                let y1 = ty - height / 2.0;
-                let x2 = tx + width / 2.0;
-                let y2 = ty + height / 2.0;
+                svg_children.push(SvgNode::Path(main));
 
-                // Main body path with folded corner
-                let path_data = format!(
-                    "M{},{}L{},{}L{},{}L{},{}L{},{}L{},{}Z",
-                    fmt_num(x1),
-                    fmt_num(y2), // bottom-left
-                    fmt_num(x2 - fold_size),
-                    fmt_num(y2), // bottom-right before fold
-                    fmt_num(x2),
-                    fmt_num(y2 - fold_size), // after fold
-                    fmt_num(x2),
-                    fmt_num(y1), // top-right
-                    fmt_num(x1),
-                    fmt_num(y1), // top-left
-                    fmt_num(x1),
-                    fmt_num(y2) // back to bottom-left
-                );
+                // Fold line (stroke only, no fill)
+                let mut fold_style = SvgStyle::new();
+                fold_style
+                    .properties
+                    .insert("fill".to_string(), "none".to_string());
+                fold_style
+                    .properties
+                    .insert("stroke".to_string(), "rgb(0,0,0)".to_string());
+                fold_style
+                    .properties
+                    .insert("stroke-width".to_string(), "1".to_string());
 
-                let path = Path {
-                    d: Some(PathData::parse(&path_data).unwrap()),
+                let fold = Path {
+                    d: Some(fold_path),
                     fill: None,
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: svg_style,
+                    style: fold_style,
                 };
-                svg_children.push(SvgNode::Path(path));
+                svg_children.push(SvgNode::Path(fold));
             }
             ObjectClass::Diamond => {
                 // Diamond: rotated square/rhombus with vertices at edges
@@ -2411,19 +2409,14 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 let right = tx + half_w;
                 let top = ty - half_h;
                 let bottom = ty + half_h;
-                let path_data = format!(
-                    "M{},{}L{},{}L{},{}L{},{}Z",
-                    fmt_num(left),
-                    fmt_num(ty),
-                    fmt_num(tx),
-                    fmt_num(bottom),
-                    fmt_num(right),
-                    fmt_num(ty),
-                    fmt_num(tx),
-                    fmt_num(top)
-                );
+                let path_data = PathData::new()
+                    .m(left, ty) // Left vertex
+                    .l(tx, bottom) // Bottom vertex
+                    .l(right, ty) // Right vertex
+                    .l(tx, top) // Top vertex
+                    .z(); // Close path
                 let path = Path {
-                    d: Some(PathData::parse(&path_data).unwrap()),
+                    d: Some(path_data),
                     fill: None,
                     stroke: None,
                     stroke_width: None,
@@ -3052,6 +3045,54 @@ fn create_rounded_box_path(x1: f64, y1: f64, x2: f64, y2: f64, r: f64) -> PathDa
         .l(x1, y2 - r) // L: line down to bottom-left before radius
         .a(r, r, 0.0, false, false, x1 + r, y2) // A: arc back to start
         .z() // Z: close path
+}
+
+/// Create cylinder paths using PathData fluent API (matching C pikchr output)
+fn create_cylinder_paths(cx: f64, cy: f64, width: f64, height: f64) -> (PathData, PathData) {
+    let rx = width / 2.0;
+    let ry = width / 8.0; // Ellipse vertical radius
+    let top_y = cy - height / 2.0 + ry;
+    let bottom_y = cy + height / 2.0 - ry;
+
+    // Body path: left side down, bottom arc, right side up
+    let body_path = PathData::new()
+        .m(cx - rx, top_y) // Start at top-left
+        .l(cx - rx, bottom_y) // Line down to bottom-left
+        .a(rx, ry, 0.0, false, false, cx + rx, bottom_y) // Arc to bottom-right
+        .l(cx + rx, top_y); // Line up to top-right
+
+    // Bottom ellipse arc (only the front half, as a visible edge)
+    let bottom_arc_path = PathData::new()
+        .m(cx - rx, bottom_y) // Start at left of bottom ellipse
+        .a(rx, ry, 0.0, false, false, cx + rx, bottom_y); // Arc to right
+
+    (body_path, bottom_arc_path)
+}
+
+/// Create file paths using PathData fluent API (matching C pikchr output)
+fn create_file_paths(cx: f64, cy: f64, width: f64, height: f64) -> (PathData, PathData) {
+    let fold_size = width.min(height) * 0.2; // Fold is 20% of smaller dimension
+    let x = cx - width / 2.0;
+    let y = cy - height / 2.0;
+    let right = cx + width / 2.0;
+    let bottom = cy + height / 2.0;
+
+    // Main outline path (going clockwise from top-left)
+    let main_path = PathData::new()
+        .m(x, y) // Top-left
+        .l(right - fold_size, y) // Top-right minus fold
+        .l(right, y + fold_size) // Fold corner (diagonal)
+        .l(right, bottom) // Bottom-right
+        .l(x, bottom) // Bottom-left
+        .z(); // Close path
+
+    // Fold line path (the crease)
+    let fold_path = PathData::new()
+        .m(right - fold_size, y) // Start at corner
+        .l(right - fold_size, y + fold_size) // Down to fold
+        .l(right, y + fold_size); // Across to edge
+
+    (main_path, fold_path)
 }
 
 fn render_rounded_box_path(
