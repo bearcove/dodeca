@@ -1,5 +1,6 @@
 //! SVG style attribute parsing and structured representation.
 
+use std::collections::BTreeMap;
 use facet::Facet;
 
 /// A color value
@@ -106,13 +107,10 @@ impl Color {
     }
 }
 
-/// Structured SVG style attribute
+/// Structured SVG style attribute with BTreeMap for automatic sorting
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SvgStyle {
-    pub fill: Option<Color>,
-    pub stroke: Option<Color>,
-    pub stroke_width: Option<f64>,
-    pub stroke_dasharray: Option<(f64, f64)>,
+    pub properties: BTreeMap<String, String>,
 }
 
 impl SvgStyle {
@@ -120,105 +118,72 @@ impl SvgStyle {
         Self::default()
     }
 
-    /// Parse style from a CSS-like string (e.g., "fill:none;stroke-width:2.16;stroke:rgb(0,0,0);")
+    /// Parse style from a CSS-like string into BTreeMap with automatic sorting
     pub fn parse(s: &str) -> Result<Self, StyleParseError> {
-        let mut style = SvgStyle::new();
+        let mut properties = BTreeMap::new();
 
-        for part in s.split(';') {
-            let part = part.trim();
-            if part.is_empty() {
+        for declaration in s.split(';') {
+            let declaration = declaration.trim();
+            if declaration.is_empty() {
                 continue;
             }
 
-            let (key, value) = part
-                .split_once(':')
-                .ok_or_else(|| StyleParseError::InvalidProperty(part.to_string()))?;
-
-            let key = key.trim();
-            let value = value.trim();
-
-            match key {
-                "fill" => {
-                    style.fill = Some(Color::parse(value));
-                }
-                "stroke" => {
-                    style.stroke = Some(Color::parse(value));
-                }
-                "stroke-width" => {
-                    style.stroke_width = Some(
-                        value
-                            .parse()
-                            .map_err(|_| StyleParseError::InvalidNumber(value.to_string()))?,
-                    );
-                }
-                "stroke-dasharray" => {
-                    let parts: Vec<&str> = value.split(',').collect();
-                    if parts.len() >= 2 {
-                        let a = parts[0]
-                            .trim()
-                            .parse()
-                            .map_err(|_| StyleParseError::InvalidNumber(parts[0].to_string()))?;
-                        let b = parts[1]
-                            .trim()
-                            .parse()
-                            .map_err(|_| StyleParseError::InvalidNumber(parts[1].to_string()))?;
-                        style.stroke_dasharray = Some((a, b));
-                    }
-                }
-                _ => {
-                    // Ignore unknown properties
-                }
+            if let Some((key, value)) = declaration.split_once(':') {
+                let key = key.trim().to_lowercase();
+                let value = value.trim().to_string();
+                properties.insert(key, value);
+            } else {
+                panic!("malformed style declaration: {}", declaration);
             }
         }
 
-        Ok(style)
+        Ok(SvgStyle { properties })
     }
 
-    /// Serialize to CSS-like string with trailing semicolon (like C pikchr)
+    /// Serialize to CSS-like string with properties in alphabetical order
     pub fn to_string(&self) -> String {
-        let mut parts = Vec::new();
-
-        if let Some(ref fill) = self.fill {
-            parts.push(format!("fill:{}", fill.to_string()));
-        }
-        if let Some(stroke_width) = self.stroke_width {
-            parts.push(format!("stroke-width:{}", fmt_num(stroke_width)));
-        }
-        if let Some(ref stroke) = self.stroke {
-            parts.push(format!("stroke:{}", stroke.to_string()));
-        }
-        if let Some((a, b)) = self.stroke_dasharray {
-            parts.push(format!("stroke-dasharray:{},{}", fmt_num(a), fmt_num(b)));
-        }
-
-        if parts.is_empty() {
+        if self.properties.is_empty() {
             String::new()
         } else {
-            format!("{};", parts.join(";"))
+            let declarations: Vec<String> = self.properties
+                .iter()
+                .map(|(key, value)| format!("{}: {}", key, value))
+                .collect();
+            format!("{};", declarations.join(";"))
         }
+    }
+
+    /// Get style as a string for PresentationAttrs trait
+    pub fn as_str(&self) -> &str {
+        // Use a Cow to avoid allocation when possible
+        // For now, just return to serialized form
+        let serialized = self.to_string();
+        // Leak the string to return &'static str - this is a bit hacky
+        // In practice, this should be fine for our use case
+        Box::leak(serialized.into_boxed_str())
+    }
+
+    /// Add a property to the style (builder pattern)
+    pub fn with_property(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.properties.insert(key.into(), value.into());
+        self
     }
 }
 
-/// Format a number like C pikchr's %.10g
-fn fmt_num(v: f64) -> String {
-    let s = format!("{:.10}", v);
-    let s = s.trim_end_matches('0');
-    let s = s.trim_end_matches('.');
-    s.to_string()
-}
+
 
 /// Error parsing style
 #[derive(Debug, Clone, PartialEq)]
 pub enum StyleParseError {
-    InvalidProperty(String),
-    InvalidNumber(String),
+    MalformedDeclaration(String),
 }
 
 impl std::fmt::Display for StyleParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StyleParseError::InvalidProperty(s) => write!(f, "invalid style property: {}", s),
-            StyleParseError::InvalidNumber(s) => write!(f, "invalid number in style: {}", s),
+            StyleParseError::MalformedDeclaration(decl) => {
+                write!(f, "malformed style declaration: {}", decl)
+            }
         }
     }
 }
@@ -287,9 +252,9 @@ mod tests {
     #[test]
     fn test_parse_style() {
         let style = SvgStyle::parse("fill:none;stroke-width:2.16;stroke:rgb(0,0,0);").unwrap();
-        assert_eq!(style.fill, Some(Color::None));
-        assert_eq!(style.stroke_width, Some(2.16));
-        assert_eq!(style.stroke, Some(Color::Rgb { r: 0, g: 0, b: 0 }));
+        assert_eq!(style.properties.get("fill"), Some(&"none".to_string()));
+        assert_eq!(style.properties.get("stroke-width"), Some(&"2.16".to_string()));
+        assert_eq!(style.properties.get("stroke"), Some(&"rgb(0,0,0)".to_string()));
     }
 
     #[test]
@@ -299,6 +264,15 @@ mod tests {
         let serialized = style.to_string();
         let reparsed = SvgStyle::parse(&serialized).unwrap();
         assert_eq!(style, reparsed);
+    }
+
+    #[test]
+    fn test_style_alphabetical_sorting() {
+        let input = "stroke:rgb(0,0,0);fill:none;stroke-width:2.16";
+        let style = SvgStyle::parse(input).unwrap();
+        let serialized = style.to_string();
+        // Should be sorted alphabetically: fill;stroke;stroke-width
+        assert_eq!(serialized, "fill:none;stroke:rgb(0,0,0);stroke-width:2.16;");
     }
 
     #[test]

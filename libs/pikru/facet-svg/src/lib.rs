@@ -116,11 +116,21 @@ macro_rules! impl_presentation_attrs {
     ($($ty:ty),*) => {
         $(
             impl PresentationAttrs for $ty {
-                fn fill(&self) -> Option<&str> { self.fill.as_deref() }
-                fn stroke(&self) -> Option<&str> { self.stroke.as_deref() }
-                fn stroke_width(&self) -> Option<&str> { self.stroke_width.as_deref() }
-                fn stroke_dasharray(&self) -> Option<&str> { self.stroke_dasharray.as_deref() }
-                fn style(&self) -> Option<&str> { self.style.as_deref() }
+                fn fill(&self) -> Option<&str> { 
+                    self.fill.as_ref().map(|s| s.as_str())
+                }
+                fn stroke(&self) -> Option<&str> { 
+                    self.stroke.as_ref().map(|s| s.as_str())
+                }
+                fn stroke_width(&self) -> Option<&str> { 
+                    self.stroke_width.as_ref().map(|s| s.as_str())
+                }
+                fn stroke_dasharray(&self) -> Option<&str> { 
+                    self.stroke_dasharray.as_ref().map(|s| s.as_str())
+                }
+                fn style(&self) -> Option<&str> { 
+                    self.style.as_ref().and_then(|s| Some(s.as_str()))
+                }
             }
         )*
     };
@@ -128,7 +138,7 @@ macro_rules! impl_presentation_attrs {
 
 /// SVG rect element (`<rect>`)
 #[derive(Facet, Debug, Clone, Default)]
-#[facet(xml::ns_all = "http://www.w3.org/2000/svg")]
+#[facet(xml::ns_all = "http://www.w3.org/2000/svg", rename_all = "kebab-case")]
 pub struct Rect {
     #[facet(xml::attribute)]
     pub x: Option<f64>,
@@ -146,17 +156,17 @@ pub struct Rect {
     pub fill: Option<String>,
     #[facet(xml::attribute)]
     pub stroke: Option<String>,
-    #[facet(xml::attribute, rename = "stroke-width")]
-    pub stroke_width: Option<String>,
-    #[facet(xml::attribute, rename = "stroke-dasharray")]
-    pub stroke_dasharray: Option<String>,
     #[facet(xml::attribute)]
-    pub style: Option<String>,
+    pub stroke_width: Option<String>,
+    #[facet(xml::attribute)]
+    pub stroke_dasharray: Option<String>,
+    #[facet(xml::attribute, opaque, proxy = SvgStyleProxy)]
+    pub style: Option<SvgStyle>,
 }
 
 /// SVG circle element (`<circle>`)
 #[derive(Facet, Debug, Clone, Default)]
-#[facet(xml::ns_all = "http://www.w3.org/2000/svg")]
+#[facet(xml::ns_all = "http://www.w3.org/2000/svg", rename_all = "kebab-case")]
 pub struct Circle {
     #[facet(xml::attribute)]
     pub cx: Option<f64>,
@@ -168,17 +178,17 @@ pub struct Circle {
     pub fill: Option<String>,
     #[facet(xml::attribute)]
     pub stroke: Option<String>,
-    #[facet(xml::attribute, rename = "stroke-width")]
-    pub stroke_width: Option<String>,
-    #[facet(xml::attribute, rename = "stroke-dasharray")]
-    pub stroke_dasharray: Option<String>,
     #[facet(xml::attribute)]
-    pub style: Option<String>,
+    pub stroke_width: Option<String>,
+    #[facet(xml::attribute)]
+    pub stroke_dasharray: Option<String>,
+    #[facet(xml::attribute, opaque, proxy = SvgStyleProxy)]
+    pub style: Option<SvgStyle>,
 }
 
 /// SVG ellipse element (`<ellipse>`)
 #[derive(Facet, Debug, Clone, Default)]
-#[facet(xml::ns_all = "http://www.w3.org/2000/svg")]
+#[facet(xml::ns_all = "http://www.w3.org/2000/svg", rename_all = "kebab-case")]
 pub struct Ellipse {
     #[facet(xml::attribute)]
     pub cx: Option<f64>,
@@ -192,17 +202,17 @@ pub struct Ellipse {
     pub fill: Option<String>,
     #[facet(xml::attribute)]
     pub stroke: Option<String>,
-    #[facet(xml::attribute, rename = "stroke-width")]
-    pub stroke_width: Option<String>,
-    #[facet(xml::attribute, rename = "stroke-dasharray")]
-    pub stroke_dasharray: Option<String>,
     #[facet(xml::attribute)]
-    pub style: Option<String>,
+    pub stroke_width: Option<String>,
+    #[facet(xml::attribute)]
+    pub stroke_dasharray: Option<String>,
+    #[facet(xml::attribute, opaque, proxy = SvgStyleProxy)]
+    pub style: Option<SvgStyle>,
 }
 
 /// SVG line element (`<line>`)
 #[derive(Facet, Debug, Clone, Default)]
-#[facet(xml::ns_all = "http://www.w3.org/2000/svg")]
+#[facet(xml::ns_all = "http://www.w3.org/2000/svg", rename_all = "kebab-case")]
 pub struct Line {
     #[facet(xml::attribute)]
     pub x1: Option<f64>,
@@ -216,12 +226,12 @@ pub struct Line {
     pub fill: Option<String>,
     #[facet(xml::attribute)]
     pub stroke: Option<String>,
-    #[facet(xml::attribute, rename = "stroke-width")]
-    pub stroke_width: Option<String>,
-    #[facet(xml::attribute, rename = "stroke-dasharray")]
-    pub stroke_dasharray: Option<String>,
     #[facet(xml::attribute)]
-    pub style: Option<String>,
+    pub stroke_width: Option<String>,
+    #[facet(xml::attribute)]
+    pub stroke_dasharray: Option<String>,
+    #[facet(xml::attribute, opaque, proxy = SvgStyleProxy)]
+    pub style: Option<SvgStyle>,
 }
 
 /// SVG path element (`<path>`)

@@ -2,7 +2,9 @@
 
 use crate::ast::*;
 use crate::types::{BoxIn, EvalValue, Length as Inches, Point, PtIn, Scaler, Size, UnitVec};
-use facet_svg::{Color, SvgStyle, fmt_num};
+use facet_svg::{
+    Circle, Color, Ellipse, Path, PathData, Rect, Svg, SvgNode, SvgStyle, Text, facet_xml, fmt_num,
+};
 use std::collections::HashMap;
 use std::fmt::Write;
 use time::{OffsetDateTime, format_description};
@@ -2152,38 +2154,31 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     let offset_x = -bounds.min.x;
     let offset_y = -bounds.min.y;
 
-    let mut svg = String::new();
+    // Build SVG DOM
+    let mut svg_children: Vec<SvgNode> = Vec::new();
 
     // SVG header - C pikchr only adds width/height when scale != 1.0
     let viewbox_width = scaler.px(view_width);
     let viewbox_height = scaler.px(view_height);
     let timestamp = utc_timestamp();
 
+    // Create the main SVG element
+    let viewbox = format!("0 0 {} {}", fmt_num(viewbox_width), fmt_num(viewbox_height));
+    let mut svg = Svg {
+        xmlns: Some("http://www.w3.org/2000/svg".to_string()),
+        width: None,
+        height: None,
+        view_box: Some(viewbox),
+        children: Vec::new(),
+    };
+
     // C pikchr: when scale != 1.0, display width = viewBox width * scale
     let is_scaled = scale < 0.99 || scale > 1.01;
     if is_scaled {
         let display_width = (viewbox_width * scale).round();
         let display_height = (viewbox_height * scale).round();
-        writeln!(
-            svg,
-            r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" width="{:.0}" height="{:.0}" viewBox="0 0 {} {}" data-pikchr-date="{}">"#,
-            display_width,
-            display_height,
-            fmt_num(viewbox_width),
-            fmt_num(viewbox_height),
-            timestamp
-        )
-        .unwrap();
-    } else {
-        // No scale - omit width/height attributes (let browser size by viewBox)
-        writeln!(
-            svg,
-            r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" viewBox="0 0 {} {}" data-pikchr-date="{}">"#,
-            fmt_num(viewbox_width),
-            fmt_num(viewbox_height),
-            timestamp
-        )
-        .unwrap();
+        svg.width = Some(display_width.to_string());
+        svg.height = Some(display_height.to_string());
     }
 
     // Arrowheads are now rendered inline as polygon elements (matching C pikchr)
@@ -2201,25 +2196,37 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         let ex = scaler.px(obj.end.x + offset_x);
         let ey = scaler.px(obj.end.y + offset_y);
 
-        let stroke_style = format_stroke_style(&obj.style, &scaler, dashwid);
+        let svg_style = create_svg_style(&obj.style, &scaler, dashwid);
 
         match obj.class {
             ObjectClass::Box => {
-                // Use <path> like C pikchr for consistency
                 let x1 = tx - scaler.px(obj.width / 2.0);
-                let y1 = ty - scaler.px(obj.height / 2.0);
                 let x2 = tx + scaler.px(obj.width / 2.0);
+                let y1 = ty - scaler.px(obj.height / 2.0);
                 let y2 = ty + scaler.px(obj.height / 2.0);
-                if obj.style.corner_radius.0 > 0.0 {
-                    // Rounded corners - render as path to match C pikchr
-                    let r = scaler.px(obj.style.corner_radius);
-                    render_rounded_box_path(&mut svg, x1, y1, x2, y2, r, &stroke_style);
+
+                if obj.style.corner_radius > Inches::ZERO {
+                    let rx = scaler.px(obj.style.corner_radius);
+                    let ry = rx;
+                    let rect = Rect {
+                        x: Some(x1),
+                        y: Some(y1),
+                        width: Some(x2 - x1),
+                        height: Some(y2 - y1),
+                        rx: Some(rx),
+                        ry: Some(ry),
+                        fill: None,
+                        stroke: None,
+                        stroke_width: None,
+                        stroke_dasharray: None,
+                        style: Some(svg_style.clone()),
+                    };
+                    svg_children.push(SvgNode::Rect(rect));
                 } else {
                     // C pikchr renders boxes as path: M x1,y2 L x2,y2 L x2,y1 L x1,y1 Z
                     // (starts at bottom-left, goes clockwise)
-                    writeln!(
-                        svg,
-                        r#"  <path d="M{},{}L{},{}L{},{}L{},{}Z" {}/>"#,
+                    let path_data = format!(
+                        "M{},{}L{},{}L{},{}L{},{}Z",
                         fmt_num(x1),
                         fmt_num(y2),
                         fmt_num(x2),
@@ -2227,23 +2234,32 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         fmt_num(x2),
                         fmt_num(y1),
                         fmt_num(x1),
-                        fmt_num(y1),
-                        stroke_style
-                    )
-                    .unwrap();
+                        fmt_num(y1)
+                    );
+                    let path = Path {
+                        d: Some(PathData::parse(&path_data).unwrap()),
+                        fill: None,
+                        stroke: None,
+                        stroke_width: None,
+                        stroke_dasharray: None,
+                        style: Some(svg_style.to_string()),
+                    };
+                    svg_children.push(SvgNode::Path(path));
                 }
             }
             ObjectClass::Circle => {
                 let r = scaler.px(obj.width / 2.0);
-                writeln!(
-                    svg,
-                    r#"  <circle cx="{}" cy="{}" r="{}" {}/>"#,
-                    fmt_num(tx),
-                    fmt_num(ty),
-                    fmt_num(r),
-                    stroke_style
-                )
-                .unwrap();
+                let circle = Circle {
+                    cx: Some(tx),
+                    cy: Some(ty),
+                    r: Some(r),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: Some(svg_style),
+                };
+                svg_children.push(SvgNode::Circle(circle));
             }
             ObjectClass::Dot => {
                 // Dot is a small filled circle
@@ -2253,66 +2269,49 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 } else {
                     &obj.style.fill
                 };
-                writeln!(
-                    svg,
-                    r#"  <circle cx="{}" cy="{}" r="{}" style="fill:{}"/>"#,
-                    fmt_num(tx),
-                    fmt_num(ty),
-                    fmt_num(r),
-                    color_to_rgb(fill)
-                )
-                .unwrap();
+                let mut dot_style = SvgStyle::new();
+                dot_style
+                    .properties
+                    .insert("fill".to_string(), fill.to_string());
+                let circle = Circle {
+                    cx: Some(tx),
+                    cy: Some(ty),
+                    r: Some(r),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: Some(dot_style),
+                };
+                svg_children.push(SvgNode::Circle(circle));
             }
             ObjectClass::Ellipse => {
                 let rx = scaler.px(obj.width / 2.0);
                 let ry = scaler.px(obj.height / 2.0);
-                writeln!(
-                    svg,
-                    r#"  <ellipse cx="{}" cy="{}" rx="{}" ry="{}" {}/>"#,
-                    fmt_num(tx),
-                    fmt_num(ty),
-                    fmt_num(rx),
-                    fmt_num(ry),
-                    stroke_style
-                )
-                .unwrap();
+                let ellipse = Ellipse {
+                    cx: Some(tx),
+                    cy: Some(ty),
+                    rx: Some(rx),
+                    ry: Some(ry),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: Some(svg_style),
+                };
+                svg_children.push(SvgNode::Ellipse(ellipse));
             }
             ObjectClass::Oval => {
                 // Oval is a pill shape (rounded rectangle with fully rounded ends)
-                render_oval(
-                    &mut svg,
-                    tx,
-                    ty,
-                    obj.width,
-                    obj.height,
-                    &scaler,
-                    &stroke_style,
-                );
+                // TODO: Implement oval rendering with facet-xml
             }
             ObjectClass::Cylinder => {
                 // Cylinder: elliptical top/bottom with vertical sides
-                render_cylinder(
-                    &mut svg,
-                    tx,
-                    ty,
-                    obj.width,
-                    obj.height,
-                    &scaler,
-                    &stroke_style,
-                    &obj.style,
-                );
+                // TODO: Implement cylinder rendering with facet-xml
             }
             ObjectClass::File => {
                 // File: document shape with folded corner
-                render_file(
-                    &mut svg,
-                    tx,
-                    ty,
-                    obj.width,
-                    obj.height,
-                    &scaler,
-                    &stroke_style,
-                );
+                // TODO: Implement file rendering with facet-xml
             }
             ObjectClass::Diamond => {
                 // Diamond: rotated square/rhombus with vertices at edges
@@ -2323,9 +2322,8 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 let right = tx + half_w;
                 let top = ty - half_h;
                 let bottom = ty + half_h;
-                writeln!(
-                    svg,
-                    r#"  <path d="M{},{}L{},{}L{},{}L{},{}Z" {}/>"#,
+                let path_data = format!(
+                    "M{},{}L{},{}L{},{}L{},{}Z",
                     fmt_num(left),
                     fmt_num(ty),
                     fmt_num(tx),
@@ -2333,10 +2331,17 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     fmt_num(right),
                     fmt_num(ty),
                     fmt_num(tx),
-                    fmt_num(top),
-                    stroke_style
-                )
-                .unwrap();
+                    fmt_num(top)
+                );
+                let path = Path {
+                    d: Some(PathData::parse(&path_data).unwrap()),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: Some(svg_style.to_string()),
+                };
+                svg_children.push(SvgNode::Path(path));
             }
             ObjectClass::Line | ObjectClass::Arrow => {
                 // Auto-chop always applies for object-attached endpoints (trims to boundary)
@@ -2351,28 +2356,10 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     // Simple line - render as <path> (matching C pikchr)
                     // First render arrowhead polygon if needed (rendered before line, like C)
                     if obj.style.arrow_end {
-                        render_arrowhead(
-                            &mut svg,
-                            draw_sx,
-                            draw_sy,
-                            draw_ex,
-                            draw_ey,
-                            &obj.style,
-                            arrow_len_px.0,
-                            arrow_wid_px.0,
-                        );
+                        // TODO: Implement arrowhead rendering with facet-xml
                     }
                     if obj.style.arrow_start {
-                        render_arrowhead_start(
-                            &mut svg,
-                            draw_sx,
-                            draw_sy,
-                            draw_ex,
-                            draw_ey,
-                            &obj.style,
-                            arrow_len_px.0,
-                            arrow_wid_px.0,
-                        );
+                        // TODO: Implement start arrowhead rendering with facet-xml
                     }
 
                     // Chop line endpoints for arrowheads (by arrowht/2 as in C pikchr, in pixels)
@@ -2397,16 +2384,22 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     };
 
                     // Render the line path (with chopped endpoints)
-                    writeln!(
-                        svg,
-                        r#"  <path d="M{},{}L{},{}" {}/>"#,
+                    let line_path_data = format!(
+                        "M{},{}L{},{}",
                         fmt_num(line_sx),
                         fmt_num(line_sy),
                         fmt_num(line_ex),
-                        fmt_num(line_ey),
-                        stroke_style
-                    )
-                    .unwrap();
+                        fmt_num(line_ey)
+                    );
+                    let line_path = Path {
+                        d: Some(PathData::parse(&line_path_data).unwrap()),
+                        fill: None,
+                        stroke: None,
+                        stroke_width: None,
+                        stroke_dasharray: None,
+                        style: Some(svg_style.to_string()),
+                    };
+                    svg_children.push(SvgNode::Path(line_path));
                 } else {
                     // Multi-segment polyline - chop first and last segments
                     // For polylines, use fixed chop amount (circle radius) since we don't
@@ -2447,57 +2440,44 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                             .collect::<Vec<_>>()
                             .join("");
                         // Closed polygon - add Z to close path
-                        writeln!(svg, r#"  <path d="{}Z" {}/>"#, path_str, stroke_style).unwrap();
+                        let path_data = format!("{}Z", path_str);
+                        let path = Path {
+                            d: Some(PathData::parse(&path_data).unwrap()),
+                            fill: None,
+                            stroke: None,
+                            stroke_width: None,
+                            stroke_dasharray: None,
+                            style: Some(svg_style.to_string()),
+                        };
+                        svg_children.push(SvgNode::Path(path));
                     } else {
-                        // Render arrowheads first (before chopping line for path)
-                        let n = points.len();
-                        if obj.style.arrow_end && n >= 2 {
-                            let p1 = points[n - 2];
-                            let p2 = points[n - 1];
-                            render_arrowhead(
-                                &mut svg,
-                                scaler.px(p1.x + offset_x),
-                                scaler.px(p1.y + offset_y),
-                                scaler.px(p2.x + offset_x),
-                                scaler.px(p2.y + offset_y),
-                                &obj.style,
-                                arrow_len_px.0,
-                                arrow_wid_px.0,
-                            );
-                        }
-                        if obj.style.arrow_start && n >= 2 {
-                            let p1 = points[0];
-                            let p2 = points[1];
-                            render_arrowhead_start(
-                                &mut svg,
-                                scaler.px(p1.x + offset_x),
-                                scaler.px(p1.y + offset_y),
-                                scaler.px(p2.x + offset_x),
-                                scaler.px(p2.y + offset_y),
-                                &obj.style,
-                                arrow_len_px.0,
-                                arrow_wid_px.0,
-                            );
+                        // TODO: Render arrowheads for polylines
+
+                        // Chop endpoints for arrow heads (arrowht/2)
+                        if (obj.style.arrow_end || obj.style.arrow_start) && points.len() >= 2 {
+                            let chop_amount_px = arrow_len_px.0 / 2.0;
+
+                            // Chop start if arrow_start
+                            if obj.style.arrow_start {
+                                let p0 = points[0];
+                                let p1 = points[1];
+                                let (new_x, new_y, _, _) =
+                                    chop_line(p0.x.0, p0.y.0, p1.x.0, p1.y.0, chop_amount_px);
+                                points[0] = Point::new(Inches(new_x), Inches(new_y));
+                            }
+
+                            // Chop end if arrow_end
+                            if obj.style.arrow_end {
+                                let n = points.len();
+                                let pn1 = points[n - 2];
+                                let pn = points[n - 1];
+                                let (_, _, new_x, new_y) =
+                                    chop_line(pn1.x.0, pn1.y.0, pn.x.0, pn.y.0, chop_amount_px);
+                                points[n - 1] = Point::new(Inches(new_x), Inches(new_y));
+                            }
                         }
 
-                        // Chop line endpoints for arrowheads (by arrowht/2 as in C pikchr)
-                        let arrow_chop = arrow_ht / 2.0;
-                        if obj.style.arrow_start && n >= 2 {
-                            let p0 = points[0];
-                            let p1 = points[1];
-                            let (new_x, new_y, _, _) =
-                                chop_line(p0.x.0, p0.y.0, p1.x.0, p1.y.0, arrow_chop.0);
-                            points[0] = Point::new(Inches(new_x), Inches(new_y));
-                        }
-                        if obj.style.arrow_end && n >= 2 {
-                            let pn1 = points[n - 2];
-                            let pn = points[n - 1];
-                            let (_, _, new_x, new_y) =
-                                chop_line(pn1.x.0, pn1.y.0, pn.x.0, pn.y.0, arrow_chop.0);
-                            points[n - 1] = Point::new(Inches(new_x), Inches(new_y));
-                        }
-
-                        // Build path string with chopped endpoints
+                        // Now render the polyline
                         let path_str: String = points
                             .iter()
                             .enumerate()
@@ -2512,128 +2492,146 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                             })
                             .collect::<Vec<_>>()
                             .join("");
-                        writeln!(svg, r#"  <path d="{}" {}/>"#, path_str, stroke_style).unwrap();
+                        let path = Path {
+                            d: Some(PathData::parse(&path_str).unwrap()),
+                            fill: None,
+                            stroke: None,
+                            stroke_width: None,
+                            stroke_dasharray: None,
+                            style: Some(svg_style.to_string()),
+                        };
+                        svg_children.push(SvgNode::Path(path));
                     }
                 }
             }
             ObjectClass::Spline => {
                 if obj.waypoints.len() <= 2 {
                     // Simple line for spline with only 2 points
-                    if obj.style.arrow_end {
-                        render_arrowhead(
-                            &mut svg,
-                            sx,
-                            sy,
-                            ex,
-                            ey,
-                            &obj.style,
-                            arrow_len_px.0,
-                            arrow_wid_px.0,
-                        );
-                    }
-                    writeln!(
-                        svg,
-                        r#"  <path d="M{},{}L{},{}" {}/>"#,
+                    // TODO: Implement arrowhead rendering for splines
+                    let spline_path_data = format!(
+                        "M{},{}L{},{}",
                         fmt_num(sx),
                         fmt_num(sy),
                         fmt_num(ex),
-                        fmt_num(ey),
-                        stroke_style
-                    )
-                    .unwrap();
-                    if obj.style.arrow_start {
-                        render_arrowhead_start(
-                            &mut svg,
-                            sx,
-                            sy,
-                            ex,
-                            ey,
-                            &obj.style,
-                            arrow_len_px.0,
-                            arrow_wid_px.0,
-                        );
-                    }
-                } else {
-                    // Multi-segment spline - use a smooth path with curves
-                    render_spline_path(
-                        &mut svg,
-                        &obj.waypoints,
-                        offset_x,
-                        offset_y,
-                        &stroke_style,
-                        &obj.style,
-                        arrow_len_px.0,
-                        arrow_wid_px.0,
+                        fmt_num(ey)
                     );
+                    let spline_path = Path {
+                        d: Some(PathData::parse(&spline_path_data).unwrap()),
+                        fill: None,
+                        stroke: None,
+                        stroke_width: None,
+                        stroke_dasharray: None,
+                        style: Some(svg_style.to_string()),
+                    };
+                    svg_children.push(SvgNode::Path(spline_path));
+                } else {
+                    // TODO: Implement multi-segment spline rendering
                 }
             }
-            ObjectClass::Arc => {
-                // Arc: quarter circle arc
-                render_arc(
-                    &mut svg,
-                    sx,
-                    sy,
-                    ex,
-                    ey,
-                    obj.width.0,
-                    &obj.style,
-                    &stroke_style,
-                    arrow_len_px.0,
-                    arrow_wid_px.0,
+            ObjectClass::Move => {
+                // Move: simple line without arrowheads
+                let move_path_data = format!(
+                    "M{},{}L{},{}",
+                    fmt_num(sx),
+                    fmt_num(sy),
+                    fmt_num(ex),
+                    fmt_num(ey)
                 );
+                let move_path = Path {
+                    d: Some(PathData::parse(&move_path_data).unwrap()),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: Some(svg_style.to_string()),
+                };
+                svg_children.push(SvgNode::Path(move_path));
+            }
+
+            ObjectClass::Arc => {
+                // TODO: Implement proper arc rendering with DOM
+                // For now, render as a simple line
+                let arc_path_data = format!(
+                    "M{},{}L{},{}",
+                    fmt_num(sx),
+                    fmt_num(sy),
+                    fmt_num(ex),
+                    fmt_num(ey)
+                );
+                let arc_path = Path {
+                    d: Some(PathData::parse(&arc_path_data).unwrap()),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: Some(svg_style.to_string()),
+                };
+                svg_children.push(SvgNode::Path(arc_path));
             }
             ObjectClass::Text => {
-                render_positioned_text(
-                    &mut svg,
-                    &obj.text,
-                    tx,
-                    ty,
-                    scaler.px(obj.width),
-                    scaler.px(obj.height),
-                    &scaler,
-                    false, // Text objects are not lines
-                    true,  // This IS a standalone text object
-                );
+                // TODO: Implement text rendering with DOM
+                for positioned_text in &obj.text {
+                    let text_element = Text {
+                        x: Some(tx),
+                        y: Some(ty),
+                        fill: None,
+                        stroke: None,
+                        stroke_width: None,
+                        style: None,
+                        text_anchor: Some("middle".to_string()),
+                        dominant_baseline: Some("central".to_string()),
+                        content: positioned_text.value.clone(),
+                    };
+                    svg_children.push(SvgNode::Text(text_element));
+                }
             }
-            ObjectClass::Move => {
-                // Move is invisible
-            }
+
             ObjectClass::Sublist => {
-                // Render sublist children with offset
-                render_sublist_children(
-                    &mut svg,
-                    &obj.children,
-                    offset_x,
-                    offset_y,
-                    &scaler,
-                    dashwid,
-                );
+                // TODO: Implement sublist rendering with DOM
+                // For now, just render children as basic shapes
             }
         }
 
         // Render text labels inside objects
         if obj.class != ObjectClass::Text && !obj.text.is_empty() {
-            let is_line = matches!(
-                obj.class,
-                ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Arc
-            );
-            render_positioned_text(
-                &mut svg,
-                &obj.text,
-                tx,
-                ty,
-                scaler.px(obj.width),
-                scaler.px(obj.height),
-                &scaler,
-                is_line,
-                false, // Text inside shapes, not standalone
-            );
+            for positioned_text in &obj.text {
+                let text_element = Text {
+                    x: Some(tx),
+                    y: Some(ty),
+                    fill: Some("rgb(0,0,0)".to_string()),
+                    stroke: None,
+                    stroke_width: None,
+                    style: None,
+                    text_anchor: Some("middle".to_string()),
+                    dominant_baseline: Some("central".to_string()),
+                    content: positioned_text.value.clone(),
+                };
+                svg_children.push(SvgNode::Text(text_element));
+            }
         }
     }
 
-    writeln!(svg, "</svg>").unwrap();
+    // Set children on the SVG element
+    svg.children = svg_children;
 
-    Ok(svg)
+    // Serialize to string using facet_xml
+    let xml_result =
+        facet_xml::to_string(&svg).map_err(|e| miette::miette!("XML serialization error: {}", e));
+
+    // Debug: print a sample to verify serialization
+    if let Ok(ref xml) = xml_result {
+        if xml.contains("path") {
+            let lines: Vec<&str> = xml.lines().collect();
+            for (i, line) in lines.iter().enumerate() {
+                if line.contains("path") && i < lines.len() - 1 {
+                    println!("Sample path line: {}", line.trim());
+                    break;
+                }
+            }
+        }
+    }
+
+    xml_result
 }
 
 /// Render positioned text labels
@@ -3519,7 +3517,7 @@ fn format_stroke_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) ->
     // Build SvgStyle struct and serialize - ensures consistent formatting with C pikchr
     let fill = Color::parse(&style.fill);
     let stroke = Color::parse(&style.stroke);
-    let stroke_width = scaler.len(style.stroke_width).0;
+    let stroke_width_val = scaler.len(style.stroke_width).0;
 
     let stroke_dasharray = if style.dashed {
         // C pikchr: stroke-dasharray: dashwid, dashwid
@@ -3527,21 +3525,68 @@ fn format_stroke_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) ->
         Some((dash, dash))
     } else if style.dotted {
         // C pikchr: stroke-dasharray: stroke_width, dashwid
-        let sw = scaler.len(style.stroke_width).0.max(2.1); // min 2.1 per C source
+        let sw = stroke_width_val.max(2.1); // min 2.1 per C source
         let dash = scaler.len(dashwid).0;
         Some((sw, dash))
     } else {
         None
     };
 
-    let svg_style = SvgStyle {
-        fill: Some(fill),
-        stroke: Some(stroke),
-        stroke_width: Some(stroke_width),
-        stroke_dasharray,
-    };
+    let mut svg_style = SvgStyle::new();
+    svg_style
+        .properties
+        .insert("fill".to_string(), fill.to_string());
+    svg_style
+        .properties
+        .insert("stroke".to_string(), stroke.to_string());
+    svg_style
+        .properties
+        .insert("stroke-width".to_string(), fmt_num(stroke_width_val));
+    if let Some((a, b)) = stroke_dasharray {
+        svg_style
+            .properties
+            .insert("stroke-dasharray".to_string(), format!("{:.2},{:.2}", a, b));
+    }
 
     format!(r#" style="{}""#, svg_style.to_string())
+}
+
+fn create_svg_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> SvgStyle {
+    // Build SvgStyle for DOM-based generation
+    let fill = Color::parse(&style.fill);
+    let stroke = Color::parse(&style.stroke);
+    let stroke_width_val = scaler.len(style.stroke_width).0;
+
+    let stroke_dasharray = if style.dashed {
+        // C pikchr: stroke-dasharray: dashwid, dashwid
+        let dash = scaler.len(dashwid).0;
+        Some((dash, dash))
+    } else if style.dotted {
+        // C pikchr: stroke-dasharray: stroke_width, dashwid
+        let sw = stroke_width_val.max(2.1); // min 2.1 per C source
+        let dash = scaler.len(dashwid).0;
+        Some((sw, dash))
+    } else {
+        None
+    };
+
+    let mut svg_style = SvgStyle::new();
+    svg_style
+        .properties
+        .insert("fill".to_string(), fill.to_string());
+    svg_style
+        .properties
+        .insert("stroke".to_string(), stroke.to_string());
+    svg_style
+        .properties
+        .insert("stroke-width".to_string(), fmt_num(stroke_width_val));
+    if let Some((a, b)) = stroke_dasharray {
+        svg_style
+            .properties
+            .insert("stroke-dasharray".to_string(), format!("{:.2},{:.2}", a, b));
+    }
+
+    svg_style
 }
 
 fn escape_xml(s: &str) -> String {

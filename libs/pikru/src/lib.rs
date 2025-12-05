@@ -319,6 +319,39 @@ mod tests {
     }
 
     #[test]
+    fn test_pathdata_serialization() {
+        use facet_svg::{Path, PathData, Svg, SvgNode, facet_xml};
+
+        // Create a simple path
+        let path_data = PathData::parse("M10,10L50,50").unwrap();
+        println!("PathData: {:?}", path_data);
+        println!("PathData to_string: {}", path_data.to_string());
+
+        let path = Path {
+            d: Some(path_data),
+            fill: None,
+            stroke: None,
+            stroke_width: None,
+            stroke_dasharray: None,
+            style: Some("stroke: black".to_string()),
+        };
+
+        let svg = Svg {
+            xmlns: Some("http://www.w3.org/2000/svg".to_string()),
+            width: None,
+            height: None,
+            view_box: Some("0 0 100 100".to_string()),
+            children: vec![SvgNode::Path(path)],
+        };
+
+        let xml = facet_xml::to_string(&svg).unwrap();
+        println!("Generated XML: {}", xml);
+
+        // Should contain the path data
+        assert!(xml.contains("M10,10L50,50"));
+    }
+
+    #[test]
     fn parse_expr_file() {
         let input = include_str!("../vendor/pikchr-c/tests/expr.pikchr");
         let result = PikchrParser::parse(Rule::program, input);

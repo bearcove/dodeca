@@ -460,6 +460,12 @@ impl std::fmt::Display for PathParseError {
 
 impl std::error::Error for PathParseError {}
 
+impl std::fmt::Display for PathData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
 /// Proxy type for PathData - serializes as a string
 #[derive(Facet, Clone, Debug)]
 #[facet(transparent)]
