@@ -28,6 +28,7 @@ pub fn pikchr(source: &str) -> Result<String, miette::Report> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use facet_svg::facet_xml::SerializeOptions;
     use pest::Parser;
 
     #[test]
@@ -374,18 +375,24 @@ mod tests {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: Some("stroke: black".to_string()),
+            style: Some(facet_svg::SvgStyle::new().add("stroke", "black")),
         };
 
         let svg = Svg {
-            xmlns: Some("http://www.w3.org/2000/svg".to_string()),
             width: None,
             height: None,
             view_box: Some("0 0 100 100".to_string()),
             children: vec![SvgNode::Path(path)],
         };
 
-        let xml = facet_xml::to_string(&svg).unwrap();
+        let xml = facet_xml::to_string_with_options(
+            &svg,
+            &SerializeOptions {
+                pretty: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         println!("Generated XML: {}", xml);
 
         // Should contain the path data
@@ -414,7 +421,6 @@ mod tests {
         use facet_svg::{Circle, Svg, SvgNode, facet_xml};
 
         let svg = Svg {
-            xmlns: Some("http://www.w3.org/2000/svg".to_string()),
             width: None,
             height: None,
             view_box: Some("0 0 100 100".to_string()),
@@ -430,7 +436,14 @@ mod tests {
             })],
         };
 
-        let xml = facet_xml::to_string(&svg).unwrap();
+        let xml = facet_xml::to_string_with_options(
+            &svg,
+            &SerializeOptions {
+                pretty: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         println!("Generated XML: {}", xml);
 
         // The issue: facet-xml generates:

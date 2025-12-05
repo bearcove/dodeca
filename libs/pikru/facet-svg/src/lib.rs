@@ -29,10 +29,9 @@ pub const SVG_NS: &str = "http://www.w3.org/2000/svg";
 
 /// Root SVG element
 #[derive(Facet, Debug, Clone, Default)]
-#[facet(xml::ns_all = "http://www.w3.org/2000/svg", rename_all = "kebab-case")]
+#[facet(xml::ns_all = "http://www.w3.org/2000/svg", rename = "svg")]
 pub struct Svg {
-    #[facet(xml::attribute)]
-    pub xmlns: Option<String>,
+    // Note: xmlns is handled by ns_all, not as a separate field
     #[facet(xml::attribute)]
     pub width: Option<String>,
     #[facet(xml::attribute)]
@@ -103,39 +102,6 @@ pub struct Style {
     pub content: String,
 }
 
-/// Common presentation attributes shared by shape elements
-pub trait PresentationAttrs {
-    fn fill(&self) -> Option<&str>;
-    fn stroke(&self) -> Option<&str>;
-    fn stroke_width(&self) -> Option<&str>;
-    fn stroke_dasharray(&self) -> Option<&str>;
-    fn style(&self) -> Option<&str>;
-}
-
-macro_rules! impl_presentation_attrs {
-    ($($ty:ty),*) => {
-        $(
-            impl PresentationAttrs for $ty {
-                fn fill(&self) -> Option<&str> {
-                    self.fill.as_ref().map(|s| s.as_str())
-                }
-                fn stroke(&self) -> Option<&str> {
-                    self.stroke.as_ref().map(|s| s.as_str())
-                }
-                fn stroke_width(&self) -> Option<&str> {
-                    self.stroke_width.as_ref().map(|s| s.as_str())
-                }
-                fn stroke_dasharray(&self) -> Option<&str> {
-                    self.stroke_dasharray.as_ref().map(|s| s.as_str())
-                }
-                fn style(&self) -> Option<&str> {
-                    self.style.as_ref().and_then(|s| Some(s.as_str()))
-                }
-            }
-        )*
-    };
-}
-
 /// SVG rect element (`<rect>`)
 #[derive(Facet, Debug, Clone, Default)]
 #[facet(xml::ns_all = "http://www.w3.org/2000/svg", rename_all = "kebab-case")]
@@ -160,7 +126,7 @@ pub struct Rect {
     pub stroke_width: Option<String>,
     #[facet(xml::attribute)]
     pub stroke_dasharray: Option<String>,
-    #[facet(xml::attribute, opaque, proxy = SvgStyleProxy)]
+    #[facet(xml::attribute, proxy = SvgStyleProxy)]
     pub style: Option<SvgStyle>,
 }
 
@@ -182,7 +148,7 @@ pub struct Circle {
     pub stroke_width: Option<String>,
     #[facet(xml::attribute)]
     pub stroke_dasharray: Option<String>,
-    #[facet(xml::attribute, opaque, proxy = SvgStyleProxy)]
+    #[facet(xml::attribute, proxy = SvgStyleProxy)]
     pub style: Option<SvgStyle>,
 }
 
@@ -206,7 +172,7 @@ pub struct Ellipse {
     pub stroke_width: Option<String>,
     #[facet(xml::attribute)]
     pub stroke_dasharray: Option<String>,
-    #[facet(xml::attribute, opaque, proxy = SvgStyleProxy)]
+    #[facet(xml::attribute, proxy = SvgStyleProxy)]
     pub style: Option<SvgStyle>,
 }
 
@@ -230,7 +196,7 @@ pub struct Line {
     pub stroke_width: Option<String>,
     #[facet(xml::attribute)]
     pub stroke_dasharray: Option<String>,
-    #[facet(xml::attribute, opaque, proxy = SvgStyleProxy)]
+    #[facet(xml::attribute, proxy = SvgStyleProxy)]
     pub style: Option<SvgStyle>,
 }
 
@@ -248,8 +214,8 @@ pub struct Path {
     pub stroke_width: Option<String>,
     #[facet(xml::attribute, rename = "stroke-dasharray")]
     pub stroke_dasharray: Option<String>,
-    #[facet(xml::attribute)]
-    pub style: Option<String>,
+    #[facet(xml::attribute, proxy = SvgStyleProxy)]
+    pub style: Option<SvgStyle>,
 }
 
 /// SVG polygon element (`<polygon>`)
@@ -266,8 +232,8 @@ pub struct Polygon {
     pub stroke_width: Option<String>,
     #[facet(xml::attribute, rename = "stroke-dasharray")]
     pub stroke_dasharray: Option<String>,
-    #[facet(xml::attribute)]
-    pub style: Option<String>,
+    #[facet(xml::attribute, proxy = SvgStyleProxy)]
+    pub style: Option<SvgStyle>,
 }
 
 /// SVG polyline element (`<polyline>`)
@@ -284,8 +250,8 @@ pub struct Polyline {
     pub stroke_width: Option<String>,
     #[facet(xml::attribute, rename = "stroke-dasharray")]
     pub stroke_dasharray: Option<String>,
-    #[facet(xml::attribute)]
-    pub style: Option<String>,
+    #[facet(xml::attribute, proxy = SvgStyleProxy)]
+    pub style: Option<SvgStyle>,
 }
 
 /// SVG text element (`<text>`)
@@ -302,34 +268,14 @@ pub struct Text {
     pub stroke: Option<String>,
     #[facet(xml::attribute, rename = "stroke-width")]
     pub stroke_width: Option<String>,
-    #[facet(xml::attribute)]
-    pub style: Option<String>,
+    #[facet(xml::attribute, proxy = SvgStyleProxy)]
+    pub style: Option<SvgStyle>,
     #[facet(xml::attribute, rename = "text-anchor")]
     pub text_anchor: Option<String>,
     #[facet(xml::attribute, rename = "dominant-baseline")]
     pub dominant_baseline: Option<String>,
     #[facet(xml::text)]
     pub content: String,
-}
-
-impl_presentation_attrs!(Rect, Circle, Ellipse, Line, Path, Polygon, Polyline);
-
-impl PresentationAttrs for Text {
-    fn fill(&self) -> Option<&str> {
-        self.fill.as_deref()
-    }
-    fn stroke(&self) -> Option<&str> {
-        self.stroke.as_deref()
-    }
-    fn stroke_width(&self) -> Option<&str> {
-        self.stroke_width.as_deref()
-    }
-    fn stroke_dasharray(&self) -> Option<&str> {
-        None // Text doesn't have stroke-dasharray
-    }
-    fn style(&self) -> Option<&str> {
-        self.style.as_deref()
-    }
 }
 
 // Re-export dependencies for convenience

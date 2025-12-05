@@ -2166,7 +2166,6 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     // Create the main SVG element
     let viewbox = format!("0 0 {} {}", fmt_num(viewbox_width), fmt_num(viewbox_height));
     let mut svg = Svg {
-        xmlns: Some("http://www.w3.org/2000/svg".to_string()),
         width: None,
         height: None,
         view_box: Some(viewbox),
@@ -2243,7 +2242,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         stroke: None,
                         stroke_width: None,
                         stroke_dasharray: None,
-                        style: Some(svg_style.to_string()),
+                        style: Some(svg_style),
                     };
                     svg_children.push(SvgNode::Path(path));
                 }
@@ -2415,7 +2414,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style.to_string()),
+                    style: Some(svg_style),
                 };
                 svg_children.push(SvgNode::Path(path));
             }
@@ -2445,7 +2444,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style.to_string()),
+                    style: Some(svg_style),
                 };
                 svg_children.push(SvgNode::Path(path));
             }
@@ -2523,7 +2522,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         stroke: None,
                         stroke_width: None,
                         stroke_dasharray: None,
-                        style: Some(svg_style.to_string()),
+                        style: Some(svg_style),
                     };
                     svg_children.push(SvgNode::Path(line_path));
                 } else {
@@ -2573,7 +2572,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                             stroke: None,
                             stroke_width: None,
                             stroke_dasharray: None,
-                            style: Some(svg_style.to_string()),
+                            style: Some(svg_style),
                         };
                         svg_children.push(SvgNode::Path(path));
                     } else {
@@ -2624,7 +2623,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                             stroke: None,
                             stroke_width: None,
                             stroke_dasharray: None,
-                            style: Some(svg_style.to_string()),
+                            style: Some(svg_style),
                         };
                         svg_children.push(SvgNode::Path(path));
                     }
@@ -2647,7 +2646,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         stroke: None,
                         stroke_width: None,
                         stroke_dasharray: None,
-                        style: Some(svg_style.to_string()),
+                        style: Some(svg_style),
                     };
                     svg_children.push(SvgNode::Path(spline_path));
                 } else {
@@ -2669,7 +2668,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style.to_string()),
+                    style: Some(svg_style),
                 };
                 svg_children.push(SvgNode::Path(move_path));
             }
@@ -2690,7 +2689,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style.to_string()),
+                    style: Some(svg_style),
                 };
                 svg_children.push(SvgNode::Path(arc_path));
             }
@@ -2743,7 +2742,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                                 stroke: None,
                                 stroke_width: None,
                                 stroke_dasharray: None,
-                                style: Some(child_svg_style.to_string()),
+                                style: Some(child_svg_style),
                             };
                             svg_children.push(SvgNode::Path(path));
                         }
@@ -2964,146 +2963,6 @@ fn get_text_anchor(
         }
     } else {
         (cx, "middle")
-    }
-}
-
-/// Render sublist children that are already in world coordinates; only apply global offset/margins.
-fn render_sublist_children(
-    svg: &mut String,
-    children: &[RenderedObject],
-    offx: Inches,
-    offy: Inches,
-    scaler: &Scaler,
-    dashwid: Inches,
-) {
-    for child in children {
-        let tx = scaler.px(child.center.x + offx);
-        let ty = scaler.px(child.center.y + offy);
-        let sx = scaler.px(child.start.x + offx);
-        let sy = scaler.px(child.start.y + offy);
-        let ex = scaler.px(child.end.x + offx);
-        let ey = scaler.px(child.end.y + offy);
-
-        // Sublist children inherit dash settings from caller
-        let stroke_style = format_stroke_style(&child.style, scaler, dashwid);
-
-        match child.class {
-            ObjectClass::Box => {
-                let x1 = tx - scaler.px(child.width / 2.0);
-                let y1 = ty - scaler.px(child.height / 2.0);
-                let x2 = tx + scaler.px(child.width / 2.0);
-                let y2 = ty + scaler.px(child.height / 2.0);
-                if child.style.corner_radius.0 > 0.0 {
-                    // Rounded corners - render as path to match C pikchr
-                    let r = scaler.px(child.style.corner_radius);
-                    render_rounded_box_path(svg, x1, y1, x2, y2, r, &stroke_style);
-                } else {
-                    // C pikchr renders boxes as path
-                    writeln!(
-                        svg,
-                        r#"  <path d="M{},{}L{},{}L{},{}L{},{}Z" {}/>"#,
-                        fmt_num(x1),
-                        fmt_num(y2),
-                        fmt_num(x2),
-                        fmt_num(y2),
-                        fmt_num(x2),
-                        fmt_num(y1),
-                        fmt_num(x1),
-                        fmt_num(y1),
-                        stroke_style
-                    )
-                    .unwrap();
-                }
-            }
-            ObjectClass::Circle => {
-                let r = scaler.px(child.width / 2.0);
-                writeln!(
-                    svg,
-                    r#"  <circle cx="{}" cy="{}" r="{}" {}/>"#,
-                    fmt_num(tx),
-                    fmt_num(ty),
-                    fmt_num(r),
-                    stroke_style
-                )
-                .unwrap();
-            }
-            ObjectClass::Line | ObjectClass::Arrow => {
-                // Render arrows with polygon+path like C pikchr (not marker-end)
-                let arrow_ht = scaler.px(Inches(0.08)); // default arrowht
-                let arrow_wid = scaler.px(Inches(0.06)); // default arrowwid
-
-                // Render arrowhead polygons first (before path, like C pikchr)
-                if child.style.arrow_end {
-                    render_arrowhead(svg, sx, sy, ex, ey, &child.style, arrow_ht, arrow_wid);
-                }
-                if child.style.arrow_start {
-                    render_arrowhead_start(svg, sx, sy, ex, ey, &child.style, arrow_ht, arrow_wid);
-                }
-
-                // Chop endpoints for arrowheads
-                let mut chopped_sx = sx;
-                let mut chopped_sy = sy;
-                let mut chopped_ex = ex;
-                let mut chopped_ey = ey;
-
-                let dx = ex - sx;
-                let dy = ey - sy;
-                let len = (dx * dx + dy * dy).sqrt();
-                if len > 0.001 {
-                    let ux = dx / len;
-                    let uy = dy / len;
-                    let chop_dist = arrow_ht / 2.0;
-                    if child.style.arrow_end {
-                        chopped_ex -= ux * chop_dist;
-                        chopped_ey -= uy * chop_dist;
-                    }
-                    if child.style.arrow_start {
-                        chopped_sx += ux * chop_dist;
-                        chopped_sy += uy * chop_dist;
-                    }
-                }
-
-                // Render line as path
-                writeln!(
-                    svg,
-                    r#"  <path d="M{},{}L{},{}" {}/>"#,
-                    fmt_num(chopped_sx),
-                    fmt_num(chopped_sy),
-                    fmt_num(chopped_ex),
-                    fmt_num(chopped_ey),
-                    stroke_style
-                )
-                .unwrap();
-            }
-            _ => {
-                // Other shapes can be added as needed
-            }
-        }
-
-        // Render text for child
-        if !child.text.is_empty() {
-            let is_line = matches!(
-                child.class,
-                ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Arc
-            );
-            let is_standalone_text = child.class == ObjectClass::Text;
-            render_positioned_text(
-                svg,
-                &child.text,
-                tx,
-                ty,
-                scaler.px(child.width),
-                scaler.px(child.height),
-                scaler,
-                is_line,
-                is_standalone_text,
-            );
-        }
-
-        // Recursively render nested sublists
-        if !child.children.is_empty() {
-            render_sublist_children(svg, &child.children, offx, offy, scaler, dashwid);
-        }
     }
 }
 
@@ -3686,44 +3545,6 @@ fn color_to_rgb(color: &str) -> String {
     }
 }
 
-fn format_stroke_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> String {
-    // Build SvgStyle struct and serialize - ensures consistent formatting with C pikchr
-    let fill = Color::parse(&style.fill);
-    let stroke = Color::parse(&style.stroke);
-    let stroke_width_val = scaler.len(style.stroke_width).0;
-
-    let stroke_dasharray = if style.dashed {
-        // C pikchr: stroke-dasharray: dashwid, dashwid
-        let dash = scaler.len(dashwid).0;
-        Some((dash, dash))
-    } else if style.dotted {
-        // C pikchr: stroke-dasharray: stroke_width, dashwid
-        let sw = stroke_width_val.max(2.1); // min 2.1 per C source
-        let dash = scaler.len(dashwid).0;
-        Some((sw, dash))
-    } else {
-        None
-    };
-
-    let mut svg_style = SvgStyle::new();
-    svg_style
-        .properties
-        .insert("fill".to_string(), fill.to_string());
-    svg_style
-        .properties
-        .insert("stroke".to_string(), stroke.to_string());
-    svg_style
-        .properties
-        .insert("stroke-width".to_string(), fmt_num(stroke_width_val));
-    if let Some((a, b)) = stroke_dasharray {
-        svg_style
-            .properties
-            .insert("stroke-dasharray".to_string(), format!("{:.2},{:.2}", a, b));
-    }
-
-    format!(r#" style="{}""#, svg_style.to_string())
-}
-
 fn create_svg_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> SvgStyle {
     // Build SvgStyle for DOM-based generation
     let fill = Color::parse(&style.fill);
@@ -3828,7 +3649,7 @@ fn render_arrowhead_dom(
         stroke: None,
         stroke_width: None,
         stroke_dasharray: None,
-        style: Some(format!("fill:{}", fill_color.to_string())),
+        style: Some(SvgStyle::new().add("fill", &fill_color.to_string())),
     })
 }
 

@@ -1,7 +1,7 @@
 //! SVG style attribute parsing and structured representation.
 
-use std::collections::BTreeMap;
 use facet::Facet;
+use std::collections::BTreeMap;
 
 /// A color value
 #[derive(Debug, Clone, PartialEq)]
@@ -108,7 +108,7 @@ impl Color {
 }
 
 /// Structured SVG style attribute with BTreeMap for automatic sorting
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Facet, Debug, Clone, PartialEq, Default)]
 pub struct SvgStyle {
     pub properties: BTreeMap<String, String>,
 }
@@ -116,6 +116,12 @@ pub struct SvgStyle {
 impl SvgStyle {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Add a property to the style (builder pattern)
+    pub fn add(mut self, key: &str, value: &str) -> Self {
+        self.properties.insert(key.to_string(), value.to_string());
+        self
     }
 
     /// Parse style from a CSS-like string into BTreeMap with automatic sorting
@@ -145,22 +151,13 @@ impl SvgStyle {
         if self.properties.is_empty() {
             String::new()
         } else {
-            let declarations: Vec<String> = self.properties
+            let declarations: Vec<String> = self
+                .properties
                 .iter()
                 .map(|(key, value)| format!("{}: {}", key, value))
                 .collect();
             format!("{};", declarations.join(";"))
         }
-    }
-
-    /// Get style as a string for PresentationAttrs trait
-    pub fn as_str(&self) -> &str {
-        // Use a Cow to avoid allocation when possible
-        // For now, just return to serialized form
-        let serialized = self.to_string();
-        // Leak the string to return &'static str - this is a bit hacky
-        // In practice, this should be fine for our use case
-        Box::leak(serialized.into_boxed_str())
     }
 
     /// Add a property to the style (builder pattern)
@@ -169,8 +166,6 @@ impl SvgStyle {
         self
     }
 }
-
-
 
 /// Error parsing style
 #[derive(Debug, Clone, PartialEq)]
@@ -253,8 +248,14 @@ mod tests {
     fn test_parse_style() {
         let style = SvgStyle::parse("fill:none;stroke-width:2.16;stroke:rgb(0,0,0);").unwrap();
         assert_eq!(style.properties.get("fill"), Some(&"none".to_string()));
-        assert_eq!(style.properties.get("stroke-width"), Some(&"2.16".to_string()));
-        assert_eq!(style.properties.get("stroke"), Some(&"rgb(0,0,0)".to_string()));
+        assert_eq!(
+            style.properties.get("stroke-width"),
+            Some(&"2.16".to_string())
+        );
+        assert_eq!(
+            style.properties.get("stroke"),
+            Some(&"rgb(0,0,0)".to_string())
+        );
     }
 
     #[test]

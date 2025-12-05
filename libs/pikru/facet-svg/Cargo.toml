@@ -6,6 +6,6 @@ description = "Facet-derived types for SVG parsing and serialization"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-facet = { git = "https://github.com/facet-rs/facet" }
-facet-xml = { git = "https://github.com/facet-rs/facet" }
-facet-assert = { git = "https://github.com/facet-rs/facet" }
+facet = { path = "../../facet/facet" }
+facet-xml = { path = "../../facet/facet-xml" }
+facet-assert = { path = "../../facet/facet-assert" }

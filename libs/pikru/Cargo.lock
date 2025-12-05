@@ -260,7 +260,6 @@ checksum = "5692dd7b5a1978a5aeb0ce83b7655c58ca8efdcb79d21036ea249da95afec2c6"
 [[package]]
 name = "facet"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#89c82ca7d2c57dd0b14055d2df3675e6feb24d58"
 dependencies = [
  "facet-core",
  "facet-macros",
@@ -270,7 +269,6 @@ dependencies = [
 [[package]]
 name = "facet-assert"
 version = "0.31.0"
-source = "git+https://github.com/facet-rs/facet#89c82ca7d2c57dd0b14055d2df3675e6feb24d58"
 dependencies = [
  "facet",
  "facet-core",
@@ -281,7 +279,6 @@ dependencies = [
 [[package]]
 name = "facet-core"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#89c82ca7d2c57dd0b14055d2df3675e6feb24d58"
 dependencies = [
  "autocfg",
  "bitflags",
@@ -292,7 +289,6 @@ dependencies = [
 [[package]]
 name = "facet-macros"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#89c82ca7d2c57dd0b14055d2df3675e6feb24d58"
 dependencies = [
  "facet-core",
  "facet-macros-impl",
@@ -301,7 +297,6 @@ dependencies = [
 [[package]]
 name = "facet-macros-impl"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#89c82ca7d2c57dd0b14055d2df3675e6feb24d58"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -312,7 +307,6 @@ dependencies = [
 [[package]]
 name = "facet-pretty"
 version = "0.31.0"
-source = "git+https://github.com/facet-rs/facet#89c82ca7d2c57dd0b14055d2df3675e6feb24d58"
 dependencies = [
  "facet-core",
  "facet-reflect",
@@ -322,7 +316,6 @@ dependencies = [
 [[package]]
 name = "facet-reflect"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#89c82ca7d2c57dd0b14055d2df3675e6feb24d58"
 dependencies = [
  "facet-core",
  "facet-macros",
@@ -332,7 +325,6 @@ dependencies = [
 [[package]]
 name = "facet-solver"
 version = "0.31.7"
-source = "git+https://github.com/facet-rs/facet#89c82ca7d2c57dd0b14055d2df3675e6feb24d58"
 dependencies = [
  "facet-core",
  "facet-reflect",
@@ -351,7 +343,6 @@ dependencies = [
 [[package]]
 name = "facet-xml"
 version = "0.31.0"
-source = "git+https://github.com/facet-rs/facet#89c82ca7d2c57dd0b14055d2df3675e6feb24d58"
 dependencies = [
  "base64",
  "facet",
