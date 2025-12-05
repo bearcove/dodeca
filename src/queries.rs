@@ -4,6 +4,7 @@ use crate::db::{
     SiteOutput, SiteTree, SourceFile, SourceRegistry, StaticFile, StaticFileOutput, StaticRegistry,
     TemplateFile, TemplateRegistry,
 };
+use crate::code_execution::{execute_samples_from_source, CodeExecutionConfig, format_execution_error};
 use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
 use crate::url_rewrite::{
@@ -49,17 +50,43 @@ pub fn load_all_templates<'db>(
 }
 
 /// Build a lookup table from template path to TemplateFile
-/// This is tracked so changes to the registry invalidate the lookup
 #[salsa::tracked]
-pub fn template_lookup<'db>(
+pub fn build_template_lookup<'db>(
     db: &'db dyn Db,
     registry: TemplateRegistry,
 ) -> HashMap<String, TemplateFile> {
-    registry
-        .templates(db)
-        .iter()
-        .map(|t| (t.path(db).as_str().to_string(), *t))
-        .collect()
+    let mut lookup = HashMap::new();
+    for template in registry.templates(db) {
+        let path = template.path(db).as_str().to_string();
+        lookup.insert(path, *template);
+    }
+    lookup
+}
+
+/// Execute code samples from all source files
+#[salsa::tracked]
+pub fn execute_code_samples<'db>(
+    db: &'db dyn Db,
+    sources: SourceRegistry,
+    config: CodeExecutionConfig,
+) -> Vec<(crate::types::SourcePath, Vec<(crate::code_execution::CodeSample, crate::code_execution::ExecutionResult)>)> {
+    let mut all_results = Vec::new();
+    
+    if !config.enabled {
+        return all_results;
+    }
+
+    for source in sources.files(db) {
+        let source_path = source.path(db);
+        let content = load_source(db, *source);
+        let results = execute_samples_from_source(source_path, content.as_str(), &config);
+        
+        if !results.is_empty() {
+            all_results.push((source_path.clone(), results));
+        }
+    }
+
+    all_results
 }
 
 /// A template loader that uses Salsa tracked queries for fine-grained dependency tracking.
@@ -1026,7 +1053,15 @@ pub fn build_site<'db>(
         });
     }
 
-    SiteOutput { files }
+    // --- Phase 8: Execute code samples (validation) ---
+    // Use default config for now - this could be made configurable later
+    let code_config = CodeExecutionConfig::default();
+    let execution_results = execute_code_samples(db, sources, code_config);
+
+    SiteOutput { 
+        files,
+        code_execution_results: execution_results,
+    }
 }
 
 // ============================================================================

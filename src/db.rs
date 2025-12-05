@@ -294,6 +294,7 @@ pub enum OutputFile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SiteOutput {
     pub files: Vec<OutputFile>,
+    pub code_execution_results: Vec<(crate::types::SourcePath, Vec<(crate::code_execution::CodeSample, crate::code_execution::ExecutionResult)>)>,
 }
 
 /// Result of checking an external link
