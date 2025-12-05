@@ -2,9 +2,12 @@
 
 use crate::ast::*;
 use crate::types::{BoxIn, EvalValue, Length as Inches, Point, PtIn, Scaler, Size, UnitVec};
+use facet_svg::{Color, SvgStyle, fmt_num};
 use std::collections::HashMap;
 use std::fmt::Write;
 use time::{OffsetDateTime, format_description};
+
+// fmt_num is imported from facet_svg
 
 /// Generate a UTC timestamp in YYYYMMDDhhmmss format for data-pikchr-date attribute
 fn utc_timestamp() -> String {
@@ -29,6 +32,7 @@ impl Value {
             Value::Scalar(_) => Err(miette::miette!("Expected length value, got scalar")),
         }
     }
+    #[allow(dead_code)]
     fn as_scalar(self) -> Result<f64, miette::Report> {
         match self {
             Value::Scalar(s) => Ok(s),
@@ -2162,11 +2166,11 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         let display_height = (viewbox_height * scale).round();
         writeln!(
             svg,
-            r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" width="{:.0}" height="{:.0}" viewBox="0 0 {:.2} {:.2}" data-pikchr-date="{}">"#,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" width="{:.0}" height="{:.0}" viewBox="0 0 {} {}" data-pikchr-date="{}">"#,
             display_width,
             display_height,
-            viewbox_width,
-            viewbox_height,
+            fmt_num(viewbox_width),
+            fmt_num(viewbox_height),
             timestamp
         )
         .unwrap();
@@ -2174,9 +2178,9 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         // No scale - omit width/height attributes (let browser size by viewBox)
         writeln!(
             svg,
-            r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" viewBox="0 0 {:.2} {:.2}" data-pikchr-date="{}">"#,
-            viewbox_width,
-            viewbox_height,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" style="font-size:initial;" class="pikchr" viewBox="0 0 {} {}" data-pikchr-date="{}">"#,
+            fmt_num(viewbox_width),
+            fmt_num(viewbox_height),
             timestamp
         )
         .unwrap();
@@ -2215,8 +2219,16 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     // (starts at bottom-left, goes clockwise)
                     writeln!(
                         svg,
-                        r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}L{:.2},{:.2}L{:.2},{:.2}Z" {}/>"#,
-                        x1, y2, x2, y2, x2, y1, x1, y1, stroke_style
+                        r#"  <path d="M{},{}L{},{}L{},{}L{},{}Z" {}/>"#,
+                        fmt_num(x1),
+                        fmt_num(y2),
+                        fmt_num(x2),
+                        fmt_num(y2),
+                        fmt_num(x2),
+                        fmt_num(y1),
+                        fmt_num(x1),
+                        fmt_num(y1),
+                        stroke_style
                     )
                     .unwrap();
                 }
@@ -2225,8 +2237,11 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 let r = scaler.px(obj.width / 2.0);
                 writeln!(
                     svg,
-                    r#"  <circle cx="{:.2}" cy="{:.2}" r="{:.2}" {}/>"#,
-                    tx, ty, r, stroke_style
+                    r#"  <circle cx="{}" cy="{}" r="{}" {}/>"#,
+                    fmt_num(tx),
+                    fmt_num(ty),
+                    fmt_num(r),
+                    stroke_style
                 )
                 .unwrap();
             }
@@ -2240,8 +2255,11 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 };
                 writeln!(
                     svg,
-                    r#"  <circle cx="{:.2}" cy="{:.2}" r="{:.2}" fill="{}" stroke="none"/>"#,
-                    tx, ty, r, fill
+                    r#"  <circle cx="{}" cy="{}" r="{}" style="fill:{}"/>"#,
+                    fmt_num(tx),
+                    fmt_num(ty),
+                    fmt_num(r),
+                    color_to_rgb(fill)
                 )
                 .unwrap();
             }
@@ -2250,8 +2268,12 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 let ry = scaler.px(obj.height / 2.0);
                 writeln!(
                     svg,
-                    r#"  <ellipse cx="{:.2}" cy="{:.2}" rx="{:.2}" ry="{:.2}" {}/>"#,
-                    tx, ty, rx, ry, stroke_style
+                    r#"  <ellipse cx="{}" cy="{}" rx="{}" ry="{}" {}/>"#,
+                    fmt_num(tx),
+                    fmt_num(ty),
+                    fmt_num(rx),
+                    fmt_num(ry),
+                    stroke_style
                 )
                 .unwrap();
             }
@@ -2303,8 +2325,16 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 let bottom = ty + half_h;
                 writeln!(
                     svg,
-                    r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}L{:.2},{:.2}L{:.2},{:.2}Z" {}/>"#,
-                    left, ty, tx, bottom, right, ty, tx, top, stroke_style
+                    r#"  <path d="M{},{}L{},{}L{},{}L{},{}Z" {}/>"#,
+                    fmt_num(left),
+                    fmt_num(ty),
+                    fmt_num(tx),
+                    fmt_num(bottom),
+                    fmt_num(right),
+                    fmt_num(ty),
+                    fmt_num(tx),
+                    fmt_num(top),
+                    stroke_style
                 )
                 .unwrap();
             }
@@ -2369,8 +2399,12 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     // Render the line path (with chopped endpoints)
                     writeln!(
                         svg,
-                        r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}" {}/>"#,
-                        line_sx, line_sy, line_ex, line_ey, stroke_style
+                        r#"  <path d="M{},{}L{},{}" {}/>"#,
+                        fmt_num(line_sx),
+                        fmt_num(line_sy),
+                        fmt_num(line_ex),
+                        fmt_num(line_ey),
+                        stroke_style
                     )
                     .unwrap();
                 } else {
@@ -2404,10 +2438,10 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                             .map(|(i, p)| {
                                 let cmd = if i == 0 { "M" } else { "L" };
                                 format!(
-                                    "{}{:.2},{:.2}",
+                                    "{}{},{}",
                                     cmd,
-                                    scaler.px(p.x + offset_x),
-                                    scaler.px(p.y + offset_y)
+                                    fmt_num(scaler.px(p.x + offset_x)),
+                                    fmt_num(scaler.px(p.y + offset_y))
                                 )
                             })
                             .collect::<Vec<_>>()
@@ -2470,10 +2504,10 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                             .map(|(i, p)| {
                                 let cmd = if i == 0 { "M" } else { "L" };
                                 format!(
-                                    "{}{:.2},{:.2}",
+                                    "{}{},{}",
                                     cmd,
-                                    scaler.px(p.x + offset_x),
-                                    scaler.px(p.y + offset_y)
+                                    fmt_num(scaler.px(p.x + offset_x)),
+                                    fmt_num(scaler.px(p.y + offset_y))
                                 )
                             })
                             .collect::<Vec<_>>()
@@ -2499,8 +2533,12 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     }
                     writeln!(
                         svg,
-                        r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}" {}/>"#,
-                        sx, sy, ex, ey, stroke_style
+                        r#"  <path d="M{},{}L{},{}" {}/>"#,
+                        fmt_num(sx),
+                        fmt_num(sy),
+                        fmt_num(ex),
+                        fmt_num(ey),
+                        stroke_style
                     )
                     .unwrap();
                     if obj.style.arrow_start {
@@ -2724,8 +2762,8 @@ fn render_styled_text(
         format!(" {}", style_parts.join(" "))
     };
 
-    writeln!(svg, r#"  <text x="{:.2}" y="{:.2}" text-anchor="{}" fill="rgb(0,0,0)" dominant-baseline="central"{}>{}</text>"#,
-             x, y, anchor, style_str, escape_xml(&text.value)).unwrap();
+    writeln!(svg, r#"  <text x="{}" y="{}" text-anchor="{}" fill="rgb(0,0,0)" dominant-baseline="central"{}>{}</text>"#,
+             fmt_num(x), fmt_num(y), anchor, style_str, escape_xml(&text.value)).unwrap();
 }
 
 /// Get text x position and anchor based on justification
@@ -2792,8 +2830,16 @@ fn render_sublist_children(
                     // C pikchr renders boxes as path
                     writeln!(
                         svg,
-                        r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}L{:.2},{:.2}L{:.2},{:.2}Z" {}/>"#,
-                        x1, y2, x2, y2, x2, y1, x1, y1, stroke_style
+                        r#"  <path d="M{},{}L{},{}L{},{}L{},{}Z" {}/>"#,
+                        fmt_num(x1),
+                        fmt_num(y2),
+                        fmt_num(x2),
+                        fmt_num(y2),
+                        fmt_num(x2),
+                        fmt_num(y1),
+                        fmt_num(x1),
+                        fmt_num(y1),
+                        stroke_style
                     )
                     .unwrap();
                 }
@@ -2802,8 +2848,11 @@ fn render_sublist_children(
                 let r = scaler.px(child.width / 2.0);
                 writeln!(
                     svg,
-                    r#"  <circle cx="{:.2}" cy="{:.2}" r="{:.2}" {}/>"#,
-                    tx, ty, r, stroke_style
+                    r#"  <circle cx="{}" cy="{}" r="{}" {}/>"#,
+                    fmt_num(tx),
+                    fmt_num(ty),
+                    fmt_num(r),
+                    stroke_style
                 )
                 .unwrap();
             }
@@ -2846,8 +2895,12 @@ fn render_sublist_children(
                 // Render line as path
                 writeln!(
                     svg,
-                    r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}" {}/>"#,
-                    chopped_sx, chopped_sy, chopped_ex, chopped_ey, stroke_style
+                    r#"  <path d="M{},{}L{},{}" {}/>"#,
+                    fmt_num(chopped_sx),
+                    fmt_num(chopped_sy),
+                    fmt_num(chopped_ex),
+                    fmt_num(chopped_ey),
+                    stroke_style
                 )
                 .unwrap();
             }
@@ -3226,14 +3279,17 @@ fn render_cylinder(
     };
     writeln!(
         svg,
-        r#"  <path d="{}" stroke="{}" fill="{}" stroke-width="{:.2}"/>"#,
-        path, style.stroke, body_fill, style.stroke_width.0
+        r#"  <path d="{}" style="fill:{};stroke-width:{:.2};stroke:{}"/>"#,
+        path,
+        color_to_rgb(body_fill),
+        style.stroke_width.0,
+        color_to_rgb(&style.stroke)
     )
     .unwrap();
 
     // Draw the top ellipse (full ellipse, filled)
-    writeln!(svg, r#"  <ellipse cx="{:.2}" cy="{:.2}" rx="{:.2}" ry="{:.2}" stroke="{}" fill="{}" stroke-width="{:.2}"/>"#,
-             cx, top_y, rx, ry, style.stroke, body_fill, style.stroke_width.0).unwrap();
+    writeln!(svg, r#"  <ellipse cx="{:.2}" cy="{:.2}" rx="{:.2}" ry="{:.2}" style="fill:{};stroke-width:{:.2};stroke:{}"/>"#,
+             cx, top_y, rx, ry, color_to_rgb(body_fill), style.stroke_width.0, color_to_rgb(&style.stroke)).unwrap();
 
     // Draw the bottom ellipse arc (only the front half, as a visible edge)
     let bottom_arc = format!(
@@ -3247,8 +3303,10 @@ fn render_cylinder(
     );
     writeln!(
         svg,
-        r#"  <path d="{}" stroke="{}" fill="none" stroke-width="{:.2}"/>"#,
-        bottom_arc, style.stroke, style.stroke_width.0
+        r#"  <path d="{}" style="fill:none;stroke-width:{:.2};stroke:{}"/>"#,
+        bottom_arc,
+        style.stroke_width.0,
+        color_to_rgb(&style.stroke)
     )
     .unwrap();
 }
@@ -3302,7 +3360,7 @@ fn render_file(
     );
     writeln!(
         svg,
-        r#"  <path d="{}" stroke="black" fill="none" stroke-width="1"/>"#,
+        r#"  <path d="{}" style="fill:none;stroke-width:1;stroke:rgb(0,0,0)"/>"#,
         fold_path
     )
     .unwrap();
@@ -3435,28 +3493,55 @@ fn render_arc(
     }
 }
 
+/// Convert a color name to rgb() format like C pikchr
+fn color_to_rgb(color: &str) -> String {
+    match color.to_lowercase().as_str() {
+        "black" => "rgb(0,0,0)".to_string(),
+        "white" => "rgb(255,255,255)".to_string(),
+        "red" => "rgb(255,0,0)".to_string(),
+        "green" => "rgb(0,128,0)".to_string(),
+        "blue" => "rgb(0,0,255)".to_string(),
+        "yellow" => "rgb(255,255,0)".to_string(),
+        "cyan" => "rgb(0,255,255)".to_string(),
+        "magenta" => "rgb(255,0,255)".to_string(),
+        "gray" | "grey" => "rgb(128,128,128)".to_string(),
+        "lightgray" | "lightgrey" => "rgb(211,211,211)".to_string(),
+        "darkgray" | "darkgrey" => "rgb(169,169,169)".to_string(),
+        "orange" => "rgb(255,165,0)".to_string(),
+        "pink" => "rgb(255,192,203)".to_string(),
+        "purple" => "rgb(128,0,128)".to_string(),
+        "none" => "none".to_string(),
+        _ => color.to_string(), // Pass through hex colors or unknown
+    }
+}
+
 fn format_stroke_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> String {
-    let mut parts = Vec::new();
+    // Build SvgStyle struct and serialize - ensures consistent formatting with C pikchr
+    let fill = Color::parse(&style.fill);
+    let stroke = Color::parse(&style.stroke);
+    let stroke_width = scaler.len(style.stroke_width).0;
 
-    parts.push(format!(r#"stroke="{}""#, style.stroke));
-    parts.push(format!(r#"fill="{}""#, style.fill));
-    parts.push(format!(
-        r#"stroke-width="{:.2}""#,
-        scaler.len(style.stroke_width).0
-    ));
-
-    if style.dashed {
+    let stroke_dasharray = if style.dashed {
         // C pikchr: stroke-dasharray: dashwid, dashwid
         let dash = scaler.len(dashwid).0;
-        parts.push(format!("stroke-dasharray=\"{:.2},{:.2}\"", dash, dash));
+        Some((dash, dash))
     } else if style.dotted {
         // C pikchr: stroke-dasharray: stroke_width, dashwid
         let sw = scaler.len(style.stroke_width).0.max(2.1); // min 2.1 per C source
         let dash = scaler.len(dashwid).0;
-        parts.push(format!("stroke-dasharray=\"{:.2},{:.2}\"", sw, dash));
-    }
+        Some((sw, dash))
+    } else {
+        None
+    };
 
-    parts.join(" ")
+    let svg_style = SvgStyle {
+        fill: Some(fill),
+        stroke: Some(stroke),
+        stroke_width: Some(stroke_width),
+        stroke_dasharray,
+    };
+
+    format!(r#" style="{}""#, svg_style.to_string())
 }
 
 fn escape_xml(s: &str) -> String {
@@ -3510,8 +3595,14 @@ fn render_arrowhead(
 
     writeln!(
         svg,
-        r#"  <polygon points="{:.2},{:.2} {:.2},{:.2} {:.2},{:.2}" fill="{}"/>"#,
-        ex, ey, p1_x, p1_y, p2_x, p2_y, style.stroke
+        r#"  <polygon points="{},{} {},{} {},{}" style="fill:{}"/>"#,
+        fmt_num(ex),
+        fmt_num(ey),
+        fmt_num(p1_x),
+        fmt_num(p1_y),
+        fmt_num(p2_x),
+        fmt_num(p2_y),
+        color_to_rgb(&style.stroke)
     )
     .unwrap();
 }
@@ -3528,4 +3619,19 @@ fn render_arrowhead_start(
     arrow_width: f64,
 ) {
     render_arrowhead(svg, ex, ey, sx, sy, style, arrow_len, arrow_width);
+}
+
+#[cfg(test)]
+mod fmt_tests {
+    use super::fmt_num;
+
+    #[test]
+    fn test_fmt_num() {
+        assert_eq!(fmt_num(38.16), "38.16");
+        assert_eq!(fmt_num(402.528), "402.528");
+        assert_eq!(fmt_num(63.6158), "63.6158");
+        assert_eq!(fmt_num(2.16), "2.16");
+        assert_eq!(fmt_num(0.0), "0");
+        assert_eq!(fmt_num(100.0), "100");
+    }
 }
