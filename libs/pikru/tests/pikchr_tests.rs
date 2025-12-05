@@ -91,3 +91,16 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
 datatest_stable::harness! {
     { test = test_pikchr_file, root = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/pikchr-c/tests"), pattern = r"\.pikchr$" },
 }
+
+#[test]
+fn z_generate_comparison_html() {
+    // Named with 'z_' prefix to run after other tests
+    // Generate comparison HTML after running all pikchr tests
+    match pikru::generate_comparison_html() {
+        Ok(_) => println!("✅ Comparison HTML generated successfully"),
+        Err(e) => {
+            // Don't fail tests if comparison generation fails, just warn
+            eprintln!("⚠️  Warning: Failed to generate comparison HTML: {}", e);
+        }
+    }
+}

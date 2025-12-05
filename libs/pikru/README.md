@@ -13,10 +13,47 @@ Pikchr (pronounced "picture") is a diagram description language designed for emb
 
 🚧 **Work in Progress** - Early-stage port of the C implementation.
 
+## Development
+
+### Testing
+
+The test suite compares Rust output against the original C implementation:
+
+```bash
+# Run specific tests (recommended - full suite can hang)
+cargo test test01 -- --nocapture
+cargo test test12 -- --nocapture
+
+# Run unit tests (these also update visual comparison)
+cargo test
+```
+
+### Visual Comparison
+
+A visual comparison HTML file is automatically generated showing side-by-side comparisons of C vs Rust SVG output:
+
+```bash
+# Manually generate comparison HTML
+cargo xtask compare-html
+```
+
+The comparison is automatically updated:
+- When running `cargo test` (via `z_update_visual_comparison` test)
+- In pre-commit hooks (if installed)
+
+### Pre-commit Hooks
+
+Install git hooks to automatically update comparisons before commits:
+
+```bash
+./scripts/install-hooks.sh
+```
+
+This ensures `comparison.html` is always up-to-date with the latest code changes.
+
 ## Reference Source
 
 The original C implementation from upstream `pikchr` is vendored under `vendor/pikchr-c/` for easy access during parity work. It is not part of the Rust crate build.
-
 
 ## Continuous Integration
 
