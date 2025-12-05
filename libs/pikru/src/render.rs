@@ -3,7 +3,8 @@
 use crate::ast::*;
 use crate::types::{BoxIn, EvalValue, Length as Inches, Point, PtIn, Scaler, Size, UnitVec};
 use facet_svg::{
-    Circle, Color, Ellipse, Path, PathData, Rect, Svg, SvgNode, SvgStyle, Text, facet_xml, fmt_num,
+    Circle, Color, Ellipse, Path, PathData, Polygon, Rect, Svg, SvgNode, SvgStyle, Text, facet_xml,
+    fmt_num,
 };
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -2160,7 +2161,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     // SVG header - C pikchr only adds width/height when scale != 1.0
     let viewbox_width = scaler.px(view_width);
     let viewbox_height = scaler.px(view_height);
-    let timestamp = utc_timestamp();
+    let _timestamp = utc_timestamp();
 
     // Create the main SVG element
     let viewbox = format!("0 0 {} {}", fmt_num(viewbox_width), fmt_num(viewbox_height));
@@ -2297,21 +2298,126 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
-                    style: Some(svg_style),
+                    style: Some(svg_style.clone()),
                 };
                 svg_children.push(SvgNode::Ellipse(ellipse));
             }
             ObjectClass::Oval => {
                 // Oval is a pill shape (rounded rectangle with fully rounded ends)
-                // TODO: Implement oval rendering with facet-xml
+                let width = scaler.px(obj.width);
+                let height = scaler.px(obj.height);
+                let rx = height / 2.0; // Fully rounded ends
+                let ry = height / 2.0;
+                let x = tx - width / 2.0;
+                let y = ty - height / 2.0;
+
+                let rect = Rect {
+                    x: Some(x),
+                    y: Some(y),
+                    width: Some(width),
+                    height: Some(height),
+                    rx: Some(rx),
+                    ry: Some(ry),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: Some(svg_style.clone()),
+                };
+                svg_children.push(SvgNode::Rect(rect));
             }
             ObjectClass::Cylinder => {
                 // Cylinder: elliptical top/bottom with vertical sides
-                // TODO: Implement cylinder rendering with facet-xml
+                let width = scaler.px(obj.width);
+                let height = scaler.px(obj.height);
+                let rx = width / 2.0;
+                let ry = height / 8.0; // Ellipse height is 1/8 of cylinder height
+
+                let x = tx - width / 2.0;
+                let y = ty - height / 2.0;
+                let top_y = y + ry;
+                let bottom_y = y + height - ry;
+
+                // Main body rectangle
+                let rect = Rect {
+                    x: Some(x),
+                    y: Some(top_y),
+                    width: Some(width),
+                    height: Some(height - 2.0 * ry),
+                    rx: None,
+                    ry: None,
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: Some(svg_style.clone()),
+                };
+                svg_children.push(SvgNode::Rect(rect));
+
+                // Top ellipse
+                let top_ellipse = Ellipse {
+                    cx: Some(tx),
+                    cy: Some(top_y),
+                    rx: Some(rx),
+                    ry: Some(ry),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: Some(svg_style.clone()),
+                };
+                svg_children.push(SvgNode::Ellipse(top_ellipse));
+
+                // Bottom ellipse
+                let bottom_ellipse = Ellipse {
+                    cx: Some(tx),
+                    cy: Some(bottom_y),
+                    rx: Some(rx),
+                    ry: Some(ry),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: Some(svg_style.clone()),
+                };
+                svg_children.push(SvgNode::Ellipse(bottom_ellipse));
             }
             ObjectClass::File => {
                 // File: document shape with folded corner
-                // TODO: Implement file rendering with facet-xml
+                let width = scaler.px(obj.width);
+                let height = scaler.px(obj.height);
+                let fold_size = width * 0.15; // 15% fold
+                let x1 = tx - width / 2.0;
+                let y1 = ty - height / 2.0;
+                let x2 = tx + width / 2.0;
+                let y2 = ty + height / 2.0;
+
+                // Main body path with folded corner
+                let path_data = format!(
+                    "M{},{}L{},{}L{},{}L{},{}L{},{}L{},{}Z",
+                    fmt_num(x1),
+                    fmt_num(y2), // bottom-left
+                    fmt_num(x2 - fold_size),
+                    fmt_num(y2), // bottom-right before fold
+                    fmt_num(x2),
+                    fmt_num(y2 - fold_size), // after fold
+                    fmt_num(x2),
+                    fmt_num(y1), // top-right
+                    fmt_num(x1),
+                    fmt_num(y1), // top-left
+                    fmt_num(x1),
+                    fmt_num(y2) // back to bottom-left
+                );
+
+                let path = Path {
+                    d: Some(PathData::parse(&path_data).unwrap()),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: Some(svg_style.to_string()),
+                };
+                svg_children.push(SvgNode::Path(path));
             }
             ObjectClass::Diamond => {
                 // Diamond: rotated square/rhombus with vertices at edges
@@ -2356,10 +2462,30 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     // Simple line - render as <path> (matching C pikchr)
                     // First render arrowhead polygon if needed (rendered before line, like C)
                     if obj.style.arrow_end {
-                        // TODO: Implement arrowhead rendering with facet-xml
+                        if let Some(arrowhead) = render_arrowhead_dom(
+                            draw_sx,
+                            draw_sy,
+                            draw_ex,
+                            draw_ey,
+                            &obj.style,
+                            arrow_len_px.0,
+                            arrow_wid_px.0,
+                        ) {
+                            svg_children.push(SvgNode::Polygon(arrowhead));
+                        }
                     }
                     if obj.style.arrow_start {
-                        // TODO: Implement start arrowhead rendering with facet-xml
+                        if let Some(arrowhead) = render_arrowhead_dom(
+                            draw_ex,
+                            draw_ey,
+                            draw_sx,
+                            draw_sy,
+                            &obj.style,
+                            arrow_len_px.0,
+                            arrow_wid_px.0,
+                        ) {
+                            svg_children.push(SvgNode::Polygon(arrowhead));
+                        }
                     }
 
                     // Chop line endpoints for arrowheads (by arrowht/2 as in C pikchr, in pixels)
@@ -2587,8 +2713,71 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             }
 
             ObjectClass::Sublist => {
-                // TODO: Implement sublist rendering with DOM
-                // For now, just render children as basic shapes
+                // Render sublist children with offset
+                for child in &obj.children {
+                    let child_tx = scaler.px(child.center.x + offset_x);
+                    let child_ty = scaler.px(child.center.y + offset_y);
+                    let child_svg_style = create_svg_style(&child.style, &scaler, dashwid);
+
+                    match child.class {
+                        ObjectClass::Box => {
+                            let x1 = child_tx - scaler.px(child.width / 2.0);
+                            let x2 = child_tx + scaler.px(child.width / 2.0);
+                            let y1 = child_ty - scaler.px(child.height / 2.0);
+                            let y2 = child_ty + scaler.px(child.height / 2.0);
+
+                            let path_data = format!(
+                                "M{},{}L{},{}L{},{}L{},{}Z",
+                                fmt_num(x1),
+                                fmt_num(y2),
+                                fmt_num(x2),
+                                fmt_num(y2),
+                                fmt_num(x2),
+                                fmt_num(y1),
+                                fmt_num(x1),
+                                fmt_num(y1)
+                            );
+                            let path = Path {
+                                d: Some(PathData::parse(&path_data).unwrap()),
+                                fill: None,
+                                stroke: None,
+                                stroke_width: None,
+                                stroke_dasharray: None,
+                                style: Some(child_svg_style.to_string()),
+                            };
+                            svg_children.push(SvgNode::Path(path));
+                        }
+                        ObjectClass::Circle => {
+                            let r = scaler.px(child.width / 2.0);
+                            let circle = Circle {
+                                cx: Some(child_tx),
+                                cy: Some(child_ty),
+                                r: Some(r),
+                                fill: None,
+                                stroke: None,
+                                stroke_width: None,
+                                stroke_dasharray: None,
+                                style: Some(child_svg_style.clone()),
+                            };
+                            svg_children.push(SvgNode::Circle(circle));
+                        }
+                        _ => {
+                            // For other shapes, just render as a simple circle placeholder
+                            let r = scaler.px(child.width / 4.0);
+                            let circle = Circle {
+                                cx: Some(child_tx),
+                                cy: Some(child_ty),
+                                r: Some(r),
+                                fill: None,
+                                stroke: None,
+                                stroke_width: None,
+                                stroke_dasharray: None,
+                                style: Some(child_svg_style.clone()),
+                            };
+                            svg_children.push(SvgNode::Circle(circle));
+                        }
+                    }
+                }
             }
         }
 
@@ -2615,23 +2804,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     svg.children = svg_children;
 
     // Serialize to string using facet_xml
-    let xml_result =
-        facet_xml::to_string(&svg).map_err(|e| miette::miette!("XML serialization error: {}", e));
-
-    // Debug: print a sample to verify serialization
-    if let Ok(ref xml) = xml_result {
-        if xml.contains("path") {
-            let lines: Vec<&str> = xml.lines().collect();
-            for (i, line) in lines.iter().enumerate() {
-                if line.contains("path") && i < lines.len() - 1 {
-                    println!("Sample path line: {}", line.trim());
-                    break;
-                }
-            }
-        }
-    }
-
-    xml_result
+    facet_xml::to_string(&svg).map_err(|e| miette::miette!("XML serialization error: {}", e))
 }
 
 /// Render positioned text labels
@@ -3599,6 +3772,66 @@ fn escape_xml(s: &str) -> String {
 
 /// Render an arrowhead polygon at the end of a line
 /// The arrowhead points in the direction from (sx, sy) to (ex, ey)
+fn render_arrowhead_dom(
+    sx: f64,
+    sy: f64,
+    ex: f64,
+    ey: f64,
+    style: &ObjectStyle,
+    arrow_len: f64,
+    arrow_width: f64,
+) -> Option<Polygon> {
+    // Calculate direction vector
+    let dx = ex - sx;
+    let dy = ey - sy;
+    let len = (dx * dx + dy * dy).sqrt();
+
+    if len < 0.001 {
+        return None; // Zero-length line, no arrowhead
+    }
+
+    // Unit vector in direction of line
+    let ux = dx / len;
+    let uy = dy / len;
+
+    // Perpendicular unit vector
+    let px = -uy;
+    let py = ux;
+
+    // Arrow tip is at (ex, ey)
+    // Base points are arrow_len back along the line, offset by half arrow_width perpendicular
+    // Note: arrowwid is the FULL base width, so we use arrow_width/2 for the half-width
+    let base_x = ex - ux * arrow_len;
+    let base_y = ey - uy * arrow_len;
+    let half_width = arrow_width / 2.0;
+
+    let p1_x = base_x + px * half_width;
+    let p1_y = base_y + py * half_width;
+    let p2_x = base_x - px * half_width;
+    let p2_y = base_y - py * half_width;
+
+    let points = format!(
+        "{},{} {},{} {},{}",
+        fmt_num(ex),
+        fmt_num(ey),
+        fmt_num(p1_x),
+        fmt_num(p1_y),
+        fmt_num(p2_x),
+        fmt_num(p2_y)
+    );
+
+    let fill_color = Color::parse(&style.stroke);
+
+    Some(Polygon {
+        points: Some(points),
+        fill: None,
+        stroke: None,
+        stroke_width: None,
+        stroke_dasharray: None,
+        style: Some(format!("fill:{}", fill_color.to_string())),
+    })
+}
+
 fn render_arrowhead(
     svg: &mut String,
     sx: f64,
