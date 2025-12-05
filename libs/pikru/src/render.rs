@@ -2206,47 +2206,30 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 let y1 = ty - scaler.px(obj.height / 2.0);
                 let y2 = ty + scaler.px(obj.height / 2.0);
 
-                if obj.style.corner_radius > Inches::ZERO {
-                    let rx = scaler.px(obj.style.corner_radius);
-                    let ry = rx;
-                    let rect = Rect {
-                        x: Some(x1),
-                        y: Some(y1),
-                        width: Some(x2 - x1),
-                        height: Some(y2 - y1),
-                        rx: Some(rx),
-                        ry: Some(ry),
-                        fill: None,
-                        stroke: None,
-                        stroke_width: None,
-                        stroke_dasharray: None,
-                        style: svg_style.clone(),
-                    };
-                    svg_children.push(SvgNode::Rect(rect));
+                let path_data = if obj.style.corner_radius > Inches::ZERO {
+                    // Rounded box using proper path with arcs
+                    let r = scaler.px(obj.style.corner_radius);
+                    create_rounded_box_path(x1, y1, x2, y2, r)
                 } else {
-                    // C pikchr renders boxes as path: M x1,y2 L x2,y2 L x2,y1 L x1,y1 Z
+                    // Regular box: C pikchr renders boxes as path: M x1,y2 L x2,y2 L x2,y1 L x1,y1 Z
                     // (starts at bottom-left, goes clockwise)
-                    let path_data = format!(
-                        "M{},{}L{},{}L{},{}L{},{}Z",
-                        fmt_num(x1),
-                        fmt_num(y2),
-                        fmt_num(x2),
-                        fmt_num(y2),
-                        fmt_num(x2),
-                        fmt_num(y1),
-                        fmt_num(x1),
-                        fmt_num(y1)
-                    );
-                    let path = Path {
-                        d: Some(PathData::parse(&path_data).unwrap()),
-                        fill: None,
-                        stroke: None,
-                        stroke_width: None,
-                        stroke_dasharray: None,
-                        style: svg_style,
-                    };
-                    svg_children.push(SvgNode::Path(path));
-                }
+                    PathData::new()
+                        .m(x1, y2) // Start at bottom-left
+                        .l(x2, y2) // Line to bottom-right
+                        .l(x2, y1) // Line to top-right
+                        .l(x1, y1) // Line to top-left
+                        .z() // Close path
+                };
+
+                let path = Path {
+                    d: Some(path_data),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: svg_style,
+                };
+                svg_children.push(SvgNode::Path(path));
             }
             ObjectClass::Circle => {
                 let r = scaler.px(obj.width / 2.0);
@@ -2817,166 +2800,6 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         .map_err(|e| miette::miette!("XML serialization error: {}", e))
 }
 
-/// Render positioned text labels
-/// is_line: true if rendering text for a line/arrow object
-/// is_standalone_text: true if this is a standalone Text object (not text inside a shape)
-fn render_positioned_text(
-    svg: &mut String,
-    texts: &[PositionedText],
-    cx: f64,
-    cy: f64,
-    width: f64,
-    height: f64,
-    scaler: &Scaler,
-    is_line: bool,
-    is_standalone_text: bool,
-) {
-    // Group texts by their vertical position (above, below, or center)
-    let mut above_texts: Vec<&PositionedText> = Vec::new();
-    let mut center_texts: Vec<&PositionedText> = Vec::new();
-    let mut below_texts: Vec<&PositionedText> = Vec::new();
-
-    for text in texts {
-        if text.above {
-            above_texts.push(text);
-        } else if text.below {
-            below_texts.push(text);
-        } else {
-            center_texts.push(text);
-        }
-    }
-
-    // For lines, distribute center texts above and below the line
-    // C pikchr: first center text goes above, second below, third above, etc.
-    if is_line && !center_texts.is_empty() {
-        for (i, text) in center_texts.iter().enumerate() {
-            if i % 2 == 0 {
-                above_texts.push(text);
-            } else {
-                below_texts.push(text);
-            }
-        }
-        center_texts.clear();
-    }
-
-    // For lines, use charht as the offset from line center
-    // For shapes, use height/2 as the base offset
-    let base_offset = if is_line {
-        0.0 // Text starts right above/below the line
-    } else {
-        height / 2.0
-    };
-
-    // Line labels should behave like standalone text for anchoring purposes
-    // (no width-based offset from shape center)
-    let use_standalone_anchor = is_standalone_text || is_line;
-
-    // Render above texts (above the shape/line)
-    // First label (i=0) hugs the anchor, subsequent labels stack further out
-    for (i, text) in above_texts.iter().enumerate() {
-        let font_size = get_font_size(text, scaler);
-        // C pikchr positions text with charht spacing, offset by ~0.58*charht from line
-        let text_y = cy - base_offset - font_size * 0.58 - font_size * i as f64;
-        let (text_x, anchor) = get_text_anchor(text, cx, width, use_standalone_anchor);
-        render_styled_text(svg, text, text_x, text_y, anchor, font_size);
-    }
-
-    // Render center texts (inside the shape - only for non-lines)
-    for (i, text) in center_texts.iter().enumerate() {
-        let font_size = get_font_size(text, scaler);
-        let text_y = cy + (i as f64 - center_texts.len() as f64 / 2.0 + 0.5) * font_size;
-        let (text_x, anchor) = get_text_anchor(text, cx, width, use_standalone_anchor);
-        render_styled_text(svg, text, text_x, text_y, anchor, font_size);
-    }
-
-    // Render below texts (below the shape/line)
-    for (i, text) in below_texts.iter().enumerate() {
-        let font_size = get_font_size(text, scaler);
-        // C pikchr positions text with charht spacing, offset by ~0.58*charht from line
-        let text_y = cy + base_offset + font_size * 0.58 + font_size * i as f64;
-        let (text_x, anchor) = get_text_anchor(text, cx, width, use_standalone_anchor);
-        render_styled_text(svg, text, text_x, text_y, anchor, font_size);
-    }
-}
-
-/// Get font size based on text style (big/small)
-fn get_font_size(text: &PositionedText, scaler: &Scaler) -> f64 {
-    let base = scaler.px(Inches(defaults::FONT_SIZE));
-    if text.big {
-        base * 1.4
-    } else if text.small {
-        base * 0.7
-    } else {
-        base
-    }
-}
-
-/// Render a single styled text element
-fn render_styled_text(
-    svg: &mut String,
-    text: &PositionedText,
-    x: f64,
-    y: f64,
-    anchor: &str,
-    _font_size: f64,
-) {
-    let mut style_parts: Vec<String> = Vec::new();
-
-    // Font family
-    if text.mono {
-        style_parts.push("font-family=\"monospace\"".to_string());
-    }
-
-    // Font weight
-    if text.bold {
-        style_parts.push("font-weight=\"bold\"".to_string());
-    }
-
-    // Font style
-    if text.italic {
-        style_parts.push("font-style=\"italic\"".to_string());
-    }
-
-    let style_str = if style_parts.is_empty() {
-        String::new()
-    } else {
-        format!(" {}", style_parts.join(" "))
-    };
-
-    writeln!(svg, r#"  <text x="{}" y="{}" text-anchor="{}" fill="rgb(0,0,0)" dominant-baseline="central"{}>{}</text>"#,
-             fmt_num(x), fmt_num(y), anchor, style_str, escape_xml(&text.value)).unwrap();
-}
-
-/// Get text x position and anchor based on justification
-/// For standalone text objects (width == 0 or is_standalone), use direct anchoring.
-/// For text inside shapes, offset from center with padding.
-fn get_text_anchor(
-    text: &PositionedText,
-    cx: f64,
-    width: f64,
-    is_standalone: bool,
-) -> (f64, &'static str) {
-    if text.ljust {
-        if is_standalone || width < 1.0 {
-            // Standalone: anchor at position, text extends right
-            (cx, "start")
-        } else {
-            // Inside shape: offset from left edge with padding
-            (cx - width / 2.0 + 5.0, "start")
-        }
-    } else if text.rjust {
-        if is_standalone || width < 1.0 {
-            // Standalone: anchor at position, text extends left
-            (cx, "end")
-        } else {
-            // Inside shape: offset from right edge with padding
-            (cx + width / 2.0 - 5.0, "end")
-        }
-    } else {
-        (cx, "middle")
-    }
-}
-
 /// Shorten a line by `amount` from both ends
 /// Returns (new_x1, new_y1, new_x2, new_y2)
 fn chop_line(x1: f64, y1: f64, x2: f64, y2: f64, amount: f64) -> (f64, f64, f64, f64) {
@@ -3214,6 +3037,23 @@ fn chop_against_diamond(
 
 /// Render an oval (pill shape)
 /// Render a rounded box as a path (matching C pikchr output)
+/// Create a rounded box path using PathData fluent API (matching C pikchr output)
+fn create_rounded_box_path(x1: f64, y1: f64, x2: f64, y2: f64, r: f64) -> PathData {
+    // C pikchr path format for rounded box:
+    // Start at bottom-left corner (after radius), go clockwise
+    PathData::new()
+        .m(x1 + r, y2) // M: start bottom-left after radius
+        .l(x2 - r, y2) // L: line to bottom-right before radius
+        .a(r, r, 0.0, false, false, x2, y2 - r) // A: arc to right edge
+        .l(x2, y1 + r) // L: line up to top-right before radius
+        .a(r, r, 0.0, false, false, x2 - r, y1) // A: arc to top edge
+        .l(x1 + r, y1) // L: line left to top-left after radius
+        .a(r, r, 0.0, false, false, x1, y1 + r) // A: arc to left edge
+        .l(x1, y2 - r) // L: line down to bottom-left before radius
+        .a(r, r, 0.0, false, false, x1 + r, y2) // A: arc back to start
+        .z() // Z: close path
+}
+
 fn render_rounded_box_path(
     svg: &mut String,
     x1: f64,
@@ -3223,30 +3063,11 @@ fn render_rounded_box_path(
     r: f64,
     stroke_style: &str,
 ) {
-    // C pikchr path format for rounded box:
-    // Start at bottom-left corner (after radius), go clockwise
-    // M x1+r,y2 (bottom-left, after radius)
-    // L x2-r,y2 (bottom-right, before radius)
-    // A r,r 0 0 0 x2,y2-r (arc to right edge)
-    // L x2,y1+r (up to top-right, before radius)
-    // A r,r 0 0 0 x2-r,y1 (arc to top edge)
-    // L x1+r,y1 (left to top-left, after radius)
-    // A r,r 0 0 0 x1,y1+r (arc to left edge)
-    // L x1,y2-r (down to bottom-left, before radius)
-    // A r,r 0 0 0 x1+r,y2 (arc back to start)
-    // Z (close path)
+    let path_data = create_rounded_box_path(x1, y1, x2, y2, r);
     writeln!(
         svg,
-        r#"  <path d="M{:.2},{:.2}L{:.2},{:.2}A{:.2} {:.2} 0 0 0 {:.2} {:.2}L{:.2},{:.2}A{:.2} {:.2} 0 0 0 {:.2} {:.2}L{:.2},{:.2}A{:.2} {:.2} 0 0 0 {:.2} {:.2}L{:.2},{:.2}A{:.2} {:.2} 0 0 0 {:.2} {:.2}Z" {}/>"#,
-        x1 + r, y2,           // M: start at bottom-left after radius
-        x2 - r, y2,           // L: to bottom-right before radius
-        r, r, x2, y2 - r,     // A: arc to right edge
-        x2, y1 + r,           // L: up to top-right before radius
-        r, r, x2 - r, y1,     // A: arc to top edge
-        x1 + r, y1,           // L: left to top-left after radius
-        r, r, x1, y1 + r,     // A: arc to left edge
-        x1, y2 - r,           // L: down to bottom-left before radius
-        r, r, x1 + r, y2,     // A: arc back to start
+        r#"  <path d="{}" {}/>"#,
+        path_data.to_string(),
         stroke_style
     )
     .unwrap();
@@ -3592,14 +3413,6 @@ fn create_svg_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> Sv
     }
 
     svg_style
-}
-
-fn escape_xml(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace(' ', "\u{00A0}") // Use non-breaking space like C pikchr
 }
 
 /// Render an arrowhead polygon at the end of a line

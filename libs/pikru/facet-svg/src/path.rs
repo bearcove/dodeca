@@ -99,6 +99,171 @@ impl PathData {
         }
     }
 
+    /// Move to absolute position (M command)
+    pub fn m(mut self, x: f64, y: f64) -> Self {
+        self.commands.push(PathCommand::MoveTo { x, y });
+        self
+    }
+
+    /// Move to relative position (m command)
+    pub fn m_rel(mut self, dx: f64, dy: f64) -> Self {
+        self.commands.push(PathCommand::MoveToRel { dx, dy });
+        self
+    }
+
+    /// Line to absolute position (L command)
+    pub fn l(mut self, x: f64, y: f64) -> Self {
+        self.commands.push(PathCommand::LineTo { x, y });
+        self
+    }
+
+    /// Line to relative position (l command)
+    pub fn l_rel(mut self, dx: f64, dy: f64) -> Self {
+        self.commands.push(PathCommand::LineToRel { dx, dy });
+        self
+    }
+
+    /// Horizontal line to absolute x position (H command)
+    pub fn h(mut self, x: f64) -> Self {
+        self.commands.push(PathCommand::HorizontalLineTo { x });
+        self
+    }
+
+    /// Horizontal line to relative x position (h command)
+    pub fn h_rel(mut self, dx: f64) -> Self {
+        self.commands.push(PathCommand::HorizontalLineToRel { dx });
+        self
+    }
+
+    /// Vertical line to absolute y position (V command)
+    pub fn v(mut self, y: f64) -> Self {
+        self.commands.push(PathCommand::VerticalLineTo { y });
+        self
+    }
+
+    /// Vertical line to relative y position (v command)
+    pub fn v_rel(mut self, dy: f64) -> Self {
+        self.commands.push(PathCommand::VerticalLineToRel { dy });
+        self
+    }
+
+    /// Cubic Bezier curve to absolute position (C command)
+    pub fn c(mut self, x1: f64, y1: f64, x2: f64, y2: f64, x: f64, y: f64) -> Self {
+        self.commands.push(PathCommand::CurveTo {
+            x1,
+            y1,
+            x2,
+            y2,
+            x,
+            y,
+        });
+        self
+    }
+
+    /// Cubic Bezier curve to relative position (c command)
+    pub fn c_rel(mut self, dx1: f64, dy1: f64, dx2: f64, dy2: f64, dx: f64, dy: f64) -> Self {
+        self.commands.push(PathCommand::CurveToRel {
+            dx1,
+            dy1,
+            dx2,
+            dy2,
+            dx,
+            dy,
+        });
+        self
+    }
+
+    /// Smooth cubic Bezier curve to absolute position (S command)
+    pub fn s(mut self, x2: f64, y2: f64, x: f64, y: f64) -> Self {
+        self.commands
+            .push(PathCommand::SmoothCurveTo { x2, y2, x, y });
+        self
+    }
+
+    /// Smooth cubic Bezier curve to relative position (s command)
+    pub fn s_rel(mut self, dx2: f64, dy2: f64, dx: f64, dy: f64) -> Self {
+        self.commands
+            .push(PathCommand::SmoothCurveToRel { dx2, dy2, dx, dy });
+        self
+    }
+
+    /// Quadratic Bezier curve to absolute position (Q command)
+    pub fn q(mut self, x1: f64, y1: f64, x: f64, y: f64) -> Self {
+        self.commands.push(PathCommand::QuadTo { x1, y1, x, y });
+        self
+    }
+
+    /// Quadratic Bezier curve to relative position (q command)
+    pub fn q_rel(mut self, dx1: f64, dy1: f64, dx: f64, dy: f64) -> Self {
+        self.commands
+            .push(PathCommand::QuadToRel { dx1, dy1, dx, dy });
+        self
+    }
+
+    /// Smooth quadratic Bezier curve to absolute position (T command)
+    pub fn t(mut self, x: f64, y: f64) -> Self {
+        self.commands.push(PathCommand::SmoothQuadTo { x, y });
+        self
+    }
+
+    /// Smooth quadratic Bezier curve to relative position (t command)
+    pub fn t_rel(mut self, dx: f64, dy: f64) -> Self {
+        self.commands.push(PathCommand::SmoothQuadToRel { dx, dy });
+        self
+    }
+
+    /// Arc to absolute position (A command)
+    pub fn a(
+        mut self,
+        rx: f64,
+        ry: f64,
+        x_rotation: f64,
+        large_arc: bool,
+        sweep: bool,
+        x: f64,
+        y: f64,
+    ) -> Self {
+        self.commands.push(PathCommand::Arc {
+            rx,
+            ry,
+            x_rotation,
+            large_arc,
+            sweep,
+            x,
+            y,
+        });
+        self
+    }
+
+    /// Arc to relative position (a command)
+    pub fn a_rel(
+        mut self,
+        rx: f64,
+        ry: f64,
+        x_rotation: f64,
+        large_arc: bool,
+        sweep: bool,
+        dx: f64,
+        dy: f64,
+    ) -> Self {
+        self.commands.push(PathCommand::ArcRel {
+            rx,
+            ry,
+            x_rotation,
+            large_arc,
+            sweep,
+            dx,
+            dy,
+        });
+        self
+    }
+
+    /// Close path (Z command)
+    pub fn z(mut self) -> Self {
+        self.commands.push(PathCommand::ClosePath);
+        self
+    }
+
     /// Parse path data from a string
     pub fn parse(s: &str) -> Result<Self, PathParseError> {
         let mut commands = Vec::new();
