@@ -29,7 +29,7 @@ pub const SVG_NS: &str = "http://www.w3.org/2000/svg";
 
 /// Root SVG element
 #[derive(Facet, Debug, Clone, Default)]
-#[facet(xml::ns_all = "http://www.w3.org/2000/svg")]
+#[facet(xml::ns_all = "http://www.w3.org/2000/svg", rename_all = "kebab-case")]
 pub struct Svg {
     #[facet(xml::attribute)]
     pub xmlns: Option<String>,
@@ -116,19 +116,19 @@ macro_rules! impl_presentation_attrs {
     ($($ty:ty),*) => {
         $(
             impl PresentationAttrs for $ty {
-                fn fill(&self) -> Option<&str> { 
+                fn fill(&self) -> Option<&str> {
                     self.fill.as_ref().map(|s| s.as_str())
                 }
-                fn stroke(&self) -> Option<&str> { 
+                fn stroke(&self) -> Option<&str> {
                     self.stroke.as_ref().map(|s| s.as_str())
                 }
-                fn stroke_width(&self) -> Option<&str> { 
+                fn stroke_width(&self) -> Option<&str> {
                     self.stroke_width.as_ref().map(|s| s.as_str())
                 }
-                fn stroke_dasharray(&self) -> Option<&str> { 
+                fn stroke_dasharray(&self) -> Option<&str> {
                     self.stroke_dasharray.as_ref().map(|s| s.as_str())
                 }
-                fn style(&self) -> Option<&str> { 
+                fn style(&self) -> Option<&str> {
                     self.style.as_ref().and_then(|s| Some(s.as_str()))
                 }
             }

@@ -409,6 +409,54 @@ mod tests {
     }
 
     #[test]
+    fn test_facet_xml_namespace_issue() {
+        // Minimal reproduction of namespace prefixing issue with facet-xml
+        use facet_svg::{Circle, Svg, SvgNode, facet_xml};
+
+        let svg = Svg {
+            xmlns: Some("http://www.w3.org/2000/svg".to_string()),
+            width: None,
+            height: None,
+            view_box: Some("0 0 100 100".to_string()),
+            children: vec![SvgNode::Circle(Circle {
+                cx: Some(50.0),
+                cy: Some(50.0),
+                r: Some(25.0),
+                fill: None,
+                stroke: None,
+                stroke_width: None,
+                stroke_dasharray: None,
+                style: None,
+            })],
+        };
+
+        let xml = facet_xml::to_string(&svg).unwrap();
+        println!("Generated XML: {}", xml);
+
+        // The issue: facet-xml generates:
+        // <Svg xmlns:svg="http://www.w3.org/2000/svg" svg:viewBox="0 0 100 100">
+        //   <circle svg:cx="50" svg:cy="50" svg:r="25"/>
+        // </Svg>
+        //
+        // But valid SVG should be:
+        // <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        //   <circle cx="50" cy="50" r="25"/>
+        // </svg>
+        //
+        // The xml::ns_all attribute is causing namespace prefixing instead of
+        // setting the default namespace properly.
+
+        assert!(
+            xml.contains("svg:"),
+            "Should contain namespace prefixes (demonstrates the bug)"
+        );
+        assert!(
+            xml.contains("xmlns:svg="),
+            "Should have xmlns:svg declaration (demonstrates the bug)"
+        );
+    }
+
+    #[test]
     fn parse_expr_file() {
         let input = include_str!("../vendor/pikchr-c/tests/expr.pikchr");
         let result = PikchrParser::parse(Rule::program, input);

@@ -49,8 +49,15 @@ impl CompareResult {
 
 /// Extract SVG portion from output (skipping any print statements before it)
 pub fn extract_svg(output: &str) -> Option<&str> {
+    // Try lowercase <svg> first (standard/C implementation)
     if let Some(start) = output.find("<svg") {
         if let Some(end) = output.rfind("</svg>") {
+            return Some(&output[start..end + 6]);
+        }
+    }
+    // Try capitalized <Svg> (facet-xml output before namespace fix)
+    if let Some(start) = output.find("<Svg") {
+        if let Some(end) = output.rfind("</Svg>") {
             return Some(&output[start..end + 6]);
         }
     }

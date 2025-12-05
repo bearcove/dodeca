@@ -37,6 +37,11 @@ A visual comparison HTML file is automatically generated showing side-by-side co
 cargo xtask compare-html
 ```
 
+Individual SVG files are written to `debug-svg/` for inspection:
+- `debug-svg/test01-c.svg` - C implementation output
+- `debug-svg/test01-rust.svg` - Rust implementation output
+- Files are named as `{test-name}-{c|rust}.svg`
+
 The comparison is automatically updated:
 - When running `cargo test` (via `z_update_visual_comparison` test)
 - In pre-commit hooks (if installed)

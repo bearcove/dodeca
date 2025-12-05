@@ -9,8 +9,3 @@ license = "MIT OR Apache-2.0"
 facet = { git = "https://github.com/facet-rs/facet" }
 facet-xml = { git = "https://github.com/facet-rs/facet" }
 facet-assert = { git = "https://github.com/facet-rs/facet" }
-
-[patch.'https://github.com/facet-rs/facet']
-facet = { git = "https://github.com/facet-rs/facet", rev = "8f304e7ab440408171ba653d23a80b171266e11b" }
-facet-xml = { git = "https://github.com/facet-rs/facet", rev = "8f304e7ab440408171ba653d23a80b171266e11b" }
-facet-assert = { git = "https://github.com/facet-rs/facet", rev = "8f304e7ab440408171ba653d23a80b171266e11b" }

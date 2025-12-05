@@ -29,6 +29,10 @@ fn compare_html() {
     );
     let tests_dir = Path::new(manifest_dir).join("../vendor/pikchr-c/tests");
     let output_path = Path::new(manifest_dir).join("../comparison.html");
+    let debug_dir = Path::new(manifest_dir).join("../debug-svg");
+
+    // Create debug directory for individual SVG files (ignored by git)
+    fs::create_dir_all(&debug_dir).expect("Failed to create debug-svg directory");
 
     let mut entries: Vec<_> = fs::read_dir(&tests_dir)
         .expect("Failed to read tests directory")
@@ -68,6 +72,21 @@ fn compare_html() {
 
         // Use shared comparison logic
         let compare_result = compare_outputs(&c_output, &rust_output, rust_is_err);
+
+        // Write individual SVG files for debugging
+        let c_svg = extract_svg(&c_output).unwrap_or("<!-- No SVG found -->");
+        let rust_svg = extract_svg(&rust_output).unwrap_or("<!-- No SVG found -->");
+
+        let base_name = name_str.trim_end_matches(".pikchr");
+        let c_file = debug_dir.join(format!("{}-c.svg", base_name));
+        let rust_file = debug_dir.join(format!("{}-rust.svg", base_name));
+
+        if let Err(e) = fs::write(&c_file, c_svg) {
+            eprintln!("Warning: Failed to write {}: {}", c_file.display(), e);
+        }
+        if let Err(e) = fs::write(&rust_file, rust_svg) {
+            eprintln!("Warning: Failed to write {}: {}", rust_file.display(), e);
+        }
 
         results.push((
             name_str,
@@ -481,7 +500,8 @@ fn compare_html() {
     html.push_str("</div>\n</body></html>");
 
     fs::write(&output_path, html).expect("Failed to write HTML");
-    println!("Generated comparison at: {}", output_path.display());
+    eprintln!("Generated comparison at: {}", output_path.display());
+    eprintln!("Individual SVG files written to: {}", debug_dir.display());
 }
 
 fn run_c_pikchr(c_pikchr: &str, source: &str) -> String {
