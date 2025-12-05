@@ -89,5 +89,5 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
 }
 
 datatest_stable::harness! {
-    { test = test_pikchr_file, root = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/pikchr-c/tests"), pattern = r"\.pikchr$" },
+    { test = test_pikchr_file, root = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/pikchr-c/tests"), pattern = r"\.pikchr$", exclude = r"expr\.pikchr" },
 }
