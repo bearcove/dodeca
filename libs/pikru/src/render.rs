@@ -2607,40 +2607,57 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 }
             }
             ObjectClass::Spline => {
-                if obj.waypoints.len() <= 2 {
-                    // Simple line for spline with only 2 points
-                    // TODO: Implement arrowhead rendering for splines
-                    let spline_path_data = format!(
-                        "M{},{}L{},{}",
-                        fmt_num(sx),
-                        fmt_num(sy),
-                        fmt_num(ex),
-                        fmt_num(ey)
-                    );
-                    let spline_path = Path {
-                        d: Some(PathData::parse(&spline_path_data).unwrap()),
-                        fill: None,
-                        stroke: None,
-                        stroke_width: None,
-                        stroke_dasharray: None,
-                        style: svg_style,
-                    };
-                    svg_children.push(SvgNode::Path(spline_path));
-                } else {
-                    // TODO: Implement multi-segment spline rendering
+                // Proper spline rendering with Bezier curves
+                let spline_path_data = create_spline_path(&obj.waypoints, offset_x, offset_y);
+
+                // Render arrowheads first (before path, like C pikchr)
+                let n = obj.waypoints.len();
+                if obj.style.arrow_end && n >= 2 {
+                    let p1 = obj.waypoints[n - 2];
+                    let p2 = obj.waypoints[n - 1];
+                    if let Some(arrowhead) = render_arrowhead_dom(
+                        p1.x.0 + offset_x.0,
+                        p1.y.0 + offset_y.0,
+                        p2.x.0 + offset_x.0,
+                        p2.y.0 + offset_y.0,
+                        &obj.style,
+                        arrow_len_px.0,
+                        arrow_wid_px.0,
+                    ) {
+                        svg_children.push(SvgNode::Polygon(arrowhead));
+                    }
                 }
+                if obj.style.arrow_start && n >= 2 {
+                    let p1 = obj.waypoints[0];
+                    let p2 = obj.waypoints[1];
+                    if let Some(arrowhead) = render_arrowhead_dom(
+                        p2.x.0 + offset_x.0,
+                        p2.y.0 + offset_y.0,
+                        p1.x.0 + offset_x.0,
+                        p1.y.0 + offset_y.0,
+                        &obj.style,
+                        arrow_len_px.0,
+                        arrow_wid_px.0,
+                    ) {
+                        svg_children.push(SvgNode::Polygon(arrowhead));
+                    }
+                }
+
+                let spline_path = Path {
+                    d: Some(spline_path_data),
+                    fill: None,
+                    stroke: None,
+                    stroke_width: None,
+                    stroke_dasharray: None,
+                    style: svg_style,
+                };
+                svg_children.push(SvgNode::Path(spline_path));
             }
             ObjectClass::Move => {
                 // Move: simple line without arrowheads
-                let move_path_data = format!(
-                    "M{},{}L{},{}",
-                    fmt_num(sx),
-                    fmt_num(sy),
-                    fmt_num(ex),
-                    fmt_num(ey)
-                );
+                let move_path_data = PathData::new().m(sx, sy).l(ex, ey);
                 let move_path = Path {
-                    d: Some(PathData::parse(&move_path_data).unwrap()),
+                    d: Some(move_path_data),
                     fill: None,
                     stroke: None,
                     stroke_width: None,
@@ -2651,17 +2668,40 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             }
 
             ObjectClass::Arc => {
-                // TODO: Implement proper arc rendering with DOM
-                // For now, render as a simple line
-                let arc_path_data = format!(
-                    "M{},{}L{},{}",
-                    fmt_num(sx),
-                    fmt_num(sy),
-                    fmt_num(ex),
-                    fmt_num(ey)
-                );
+                // Proper arc rendering using curved arc paths
+                let radius = scaler.px(obj.width / 2.0); // Use width as arc radius
+                let arc_path_data = create_arc_path(sx, sy, ex, ey, radius);
+
+                // Render arrowheads first (before path, like C pikchr)
+                if obj.style.arrow_end {
+                    if let Some(arrowhead) = render_arrowhead_dom(
+                        sx,
+                        sy,
+                        ex,
+                        ey,
+                        &obj.style,
+                        arrow_len_px.0,
+                        arrow_wid_px.0,
+                    ) {
+                        svg_children.push(SvgNode::Polygon(arrowhead));
+                    }
+                }
+                if obj.style.arrow_start {
+                    if let Some(arrowhead) = render_arrowhead_dom(
+                        ex,
+                        ey,
+                        sx,
+                        sy,
+                        &obj.style,
+                        arrow_len_px.0,
+                        arrow_wid_px.0,
+                    ) {
+                        svg_children.push(SvgNode::Polygon(arrowhead));
+                    }
+                }
+
                 let arc_path = Path {
-                    d: Some(PathData::parse(&arc_path_data).unwrap()),
+                    d: Some(arc_path_data),
                     fill: None,
                     stroke: None,
                     stroke_width: None,
@@ -3093,6 +3133,79 @@ fn create_file_paths(cx: f64, cy: f64, width: f64, height: f64) -> (PathData, Pa
         .l(right, y + fold_size); // Across to edge
 
     (main_path, fold_path)
+}
+
+/// Create spline path using PathData fluent API (matching C pikchr output)
+fn create_spline_path(waypoints: &[PointIn], offset_x: Inches, offset_y: Inches) -> PathData {
+    if waypoints.is_empty() {
+        return PathData::new();
+    }
+
+    // Convert waypoints to offset coordinates
+    let points: Vec<(f64, f64)> = waypoints
+        .iter()
+        .map(|p| (p.x.0 + offset_x.0, p.y.0 + offset_y.0))
+        .collect();
+
+    let mut path = PathData::new().m(points[0].0, points[0].1);
+
+    if points.len() == 2 {
+        // Just a line
+        path = path.l(points[1].0, points[1].1);
+    } else {
+        // Use quadratic bezier curves for smoothness
+        // For each segment, use the midpoint as control point
+        for i in 1..points.len() {
+            let prev = points[i - 1];
+            let curr = points[i];
+
+            if i == 1 {
+                // First segment: quadratic from start
+                let mid = ((prev.0 + curr.0) / 2.0, (prev.1 + curr.1) / 2.0);
+                path = path.q(prev.0, prev.1, mid.0, mid.1);
+            }
+
+            if i < points.len() - 1 {
+                // Middle segments: curve through midpoints
+                let next = points[i + 1];
+                let mid = ((curr.0 + next.0) / 2.0, (curr.1 + next.1) / 2.0);
+                path = path.q(curr.0, curr.1, mid.0, mid.1);
+            } else {
+                // Last segment: end at the final point
+                path = path.q(
+                    (prev.0 + curr.0) / 2.0,
+                    (prev.1 + curr.1) / 2.0,
+                    curr.0,
+                    curr.1,
+                );
+            }
+        }
+    }
+
+    path
+}
+
+/// Create arc path using PathData fluent API (matching C pikchr output)
+fn create_arc_path(sx: f64, sy: f64, ex: f64, ey: f64, radius: f64) -> PathData {
+    // Determine arc direction and sweep
+    let dx = ex - sx;
+    let dy = ey - sy;
+
+    // Default to quarter-circle arc
+    let r = if radius > 0.0 {
+        radius / 2.0
+    } else {
+        (dx.abs() + dy.abs()) / 2.0
+    };
+
+    // sweep-flag: 0 = counter-clockwise, 1 = clockwise
+    // large-arc-flag: 0 = small arc, 1 = large arc
+    let sweep = true; // Default clockwise
+    let large_arc = false;
+
+    PathData::new()
+        .m(sx, sy) // Move to start point
+        .a(r, r, 0.0, large_arc, sweep, ex, ey) // Arc to end point
 }
 
 fn render_rounded_box_path(
