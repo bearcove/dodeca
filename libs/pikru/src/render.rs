@@ -3832,6 +3832,7 @@ fn render_arrowhead_dom(
     })
 }
 
+/// Legacy string-based arrowhead rendering
 fn render_arrowhead(
     svg: &mut String,
     sx: f64,
