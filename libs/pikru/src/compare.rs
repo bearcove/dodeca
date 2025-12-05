@@ -6,8 +6,10 @@
 use facet_svg::{Svg, facet_assert::SameOptions, facet_xml};
 
 /// Tolerance for floating-point comparisons (pikchr uses single precision)
-/// Use 0.05 to allow for rounding differences between C and Rust implementations
-pub const FLOAT_TOLERANCE: f64 = 0.05;
+/// Keep this tight so genuine geometry differences don't get masked.
+/// A value of 0.01 px comfortably covers formatting/rounding noise while
+/// catching mis-chopped endpoints like autochop02.
+pub const FLOAT_TOLERANCE: f64 = 0.000000000000;
 
 /// Result of comparing two pikchr outputs
 #[derive(Debug, Clone)]
