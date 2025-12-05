@@ -91,7 +91,9 @@ fn main() -> ExitCode {
             eprintln!("Usage:");
             eprintln!("  cargo xtask build [--release]        Build WASM + plugins + dodeca");
             eprintln!("  cargo xtask run [--release] [-- ..]  Build all, then run ddc");
-            eprintln!("  cargo xtask install                  Build release & install to ~/.cargo/bin");
+            eprintln!(
+                "  cargo xtask install                  Build release & install to ~/.cargo/bin"
+            );
             eprintln!("  cargo xtask wasm                     Build WASM only");
             eprintln!("  cargo xtask ci [--check]             Generate release workflow");
             ExitCode::FAILURE
@@ -278,7 +280,10 @@ fn install_dev() -> bool {
     };
 
     if !cargo_bin.exists() {
-        eprintln!("Cargo bin directory does not exist: {}", cargo_bin.display());
+        eprintln!(
+            "Cargo bin directory does not exist: {}",
+            cargo_bin.display()
+        );
         return false;
     }
 

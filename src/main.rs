@@ -286,6 +286,9 @@ fn resolve_dirs(
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
+    miette::set_hook(Box::new(
+        |_| Box::new(miette::GraphicalReportHandler::new()),
+    ))?;
     let command = parse_args()?;
 
     match command {

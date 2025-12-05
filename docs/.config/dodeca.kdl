@@ -9,11 +9,11 @@ code_execution {
     fail_on_error true
     timeout_secs 30
     cache_dir ".cache/code-execution"
-    
+
     dependencies {
         "serde" "1.0"
     }
-    
+
     rust {
         command "cargo"
         args ["run", "--quiet", "--release"]

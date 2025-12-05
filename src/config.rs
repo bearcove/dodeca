@@ -33,6 +33,10 @@ pub struct DodecaConfig {
     /// e.g., favicon.svg, robots.txt, og-image.png
     #[facet(kdl::child, default)]
     pub stable_assets: StableAssetsConfig,
+
+    /// Code execution configuration
+    #[facet(kdl::child, default)]
+    pub code_execution: CodeExecutionConfig,
 }
 
 /// Link checking configuration
@@ -108,6 +112,8 @@ pub struct ResolvedConfig {
     pub rate_limit_ms: Option<u64>,
     /// Asset paths that should be served at original paths (no cache-busting)
     pub stable_assets: Vec<String>,
+    /// Code execution configuration
+    pub code_execution: CodeExecutionConfig,
 }
 
 impl ResolvedConfig {
@@ -168,8 +174,13 @@ fn find_config_file() -> Result<Option<Utf8PathBuf>> {
 fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
     let content = fs::read_to_string(config_path)?;
 
-    let config: DodecaConfig =
-        kdl::from_str(&content).map_err(|e| eyre!("Failed to parse {}: {}", config_path, e))?;
+    let config: DodecaConfig = kdl::from_str(&content).map_err(|e| {
+        eyre!(
+            "Failed to parse {}: {:?}",
+            config_path,
+            miette::Report::new(e)
+        )
+    })?;
 
     // Project root is the parent of .config/
     let config_dir = config_path
@@ -210,7 +221,113 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         skip_domains,
         rate_limit_ms,
         stable_assets,
+        code_execution: config.code_execution,
     })
+}
+
+/// Code execution configuration
+#[derive(Debug, Clone, Facet)]
+pub struct CodeExecutionConfig {
+    /// Enable/disable code execution
+    #[facet(kdl::property, default)]
+    pub enabled: Option<bool>,
+
+    /// Fail build on execution errors in dev mode
+    #[facet(kdl::property, default)]
+    pub fail_on_error: Option<bool>,
+
+    /// Execution timeout in seconds
+    #[facet(kdl::property, default)]
+    pub timeout_secs: Option<u64>,
+
+    /// Cache directory for execution artifacts
+    #[facet(kdl::property, default)]
+    pub cache_dir: Option<String>,
+
+    /// Dependencies for code samples
+    #[facet(kdl::child, default)]
+    pub dependencies: DependenciesConfig,
+
+    /// Language-specific configuration
+    #[facet(kdl::child, default)]
+    pub rust: RustConfig,
+}
+
+impl Default for CodeExecutionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: Some(true),
+            fail_on_error: Some(false),
+            timeout_secs: Some(30),
+            cache_dir: Some(".cache/code-execution".to_string()),
+            dependencies: DependenciesConfig::default(),
+            rust: RustConfig::default(),
+        }
+    }
+}
+
+/// Dependencies configuration
+#[derive(Debug, Clone, Default, Facet)]
+pub struct DependenciesConfig {
+    /// List of dependency specifications
+    #[facet(kdl::children, default)]
+    pub deps: Vec<DependencySpec>,
+}
+
+/// A single dependency specification
+#[derive(Debug, Clone, Facet)]
+pub struct DependencySpec {
+    /// Crate name
+    #[facet(kdl::node_name)]
+    pub name: String,
+    /// Version requirement
+    #[facet(kdl::argument)]
+    pub version: String,
+}
+
+/// Rust-specific configuration
+#[derive(Debug, Clone, Facet)]
+pub struct RustConfig {
+    /// Cargo command
+    #[facet(kdl::property, default)]
+    pub command: Option<String>,
+
+    /// Cargo arguments
+    #[facet(kdl::property, default)]
+    pub args: Option<Vec<String>>,
+
+    /// File extension
+    #[facet(kdl::property, default)]
+    pub extension: Option<String>,
+
+    /// Auto-wrap code without main function
+    #[facet(kdl::property, default)]
+    pub prepare_code: Option<bool>,
+
+    /// Auto-imports
+    #[facet(kdl::property, default)]
+    pub auto_imports: Option<Vec<String>>,
+
+    /// Show output in build
+    #[facet(kdl::property, default)]
+    pub show_output: Option<bool>,
+}
+
+impl Default for RustConfig {
+    fn default() -> Self {
+        Self {
+            command: Some("cargo".to_string()),
+            args: Some(vec![
+                "run".to_string(),
+                "--quiet".to_string(),
+                "--release".to_string(),
+            ]),
+            extension: Some("rs".to_string()),
+            prepare_code: Some(true),
+            auto_imports: Some(vec!["use std::collections::HashMap;".to_string()]),
+            show_output: Some(false),
+        }
+    }
 }
 
 #[cfg(test)]
