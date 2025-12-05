@@ -1945,11 +1945,11 @@ async fn serve_plain(
                 let mut paths: Vec<_> = search_files.keys().collect();
                 paths.sort();
                 for path in &paths {
-                    println!("  Search file: {path}");
+                    tracing::debug!("  Search file: {path}");
                 }
                 let mut sf = server_for_search.search_files.write().unwrap();
                 *sf = search_files;
-                println!("  Search index ready ({count} files)");
+                tracing::info!("  Search index ready ({count} files)");
             }
             Err(e) => {
                 eprintln!("{} Search index error: {}", "error:".red(), e);
