@@ -58,7 +58,7 @@ pub struct DependenciesConfig {
 
 /// A single dependency specification
 ///
-/// Supports both crates.io and git dependencies:
+/// Supports crates.io, git, and path dependencies:
 ///
 /// ```kdl
 /// dependencies {
@@ -73,6 +73,9 @@ pub struct DependenciesConfig {
 ///
 ///     // git dependency with rev
 ///     facet "0.1" git="https://github.com/facet-rs/facet" rev="abc123"
+///
+///     // path dependency (relative to project root)
+///     plugcard "0.1" path="crates/plugcard"
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Facet)]
@@ -97,6 +100,10 @@ pub struct DependencySpec {
     #[facet(kdl::property, default)]
     pub branch: Option<String>,
 
+    /// Local path (optional, relative to project root)
+    #[facet(kdl::property, default)]
+    pub path: Option<String>,
+
     /// Crate features to enable (optional)
     #[facet(kdl::property, default)]
     pub features: Option<Vec<String>>,
@@ -111,6 +118,7 @@ impl DependencySpec {
             git: None,
             rev: None,
             branch: None,
+            path: None,
             features: None,
         }
     }
@@ -127,6 +135,20 @@ impl DependencySpec {
             git: Some(git.into()),
             rev: None,
             branch: Some(branch.into()),
+            path: None,
+            features: None,
+        }
+    }
+
+    /// Create a new path dependency
+    pub fn path(name: impl Into<String>, path: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            version: "0.0.0".into(), // Version is ignored for path deps
+            git: None,
+            rev: None,
+            branch: None,
+            path: Some(path.into()),
             features: None,
         }
     }
@@ -138,10 +160,25 @@ impl DependencySpec {
     }
 
     /// Generate the Cargo.toml dependency line for this spec
+    ///
+    /// If `project_root` is provided, path dependencies will be made absolute.
     pub fn to_cargo_toml_line(&self) -> String {
+        self.to_cargo_toml_line_with_root(None)
+    }
+
+    /// Generate the Cargo.toml dependency line with optional project root for path resolution
+    pub fn to_cargo_toml_line_with_root(&self, project_root: Option<&std::path::Path>) -> String {
         let mut parts = Vec::new();
 
-        if let Some(ref git) = self.git {
+        if let Some(ref path) = self.path {
+            // Path dependency - make absolute if project_root provided
+            let resolved_path = if let Some(root) = project_root {
+                root.join(path).display().to_string()
+            } else {
+                path.clone()
+            };
+            parts.push(format!("path = \"{}\"", resolved_path));
+        } else if let Some(ref git) = self.git {
             parts.push(format!("git = \"{}\"", git));
             if let Some(ref rev) = self.rev {
                 parts.push(format!("rev = \"{}\"", rev));
@@ -248,6 +285,25 @@ mod tests {
         assert_eq!(
             dep.to_cargo_toml_line(),
             "facet = { git = \"https://github.com/facet-rs/facet\", branch = \"main\" }"
+        );
+    }
+
+    #[test]
+    fn test_path_dep() {
+        let dep = DependencySpec::path("plugcard", "crates/plugcard");
+        assert_eq!(
+            dep.to_cargo_toml_line(),
+            "plugcard = { path = \"crates/plugcard\" }"
+        );
+    }
+
+    #[test]
+    fn test_path_dep_with_root() {
+        let dep = DependencySpec::path("plugcard", "crates/plugcard");
+        let root = std::path::Path::new("/home/user/project");
+        assert_eq!(
+            dep.to_cargo_toml_line_with_root(Some(root)),
+            "plugcard = { path = \"/home/user/project/crates/plugcard\" }"
         );
     }
 

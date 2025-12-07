@@ -30,8 +30,10 @@ pub struct CodeExecutionConfig {
     pub fail_on_error: bool,
     /// Timeout for code execution (seconds)
     pub timeout_secs: u64,
-    /// Cache directory for execution results
+    /// Cache directory for execution results (relative to project root)
     pub cache_dir: String,
+    /// Project root directory (for resolving path dependencies)
+    pub project_root: Option<String>,
     /// Languages to execute (empty = all supported)
     pub languages: Vec<String>,
     /// Dependencies available to all code samples
@@ -47,6 +49,7 @@ impl Default for CodeExecutionConfig {
             fail_on_error: true,
             timeout_secs: 30,
             cache_dir: ".cache/code-execution".to_string(),
+            project_root: None,
             languages: vec!["rust".to_string()],
             dependencies: default_rust_dependencies(),
             language_config: HashMap::from([("rust".to_string(), LanguageConfig::rust())]),
@@ -57,6 +60,11 @@ impl Default for CodeExecutionConfig {
 impl CodeExecutionConfig {
     /// Create from KDL config, applying defaults for unspecified values
     pub fn from_kdl_config(kdl: &KdlCodeExecutionConfig) -> Self {
+        Self::from_kdl_config_with_root(kdl, None)
+    }
+
+    /// Create from KDL config with a project root for resolving path dependencies
+    pub fn from_kdl_config_with_root(kdl: &KdlCodeExecutionConfig, project_root: Option<String>) -> Self {
         let defaults = Self::default();
 
         // Use user-specified deps if any, otherwise use defaults
@@ -89,6 +97,7 @@ impl CodeExecutionConfig {
             fail_on_error: kdl.fail_on_error.unwrap_or(true),
             timeout_secs: kdl.timeout_secs.unwrap_or(30),
             cache_dir: kdl.cache_dir.clone().unwrap_or_else(|| ".cache/code-execution".to_string()),
+            project_root,
             languages: vec!["rust".to_string()],
             dependencies,
             language_config,
@@ -272,10 +281,37 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
         return PlugResult::Ok(ExecuteSamplesOutput { results });
     }
 
+    // Determine project root for path dependency resolution
+    let project_root = input.config.project_root.as_ref().map(std::path::Path::new);
+
     // Ensure cache directory exists
-    if let Err(e) = fs::create_dir_all(&input.config.cache_dir) {
+    let cache_dir = if let Some(root) = project_root {
+        root.join(&input.config.cache_dir)
+    } else {
+        std::path::PathBuf::from(&input.config.cache_dir)
+    };
+
+    if let Err(e) = fs::create_dir_all(&cache_dir) {
         return PlugResult::Err(format!("Failed to create cache directory: {}", e));
     }
+
+    // Check if we have any Rust samples to execute
+    let has_rust_samples = input.samples.iter().any(|s| {
+        s.executable && (s.language == "rust" || s.language == "rs")
+    });
+
+    // Prepare the base target directory with all deps pre-compiled
+    let base_target_dir = if has_rust_samples {
+        match prepare_rust_base_target(&input.config.dependencies, project_root, &cache_dir, input.config.timeout_secs) {
+            Ok(dir) => Some(dir),
+            Err(e) => {
+                eprintln!("Warning: Failed to prepare base target: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     for sample in input.samples {
         let result = if !sample.executable {
@@ -301,7 +337,7 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
                     error: None,
                 }
             } else {
-                execute_single_sample(&sample, &input.config)
+                execute_single_sample(&sample, &input.config, base_target_dir.as_deref())
             }
         };
 
@@ -311,8 +347,77 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
     PlugResult::Ok(ExecuteSamplesOutput { results })
 }
 
+/// Prepare a base target directory with all dependencies pre-compiled
+fn prepare_rust_base_target(
+    dependencies: &[DependencySpec],
+    project_root: Option<&std::path::Path>,
+    cache_dir: &std::path::Path,
+    timeout_secs: u64,
+) -> Result<std::path::PathBuf, String> {
+    let base_project_dir = cache_dir.join("base_project");
+    let base_target_dir = cache_dir.join("base_target");
+
+    // Check if base target already exists and is up-to-date
+    // For now, we'll rebuild if Cargo.toml content changes
+    let cargo_toml_content = generate_cargo_toml(dependencies, project_root);
+    let cargo_toml_path = base_project_dir.join("Cargo.toml");
+
+    let needs_rebuild = if cargo_toml_path.exists() {
+        match fs::read_to_string(&cargo_toml_path) {
+            Ok(existing) => existing != cargo_toml_content,
+            Err(_) => true,
+        }
+    } else {
+        true
+    };
+
+    if !needs_rebuild && base_target_dir.exists() {
+        eprintln!("=== Using cached base target (deps already compiled) ===");
+        return Ok(base_target_dir);
+    }
+
+    eprintln!("=== Preparing base target (compiling dependencies) ===");
+
+    // Create base project directory
+    fs::create_dir_all(&base_project_dir)
+        .map_err(|e| format!("Failed to create base project dir: {}", e))?;
+
+    // Write Cargo.toml
+    fs::write(&cargo_toml_path, &cargo_toml_content)
+        .map_err(|e| format!("Failed to write base Cargo.toml: {}", e))?;
+
+    // Create minimal src/main.rs
+    let src_dir = base_project_dir.join("src");
+    fs::create_dir_all(&src_dir)
+        .map_err(|e| format!("Failed to create base src dir: {}", e))?;
+
+    fs::write(src_dir.join("main.rs"), "fn main() {}\n")
+        .map_err(|e| format!("Failed to write base main.rs: {}", e))?;
+
+    // Build the base project to compile all dependencies
+    let mut cmd = Command::new("cargo");
+    cmd.args(["build", "--release"]);
+    cmd.current_dir(&base_project_dir);
+    cmd.env("CARGO_TARGET_DIR", &base_target_dir);
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
+
+    let status = execute_with_timeout_inherit(&mut cmd, timeout_secs)
+        .map_err(|e| format!("Failed to build base project: {}", e))?;
+
+    if !status.success() {
+        return Err(format!("Base project build failed with code: {:?}", status.code()));
+    }
+
+    Ok(base_target_dir)
+}
+
 /// Execute a single code sample
-fn execute_single_sample(sample: &CodeSample, config: &CodeExecutionConfig) -> ExecutionResult {
+fn execute_single_sample(
+    sample: &CodeSample,
+    config: &CodeExecutionConfig,
+    base_target_dir: Option<&std::path::Path>,
+) -> ExecutionResult {
     let start_time = std::time::Instant::now();
 
     let lang_config = match config.language_config.get(&sample.language) {
@@ -334,7 +439,7 @@ fn execute_single_sample(sample: &CodeSample, config: &CodeExecutionConfig) -> E
 
     // For Rust, create a temporary Cargo project
     if sample.language == "rust" || sample.language == "rs" {
-        execute_rust_sample(sample, lang_config, config, start_time)
+        execute_rust_sample(sample, lang_config, config, base_target_dir, start_time)
     } else {
         ExecutionResult {
             success: false,
@@ -352,12 +457,17 @@ fn execute_rust_sample(
     sample: &CodeSample,
     lang_config: &LanguageConfig,
     config: &CodeExecutionConfig,
+    base_target_dir: Option<&std::path::Path>,
     start_time: std::time::Instant,
 ) -> ExecutionResult {
-    // Create temporary Cargo project
+    // Determine project root for path dependency resolution
+    let project_root = config.project_root.as_ref().map(std::path::Path::new);
+
+    // Create temporary Cargo project with its own isolated target directory
     let temp_dir = std::env::temp_dir();
     let project_name = format!("dodeca_sample_{}", std::process::id());
     let project_dir = temp_dir.join(&project_name);
+    let sample_target_dir = project_dir.join("target");
 
     if let Err(e) = fs::create_dir_all(&project_dir) {
         return ExecutionResult {
@@ -370,9 +480,20 @@ fn execute_rust_sample(
         };
     }
 
-    // Generate Cargo.toml
-    let cargo_toml = generate_cargo_toml(&config.dependencies);
+    // Copy base target directory if available (pre-compiled deps)
+    if let Some(base_target) = base_target_dir {
+        if base_target.exists() {
+            if let Err(e) = copy_dir_recursive(base_target, &sample_target_dir) {
+                eprintln!("Warning: Failed to copy base target: {}", e);
+                // Continue without pre-compiled deps
+            }
+        }
+    }
+
+    // Generate Cargo.toml with resolved path dependencies
+    let cargo_toml = generate_cargo_toml(&config.dependencies, project_root);
     if let Err(e) = fs::write(project_dir.join("Cargo.toml"), cargo_toml) {
+        let _ = fs::remove_dir_all(&project_dir);
         return ExecutionResult {
             success: false,
             exit_code: None,
@@ -386,6 +507,7 @@ fn execute_rust_sample(
     // Create src directory and write main.rs
     let src_dir = project_dir.join("src");
     if let Err(e) = fs::create_dir_all(&src_dir) {
+        let _ = fs::remove_dir_all(&project_dir);
         return ExecutionResult {
             success: false,
             exit_code: None,
@@ -404,6 +526,7 @@ fn execute_rust_sample(
     };
 
     if let Err(e) = fs::write(src_dir.join("main.rs"), prepared_code) {
+        let _ = fs::remove_dir_all(&project_dir);
         return ExecutionResult {
             success: false,
             exit_code: None,
@@ -434,7 +557,6 @@ fn execute_rust_sample(
     let status = match execute_with_timeout_inherit(&mut cmd, config.timeout_secs) {
         Ok(status) => status,
         Err(e) => {
-            // Clean up
             let _ = fs::remove_dir_all(&project_dir);
             return ExecutionResult {
                 success: false,
@@ -448,9 +570,6 @@ fn execute_rust_sample(
     };
 
     let success = status.success();
-
-    // With inherited streams, we can't check expected_errors against stderr
-    // For now, just use the exit status
     let final_success = success;
 
     let result = ExecutionResult {
@@ -469,13 +588,32 @@ fn execute_rust_sample(
         },
     };
 
-    // Clean up
+    // Clean up the entire project dir including its target
     let _ = fs::remove_dir_all(&project_dir);
     result
 }
 
+/// Recursively copy a directory
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+
+    Ok(())
+}
+
 /// Generate Cargo.toml with dependencies
-fn generate_cargo_toml(dependencies: &[DependencySpec]) -> String {
+fn generate_cargo_toml(dependencies: &[DependencySpec], project_root: Option<&std::path::Path>) -> String {
     let mut lines = vec![
         "[package]".to_string(),
         "name = \"dodeca-code-sample\"".to_string(),
@@ -486,7 +624,7 @@ fn generate_cargo_toml(dependencies: &[DependencySpec]) -> String {
     ];
 
     for dep in dependencies {
-        lines.push(dep.to_cargo_toml_line());
+        lines.push(dep.to_cargo_toml_line_with_root(project_root));
     }
 
     lines.join("\n")
