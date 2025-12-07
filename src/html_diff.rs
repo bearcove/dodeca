@@ -5,15 +5,16 @@
 //! 2. Hash subtrees to quickly identify unchanged regions
 //! 3. For changed subtrees, use tree-edit-distance algorithm
 //! 4. Generate minimal patch operations
-//! 5. Serialize patches with postcard for WASM client
+//! 5. Serialize as ServerMessage::Patches via facet-postcard
 //!
 //! The client (Rust/WASM) applies patches directly to the DOM.
 
 #![allow(dead_code)] // Some functions reserved for future use
-#![allow(clippy::disallowed_types)] // serde needed for postcard serialization
 
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+// Re-export patch types from protocol for use by the rest of the crate
+pub use dodeca_protocol::{NodePath, Patch};
 
 /// A node in our simplified DOM tree
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,61 +31,14 @@ pub struct DomNode {
     pub subtree_hash: u64,
 }
 
-/// A path to a node in the DOM tree
-/// e.g., [0, 2, 1] means: root's child 0, then child 2, then child 1
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NodePath(pub Vec<usize>);
-
-/// Operations to transform old DOM into new DOM
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Patch {
-    /// Replace node at path with new HTML
-    Replace { path: NodePath, html: String },
-
-    /// Insert HTML before the node at path
-    InsertBefore { path: NodePath, html: String },
-
-    /// Insert HTML after the node at path
-    InsertAfter { path: NodePath, html: String },
-
-    /// Append HTML as last child of node at path
-    AppendChild { path: NodePath, html: String },
-
-    /// Remove the node at path
-    Remove { path: NodePath },
-
-    /// Update text content of node at path
-    SetText { path: NodePath, text: String },
-
-    /// Set attribute on node at path
-    SetAttribute {
-        path: NodePath,
-        name: String,
-        value: String,
-    },
-
-    /// Remove attribute from node at path
-    RemoveAttribute { path: NodePath, name: String },
-}
-
 /// Result of diffing two DOM trees
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct DiffResult {
     /// Patches to apply (in order)
     pub patches: Vec<Patch>,
     /// Stats for debugging
     pub nodes_compared: usize,
     pub nodes_skipped: usize,
-}
-
-/// Serialize patches to bytes for sending over WebSocket
-pub fn serialize_patches(patches: &[Patch]) -> Result<Vec<u8>, postcard::Error> {
-    postcard::to_allocvec(patches)
-}
-
-/// Deserialize patches from bytes (for WASM client)
-pub fn deserialize_patches(data: &[u8]) -> Result<Vec<Patch>, postcard::Error> {
-    postcard::from_bytes(data)
 }
 
 impl DomNode {
@@ -507,6 +461,8 @@ mod tests {
 
     #[test]
     fn test_patch_serialization_roundtrip() {
+        use dodeca_protocol::{facet_postcard, ServerMessage};
+
         let patches = vec![
             Patch::SetText {
                 path: NodePath(vec![0, 1, 2]),
@@ -522,12 +478,17 @@ mod tests {
             },
         ];
 
-        let serialized = serialize_patches(&patches).unwrap();
-        let deserialized = deserialize_patches(&serialized).unwrap();
+        // Patches are now sent as ServerMessage::Patches
+        let msg = ServerMessage::Patches(patches.clone());
+        let serialized = facet_postcard::to_vec(&msg).unwrap();
+        let deserialized: ServerMessage = facet_postcard::from_bytes(&serialized).unwrap();
 
-        assert_eq!(patches, deserialized);
-        // postcard is compact - these 3 patches should be < 100 bytes
-        assert!(serialized.len() < 100, "Serialized size: {}", serialized.len());
+        match deserialized {
+            ServerMessage::Patches(p) => assert_eq!(patches, p),
+            _ => panic!("Expected Patches variant"),
+        }
+        // facet-postcard is compact - message with 3 patches should be < 150 bytes
+        assert!(serialized.len() < 150, "Serialized size: {}", serialized.len());
     }
 
     /// Generate a realistic large page for benchmarking

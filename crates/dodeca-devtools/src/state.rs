@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 use wasm_bindgen::prelude::*;
 use web_sys::{MessageEvent, WebSocket};
 
-use crate::protocol::{ClientMessage, ErrorInfo, ScopeValue, ServerMessage, ScopeEntry};
+use crate::protocol::{ClientMessage, ErrorInfo, ScopeValue, ServerMessage, ScopeEntry, facet_postcard};
 
 /// A single REPL entry with expression and result
 #[derive(Debug, Clone, PartialEq)]
@@ -140,26 +140,13 @@ pub async fn connect_websocket(mut state: Signal<DevtoolsState>) -> Result<(), S
     let onmessage = Closure::wrap(Box::new(move |event: MessageEvent| {
         let data = event.data();
 
-        // Binary message = DOM patches
-        if let Ok(buffer) = data.clone().dyn_into::<js_sys::ArrayBuffer>() {
+        // All messages are binary (ArrayBuffer)
+        if let Ok(buffer) = data.dyn_into::<js_sys::ArrayBuffer>() {
             let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
-            match livereload_client::apply_patches(&bytes) {
-                Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
-                Err(e) => {
-                    // Don't reload on patch failure - the devtools modifies the DOM
-                    // which can cause patch paths to be invalid. User can refresh manually.
-                    tracing::warn!("[devtools] patch failed (manual refresh may be needed): {:?}", e);
-                }
-            }
-            return;
-        }
 
-        // Text message = JSON or simple command
-        if let Ok(text) = data.dyn_into::<js_sys::JsString>() {
-            let text: String = text.into();
-            match serde_json::from_str::<ServerMessage>(&text) {
+            match facet_postcard::from_bytes::<ServerMessage>(&bytes) {
                 Ok(msg) => handle_server_message(state_clone, msg),
-                Err(e) => tracing::warn!("Failed to parse server message: {e}"),
+                Err(e) => tracing::warn!("[devtools] failed to parse server message: {:?}", e),
             }
         }
     }) as Box<dyn FnMut(MessageEvent)>);
@@ -205,8 +192,8 @@ pub fn send_message(msg: &ClientMessage) {
     WEBSOCKET.with(|cell| {
         if let Some(ws) = cell.borrow().as_ref() {
             if ws.ready_state() == WebSocket::OPEN {
-                if let Ok(json) = serde_json::to_string(msg) {
-                    let _ = ws.send_with_str(&json);
+                if let Ok(bytes) = facet_postcard::to_vec(msg) {
+                    let _ = ws.send_with_u8_array(&bytes);
                 }
             }
         }
@@ -307,8 +294,16 @@ fn handle_server_message(mut state: Signal<DevtoolsState>, msg: ServerMessage) {
             hot_reload_css(&path);
         }
 
-        // Note: DOM patches are sent as binary WebSocket messages and handled
-        // directly in the message handler, not as JSON ServerMessage
+        ServerMessage::Patches(patches) => {
+            match livereload_client::apply_patches(patches) {
+                Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
+                Err(e) => {
+                    // Don't reload on patch failure - the devtools modifies the DOM
+                    // which can cause patch paths to be invalid. User can refresh manually.
+                    tracing::warn!("[devtools] patch failed (manual refresh may be needed): {:?}", e);
+                }
+            }
+        }
 
         ServerMessage::ScopeResponse { request_id, scope } => {
             let mut s = state.write();
@@ -340,7 +335,8 @@ fn handle_server_message(mut state: Signal<DevtoolsState>, msg: ServerMessage) {
             if let Some(expr) = s.pending_evals.remove(&request_id) {
                 // Find the entry in history and update it
                 if let Some(entry) = s.repl_history.iter_mut().find(|e| e.expression == expr && e.result.is_none()) {
-                    entry.result = Some(result.clone());
+                    // Convert EvalResult to Result<ScopeValue, String>
+                    entry.result = Some(result.clone().into());
                 }
             }
             tracing::info!("[devtools] eval response {request_id}: {:?}", result);

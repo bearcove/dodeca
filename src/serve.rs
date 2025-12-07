@@ -36,7 +36,7 @@ use crate::types::Route;
 use crate::image::{InputFormat, OutputFormat, add_width_suffix};
 use std::collections::HashSet;
 
-use dodeca_protocol::{ClientMessage, ServerMessage, ScopeEntry, ScopeValue};
+use dodeca_protocol::{ClientMessage, ServerMessage, ScopeEntry, ScopeValue, facet_postcard};
 use facet_value::DestructuredRef;
 
 /// Format bytes as human-readable size (KB, MB, GB)
@@ -205,8 +205,8 @@ fn navigate_value(value: &facet_value::Value, path: &[String]) -> Option<facet_v
 pub enum LiveReloadMsg {
     /// Full page reload (fallback)
     Reload,
-    /// Patches for a specific route (serialized with postcard)
-    Patches { route: String, data: Vec<u8> },
+    /// Patches for a specific route
+    Patches { route: String, patches: Vec<crate::html_diff::Patch> },
     /// CSS update (new cache-busted path)
     CssUpdate { path: String },
     /// Template error occurred
@@ -406,7 +406,7 @@ impl SiteServer {
     /// Notify all connected browsers to reload
     /// Computes patches for all cached routes and sends them
     pub fn trigger_reload(&self) {
-        use crate::html_diff::{parse_html, diff, serialize_patches};
+        use crate::html_diff::{parse_html, diff};
 
         // Check for CSS changes first
         let old_css_path = {
@@ -518,25 +518,16 @@ impl SiteServer {
                             } else {
                                 // Summarize patch operations
                                 let summary = summarize_patches(&diff_result.patches);
+                                let patch_count = diff_result.patches.len();
 
-                                match serialize_patches(&diff_result.patches) {
-                                    Ok(data) => {
-                                        tracing::info!(
-                                            "{} - patching: {} ({} bytes)",
-                                            route, summary, data.len()
-                                        );
-                                        let _ = self.livereload_tx.send(LiveReloadMsg::Patches {
-                                            route: route.clone(),
-                                            data,
-                                        });
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            "🔴 {} - patch serialization failed: {} - THIS IS A BUG",
-                                            route, e
-                                        );
-                                    }
-                                }
+                                tracing::info!(
+                                    "{} - patching: {} ({} patches)",
+                                    route, summary, patch_count
+                                );
+                                let _ = self.livereload_tx.send(LiveReloadMsg::Patches {
+                                    route: route.clone(),
+                                    patches: diff_result.patches,
+                                });
                             }
                         }
                         (None, _) => {
@@ -1213,7 +1204,6 @@ async fn devtools_ws_handler(
     ws.on_upgrade(|socket| handle_devtools_socket(socket, server))
 }
 
-#[allow(clippy::disallowed_methods)] // serde_json needed for JSON messages to browser
 async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
     let (mut sender, mut receiver) = socket.split();
     let mut reload_rx = server.livereload_tx.subscribe();
@@ -1229,26 +1219,28 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                 match result {
                     Ok(LiveReloadMsg::Reload) => {
                         let msg = ServerMessage::Reload;
-                        if let Ok(json) = serde_json::to_string(&msg) {
-                            if sender.send(Message::Text(json.into())).await.is_err() {
+                        if let Ok(bytes) = facet_postcard::to_vec(&msg) {
+                            if sender.send(Message::Binary(bytes.into())).await.is_err() {
                                 break;
                             }
                         }
                     }
-                    Ok(LiveReloadMsg::Patches { route, data }) => {
+                    Ok(LiveReloadMsg::Patches { route, patches }) => {
                         // Only send patches if client is viewing this route
                         // (or if we don't know their route yet, send anyway)
                         if current_route.as_ref().is_none_or(|r| r == &route) {
-                            if sender.send(Message::Binary(data.into())).await.is_err() {
-                                break;
+                            let msg = ServerMessage::Patches(patches);
+                            if let Ok(bytes) = facet_postcard::to_vec(&msg) {
+                                if sender.send(Message::Binary(bytes.into())).await.is_err() {
+                                    break;
+                                }
                             }
                         }
                     }
                     Ok(LiveReloadMsg::CssUpdate { path }) => {
-                        // Send CSS update as JSON message
                         let msg = ServerMessage::CssChanged { path };
-                        if let Ok(json) = serde_json::to_string(&msg) {
-                            if sender.send(Message::Text(json.into())).await.is_err() {
+                        if let Ok(bytes) = facet_postcard::to_vec(&msg) {
+                            if sender.send(Message::Binary(bytes.into())).await.is_err() {
                                 break;
                             }
                         }
@@ -1258,7 +1250,6 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                             "🔴 WebSocket: received LiveReloadMsg::Error for {}, forwarding to browser",
                             route
                         );
-                        // Send error as JSON to devtools
                         let msg = ServerMessage::Error(dodeca_protocol::ErrorInfo {
                             route: route.clone(),
                             message,
@@ -1269,9 +1260,9 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                             snapshot_id,
                             available_variables: vec![],
                         });
-                        if let Ok(json) = serde_json::to_string(&msg) {
-                            tracing::debug!("🔴 WebSocket: sending error JSON: {}", json);
-                            if sender.send(Message::Text(json.into())).await.is_err() {
+                        if let Ok(bytes) = facet_postcard::to_vec(&msg) {
+                            tracing::debug!("🔴 WebSocket: sending error ({} bytes)", bytes.len());
+                            if sender.send(Message::Binary(bytes.into())).await.is_err() {
                                 tracing::warn!("🔴 WebSocket: failed to send error to browser");
                                 break;
                             }
@@ -1279,10 +1270,9 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                         }
                     }
                     Ok(LiveReloadMsg::ErrorResolved { route }) => {
-                        // Send resolution as JSON to devtools
                         let msg = ServerMessage::ErrorResolved { route };
-                        if let Ok(json) = serde_json::to_string(&msg) {
-                            if sender.send(Message::Text(json.into())).await.is_err() {
+                        if let Ok(bytes) = facet_postcard::to_vec(&msg) {
+                            if sender.send(Message::Binary(bytes.into())).await.is_err() {
                                 break;
                             }
                         }
@@ -1298,9 +1288,9 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                             break;
                         }
                     }
-                    Some(Ok(Message::Text(text))) => {
-                        // Try to parse as JSON devtools message first
-                        if let Ok(msg) = serde_json::from_str::<ClientMessage>(&text) {
+                    Some(Ok(Message::Binary(data))) => {
+                        // Binary messages are devtools protocol messages
+                        if let Ok(msg) = facet_postcard::from_bytes::<ClientMessage>(&data) {
                             match msg {
                                 ClientMessage::Route { path } => {
                                     tracing::info!("Browser viewing {}", path);
@@ -1309,8 +1299,8 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                                     // Send any existing error for this route
                                     if let Some(error_info) = server.get_error(&path) {
                                         let msg = ServerMessage::Error(error_info);
-                                        if let Ok(json) = serde_json::to_string(&msg) {
-                                            if sender.send(Message::Text(json.into())).await.is_err() {
+                                        if let Ok(bytes) = facet_postcard::to_vec(&msg) {
+                                            if sender.send(Message::Binary(bytes.into())).await.is_err() {
                                                 break;
                                             }
                                         }
@@ -1331,8 +1321,8 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                                         request_id,
                                         scope,
                                     };
-                                    if let Ok(json) = serde_json::to_string(&msg) {
-                                        if sender.send(Message::Text(json.into())).await.is_err() {
+                                    if let Ok(bytes) = facet_postcard::to_vec(&msg) {
+                                        if sender.send(Message::Binary(bytes.into())).await.is_err() {
                                             break;
                                         }
                                     }
@@ -1348,10 +1338,10 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                                     let result = server.eval_expression_for_route(&route, &expression);
                                     let msg = ServerMessage::EvalResponse {
                                         request_id,
-                                        result,
+                                        result: result.into(),
                                     };
-                                    if let Ok(json) = serde_json::to_string(&msg) {
-                                        if sender.send(Message::Text(json.into())).await.is_err() {
+                                    if let Ok(bytes) = facet_postcard::to_vec(&msg) {
+                                        if sender.send(Message::Binary(bytes.into())).await.is_err() {
                                             break;
                                         }
                                     }
@@ -1360,10 +1350,6 @@ async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
                                     tracing::info!("[devtools] Dismissing error for {}", route);
                                 }
                             }
-                        } else if let Some(route) = text.strip_prefix("route:") {
-                            // Legacy format for backwards compat
-                            tracing::info!("Browser viewing {}", route);
-                            current_route = Some(route.to_string());
                         }
                     }
                     _ => {}
