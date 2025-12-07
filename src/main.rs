@@ -2158,6 +2158,9 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
         server.data_registry,
     );
 
+    // Cache code execution results for build info display in serve mode
+    server.set_code_execution_results(site_output.code_execution_results.clone());
+
     // Build search index (plugin blocks internally)
     let output = site_output.clone();
     std::thread::spawn(move || search::build_search_index(&output))

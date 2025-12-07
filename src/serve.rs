@@ -31,7 +31,7 @@ use crate::db::{
 };
 use crate::error_pages::render_404_page;
 use crate::queries::{css_output, serve_html, static_file_output, process_image, build_tree};
-use crate::render::{RenderOptions, inject_livereload};
+use crate::render::{RenderOptions, inject_livereload_with_build_info};
 use crate::types::Route;
 use crate::image::{InputFormat, OutputFormat, add_width_suffix};
 use std::collections::HashSet;
@@ -302,6 +302,8 @@ pub struct SiteServer {
     stable_assets: Vec<String>,
     /// Current errors by route (for sending to newly connected clients)
     current_errors: RwLock<HashMap<String, dodeca_protocol::ErrorInfo>>,
+    /// Cached code execution results for build info display
+    code_execution_results: RwLock<Vec<crate::db::CodeExecutionResult>>,
 }
 
 impl SiteServer {
@@ -330,7 +332,13 @@ impl SiteServer {
             css_cache: RwLock::new(None),
             stable_assets,
             current_errors: RwLock::new(HashMap::new()),
+            code_execution_results: RwLock::new(Vec::new()),
         }
+    }
+
+    /// Update cached code execution results
+    pub fn set_code_execution_results(&self, results: Vec<crate::db::CodeExecutionResult>) {
+        *self.code_execution_results.write().unwrap() = results;
     }
 
     /// Get current error for a route (if any)
@@ -749,7 +757,8 @@ impl SiteServer {
                 });
             }
 
-            let html = inject_livereload(&html, self.render_options, known_routes.as_ref());
+            let code_results = self.code_execution_results.read().unwrap();
+            let html = inject_livereload_with_build_info(&html, self.render_options, known_routes.as_ref(), &code_results);
             return Some(ServeContent::Html(html));
         }
 
@@ -1184,7 +1193,7 @@ async fn content_handler(State(server): State<Arc<SiteServer>>, request: Request
         let similar_routes = server.find_similar_routes(path);
         let html = render_404_page(path, &similar_routes);
         // Inject livereload so the page auto-refreshes when the missing page is created
-        let html = inject_livereload(&html, server.render_options, None);
+        let html = inject_livereload_with_build_info(&html, server.render_options, None, &[]);
         return Response::builder()
             .status(StatusCode::NOT_FOUND)
             .header(header::CONTENT_TYPE, "text/html; charset=utf-8")

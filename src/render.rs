@@ -121,20 +121,21 @@ pre .build-info-btn.verified { border-color: rgba(50,205,50,0.5); }
     background: #1a1a2e;
     border: 1px solid rgba(255,255,255,0.2);
     border-radius: 0.5rem;
-    padding: 1.5rem;
-    max-width: 600px;
+    padding: 1.5rem 2rem;
+    width: 90vw;
+    max-width: 800px;
     max-height: 80vh;
     overflow-y: auto;
     z-index: 10000;
     color: #e0e0e0;
     font-family: ui-monospace, monospace;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
 }
 .build-info-popup h3 {
     margin: 0 0 1rem 0;
     color: #fff;
-    font-size: 1rem;
+    font-size: 0.95rem;
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -155,7 +156,7 @@ pre .build-info-btn.verified { border-color: rgba(50,205,50,0.5); }
     margin: 0;
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 0.5rem 1rem;
+    gap: 0.4rem 1rem;
 }
 .build-info-popup dt {
     color: #888;
@@ -166,15 +167,52 @@ pre .build-info-btn.verified { border-color: rgba(50,205,50,0.5); }
     word-break: break-all;
 }
 .build-info-popup .deps-list {
-    max-height: 200px;
+    max-height: 250px;
     overflow-y: auto;
     background: rgba(0,0,0,0.2);
-    padding: 0.5rem;
+    padding: 0.5rem 0.75rem;
     border-radius: 0.25rem;
-    font-size: 0.75rem;
+    font-size: 0.7rem;
 }
 .build-info-popup .deps-list div {
-    padding: 0.125rem 0;
+    padding: 0.2rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.build-info-popup .field-icon {
+    width: 14px;
+    height: 14px;
+    vertical-align: -2px;
+    margin-right: 0.25rem;
+    opacity: 0.7;
+}
+.build-info-popup .deps-list a,
+.build-info-popup .deps-list .dep-local {
+    color: #e0e0e0;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.build-info-popup .deps-list a:hover {
+    color: #fff;
+}
+.build-info-popup .deps-list a:hover .dep-icon {
+    color: #fff;
+}
+.build-info-popup .deps-list .dep-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: #888;
+}
+.build-info-popup .deps-list .dep-name {
+    font-weight: 500;
+}
+.build-info-popup .deps-list .dep-version {
+    color: #888;
+    font-weight: normal;
 }
 .build-info-overlay {
     position: fixed;
@@ -229,7 +267,7 @@ document.addEventListener('DOMContentLoaded', function() {{
     var buildInfo = window.__DODECA_BUILD_INFO__;
     if (!buildInfo || Object.keys(buildInfo).length === 0) return;
 
-    // Simple hash function for code content
+    // Simple hash function for code content (matches Rust hash_code)
     function hashCode(str) {{
         var hash = 0;
         for (var i = 0; i < str.length; i++) {{
@@ -237,7 +275,8 @@ document.addEventListener('DOMContentLoaded', function() {{
             hash = ((hash << 5) - hash) + chr;
             hash |= 0;
         }}
-        return hash.toString(16);
+        // Convert to unsigned 32-bit hex to match Rust
+        return (hash >>> 0).toString(16);
     }}
 
     // Normalize code by trimming whitespace
@@ -269,6 +308,24 @@ document.addEventListener('DOMContentLoaded', function() {{
         pre.appendChild(btn);
     }});
 
+    // SVG icons
+    var cratesIoIcon = '<svg class="dep-icon" viewBox="0 0 512 512"><path fill="currentColor" d="M239.1 6.3l-208 78c-18.7 7-31.1 25-31.1 45v225.1c0 18.2 10.3 34.8 26.5 42.9l208 104c13.5 6.8 29.4 6.8 42.9 0l208-104c16.3-8.1 26.5-24.8 26.5-42.9V129.3c0-20-12.4-37.9-31.1-44.9l-208-78C262 2.2 250 2.2 239.1 6.3zM256 68.4l192 72v1.1l-192 78-192-78v-1.1l192-72zm32 356V275.5l160-65v160.4l-160 53.5z"/></svg>';
+    var gitIcon = '<svg class="dep-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>';
+    var pathIcon = '<svg class="dep-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M1.75 1A1.75 1.75 0 000 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0016 13.25v-8.5A1.75 1.75 0 0014.25 3H7.5a.25.25 0 01-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75z"/></svg>';
+    var rustcIcon = '<svg class="field-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0l1.5 2.5L12 1.5l-.5 2.5 2.5.5-1.5 2.5L15 8l-2.5 1.5.5 2.5-2.5-.5-.5 2.5-2.5-1.5L8 16l-1.5-2.5L4 14.5l.5-2.5-2.5-.5 1.5-2.5L1 8l2.5-1.5L3 4l2.5.5.5-2.5 2.5 1.5L8 0zm0 5a3 3 0 100 6 3 3 0 000-6z"/></svg>';
+    var targetIcon = '<svg class="field-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0a8 8 0 100 16A8 8 0 008 0zm0 2a6 6 0 110 12A6 6 0 018 2zm0 2a4 4 0 100 8 4 4 0 000-8zm0 2a2 2 0 110 4 2 2 0 010-4z"/></svg>';
+    var clockIcon = '<svg class="field-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0a8 8 0 100 16A8 8 0 008 0zm0 2a6 6 0 110 12A6 6 0 018 2zm-.5 2v4.5l3 2 .75-1.125-2.25-1.5V4h-1.5z"/></svg>';
+    var depsIcon = '<svg class="field-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M1 2.5A1.5 1.5 0 012.5 1h3a1.5 1.5 0 011.5 1.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z"/></svg>';
+
+    function formatLocalTime(isoString) {{
+        try {{
+            var date = new Date(isoString);
+            return date.toLocaleDateString(undefined, {{ year: 'numeric', month: 'long', day: 'numeric' }}) + ' at ' + date.toLocaleTimeString(undefined, {{ hour: '2-digit', minute: '2-digit' }});
+        }} catch (e) {{
+            return isoString;
+        }}
+    }}
+
     function showBuildInfoPopup(info) {{
         // Remove existing popup
         var existing = document.querySelector('.build-info-overlay');
@@ -282,9 +339,21 @@ document.addEventListener('DOMContentLoaded', function() {{
 
         var depsHtml = '';
         if (info.deps && info.deps.length > 0) {{
-            depsHtml = '<dt>Dependencies</dt><dd><div class="deps-list">';
+            depsHtml = '<dt>' + depsIcon + ' Dependencies</dt><dd><div class="deps-list">';
             info.deps.forEach(function(d) {{
-                depsHtml += '<div><strong>' + escapeHtml(d.name) + '</strong> ' + escapeHtml(d.version) + ' <span style="color:#666">(' + escapeHtml(d.source) + ')</span></div>';
+                var icon, link;
+                if (d.source === 'crates.io') {{
+                    icon = cratesIoIcon;
+                    link = 'https://crates.io/crates/' + encodeURIComponent(d.name) + '/' + encodeURIComponent(d.version);
+                    depsHtml += '<div><a href="' + link + '" target="_blank" rel="noopener" title="View on crates.io">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(d.version) + '</span></a></div>';
+                }} else if (d.source.startsWith('git:')) {{
+                    icon = gitIcon;
+                    var gitUrl = d.source.substring(4);
+                    depsHtml += '<div><a href="' + escapeHtml(gitUrl) + '" target="_blank" rel="noopener" title="View git repository">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(d.version) + '</span></a></div>';
+                }} else {{
+                    icon = pathIcon;
+                    depsHtml += '<div><span class="dep-local">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(d.version) + '</span></span></div>';
+                }}
             }});
             depsHtml += '</div></dd>';
         }}
@@ -293,11 +362,10 @@ document.addEventListener('DOMContentLoaded', function() {{
             '<button class="close-btn" aria-label="Close">&times;</button>' +
             '<h3>&#x2705; Build Verified</h3>' +
             '<dl>' +
-            '<dt>Compiler</dt><dd>' + escapeHtml(info.rustc) + '</dd>' +
-            '<dt>Cargo</dt><dd>' + escapeHtml(info.cargo) + '</dd>' +
-            '<dt>Target</dt><dd>' + escapeHtml(info.target) + '</dd>' +
-            '<dt>Platform</dt><dd>' + escapeHtml(info.platform) + ' / ' + escapeHtml(info.arch) + '</dd>' +
-            '<dt>Built</dt><dd>' + escapeHtml(info.timestamp) + (info.cacheHit ? ' (cached)' : '') + '</dd>' +
+            '<dt>' + rustcIcon + ' Compiler</dt><dd>' + escapeHtml(info.rustc) + '</dd>' +
+            '<dt>' + rustcIcon + ' Cargo</dt><dd>' + escapeHtml(info.cargo) + '</dd>' +
+            '<dt>' + targetIcon + ' Target</dt><dd>' + escapeHtml(info.target) + '</dd>' +
+            '<dt>' + clockIcon + ' Built</dt><dd>' + formatLocalTime(info.timestamp) + (info.cacheHit ? ' (cached)' : '') + '</dd>' +
             depsHtml +
             '</dl>';
 
