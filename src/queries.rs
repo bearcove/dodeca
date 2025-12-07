@@ -301,7 +301,7 @@ impl SalsaDataResolver {
     /// The returned resolver must not outlive `db`. This is typically ensured
     /// by only using the resolver within the same Salsa tracked query where
     /// the database reference is valid.
-    pub fn new<'db>(db: &'db dyn Db, registry: DataRegistry) -> Self {
+    pub fn new(db: &dyn Db, registry: DataRegistry) -> Self {
         Self {
             db: db as *const dyn Db,
             registry,
@@ -315,7 +315,7 @@ impl SalsaDataResolver {
     /// The Arc MUST be dropped before the database reference becomes invalid.
     /// This is safe within Salsa tracked queries when the Arc is only used
     /// for a single render call.
-    pub fn new_arc<'db>(db: &'db dyn Db, registry: DataRegistry) -> Arc<dyn DataResolver> {
+    pub fn new_arc(db: &dyn Db, registry: DataRegistry) -> Arc<dyn DataResolver> {
         Arc::new(Self::new(db, registry))
     }
 
@@ -684,7 +684,7 @@ pub fn subset_font<'db>(
     // First, decompress the font (handles WOFF2/WOFF1 -> TTF)
     let decompressed = decompress_font(db, font_file)?;
 
-    let char_vec: Vec<char> = chars.chars(db).iter().copied().collect();
+    let char_vec: Vec<char> = chars.chars(db).to_vec();
 
     // Subset the decompressed TTF via plugin
     let subsetted = match subset_font_plugin(&decompressed, &char_vec) {
@@ -1650,61 +1650,6 @@ fn resolve_internal_link(link: &str) -> String {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_split_frontmatter() {
-        let content = r#"+++
-title = "Hello"
-weight = 10
-+++
-
-# Content here
-"#;
-        let (fm, body) = split_frontmatter(content);
-        assert!(fm.contains("title"));
-        assert!(body.contains("# Content"));
-    }
-
-    #[test]
-    fn test_resolve_internal_link() {
-        // Section index files
-        assert_eq!(resolve_internal_link("@/learn/_index.md"), "/learn");
-        assert_eq!(
-            resolve_internal_link("@/learn/showcases/_index.md"),
-            "/learn/showcases"
-        );
-        assert_eq!(resolve_internal_link("@/_index.md"), "/");
-
-        // Regular pages
-        assert_eq!(resolve_internal_link("@/learn/page.md"), "/learn/page");
-        assert_eq!(
-            resolve_internal_link("@/learn/migration/serde.md"),
-            "/learn/migration/serde"
-        );
-
-        // External links unchanged
-        assert_eq!(
-            resolve_internal_link("https://example.com"),
-            "https://example.com"
-        );
-        assert_eq!(resolve_internal_link("/some/path/"), "/some/path/");
-
-        // Links with hash fragments
-        assert_eq!(
-            resolve_internal_link("@/guide/ecosystem.md#anchor"),
-            "/guide/ecosystem#anchor"
-        );
-        assert_eq!(
-            resolve_internal_link("@/guide/_index.md#section"),
-            "/guide#section"
-        );
-        assert_eq!(resolve_internal_link("@/_index.md#top"), "/#top");
-    }
-}
-
 // ============================================================================
 // Code execution integration
 // ============================================================================
@@ -1778,4 +1723,59 @@ pub fn execute_all_code_samples(db: &dyn Db, sources: SourceRegistry) -> Vec<Cod
     }
 
     all_results
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_frontmatter() {
+        let content = r#"+++
+title = "Hello"
+weight = 10
++++
+
+# Content here
+"#;
+        let (fm, body) = split_frontmatter(content);
+        assert!(fm.contains("title"));
+        assert!(body.contains("# Content"));
+    }
+
+    #[test]
+    fn test_resolve_internal_link() {
+        // Section index files
+        assert_eq!(resolve_internal_link("@/learn/_index.md"), "/learn");
+        assert_eq!(
+            resolve_internal_link("@/learn/showcases/_index.md"),
+            "/learn/showcases"
+        );
+        assert_eq!(resolve_internal_link("@/_index.md"), "/");
+
+        // Regular pages
+        assert_eq!(resolve_internal_link("@/learn/page.md"), "/learn/page");
+        assert_eq!(
+            resolve_internal_link("@/learn/migration/serde.md"),
+            "/learn/migration/serde"
+        );
+
+        // External links unchanged
+        assert_eq!(
+            resolve_internal_link("https://example.com"),
+            "https://example.com"
+        );
+        assert_eq!(resolve_internal_link("/some/path/"), "/some/path/");
+
+        // Links with hash fragments
+        assert_eq!(
+            resolve_internal_link("@/guide/ecosystem.md#anchor"),
+            "/guide/ecosystem#anchor"
+        );
+        assert_eq!(
+            resolve_internal_link("@/guide/_index.md#section"),
+            "/guide#section"
+        );
+        assert_eq!(resolve_internal_link("@/_index.md#top"), "/#top");
+    }
 }

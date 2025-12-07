@@ -846,13 +846,13 @@ pub fn extract_code_samples_plugin(content: &str, source_path: &str) -> Option<V
 
     #[derive(Facet)]
     struct Input {
-        content: String,
         source_path: String,
+        content: String,
     }
 
     let input = Input {
-        content: content.to_string(),
         source_path: source_path.to_string(),
+        content: content.to_string(),
     };
 
     match plugin.call::<Input, PlugResult<dodeca_code_execution::ExtractSamplesOutput>>("extract_code_samples", &input) {

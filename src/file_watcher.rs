@@ -129,27 +129,25 @@ pub fn process_notify_event(
                             tracing::warn!("Failed to watch new directory {:?}: {}", path, e);
                         } else {
                             tracing::debug!("Now watching new directory: {:?}", path);
-                            if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
+                            if let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone()) {
                                 events.push(FileEvent::DirectoryCreated(utf8));
                             }
                         }
                     }
-                } else if should_watch_path(path, config) {
-                    if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
+                } else if should_watch_path(path, config)
+                    && let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone()) {
                         events.push(FileEvent::Changed(utf8));
                     }
-                }
             }
         }
 
         // File modified
         EventKind::Modify(ModifyKind::Data(_)) | EventKind::Modify(ModifyKind::Any) => {
             for path in &event.paths {
-                if should_watch_path(path, config) {
-                    if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
+                if should_watch_path(path, config)
+                    && let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone()) {
                         events.push(FileEvent::Changed(utf8));
                     }
-                }
             }
         }
 
@@ -159,11 +157,10 @@ pub fn process_notify_event(
                 RenameMode::From => {
                     // Old path - treat as deletion
                     for path in &event.paths {
-                        if should_watch_path(path, config) {
-                            if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
+                        if should_watch_path(path, config)
+                            && let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone()) {
                                 events.push(FileEvent::Removed(utf8));
                             }
-                        }
                     }
                 }
                 RenameMode::To => {
@@ -173,15 +170,14 @@ pub fn process_notify_event(
                             // New directory from rename
                             if let Ok(mut w) = watcher.lock() {
                                 let _ = w.watch(path, RecursiveMode::Recursive);
-                                if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
+                                if let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone()) {
                                     events.push(FileEvent::DirectoryCreated(utf8));
                                 }
                             }
-                        } else if should_watch_path(path, config) {
-                            if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
+                        } else if should_watch_path(path, config)
+                            && let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone()) {
                                 events.push(FileEvent::Changed(utf8));
                             }
-                        }
                     }
                 }
                 RenameMode::Any => {
@@ -193,22 +189,20 @@ pub fn process_notify_event(
                             if path.is_dir() {
                                 if let Ok(mut w) = watcher.lock() {
                                     let _ = w.watch(path, RecursiveMode::Recursive);
-                                    if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
+                                    if let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone()) {
                                         events.push(FileEvent::DirectoryCreated(utf8));
                                     }
                                 }
-                            } else if should_watch_path(path, config) {
-                                if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
+                            } else if should_watch_path(path, config)
+                                && let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone()) {
                                     events.push(FileEvent::Changed(utf8));
                                 }
-                            }
                         } else {
                             // File doesn't exist at this path - it's the source (old location)
-                            if should_watch_path(path, config) {
-                                if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
+                            if should_watch_path(path, config)
+                                && let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone()) {
                                     events.push(FileEvent::Removed(utf8));
                                 }
-                            }
                         }
                     }
                 }
@@ -218,24 +212,22 @@ pub fn process_notify_event(
                         let from_path = &event.paths[0];
                         let to_path = &event.paths[1];
 
-                        if should_watch_path(from_path, config) {
-                            if let Some(utf8) = Utf8PathBuf::from_path_buf(from_path.clone()).ok() {
+                        if should_watch_path(from_path, config)
+                            && let Ok(utf8) = Utf8PathBuf::from_path_buf(from_path.clone()) {
                                 events.push(FileEvent::Removed(utf8));
                             }
-                        }
 
                         if to_path.is_dir() {
                             if let Ok(mut w) = watcher.lock() {
                                 let _ = w.watch(to_path, RecursiveMode::Recursive);
-                                if let Some(utf8) = Utf8PathBuf::from_path_buf(to_path.clone()).ok() {
+                                if let Ok(utf8) = Utf8PathBuf::from_path_buf(to_path.clone()) {
                                     events.push(FileEvent::DirectoryCreated(utf8));
                                 }
                             }
-                        } else if should_watch_path(to_path, config) {
-                            if let Some(utf8) = Utf8PathBuf::from_path_buf(to_path.clone()).ok() {
+                        } else if should_watch_path(to_path, config)
+                            && let Ok(utf8) = Utf8PathBuf::from_path_buf(to_path.clone()) {
                                 events.push(FileEvent::Changed(utf8));
                             }
-                        }
                     }
                 }
                 _ => {}
@@ -245,11 +237,10 @@ pub fn process_notify_event(
         // File/directory removed
         EventKind::Remove(_) => {
             for path in &event.paths {
-                if should_watch_path(path, config) {
-                    if let Some(utf8) = Utf8PathBuf::from_path_buf(path.clone()).ok() {
+                if should_watch_path(path, config)
+                    && let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone()) {
                         events.push(FileEvent::Removed(utf8));
                     }
-                }
             }
         }
 

@@ -6,6 +6,7 @@ mod harness;
 
 mod basic;
 mod cache_busting;
+mod code_execution;
 mod content;
 mod dead_links;
 mod error_detection;

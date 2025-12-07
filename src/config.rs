@@ -41,6 +41,7 @@ pub struct DodecaConfig {
 
 /// Link checking configuration
 #[derive(Debug, Clone, Facet)]
+#[derive(Default)]
 pub struct LinkCheckConfig {
     /// Domains to skip checking (anti-bot policies, known flaky, etc.)
     #[facet(kdl::children, default)]
@@ -52,14 +53,6 @@ pub struct LinkCheckConfig {
     pub rate_limit_ms: Option<u64>,
 }
 
-impl Default for LinkCheckConfig {
-    fn default() -> Self {
-        Self {
-            skip_domains: Vec::new(),
-            rate_limit_ms: None, // Use link_checker's default
-        }
-    }
-}
 
 /// Stable assets configuration (served at original paths without cache-busting)
 #[derive(Debug, Clone, Default, Facet)]

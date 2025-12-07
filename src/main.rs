@@ -1619,7 +1619,6 @@ fn handle_file_changed(
                     println!("  {} Added new static file: {}", "+".green(), relative);
                 }
             }
-            return;
         }
         PathCategory::Data => {
             if let Ok(content) = fs::read_to_string(path) {
@@ -1648,7 +1647,7 @@ fn handle_file_changed(
                 }
             }
         }
-        PathCategory::Unknown => return, // Unknown files don't need Salsa updates
+        PathCategory::Unknown => (), // Unknown files don't need Salsa updates
     }
     // Note: For all file types (Content, Template, Sass, Static, Data), the Salsa input
     // set_content() call triggers proper invalidation of dependent queries.

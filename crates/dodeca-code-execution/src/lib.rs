@@ -57,13 +57,8 @@ impl Default for CodeExecutionConfig {
             timeout_secs: 30,
             cache_dir: ".cache/code-execution".to_string(),
             languages: vec!["rust".to_string()],
-            dependencies: vec![Dependency {
-                name: "facet".to_string(),
-                version: "0.1.0".to_string(),
-                git: Some("https://github.com/facet-rs/facet".to_string()),
-                rev: Some("main".to_string()), // Would be actual commit hash in real config
-                branch: None,
-            }],
+            // No dependencies by default - code samples should be self-contained
+            dependencies: vec![],
             language_config: HashMap::from([("rust".to_string(), LanguageConfig::rust())]),
         }
     }
@@ -99,9 +94,9 @@ impl LanguageConfig {
             ],
             extension: "rs".to_string(),
             prepare_code: true,
+            // Only standard library imports by default
             auto_imports: vec![
                 "use std::collections::HashMap;".to_string(),
-                "use facet::Facet;".to_string(),
             ],
             show_output: true,
             expected_compile_errors: vec![],

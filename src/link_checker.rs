@@ -354,16 +354,14 @@ fn check_internal_link(
     // Empty path means same-page anchor
     if path.is_empty() {
         // Validate fragment against current page's headings
-        if let Some(frag) = fragment {
-            if !frag.is_empty() {
+        if let Some(frag) = fragment
+            && !frag.is_empty() {
                 let source_key = source_route.as_str().to_string();
-                if let Some(ids) = heading_ids.get(&source_key) {
-                    if !ids.contains(frag) {
+                if let Some(ids) = heading_ids.get(&source_key)
+                    && !ids.contains(frag) {
                         return Some(format!("anchor '#{frag}' not found on page"));
                     }
-                }
             }
-        }
         return None;
     }
 
@@ -400,8 +398,8 @@ fn check_internal_link(
     }
 
     // Route exists - now validate fragment if present
-    if let Some(frag) = fragment {
-        if !frag.is_empty() {
+    if let Some(frag) = fragment
+        && !frag.is_empty() {
             // Find the target route's heading IDs (try with/without trailing slash)
             let target_ids = heading_ids
                 .get(&target_route)
@@ -411,15 +409,13 @@ fn check_internal_link(
                     heading_ids.get(&with_slash)
                 });
 
-            if let Some(ids) = target_ids {
-                if !ids.contains(frag) {
+            if let Some(ids) = target_ids
+                && !ids.contains(frag) {
                     return Some(format!("anchor '#{frag}' not found on target page"));
                 }
-            }
             // If we can't find heading IDs for the target, don't fail
             // (could be a static file or external page)
         }
-    }
 
     None
 }

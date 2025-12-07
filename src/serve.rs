@@ -84,10 +84,10 @@ fn value_to_scope_value(value: &facet_value::Value) -> ScopeValue {
             let preview = if len == 0 {
                 "[]".to_string()
             } else if len <= 3 {
-                let items: Vec<String> = arr.iter().take(3).map(|v| value_preview(v)).collect();
+                let items: Vec<String> = arr.iter().take(3).map(value_preview).collect();
                 format!("[{}]", items.join(", "))
             } else {
-                let items: Vec<String> = arr.iter().take(3).map(|v| value_preview(v)).collect();
+                let items: Vec<String> = arr.iter().take(3).map(value_preview).collect();
                 format!("[{}, ...]", items.join(", "))
             };
             ScopeValue::Array { length: len, preview }

@@ -864,11 +864,10 @@ This page will be moved.
     let original_url = format!("http://127.0.0.1:{}/guide/moveable/", port);
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        if let Ok(resp) = client.get(&original_url).send() {
-            if resp.status().is_success() {
+        if let Ok(resp) = client.get(&original_url).send()
+            && resp.status().is_success() {
                 break;
             }
-        }
         if Instant::now() >= deadline {
             panic!("Original page should be accessible within 10s");
         }

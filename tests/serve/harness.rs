@@ -328,6 +328,150 @@ fn truncate(s: &str, max_len: usize) -> &str {
     }
 }
 
+/// Result of running `ddc build` on a fixture
+pub struct BuildResult {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+impl BuildResult {
+    /// Assert the build succeeded
+    pub fn assert_success(&self) -> &Self {
+        assert!(
+            self.success,
+            "Build should have succeeded but failed.\nstdout:\n{}\nstderr:\n{}",
+            self.stdout, self.stderr
+        );
+        self
+    }
+
+    /// Assert the build failed
+    pub fn assert_failure(&self) -> &Self {
+        assert!(
+            !self.success,
+            "Build should have failed but succeeded.\nstdout:\n{}\nstderr:\n{}",
+            self.stdout, self.stderr
+        );
+        self
+    }
+
+    /// Assert combined output contains a substring
+    pub fn assert_output_contains(&self, needle: &str) -> &Self {
+        let combined = format!("{}{}", self.stdout, self.stderr);
+        assert!(
+            combined.contains(needle),
+            "output should contain '{needle}'.\nstdout:\n{}\nstderr:\n{}",
+            self.stdout, self.stderr
+        );
+        self
+    }
+}
+
+/// Build a site from an arbitrary source directory
+fn build_site_from_source(src: &Path) -> BuildResult {
+    // Create isolated temp directory
+    let temp_dir = tempfile::Builder::new()
+        .prefix("dodeca-build-test-")
+        .tempdir()
+        .expect("create temp dir");
+
+    let fixture_dir = temp_dir.path().to_path_buf();
+    copy_dir_recursive(src, &fixture_dir).expect("copy fixture");
+
+    // Ensure .cache exists and is empty
+    let cache_dir = fixture_dir.join(".cache");
+    let _ = fs::remove_dir_all(&cache_dir);
+    fs::create_dir_all(&cache_dir).expect("create cache dir");
+
+    // Create output directory
+    let output_dir = fixture_dir.join("public");
+    fs::create_dir_all(&output_dir).expect("create output dir");
+
+    // Run build
+    let fixture_str = fixture_dir.to_string_lossy().to_string();
+    let output = Command::new(env!("CARGO_BIN_EXE_ddc"))
+        .args(["build", &fixture_str])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run ddc build");
+
+    BuildResult {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    }
+}
+
+/// Build a site from inline content (creates minimal fixture on the fly)
+pub struct InlineSite {
+    _temp_dir: tempfile::TempDir,
+    pub fixture_dir: PathBuf,
+}
+
+impl InlineSite {
+    /// Create a new inline site with the given markdown content
+    pub fn new(content_files: &[(&str, &str)]) -> Self {
+        let temp_dir = tempfile::Builder::new()
+            .prefix("dodeca-inline-test-")
+            .tempdir()
+            .expect("create temp dir");
+
+        let fixture_dir = temp_dir.path().to_path_buf();
+
+        // Create directories
+        fs::create_dir_all(fixture_dir.join("content")).expect("create content dir");
+        fs::create_dir_all(fixture_dir.join("templates")).expect("create templates dir");
+        fs::create_dir_all(fixture_dir.join("sass")).expect("create sass dir");
+        fs::create_dir_all(fixture_dir.join(".config")).expect("create config dir");
+        fs::create_dir_all(fixture_dir.join(".cache")).expect("create cache dir");
+
+        // Write config
+        fs::write(
+            fixture_dir.join(".config/dodeca.kdl"),
+            "content \"content\"\noutput \"public\"\n",
+        )
+        .expect("write config");
+
+        // Write templates
+        fs::write(
+            fixture_dir.join("templates/section.html"),
+            "<!DOCTYPE html><html><head><title>{{ section.title }}</title></head><body>{{ section.content | safe }}</body></html>",
+        )
+        .expect("write section template");
+
+        fs::write(
+            fixture_dir.join("templates/page.html"),
+            "<!DOCTYPE html><html><head><title>{{ page.title }}</title></head><body>{{ page.content | safe }}</body></html>",
+        )
+        .expect("write page template");
+
+        // Write sass
+        fs::write(fixture_dir.join("sass/main.scss"), "body { margin: 0; }")
+            .expect("write sass");
+
+        // Write content files
+        for (path, content) in content_files {
+            let file_path = fixture_dir.join("content").join(path);
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent).expect("create content parent dir");
+            }
+            fs::write(&file_path, content).expect("write content file");
+        }
+
+        Self {
+            _temp_dir: temp_dir,
+            fixture_dir,
+        }
+    }
+
+    /// Build this site
+    pub fn build(&self) -> BuildResult {
+        build_site_from_source(&self.fixture_dir)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
