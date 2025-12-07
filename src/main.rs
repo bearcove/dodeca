@@ -2047,6 +2047,28 @@ async fn serve_plain(
                             "+".green(),
                             path.file_name().unwrap_or("?")
                         );
+                        // Scan for files that may have been created before the watcher was added
+                        // (race condition with inotify on Linux)
+                        if let Ok(entries) = std::fs::read_dir(path.as_std_path()) {
+                            for entry in entries.flatten() {
+                                if entry.file_type().is_ok_and(|t| t.is_file()) {
+                                    if let Ok(utf8_path) =
+                                        Utf8PathBuf::from_path_buf(entry.path())
+                                    {
+                                        println!(
+                                            "    {} Found file in new dir: {}",
+                                            "+".green(),
+                                            utf8_path.file_name().unwrap_or("?")
+                                        );
+                                        handle_file_changed(
+                                            &utf8_path,
+                                            &watcher_config,
+                                            &server_for_watcher,
+                                        );
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
