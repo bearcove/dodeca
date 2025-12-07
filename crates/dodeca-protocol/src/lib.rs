@@ -2,6 +2,8 @@
 //!
 //! Uses a JSON-RPC style protocol for bidirectional communication.
 
+#![allow(clippy::disallowed_types)] // serde needed for JSON protocol with browser
+
 use serde::{Deserialize, Serialize};
 
 mod ansi;

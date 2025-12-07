@@ -13,6 +13,11 @@ use notify::{
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+/// Type alias for the watcher handle
+pub type WatcherHandle = Arc<Mutex<RecommendedWatcher>>;
+/// Type alias for the watcher event receiver
+pub type WatcherReceiver = std::sync::mpsc::Receiver<notify::Result<notify::Event>>;
+
 /// Configuration for the file watcher
 pub struct WatcherConfig {
     pub content_dir: Utf8PathBuf,
@@ -253,7 +258,7 @@ pub fn process_notify_event(
 /// Create and configure the file watcher
 pub fn create_watcher(
     config: &WatcherConfig,
-) -> color_eyre::Result<(Arc<Mutex<RecommendedWatcher>>, std::sync::mpsc::Receiver<notify::Result<notify::Event>>)> {
+) -> color_eyre::Result<(WatcherHandle, WatcherReceiver)> {
     let (tx, rx) = std::sync::mpsc::channel();
     let watcher = notify::recommended_watcher(move |res| {
         let _ = tx.send(res);

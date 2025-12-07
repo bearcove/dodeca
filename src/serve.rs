@@ -403,12 +403,6 @@ impl SiteServer {
         self.static_registry.files(&*db).clone()
     }
 
-    /// Get a clone of the current data files (for modification)
-    pub fn get_data_files(&self) -> Vec<DataFile> {
-        let db = self.db.lock().unwrap();
-        self.data_registry.files(&*db).clone()
-    }
-
     /// Notify all connected browsers to reload
     /// Computes patches for all cached routes and sends them
     pub fn trigger_reload(&self) {
@@ -1219,6 +1213,7 @@ async fn devtools_ws_handler(
     ws.on_upgrade(|socket| handle_devtools_socket(socket, server))
 }
 
+#[allow(clippy::disallowed_methods)] // serde_json needed for JSON messages to browser
 async fn handle_devtools_socket(socket: WebSocket, server: Arc<SiteServer>) {
     let (mut sender, mut receiver) = socket.split();
     let mut reload_rx = server.livereload_tx.subscribe();

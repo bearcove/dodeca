@@ -10,6 +10,7 @@
 //! The client (Rust/WASM) applies patches directly to the DOM.
 
 #![allow(dead_code)] // Some functions reserved for future use
+#![allow(clippy::disallowed_types)] // serde needed for postcard serialization
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

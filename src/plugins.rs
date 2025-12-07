@@ -898,7 +898,3 @@ pub fn execute_code_samples_plugin(
     }
 }
 
-/// Check if code execution plugin is available.
-pub fn has_code_execution_plugin() -> bool {
-    plugins().code_execution.is_some()
-}

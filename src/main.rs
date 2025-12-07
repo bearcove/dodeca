@@ -1991,7 +1991,6 @@ async fn serve_plain(
     let server_for_watcher = server.clone();
 
     std::thread::spawn(move || {
-        use std::sync::mpsc::TryRecvError;
         use std::time::{Duration, Instant};
 
         let debounce = Duration::from_millis(100);
@@ -1999,15 +1998,8 @@ async fn serve_plain(
         let watcher = watcher; // keep Arc alive
         let mut pending_events: Vec<file_watcher::FileEvent> = Vec::new();
 
-        loop {
-            let event = match watcher_rx.recv() {
-                Ok(event) => event,
-                Err(_) => break,
-            };
-            let event = match event {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
+        while let Ok(event) = watcher_rx.recv() {
+            let Ok(event) = event else { continue };
 
             let mut file_events =
                 file_watcher::process_notify_event(event, &watcher_config, &watcher);
@@ -2017,18 +2009,16 @@ async fn serve_plain(
             pending_events.append(&mut file_events);
 
             // Coalesce any immediately available events so a burst is handled together.
-            loop {
-                match watcher_rx.try_recv() {
-                    Ok(Ok(next)) => {
+            while let Ok(next) = watcher_rx.try_recv() {
+                match next {
+                    Ok(next) => {
                         let mut more =
                             file_watcher::process_notify_event(next, &watcher_config, &watcher);
                         if !more.is_empty() {
                             pending_events.append(&mut more);
                         }
                     }
-                    Ok(Err(_)) => continue,
-                    Err(TryRecvError::Empty) => break,
-                    Err(TryRecvError::Disconnected) => return,
+                    Err(_) => continue,
                 }
             }
 

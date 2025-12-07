@@ -2,6 +2,8 @@
 //!
 //! Receives serialized DOM patches from the server and applies them to the real DOM.
 
+#![allow(clippy::disallowed_types)] // serde needed for postcard serialization
+
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use web_sys::{Document, Element, Node};

@@ -1,3 +1,5 @@
+#![allow(clippy::disallowed_types)] // serde needed for GitHub API deserialization
+
 use color_eyre::{eyre::eyre, Result};
 use owo_colors::OwoColorize;
 use serde::Deserialize;

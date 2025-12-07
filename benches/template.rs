@@ -55,14 +55,6 @@ fn with_conditionals() -> &'static str {
 {% endif %}"#
 }
 
-/// Template with filters
-fn with_filters() -> &'static str {
-    r#"{{ title | upper }}
-{{ description | lower }}
-{{ content | safe }}
-{{ number | default(0) }}"#
-}
-
 /// Complex realistic template (like a blog post layout)
 fn complex_template() -> &'static str {
     r#"<!DOCTYPE html>

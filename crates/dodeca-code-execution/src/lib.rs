@@ -8,7 +8,6 @@ use plugcard::{PlugResult, plugcard};
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
 use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
@@ -57,8 +56,22 @@ impl Default for CodeExecutionConfig {
             timeout_secs: 30,
             cache_dir: ".cache/code-execution".to_string(),
             languages: vec!["rust".to_string()],
-            // No dependencies by default - code samples should be self-contained
-            dependencies: vec![],
+            dependencies: vec![
+                Dependency {
+                    name: "facet".to_string(),
+                    version: "0.1.0".to_string(),
+                    git: Some("https://github.com/facet-rs/facet".to_string()),
+                    rev: None,
+                    branch: Some("main".to_string()),
+                },
+                Dependency {
+                    name: "facet-json".to_string(),
+                    version: "0.1.0".to_string(),
+                    git: Some("https://github.com/facet-rs/facet".to_string()),
+                    rev: None,
+                    branch: Some("main".to_string()),
+                },
+            ],
             language_config: HashMap::from([("rust".to_string(), LanguageConfig::rust())]),
         }
     }
@@ -94,9 +107,9 @@ impl LanguageConfig {
             ],
             extension: "rs".to_string(),
             prepare_code: true,
-            // Only standard library imports by default
             auto_imports: vec![
                 "use std::collections::HashMap;".to_string(),
+                "use facet::Facet;".to_string(),
             ],
             show_output: true,
             expected_compile_errors: vec![],
@@ -188,14 +201,13 @@ pub fn extract_code_samples(input: ExtractSamplesInput) -> PlugResult<ExtractSam
 
     for event in parser {
         match event {
-            Event::Start(Tag::CodeBlock(kind)) => {
-                if let CodeBlockKind::Fenced(lang) = kind {
-                    current_language = lang.to_string();
-                    in_code_block = true;
-                    code_start_line = current_line;
-                    current_code.clear();
-                }
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(lang))) => {
+                current_language = lang.to_string();
+                in_code_block = true;
+                code_start_line = current_line;
+                current_code.clear();
             }
+            Event::Start(Tag::CodeBlock(_)) => {}
             Event::End(pulldown_cmark::TagEnd::CodeBlock) => {
                 if in_code_block {
                     // Check if this code block should be executed
@@ -509,164 +521,7 @@ fn prepare_rust_code(code: &str, auto_imports: &[String]) -> String {
 
 /// Determine if a code block should be executed based on language
 fn should_execute(language: &str) -> bool {
-    let supported_langs = ["rust", "rs", "bash", "sh", "javascript", "js"];
-    supported_langs.contains(&language.to_lowercase().as_str())
-}
-
-/// Prepare code for execution by adding necessary boilerplate
-fn prepare_code_for_language(language: &str, code: &str) -> Result<String, String> {
-    match language {
-        "rust" | "rs" => {
-            // Check if code already has a main function
-            if code.contains("fn main(") {
-                Ok(code.to_string())
-            } else {
-                // Wrap in main function
-                Ok(format!(
-                    r#"fn main() {{
-{}}}
-"#,
-                    indent_lines(code, "    ")
-                ))
-            }
-        }
-        _ => Ok(code.to_string()),
-    }
-}
-
-/// Indent all lines of a string
-fn indent_lines(text: &str, indent: &str) -> String {
-    text.lines()
-        .map(|line| {
-            if line.trim().is_empty() {
-                line.to_string()
-            } else {
-                format!("{}{}", indent, line)
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-/// Execute Rust code by compiling and running
-fn execute_rust_code(
-    source_file: &Path,
-    config: &LanguageConfig,
-    timeout_secs: u64,
-) -> ExecutionResult {
-    let start_time = std::time::Instant::now();
-    let executable_path = source_file.with_extension("");
-
-    // Compile
-    let mut compile_cmd = Command::new(&config.command);
-    compile_cmd.args(&config.args);
-    compile_cmd.arg(&executable_path);
-    compile_cmd.arg(source_file);
-
-    let compile_output = match compile_cmd.output() {
-        Ok(output) => output,
-        Err(e) => {
-            return ExecutionResult {
-                success: false,
-                exit_code: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                duration_ms: start_time.elapsed().as_millis() as u64,
-                error: Some(format!("Failed to start compiler: {}", e)),
-            };
-        }
-    };
-
-    if !compile_output.status.success() {
-        return ExecutionResult {
-            success: false,
-            exit_code: compile_output.status.code(),
-            stdout: String::from_utf8_lossy(&compile_output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&compile_output.stderr).to_string(),
-            duration_ms: start_time.elapsed().as_millis() as u64,
-            error: Some(format!("Compilation failed")),
-        };
-    }
-
-    // Run the compiled binary
-    let mut run_cmd = Command::new(&executable_path);
-    run_cmd.stdout(Stdio::piped());
-    run_cmd.stderr(Stdio::piped());
-
-    let output = match execute_with_timeout(&mut run_cmd, timeout_secs) {
-        Ok(output) => output,
-        Err(e) => {
-            return ExecutionResult {
-                success: false,
-                exit_code: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                duration_ms: start_time.elapsed().as_millis() as u64,
-                error: Some(e),
-            };
-        }
-    };
-
-    ExecutionResult {
-        success: output.status.success(),
-        exit_code: output.status.code(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        duration_ms: start_time.elapsed().as_millis() as u64,
-        error: if output.status.success() {
-            None
-        } else {
-            Some(format!(
-                "Process exited with code: {:?}",
-                output.status.code()
-            ))
-        },
-    }
-}
-
-/// Execute a script file
-fn execute_script(
-    script_file: &Path,
-    config: &LanguageConfig,
-    timeout_secs: u64,
-) -> ExecutionResult {
-    let start_time = std::time::Instant::now();
-
-    let mut cmd = Command::new(&config.command);
-    cmd.args(&config.args);
-    cmd.arg(script_file);
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-
-    let output = match execute_with_timeout(&mut cmd, timeout_secs) {
-        Ok(output) => output,
-        Err(e) => {
-            return ExecutionResult {
-                success: false,
-                exit_code: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                duration_ms: start_time.elapsed().as_millis() as u64,
-                error: Some(e),
-            };
-        }
-    };
-
-    ExecutionResult {
-        success: output.status.success(),
-        exit_code: output.status.code(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        duration_ms: start_time.elapsed().as_millis() as u64,
-        error: if output.status.success() {
-            None
-        } else {
-            Some(format!(
-                "Process exited with code: {:?}",
-                output.status.code()
-            ))
-        },
-    }
+    matches!(language.to_lowercase().as_str(), "rust" | "rs")
 }
 
 /// Execute a command with timeout
