@@ -6,6 +6,8 @@ use crate::template::{
 };
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
+use lol_html::{element, text, rewrite_str, RewriteStrSettings};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -225,89 +227,10 @@ pre .build-info-btn.verified { border-color: rgba(50,205,50,0.5); }
 }
 </style>"##;
 
-/// Generate the build info script with embedded metadata JSON
-fn generate_build_info_script(code_metadata: &HashMap<String, &CodeExecutionMetadata>) -> String {
-    if code_metadata.is_empty() {
-        return String::new();
-    }
-
-    // Serialize metadata to JSON manually (avoiding serde dependency)
-    let mut json_entries = Vec::new();
-    for (hash, meta) in code_metadata {
-        // Extract just the first line of rustc version (e.g., "rustc 1.83.0-nightly")
-        let rustc_short = meta.rustc_version.lines().next().unwrap_or(&meta.rustc_version);
-
-        // Build deps array
-        let deps_json: Vec<String> = meta.dependencies.iter().map(|d| {
-            format!(r#"{{"name":"{}","version":"{}","source":"{}"}}"#,
-                escape_json(&d.name),
-                escape_json(&d.version),
-                escape_json(&d.source))
-        }).collect();
-
-        json_entries.push(format!(
-            r#""{}":{{"rustc":"{}","cargo":"{}","target":"{}","timestamp":"{}","cacheHit":{},"platform":"{}","arch":"{}","deps":[{}]}}"#,
-            escape_json(hash),
-            escape_json(rustc_short),
-            escape_json(&meta.cargo_version),
-            escape_json(&meta.target),
-            escape_json(&meta.timestamp),
-            meta.cache_hit,
-            escape_json(&meta.platform),
-            escape_json(&meta.arch),
-            deps_json.join(",")
-        ));
-    }
-
-    let json = format!("{{{}}}", json_entries.join(","));
-
-    format!(r##"<script>
-window.__DODECA_BUILD_INFO__ = {json};
-document.addEventListener('DOMContentLoaded', function() {{
-    var buildInfo = window.__DODECA_BUILD_INFO__;
-    if (!buildInfo || Object.keys(buildInfo).length === 0) return;
-
-    // Simple hash function for code content (matches Rust hash_code)
-    function hashCode(str) {{
-        var hash = 0;
-        for (var i = 0; i < str.length; i++) {{
-            var chr = str.charCodeAt(i);
-            hash = ((hash << 5) - hash) + chr;
-            hash |= 0;
-        }}
-        // Convert to unsigned 32-bit hex to match Rust
-        return (hash >>> 0).toString(16);
-    }}
-
-    // Normalize code by trimming whitespace
-    function normalizeCode(code) {{
-        return code.trim();
-    }}
-
-    document.querySelectorAll('pre > code').forEach(function(code) {{
-        var pre = code.parentElement;
-        if (pre.querySelector('.build-info-btn')) return;
-
-        var codeText = normalizeCode(code.textContent);
-        var hash = hashCode(codeText);
-        var info = buildInfo[hash];
-
-        if (!info) return;
-
-        var btn = document.createElement('button');
-        btn.className = 'build-info-btn verified';
-        btn.innerHTML = '&#9432;'; // info icon
-        btn.setAttribute('aria-label', 'View build info');
-        btn.setAttribute('title', 'Verified: ' + info.rustc);
-
-        btn.onclick = function(e) {{
-            e.stopPropagation();
-            showBuildInfoPopup(info);
-        }};
-
-        pre.appendChild(btn);
-    }});
-
+/// JavaScript for build info popup (injected when there are build info buttons)
+/// The buttons are injected server-side, this JS just handles showing the popup
+const BUILD_INFO_POPUP_SCRIPT: &str = r##"<script>
+(function() {
     // SVG icons
     var cratesIoIcon = '<svg class="dep-icon" viewBox="0 0 512 512"><path fill="currentColor" d="M239.1 6.3l-208 78c-18.7 7-31.1 25-31.1 45v225.1c0 18.2 10.3 34.8 26.5 42.9l208 104c13.5 6.8 29.4 6.8 42.9 0l208-104c16.3-8.1 26.5-24.8 26.5-42.9V129.3c0-20-12.4-37.9-31.1-44.9l-208-78C262 2.2 250 2.2 239.1 6.3zM256 68.4l192 72v1.1l-192 78-192-78v-1.1l192-72zm32 356V275.5l160-65v160.4l-160 53.5z"/></svg>';
     var gitIcon = '<svg class="dep-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>';
@@ -317,16 +240,20 @@ document.addEventListener('DOMContentLoaded', function() {{
     var clockIcon = '<svg class="field-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0a8 8 0 100 16A8 8 0 008 0zm0 2a6 6 0 110 12A6 6 0 018 2zm-.5 2v4.5l3 2 .75-1.125-2.25-1.5V4h-1.5z"/></svg>';
     var depsIcon = '<svg class="field-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M1 2.5A1.5 1.5 0 012.5 1h3a1.5 1.5 0 011.5 1.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z"/></svg>';
 
-    function formatLocalTime(isoString) {{
-        try {{
+    function formatLocalTime(isoString) {
+        try {
             var date = new Date(isoString);
-            return date.toLocaleDateString(undefined, {{ year: 'numeric', month: 'long', day: 'numeric' }}) + ' at ' + date.toLocaleTimeString(undefined, {{ hour: '2-digit', minute: '2-digit' }});
-        }} catch (e) {{
+            return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) + ' at ' + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        } catch (e) {
             return isoString;
-        }}
-    }}
+        }
+    }
 
-    function showBuildInfoPopup(info) {{
+    function escapeHtml(str) {
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    window.showBuildInfoPopup = function(info) {
         // Remove existing popup
         var existing = document.querySelector('.build-info-overlay');
         if (existing) existing.remove();
@@ -338,25 +265,25 @@ document.addEventListener('DOMContentLoaded', function() {{
         popup.className = 'build-info-popup';
 
         var depsHtml = '';
-        if (info.deps && info.deps.length > 0) {{
+        if (info.deps && info.deps.length > 0) {
             depsHtml = '<dt>' + depsIcon + ' Dependencies</dt><dd><div class="deps-list">';
-            info.deps.forEach(function(d) {{
+            info.deps.forEach(function(d) {
                 var icon, link;
-                if (d.source === 'crates.io') {{
+                if (d.source === 'crates.io') {
                     icon = cratesIoIcon;
                     link = 'https://crates.io/crates/' + encodeURIComponent(d.name) + '/' + encodeURIComponent(d.version);
                     depsHtml += '<div><a href="' + link + '" target="_blank" rel="noopener" title="View on crates.io">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(d.version) + '</span></a></div>';
-                }} else if (d.source.startsWith('git:')) {{
+                } else if (d.source.startsWith('git:')) {
                     icon = gitIcon;
                     var gitUrl = d.source.substring(4);
                     depsHtml += '<div><a href="' + escapeHtml(gitUrl) + '" target="_blank" rel="noopener" title="View git repository">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(d.version) + '</span></a></div>';
-                }} else {{
+                } else {
                     icon = pathIcon;
                     depsHtml += '<div><span class="dep-local">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(d.version) + '</span></span></div>';
-                }}
-            }});
+                }
+            });
             depsHtml += '</div></dd>';
-        }}
+        }
 
         popup.innerHTML =
             '<button class="close-btn" aria-label="Close">&times;</button>' +
@@ -372,28 +299,23 @@ document.addEventListener('DOMContentLoaded', function() {{
         overlay.appendChild(popup);
         document.body.appendChild(overlay);
 
-        function close() {{
+        function close() {
             overlay.remove();
-        }}
+        }
 
-        overlay.addEventListener('click', function(e) {{
+        overlay.addEventListener('click', function(e) {
             if (e.target === overlay) close();
-        }});
+        });
         popup.querySelector('.close-btn').addEventListener('click', close);
-        document.addEventListener('keydown', function handler(e) {{
-            if (e.key === 'Escape') {{
+        document.addEventListener('keydown', function handler(e) {
+            if (e.key === 'Escape') {
                 close();
                 document.removeEventListener('keydown', handler);
-            }}
-        }});
-    }}
-
-    function escapeHtml(str) {{
-        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }}
-}});
-</script>"##, json = json)
-}
+            }
+        });
+    };
+})();
+</script>"##;
 
 /// Escape a string for JSON embedding
 fn escape_json(s: &str) -> String {
@@ -404,30 +326,145 @@ fn escape_json(s: &str) -> String {
         .replace('\t', "\\t")
 }
 
-/// Compute a simple hash of code content (same algorithm as JS side)
-pub fn hash_code(s: &str) -> String {
-    let mut hash: i32 = 0;
-    for c in s.chars() {
-        let chr = c as i32;
-        hash = ((hash << 5).wrapping_sub(hash)).wrapping_add(chr);
-        hash |= 0; // Convert to 32-bit integer
-    }
-    format!("{:x}", hash as u32)
+/// Normalize code for matching (decode HTML entities, trim whitespace)
+fn normalize_code_for_matching(code: &str) -> String {
+    code.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .trim()
+        .to_string()
 }
 
-/// Build a map from code hash to metadata for code blocks with execution results
-pub fn build_code_metadata_map(results: &[CodeExecutionResult]) -> HashMap<String, &CodeExecutionMetadata> {
+/// Build a map from normalized code text to metadata for code blocks with execution results
+fn build_code_metadata_map(results: &[CodeExecutionResult]) -> HashMap<String, &CodeExecutionMetadata> {
     let mut map = HashMap::new();
     for result in results {
         if let Some(ref metadata) = result.metadata {
-            let hash = hash_code(result.code.trim());
-            map.insert(hash, metadata);
+            let normalized = result.code.trim().to_string();
+            map.insert(normalized, metadata);
         }
     }
     map
 }
 
+/// Convert metadata to JSON for embedding in onclick handler
+fn metadata_to_json(meta: &CodeExecutionMetadata) -> String {
+    let rustc_short = meta.rustc_version.lines().next().unwrap_or(&meta.rustc_version);
+
+    let deps_json: Vec<String> = meta.dependencies.iter().map(|d| {
+        format!(r#"{{"name":"{}","version":"{}","source":"{}"}}"#,
+            escape_json(&d.name),
+            escape_json(&d.version),
+            escape_json(&d.source))
+    }).collect();
+
+    format!(
+        r#"{{"rustc":"{}","cargo":"{}","target":"{}","timestamp":"{}","cacheHit":{},"platform":"{}","arch":"{}","deps":[{}]}}"#,
+        escape_json(rustc_short),
+        escape_json(&meta.cargo_version),
+        escape_json(&meta.target),
+        escape_json(&meta.timestamp),
+        meta.cache_hit,
+        escape_json(&meta.platform),
+        escape_json(&meta.arch),
+        deps_json.join(",")
+    )
+}
+
+/// Inject build info buttons into code blocks using lol_html
+fn inject_build_info_buttons(
+    html: &str,
+    code_metadata: &HashMap<String, &CodeExecutionMetadata>,
+) -> (String, bool) {
+    use lol_html::html_content::ContentType;
+    use std::rc::Rc;
+
+    if code_metadata.is_empty() {
+        return (html.to_string(), false);
+    }
+
+    // Track text content per <pre> element and whether we added any buttons
+    let current_code_text = Rc::new(RefCell::new(String::new()));
+    let had_buttons = Rc::new(RefCell::new(false));
+
+    // Clone code_metadata into owned data for the closure
+    let metadata_map: HashMap<String, CodeExecutionMetadata> = code_metadata
+        .iter()
+        .map(|(k, v)| (k.clone(), (*v).clone()))
+        .collect();
+
+    let result = rewrite_str(
+        html,
+        RewriteStrSettings {
+            element_content_handlers: vec![
+                // Handle <pre> elements
+                element!("pre", |el| {
+                    // Clear buffer for this <pre> element
+                    current_code_text.borrow_mut().clear();
+
+                    // Clone refs for the end tag handler
+                    let code_text_ref = current_code_text.clone();
+                    let had_buttons_ref = had_buttons.clone();
+                    let metadata_map_ref = metadata_map.clone();
+
+                    // Set up end tag handler
+                    if let Some(handlers) = el.end_tag_handlers() {
+                        let handler: lol_html::EndTagHandler<'static> = Box::new(move |end_tag| {
+                            let code_text = code_text_ref.borrow();
+                            let normalized = normalize_code_for_matching(&code_text);
+
+                            if let Some(meta) = metadata_map_ref.get(&normalized) {
+                                *had_buttons_ref.borrow_mut() = true;
+                                let json = metadata_to_json(meta);
+                                let rustc_short = meta.rustc_version.lines().next().unwrap_or(&meta.rustc_version);
+
+                                // Inject button HTML before the closing </pre> tag
+                                let button_html = format!(
+                                    r#"<button class="build-info-btn verified" aria-label="View build info" title="Verified: {}" onclick="showBuildInfoPopup({})">&#9432;</button>"#,
+                                    escape_html_attr(rustc_short),
+                                    json
+                                );
+                                end_tag.before(&button_html, ContentType::Html);
+                            }
+
+                            Ok(())
+                        });
+                        handlers.push(handler);
+                    }
+
+                    Ok(())
+                }),
+                // Collect text inside <code> elements within <pre>
+                text!("pre code", |t| {
+                    current_code_text.borrow_mut().push_str(t.as_str());
+                    Ok(())
+                }),
+            ],
+            ..Default::default()
+        },
+    );
+
+    match result {
+        Ok(rewritten) => (rewritten, *had_buttons.borrow()),
+        Err(e) => {
+            tracing::warn!("Failed to inject build info buttons: {:?}", e);
+            (html.to_string(), false)
+        }
+    }
+}
+
+/// Escape a string for use in HTML attributes
+fn escape_html_attr(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 /// Inject livereload script, copy buttons, and optionally mark dead links
+#[allow(dead_code)]
 pub fn inject_livereload(html: &str, options: RenderOptions, known_routes: Option<&HashSet<String>>) -> String {
     inject_livereload_with_build_info(html, options, known_routes, &[])
 }
@@ -449,14 +486,21 @@ pub fn inject_livereload_with_build_info(
         has_dead_links = had_dead;
     }
 
-    // Build the code metadata map and generate build info script
+    // Build the code metadata map and inject buttons into code blocks
     let code_metadata = build_code_metadata_map(code_execution_results);
-    let build_info_script = generate_build_info_script(&code_metadata);
-    let build_info_styles = if !code_metadata.is_empty() { BUILD_INFO_STYLES } else { "" };
+    let (with_buttons, had_build_info) = inject_build_info_buttons(&result, &code_metadata);
+    result = with_buttons;
+
+    // Only include build info styles and popup script if we actually injected buttons
+    let build_info_assets = if had_build_info {
+        format!("{BUILD_INFO_STYLES}{BUILD_INFO_POPUP_SCRIPT}")
+    } else {
+        String::new()
+    };
 
     // Always inject copy button script for code blocks
     // Try to inject after <html, but fall back to after <!doctype html> if <html not found
-    let scripts_to_inject = format!("{CODE_COPY_SCRIPT}{build_info_styles}{build_info_script}");
+    let scripts_to_inject = format!("{CODE_COPY_SCRIPT}{build_info_assets}");
     if result.contains("<html") {
         result = result.replacen("<html", &format!("{scripts_to_inject}<html"), 1);
     } else if let Some(pos) = result.to_lowercase().find("<!doctype html>") {
@@ -1099,5 +1143,95 @@ fn route_to_path(route: &str) -> String {
         "_index.md".to_string()
     } else {
         format!("{r}/_index.md")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{CodeExecutionMetadata, CodeExecutionResult, ResolvedDependencyInfo};
+
+    fn make_test_result(code: &str, metadata: Option<CodeExecutionMetadata>) -> CodeExecutionResult {
+        CodeExecutionResult {
+            source_path: "test.md".to_string(),
+            line: 1,
+            language: "rust".to_string(),
+            code: code.to_string(),
+            success: true,
+            exit_code: Some(0),
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms: 100,
+            error: None,
+            metadata,
+        }
+    }
+
+    #[test]
+    fn test_inject_build_info_buttons() {
+        let html = r#"<html><body><pre><code>fn main() {}</code></pre></body></html>"#;
+
+        let metadata = CodeExecutionMetadata {
+            rustc_version: "rustc 1.83.0-nightly".to_string(),
+            cargo_version: "cargo 1.83.0".to_string(),
+            target: "x86_64-unknown-linux-gnu".to_string(),
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            cache_hit: false,
+            platform: "linux".to_string(),
+            arch: "x86_64".to_string(),
+            dependencies: vec![
+                ResolvedDependencyInfo {
+                    name: "serde".to_string(),
+                    version: "1.0.0".to_string(),
+                    source: "crates.io".to_string(),
+                },
+            ],
+        };
+
+        let results = vec![make_test_result("fn main() {}", Some(metadata))];
+
+        let code_metadata = build_code_metadata_map(&results);
+        let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata);
+
+        assert!(had_buttons, "Should have injected buttons");
+        assert!(result.contains(r#"class="build-info-btn verified""#), "Should contain button");
+        assert!(result.contains("showBuildInfoPopup"), "Should have onclick handler");
+        assert!(result.contains("rustc 1.83.0-nightly"), "Should contain rustc version in title");
+    }
+
+    #[test]
+    fn test_inject_build_info_buttons_no_match() {
+        let html = r#"<html><body><pre><code>fn other() {}</code></pre></body></html>"#;
+
+        let metadata = CodeExecutionMetadata {
+            rustc_version: "rustc 1.83.0-nightly".to_string(),
+            cargo_version: "cargo 1.83.0".to_string(),
+            target: "x86_64-unknown-linux-gnu".to_string(),
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            cache_hit: false,
+            platform: "linux".to_string(),
+            arch: "x86_64".to_string(),
+            dependencies: vec![],
+        };
+
+        // Different code than what's in the HTML
+        let results = vec![make_test_result("fn main() {}", Some(metadata))];
+
+        let code_metadata = build_code_metadata_map(&results);
+        let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata);
+
+        assert!(!had_buttons, "Should not have injected buttons");
+        assert!(!result.contains("build-info-btn"), "Should not contain button");
+    }
+
+    #[test]
+    fn test_inject_build_info_buttons_empty_metadata() {
+        let html = r#"<html><body><pre><code>fn main() {}</code></pre></body></html>"#;
+
+        let code_metadata: HashMap<String, &CodeExecutionMetadata> = HashMap::new();
+        let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata);
+
+        assert!(!had_buttons, "Should not have injected buttons with empty metadata");
+        assert_eq!(result, html, "HTML should be unchanged");
     }
 }
