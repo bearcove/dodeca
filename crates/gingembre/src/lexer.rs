@@ -223,10 +223,10 @@ impl Lexer {
 
         while let Some(c) = self.peek() {
             // Check for opening delimiters
-            if c == '{' {
-                if let Some("{{" | "{%" | "{#") = self.peek_n(2) {
-                    break;
-                }
+            if c == '{'
+                && let Some("{{" | "{%" | "{#") = self.peek_n(2)
+            {
+                break;
             }
             text.push(self.advance().unwrap());
         }
@@ -492,12 +492,12 @@ impl Lexer {
                 let dot_pos = self.pos;
                 self.advance(); // consume the .
 
-                if let Some(next) = self.peek() {
-                    if next.is_ascii_digit() {
-                        is_float = true;
-                        s.push('.');
-                        continue;
-                    }
+                if let Some(next) = self.peek()
+                    && next.is_ascii_digit()
+                {
+                    is_float = true;
+                    s.push('.');
+                    continue;
                 }
 
                 // Not a float - emit int and push dot token for next call

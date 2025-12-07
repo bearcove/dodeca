@@ -1,13 +1,14 @@
 use crate::db::{
-    AllRenderedHtml, CharSet, CssOutput, DataRegistry, Db, Heading, ImageVariant,
-    OutputFile, Page, ParsedData, ProcessedImages, RenderedHtml, SassFile, SassRegistry, Section,
-    SiteOutput, SiteTree, SourceFile, SourceRegistry, StaticFile, StaticFileOutput, StaticRegistry,
-    TemplateFile, TemplateRegistry,
+    AllRenderedHtml, CharSet, CodeExecutionResult, CssOutput, DataRegistry, Db, Heading,
+    ImageVariant, OutputFile, Page, ParsedData, ProcessedImages, RenderedHtml, SassFile,
+    SassRegistry, Section, SiteOutput, SiteTree, SourceFile, SourceRegistry, StaticFile,
+    StaticFileOutput, StaticRegistry, TemplateFile, TemplateRegistry,
 };
+
 use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
 use crate::url_rewrite::{
-    rewrite_urls_in_css, rewrite_urls_in_html, transform_images_to_picture, ResponsiveImageInfo,
+    ResponsiveImageInfo, rewrite_urls_in_css, rewrite_urls_in_html, transform_images_to_picture,
 };
 use facet::Facet;
 use facet_value::Value;
@@ -49,17 +50,17 @@ pub fn load_all_templates<'db>(
 }
 
 /// Build a lookup table from template path to TemplateFile
-/// This is tracked so changes to the registry invalidate the lookup
 #[salsa::tracked]
-pub fn template_lookup<'db>(
+pub fn build_template_lookup<'db>(
     db: &'db dyn Db,
     registry: TemplateRegistry,
 ) -> HashMap<String, TemplateFile> {
-    registry
-        .templates(db)
-        .iter()
-        .map(|t| (t.path(db).as_str().to_string(), *t))
-        .collect()
+    let mut lookup = HashMap::new();
+    for template in registry.templates(db) {
+        let path = template.path(db).as_str().to_string();
+        lookup.insert(path, *template);
+    }
+    lookup
 }
 
 /// A template loader that uses Salsa tracked queries for fine-grained dependency tracking.
@@ -75,7 +76,7 @@ impl<'db> SalsaTemplateLoader<'db> {
     pub fn new(db: &'db dyn Db, registry: TemplateRegistry) -> Self {
         Self {
             db,
-            lookup: template_lookup(db, registry),
+            lookup: build_template_lookup(db, registry),
         }
     }
 }
@@ -113,10 +114,7 @@ pub fn load_all_sass<'db>(db: &'db dyn Db, registry: SassRegistry) -> HashMap<St
 /// This tracked query records dependencies on all data files
 /// The conversion to template Value happens at render time
 #[salsa::tracked]
-pub fn load_all_data_raw<'db>(
-    db: &'db dyn Db,
-    registry: DataRegistry,
-) -> Vec<(String, String)> {
+pub fn load_all_data_raw<'db>(db: &'db dyn Db, registry: DataRegistry) -> Vec<(String, String)> {
     registry
         .files(db)
         .iter()
@@ -152,10 +150,7 @@ pub struct DataValuePath<'db> {
 /// Build a lookup table from data key (filename without extension) to DataFile.
 /// This is tracked so changes to the registry invalidate the lookup.
 #[salsa::tracked]
-pub fn data_file_lookup<'db>(
-    db: &'db dyn Db,
-    registry: DataRegistry,
-) -> HashMap<String, DataFile> {
+pub fn data_file_lookup<'db>(db: &'db dyn Db, registry: DataRegistry) -> HashMap<String, DataFile> {
     registry
         .files(db)
         .iter()
@@ -306,7 +301,7 @@ impl SalsaDataResolver {
     /// The returned resolver must not outlive `db`. This is typically ensured
     /// by only using the resolver within the same Salsa tracked query where
     /// the database reference is valid.
-    pub fn new<'db>(db: &'db dyn Db, registry: DataRegistry) -> Self {
+    pub fn new(db: &dyn Db, registry: DataRegistry) -> Self {
         Self {
             db: db as *const dyn Db,
             registry,
@@ -320,7 +315,7 @@ impl SalsaDataResolver {
     /// The Arc MUST be dropped before the database reference becomes invalid.
     /// This is safe within Salsa tracked queries when the Arc is only used
     /// for a single render call.
-    pub fn new_arc<'db>(db: &'db dyn Db, registry: DataRegistry) -> Arc<dyn DataResolver> {
+    pub fn new_arc(db: &dyn Db, registry: DataRegistry) -> Arc<dyn DataResolver> {
         Arc::new(Self::new(db, registry))
     }
 
@@ -623,10 +618,7 @@ pub fn optimize_svg(db: &dyn Db, file: StaticFile) -> Vec<u8> {
 
 /// Load all static files - returns map of path -> content
 #[salsa::tracked]
-pub fn load_all_static<'db>(
-    db: &'db dyn Db,
-    registry: StaticRegistry,
-) -> HashMap<String, Vec<u8>> {
+pub fn load_all_static<'db>(db: &'db dyn Db, registry: StaticRegistry) -> HashMap<String, Vec<u8>> {
     let mut result = HashMap::new();
     for file in registry.files(db) {
         let path = file.path(db).as_str().to_string();
@@ -641,7 +633,9 @@ pub fn load_all_static<'db>(
 #[salsa::tracked]
 #[tracing::instrument(skip_all, name = "decompress_font")]
 pub fn decompress_font(db: &dyn Db, font_file: StaticFile) -> Option<Vec<u8>> {
-    use crate::cas::{font_content_hash, get_cached_decompressed_font, put_cached_decompressed_font};
+    use crate::cas::{
+        font_content_hash, get_cached_decompressed_font, put_cached_decompressed_font,
+    };
     use crate::plugins::decompress_font_plugin;
 
     let font_data = font_file.content(db);
@@ -649,7 +643,10 @@ pub fn decompress_font(db: &dyn Db, font_file: StaticFile) -> Option<Vec<u8>> {
 
     // Check CAS cache first
     if let Some(cached) = get_cached_decompressed_font(&content_hash) {
-        tracing::debug!("Font decompression cache hit for {}", font_file.path(db).as_str());
+        tracing::debug!(
+            "Font decompression cache hit for {}",
+            font_file.path(db).as_str()
+        );
         return Some(cached);
     }
 
@@ -658,7 +655,8 @@ pub fn decompress_font(db: &dyn Db, font_file: StaticFile) -> Option<Vec<u8>> {
         Some(decompressed) => {
             // Cache the result
             put_cached_decompressed_font(&content_hash, &decompressed);
-            tracing::debug!("Decompressed font {} ({} -> {} bytes)",
+            tracing::debug!(
+                "Decompressed font {} ({} -> {} bytes)",
                 font_file.path(db).as_str(),
                 font_data.len(),
                 decompressed.len()
@@ -666,10 +664,7 @@ pub fn decompress_font(db: &dyn Db, font_file: StaticFile) -> Option<Vec<u8>> {
             Some(decompressed)
         }
         None => {
-            tracing::warn!(
-                "Failed to decompress font {}",
-                font_file.path(db).as_str()
-            );
+            tracing::warn!("Failed to decompress font {}", font_file.path(db).as_str());
             None
         }
     }
@@ -689,16 +684,13 @@ pub fn subset_font<'db>(
     // First, decompress the font (handles WOFF2/WOFF1 -> TTF)
     let decompressed = decompress_font(db, font_file)?;
 
-    let char_vec: Vec<char> = chars.chars(db).iter().copied().collect();
+    let char_vec: Vec<char> = chars.chars(db).to_vec();
 
     // Subset the decompressed TTF via plugin
     let subsetted = match subset_font_plugin(&decompressed, &char_vec) {
         Some(data) => data,
         None => {
-            tracing::warn!(
-                "Failed to subset font {}",
-                font_file.path(db).as_str()
-            );
+            tracing::warn!("Failed to subset font {}", font_file.path(db).as_str());
             return None;
         }
     };
@@ -748,7 +740,7 @@ pub fn image_input_hash(db: &dyn Db, image_file: StaticFile) -> crate::cas::Inpu
 ///
 /// Uses CAS (Content-Addressable Storage) to cache processed images across restarts.
 /// The cache key is a 32-byte hash of the input image content.
-#[salsa::tracked]  // No persist - CAS handles caching, don't bloat Salsa DB with image bytes
+#[salsa::tracked] // No persist - CAS handles caching, don't bloat Salsa DB with image bytes
 #[tracing::instrument(skip_all, name = "process_image")]
 pub fn process_image(db: &dyn Db, image_file: StaticFile) -> Option<ProcessedImages> {
     use crate::cas::{content_hash_32, get_cached_image, put_cached_image};
@@ -889,7 +881,8 @@ pub fn build_site<'db>(
                         format: OutputFormat::Jxl,
                         width: variant.width,
                     };
-                    let cache_busted = format!("{}.{}.jxl",
+                    let cache_busted = format!(
+                        "{}.{}.jxl",
                         variant_path.trim_end_matches(".jxl"),
                         key.url_hash()
                     );
@@ -912,7 +905,8 @@ pub fn build_site<'db>(
                         format: OutputFormat::WebP,
                         width: variant.width,
                     };
-                    let cache_busted = format!("{}.{}.webp",
+                    let cache_busted = format!(
+                        "{}.{}.webp",
                         variant_path.trim_end_matches(".webp"),
                         key.url_hash()
                     );
@@ -1026,7 +1020,13 @@ pub fn build_site<'db>(
         });
     }
 
-    SiteOutput { files }
+    // --- Phase 8: Execute code samples for validation ---
+    let code_execution_results = execute_all_code_samples(db, sources);
+
+    SiteOutput {
+        files,
+        code_execution_results,
+    }
 }
 
 // ============================================================================
@@ -1086,7 +1086,6 @@ pub fn font_char_analysis<'db>(
     static_files: StaticRegistry,
     data: DataRegistry,
 ) -> crate::plugins::FontAnalysis {
-
     let all_html = all_rendered_html(db, sources, templates, data);
     let sass_css = compile_sass(db, sass);
     let sass_str = sass_css.as_ref().map(|c| c.0.as_str()).unwrap_or("");
@@ -1105,7 +1104,12 @@ pub fn font_char_analysis<'db>(
     let static_css = static_css_parts.join("\n");
 
     // Combine all HTML for analysis
-    let combined_html: String = all_html.pages.values().cloned().collect::<Vec<_>>().join("\n");
+    let combined_html: String = all_html
+        .pages
+        .values()
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
     let inline_css = crate::plugins::extract_css_from_html_plugin(&combined_html);
     let all_css = format!("{sass_str}\n{static_css}\n{inline_css}");
 
@@ -1166,8 +1170,15 @@ pub fn static_file_output<'db>(
                 && !InputFormat::is_processable(other_path)
             {
                 // Recursively get the output for this file (safe - no CSS files)
-                let other_output =
-                    static_file_output(db, *other_file, sources, templates, sass, static_files, data);
+                let other_output = static_file_output(
+                    db,
+                    *other_file,
+                    sources,
+                    templates,
+                    sass,
+                    static_files,
+                    data,
+                );
                 path_map.insert(
                     format!("/{other_path}"),
                     format!("/{}", other_output.cache_busted_path),
@@ -1214,7 +1225,8 @@ pub fn css_output<'db>(
         let original_path = file.path(db).as_str();
         // Skip images - they get transcoded to different formats
         if !InputFormat::is_processable(original_path) {
-            let output = static_file_output(db, *file, sources, templates, sass, static_files, data);
+            let output =
+                static_file_output(db, *file, sources, templates, sass, static_files, data);
             static_path_map.insert(
                 format!("/{original_path}"),
                 format!("/{}", output.cache_busted_path),
@@ -1248,12 +1260,15 @@ pub fn serve_html<'db>(
     static_files: StaticRegistry,
     data: DataRegistry,
 ) -> Option<String> {
-    use crate::url_rewrite::{rewrite_urls_in_html, transform_images_to_picture, ResponsiveImageInfo};
+    use crate::url_rewrite::{
+        ResponsiveImageInfo, rewrite_urls_in_html, transform_images_to_picture,
+    };
 
     let site_tree = build_tree(db, sources);
 
     // Check if route exists in site tree
-    let route_exists = site_tree.sections.contains_key(&route) || site_tree.pages.contains_key(&route);
+    let route_exists =
+        site_tree.sections.contains_key(&route) || site_tree.pages.contains_key(&route);
     if !route_exists {
         return None;
     }
@@ -1267,14 +1282,18 @@ pub fn serve_html<'db>(
 
     // Add CSS path
     if let Some(css) = css_output(db, sources, templates, sass, static_files, data) {
-        path_map.insert("/main.css".to_string(), format!("/{}", css.cache_busted_path));
+        path_map.insert(
+            "/main.css".to_string(),
+            format!("/{}", css.cache_busted_path),
+        );
     }
 
     // Add static file paths (non-images)
     for file in static_files.files(db) {
         let original_path = file.path(db).as_str();
         if !InputFormat::is_processable(original_path) {
-            let output = static_file_output(db, *file, sources, templates, sass, static_files, data);
+            let output =
+                static_file_output(db, *file, sources, templates, sass, static_files, data);
             path_map.insert(
                 format!("/{original_path}"),
                 format!("/{}", output.cache_busted_path),
@@ -1297,7 +1316,8 @@ pub fn serve_html<'db>(
 
                 // Build JXL srcset using input-based hashes
                 for &width in &metadata.variant_widths {
-                    let base_path = image::change_extension(path, image::OutputFormat::Jxl.extension());
+                    let base_path =
+                        image::change_extension(path, image::OutputFormat::Jxl.extension());
                     let variant_path = if width == metadata.width {
                         base_path
                     } else {
@@ -1308,13 +1328,18 @@ pub fn serve_html<'db>(
                         format: image::OutputFormat::Jxl,
                         width,
                     };
-                    let cache_busted = format!("{}.{}", variant_path.trim_end_matches(".jxl"), key.url_hash()) + ".jxl";
+                    let cache_busted = format!(
+                        "{}.{}",
+                        variant_path.trim_end_matches(".jxl"),
+                        key.url_hash()
+                    ) + ".jxl";
                     jxl_srcset.push((format!("/{cache_busted}"), width));
                 }
 
                 // Build WebP srcset using input-based hashes
                 for &width in &metadata.variant_widths {
-                    let base_path = image::change_extension(path, image::OutputFormat::WebP.extension());
+                    let base_path =
+                        image::change_extension(path, image::OutputFormat::WebP.extension());
                     let variant_path = if width == metadata.width {
                         base_path
                     } else {
@@ -1325,7 +1350,11 @@ pub fn serve_html<'db>(
                         format: image::OutputFormat::WebP,
                         width,
                     };
-                    let cache_busted = format!("{}.{}", variant_path.trim_end_matches(".webp"), key.url_hash()) + ".webp";
+                    let cache_busted = format!(
+                        "{}.{}",
+                        variant_path.trim_end_matches(".webp"),
+                        key.url_hash()
+                    ) + ".webp";
                     webp_srcset.push((format!("/{cache_busted}"), width));
                 }
 
@@ -1376,9 +1405,7 @@ fn find_chars_for_font_file(
     // Normalize path: remove leading slash and 'static/' prefix
     // File paths are like "static/fonts/Foo.woff2"
     // CSS URLs are like "/fonts/Foo.woff2"
-    let normalized = path
-        .trim_start_matches('/')
-        .trim_start_matches("static/");
+    let normalized = path.trim_start_matches('/').trim_start_matches("static/");
 
     // Find @font-face rules that reference this font file
     for face in &analysis.font_faces {
@@ -1386,7 +1413,9 @@ fn find_chars_for_font_file(
         if face_src == normalized {
             // Found a match - return chars for this font-family
             // Convert Vec<char> to HashSet<char>
-            return analysis.chars_per_font.get(&face.family)
+            return analysis
+                .chars_per_font
+                .get(&face.family)
                 .map(|chars| chars.iter().copied().collect());
         }
     }
@@ -1621,6 +1650,81 @@ fn resolve_internal_link(link: &str) -> String {
     }
 }
 
+// ============================================================================
+// Code execution integration
+// ============================================================================
+
+/// Execute code samples from all source files and return results
+/// This is called during the build process to validate code samples
+pub fn execute_all_code_samples(db: &dyn Db, sources: SourceRegistry) -> Vec<CodeExecutionResult> {
+    use crate::plugins::{execute_code_samples_plugin, extract_code_samples_plugin};
+
+    let mut all_results = Vec::new();
+
+    // Create default configuration for code execution
+    let config = dodeca_code_execution::CodeExecutionConfig::default();
+
+    // Extract and execute code samples from all source files
+    for source in sources.sources(db) {
+        let content = source.content(db);
+        let source_path = source.path(db).as_str();
+
+        // Extract code samples from this source file
+        if let Some(samples) = extract_code_samples_plugin(content.as_str(), source_path) {
+            if !samples.is_empty() {
+                tracing::info!("Found {} code samples in {}", samples.len(), source_path);
+
+                // Execute the code samples
+                if let Some(execution_results) =
+                    execute_code_samples_plugin(samples, config.clone())
+                {
+                    // Convert plugin results to our internal format
+                    for (sample, result) in execution_results {
+                        let code_result = CodeExecutionResult {
+                            source_path: sample.source_path,
+                            line: sample.line as u32,
+                            language: sample.language,
+                            code: sample.code,
+                            success: result.success,
+                            exit_code: result.exit_code,
+                            stdout: result.stdout,
+                            stderr: result.stderr,
+                            duration_ms: result.duration_ms,
+                            error: result.error,
+                        };
+                        all_results.push(code_result);
+                    }
+                }
+            }
+        }
+    }
+
+    if !all_results.is_empty() {
+        let success_count = all_results.iter().filter(|r| r.success).count();
+        let failure_count = all_results.len() - success_count;
+        tracing::info!(
+            "Code execution results: {} successful, {} failed",
+            success_count,
+            failure_count
+        );
+
+        // Log failures for visibility
+        for result in &all_results {
+            if !result.success {
+                tracing::warn!(
+                    "Code execution failed in {}:{} ({}): {}",
+                    result.source_path,
+                    result.line,
+                    result.language,
+                    result.error.as_deref().unwrap_or("Unknown error")
+                );
+            }
+        }
+    }
+
+    all_results
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1674,5 +1778,4 @@ weight = 10
         );
         assert_eq!(resolve_internal_link("@/_index.md#top"), "/#top");
     }
-
 }

@@ -319,17 +319,6 @@ fn loader_from_map(templates: &HashMap<String, String>) -> InMemoryLoader {
     loader
 }
 
-/// Pure function to render a page to HTML (for Salsa tracking)
-/// Returns Result - caller decides whether to show error page (dev) or fail (prod)
-pub fn try_render_page_to_html(
-    page: &Page,
-    site_tree: &SiteTree,
-    templates: &HashMap<String, String>,
-    data: Option<Value>,
-) -> std::result::Result<String, String> {
-    try_render_page_with_loader(page, site_tree, loader_from_map(templates), data)
-}
-
 /// Render page - development mode (shows error page on failure)
 pub fn render_page_to_html(
     page: &Page,
@@ -338,17 +327,6 @@ pub fn render_page_to_html(
     data: Option<Value>,
 ) -> String {
     render_page_with_loader(page, site_tree, loader_from_map(templates), data)
-}
-
-/// Pure function to render a section to HTML (for Salsa tracking)
-/// Returns Result - caller decides whether to show error page (dev) or fail (prod)
-pub fn try_render_section_to_html(
-    section: &Section,
-    site_tree: &SiteTree,
-    templates: &HashMap<String, String>,
-    data: Option<Value>,
-) -> std::result::Result<String, String> {
-    try_render_section_with_loader(section, site_tree, loader_from_map(templates), data)
 }
 
 /// Render section - development mode (shows error page on failure)

@@ -45,6 +45,8 @@ pub struct PluginRegistry {
     pub fonts: Option<Plugin>,
     /// External link checking plugin
     pub linkcheck: Option<Plugin>,
+    /// Code sample execution plugin
+    pub code_execution: Option<Plugin>,
 }
 
 impl PluginRegistry {
@@ -61,8 +63,9 @@ impl PluginRegistry {
         let image = Self::try_load_plugin(dir, "dodeca_image");
         let fonts = Self::try_load_plugin(dir, "dodeca_fonts");
         let linkcheck = Self::try_load_plugin(dir, "dodeca_linkcheck");
+        let code_execution = Self::try_load_plugin(dir, "dodeca_code_execution");
 
-        PluginRegistry { webp, jxl, minify, svgo, sass, css, js, pagefind, image, fonts, linkcheck }
+        PluginRegistry { webp, jxl, minify, svgo, sass, css, js, pagefind, image, fonts, linkcheck, code_execution }
     }
 
     /// Check if any plugins were loaded
@@ -78,6 +81,7 @@ impl PluginRegistry {
             || self.image.is_some()
             || self.fonts.is_some()
             || self.linkcheck.is_some()
+            || self.code_execution.is_some()
     }
 
     fn try_load_plugin(dir: &Path, name: &str) -> Option<Plugin> {
@@ -169,6 +173,7 @@ pub fn plugins() -> &'static PluginRegistry {
             image: None,
             fonts: None,
             linkcheck: None,
+            code_execution: None,
         }
     })
 }
@@ -828,3 +833,68 @@ pub fn check_urls_plugin(urls: Vec<String>, options: CheckOptions) -> Option<Che
 pub fn has_linkcheck_plugin() -> bool {
     plugins().linkcheck.is_some()
 }
+
+// ============================================================================
+// Code execution plugin functions
+// ============================================================================
+
+/// Extract code samples from markdown using plugin.
+///
+/// Returns None if plugin is not loaded.
+pub fn extract_code_samples_plugin(content: &str, source_path: &str) -> Option<Vec<dodeca_code_execution::CodeSample>> {
+    let plugin = plugins().code_execution.as_ref()?;
+
+    #[derive(Facet)]
+    struct Input {
+        source_path: String,
+        content: String,
+    }
+
+    let input = Input {
+        source_path: source_path.to_string(),
+        content: content.to_string(),
+    };
+
+    match plugin.call::<Input, PlugResult<dodeca_code_execution::ExtractSamplesOutput>>("extract_code_samples", &input) {
+        Ok(PlugResult::Ok(output)) => Some(output.samples),
+        Ok(PlugResult::Err(e)) => {
+            warn!("code execution plugin error: {}", e);
+            None
+        }
+        Err(e) => {
+            warn!("code execution plugin call failed: {}", e);
+            None
+        }
+    }
+}
+
+/// Execute code samples using plugin.
+///
+/// Returns None if plugin is not loaded.
+pub fn execute_code_samples_plugin(
+    samples: Vec<dodeca_code_execution::CodeSample>,
+    config: dodeca_code_execution::CodeExecutionConfig,
+) -> Option<Vec<(dodeca_code_execution::CodeSample, dodeca_code_execution::ExecutionResult)>> {
+    let plugin = plugins().code_execution.as_ref()?;
+
+    #[derive(Facet)]
+    struct Input {
+        samples: Vec<dodeca_code_execution::CodeSample>,
+        config: dodeca_code_execution::CodeExecutionConfig,
+    }
+
+    let input = Input { samples, config };
+
+    match plugin.call::<Input, PlugResult<dodeca_code_execution::ExecuteSamplesOutput>>("execute_code_samples", &input) {
+        Ok(PlugResult::Ok(output)) => Some(output.results),
+        Ok(PlugResult::Err(e)) => {
+            warn!("code execution plugin error: {}", e);
+            None
+        }
+        Err(e) => {
+            warn!("code execution plugin call failed: {}", e);
+            None
+        }
+    }
+}
+

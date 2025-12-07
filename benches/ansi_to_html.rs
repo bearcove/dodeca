@@ -159,7 +159,7 @@ fn throughput_bytes(bencher: Bencher, size: usize) {
     // Generate text of approximately the given size
     let line = "\x1b[31mError:\x1b[0m Something went \x1b[1mwrong\x1b[0m at line 42\n";
     let repetitions = size / line.len() + 1;
-    let input: String = std::iter::repeat(line).take(repetitions).collect();
+    let input: String = std::iter::repeat_n(line, repetitions).collect();
 
     bencher
         .counter(divan::counter::BytesCount::new(input.len()))

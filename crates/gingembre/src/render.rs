@@ -440,12 +440,12 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                     }
 
                     // Else branch
-                    if !handled {
-                        if let Some(else_body) = &if_node.else_body {
-                            let control = self.render_nodes(else_body)?;
-                            if control != LoopControl::None {
-                                return Ok(control);
-                            }
+                    if !handled
+                        && let Some(else_body) = &if_node.else_body
+                    {
+                        let control = self.render_nodes(else_body)?;
+                        if control != LoopControl::None {
+                            return Ok(control);
                         }
                     }
                 }
@@ -554,26 +554,25 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
             }
             Node::Import(import) => {
                 // Load macros from the imported template
-                if let Some(loader) = &self.loader {
-                    if let Some(source) = loader.load(&import.path.value) {
-                        if let Ok(template) = Template::parse(&import.path.value, source) {
-                            // Extract macros from the imported template
-                            let mut namespace_macros = HashMap::new();
-                            for node in &template.ast.body {
-                                if let Node::Macro(m) = node {
-                                    namespace_macros.insert(
-                                        m.name.name.clone(),
-                                        MacroDef {
-                                            params: m.params.clone(),
-                                            body: m.body.clone(),
-                                        },
-                                    );
-                                }
-                            }
-                            self.macros
-                                .insert(import.alias.name.clone(), namespace_macros);
+                if let Some(loader) = &self.loader
+                    && let Some(source) = loader.load(&import.path.value)
+                    && let Ok(template) = Template::parse(&import.path.value, source)
+                {
+                    // Extract macros from the imported template
+                    let mut namespace_macros = HashMap::new();
+                    for node in &template.ast.body {
+                        if let Node::Macro(m) = node {
+                            namespace_macros.insert(
+                                m.name.name.clone(),
+                                MacroDef {
+                                    params: m.params.clone(),
+                                    body: m.body.clone(),
+                                },
+                            );
                         }
                     }
+                    self.macros
+                        .insert(import.alias.name.clone(), namespace_macros);
                 }
             }
             Node::Macro(_macro_def) => {
@@ -611,24 +610,24 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
 
     /// Load macros from an imported template file into the given namespace
     fn load_macros_from(&mut self, path: &str, alias: &str) -> Result<()> {
-        if let Some(loader) = &self.loader {
-            if let Some(source) = loader.load(path) {
-                let template = Template::parse(path, source)?;
-                // Extract macros from the imported template
-                let mut namespace_macros = HashMap::new();
-                for node in &template.ast.body {
-                    if let Node::Macro(m) = node {
-                        namespace_macros.insert(
-                            m.name.name.clone(),
-                            MacroDef {
-                                params: m.params.clone(),
-                                body: m.body.clone(),
-                            },
-                        );
-                    }
+        if let Some(loader) = &self.loader
+            && let Some(source) = loader.load(path)
+        {
+            let template = Template::parse(path, source)?;
+            // Extract macros from the imported template
+            let mut namespace_macros = HashMap::new();
+            for node in &template.ast.body {
+                if let Node::Macro(m) = node {
+                    namespace_macros.insert(
+                        m.name.name.clone(),
+                        MacroDef {
+                            params: m.params.clone(),
+                            body: m.body.clone(),
+                        },
+                    );
                 }
-                self.macros.insert(alias.to_string(), namespace_macros);
             }
+            self.macros.insert(alias.to_string(), namespace_macros);
         }
         Ok(())
     }

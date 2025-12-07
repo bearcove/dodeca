@@ -1,0 +1,19 @@
+[package]
+name = "dodeca-code-execution"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+description = "Code sample execution plugin for dodeca"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+plugcard = { path = "../plugcard" }
+facet = { git = "https://github.com/facet-rs/facet" }
+facet-json = { git = "https://github.com/facet-rs/facet" }
+linkme = "0.3"
+pulldown-cmark = "0.13"
+# TODO: Replace blake3 with facet-compatible hashing crate

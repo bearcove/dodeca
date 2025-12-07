@@ -527,10 +527,10 @@ impl<'a> Evaluator<'a> {
             .collect::<Result<Vec<_>>>()?;
 
         // Check if this is a global function call
-        if let Expr::Var(ident) = &*call.func {
-            if let Some(result) = self.ctx.call_fn(&ident.name, &args, &kwargs) {
-                return result.map(LazyValue::concrete);
-            }
+        if let Expr::Var(ident) = &*call.func
+            && let Some(result) = self.ctx.call_fn(&ident.name, &args, &kwargs)
+        {
+            return result.map(LazyValue::concrete);
         }
 
         // Method calls on values (like .items(), etc.) - not implemented yet
@@ -1116,7 +1116,7 @@ fn apply_filter(
                 .or_else(|| args.first().map(|v| v.render_to_string()))
                 .unwrap_or_else(|| " ".to_string());
             let s = value.render_to_string();
-            let parts: Vec<Value> = s.split(&pat).map(|p| Value::from(p)).collect();
+            let parts: Vec<Value> = s.split(&pat).map(Value::from).collect();
             VArray::from_iter(parts).into()
         }
         "default" => {

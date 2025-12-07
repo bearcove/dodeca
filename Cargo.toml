@@ -1,5 +1,7 @@
 [workspace]
-members = [".", "crates/gingembre", "crates/livereload-client", "crates/dodeca-devtools", "crates/dodeca-protocol", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "crates/dodeca-pagefind", "crates/dodeca-image", "crates/dodeca-fonts", "crates/dodeca-linkcheck", "xtask"]
+members = [".", "crates/gingembre", "crates/livereload-client", "crates/dodeca-devtools", "crates/dodeca-protocol", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "crates/dodeca-pagefind", "crates/dodeca-image", "crates/dodeca-fonts", "crates/dodeca-linkcheck", "crates/dodeca-code-execution", "xtask"]
+
+
 
 [package]
 name = "dodeca"
@@ -13,6 +15,8 @@ repository = "https://github.com/bearcove/dodeca"
 homepage = "https://dodeca.bearcove.eu/"
 keywords = ["static-site", "ssg", "incremental"]
 categories = ["command-line-utilities", "web-programming"]
+
+
 
 [package.metadata.wix]
 upgrade-guid = "F32CA0D7-4DDE-4333-A5EA-374211B0C136"
@@ -91,6 +95,9 @@ postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary seria
 # Devtools protocol (shared types between server and WASM client)
 dodeca-protocol = { path = "crates/dodeca-protocol" }
 
+# Code execution plugin types
+dodeca-code-execution = { path = "crates/dodeca-code-execution" }
+
 # Content-addressed storage
 rapidhash = "4"
 canopydb = "0.2.5"
@@ -114,6 +121,8 @@ lol_html = "2.7"        # Streaming HTML rewriter
 # Font subsetting is now handled via the dodeca-fonts plugin
 
 # Image processing is now handled entirely via plugins (dodeca-image, dodeca-webp, dodeca-jxl)
+
+# Code execution is handled via the dodeca-code-execution plugin
 
 # Plugin system for image encoding/decoding, minification, etc.
 plugcard = { path = "crates/plugcard" }

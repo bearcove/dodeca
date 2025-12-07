@@ -838,6 +838,78 @@ This is a dynamically created section.
     // Server cleanup handled by Drop
 }
 
+/// Test that deeply nested new directories with files are detected
+/// This tests recursive scanning of newly created directory trees
+#[test_log::test]
+fn test_deeply_nested_new_section() {
+    let server = start_server("sample-site");
+    let nested_dir = server.fixture_dir.join("content/level1/level2/level3");
+    let nested_index = nested_dir.join("_index.md");
+    let port = server.port;
+
+    // Ensure the nested directories don't exist before starting
+    let _ = std::fs::remove_dir_all(server.fixture_dir.join("content/level1"));
+
+    let ready = wait_for_server(port, Duration::from_secs(30));
+    assert!(ready, "Server did not start within timeout");
+
+    let client = reqwest::blocking::Client::new();
+
+    // Verify the deeply nested section doesn't exist yet
+    let resp = client
+        .get(format!("http://127.0.0.1:{}/level1/level2/level3/", port))
+        .send()
+        .expect("Failed to fetch nested section");
+    assert_eq!(resp.status().as_u16(), 404, "Nested section should not exist initially");
+
+    // Create the entire nested directory structure and _index.md in one go
+    std::fs::create_dir_all(&nested_dir).expect("Failed to create nested dirs");
+    let section_content = r#"+++
+title = "Deeply Nested"
++++
+
+This is a deeply nested section at level 3.
+"#;
+    std::fs::write(&nested_index, section_content).expect("Failed to create nested section index");
+
+    // Poll until the nested section is accessible (up to 10s)
+    let url = format!("http://127.0.0.1:{}/level1/level2/level3/", port);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut last_status = None;
+    let resp = loop {
+        match client.get(&url).send() {
+            Ok(resp) if resp.status().is_success() => break resp,
+            Ok(resp) => {
+                last_status = Some(resp.status());
+            }
+            Err(_) => {}
+        }
+
+        if Instant::now() >= deadline {
+            let status = last_status
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "no response".to_string());
+            panic!(
+                "Deeply nested section should be accessible after creation within 10s, last status: {}",
+                status
+            );
+        }
+
+        std::thread::sleep(Duration::from_millis(100));
+    };
+
+    let body = resp.text().expect("Failed to read body");
+    assert!(
+        body.contains("deeply nested section"),
+        "Nested section content should be present. Body:\n{body}"
+    );
+
+    // Clean up
+    let _ = std::fs::remove_dir_all(server.fixture_dir.join("content/level1"));
+
+    // Server cleanup handled by Drop
+}
+
 /// Test that file moves (renames) are detected correctly (issue #10)
 /// When a file is moved, the old route should 404 and the new route should work
 #[test_log::test]
@@ -864,11 +936,10 @@ This page will be moved.
     let original_url = format!("http://127.0.0.1:{}/guide/moveable/", port);
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        if let Ok(resp) = client.get(&original_url).send() {
-            if resp.status().is_success() {
+        if let Ok(resp) = client.get(&original_url).send()
+            && resp.status().is_success() {
                 break;
             }
-        }
         if Instant::now() >= deadline {
             panic!("Original page should be accessible within 10s");
         }
