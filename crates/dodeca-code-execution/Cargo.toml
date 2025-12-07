@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 plugcard = { path = "../plugcard" }
+dodeca-code-execution-config = { path = "../dodeca-code-execution-config" }
 facet = { git = "https://github.com/facet-rs/facet" }
 facet-json = { git = "https://github.com/facet-rs/facet" }
 linkme = "0.3"

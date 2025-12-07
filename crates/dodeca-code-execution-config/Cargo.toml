@@ -1,0 +1,12 @@
+[package]
+name = "dodeca-code-execution-config"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+description = "Shared configuration types for dodeca code execution"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+facet = { git = "https://github.com/facet-rs/facet" }
+facet-kdl = { git = "https://github.com/facet-rs/facet" }

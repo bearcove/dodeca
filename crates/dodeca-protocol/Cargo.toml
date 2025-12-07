@@ -7,4 +7,5 @@ description = "Shared protocol types for dodeca devtools"
 publish = false
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+facet = { git = "https://github.com/facet-rs/facet" }
+facet-postcard = { git = "https://github.com/facet-rs/facet", features = ["alloc"] }

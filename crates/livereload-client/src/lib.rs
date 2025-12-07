@@ -1,57 +1,16 @@
 //! WASM client for dodeca live reload
 //!
-//! Receives serialized DOM patches from the server and applies them to the real DOM.
+//! Provides DOM patching functionality used by dodeca-devtools.
 
-#![allow(clippy::disallowed_types)] // serde needed for postcard serialization
-
-use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use web_sys::{Document, Element, Node};
 
-/// A path to a node in the DOM tree
-/// e.g., [0, 2, 1] means: body's child 0, then child 2, then child 1
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NodePath(pub Vec<usize>);
+// Re-export patch types for consumers
+pub use dodeca_protocol::{NodePath, Patch};
 
-/// Operations to transform the DOM
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Patch {
-    /// Replace node at path with new HTML
-    Replace { path: NodePath, html: String },
-
-    /// Insert HTML before the node at path
-    InsertBefore { path: NodePath, html: String },
-
-    /// Insert HTML after the node at path
-    InsertAfter { path: NodePath, html: String },
-
-    /// Append HTML as last child of node at path
-    AppendChild { path: NodePath, html: String },
-
-    /// Remove the node at path
-    Remove { path: NodePath },
-
-    /// Update text content of node at path
-    SetText { path: NodePath, text: String },
-
-    /// Set attribute on node at path
-    SetAttribute {
-        path: NodePath,
-        name: String,
-        value: String,
-    },
-
-    /// Remove attribute from node at path
-    RemoveAttribute { path: NodePath, name: String },
-}
-
-/// Apply serialized patches to the DOM
+/// Apply patches to the DOM
 /// Returns the number of patches applied, or an error message
-#[wasm_bindgen]
-pub fn apply_patches(data: &[u8]) -> Result<usize, JsValue> {
-    let patches: Vec<Patch> = postcard::from_bytes(data)
-        .map_err(|e| JsValue::from_str(&format!("deserialize error: {e}")))?;
-
+pub fn apply_patches(patches: Vec<Patch>) -> Result<usize, JsValue> {
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
     let document = window.document().ok_or_else(|| JsValue::from_str("no document"))?;
 

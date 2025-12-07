@@ -28,7 +28,7 @@ But randomness breaks incremental builds - if outputs change every build, nothin
 
 ## Implementation Ideas
 
-```rust
+```rust,noexec
 // In template context
 fn random_seed(&self) -> u64 {
     if self.is_dev_mode {

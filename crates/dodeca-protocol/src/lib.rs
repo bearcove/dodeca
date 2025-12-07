@@ -1,23 +1,27 @@
 //! Shared protocol types for dodeca devtools
 //!
-//! Uses a JSON-RPC style protocol for bidirectional communication.
+//! Uses facet-postcard for binary serialization over WebSocket.
 
-#![allow(clippy::disallowed_types)] // serde needed for JSON protocol with browser
-
-use serde::{Deserialize, Serialize};
+use facet::Facet;
 
 mod ansi;
 pub use ansi::ansi_to_html;
 
+// Re-export for consumers
+pub use facet_postcard;
+
 /// Messages sent from server to client
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
 pub enum ServerMessage {
     /// Full page reload requested
     Reload,
 
     /// CSS hot reload
     CssChanged { path: String },
+
+    /// DOM patches to apply
+    Patches(Vec<Patch>),
 
     /// A template error occurred
     Error(ErrorInfo),
@@ -34,13 +38,77 @@ pub enum ServerMessage {
     /// Response to an expression evaluation
     EvalResponse {
         request_id: u32,
-        result: Result<ScopeValue, String>,
+        result: EvalResult,
     },
 }
 
+/// A path to a node in the DOM tree
+/// e.g., [0, 2, 1] means: body's child 0, then child 2, then child 1
+#[derive(Debug, Clone, PartialEq, Eq, Facet)]
+pub struct NodePath(pub Vec<usize>);
+
+/// Operations to transform the DOM
+#[derive(Debug, Clone, PartialEq, Eq, Facet)]
+#[repr(u8)]
+pub enum Patch {
+    /// Replace node at path with new HTML
+    Replace { path: NodePath, html: String },
+
+    /// Insert HTML before the node at path
+    InsertBefore { path: NodePath, html: String },
+
+    /// Insert HTML after the node at path
+    InsertAfter { path: NodePath, html: String },
+
+    /// Append HTML as last child of node at path
+    AppendChild { path: NodePath, html: String },
+
+    /// Remove the node at path
+    Remove { path: NodePath },
+
+    /// Update text content of node at path
+    SetText { path: NodePath, text: String },
+
+    /// Set attribute on node at path
+    SetAttribute {
+        path: NodePath,
+        name: String,
+        value: String,
+    },
+
+    /// Remove attribute from node at path
+    RemoveAttribute { path: NodePath, name: String },
+}
+
+/// Result of expression evaluation (facet-compatible)
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
+pub enum EvalResult {
+    Ok(ScopeValue),
+    Err(String),
+}
+
+impl From<Result<ScopeValue, String>> for EvalResult {
+    fn from(r: Result<ScopeValue, String>) -> Self {
+        match r {
+            Ok(v) => EvalResult::Ok(v),
+            Err(e) => EvalResult::Err(e),
+        }
+    }
+}
+
+impl From<EvalResult> for Result<ScopeValue, String> {
+    fn from(r: EvalResult) -> Self {
+        match r {
+            EvalResult::Ok(v) => Ok(v),
+            EvalResult::Err(e) => Err(e),
+        }
+    }
+}
+
 /// Messages sent from client to server
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
 pub enum ClientMessage {
     /// Tell server which route we're viewing
     Route { path: String },
@@ -64,7 +132,7 @@ pub enum ClientMessage {
 }
 
 /// Information about a template error
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Facet)]
 pub struct ErrorInfo {
     /// Route where the error occurred
     pub route: String,
@@ -92,7 +160,7 @@ pub struct ErrorInfo {
 }
 
 /// Source code snippet with context
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Facet)]
 pub struct SourceSnippet {
     /// Lines of source code
     pub lines: Vec<SourceLine>,
@@ -101,7 +169,7 @@ pub struct SourceSnippet {
 }
 
 /// A line of source code
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Facet)]
 pub struct SourceLine {
     /// Line number (1-indexed)
     pub number: u32,
@@ -110,7 +178,7 @@ pub struct SourceLine {
 }
 
 /// An entry in the scope tree
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Facet)]
 pub struct ScopeEntry {
     /// Variable name
     pub name: String,
@@ -121,8 +189,8 @@ pub struct ScopeEntry {
 }
 
 /// A value in the template scope
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
 pub enum ScopeValue {
     Null,
     Bool(bool),

@@ -21,8 +21,7 @@ web-sys = { version = "0.3", features = [
     "Text",
     "Window",
 ] }
-serde = { version = "1", features = ["derive"] }
-postcard = "1"
+dodeca-protocol = { path = "../dodeca-protocol" }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"

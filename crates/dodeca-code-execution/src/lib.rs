@@ -12,24 +12,16 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
 
+// Re-export shared config types
+pub use dodeca_code_execution_config::{
+    CodeExecutionConfig as KdlCodeExecutionConfig,
+    DependencySpec, DependenciesConfig, RustConfig,
+    default_rust_dependencies,
+};
+
 plugcard::export_plugin!();
 
-/// Dependency specification
-#[derive(Facet, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Dependency {
-    /// Crate name
-    pub name: String,
-    /// Version or git rev
-    pub version: String,
-    /// Git URL (for git dependencies)
-    pub git: Option<String>,
-    /// Git revision (commit hash)
-    pub rev: Option<String>,
-    /// Git branch
-    pub branch: Option<String>,
-}
-
-/// Configuration for code sample execution
+/// Runtime configuration for code sample execution (used by the plugin)
 #[derive(Facet, Debug, Clone, PartialEq, Eq)]
 pub struct CodeExecutionConfig {
     /// Enable code sample execution
@@ -38,12 +30,14 @@ pub struct CodeExecutionConfig {
     pub fail_on_error: bool,
     /// Timeout for code execution (seconds)
     pub timeout_secs: u64,
-    /// Cache directory for execution results
+    /// Cache directory for execution results (relative to project root)
     pub cache_dir: String,
+    /// Project root directory (for resolving path dependencies)
+    pub project_root: Option<String>,
     /// Languages to execute (empty = all supported)
     pub languages: Vec<String>,
     /// Dependencies available to all code samples
-    pub dependencies: Vec<Dependency>,
+    pub dependencies: Vec<DependencySpec>,
     /// Per-language configuration
     pub language_config: HashMap<String, LanguageConfig>,
 }
@@ -55,24 +49,58 @@ impl Default for CodeExecutionConfig {
             fail_on_error: true,
             timeout_secs: 30,
             cache_dir: ".cache/code-execution".to_string(),
+            project_root: None,
             languages: vec!["rust".to_string()],
-            dependencies: vec![
-                Dependency {
-                    name: "facet".to_string(),
-                    version: "0.1.0".to_string(),
-                    git: Some("https://github.com/facet-rs/facet".to_string()),
-                    rev: None,
-                    branch: Some("main".to_string()),
-                },
-                Dependency {
-                    name: "facet-json".to_string(),
-                    version: "0.1.0".to_string(),
-                    git: Some("https://github.com/facet-rs/facet".to_string()),
-                    rev: None,
-                    branch: Some("main".to_string()),
-                },
-            ],
+            dependencies: default_rust_dependencies(),
             language_config: HashMap::from([("rust".to_string(), LanguageConfig::rust())]),
+        }
+    }
+}
+
+impl CodeExecutionConfig {
+    /// Create from KDL config, applying defaults for unspecified values
+    pub fn from_kdl_config(kdl: &KdlCodeExecutionConfig) -> Self {
+        Self::from_kdl_config_with_root(kdl, None)
+    }
+
+    /// Create from KDL config with a project root for resolving path dependencies
+    pub fn from_kdl_config_with_root(kdl: &KdlCodeExecutionConfig, project_root: Option<String>) -> Self {
+        let defaults = Self::default();
+
+        // Use user-specified deps if any, otherwise use defaults
+        let dependencies = if kdl.dependencies.deps.is_empty() {
+            defaults.dependencies
+        } else {
+            kdl.dependencies.deps.clone()
+        };
+
+        // Build language config from rust settings
+        let mut language_config = HashMap::new();
+        let rust_config = LanguageConfig {
+            command: kdl.rust.command.clone().unwrap_or_else(|| "cargo".to_string()),
+            args: kdl.rust.args.clone().unwrap_or_else(|| vec!["run".to_string()]),
+            extension: kdl.rust.extension.clone().unwrap_or_else(|| "rs".to_string()),
+            prepare_code: kdl.rust.prepare_code.unwrap_or(true),
+            auto_imports: kdl.rust.auto_imports.clone().unwrap_or_else(|| {
+                vec![
+                    "use std::collections::HashMap;".to_string(),
+                    "use facet::Facet;".to_string(),
+                ]
+            }),
+            show_output: kdl.rust.show_output.unwrap_or(true),
+            expected_compile_errors: vec![],
+        };
+        language_config.insert("rust".to_string(), rust_config);
+
+        Self {
+            enabled: kdl.enabled.unwrap_or(true),
+            fail_on_error: kdl.fail_on_error.unwrap_or(true),
+            timeout_secs: kdl.timeout_secs.unwrap_or(30),
+            cache_dir: kdl.cache_dir.clone().unwrap_or_else(|| ".cache/code-execution".to_string()),
+            project_root,
+            languages: vec!["rust".to_string()],
+            dependencies,
+            language_config,
         }
     }
 }
@@ -100,11 +128,7 @@ impl LanguageConfig {
     fn rust() -> Self {
         Self {
             command: "cargo".to_string(),
-            args: vec![
-                "run".to_string(),
-                "--quiet".to_string(),
-                "--release".to_string(),
-            ],
+            args: vec!["run".to_string()],
             extension: "rs".to_string(),
             prepare_code: true,
             auto_imports: vec![
@@ -257,10 +281,38 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
         return PlugResult::Ok(ExecuteSamplesOutput { results });
     }
 
+    // Determine project root for path dependency resolution
+    let project_root = input.config.project_root.as_ref().map(std::path::Path::new);
+
     // Ensure cache directory exists
-    if let Err(e) = fs::create_dir_all(&input.config.cache_dir) {
+    let cache_dir = if let Some(root) = project_root {
+        root.join(&input.config.cache_dir)
+    } else {
+        std::path::PathBuf::from(&input.config.cache_dir)
+    };
+
+    if let Err(e) = fs::create_dir_all(&cache_dir) {
         return PlugResult::Err(format!("Failed to create cache directory: {}", e));
     }
+
+    // Check if we have any Rust samples to execute
+    let has_rust_samples = input.samples.iter().any(|s| {
+        s.executable && (s.language == "rust" || s.language == "rs")
+    });
+
+    // Prepare the shared target directory with all deps pre-compiled
+    // All samples will share this target dir via CARGO_TARGET_DIR
+    let shared_target_dir = if has_rust_samples {
+        match prepare_rust_shared_target(&input.config.dependencies, project_root, &cache_dir, input.config.timeout_secs) {
+            Ok(dir) => Some(dir),
+            Err(e) => {
+                eprintln!("Warning: Failed to prepare shared target: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
 
     for sample in input.samples {
         let result = if !sample.executable {
@@ -286,7 +338,7 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
                     error: None,
                 }
             } else {
-                execute_single_sample(&sample, &input.config)
+                execute_single_sample(&sample, &input.config, shared_target_dir.as_deref())
             }
         };
 
@@ -296,8 +348,107 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
     PlugResult::Ok(ExecuteSamplesOutput { results })
 }
 
+/// Nightly cargo flags for shared target support
+const NIGHTLY_FLAGS: &[&str] = &[
+    "-Zbuild-dir-new-layout",  // New layout that enables artifact sharing across projects
+    "-Zchecksum-freshness",    // Use checksums instead of mtimes for freshness
+    "-Zbinary-dep-depinfo",    // Track binary deps (proc-macros) for proper rebuilds
+    "-Zgc",                    // Enable garbage collection for cargo cache
+    "-Zno-index-update",       // Skip registry index updates (deps already cached)
+];
+
+/// Prepare a shared target directory with all dependencies pre-compiled
+fn prepare_rust_shared_target(
+    dependencies: &[DependencySpec],
+    project_root: Option<&std::path::Path>,
+    cache_dir: &std::path::Path,
+    timeout_secs: u64,
+) -> Result<std::path::PathBuf, String> {
+    let base_project_dir = cache_dir.join("base_project");
+    let shared_target_dir = cache_dir.join("target");
+
+    // Check if we need to rebuild by comparing Cargo.toml content
+    let cargo_toml_content = generate_cargo_toml(dependencies, project_root);
+    let cargo_toml_path = base_project_dir.join("Cargo.toml");
+
+    let needs_rebuild = if cargo_toml_path.exists() {
+        match fs::read_to_string(&cargo_toml_path) {
+            Ok(existing) => existing != cargo_toml_content,
+            Err(_) => true,
+        }
+    } else {
+        true
+    };
+
+    if !needs_rebuild && shared_target_dir.join("release").exists() {
+        eprintln!("=== Using cached shared target (deps already compiled) ===");
+        return Ok(shared_target_dir);
+    }
+
+    eprintln!("=== Preparing shared target (compiling dependencies) ===");
+
+    // Create base project directory
+    fs::create_dir_all(&base_project_dir)
+        .map_err(|e| format!("Failed to create base project dir: {}", e))?;
+
+    // Write Cargo.toml
+    fs::write(&cargo_toml_path, &cargo_toml_content)
+        .map_err(|e| format!("Failed to write base Cargo.toml: {}", e))?;
+
+    // Create minimal src/main.rs that references all deps to ensure they're compiled
+    let src_dir = base_project_dir.join("src");
+    fs::create_dir_all(&src_dir)
+        .map_err(|e| format!("Failed to create base src dir: {}", e))?;
+
+    // Generate main.rs that imports all dependencies to force compilation
+    let main_rs = generate_base_main_rs(dependencies);
+    fs::write(src_dir.join("main.rs"), main_rs)
+        .map_err(|e| format!("Failed to write base main.rs: {}", e))?;
+
+    // Build the base project to compile all dependencies
+    // Use nightly cargo with special flags for shared target support
+    let mut cmd = Command::new("cargo");
+    cmd.args(["+nightly"]);
+    cmd.args(NIGHTLY_FLAGS);
+    cmd.args(["build", "--release"]);
+    cmd.current_dir(&base_project_dir);
+    cmd.env("CARGO_TARGET_DIR", &shared_target_dir);
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
+
+    let status = execute_with_timeout_inherit(&mut cmd, timeout_secs)
+        .map_err(|e| format!("Failed to build base project: {}", e))?;
+
+    if !status.success() {
+        return Err(format!("Base project build failed with code: {:?}", status.code()));
+    }
+
+    Ok(shared_target_dir)
+}
+
+/// Generate a main.rs that imports all dependencies to ensure they're compiled
+fn generate_base_main_rs(dependencies: &[DependencySpec]) -> String {
+    let mut lines = Vec::new();
+
+    // Add extern crate for each dependency (handles crate name normalization)
+    for dep in dependencies {
+        // Convert crate name with hyphens to underscores for Rust
+        let crate_name = dep.name.replace('-', "_");
+        lines.push(format!("use {}; // force compilation", crate_name));
+    }
+
+    lines.push(String::new());
+    lines.push("fn main() {}".to_string());
+
+    lines.join("\n")
+}
+
 /// Execute a single code sample
-fn execute_single_sample(sample: &CodeSample, config: &CodeExecutionConfig) -> ExecutionResult {
+fn execute_single_sample(
+    sample: &CodeSample,
+    config: &CodeExecutionConfig,
+    base_target_dir: Option<&std::path::Path>,
+) -> ExecutionResult {
     let start_time = std::time::Instant::now();
 
     let lang_config = match config.language_config.get(&sample.language) {
@@ -319,7 +470,7 @@ fn execute_single_sample(sample: &CodeSample, config: &CodeExecutionConfig) -> E
 
     // For Rust, create a temporary Cargo project
     if sample.language == "rust" || sample.language == "rs" {
-        execute_rust_sample(sample, lang_config, config, start_time)
+        execute_rust_sample(sample, lang_config, config, base_target_dir, start_time)
     } else {
         ExecutionResult {
             success: false,
@@ -337,8 +488,12 @@ fn execute_rust_sample(
     sample: &CodeSample,
     lang_config: &LanguageConfig,
     config: &CodeExecutionConfig,
+    shared_target_dir: Option<&std::path::Path>,
     start_time: std::time::Instant,
 ) -> ExecutionResult {
+    // Determine project root for path dependency resolution
+    let project_root = config.project_root.as_ref().map(std::path::Path::new);
+
     // Create temporary Cargo project
     let temp_dir = std::env::temp_dir();
     let project_name = format!("dodeca_sample_{}", std::process::id());
@@ -355,9 +510,10 @@ fn execute_rust_sample(
         };
     }
 
-    // Generate Cargo.toml
-    let cargo_toml = generate_cargo_toml(&config.dependencies);
+    // Generate Cargo.toml with resolved path dependencies
+    let cargo_toml = generate_cargo_toml(&config.dependencies, project_root);
     if let Err(e) = fs::write(project_dir.join("Cargo.toml"), cargo_toml) {
+        let _ = fs::remove_dir_all(&project_dir);
         return ExecutionResult {
             success: false,
             exit_code: None,
@@ -371,6 +527,7 @@ fn execute_rust_sample(
     // Create src directory and write main.rs
     let src_dir = project_dir.join("src");
     if let Err(e) = fs::create_dir_all(&src_dir) {
+        let _ = fs::remove_dir_all(&project_dir);
         return ExecutionResult {
             success: false,
             exit_code: None,
@@ -389,6 +546,7 @@ fn execute_rust_sample(
     };
 
     if let Err(e) = fs::write(src_dir.join("main.rs"), prepared_code) {
+        let _ = fs::remove_dir_all(&project_dir);
         return ExecutionResult {
             success: false,
             exit_code: None,
@@ -399,17 +557,36 @@ fn execute_rust_sample(
         };
     }
 
-    // Execute with cargo
+    // Execute with cargo - inherit streams so output is visible during build
+    // Use nightly with special flags if we have a shared target dir
     let mut cmd = Command::new(&lang_config.command);
+    if shared_target_dir.is_some() {
+        cmd.args(["+nightly"]);
+        cmd.args(NIGHTLY_FLAGS);
+    }
     cmd.args(&lang_config.args);
     cmd.current_dir(&project_dir);
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
 
-    let output = match execute_with_timeout(&mut cmd, config.timeout_secs) {
-        Ok(output) => output,
+    // Use shared target directory if available (deps pre-compiled there)
+    if let Some(target_dir) = shared_target_dir {
+        cmd.env("CARGO_TARGET_DIR", target_dir);
+    }
+
+    // Print header with full command so user knows what's being executed
+    eprintln!(
+        "\n=== Executing {}:{} ===\n$ cd {:?} && {} {}",
+        sample.source_path,
+        sample.line,
+        project_dir,
+        lang_config.command,
+        lang_config.args.join(" ")
+    );
+
+    let status = match execute_with_timeout_inherit(&mut cmd, config.timeout_secs) {
+        Ok(status) => status,
         Err(e) => {
-            // Clean up
             let _ = fs::remove_dir_all(&project_dir);
             return ExecutionResult {
                 success: false,
@@ -422,68 +599,46 @@ fn execute_rust_sample(
         }
     };
 
-    let success = output.status.success();
-
-    // Check for expected compilation errors
-    let final_success = if !success && !sample.expected_errors.is_empty() {
-        let stderr_str = String::from_utf8_lossy(&output.stderr);
-        sample.expected_errors.iter().any(|expected| {
-            stderr_str.contains(expected) || stderr_str.matches(expected).count() > 0
-        })
-    } else {
-        success
-    };
+    let success = status.success();
+    let final_success = success;
 
     let result = ExecutionResult {
         success: final_success,
-        exit_code: output.status.code(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        exit_code: status.code(),
+        stdout: String::new(), // Not captured with inherit
+        stderr: String::new(), // Not captured with inherit
         duration_ms: start_time.elapsed().as_millis() as u64,
         error: if final_success {
             None
         } else {
             Some(format!(
                 "Process exited with code: {:?}",
-                output.status.code()
+                status.code()
             ))
         },
     };
 
-    // Clean up
+    // Clean up the project dir (but not shared target - that's the cache!)
     let _ = fs::remove_dir_all(&project_dir);
     result
 }
 
 /// Generate Cargo.toml with dependencies
-fn generate_cargo_toml(dependencies: &[Dependency]) -> String {
+fn generate_cargo_toml(dependencies: &[DependencySpec], project_root: Option<&std::path::Path>) -> String {
     let mut lines = vec![
         "[package]".to_string(),
         "name = \"dodeca-code-sample\"".to_string(),
         "version = \"0.1.0\"".to_string(),
         "edition = \"2021\"".to_string(),
         "".to_string(),
+        "# Prevent this from being part of any parent workspace".to_string(),
+        "[workspace]".to_string(),
+        "".to_string(),
         "[dependencies]".to_string(),
     ];
 
     for dep in dependencies {
-        if let Some(ref git) = dep.git {
-            if let Some(ref rev) = dep.rev {
-                lines.push(format!(
-                    "{} = {{ git = \"{}\", rev = \"{}\" }}",
-                    dep.name, git, rev
-                ));
-            } else if let Some(ref branch) = dep.branch {
-                lines.push(format!(
-                    "{} = {{ git = \"{}\", branch = \"{}\" }}",
-                    dep.name, git, branch
-                ));
-            } else {
-                lines.push(format!("{} = {{ git = \"{}\" }}", dep.name, git));
-            }
-        } else {
-            lines.push(format!("{} = \"{}\"", dep.name, dep.version));
-        }
+        lines.push(dep.to_cargo_toml_line_with_root(project_root));
     }
 
     lines.join("\n")
@@ -524,8 +679,9 @@ fn should_execute(language: &str) -> bool {
     matches!(language.to_lowercase().as_str(), "rust" | "rs")
 }
 
-/// Execute a command with timeout
-fn execute_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<Output, String> {
+/// Execute a command with timeout (captures output)
+#[allow(dead_code)] // May be useful later for captured mode
+fn _execute_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<Output, String> {
     use std::time::Instant;
 
     let mut child = cmd
@@ -543,6 +699,42 @@ fn execute_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<Output, 
                 return child
                     .wait_with_output()
                     .map_err(|e| format!("Failed to get process output: {}", e));
+            }
+            Ok(None) => {
+                // Process still running, check timeout
+                if start.elapsed() > timeout {
+                    if let Err(e) = child.kill() {
+                        return Err(format!("Failed to kill process: {}", e));
+                    }
+                    return Err(format!("Process timed out after {} seconds", timeout_secs));
+                }
+                // Wait a bit before checking again
+                thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => return Err(format!("Failed to check process status: {}", e)),
+        }
+    }
+}
+
+/// Execute a command with timeout (inherited streams, returns ExitStatus)
+fn execute_with_timeout_inherit(
+    cmd: &mut Command,
+    timeout_secs: u64,
+) -> Result<std::process::ExitStatus, String> {
+    use std::time::Instant;
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to start process: {}", e))?;
+
+    let timeout = Duration::from_secs(timeout_secs);
+    let start = Instant::now();
+
+    // Poll for completion with timeout
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return Ok(status);
             }
             Ok(None) => {
                 // Process still running, check timeout
