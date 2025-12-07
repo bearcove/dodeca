@@ -9,11 +9,10 @@
 //! - Comparison with minijinja
 
 use divan::{black_box, Bencher};
-use dodeca::template::{Context, Engine, InMemoryLoader, Value};
+use dodeca::template::{Context, Engine, InMemoryLoader, VArray, VObject, VString, Value};
 use dodeca::template::lexer::Lexer;
 use dodeca::template::parser::Parser;
-use minijinja;
-use std::collections::HashMap;
+use facet_value::DestructuredRef;
 use std::sync::Arc;
 
 fn main() {
@@ -137,10 +136,10 @@ fn large_loop_template(iterations: usize) -> String {
 
 fn simple_context() -> Context {
     let mut ctx = Context::new();
-    ctx.set("name", Value::String("Alice".into()));
-    ctx.set("site_name", Value::String("My Site".into()));
-    ctx.set("created_date", Value::String("2024-01-15".into()));
-    ctx.set("message_count", Value::Int(42));
+    ctx.set("name", Value::from("Alice"));
+    ctx.set("site_name", Value::from("My Site"));
+    ctx.set("created_date", Value::from("2024-01-15"));
+    ctx.set("message_count", Value::from(42i64));
     ctx
 }
 
@@ -148,13 +147,13 @@ fn loop_context() -> Context {
     let mut ctx = Context::new();
     let items: Vec<Value> = (0..10)
         .map(|i| {
-            let mut item = HashMap::new();
-            item.insert("name".to_string(), Value::String(format!("Item {}", i)));
-            item.insert("price".to_string(), Value::Float(i as f64 * 9.99));
-            Value::Dict(item)
+            let mut item = VObject::new();
+            item.insert(VString::from("name"), Value::from(format!("Item {}", i).as_str()));
+            item.insert(VString::from("price"), Value::from(i as f64 * 9.99));
+            Value::from(item)
         })
         .collect();
-    ctx.set("items", Value::List(items));
+    ctx.set("items", Value::from(VArray::from_iter(items)));
     ctx
 }
 
@@ -162,75 +161,63 @@ fn complex_context() -> Context {
     let mut ctx = Context::new();
 
     // Page data
-    let mut page = HashMap::new();
-    page.insert("title".to_string(), Value::String("My Blog Post".into()));
-    page.insert("date".to_string(), Value::String("2024-03-15".into()));
+    let mut page = VObject::new();
+    page.insert(VString::from("title"), Value::from("My Blog Post"));
+    page.insert(VString::from("date"), Value::from("2024-03-15"));
+    page.insert(VString::from("author"), Value::from("John Doe"));
+    page.insert(VString::from("content"), Value::from("<p>This is the post content with <strong>HTML</strong>.</p>"));
     page.insert(
-        "author".to_string(),
-        Value::String("John Doe".into()),
+        VString::from("tags"),
+        Value::from(VArray::from_iter(vec![
+            Value::from("rust"),
+            Value::from("programming"),
+            Value::from("web"),
+        ])),
     );
-    page.insert(
-        "content".to_string(),
-        Value::String("<p>This is the post content with <strong>HTML</strong>.</p>".into()),
-    );
-    page.insert(
-        "tags".to_string(),
-        Value::List(vec![
-            Value::String("rust".into()),
-            Value::String("programming".into()),
-            Value::String("web".into()),
-        ]),
-    );
-    ctx.set("page", Value::Dict(page));
+    ctx.set("page", Value::from(page));
 
     // Site data
-    let mut site = HashMap::new();
-    site.insert("name".to_string(), Value::String("My Blog".into()));
-    site.insert("year".to_string(), Value::Int(2024));
-    ctx.set("site", Value::Dict(site));
+    let mut site = VObject::new();
+    site.insert(VString::from("name"), Value::from("My Blog"));
+    site.insert(VString::from("year"), Value::from(2024i64));
+    ctx.set("site", Value::from(site));
 
     // Navigation
     let nav_links: Vec<Value> = vec![
         {
-            let mut link = HashMap::new();
-            link.insert("url".to_string(), Value::String("/".into()));
-            link.insert("label".to_string(), Value::String("Home".into()));
-            link.insert("active".to_string(), Value::Bool(false));
-            Value::Dict(link)
+            let mut link = VObject::new();
+            link.insert(VString::from("url"), Value::from("/"));
+            link.insert(VString::from("label"), Value::from("Home"));
+            link.insert(VString::from("active"), Value::from(false));
+            Value::from(link)
         },
         {
-            let mut link = HashMap::new();
-            link.insert("url".to_string(), Value::String("/blog".into()));
-            link.insert("label".to_string(), Value::String("Blog".into()));
-            link.insert("active".to_string(), Value::Bool(true));
-            Value::Dict(link)
+            let mut link = VObject::new();
+            link.insert(VString::from("url"), Value::from("/blog"));
+            link.insert(VString::from("label"), Value::from("Blog"));
+            link.insert(VString::from("active"), Value::from(true));
+            Value::from(link)
         },
         {
-            let mut link = HashMap::new();
-            link.insert("url".to_string(), Value::String("/about".into()));
-            link.insert("label".to_string(), Value::String("About".into()));
-            link.insert("active".to_string(), Value::Bool(false));
-            Value::Dict(link)
+            let mut link = VObject::new();
+            link.insert(VString::from("url"), Value::from("/about"));
+            link.insert(VString::from("label"), Value::from("About"));
+            link.insert(VString::from("active"), Value::from(false));
+            Value::from(link)
         },
     ];
-    ctx.set("nav_links", Value::List(nav_links));
+    ctx.set("nav_links", Value::from(VArray::from_iter(nav_links)));
 
     // Related posts
     let related_posts: Vec<Value> = (0..3)
         .map(|i| {
-            let mut post = HashMap::new();
-            post.insert(
-                "url".to_string(),
-                Value::String(format!("/posts/related-{}", i)),
-            );
-            post.insert(
-                "title".to_string(),
-                Value::String(format!("Related Post {}", i + 1)),
-            );
-            Value::Dict(post)
+            let mut post = VObject::new();
+            post.insert(VString::from("url"), Value::from(format!("/posts/related-{}", i).as_str()));
+            post.insert(VString::from("title"), Value::from(format!("Related Post {}", i + 1).as_str()));
+            Value::from(post)
         })
         .collect();
-    ctx.set("related_posts", Value::List(related_posts));
+    ctx.set("related_posts", Value::from(VArray::from_iter(related_posts)));
 
     ctx
 }
@@ -384,11 +371,18 @@ fn render_loop_scaling(bencher: Bencher, iterations: usize) {
     ctx.register_fn(
         "range",
         Box::new(move |args: &[Value], _kwargs: &[(String, Value)]| {
-            let n = match args.first() {
-                Some(Value::Int(n)) => *n as usize,
-                _ => 0,
-            };
-            Ok(Value::List((0..n).map(|i| Value::Int(i as i64)).collect()))
+            let n = args.first()
+                .and_then(|v| {
+                    if let DestructuredRef::Number(num) = v.destructure_ref() {
+                        num.to_i64()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(0) as usize;
+            Ok(Value::from(VArray::from_iter(
+                (0..n).map(|i| Value::from(i as i64))
+            )))
         }),
     );
 
