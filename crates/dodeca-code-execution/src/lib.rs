@@ -420,6 +420,10 @@ fn prepare_rust_shared_target(
     cache_dir: &std::path::Path,
     timeout_secs: u64,
 ) -> Result<SharedTargetInfo, String> {
+    // Canonicalize cache_dir to get absolute paths - this is critical because
+    // cargo interprets CARGO_TARGET_DIR relative to the project directory
+    let cache_dir = cache_dir.canonicalize()
+        .map_err(|e| format!("Failed to canonicalize cache dir: {}", e))?;
     let base_project_dir = cache_dir.join("base_project");
     let shared_target_dir = cache_dir.join("target");
 
@@ -439,7 +443,7 @@ fn prepare_rust_shared_target(
     if !needs_rebuild && shared_target_dir.join("release").exists() {
         eprintln!("=== Using cached shared target (deps already compiled) ===");
         // Capture metadata for cached build (cache_hit = true)
-        let metadata = capture_build_metadata(cache_dir, true);
+        let metadata = capture_build_metadata(&cache_dir, true);
         return Ok(SharedTargetInfo {
             path: shared_target_dir,
             metadata,
@@ -497,7 +501,7 @@ fn prepare_rust_shared_target(
     }
 
     // Capture metadata for fresh build (cache_hit = false)
-    let metadata = capture_build_metadata(cache_dir, false);
+    let metadata = capture_build_metadata(&cache_dir, false);
 
     Ok(SharedTargetInfo {
         path: shared_target_dir,
