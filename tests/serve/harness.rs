@@ -464,6 +464,12 @@ impl InlineSite {
 
         // Write templates
         fs::write(
+            fixture_dir.join("templates/index.html"),
+            "<!DOCTYPE html><html><head><title>{{ section.title }}</title></head><body>{{ section.content | safe }}</body></html>",
+        )
+        .expect("write index template");
+
+        fs::write(
             fixture_dir.join("templates/section.html"),
             "<!DOCTYPE html><html><head><title>{{ section.title }}</title></head><body>{{ section.content | safe }}</body></html>",
         )

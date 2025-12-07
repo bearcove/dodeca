@@ -173,6 +173,52 @@ pub struct ExecutionResult {
     pub duration_ms: u64,
     /// Error message if execution failed
     pub error: Option<String>,
+    /// Build metadata for reproducibility
+    pub metadata: Option<BuildMetadata>,
+}
+
+/// Build metadata captured for reproducibility
+#[derive(Facet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct BuildMetadata {
+    /// Rust compiler version (from `rustc --version --verbose`)
+    pub rustc_version: String,
+    /// Cargo version (from `cargo --version`)
+    pub cargo_version: String,
+    /// Target triple (e.g., "x86_64-unknown-linux-gnu")
+    pub target: String,
+    /// Build timestamp (ISO 8601 format)
+    pub timestamp: String,
+    /// Whether shared target cache was used (vs fresh build)
+    pub cache_hit: bool,
+    /// Platform (e.g., "linux", "macos", "windows")
+    pub platform: String,
+    /// CPU architecture (e.g., "x86_64", "aarch64")
+    pub arch: String,
+    /// Dependencies with exact resolved versions (from Cargo.lock)
+    pub dependencies: Vec<ResolvedDependency>,
+}
+
+/// A resolved dependency with exact version info
+#[derive(Facet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ResolvedDependency {
+    /// Crate name
+    pub name: String,
+    /// Exact version
+    pub version: String,
+    /// Source of the dependency
+    pub source: DependencySource,
+}
+
+/// Source of a resolved dependency
+#[derive(Facet, Debug, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum DependencySource {
+    /// crates.io registry
+    CratesIo,
+    /// Git repository with commit hash
+    Git { url: String, commit: String },
+    /// Local path
+    Path { path: String },
 }
 
 /// Input for extracting code samples
@@ -302,9 +348,9 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
 
     // Prepare the shared target directory with all deps pre-compiled
     // All samples will share this target dir via CARGO_TARGET_DIR
-    let shared_target_dir = if has_rust_samples {
+    let shared_target_info = if has_rust_samples {
         match prepare_rust_shared_target(&input.config.dependencies, project_root, &cache_dir, input.config.timeout_secs) {
-            Ok(dir) => Some(dir),
+            Ok(info) => Some(info),
             Err(e) => {
                 eprintln!("Warning: Failed to prepare shared target: {}", e);
                 None
@@ -323,6 +369,7 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
                 stderr: String::new(),
                 duration_ms: 0,
                 error: None,
+                metadata: None,
             }
         } else {
             // Check if this language is enabled
@@ -336,9 +383,10 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
                     stderr: String::new(),
                     duration_ms: 0,
                     error: None,
+                    metadata: None,
                 }
             } else {
-                execute_single_sample(&sample, &input.config, shared_target_dir.as_deref())
+                execute_single_sample(&sample, &input.config, shared_target_info.as_ref())
             }
         };
 
@@ -357,13 +405,21 @@ const NIGHTLY_FLAGS: &[&str] = &[
     "-Zno-index-update",       // Skip registry index updates (deps already cached)
 ];
 
+/// Result of preparing the shared target directory
+struct SharedTargetInfo {
+    /// Path to the shared target directory
+    path: std::path::PathBuf,
+    /// Build metadata captured during preparation
+    metadata: BuildMetadata,
+}
+
 /// Prepare a shared target directory with all dependencies pre-compiled
 fn prepare_rust_shared_target(
     dependencies: &[DependencySpec],
     project_root: Option<&std::path::Path>,
     cache_dir: &std::path::Path,
     timeout_secs: u64,
-) -> Result<std::path::PathBuf, String> {
+) -> Result<SharedTargetInfo, String> {
     let base_project_dir = cache_dir.join("base_project");
     let shared_target_dir = cache_dir.join("target");
 
@@ -382,7 +438,12 @@ fn prepare_rust_shared_target(
 
     if !needs_rebuild && shared_target_dir.join("release").exists() {
         eprintln!("=== Using cached shared target (deps already compiled) ===");
-        return Ok(shared_target_dir);
+        // Capture metadata for cached build (cache_hit = true)
+        let metadata = capture_build_metadata(cache_dir, true);
+        return Ok(SharedTargetInfo {
+            path: shared_target_dir,
+            metadata,
+        });
     }
 
     eprintln!("=== Preparing shared target (compiling dependencies) ===");
@@ -423,7 +484,13 @@ fn prepare_rust_shared_target(
         return Err(format!("Base project build failed with code: {:?}", status.code()));
     }
 
-    Ok(shared_target_dir)
+    // Capture metadata for fresh build (cache_hit = false)
+    let metadata = capture_build_metadata(cache_dir, false);
+
+    Ok(SharedTargetInfo {
+        path: shared_target_dir,
+        metadata,
+    })
 }
 
 /// Generate a main.rs that imports all dependencies to ensure they're compiled
@@ -447,7 +514,7 @@ fn generate_base_main_rs(dependencies: &[DependencySpec]) -> String {
 fn execute_single_sample(
     sample: &CodeSample,
     config: &CodeExecutionConfig,
-    base_target_dir: Option<&std::path::Path>,
+    shared_target_info: Option<&SharedTargetInfo>,
 ) -> ExecutionResult {
     let start_time = std::time::Instant::now();
 
@@ -464,13 +531,14 @@ fn execute_single_sample(
                     "No configuration for language: {}",
                     sample.language
                 )),
+                metadata: None,
             };
         }
     };
 
     // For Rust, create a temporary Cargo project
     if sample.language == "rust" || sample.language == "rs" {
-        execute_rust_sample(sample, lang_config, config, base_target_dir, start_time)
+        execute_rust_sample(sample, lang_config, config, shared_target_info, start_time)
     } else {
         ExecutionResult {
             success: false,
@@ -479,6 +547,7 @@ fn execute_single_sample(
             stderr: String::new(),
             duration_ms: start_time.elapsed().as_millis() as u64,
             error: Some(format!("Unsupported language: {}", sample.language)),
+            metadata: None,
         }
     }
 }
@@ -488,11 +557,14 @@ fn execute_rust_sample(
     sample: &CodeSample,
     lang_config: &LanguageConfig,
     config: &CodeExecutionConfig,
-    shared_target_dir: Option<&std::path::Path>,
+    shared_target_info: Option<&SharedTargetInfo>,
     start_time: std::time::Instant,
 ) -> ExecutionResult {
     // Determine project root for path dependency resolution
     let project_root = config.project_root.as_ref().map(std::path::Path::new);
+
+    // Extract metadata from shared target info (will be cloned into result)
+    let metadata = shared_target_info.map(|info| info.metadata.clone());
 
     // Create temporary Cargo project
     let temp_dir = std::env::temp_dir();
@@ -507,6 +579,7 @@ fn execute_rust_sample(
             stderr: String::new(),
             duration_ms: start_time.elapsed().as_millis() as u64,
             error: Some(format!("Failed to create temp project: {}", e)),
+            metadata,
         };
     }
 
@@ -521,6 +594,7 @@ fn execute_rust_sample(
             stderr: String::new(),
             duration_ms: start_time.elapsed().as_millis() as u64,
             error: Some(format!("Failed to write Cargo.toml: {}", e)),
+            metadata,
         };
     }
 
@@ -535,6 +609,7 @@ fn execute_rust_sample(
             stderr: String::new(),
             duration_ms: start_time.elapsed().as_millis() as u64,
             error: Some(format!("Failed to create src dir: {}", e)),
+            metadata,
         };
     }
 
@@ -554,13 +629,14 @@ fn execute_rust_sample(
             stderr: String::new(),
             duration_ms: start_time.elapsed().as_millis() as u64,
             error: Some(format!("Failed to write main.rs: {}", e)),
+            metadata,
         };
     }
 
     // Execute with cargo - inherit streams so output is visible during build
     // Use nightly with special flags if we have a shared target dir
     let mut cmd = Command::new(&lang_config.command);
-    if shared_target_dir.is_some() {
+    if shared_target_info.is_some() {
         cmd.args(["+nightly"]);
         cmd.args(NIGHTLY_FLAGS);
     }
@@ -570,8 +646,8 @@ fn execute_rust_sample(
     cmd.stderr(Stdio::inherit());
 
     // Use shared target directory if available (deps pre-compiled there)
-    if let Some(target_dir) = shared_target_dir {
-        cmd.env("CARGO_TARGET_DIR", target_dir);
+    if let Some(info) = shared_target_info {
+        cmd.env("CARGO_TARGET_DIR", &info.path);
     }
 
     // Print header with full command so user knows what's being executed
@@ -595,6 +671,7 @@ fn execute_rust_sample(
                 stderr: String::new(),
                 duration_ms: start_time.elapsed().as_millis() as u64,
                 error: Some(e),
+                metadata,
             };
         }
     };
@@ -616,6 +693,7 @@ fn execute_rust_sample(
                 status.code()
             ))
         },
+        metadata,
     };
 
     // Clean up the project dir (but not shared target - that's the cache!)
@@ -749,5 +827,206 @@ fn execute_with_timeout_inherit(
             }
             Err(e) => return Err(format!("Failed to check process status: {}", e)),
         }
+    }
+}
+
+// ============================================================================
+// Build Metadata Capture
+// ============================================================================
+
+/// Capture rustc version information
+fn capture_rustc_version() -> String {
+    Command::new("rustc")
+        .args(["--version", "--verbose"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .unwrap_or_else(|e| format!("Failed to get rustc version: {}", e))
+}
+
+/// Capture cargo version information
+fn capture_cargo_version() -> String {
+    Command::new("cargo")
+        .args(["--version"])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|e| format!("Failed to get cargo version: {}", e))
+}
+
+/// Extract target triple from rustc verbose output
+fn extract_target_from_rustc(rustc_version: &str) -> String {
+    for line in rustc_version.lines() {
+        if let Some(target) = line.strip_prefix("host: ") {
+            return target.trim().to_string();
+        }
+    }
+    // Fallback: try to detect from current platform
+    format!(
+        "{}-unknown-{}-gnu",
+        std::env::consts::ARCH,
+        std::env::consts::OS
+    )
+}
+
+/// Get current timestamp in ISO 8601 format
+fn get_iso_timestamp() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let duration = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+
+    // Format as ISO 8601 (basic format without external deps)
+    let secs = duration.as_secs();
+    let days_since_epoch = secs / 86400;
+    let time_of_day = secs % 86400;
+
+    // Calculate year, month, day (simplified, assumes no leap seconds)
+    let mut year = 1970;
+    let mut days_remaining = days_since_epoch as i64;
+
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if days_remaining < days_in_year {
+            break;
+        }
+        days_remaining -= days_in_year;
+        year += 1;
+    }
+
+    let mut month = 1;
+    let days_in_months = if is_leap_year(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    for days_in_month in days_in_months {
+        if days_remaining < days_in_month as i64 {
+            break;
+        }
+        days_remaining -= days_in_month as i64;
+        month += 1;
+    }
+
+    let day = days_remaining + 1;
+    let hour = time_of_day / 3600;
+    let minute = (time_of_day % 3600) / 60;
+    let second = time_of_day % 60;
+
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month, day, hour, minute, second
+    )
+}
+
+fn is_leap_year(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+/// Parse Cargo.lock to extract resolved dependencies
+fn parse_cargo_lock(lock_path: &std::path::Path) -> Vec<ResolvedDependency> {
+    let content = match fs::read_to_string(lock_path) {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+
+    let mut deps = Vec::new();
+    let mut current_name: Option<String> = None;
+    let mut current_version: Option<String> = None;
+    let mut current_source: Option<String> = None;
+
+    for line in content.lines() {
+        let line = line.trim();
+
+        if line == "[[package]]" {
+            // Save previous package if complete
+            if let (Some(name), Some(version)) = (current_name.take(), current_version.take()) {
+                let source = parse_dependency_source(current_source.take());
+                deps.push(ResolvedDependency { name, version, source });
+            }
+            current_source = None;
+        } else if let Some(name) = line.strip_prefix("name = ") {
+            current_name = Some(unquote(name));
+        } else if let Some(version) = line.strip_prefix("version = ") {
+            current_version = Some(unquote(version));
+        } else if let Some(source) = line.strip_prefix("source = ") {
+            current_source = Some(unquote(source));
+        }
+    }
+
+    // Don't forget the last package
+    if let (Some(name), Some(version)) = (current_name, current_version) {
+        let source = parse_dependency_source(current_source);
+        deps.push(ResolvedDependency { name, version, source });
+    }
+
+    deps
+}
+
+/// Remove quotes from a TOML string value
+fn unquote(s: &str) -> String {
+    s.trim_matches('"').to_string()
+}
+
+/// Parse a Cargo.lock source string into DependencySource
+fn parse_dependency_source(source: Option<String>) -> DependencySource {
+    match source {
+        None => DependencySource::CratesIo,
+        Some(s) if s.starts_with("registry+") => DependencySource::CratesIo,
+        Some(s) if s.starts_with("git+") => {
+            // Format: git+https://github.com/user/repo?branch=main#commitsha
+            // or: git+https://github.com/user/repo#commitsha
+            let without_prefix = s.strip_prefix("git+").unwrap_or(&s);
+
+            let (url_part, commit) = if let Some(hash_pos) = without_prefix.rfind('#') {
+                let (url, commit) = without_prefix.split_at(hash_pos);
+                (url, commit.trim_start_matches('#').to_string())
+            } else {
+                (without_prefix, "unknown".to_string())
+            };
+
+            // Remove query params (branch, rev, etc.) from URL
+            let url = url_part
+                .split('?')
+                .next()
+                .unwrap_or(url_part)
+                .to_string();
+
+            DependencySource::Git { url, commit }
+        }
+        Some(s) if s.starts_with("path+") => {
+            let path = s.strip_prefix("path+").unwrap_or(&s).to_string();
+            DependencySource::Path { path }
+        }
+        Some(s) => {
+            // Unknown source format, treat as crates.io
+            eprintln!("Unknown dependency source format: {}", s);
+            DependencySource::CratesIo
+        }
+    }
+}
+
+/// Capture complete build metadata
+fn capture_build_metadata(
+    cache_dir: &std::path::Path,
+    cache_hit: bool,
+) -> BuildMetadata {
+    let rustc_version = capture_rustc_version();
+    let cargo_version = capture_cargo_version();
+    let target = extract_target_from_rustc(&rustc_version);
+
+    // Parse Cargo.lock from the base project
+    let lock_path = cache_dir.join("base_project").join("Cargo.lock");
+    let dependencies = parse_cargo_lock(&lock_path);
+
+    BuildMetadata {
+        rustc_version,
+        cargo_version,
+        target,
+        timestamp: get_iso_timestamp(),
+        cache_hit,
+        platform: std::env::consts::OS.to_string(),
+        arch: std::env::consts::ARCH.to_string(),
+        dependencies,
     }
 }

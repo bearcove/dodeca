@@ -1,4 +1,4 @@
-use crate::db::{Heading, Page, Section, SiteTree};
+use crate::db::{CodeExecutionMetadata, CodeExecutionResult, Heading, Page, Section, SiteTree};
 use crate::error_pages::render_error_page;
 use crate::template::{
     Context, DataResolver, Engine, InMemoryLoader, TemplateLoader, VArray, VObject, VString,
@@ -93,8 +93,284 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>"##;
 
+/// CSS and JS for build info icon on code blocks
+const BUILD_INFO_STYLES: &str = r##"<style>
+pre .build-info-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 3.5rem;
+    padding: 0.25rem;
+    font-size: 0.75rem;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 0.25rem;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    line-height: 1;
+}
+pre:hover .build-info-btn { opacity: 1; }
+pre .build-info-btn:hover { background: rgba(255,255,255,0.2); }
+pre .build-info-btn.verified { border-color: rgba(50,205,50,0.5); }
+.build-info-popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #1a1a2e;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    max-width: 600px;
+    max-height: 80vh;
+    overflow-y: auto;
+    z-index: 10000;
+    color: #e0e0e0;
+    font-family: ui-monospace, monospace;
+    font-size: 0.875rem;
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+}
+.build-info-popup h3 {
+    margin: 0 0 1rem 0;
+    color: #fff;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.build-info-popup .close-btn {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 1.25rem;
+    cursor: pointer;
+    padding: 0.25rem;
+}
+.build-info-popup .close-btn:hover { color: #fff; }
+.build-info-popup dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.5rem 1rem;
+}
+.build-info-popup dt {
+    color: #888;
+    font-weight: 500;
+}
+.build-info-popup dd {
+    margin: 0;
+    word-break: break-all;
+}
+.build-info-popup .deps-list {
+    max-height: 200px;
+    overflow-y: auto;
+    background: rgba(0,0,0,0.2);
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.75rem;
+}
+.build-info-popup .deps-list div {
+    padding: 0.125rem 0;
+}
+.build-info-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 9999;
+}
+</style>"##;
+
+/// Generate the build info script with embedded metadata JSON
+fn generate_build_info_script(code_metadata: &HashMap<String, &CodeExecutionMetadata>) -> String {
+    if code_metadata.is_empty() {
+        return String::new();
+    }
+
+    // Serialize metadata to JSON manually (avoiding serde dependency)
+    let mut json_entries = Vec::new();
+    for (hash, meta) in code_metadata {
+        // Extract just the first line of rustc version (e.g., "rustc 1.83.0-nightly")
+        let rustc_short = meta.rustc_version.lines().next().unwrap_or(&meta.rustc_version);
+
+        // Build deps array
+        let deps_json: Vec<String> = meta.dependencies.iter().map(|d| {
+            format!(r#"{{"name":"{}","version":"{}","source":"{}"}}"#,
+                escape_json(&d.name),
+                escape_json(&d.version),
+                escape_json(&d.source))
+        }).collect();
+
+        json_entries.push(format!(
+            r#""{}":{{"rustc":"{}","cargo":"{}","target":"{}","timestamp":"{}","cacheHit":{},"platform":"{}","arch":"{}","deps":[{}]}}"#,
+            escape_json(hash),
+            escape_json(rustc_short),
+            escape_json(&meta.cargo_version),
+            escape_json(&meta.target),
+            escape_json(&meta.timestamp),
+            meta.cache_hit,
+            escape_json(&meta.platform),
+            escape_json(&meta.arch),
+            deps_json.join(",")
+        ));
+    }
+
+    let json = format!("{{{}}}", json_entries.join(","));
+
+    format!(r##"<script>
+window.__DODECA_BUILD_INFO__ = {json};
+document.addEventListener('DOMContentLoaded', function() {{
+    var buildInfo = window.__DODECA_BUILD_INFO__;
+    if (!buildInfo || Object.keys(buildInfo).length === 0) return;
+
+    // Simple hash function for code content
+    function hashCode(str) {{
+        var hash = 0;
+        for (var i = 0; i < str.length; i++) {{
+            var chr = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + chr;
+            hash |= 0;
+        }}
+        return hash.toString(16);
+    }}
+
+    // Normalize code by trimming whitespace
+    function normalizeCode(code) {{
+        return code.trim();
+    }}
+
+    document.querySelectorAll('pre > code').forEach(function(code) {{
+        var pre = code.parentElement;
+        if (pre.querySelector('.build-info-btn')) return;
+
+        var codeText = normalizeCode(code.textContent);
+        var hash = hashCode(codeText);
+        var info = buildInfo[hash];
+
+        if (!info) return;
+
+        var btn = document.createElement('button');
+        btn.className = 'build-info-btn verified';
+        btn.innerHTML = '&#9432;'; // info icon
+        btn.setAttribute('aria-label', 'View build info');
+        btn.setAttribute('title', 'Verified: ' + info.rustc);
+
+        btn.onclick = function(e) {{
+            e.stopPropagation();
+            showBuildInfoPopup(info);
+        }};
+
+        pre.appendChild(btn);
+    }});
+
+    function showBuildInfoPopup(info) {{
+        // Remove existing popup
+        var existing = document.querySelector('.build-info-overlay');
+        if (existing) existing.remove();
+
+        var overlay = document.createElement('div');
+        overlay.className = 'build-info-overlay';
+
+        var popup = document.createElement('div');
+        popup.className = 'build-info-popup';
+
+        var depsHtml = '';
+        if (info.deps && info.deps.length > 0) {{
+            depsHtml = '<dt>Dependencies</dt><dd><div class="deps-list">';
+            info.deps.forEach(function(d) {{
+                depsHtml += '<div><strong>' + escapeHtml(d.name) + '</strong> ' + escapeHtml(d.version) + ' <span style="color:#666">(' + escapeHtml(d.source) + ')</span></div>';
+            }});
+            depsHtml += '</div></dd>';
+        }}
+
+        popup.innerHTML =
+            '<button class="close-btn" aria-label="Close">&times;</button>' +
+            '<h3>&#x2705; Build Verified</h3>' +
+            '<dl>' +
+            '<dt>Compiler</dt><dd>' + escapeHtml(info.rustc) + '</dd>' +
+            '<dt>Cargo</dt><dd>' + escapeHtml(info.cargo) + '</dd>' +
+            '<dt>Target</dt><dd>' + escapeHtml(info.target) + '</dd>' +
+            '<dt>Platform</dt><dd>' + escapeHtml(info.platform) + ' / ' + escapeHtml(info.arch) + '</dd>' +
+            '<dt>Built</dt><dd>' + escapeHtml(info.timestamp) + (info.cacheHit ? ' (cached)' : '') + '</dd>' +
+            depsHtml +
+            '</dl>';
+
+        overlay.appendChild(popup);
+        document.body.appendChild(overlay);
+
+        function close() {{
+            overlay.remove();
+        }}
+
+        overlay.addEventListener('click', function(e) {{
+            if (e.target === overlay) close();
+        }});
+        popup.querySelector('.close-btn').addEventListener('click', close);
+        document.addEventListener('keydown', function handler(e) {{
+            if (e.key === 'Escape') {{
+                close();
+                document.removeEventListener('keydown', handler);
+            }}
+        }});
+    }}
+
+    function escapeHtml(str) {{
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }}
+}});
+</script>"##, json = json)
+}
+
+/// Escape a string for JSON embedding
+fn escape_json(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+}
+
+/// Compute a simple hash of code content (same algorithm as JS side)
+pub fn hash_code(s: &str) -> String {
+    let mut hash: i32 = 0;
+    for c in s.chars() {
+        let chr = c as i32;
+        hash = ((hash << 5).wrapping_sub(hash)).wrapping_add(chr);
+        hash |= 0; // Convert to 32-bit integer
+    }
+    format!("{:x}", hash as u32)
+}
+
+/// Build a map from code hash to metadata for code blocks with execution results
+pub fn build_code_metadata_map(results: &[CodeExecutionResult]) -> HashMap<String, &CodeExecutionMetadata> {
+    let mut map = HashMap::new();
+    for result in results {
+        if let Some(ref metadata) = result.metadata {
+            let hash = hash_code(result.code.trim());
+            map.insert(hash, metadata);
+        }
+    }
+    map
+}
+
 /// Inject livereload script, copy buttons, and optionally mark dead links
 pub fn inject_livereload(html: &str, options: RenderOptions, known_routes: Option<&HashSet<String>>) -> String {
+    inject_livereload_with_build_info(html, options, known_routes, &[])
+}
+
+/// Inject livereload script, copy buttons, build info, and optionally mark dead links
+pub fn inject_livereload_with_build_info(
+    html: &str,
+    options: RenderOptions,
+    known_routes: Option<&HashSet<String>>,
+    code_execution_results: &[CodeExecutionResult],
+) -> String {
     let mut result = html.to_string();
     let mut has_dead_links = false;
 
@@ -105,13 +381,19 @@ pub fn inject_livereload(html: &str, options: RenderOptions, known_routes: Optio
         has_dead_links = had_dead;
     }
 
+    // Build the code metadata map and generate build info script
+    let code_metadata = build_code_metadata_map(code_execution_results);
+    let build_info_script = generate_build_info_script(&code_metadata);
+    let build_info_styles = if !code_metadata.is_empty() { BUILD_INFO_STYLES } else { "" };
+
     // Always inject copy button script for code blocks
     // Try to inject after <html, but fall back to after <!doctype html> if <html not found
+    let scripts_to_inject = format!("{CODE_COPY_SCRIPT}{build_info_styles}{build_info_script}");
     if result.contains("<html") {
-        result = result.replacen("<html", &format!("{CODE_COPY_SCRIPT}<html"), 1);
+        result = result.replacen("<html", &format!("{scripts_to_inject}<html"), 1);
     } else if let Some(pos) = result.to_lowercase().find("<!doctype html>") {
         let end = pos + "<!doctype html>".len();
-        result.insert_str(end, CODE_COPY_SCRIPT);
+        result.insert_str(end, &scripts_to_inject);
     }
 
     if options.livereload {

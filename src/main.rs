@@ -786,7 +786,7 @@ impl BuildContext {
 }
 
 // inject_livereload is now in render.rs
-use render::inject_livereload;
+use render::inject_livereload_with_build_info;
 
 /// Get the output path for an HTML route
 fn route_to_path(output_dir: &Utf8Path, route: &Route) -> Utf8PathBuf {
@@ -950,8 +950,13 @@ pub fn build(
                     ));
                 }
 
-                // Apply livereload injection if needed (no dead link checking in build mode)
-                let final_html = inject_livereload(content, render_options, None);
+                // Apply livereload injection with build info (no dead link checking in build mode)
+                let final_html = inject_livereload_with_build_info(
+                    content,
+                    render_options,
+                    None,
+                    &site_output.code_execution_results,
+                );
                 let path = route_to_path(output_dir, route);
 
                 if store.write_if_changed(&path, final_html.as_bytes())? {
@@ -1294,7 +1299,12 @@ fn build_with_mini_tui(
                     ));
                 }
 
-                let final_html = inject_livereload(content, render_options, None);
+                let final_html = inject_livereload_with_build_info(
+                    content,
+                    render_options,
+                    None,
+                    &site_output.code_execution_results,
+                );
                 let path = route_to_path(output_dir, route);
 
                 if store.write_if_changed(&path, final_html.as_bytes())? {
