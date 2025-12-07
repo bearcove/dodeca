@@ -171,6 +171,10 @@ body {
     color: #000;
 }
 
+.btn-primary:visited {
+    color: #000;
+}
+
 .btn-primary:hover {
     background: var(--accent-dim);
 }

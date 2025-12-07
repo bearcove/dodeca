@@ -421,10 +421,11 @@ fn inject_build_info_buttons(
                                 let rustc_short = meta.rustc_version.lines().next().unwrap_or(&meta.rustc_version);
 
                                 // Inject button HTML before the closing </pre> tag
+                                // Note: JSON must be HTML-escaped since it's inside a double-quoted attribute
                                 let button_html = format!(
                                     r#"<button class="build-info-btn verified" aria-label="View build info" title="Verified: {}" onclick="showBuildInfoPopup({})">&#9432;</button>"#,
                                     escape_html_attr(rustc_short),
-                                    json
+                                    escape_html_attr(&json)
                                 );
                                 end_tag.before(&button_html, ContentType::Html);
                             }
