@@ -353,8 +353,19 @@ pub struct ResolvedDependencyInfo {
     pub name: String,
     /// Exact version
     pub version: String,
-    /// Source description
-    pub source: String,
+    /// Source of the dependency
+    pub source: DependencySourceInfo,
+}
+
+/// Source information for a resolved dependency
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DependencySourceInfo {
+    /// crates.io registry
+    CratesIo,
+    /// Git repository with URL and commit hash
+    Git { url: String, commit: String },
+    /// Local path dependency
+    Path { path: String },
 }
 
 /// Result of checking an external link

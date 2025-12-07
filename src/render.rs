@@ -1,4 +1,4 @@
-use crate::db::{CodeExecutionMetadata, CodeExecutionResult, Heading, Page, Section, SiteTree};
+use crate::db::{CodeExecutionMetadata, CodeExecutionResult, DependencySourceInfo, Heading, Page, Section, SiteTree};
 use crate::error_pages::render_error_page;
 use crate::template::{
     Context, DataResolver, Engine, InMemoryLoader, TemplateLoader, VArray, VObject, VString,
@@ -268,18 +268,31 @@ const BUILD_INFO_POPUP_SCRIPT: &str = r##"<script>
         if (info.deps && info.deps.length > 0) {
             depsHtml = '<dt>' + depsIcon + ' Dependencies</dt><dd><div class="deps-list">';
             info.deps.forEach(function(d) {
-                var icon, link;
-                if (d.source === 'crates.io') {
+                var icon, link, versionDisplay;
+                var src = d.source;
+                if (src.type === 'crates.io') {
                     icon = cratesIoIcon;
                     link = 'https://crates.io/crates/' + encodeURIComponent(d.name) + '/' + encodeURIComponent(d.version);
-                    depsHtml += '<div><a href="' + link + '" target="_blank" rel="noopener" title="View on crates.io">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(d.version) + '</span></a></div>';
-                } else if (d.source.startsWith('git:')) {
+                    versionDisplay = d.version;
+                    depsHtml += '<div><a href="' + link + '" target="_blank" rel="noopener" title="View on crates.io">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(versionDisplay) + '</span></a></div>';
+                } else if (src.type === 'git') {
                     icon = gitIcon;
-                    var gitUrl = d.source.substring(4);
-                    depsHtml += '<div><a href="' + escapeHtml(gitUrl) + '" target="_blank" rel="noopener" title="View git repository">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(d.version) + '</span></a></div>';
+                    // Generate proper commit link for GitHub repos
+                    var commitShort = src.commit.substring(0, 8);
+                    versionDisplay = d.version + ' @ ' + commitShort;
+                    if (src.url.indexOf('github.com') !== -1) {
+                        // GitHub: link directly to the commit
+                        link = src.url.replace(/\.git$/, '') + '/tree/' + src.commit;
+                    } else {
+                        // Other git hosts: just link to the repo
+                        link = src.url;
+                    }
+                    depsHtml += '<div><a href="' + escapeHtml(link) + '" target="_blank" rel="noopener" title="View commit ' + escapeHtml(src.commit) + '">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(versionDisplay) + '</span></a></div>';
                 } else {
+                    // path dependency
                     icon = pathIcon;
-                    depsHtml += '<div><span class="dep-local">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(d.version) + '</span></span></div>';
+                    versionDisplay = d.version;
+                    depsHtml += '<div><span class="dep-local">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(versionDisplay) + '</span></span></div>';
                 }
             });
             depsHtml += '</div></dd>';
@@ -354,10 +367,21 @@ fn metadata_to_json(meta: &CodeExecutionMetadata) -> String {
     let rustc_short = meta.rustc_version.lines().next().unwrap_or(&meta.rustc_version);
 
     let deps_json: Vec<String> = meta.dependencies.iter().map(|d| {
-        format!(r#"{{"name":"{}","version":"{}","source":"{}"}}"#,
+        let source_json = match &d.source {
+            DependencySourceInfo::CratesIo => r#"{"type":"crates.io"}"#.to_string(),
+            DependencySourceInfo::Git { url, commit } => {
+                format!(r#"{{"type":"git","url":"{}","commit":"{}"}}"#,
+                    escape_json(url),
+                    escape_json(commit))
+            }
+            DependencySourceInfo::Path { path } => {
+                format!(r#"{{"type":"path","path":"{}"}}"#, escape_json(path))
+            }
+        };
+        format!(r#"{{"name":"{}","version":"{}","source":{}}}"#,
             escape_json(&d.name),
             escape_json(&d.version),
-            escape_json(&d.source))
+            source_json)
     }).collect();
 
     format!(
@@ -1150,7 +1174,7 @@ fn route_to_path(route: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{CodeExecutionMetadata, CodeExecutionResult, ResolvedDependencyInfo};
+    use crate::db::{CodeExecutionMetadata, CodeExecutionResult, DependencySourceInfo, ResolvedDependencyInfo};
 
     fn make_test_result(code: &str, metadata: Option<CodeExecutionMetadata>) -> CodeExecutionResult {
         CodeExecutionResult {
@@ -1184,7 +1208,7 @@ mod tests {
                 ResolvedDependencyInfo {
                     name: "serde".to_string(),
                     version: "1.0.0".to_string(),
-                    source: "crates.io".to_string(),
+                    source: DependencySourceInfo::CratesIo,
                 },
             ],
         };

@@ -1,8 +1,9 @@
 use crate::db::{
     AllRenderedHtml, CharSet, CodeExecutionMetadata, CodeExecutionResult, CssOutput, DataRegistry,
-    Db, Heading, ImageVariant, OutputFile, Page, ParsedData, ProcessedImages, RenderedHtml,
-    ResolvedDependencyInfo, SassFile, SassRegistry, Section, SiteOutput, SiteTree, SourceFile,
-    SourceRegistry, StaticFile, StaticFileOutput, StaticRegistry, TemplateFile, TemplateRegistry,
+    Db, DependencySourceInfo, Heading, ImageVariant, OutputFile, Page, ParsedData, ProcessedImages,
+    RenderedHtml, ResolvedDependencyInfo, SassFile, SassRegistry, Section, SiteOutput, SiteTree,
+    SourceFile, SourceRegistry, StaticFile, StaticFileOutput, StaticRegistry, TemplateFile,
+    TemplateRegistry,
 };
 
 use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
@@ -1615,7 +1616,7 @@ pub fn execute_all_code_samples(db: &dyn Db, sources: SourceRegistry) -> Vec<Cod
                                     .map(|d| ResolvedDependencyInfo {
                                         name: d.name,
                                         version: d.version,
-                                        source: format_dependency_source(&d.source),
+                                        source: convert_dependency_source(d.source),
                                     })
                                     .collect(),
                             }
@@ -1667,15 +1668,13 @@ pub fn execute_all_code_samples(db: &dyn Db, sources: SourceRegistry) -> Vec<Cod
     all_results
 }
 
-/// Format a DependencySource enum to a human-readable string
-fn format_dependency_source(source: &dodeca_code_execution::DependencySource) -> String {
+/// Convert plugin DependencySource to db DependencySourceInfo
+fn convert_dependency_source(source: dodeca_code_execution::DependencySource) -> DependencySourceInfo {
     use dodeca_code_execution::DependencySource;
     match source {
-        DependencySource::CratesIo => "crates.io".to_string(),
-        DependencySource::Git { url, commit } => {
-            format!("git: {} @ {}", url, &commit[..commit.len().min(8)])
-        }
-        DependencySource::Path { path } => format!("path: {}", path),
+        DependencySource::CratesIo => DependencySourceInfo::CratesIo,
+        DependencySource::Git { url, commit } => DependencySourceInfo::Git { url, commit },
+        DependencySource::Path { path } => DependencySourceInfo::Path { path },
     }
 }
 
