@@ -2038,6 +2038,7 @@ dependencies = [
  "crossterm",
  "divan",
  "dodeca-code-execution",
+ "dodeca-code-execution-config",
  "dodeca-protocol",
  "facet",
  "facet-args",
@@ -2097,11 +2098,20 @@ dependencies = [
 name = "dodeca-code-execution"
 version = "0.1.0"
 dependencies = [
+ "dodeca-code-execution-config",
  "facet",
  "facet-json",
  "linkme",
  "plugcard",
  "pulldown-cmark",
+]
+
+[[package]]
+name = "dodeca-code-execution-config"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "facet-kdl",
 ]
 
 [[package]]

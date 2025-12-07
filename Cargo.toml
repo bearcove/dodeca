@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/gingembre", "crates/livereload-client", "crates/dodeca-devtools", "crates/dodeca-protocol", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "crates/dodeca-pagefind", "crates/dodeca-image", "crates/dodeca-fonts", "crates/dodeca-linkcheck", "crates/dodeca-code-execution", "xtask"]
+members = [".", "crates/gingembre", "crates/livereload-client", "crates/dodeca-devtools", "crates/dodeca-protocol", "crates/plugcard", "crates/plugcard-macros", "crates/dodeca-baseline", "crates/dodeca-webp", "crates/dodeca-jxl", "crates/dodeca-minify", "crates/dodeca-svgo", "crates/dodeca-sass", "crates/dodeca-css", "crates/dodeca-js", "crates/dodeca-pagefind", "crates/dodeca-image", "crates/dodeca-fonts", "crates/dodeca-linkcheck", "crates/dodeca-code-execution", "crates/dodeca-code-execution-config", "xtask"]
 
 
 
@@ -97,6 +97,7 @@ dodeca-protocol = { path = "crates/dodeca-protocol" }
 
 # Code execution plugin types
 dodeca-code-execution = { path = "crates/dodeca-code-execution" }
+dodeca-code-execution-config = { path = "crates/dodeca-code-execution-config" }
 
 # Content-addressed storage
 rapidhash = "4"

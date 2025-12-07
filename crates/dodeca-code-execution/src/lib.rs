@@ -12,24 +12,16 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
 
+// Re-export shared config types
+pub use dodeca_code_execution_config::{
+    CodeExecutionConfig as KdlCodeExecutionConfig,
+    DependencySpec, DependenciesConfig, RustConfig,
+    default_rust_dependencies,
+};
+
 plugcard::export_plugin!();
 
-/// Dependency specification
-#[derive(Facet, Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Dependency {
-    /// Crate name
-    pub name: String,
-    /// Version or git rev
-    pub version: String,
-    /// Git URL (for git dependencies)
-    pub git: Option<String>,
-    /// Git revision (commit hash)
-    pub rev: Option<String>,
-    /// Git branch
-    pub branch: Option<String>,
-}
-
-/// Configuration for code sample execution
+/// Runtime configuration for code sample execution (used by the plugin)
 #[derive(Facet, Debug, Clone, PartialEq, Eq)]
 pub struct CodeExecutionConfig {
     /// Enable code sample execution
@@ -43,7 +35,7 @@ pub struct CodeExecutionConfig {
     /// Languages to execute (empty = all supported)
     pub languages: Vec<String>,
     /// Dependencies available to all code samples
-    pub dependencies: Vec<Dependency>,
+    pub dependencies: Vec<DependencySpec>,
     /// Per-language configuration
     pub language_config: HashMap<String, LanguageConfig>,
 }
@@ -56,23 +48,50 @@ impl Default for CodeExecutionConfig {
             timeout_secs: 30,
             cache_dir: ".cache/code-execution".to_string(),
             languages: vec!["rust".to_string()],
-            dependencies: vec![
-                Dependency {
-                    name: "facet".to_string(),
-                    version: "0.1.0".to_string(),
-                    git: Some("https://github.com/facet-rs/facet".to_string()),
-                    rev: None,
-                    branch: Some("main".to_string()),
-                },
-                Dependency {
-                    name: "facet-json".to_string(),
-                    version: "0.1.0".to_string(),
-                    git: Some("https://github.com/facet-rs/facet".to_string()),
-                    rev: None,
-                    branch: Some("main".to_string()),
-                },
-            ],
+            dependencies: default_rust_dependencies(),
             language_config: HashMap::from([("rust".to_string(), LanguageConfig::rust())]),
+        }
+    }
+}
+
+impl CodeExecutionConfig {
+    /// Create from KDL config, applying defaults for unspecified values
+    pub fn from_kdl_config(kdl: &KdlCodeExecutionConfig) -> Self {
+        let defaults = Self::default();
+
+        // Use user-specified deps if any, otherwise use defaults
+        let dependencies = if kdl.dependencies.deps.is_empty() {
+            defaults.dependencies
+        } else {
+            kdl.dependencies.deps.clone()
+        };
+
+        // Build language config from rust settings
+        let mut language_config = HashMap::new();
+        let rust_config = LanguageConfig {
+            command: kdl.rust.command.clone().unwrap_or_else(|| "cargo".to_string()),
+            args: kdl.rust.args.clone().unwrap_or_else(|| vec!["run".to_string()]),
+            extension: kdl.rust.extension.clone().unwrap_or_else(|| "rs".to_string()),
+            prepare_code: kdl.rust.prepare_code.unwrap_or(true),
+            auto_imports: kdl.rust.auto_imports.clone().unwrap_or_else(|| {
+                vec![
+                    "use std::collections::HashMap;".to_string(),
+                    "use facet::Facet;".to_string(),
+                ]
+            }),
+            show_output: kdl.rust.show_output.unwrap_or(true),
+            expected_compile_errors: vec![],
+        };
+        language_config.insert("rust".to_string(), rust_config);
+
+        Self {
+            enabled: kdl.enabled.unwrap_or(true),
+            fail_on_error: kdl.fail_on_error.unwrap_or(true),
+            timeout_secs: kdl.timeout_secs.unwrap_or(30),
+            cache_dir: kdl.cache_dir.clone().unwrap_or_else(|| ".cache/code-execution".to_string()),
+            languages: vec!["rust".to_string()],
+            dependencies,
+            language_config,
         }
     }
 }
@@ -100,11 +119,7 @@ impl LanguageConfig {
     fn rust() -> Self {
         Self {
             command: "cargo".to_string(),
-            args: vec![
-                "run".to_string(),
-                "--quiet".to_string(),
-                "--release".to_string(),
-            ],
+            args: vec!["run".to_string()],
             extension: "rs".to_string(),
             prepare_code: true,
             auto_imports: vec![
@@ -399,15 +414,25 @@ fn execute_rust_sample(
         };
     }
 
-    // Execute with cargo
+    // Execute with cargo - inherit streams so output is visible during build
     let mut cmd = Command::new(&lang_config.command);
     cmd.args(&lang_config.args);
     cmd.current_dir(&project_dir);
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
 
-    let output = match execute_with_timeout(&mut cmd, config.timeout_secs) {
-        Ok(output) => output,
+    // Print header with full command so user knows what's being executed
+    eprintln!(
+        "\n=== Executing {}:{} ===\n$ cd {:?} && {} {}",
+        sample.source_path,
+        sample.line,
+        project_dir,
+        lang_config.command,
+        lang_config.args.join(" ")
+    );
+
+    let status = match execute_with_timeout_inherit(&mut cmd, config.timeout_secs) {
+        Ok(status) => status,
         Err(e) => {
             // Clean up
             let _ = fs::remove_dir_all(&project_dir);
@@ -422,30 +447,24 @@ fn execute_rust_sample(
         }
     };
 
-    let success = output.status.success();
+    let success = status.success();
 
-    // Check for expected compilation errors
-    let final_success = if !success && !sample.expected_errors.is_empty() {
-        let stderr_str = String::from_utf8_lossy(&output.stderr);
-        sample.expected_errors.iter().any(|expected| {
-            stderr_str.contains(expected) || stderr_str.matches(expected).count() > 0
-        })
-    } else {
-        success
-    };
+    // With inherited streams, we can't check expected_errors against stderr
+    // For now, just use the exit status
+    let final_success = success;
 
     let result = ExecutionResult {
         success: final_success,
-        exit_code: output.status.code(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        exit_code: status.code(),
+        stdout: String::new(), // Not captured with inherit
+        stderr: String::new(), // Not captured with inherit
         duration_ms: start_time.elapsed().as_millis() as u64,
         error: if final_success {
             None
         } else {
             Some(format!(
                 "Process exited with code: {:?}",
-                output.status.code()
+                status.code()
             ))
         },
     };
@@ -456,7 +475,7 @@ fn execute_rust_sample(
 }
 
 /// Generate Cargo.toml with dependencies
-fn generate_cargo_toml(dependencies: &[Dependency]) -> String {
+fn generate_cargo_toml(dependencies: &[DependencySpec]) -> String {
     let mut lines = vec![
         "[package]".to_string(),
         "name = \"dodeca-code-sample\"".to_string(),
@@ -467,23 +486,7 @@ fn generate_cargo_toml(dependencies: &[Dependency]) -> String {
     ];
 
     for dep in dependencies {
-        if let Some(ref git) = dep.git {
-            if let Some(ref rev) = dep.rev {
-                lines.push(format!(
-                    "{} = {{ git = \"{}\", rev = \"{}\" }}",
-                    dep.name, git, rev
-                ));
-            } else if let Some(ref branch) = dep.branch {
-                lines.push(format!(
-                    "{} = {{ git = \"{}\", branch = \"{}\" }}",
-                    dep.name, git, branch
-                ));
-            } else {
-                lines.push(format!("{} = {{ git = \"{}\" }}", dep.name, git));
-            }
-        } else {
-            lines.push(format!("{} = \"{}\"", dep.name, dep.version));
-        }
+        lines.push(dep.to_cargo_toml_line());
     }
 
     lines.join("\n")
@@ -524,8 +527,9 @@ fn should_execute(language: &str) -> bool {
     matches!(language.to_lowercase().as_str(), "rust" | "rs")
 }
 
-/// Execute a command with timeout
-fn execute_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<Output, String> {
+/// Execute a command with timeout (captures output)
+#[allow(dead_code)] // May be useful later for captured mode
+fn _execute_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<Output, String> {
     use std::time::Instant;
 
     let mut child = cmd
@@ -543,6 +547,42 @@ fn execute_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<Output, 
                 return child
                     .wait_with_output()
                     .map_err(|e| format!("Failed to get process output: {}", e));
+            }
+            Ok(None) => {
+                // Process still running, check timeout
+                if start.elapsed() > timeout {
+                    if let Err(e) = child.kill() {
+                        return Err(format!("Failed to kill process: {}", e));
+                    }
+                    return Err(format!("Process timed out after {} seconds", timeout_secs));
+                }
+                // Wait a bit before checking again
+                thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => return Err(format!("Failed to check process status: {}", e)),
+        }
+    }
+}
+
+/// Execute a command with timeout (inherited streams, returns ExitStatus)
+fn execute_with_timeout_inherit(
+    cmd: &mut Command,
+    timeout_secs: u64,
+) -> Result<std::process::ExitStatus, String> {
+    use std::time::Instant;
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to start process: {}", e))?;
+
+    let timeout = Duration::from_secs(timeout_secs);
+    let start = Instant::now();
+
+    // Poll for completion with timeout
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return Ok(status);
             }
             Ok(None) => {
                 // Process still running, check timeout
