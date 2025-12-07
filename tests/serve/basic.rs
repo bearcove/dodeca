@@ -32,5 +32,7 @@ fn nonexistent_static_returns_404() {
 fn pagefind_files_served() {
     let site = TestSite::new("sample-site");
 
-    site.get("/pagefind/pagefind.js").assert_ok();
+    // Pagefind is built asynchronously, so wait for it
+    site.wait_for("/pagefind/pagefind.js", std::time::Duration::from_secs(30))
+        .assert_ok();
 }

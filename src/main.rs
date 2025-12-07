@@ -1475,6 +1475,36 @@ fn build_with_mini_tui(
     Ok(())
 }
 
+/// Recursively scan a directory for files and process them as changes.
+/// Used when a new directory is created to catch files that were written
+/// before the watcher was fully set up (inotify race condition on Linux).
+fn scan_directory_recursive(
+    dir: &std::path::Path,
+    config: &file_watcher::WatcherConfig,
+    server: &serve::SiteServer,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if entry.file_type().is_ok_and(|t| t.is_file()) {
+            if let Ok(utf8_path) = Utf8PathBuf::from_path_buf(path) {
+                println!(
+                    "    {} Found file in new dir: {}",
+                    "+".green(),
+                    utf8_path.file_name().unwrap_or("?")
+                );
+                handle_file_changed(&utf8_path, config, server);
+            }
+        } else if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            // Recurse into subdirectories
+            scan_directory_recursive(&path, config, server);
+        }
+    }
+}
+
 /// Handle a file change event by updating or adding it to Salsa
 fn handle_file_changed(
     path: &Utf8PathBuf,
@@ -2047,28 +2077,13 @@ async fn serve_plain(
                             "+".green(),
                             path.file_name().unwrap_or("?")
                         );
-                        // Scan for files that may have been created before the watcher was added
-                        // (race condition with inotify on Linux)
-                        if let Ok(entries) = std::fs::read_dir(path.as_std_path()) {
-                            for entry in entries.flatten() {
-                                if entry.file_type().is_ok_and(|t| t.is_file()) {
-                                    if let Ok(utf8_path) =
-                                        Utf8PathBuf::from_path_buf(entry.path())
-                                    {
-                                        println!(
-                                            "    {} Found file in new dir: {}",
-                                            "+".green(),
-                                            utf8_path.file_name().unwrap_or("?")
-                                        );
-                                        handle_file_changed(
-                                            &utf8_path,
-                                            &watcher_config,
-                                            &server_for_watcher,
-                                        );
-                                    }
-                                }
-                            }
-                        }
+                        // Scan recursively for files that may have been created before the watcher
+                        // was added (race condition with inotify on Linux)
+                        scan_directory_recursive(
+                            path.as_std_path(),
+                            &watcher_config,
+                            &server_for_watcher,
+                        );
                     }
                 }
             }

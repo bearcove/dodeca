@@ -129,6 +129,34 @@ impl TestSite {
         }
     }
 
+    /// Wait for a path to return 200, retrying until timeout
+    pub fn wait_for(&self, path: &str, timeout: Duration) -> Response {
+        let url = self.url(path);
+        let deadline = Instant::now() + timeout;
+        let mut last_status = None;
+
+        while Instant::now() < deadline {
+            match self.client.get(&url).send() {
+                Ok(resp) if resp.status().is_success() => {
+                    return Response {
+                        status: resp.status().as_u16(),
+                        body: resp.text().unwrap_or_default(),
+                    };
+                }
+                Ok(resp) => {
+                    last_status = Some(resp.status().as_u16());
+                }
+                Err(_) => {}
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+
+        panic!(
+            "GET {} did not return 200 within {:?}, last status: {:?}",
+            path, timeout, last_status
+        );
+    }
+
     /// Read a file from the fixture directory
     pub fn read_file(&self, rel_path: &str) -> String {
         let path = self.fixture_dir.join(rel_path);
