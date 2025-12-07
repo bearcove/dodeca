@@ -31,7 +31,7 @@ crate-type = ["cdylib", "rlib"]
 
 ### 2. Mark functions with `#[plugcard]`
 
-```rust
+```rust,noexec
 use plugcard::plugcard;
 
 #[plugcard]
@@ -59,7 +59,7 @@ The `#[plugcard]` attribute macro transforms your function into a plugin method:
 
 For a function like:
 
-```rust
+```rust,noexec
 #[plugcard]
 pub fn add(a: i32, b: i32) -> i32 {
     a + b
@@ -68,7 +68,7 @@ pub fn add(a: i32, b: i32) -> i32 {
 
 The macro generates:
 
-```rust
+```rust,noexec
 // Original function preserved
 pub fn add(a: i32, b: i32) -> i32 { a + b }
 
@@ -101,7 +101,7 @@ static __PLUGCARD_SIG_add: MethodSignature = MethodSignature {
 
 ### `MethodSignature`
 
-```rust
+```rust,noexec
 pub struct MethodSignature {
     pub key: u64,           // Unique key from name + schemas
     pub name: &'static str, // Human-readable method name
@@ -115,7 +115,7 @@ pub struct MethodSignature {
 
 The FFI boundary structure:
 
-```rust
+```rust,noexec
 #[repr(C)]
 pub struct MethodCallData {
     pub key: u64,
@@ -130,7 +130,7 @@ pub struct MethodCallData {
 
 ### `MethodCallResult`
 
-```rust
+```rust,noexec
 #[repr(C)]
 pub enum MethodCallResult {
     Success,
@@ -143,7 +143,7 @@ pub enum MethodCallResult {
 
 ### Introspection Functions
 
-```rust
+```rust,noexec
 // Find a method by its computed key
 pub fn find_method(key: u64) -> Option<&'static MethodSignature>
 
@@ -156,7 +156,7 @@ pub unsafe fn dispatch(data: *mut MethodCallData)
 
 ## Calling a Plugin Method
 
-```rust
+```rust,noexec
 use plugcard::{list_methods, MethodCallData, MethodCallResult};
 
 // Find the method

@@ -11,7 +11,11 @@ code_execution {
     cache_dir ".cache/code-execution"
 
     dependencies {
-        "serde" "1.0"
+        serde "1.0"
+        facet "0.1" git="https://github.com/facet-rs/facet" branch="main"
+        facet-json "0.1" git="https://github.com/facet-rs/facet" branch="main"
+        facet-kdl "0.1" git="https://github.com/facet-rs/facet" branch="main"
+        plugcard "0.1" path="../crates/plugcard"
     }
 
     rust {

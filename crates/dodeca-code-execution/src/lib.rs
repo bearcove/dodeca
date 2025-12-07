@@ -300,12 +300,13 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
         s.executable && (s.language == "rust" || s.language == "rs")
     });
 
-    // Prepare the base target directory with all deps pre-compiled
-    let base_target_dir = if has_rust_samples {
-        match prepare_rust_base_target(&input.config.dependencies, project_root, &cache_dir, input.config.timeout_secs) {
+    // Prepare the shared target directory with all deps pre-compiled
+    // All samples will share this target dir via CARGO_TARGET_DIR
+    let shared_target_dir = if has_rust_samples {
+        match prepare_rust_shared_target(&input.config.dependencies, project_root, &cache_dir, input.config.timeout_secs) {
             Ok(dir) => Some(dir),
             Err(e) => {
-                eprintln!("Warning: Failed to prepare base target: {}", e);
+                eprintln!("Warning: Failed to prepare shared target: {}", e);
                 None
             }
         }
@@ -337,7 +338,7 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
                     error: None,
                 }
             } else {
-                execute_single_sample(&sample, &input.config, base_target_dir.as_deref())
+                execute_single_sample(&sample, &input.config, shared_target_dir.as_deref())
             }
         };
 
@@ -347,18 +348,26 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
     PlugResult::Ok(ExecuteSamplesOutput { results })
 }
 
-/// Prepare a base target directory with all dependencies pre-compiled
-fn prepare_rust_base_target(
+/// Nightly cargo flags for shared target support
+const NIGHTLY_FLAGS: &[&str] = &[
+    "-Zbuild-dir-new-layout",  // New layout that enables artifact sharing across projects
+    "-Zchecksum-freshness",    // Use checksums instead of mtimes for freshness
+    "-Zbinary-dep-depinfo",    // Track binary deps (proc-macros) for proper rebuilds
+    "-Zgc",                    // Enable garbage collection for cargo cache
+    "-Zno-index-update",       // Skip registry index updates (deps already cached)
+];
+
+/// Prepare a shared target directory with all dependencies pre-compiled
+fn prepare_rust_shared_target(
     dependencies: &[DependencySpec],
     project_root: Option<&std::path::Path>,
     cache_dir: &std::path::Path,
     timeout_secs: u64,
 ) -> Result<std::path::PathBuf, String> {
     let base_project_dir = cache_dir.join("base_project");
-    let base_target_dir = cache_dir.join("base_target");
+    let shared_target_dir = cache_dir.join("target");
 
-    // Check if base target already exists and is up-to-date
-    // For now, we'll rebuild if Cargo.toml content changes
+    // Check if we need to rebuild by comparing Cargo.toml content
     let cargo_toml_content = generate_cargo_toml(dependencies, project_root);
     let cargo_toml_path = base_project_dir.join("Cargo.toml");
 
@@ -371,12 +380,12 @@ fn prepare_rust_base_target(
         true
     };
 
-    if !needs_rebuild && base_target_dir.exists() {
-        eprintln!("=== Using cached base target (deps already compiled) ===");
-        return Ok(base_target_dir);
+    if !needs_rebuild && shared_target_dir.join("release").exists() {
+        eprintln!("=== Using cached shared target (deps already compiled) ===");
+        return Ok(shared_target_dir);
     }
 
-    eprintln!("=== Preparing base target (compiling dependencies) ===");
+    eprintln!("=== Preparing shared target (compiling dependencies) ===");
 
     // Create base project directory
     fs::create_dir_all(&base_project_dir)
@@ -386,19 +395,24 @@ fn prepare_rust_base_target(
     fs::write(&cargo_toml_path, &cargo_toml_content)
         .map_err(|e| format!("Failed to write base Cargo.toml: {}", e))?;
 
-    // Create minimal src/main.rs
+    // Create minimal src/main.rs that references all deps to ensure they're compiled
     let src_dir = base_project_dir.join("src");
     fs::create_dir_all(&src_dir)
         .map_err(|e| format!("Failed to create base src dir: {}", e))?;
 
-    fs::write(src_dir.join("main.rs"), "fn main() {}\n")
+    // Generate main.rs that imports all dependencies to force compilation
+    let main_rs = generate_base_main_rs(dependencies);
+    fs::write(src_dir.join("main.rs"), main_rs)
         .map_err(|e| format!("Failed to write base main.rs: {}", e))?;
 
     // Build the base project to compile all dependencies
+    // Use nightly cargo with special flags for shared target support
     let mut cmd = Command::new("cargo");
+    cmd.args(["+nightly"]);
+    cmd.args(NIGHTLY_FLAGS);
     cmd.args(["build", "--release"]);
     cmd.current_dir(&base_project_dir);
-    cmd.env("CARGO_TARGET_DIR", &base_target_dir);
+    cmd.env("CARGO_TARGET_DIR", &shared_target_dir);
     cmd.stdout(Stdio::inherit());
     cmd.stderr(Stdio::inherit());
 
@@ -409,7 +423,24 @@ fn prepare_rust_base_target(
         return Err(format!("Base project build failed with code: {:?}", status.code()));
     }
 
-    Ok(base_target_dir)
+    Ok(shared_target_dir)
+}
+
+/// Generate a main.rs that imports all dependencies to ensure they're compiled
+fn generate_base_main_rs(dependencies: &[DependencySpec]) -> String {
+    let mut lines = Vec::new();
+
+    // Add extern crate for each dependency (handles crate name normalization)
+    for dep in dependencies {
+        // Convert crate name with hyphens to underscores for Rust
+        let crate_name = dep.name.replace('-', "_");
+        lines.push(format!("use {}; // force compilation", crate_name));
+    }
+
+    lines.push(String::new());
+    lines.push("fn main() {}".to_string());
+
+    lines.join("\n")
 }
 
 /// Execute a single code sample
@@ -457,17 +488,16 @@ fn execute_rust_sample(
     sample: &CodeSample,
     lang_config: &LanguageConfig,
     config: &CodeExecutionConfig,
-    base_target_dir: Option<&std::path::Path>,
+    shared_target_dir: Option<&std::path::Path>,
     start_time: std::time::Instant,
 ) -> ExecutionResult {
     // Determine project root for path dependency resolution
     let project_root = config.project_root.as_ref().map(std::path::Path::new);
 
-    // Create temporary Cargo project with its own isolated target directory
+    // Create temporary Cargo project
     let temp_dir = std::env::temp_dir();
     let project_name = format!("dodeca_sample_{}", std::process::id());
     let project_dir = temp_dir.join(&project_name);
-    let sample_target_dir = project_dir.join("target");
 
     if let Err(e) = fs::create_dir_all(&project_dir) {
         return ExecutionResult {
@@ -478,16 +508,6 @@ fn execute_rust_sample(
             duration_ms: start_time.elapsed().as_millis() as u64,
             error: Some(format!("Failed to create temp project: {}", e)),
         };
-    }
-
-    // Copy base target directory if available (pre-compiled deps)
-    if let Some(base_target) = base_target_dir {
-        if base_target.exists() {
-            if let Err(e) = copy_dir_recursive(base_target, &sample_target_dir) {
-                eprintln!("Warning: Failed to copy base target: {}", e);
-                // Continue without pre-compiled deps
-            }
-        }
     }
 
     // Generate Cargo.toml with resolved path dependencies
@@ -538,11 +558,21 @@ fn execute_rust_sample(
     }
 
     // Execute with cargo - inherit streams so output is visible during build
+    // Use nightly with special flags if we have a shared target dir
     let mut cmd = Command::new(&lang_config.command);
+    if shared_target_dir.is_some() {
+        cmd.args(["+nightly"]);
+        cmd.args(NIGHTLY_FLAGS);
+    }
     cmd.args(&lang_config.args);
     cmd.current_dir(&project_dir);
     cmd.stdout(Stdio::inherit());
     cmd.stderr(Stdio::inherit());
+
+    // Use shared target directory if available (deps pre-compiled there)
+    if let Some(target_dir) = shared_target_dir {
+        cmd.env("CARGO_TARGET_DIR", target_dir);
+    }
 
     // Print header with full command so user knows what's being executed
     eprintln!(
@@ -588,28 +618,9 @@ fn execute_rust_sample(
         },
     };
 
-    // Clean up the entire project dir including its target
+    // Clean up the project dir (but not shared target - that's the cache!)
     let _ = fs::remove_dir_all(&project_dir);
     result
-}
-
-/// Recursively copy a directory
-fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
-    fs::create_dir_all(dst)?;
-
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-
-        if src_path.is_dir() {
-            copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
-            fs::copy(&src_path, &dst_path)?;
-        }
-    }
-
-    Ok(())
 }
 
 /// Generate Cargo.toml with dependencies
@@ -619,6 +630,9 @@ fn generate_cargo_toml(dependencies: &[DependencySpec], project_root: Option<&st
         "name = \"dodeca-code-sample\"".to_string(),
         "version = \"0.1.0\"".to_string(),
         "edition = \"2021\"".to_string(),
+        "".to_string(),
+        "# Prevent this from being part of any parent workspace".to_string(),
+        "[workspace]".to_string(),
         "".to_string(),
         "[dependencies]".to_string(),
     ];

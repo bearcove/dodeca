@@ -189,15 +189,15 @@ impl DependencySpec {
             parts.push(format!("version = \"{}\"", self.version));
         }
 
-        if let Some(ref features) = self.features {
-            if !features.is_empty() {
-                let features_str = features
-                    .iter()
-                    .map(|f| format!("\"{}\"", f))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                parts.push(format!("features = [{}]", features_str));
-            }
+        if let Some(ref features) = self.features
+            && !features.is_empty()
+        {
+            let features_str = features
+                .iter()
+                .map(|f| format!("\"{}\"", f))
+                .collect::<Vec<_>>()
+                .join(", ");
+            parts.push(format!("features = [{}]", features_str));
         }
 
         format!("{} = {{ {} }}", self.name, parts.join(", "))
