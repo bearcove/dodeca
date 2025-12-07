@@ -182,11 +182,15 @@ fn plugcard_impl(item: proc_macro2::TokenStream) -> std::result::Result<proc_mac
             unsafe {
                 let data = &mut *data;
 
+                // Set up the log callback for this call
+                let prev_callback = ::plugcard::set_log_callback(data.log_callback);
+
                 // Deserialize input using facet-postcard
                 let input_slice = ::core::slice::from_raw_parts(data.input_ptr, data.input_len);
                 let input: #input_type_name = match ::plugcard::facet_postcard::from_bytes(input_slice) {
                     Ok(v) => v,
                     Err(_) => {
+                        ::plugcard::set_log_callback(prev_callback);
                         data.result = ::plugcard::MethodCallResult::DeserializeError;
                         return;
                     }
@@ -194,6 +198,9 @@ fn plugcard_impl(item: proc_macro2::TokenStream) -> std::result::Result<proc_mac
 
                 // Call the actual function
                 let result = #fn_name(#(input.#arg_names),*);
+
+                // Restore previous callback
+                ::plugcard::set_log_callback(prev_callback);
 
                 // Serialize output using facet-postcard
                 let output_slice = ::core::slice::from_raw_parts_mut(data.output_ptr, data.output_cap);

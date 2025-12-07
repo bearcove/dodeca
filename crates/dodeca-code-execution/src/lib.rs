@@ -352,7 +352,7 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
         match prepare_rust_shared_target(&input.config.dependencies, project_root, &cache_dir, input.config.timeout_secs) {
             Ok(info) => Some(info),
             Err(e) => {
-                eprintln!("Warning: Failed to prepare shared target: {}", e);
+                plugcard::log_warn!("Failed to prepare shared target: {}", e);
                 None
             }
         }
@@ -441,7 +441,7 @@ fn prepare_rust_shared_target(
     };
 
     if !needs_rebuild && shared_target_dir.join("release").exists() {
-        eprintln!("=== Using cached shared target (deps already compiled) ===");
+        plugcard::log_info!("=== Using cached shared target (deps already compiled) ===");
         // Capture metadata for cached build (cache_hit = true)
         let metadata = capture_build_metadata(&cache_dir, true);
         return Ok(SharedTargetInfo {
@@ -450,7 +450,7 @@ fn prepare_rust_shared_target(
         });
     }
 
-    eprintln!("=== Preparing shared target (compiling dependencies) ===");
+    plugcard::log_info!("=== Preparing shared target (compiling dependencies) ===");
 
     // Create base project directory
     fs::create_dir_all(&base_project_dir)
@@ -481,19 +481,19 @@ fn prepare_rust_shared_target(
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    eprintln!("=== Building shared target dependencies ===");
+    plugcard::log_info!("=== Building shared target dependencies ===");
 
     let output = execute_with_timeout_capture(&mut cmd, timeout_secs)
         .map_err(|e| format!("Failed to build base project: {}", e))?;
 
-    // Print captured output
+    // Log captured output
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !stdout.is_empty() {
-        eprintln!("{}", stdout);
+        plugcard::log_info!("{}", stdout);
     }
     if !stderr.is_empty() {
-        eprintln!("{}", stderr);
+        plugcard::log_info!("{}", stderr);
     }
 
     if !output.status.success() {
@@ -666,8 +666,8 @@ fn execute_rust_sample(
         cmd.env("CARGO_TARGET_DIR", &info.path);
     }
 
-    // Print header with full command so user knows what's being executed
-    eprintln!(
+    // Log header with full command so user knows what's being executed
+    plugcard::log_info!(
         "\n=== Executing {}:{} ===\n$ cd {:?} && {} {}",
         sample.source_path,
         sample.line,
@@ -695,12 +695,12 @@ fn execute_rust_sample(
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    // Print captured output for visibility
+    // Log captured output for visibility
     if !stdout.is_empty() {
-        eprintln!("{}", stdout);
+        plugcard::log_info!("{}", stdout);
     }
     if !stderr.is_empty() {
-        eprintln!("{}", stderr);
+        plugcard::log_info!("{}", stderr);
     }
 
     let success = output.status.success();
@@ -1038,7 +1038,7 @@ fn parse_dependency_source(source: Option<String>) -> DependencySource {
         }
         Some(s) => {
             // Unknown source format, treat as crates.io
-            eprintln!("Unknown dependency source format: {}", s);
+            plugcard::log_warn!("Unknown dependency source format: {}", s);
             DependencySource::CratesIo
         }
     }
