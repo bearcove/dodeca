@@ -363,6 +363,16 @@ pub fn compile_sass<'db>(db: &'db dyn Db, registry: SassRegistry) -> Option<Comp
     // Load all sass files - creates dependency on each
     let sass_map = load_all_sass(db, registry);
 
+    // Skip compilation if no main.scss entry point exists
+    if !sass_map.contains_key("main.scss") {
+        if !sass_map.is_empty() {
+            tracing::debug!(
+                "SCSS files found but no main.scss entry point, skipping compilation"
+            );
+        }
+        return None;
+    }
+
     // Compile via plugin
     match crate::plugins::compile_sass_plugin(&sass_map) {
         Ok(css) => Some(CompiledCss(css)),

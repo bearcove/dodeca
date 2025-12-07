@@ -1,7 +1,44 @@
 //! SASS/SCSS compilation tests
 
-use crate::harness::TestSite;
+use crate::harness::{InlineSite, TestSite};
+use std::fs;
 use std::time::Duration;
+
+/// Test that a site without any SCSS files builds successfully
+#[test_log::test]
+fn no_scss_builds_successfully() {
+    let site = TestSite::new("no-scss-site");
+
+    // Site should load without errors
+    let html = site.get("/");
+    html.assert_ok();
+    html.assert_contains("Welcome");
+
+    // No main.css link should exist in output (template doesn't reference it)
+    assert!(
+        html.css_link("/main.*.css").is_none(),
+        "No CSS should be generated when SCSS is absent"
+    );
+}
+
+/// Test that SCSS files without main.scss entry point are gracefully skipped
+#[test_log::test]
+fn scss_without_main_entry_point_skipped() {
+    // Create a site with SCSS files but no main.scss
+    let site = InlineSite::new(&[("_index.md", "+++\ntitle = \"Home\"\n+++\n\n# Hello")]);
+
+    // Remove main.scss and create only a partial file
+    fs::remove_file(site.fixture_dir.join("sass/main.scss")).expect("remove main.scss");
+    fs::write(
+        site.fixture_dir.join("sass/_variables.scss"),
+        "$color: blue;",
+    )
+    .expect("write partial");
+
+    // Build should succeed
+    let result = site.build();
+    result.assert_success();
+}
 
 #[test_log::test]
 fn scss_compiled_to_css() {
