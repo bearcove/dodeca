@@ -8,8 +8,8 @@ stable_assets {
 }
 
 code_execution {
-    enabled true
-    fail_on_error true
+    enabled #true
+    fail_on_error #true
     timeout_secs 30
     cache_dir ".cache/code-execution"
 
@@ -19,12 +19,10 @@ code_execution {
 
     rust {
         command "cargo"
-        args ["run", "--quiet", "--release"]
+        args "run" "--quiet" "--release"
         extension "rs"
-        prepare_code true
-        auto_imports [
-            "use std::collections::HashMap;"
-        ]
-        show_output true
+        prepare_code #true
+        auto_imports "use std::collections::HashMap;"
+        show_output #true
     }
 }
