@@ -4,10 +4,27 @@
 //! Currently supports image encoding/decoding plugins (WebP, JXL).
 
 use facet::Facet;
-use plugcard::{LoadError, Plugin, PlugResult};
+use plugcard::{LoadError, LogLevel, Plugin, PlugResult};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, trace, warn};
+
+/// Log callback that routes plugin logs to tracing
+extern "C" fn plugin_log_callback(level: LogLevel, ptr: *const u8, len: usize) {
+    // Safety: the plugin guarantees ptr/len are valid UTF-8 for the duration of this call
+    let message = unsafe {
+        let slice = std::slice::from_raw_parts(ptr, len);
+        std::str::from_utf8_unchecked(slice)
+    };
+
+    match level {
+        LogLevel::Trace => trace!(target: "plugin", "{}", message),
+        LogLevel::Debug => debug!(target: "plugin", "{}", message),
+        LogLevel::Info => info!(target: "plugin", "{}", message),
+        LogLevel::Warn => warn!(target: "plugin", "{}", message),
+        LogLevel::Error => error!(target: "plugin", "{}", message),
+    }
+}
 
 /// Decoded image data returned by plugins
 #[derive(Facet)]
@@ -885,7 +902,12 @@ pub fn execute_code_samples_plugin(
 
     let input = Input { samples, config };
 
-    match plugin.call::<Input, PlugResult<dodeca_code_execution::ExecuteSamplesOutput>>("execute_code_samples", &input) {
+    // Use call_with_logger to route plugin logs to tracing
+    match plugin.call_with_logger::<Input, PlugResult<dodeca_code_execution::ExecuteSamplesOutput>>(
+        "execute_code_samples",
+        &input,
+        Some(plugin_log_callback),
+    ) {
         Ok(PlugResult::Ok(output)) => Some(output.results),
         Ok(PlugResult::Err(e)) => {
             warn!("code execution plugin error: {}", e);

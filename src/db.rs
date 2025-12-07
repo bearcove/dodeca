@@ -321,6 +321,51 @@ pub struct CodeExecutionResult {
     pub duration_ms: u64,
     /// Error message if execution failed
     pub error: Option<String>,
+    /// Build metadata for reproducibility
+    pub metadata: Option<CodeExecutionMetadata>,
+}
+
+/// Build metadata captured during code execution for reproducibility
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeExecutionMetadata {
+    /// Rust compiler version (from `rustc --version --verbose`)
+    pub rustc_version: String,
+    /// Cargo version (from `cargo --version`)
+    pub cargo_version: String,
+    /// Target triple (e.g., "x86_64-unknown-linux-gnu")
+    pub target: String,
+    /// Build timestamp (ISO 8601 format)
+    pub timestamp: String,
+    /// Whether shared target cache was used (vs fresh build)
+    pub cache_hit: bool,
+    /// Platform (e.g., "linux", "macos", "windows")
+    pub platform: String,
+    /// CPU architecture (e.g., "x86_64", "aarch64")
+    pub arch: String,
+    /// Dependencies with exact resolved versions
+    pub dependencies: Vec<ResolvedDependencyInfo>,
+}
+
+/// A resolved dependency with exact version info
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedDependencyInfo {
+    /// Crate name
+    pub name: String,
+    /// Exact version
+    pub version: String,
+    /// Source of the dependency
+    pub source: DependencySourceInfo,
+}
+
+/// Source information for a resolved dependency
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DependencySourceInfo {
+    /// crates.io registry
+    CratesIo,
+    /// Git repository with URL and commit hash
+    Git { url: String, commit: String },
+    /// Local path dependency
+    Path { path: String },
 }
 
 /// Result of checking an external link

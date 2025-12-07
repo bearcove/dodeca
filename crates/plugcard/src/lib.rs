@@ -62,7 +62,24 @@ use linkme::distributed_slice;
 /// - The plugin export interface changes
 ///
 /// Format: 0xMMMMmmpp (Major, minor, patch as u32)
-pub const ABI_VERSION: u32 = 0x0001_0000; // 1.0.0
+pub const ABI_VERSION: u32 = 0x0001_0001; // 1.0.1 - added log callback
+
+/// Log level for plugin log messages
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogLevel {
+    Trace = 0,
+    Debug = 1,
+    Info = 2,
+    Warn = 3,
+    Error = 4,
+}
+
+/// Type for the log callback function.
+///
+/// Arguments: (level, message_ptr, message_len)
+/// The message is UTF-8 encoded.
+pub type LogCallback = extern "C" fn(LogLevel, *const u8, usize);
 
 /// A Result type that can be serialized with facet-postcard.
 ///
@@ -129,6 +146,8 @@ pub struct MethodCallData {
     pub output_cap: usize,
     /// Actual length written to output (set by callee)
     pub output_len: usize,
+    /// Optional log callback for plugin to send log messages to host
+    pub log_callback: Option<LogCallback>,
     /// Result status
     pub result: MethodCallResult,
 }
@@ -214,6 +233,92 @@ pub const fn compute_key(name: &str, input_type_name: &str, output_type_name: &s
 /// List all available methods (for introspection)
 pub fn list_methods() -> &'static [MethodSignature] {
     &METHODS
+}
+
+// ============================================================================
+// Plugin-side logging support
+// ============================================================================
+
+use std::cell::Cell;
+
+thread_local! {
+    /// Thread-local storage for the current log callback.
+    /// Set by the wrapper before calling the plugin function.
+    static CURRENT_LOG_CALLBACK: Cell<Option<LogCallback>> = const { Cell::new(None) };
+}
+
+/// Set the current log callback (called by generated wrapper code).
+/// Returns the previous callback so it can be restored.
+#[doc(hidden)]
+pub fn set_log_callback(callback: Option<LogCallback>) -> Option<LogCallback> {
+    CURRENT_LOG_CALLBACK.with(|c| c.replace(callback))
+}
+
+/// Log a message at the specified level.
+/// This sends the message to the host via the callback if one is set.
+pub fn log(level: LogLevel, message: &str) {
+    CURRENT_LOG_CALLBACK.with(|c| {
+        if let Some(callback) = c.get() {
+            callback(level, message.as_ptr(), message.len());
+        }
+    });
+}
+
+/// Log a trace message
+pub fn trace(message: &str) {
+    log(LogLevel::Trace, message);
+}
+
+/// Log a debug message
+pub fn debug(message: &str) {
+    log(LogLevel::Debug, message);
+}
+
+/// Log an info message
+pub fn info(message: &str) {
+    log(LogLevel::Info, message);
+}
+
+/// Log a warning message
+pub fn warn(message: &str) {
+    log(LogLevel::Warn, message);
+}
+
+/// Log an error message
+pub fn error(message: &str) {
+    log(LogLevel::Error, message);
+}
+
+/// Log a message with formatting (like println!)
+#[macro_export]
+macro_rules! log {
+    ($level:expr, $($arg:tt)*) => {{
+        $crate::log($level, &format!($($arg)*));
+    }};
+}
+
+/// Log an info message with formatting
+#[macro_export]
+macro_rules! log_info {
+    ($($arg:tt)*) => {{
+        $crate::info(&format!($($arg)*));
+    }};
+}
+
+/// Log a warning message with formatting
+#[macro_export]
+macro_rules! log_warn {
+    ($($arg:tt)*) => {{
+        $crate::warn(&format!($($arg)*));
+    }};
+}
+
+/// Log an error message with formatting
+#[macro_export]
+macro_rules! log_error {
+    ($($arg:tt)*) => {{
+        $crate::error(&format!($($arg)*));
+    }};
 }
 
 // Re-exports for macro use

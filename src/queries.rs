@@ -1,8 +1,9 @@
 use crate::db::{
-    AllRenderedHtml, CharSet, CodeExecutionResult, CssOutput, DataRegistry, Db, Heading,
-    ImageVariant, OutputFile, Page, ParsedData, ProcessedImages, RenderedHtml, SassFile,
-    SassRegistry, Section, SiteOutput, SiteTree, SourceFile, SourceRegistry, StaticFile,
-    StaticFileOutput, StaticRegistry, TemplateFile, TemplateRegistry,
+    AllRenderedHtml, CharSet, CodeExecutionMetadata, CodeExecutionResult, CssOutput, DataRegistry,
+    Db, DependencySourceInfo, Heading, ImageVariant, OutputFile, Page, ParsedData, ProcessedImages,
+    RenderedHtml, ResolvedDependencyInfo, SassFile, SassRegistry, Section, SiteOutput, SiteTree,
+    SourceFile, SourceRegistry, StaticFile, StaticFileOutput, StaticRegistry, TemplateFile,
+    TemplateRegistry,
 };
 
 use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
@@ -1599,6 +1600,28 @@ pub fn execute_all_code_samples(db: &dyn Db, sources: SourceRegistry) -> Vec<Cod
                 {
                     // Convert plugin results to our internal format
                     for (sample, result) in execution_results {
+                        // Convert metadata if present
+                        let metadata = result.metadata.map(|m| {
+                            CodeExecutionMetadata {
+                                rustc_version: m.rustc_version,
+                                cargo_version: m.cargo_version,
+                                target: m.target,
+                                timestamp: m.timestamp,
+                                cache_hit: m.cache_hit,
+                                platform: m.platform,
+                                arch: m.arch,
+                                dependencies: m
+                                    .dependencies
+                                    .into_iter()
+                                    .map(|d| ResolvedDependencyInfo {
+                                        name: d.name,
+                                        version: d.version,
+                                        source: convert_dependency_source(d.source),
+                                    })
+                                    .collect(),
+                            }
+                        });
+
                         let code_result = CodeExecutionResult {
                             source_path: sample.source_path,
                             line: sample.line as u32,
@@ -1610,6 +1633,7 @@ pub fn execute_all_code_samples(db: &dyn Db, sources: SourceRegistry) -> Vec<Cod
                             stderr: result.stderr,
                             duration_ms: result.duration_ms,
                             error: result.error,
+                            metadata,
                         };
                         all_results.push(code_result);
                     }
@@ -1642,6 +1666,16 @@ pub fn execute_all_code_samples(db: &dyn Db, sources: SourceRegistry) -> Vec<Cod
     }
 
     all_results
+}
+
+/// Convert plugin DependencySource to db DependencySourceInfo
+fn convert_dependency_source(source: dodeca_code_execution::DependencySource) -> DependencySourceInfo {
+    use dodeca_code_execution::DependencySource;
+    match source {
+        DependencySource::CratesIo => DependencySourceInfo::CratesIo,
+        DependencySource::Git { url, commit } => DependencySourceInfo::Git { url, commit },
+        DependencySource::Path { path } => DependencySourceInfo::Path { path },
+    }
 }
 
 #[cfg(test)]

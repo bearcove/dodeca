@@ -1,6 +1,6 @@
 //! Host-side plugin loading via libloading.
 
-use crate::{MethodCallData, MethodCallResult, MethodSignature, ABI_VERSION};
+use crate::{LogCallback, MethodCallData, MethodCallResult, MethodSignature, ABI_VERSION};
 use facet::Facet;
 use libloading::{Library, Symbol};
 use std::path::Path;
@@ -147,6 +147,18 @@ impl Plugin {
     ///
     /// This is the low-level interface. For ergonomic use, see `call()`.
     pub fn call_raw(&self, key: u64, input: &[u8]) -> Result<Vec<u8>, CallError> {
+        self.call_raw_with_logger(key, input, None)
+    }
+
+    /// Call a method with serialized input and a log callback.
+    ///
+    /// This is the low-level interface with logging support.
+    pub fn call_raw_with_logger(
+        &self,
+        key: u64,
+        input: &[u8],
+        log_callback: Option<LogCallback>,
+    ) -> Result<Vec<u8>, CallError> {
         // Start with a reasonable buffer, grow if needed
         let mut output = vec![0u8; 64 * 1024]; // 64KB initial
 
@@ -158,6 +170,7 @@ impl Plugin {
                 output_ptr: output.as_mut_ptr(),
                 output_cap: output.len(),
                 output_len: 0,
+                log_callback,
                 result: MethodCallResult::Success,
             };
 
@@ -197,12 +210,30 @@ impl Plugin {
         I: Facet<'static>,
         O: Facet<'static>,
     {
+        self.call_with_logger(name, input, None)
+    }
+
+    /// Call a method with typed input and output, with a log callback.
+    ///
+    /// ```rust,ignore
+    /// let result: String = plugin.call_with_logger("greet", &"World".to_string(), Some(my_callback))?;
+    /// ```
+    pub fn call_with_logger<I, O>(
+        &self,
+        name: &str,
+        input: &I,
+        log_callback: Option<LogCallback>,
+    ) -> Result<O, CallError>
+    where
+        I: Facet<'static>,
+        O: Facet<'static>,
+    {
         let method = self.find_method(name).ok_or(CallError::UnknownMethod)?;
 
         let input_bytes =
             crate::facet_postcard::to_vec(input).map_err(|_| CallError::SerializeError)?;
 
-        let output_bytes = self.call_raw(method.key, &input_bytes)?;
+        let output_bytes = self.call_raw_with_logger(method.key, &input_bytes, log_callback)?;
 
         crate::facet_postcard::from_bytes(&output_bytes).map_err(|_| CallError::DeserializeError)
     }

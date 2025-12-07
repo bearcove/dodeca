@@ -1,4 +1,4 @@
-use crate::db::{Heading, Page, Section, SiteTree};
+use crate::db::{CodeExecutionMetadata, CodeExecutionResult, DependencySourceInfo, Heading, Page, Section, SiteTree};
 use crate::error_pages::render_error_page;
 use crate::template::{
     Context, DataResolver, Engine, InMemoryLoader, TemplateLoader, VArray, VObject, VString,
@@ -6,6 +6,8 @@ use crate::template::{
 };
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
+use lol_html::{element, text, rewrite_str, RewriteStrSettings};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -93,8 +95,412 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>"##;
 
+/// CSS and JS for build info icon on code blocks
+const BUILD_INFO_STYLES: &str = r##"<style>
+pre .build-info-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 3.5rem;
+    padding: 0.25rem;
+    font-size: 0.75rem;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 0.25rem;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    line-height: 1;
+}
+pre:hover .build-info-btn { opacity: 1; }
+pre .build-info-btn:hover { background: rgba(255,255,255,0.2); }
+pre .build-info-btn.verified { border-color: rgba(50,205,50,0.5); }
+.build-info-popup {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #1a1a2e;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 0.5rem;
+    padding: 1.5rem 2rem;
+    width: 90vw;
+    max-width: 800px;
+    max-height: 80vh;
+    overflow-y: auto;
+    z-index: 10000;
+    color: #e0e0e0;
+    font-family: ui-monospace, monospace;
+    font-size: 0.8rem;
+    box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+}
+.build-info-popup h3 {
+    margin: 0 0 1rem 0;
+    color: #fff;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.build-info-popup .close-btn {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    background: none;
+    border: none;
+    color: #888;
+    font-size: 1.25rem;
+    cursor: pointer;
+    padding: 0.25rem;
+}
+.build-info-popup .close-btn:hover { color: #fff; }
+.build-info-popup dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.4rem 1rem;
+}
+.build-info-popup dt {
+    color: #888;
+    font-weight: 500;
+}
+.build-info-popup dd {
+    margin: 0;
+    word-break: break-all;
+}
+.build-info-popup .deps-list {
+    max-height: 250px;
+    overflow-y: auto;
+    background: rgba(0,0,0,0.2);
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.25rem;
+    font-size: 0.7rem;
+}
+.build-info-popup .deps-list div {
+    padding: 0.2rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.build-info-popup .field-icon {
+    width: 14px;
+    height: 14px;
+    vertical-align: -2px;
+    margin-right: 0.25rem;
+    opacity: 0.7;
+}
+.build-info-popup .deps-list a,
+.build-info-popup .deps-list .dep-local {
+    color: #e0e0e0;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.build-info-popup .deps-list a:hover {
+    color: #fff;
+}
+.build-info-popup .deps-list a:hover .dep-icon {
+    color: #fff;
+}
+.build-info-popup .deps-list .dep-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: #888;
+}
+.build-info-popup .deps-list .dep-name {
+    font-weight: 500;
+}
+.build-info-popup .deps-list .dep-version {
+    color: #888;
+    font-weight: normal;
+}
+.build-info-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 9999;
+}
+</style>"##;
+
+/// JavaScript for build info popup (injected when there are build info buttons)
+/// The buttons are injected server-side, this JS just handles showing the popup
+const BUILD_INFO_POPUP_SCRIPT: &str = r##"<script>
+(function() {
+    // SVG icons
+    var cratesIoIcon = '<svg class="dep-icon" viewBox="0 0 512 512"><path fill="currentColor" d="M239.1 6.3l-208 78c-18.7 7-31.1 25-31.1 45v225.1c0 18.2 10.3 34.8 26.5 42.9l208 104c13.5 6.8 29.4 6.8 42.9 0l208-104c16.3-8.1 26.5-24.8 26.5-42.9V129.3c0-20-12.4-37.9-31.1-44.9l-208-78C262 2.2 250 2.2 239.1 6.3zM256 68.4l192 72v1.1l-192 78-192-78v-1.1l192-72zm32 356V275.5l160-65v160.4l-160 53.5z"/></svg>';
+    var gitIcon = '<svg class="dep-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>';
+    var pathIcon = '<svg class="dep-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M1.75 1A1.75 1.75 0 000 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0016 13.25v-8.5A1.75 1.75 0 0014.25 3H7.5a.25.25 0 01-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75z"/></svg>';
+    var rustcIcon = '<svg class="field-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0l1.5 2.5L12 1.5l-.5 2.5 2.5.5-1.5 2.5L15 8l-2.5 1.5.5 2.5-2.5-.5-.5 2.5-2.5-1.5L8 16l-1.5-2.5L4 14.5l.5-2.5-2.5-.5 1.5-2.5L1 8l2.5-1.5L3 4l2.5.5.5-2.5 2.5 1.5L8 0zm0 5a3 3 0 100 6 3 3 0 000-6z"/></svg>';
+    var targetIcon = '<svg class="field-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0a8 8 0 100 16A8 8 0 008 0zm0 2a6 6 0 110 12A6 6 0 018 2zm0 2a4 4 0 100 8 4 4 0 000-8zm0 2a2 2 0 110 4 2 2 0 010-4z"/></svg>';
+    var clockIcon = '<svg class="field-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M8 0a8 8 0 100 16A8 8 0 008 0zm0 2a6 6 0 110 12A6 6 0 018 2zm-.5 2v4.5l3 2 .75-1.125-2.25-1.5V4h-1.5z"/></svg>';
+    var depsIcon = '<svg class="field-icon" viewBox="0 0 16 16"><path fill="currentColor" d="M1 2.5A1.5 1.5 0 012.5 1h3a1.5 1.5 0 011.5 1.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z"/></svg>';
+
+    function formatLocalTime(isoString) {
+        try {
+            var date = new Date(isoString);
+            return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' }) + ' at ' + date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        } catch (e) {
+            return isoString;
+        }
+    }
+
+    function escapeHtml(str) {
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    window.showBuildInfoPopup = function(info) {
+        // Remove existing popup
+        var existing = document.querySelector('.build-info-overlay');
+        if (existing) existing.remove();
+
+        var overlay = document.createElement('div');
+        overlay.className = 'build-info-overlay';
+
+        var popup = document.createElement('div');
+        popup.className = 'build-info-popup';
+
+        var depsHtml = '';
+        if (info.deps && info.deps.length > 0) {
+            depsHtml = '<dt>' + depsIcon + ' Dependencies</dt><dd><div class="deps-list">';
+            info.deps.forEach(function(d) {
+                var icon, link, versionDisplay;
+                var src = d.source;
+                if (src.type === 'crates.io') {
+                    icon = cratesIoIcon;
+                    link = 'https://crates.io/crates/' + encodeURIComponent(d.name) + '/' + encodeURIComponent(d.version);
+                    versionDisplay = d.version;
+                    depsHtml += '<div><a href="' + link + '" target="_blank" rel="noopener" title="View on crates.io">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(versionDisplay) + '</span></a></div>';
+                } else if (src.type === 'git') {
+                    icon = gitIcon;
+                    // Generate proper commit link for GitHub repos
+                    var commitShort = src.commit.substring(0, 8);
+                    versionDisplay = d.version + ' @ ' + commitShort;
+                    if (src.url.indexOf('github.com') !== -1) {
+                        // GitHub: link directly to the commit
+                        link = src.url.replace(/\.git$/, '') + '/tree/' + src.commit;
+                    } else {
+                        // Other git hosts: just link to the repo
+                        link = src.url;
+                    }
+                    depsHtml += '<div><a href="' + escapeHtml(link) + '" target="_blank" rel="noopener" title="View commit ' + escapeHtml(src.commit) + '">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(versionDisplay) + '</span></a></div>';
+                } else {
+                    // path dependency
+                    icon = pathIcon;
+                    versionDisplay = d.version;
+                    depsHtml += '<div><span class="dep-local">' + icon + ' <span class="dep-name">' + escapeHtml(d.name) + '</span> <span class="dep-version">' + escapeHtml(versionDisplay) + '</span></span></div>';
+                }
+            });
+            depsHtml += '</div></dd>';
+        }
+
+        popup.innerHTML =
+            '<button class="close-btn" aria-label="Close">&times;</button>' +
+            '<h3>&#x2705; Build Verified</h3>' +
+            '<dl>' +
+            '<dt>' + rustcIcon + ' Compiler</dt><dd>' + escapeHtml(info.rustc) + '</dd>' +
+            '<dt>' + rustcIcon + ' Cargo</dt><dd>' + escapeHtml(info.cargo) + '</dd>' +
+            '<dt>' + targetIcon + ' Target</dt><dd>' + escapeHtml(info.target) + '</dd>' +
+            '<dt>' + clockIcon + ' Built</dt><dd>' + formatLocalTime(info.timestamp) + (info.cacheHit ? ' (cached)' : '') + '</dd>' +
+            depsHtml +
+            '</dl>';
+
+        overlay.appendChild(popup);
+        document.body.appendChild(overlay);
+
+        function close() {
+            overlay.remove();
+        }
+
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) close();
+        });
+        popup.querySelector('.close-btn').addEventListener('click', close);
+        document.addEventListener('keydown', function handler(e) {
+            if (e.key === 'Escape') {
+                close();
+                document.removeEventListener('keydown', handler);
+            }
+        });
+    };
+})();
+</script>"##;
+
+/// Escape a string for JSON embedding
+fn escape_json(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t")
+}
+
+/// Normalize code for matching (decode HTML entities, trim whitespace)
+fn normalize_code_for_matching(code: &str) -> String {
+    code.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .trim()
+        .to_string()
+}
+
+/// Build a map from normalized code text to metadata for code blocks with execution results
+fn build_code_metadata_map(results: &[CodeExecutionResult]) -> HashMap<String, &CodeExecutionMetadata> {
+    let mut map = HashMap::new();
+    for result in results {
+        if let Some(ref metadata) = result.metadata {
+            let normalized = result.code.trim().to_string();
+            map.insert(normalized, metadata);
+        }
+    }
+    map
+}
+
+/// Convert metadata to JSON for embedding in onclick handler
+fn metadata_to_json(meta: &CodeExecutionMetadata) -> String {
+    let rustc_short = meta.rustc_version.lines().next().unwrap_or(&meta.rustc_version);
+
+    let deps_json: Vec<String> = meta.dependencies.iter().map(|d| {
+        let source_json = match &d.source {
+            DependencySourceInfo::CratesIo => r#"{"type":"crates.io"}"#.to_string(),
+            DependencySourceInfo::Git { url, commit } => {
+                format!(r#"{{"type":"git","url":"{}","commit":"{}"}}"#,
+                    escape_json(url),
+                    escape_json(commit))
+            }
+            DependencySourceInfo::Path { path } => {
+                format!(r#"{{"type":"path","path":"{}"}}"#, escape_json(path))
+            }
+        };
+        format!(r#"{{"name":"{}","version":"{}","source":{}}}"#,
+            escape_json(&d.name),
+            escape_json(&d.version),
+            source_json)
+    }).collect();
+
+    format!(
+        r#"{{"rustc":"{}","cargo":"{}","target":"{}","timestamp":"{}","cacheHit":{},"platform":"{}","arch":"{}","deps":[{}]}}"#,
+        escape_json(rustc_short),
+        escape_json(&meta.cargo_version),
+        escape_json(&meta.target),
+        escape_json(&meta.timestamp),
+        meta.cache_hit,
+        escape_json(&meta.platform),
+        escape_json(&meta.arch),
+        deps_json.join(",")
+    )
+}
+
+/// Inject build info buttons into code blocks using lol_html
+fn inject_build_info_buttons(
+    html: &str,
+    code_metadata: &HashMap<String, &CodeExecutionMetadata>,
+) -> (String, bool) {
+    use lol_html::html_content::ContentType;
+    use std::rc::Rc;
+
+    if code_metadata.is_empty() {
+        return (html.to_string(), false);
+    }
+
+    // Track text content per <pre> element and whether we added any buttons
+    let current_code_text = Rc::new(RefCell::new(String::new()));
+    let had_buttons = Rc::new(RefCell::new(false));
+
+    // Clone code_metadata into owned data for the closure
+    let metadata_map: HashMap<String, CodeExecutionMetadata> = code_metadata
+        .iter()
+        .map(|(k, v)| (k.clone(), (*v).clone()))
+        .collect();
+
+    let result = rewrite_str(
+        html,
+        RewriteStrSettings {
+            element_content_handlers: vec![
+                // Handle <pre> elements
+                element!("pre", |el| {
+                    // Clear buffer for this <pre> element
+                    current_code_text.borrow_mut().clear();
+
+                    // Clone refs for the end tag handler
+                    let code_text_ref = current_code_text.clone();
+                    let had_buttons_ref = had_buttons.clone();
+                    let metadata_map_ref = metadata_map.clone();
+
+                    // Set up end tag handler
+                    if let Some(handlers) = el.end_tag_handlers() {
+                        let handler: lol_html::EndTagHandler<'static> = Box::new(move |end_tag| {
+                            let code_text = code_text_ref.borrow();
+                            let normalized = normalize_code_for_matching(&code_text);
+
+                            if let Some(meta) = metadata_map_ref.get(&normalized) {
+                                *had_buttons_ref.borrow_mut() = true;
+                                let json = metadata_to_json(meta);
+                                let rustc_short = meta.rustc_version.lines().next().unwrap_or(&meta.rustc_version);
+
+                                // Inject button HTML before the closing </pre> tag
+                                // Note: JSON must be HTML-escaped since it's inside a double-quoted attribute
+                                let button_html = format!(
+                                    r#"<button class="build-info-btn verified" aria-label="View build info" title="Verified: {}" onclick="showBuildInfoPopup({})">&#9432;</button>"#,
+                                    escape_html_attr(rustc_short),
+                                    escape_html_attr(&json)
+                                );
+                                end_tag.before(&button_html, ContentType::Html);
+                            }
+
+                            Ok(())
+                        });
+                        handlers.push(handler);
+                    }
+
+                    Ok(())
+                }),
+                // Collect text inside <code> elements within <pre>
+                text!("pre code", |t| {
+                    current_code_text.borrow_mut().push_str(t.as_str());
+                    Ok(())
+                }),
+            ],
+            ..Default::default()
+        },
+    );
+
+    match result {
+        Ok(rewritten) => (rewritten, *had_buttons.borrow()),
+        Err(e) => {
+            tracing::warn!("Failed to inject build info buttons: {:?}", e);
+            (html.to_string(), false)
+        }
+    }
+}
+
+/// Escape a string for use in HTML attributes
+fn escape_html_attr(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 /// Inject livereload script, copy buttons, and optionally mark dead links
+#[allow(dead_code)]
 pub fn inject_livereload(html: &str, options: RenderOptions, known_routes: Option<&HashSet<String>>) -> String {
+    inject_livereload_with_build_info(html, options, known_routes, &[])
+}
+
+/// Inject livereload script, copy buttons, build info, and optionally mark dead links
+pub fn inject_livereload_with_build_info(
+    html: &str,
+    options: RenderOptions,
+    known_routes: Option<&HashSet<String>>,
+    code_execution_results: &[CodeExecutionResult],
+) -> String {
     let mut result = html.to_string();
     let mut has_dead_links = false;
 
@@ -105,13 +511,26 @@ pub fn inject_livereload(html: &str, options: RenderOptions, known_routes: Optio
         has_dead_links = had_dead;
     }
 
+    // Build the code metadata map and inject buttons into code blocks
+    let code_metadata = build_code_metadata_map(code_execution_results);
+    let (with_buttons, had_build_info) = inject_build_info_buttons(&result, &code_metadata);
+    result = with_buttons;
+
+    // Only include build info styles and popup script if we actually injected buttons
+    let build_info_assets = if had_build_info {
+        format!("{BUILD_INFO_STYLES}{BUILD_INFO_POPUP_SCRIPT}")
+    } else {
+        String::new()
+    };
+
     // Always inject copy button script for code blocks
     // Try to inject after <html, but fall back to after <!doctype html> if <html not found
+    let scripts_to_inject = format!("{CODE_COPY_SCRIPT}{build_info_assets}");
     if result.contains("<html") {
-        result = result.replacen("<html", &format!("{CODE_COPY_SCRIPT}<html"), 1);
+        result = result.replacen("<html", &format!("{scripts_to_inject}<html"), 1);
     } else if let Some(pos) = result.to_lowercase().find("<!doctype html>") {
         let end = pos + "<!doctype html>".len();
-        result.insert_str(end, CODE_COPY_SCRIPT);
+        result.insert_str(end, &scripts_to_inject);
     }
 
     if options.livereload {
@@ -749,5 +1168,95 @@ fn route_to_path(route: &str) -> String {
         "_index.md".to_string()
     } else {
         format!("{r}/_index.md")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{CodeExecutionMetadata, CodeExecutionResult, DependencySourceInfo, ResolvedDependencyInfo};
+
+    fn make_test_result(code: &str, metadata: Option<CodeExecutionMetadata>) -> CodeExecutionResult {
+        CodeExecutionResult {
+            source_path: "test.md".to_string(),
+            line: 1,
+            language: "rust".to_string(),
+            code: code.to_string(),
+            success: true,
+            exit_code: Some(0),
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms: 100,
+            error: None,
+            metadata,
+        }
+    }
+
+    #[test]
+    fn test_inject_build_info_buttons() {
+        let html = r#"<html><body><pre><code>fn main() {}</code></pre></body></html>"#;
+
+        let metadata = CodeExecutionMetadata {
+            rustc_version: "rustc 1.83.0-nightly".to_string(),
+            cargo_version: "cargo 1.83.0".to_string(),
+            target: "x86_64-unknown-linux-gnu".to_string(),
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            cache_hit: false,
+            platform: "linux".to_string(),
+            arch: "x86_64".to_string(),
+            dependencies: vec![
+                ResolvedDependencyInfo {
+                    name: "serde".to_string(),
+                    version: "1.0.0".to_string(),
+                    source: DependencySourceInfo::CratesIo,
+                },
+            ],
+        };
+
+        let results = vec![make_test_result("fn main() {}", Some(metadata))];
+
+        let code_metadata = build_code_metadata_map(&results);
+        let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata);
+
+        assert!(had_buttons, "Should have injected buttons");
+        assert!(result.contains(r#"class="build-info-btn verified""#), "Should contain button");
+        assert!(result.contains("showBuildInfoPopup"), "Should have onclick handler");
+        assert!(result.contains("rustc 1.83.0-nightly"), "Should contain rustc version in title");
+    }
+
+    #[test]
+    fn test_inject_build_info_buttons_no_match() {
+        let html = r#"<html><body><pre><code>fn other() {}</code></pre></body></html>"#;
+
+        let metadata = CodeExecutionMetadata {
+            rustc_version: "rustc 1.83.0-nightly".to_string(),
+            cargo_version: "cargo 1.83.0".to_string(),
+            target: "x86_64-unknown-linux-gnu".to_string(),
+            timestamp: "2024-01-01T00:00:00Z".to_string(),
+            cache_hit: false,
+            platform: "linux".to_string(),
+            arch: "x86_64".to_string(),
+            dependencies: vec![],
+        };
+
+        // Different code than what's in the HTML
+        let results = vec![make_test_result("fn main() {}", Some(metadata))];
+
+        let code_metadata = build_code_metadata_map(&results);
+        let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata);
+
+        assert!(!had_buttons, "Should not have injected buttons");
+        assert!(!result.contains("build-info-btn"), "Should not contain button");
+    }
+
+    #[test]
+    fn test_inject_build_info_buttons_empty_metadata() {
+        let html = r#"<html><body><pre><code>fn main() {}</code></pre></body></html>"#;
+
+        let code_metadata: HashMap<String, &CodeExecutionMetadata> = HashMap::new();
+        let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata);
+
+        assert!(!had_buttons, "Should not have injected buttons with empty metadata");
+        assert_eq!(result, html, "HTML should be unchanged");
     }
 }

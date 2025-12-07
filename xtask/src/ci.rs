@@ -3,6 +3,8 @@
 //! This module provides typed representations of GitHub Actions workflow files
 //! and generates the release workflow for dodeca.
 
+#![allow(dead_code)] // Scaffolding for future CI features
+
 use facet::Facet;
 use indexmap::IndexMap;
 
