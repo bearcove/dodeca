@@ -78,7 +78,7 @@ impl CodeExecutionConfig {
         let mut language_config = HashMap::new();
         let rust_config = LanguageConfig {
             command: kdl.rust.command.clone().unwrap_or_else(|| "cargo".to_string()),
-            args: kdl.rust.args.clone().unwrap_or_else(|| vec!["run".to_string()]),
+            args: kdl.rust.args.clone().unwrap_or_else(|| vec!["run".to_string(), "--release".to_string()]),
             extension: kdl.rust.extension.clone().unwrap_or_else(|| "rs".to_string()),
             prepare_code: kdl.rust.prepare_code.unwrap_or(true),
             auto_imports: kdl.rust.auto_imports.clone().unwrap_or_else(|| {
@@ -128,7 +128,7 @@ impl LanguageConfig {
     fn rust() -> Self {
         Self {
             command: "cargo".to_string(),
-            args: vec!["run".to_string()],
+            args: vec!["run".to_string(), "--release".to_string()],
             extension: "rs".to_string(),
             prepare_code: true,
             auto_imports: vec![
@@ -474,14 +474,26 @@ fn prepare_rust_shared_target(
     cmd.args(["build", "--release"]);
     cmd.current_dir(&base_project_dir);
     cmd.env("CARGO_TARGET_DIR", &shared_target_dir);
-    cmd.stdout(Stdio::inherit());
-    cmd.stderr(Stdio::inherit());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
 
-    let status = execute_with_timeout_inherit(&mut cmd, timeout_secs)
+    eprintln!("=== Building shared target dependencies ===");
+
+    let output = execute_with_timeout_capture(&mut cmd, timeout_secs)
         .map_err(|e| format!("Failed to build base project: {}", e))?;
 
-    if !status.success() {
-        return Err(format!("Base project build failed with code: {:?}", status.code()));
+    // Print captured output
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !stdout.is_empty() {
+        eprintln!("{}", stdout);
+    }
+    if !stderr.is_empty() {
+        eprintln!("{}", stderr);
+    }
+
+    if !output.status.success() {
+        return Err(format!("Base project build failed with code: {:?}", output.status.code()));
     }
 
     // Capture metadata for fresh build (cache_hit = false)
@@ -633,7 +645,7 @@ fn execute_rust_sample(
         };
     }
 
-    // Execute with cargo - inherit streams so output is visible during build
+    // Execute with cargo - capture output for TUI compatibility
     // Use nightly with special flags if we have a shared target dir
     let mut cmd = Command::new(&lang_config.command);
     if shared_target_info.is_some() {
@@ -642,8 +654,8 @@ fn execute_rust_sample(
     }
     cmd.args(&lang_config.args);
     cmd.current_dir(&project_dir);
-    cmd.stdout(Stdio::inherit());
-    cmd.stderr(Stdio::inherit());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
 
     // Use shared target directory if available (deps pre-compiled there)
     if let Some(info) = shared_target_info {
@@ -660,8 +672,8 @@ fn execute_rust_sample(
         lang_config.args.join(" ")
     );
 
-    let status = match execute_with_timeout_inherit(&mut cmd, config.timeout_secs) {
-        Ok(status) => status,
+    let output = match execute_with_timeout_capture(&mut cmd, config.timeout_secs) {
+        Ok(output) => output,
         Err(e) => {
             let _ = fs::remove_dir_all(&project_dir);
             return ExecutionResult {
@@ -676,21 +688,31 @@ fn execute_rust_sample(
         }
     };
 
-    let success = status.success();
-    let final_success = success;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    // Print captured output for visibility
+    if !stdout.is_empty() {
+        eprintln!("{}", stdout);
+    }
+    if !stderr.is_empty() {
+        eprintln!("{}", stderr);
+    }
+
+    let success = output.status.success();
 
     let result = ExecutionResult {
-        success: final_success,
-        exit_code: status.code(),
-        stdout: String::new(), // Not captured with inherit
-        stderr: String::new(), // Not captured with inherit
+        success,
+        exit_code: output.status.code(),
+        stdout,
+        stderr,
         duration_ms: start_time.elapsed().as_millis() as u64,
-        error: if final_success {
+        error: if success {
             None
         } else {
             Some(format!(
                 "Process exited with code: {:?}",
-                status.code()
+                output.status.code()
             ))
         },
         metadata,
@@ -794,11 +816,12 @@ fn _execute_with_timeout(cmd: &mut Command, timeout_secs: u64) -> Result<Output,
     }
 }
 
-/// Execute a command with timeout (inherited streams, returns ExitStatus)
-fn execute_with_timeout_inherit(
+/// Execute a command with timeout (piped streams, returns Output with stdout/stderr)
+fn execute_with_timeout_capture(
     cmd: &mut Command,
     timeout_secs: u64,
-) -> Result<std::process::ExitStatus, String> {
+) -> Result<Output, String> {
+    use std::io::Read;
     use std::time::Instant;
 
     let mut child = cmd
@@ -812,7 +835,18 @@ fn execute_with_timeout_inherit(
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                return Ok(status);
+                // Process finished, collect output
+                let mut stdout = Vec::new();
+                let mut stderr = Vec::new();
+
+                if let Some(mut stdout_pipe) = child.stdout.take() {
+                    let _ = stdout_pipe.read_to_end(&mut stdout);
+                }
+                if let Some(mut stderr_pipe) = child.stderr.take() {
+                    let _ = stderr_pipe.read_to_end(&mut stderr);
+                }
+
+                return Ok(Output { status, stdout, stderr });
             }
             Ok(None) => {
                 // Process still running, check timeout
