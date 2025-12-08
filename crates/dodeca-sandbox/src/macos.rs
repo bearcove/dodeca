@@ -276,9 +276,9 @@ impl<'a> Command<'a> {
         }
 
         // Configure I/O
-        cmd.stdin(self.stdin.into());
-        cmd.stdout(self.stdout.into());
-        cmd.stderr(self.stderr.into());
+        cmd.stdin(self.stdin);
+        cmd.stdout(self.stdout);
+        cmd.stderr(self.stderr);
 
         // Execute with optional timeout
         let std_output = if let Some(timeout) = self.config.timeout {
