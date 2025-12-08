@@ -50,6 +50,11 @@ pub fn encode_webp(pixels: Vec<u8>, width: u32, height: u32, quality: u8) -> Plu
     PlugResult::Ok(webp.to_vec())
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn debug_struct_size() -> usize {
+    std::mem::size_of::<plugcard::MethodSignature>()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,9 +83,4 @@ mod tests {
         let result = encode_webp(pixels, 2, 2, 80); // claims 2x2
         assert!(matches!(result, PlugResult::Err(_)));
     }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn debug_struct_size() -> usize {
-    std::mem::size_of::<plugcard::MethodSignature>()
 }
