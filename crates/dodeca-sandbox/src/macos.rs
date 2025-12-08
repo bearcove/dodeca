@@ -139,6 +139,10 @@ impl<'a> Command<'a> {
         // Debug logging for denied operations (useful for debugging)
         profile.push_str("(debug deny)\n");
 
+        // Allow file metadata reads globally - needed for realpath(), stat(), etc.
+        // This doesn't leak file contents, just existence and attributes.
+        profile.push_str("(allow file-read-metadata)\n");
+
         // Allow process execution
         profile.push_str("(allow process-fork)\n");
 
@@ -451,6 +455,140 @@ mod tests {
         assert_eq!(
             String::from_utf8_lossy(&output.stdout).trim(),
             "test_value"
+        );
+    }
+
+    #[test]
+    fn test_cargo_build() {
+        use std::process::Command;
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let project_dir = temp_dir.path();
+
+        // Create a minimal Rust project
+        std::fs::write(
+            project_dir.join("Cargo.toml"),
+            r#"[package]
+name = "sandbox-test-project"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+"#,
+        )
+        .unwrap();
+
+        std::fs::create_dir(project_dir.join("src")).unwrap();
+        std::fs::write(
+            project_dir.join("src/main.rs"),
+            r#"fn main() {
+    println!("Hello from sandboxed build!");
+}
+"#,
+        )
+        .unwrap();
+
+        // Run cargo fetch outside the sandbox to download dependencies
+        // (the project has no deps, but this ensures the index is ready)
+        let fetch_status = Command::new("cargo")
+            .args(["fetch"])
+            .current_dir(project_dir)
+            .status()
+            .expect("failed to run cargo fetch");
+        assert!(fetch_status.success(), "cargo fetch failed");
+
+        // Get paths from environment
+        let cargo_path =
+            std::env::var("CARGO").unwrap_or_else(|_| "/Users/amos/.cargo/bin/cargo".to_string());
+        let home_dir = std::env::var("HOME").unwrap_or_else(|_| "/Users/amos".to_string());
+        let rustup_home =
+            std::env::var("RUSTUP_HOME").unwrap_or_else(|_| format!("{home_dir}/.rustup"));
+        let cargo_home =
+            std::env::var("CARGO_HOME").unwrap_or_else(|_| format!("{home_dir}/.cargo"));
+
+        // Get the active toolchain's bin directory
+        let rustc_path = Command::new("rustup")
+            .args(["which", "rustc"])
+            .output()
+            .expect("failed to run rustup which rustc");
+        let rustc_path = String::from_utf8_lossy(&rustc_path.stdout);
+        let toolchain_bin = std::path::Path::new(rustc_path.trim())
+            .parent()
+            .expect("rustc path has no parent")
+            .to_string_lossy()
+            .to_string();
+
+        // Get SDK path for linker
+        let sdk_path = Command::new("xcrun")
+            .args(["--sdk", "macosx", "--show-sdk-path"])
+            .output()
+            .expect("failed to run xcrun --show-sdk-path");
+        let sdk_path = String::from_utf8_lossy(&sdk_path.stdout).trim().to_string();
+
+        // Get developer dir
+        let developer_dir = Command::new("xcode-select")
+            .args(["-p"])
+            .output()
+            .expect("failed to run xcode-select -p");
+        let developer_dir = String::from_utf8_lossy(&developer_dir.stdout)
+            .trim()
+            .to_string();
+
+        // Configure sandbox for cargo build
+        let config = SandboxConfig::new()
+            // System paths needed for compilation
+            .allow_read_execute("/usr")
+            .allow_read_execute("/bin")
+            // SSL/TLS configuration (needed by cargo for git operations)
+            .allow_read("/private/etc")
+            // xcode-select symlinks
+            .allow_read("/private/var/select")
+            // Rust toolchain (read + execute)
+            .allow_read_execute(&rustup_home)
+            .allow_read_execute(&cargo_home)
+            // Project directory (read + write for build artifacts)
+            .allow_full(project_dir)
+            // Homebrew (for linker, etc. on macOS)
+            .allow_read_execute("/opt/homebrew")
+            // Library paths
+            .allow_read("/Library")
+            // Xcode / developer tools (linker, SDK)
+            .allow_read_execute("/Applications/Xcode.app")
+            .allow_read_execute("/Applications/Xcode-beta.app")
+            .allow_read_execute("/Library/Developer")
+            // Deny network (we've already fetched dependencies)
+            .deny_network();
+
+        let sandbox = Sandbox::new(config).unwrap();
+        let output = sandbox
+            .command(&cargo_path)
+            .args(["build", "--release"])
+            .current_dir(project_dir)
+            .env("RUSTUP_HOME", &rustup_home)
+            .env("CARGO_HOME", &cargo_home)
+            .env("HOME", &home_dir)
+            .env("SDKROOT", &sdk_path)
+            .env("DEVELOPER_DIR", &developer_dir)
+            .env(
+                "PATH",
+                format!("{cargo_home}/bin:{toolchain_bin}:/usr/bin:/bin:/opt/homebrew/bin"),
+            )
+            .output()
+            .unwrap();
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        assert!(
+            output.status.success(),
+            "cargo build failed:\nstdout: {stdout}\nstderr: {stderr}"
+        );
+
+        // Verify the binary was created
+        let binary_path = project_dir.join("target/release/sandbox-test-project");
+        assert!(
+            binary_path.exists(),
+            "binary was not created at {binary_path:?}"
         );
     }
 }
