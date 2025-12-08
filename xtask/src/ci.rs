@@ -64,6 +64,37 @@ pub const PLUGINS: &[&str] = &[
     "dodeca-webp",
 ];
 
+/// Plugin groups for parallel CI builds.
+/// Groups are designed to balance build times and minimize dependency overlap.
+pub struct PluginGroup {
+    pub name: &'static str,
+    pub plugins: &'static [&'static str],
+}
+
+/// Plugin groups:
+/// - group1 (image processing): webp, jxl, image - share image codec dependencies
+/// - group2 (web assets): minify, css, sass - lightweight web processing
+/// - group3 (misc): fonts, pagefind, linkcheck, svgo, baseline
+/// - group4 (js): js - isolated because OXC is a heavy dependency
+pub const PLUGIN_GROUPS: &[PluginGroup] = &[
+    PluginGroup {
+        name: "image",
+        plugins: &["dodeca-webp", "dodeca-jxl", "dodeca-image"],
+    },
+    PluginGroup {
+        name: "web",
+        plugins: &["dodeca-minify", "dodeca-css", "dodeca-sass"],
+    },
+    PluginGroup {
+        name: "misc",
+        plugins: &["dodeca-fonts", "dodeca-pagefind", "dodeca-linkcheck", "dodeca-svgo", "dodeca-baseline"],
+    },
+    PluginGroup {
+        name: "js",
+        plugins: &["dodeca-js"],
+    },
+];
+
 /// A target platform configuration.
 pub struct Target {
     pub triple: &'static str,
@@ -388,6 +419,202 @@ pub mod common {
 }
 
 // =============================================================================
+// CI workflow builder (for PRs and main branch)
+// =============================================================================
+
+/// CI runner configuration.
+struct CiRunner {
+    os: &'static str,
+    runner: &'static str,
+    lib_ext: &'static str,
+    lib_prefix: &'static str,
+    wasm_install: &'static str,
+}
+
+const CI_LINUX: CiRunner = CiRunner {
+    os: "linux",
+    runner: "depot-ubuntu-24.04-16",
+    lib_ext: "so",
+    lib_prefix: "lib",
+    wasm_install: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh",
+};
+
+const CI_MACOS: CiRunner = CiRunner {
+    os: "macos",
+    runner: "depot-macos-15",
+    lib_ext: "dylib",
+    lib_prefix: "lib",
+    wasm_install: "brew install wasm-pack",
+};
+
+/// Build the CI workflow (runs on PRs and main branch pushes).
+///
+/// Strategy:
+/// - Windows: Simple sequential build + check (no parallelization needed)
+/// - Linux/macOS: Parallel build jobs, each with unit tests, uploading artifacts
+///   - build-ddc: Builds ddc binary + WASM, runs unit tests, uploads binary
+///   - build-plugins-{group}: Builds plugin group, runs unit tests, uploads .so/.dylib
+///   - integration: Downloads all artifacts, runs integration tests
+pub fn build_ci_workflow() -> Workflow {
+    use common::*;
+
+    let mut jobs = IndexMap::new();
+
+    // Windows check job (simple, no parallelization needed)
+    jobs.insert(
+        "check-windows".into(),
+        Job::new("depot-windows-2022-16")
+            .name("Check (Windows)")
+            .steps([
+                checkout(),
+                install_rust_with_target("wasm32-unknown-unknown"),
+                rust_cache(),
+                Step::run("Install wasm-pack", "cargo install wasm-pack").shell("bash"),
+                Step::run("Build", "cargo xtask build").shell("bash"),
+                Step::run("Check", "cargo check --all-features").shell("bash"),
+            ]),
+    );
+
+    // For Linux and macOS, we use parallel builds with artifact passing
+    for runner in [&CI_LINUX, &CI_MACOS] {
+        let os = runner.os;
+        let lib_ext = runner.lib_ext;
+        let lib_prefix = runner.lib_prefix;
+
+        // Job: Build ddc binary + WASM
+        let build_ddc_id = format!("build-ddc-{os}");
+        jobs.insert(
+            build_ddc_id.clone(),
+            Job::new(runner.runner)
+                .name(format!("Build ddc ({os})"))
+                .steps([
+                    checkout(),
+                    Step::uses("Install Rust (stable)", "dtolnay/rust-toolchain@stable")
+                        .with_inputs([
+                            ("components", "clippy"),
+                            ("targets", "wasm32-unknown-unknown"),
+                        ]),
+                    Step::uses("Install Rust (nightly)", "dtolnay/rust-toolchain@nightly"),
+                    rust_cache(),
+                    Step::run("Install wasm-pack", runner.wasm_install),
+                    Step::run("Build WASM", "cargo xtask wasm"),
+                    Step::run("Build ddc", "cargo build --release -p dodeca"),
+                    Step::run("Run ddc unit tests", "cargo test --release -p dodeca --lib"),
+                    Step::run("Clippy", "cargo clippy --all-features --all-targets -- -D warnings"),
+                    upload_artifact(
+                        format!("ddc-{os}"),
+                        "target/release/ddc",
+                    ),
+                ]),
+        );
+
+        // Jobs: Build plugin groups in parallel
+        let mut all_build_job_ids = vec![build_ddc_id];
+
+        for group in PLUGIN_GROUPS {
+            let job_id = format!("build-plugins-{}-{os}", group.name);
+            let plugins_arg: String = group.plugins.iter()
+                .map(|p| format!("-p {p}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let test_arg: String = group.plugins.iter()
+                .map(|p| format!("-p {p}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            // Build the glob pattern for uploading plugin .so/.dylib files
+            let upload_paths: String = group.plugins.iter()
+                .map(|p| {
+                    let lib_name = p.replace('-', "_");
+                    format!("target/release/{lib_prefix}{lib_name}.{lib_ext}")
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            jobs.insert(
+                job_id.clone(),
+                Job::new(runner.runner)
+                    .name(format!("Build plugins/{} ({os})", group.name))
+                    .steps([
+                        checkout(),
+                        Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
+                        rust_cache(),
+                        Step::run(
+                            format!("Build {} plugins", group.name),
+                            format!("cargo build --release {plugins_arg}"),
+                        ),
+                        Step::run(
+                            format!("Test {} plugins", group.name),
+                            format!("cargo test --release {test_arg}"),
+                        ),
+                        Step::uses("Upload plugin artifacts", "actions/upload-artifact@v4")
+                            .with_inputs([
+                                ("name", format!("plugins-{}-{os}", group.name)),
+                                ("path", upload_paths),
+                                ("retention-days", "1".into()),
+                            ]),
+                    ]),
+            );
+
+            all_build_job_ids.push(job_id);
+        }
+
+        // Job: Integration tests - download all artifacts and run integration tests
+        jobs.insert(
+            format!("integration-{os}"),
+            Job::new(runner.runner)
+                .name(format!("Integration ({os})"))
+                .needs(all_build_job_ids)
+                .steps([
+                    checkout(),
+                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
+                    rust_cache(),
+                    // Download ddc binary
+                    Step::uses("Download ddc", "actions/download-artifact@v4")
+                        .with_inputs([
+                            ("name", format!("ddc-{os}")),
+                            ("path", "artifacts/bin".into()),
+                        ]),
+                    // Download all plugin artifacts
+                    Step::uses("Download plugins", "actions/download-artifact@v4")
+                        .with_inputs([
+                            ("pattern", format!("plugins-*-{os}")),
+                            ("path", "artifacts/plugins".into()),
+                            ("merge-multiple", "true".into()),
+                        ]),
+                    Step::run("Make ddc executable", "chmod +x artifacts/bin/ddc"),
+                    Step::run("List artifacts", "find artifacts -type f | head -50"),
+                    Step::run(
+                        "Run integration tests",
+                        "cargo test --release -p dodeca-integration --test '*'",
+                    )
+                    .with_env([
+                        ("DODECA_BIN", "artifacts/bin/ddc"),
+                        ("DODECA_PLUGINS", "artifacts/plugins"),
+                    ]),
+                ]),
+        );
+    }
+
+    Workflow {
+        name: "CI".into(),
+        on: On {
+            push: Some(PushTrigger {
+                tags: None,
+                branches: Some(vec!["main".into()]),
+            }),
+            pull_request: Some(PullRequestTrigger {
+                branches: Some(vec!["main".into()]),
+            }),
+            workflow_dispatch: None,
+        },
+        permissions: None,
+        env: None,
+        jobs,
+    }
+}
+
+// =============================================================================
 // Release workflow builder
 // =============================================================================
 
@@ -480,9 +707,8 @@ gh release create "${{ github.ref_name }}" \
                 tags: Some(vec!["v*".into()]),
                 branches: None,
             }),
-            pull_request: Some(PullRequestTrigger {
-                branches: Some(vec!["main".into()]),
-            }),
+            // Only run on tags, not PRs - CI workflow handles PR builds
+            pull_request: None,
             workflow_dispatch: Some(WorkflowDispatchTrigger {}),
         },
         permissions: Some(
@@ -723,61 +949,58 @@ Main
 "##, repo = repo)
 }
 
-/// Generate CI workflow files and installer script.
-pub fn generate(repo_root: &Utf8Path, check: bool) -> Result<()> {
-    // Generate release workflow
-    let workflow = build_release_workflow();
-    let yaml_content = format!(
+/// Helper to serialize a workflow to YAML with the generated header.
+fn workflow_to_yaml(workflow: &Workflow) -> Result<String> {
+    Ok(format!(
         "{}{}",
         GENERATED_HEADER,
-        facet_yaml::to_string(&workflow)
+        facet_yaml::to_string(workflow)
             .map_err(|e| miette::miette!("failed to serialize workflow: {}", e))?
-    );
+    ))
+}
 
-    let release_path = repo_root.join(".github/workflows/release.yml");
+/// Check or write a generated file.
+fn check_or_write(path: &Utf8Path, content: &str, check: bool) -> Result<()> {
+    if check {
+        let existing = fs_err::read_to_string(path)
+            .map_err(|e| miette::miette!("failed to read {}: {}", path, e))?;
+
+        if existing != content {
+            return Err(miette::miette!(
+                "{} is out of date. Run `cargo xtask ci` to update.",
+                path.file_name().unwrap_or("file")
+            ));
+        }
+        println!("{} is up to date.", path.file_name().unwrap_or("file"));
+    } else {
+        fs_err::create_dir_all(path.parent().unwrap())
+            .map_err(|e| miette::miette!("failed to create directory: {}", e))?;
+
+        fs_err::write(path, content)
+            .map_err(|e| miette::miette!("failed to write {}: {}", path, e))?;
+
+        println!("Generated: {}", path);
+    }
+    Ok(())
+}
+
+/// Generate CI workflow files and installer script.
+pub fn generate(repo_root: &Utf8Path, check: bool) -> Result<()> {
+    let workflows_dir = repo_root.join(".github/workflows");
+
+    // Generate CI workflow
+    let ci_workflow = build_ci_workflow();
+    let ci_yaml = workflow_to_yaml(&ci_workflow)?;
+    check_or_write(&workflows_dir.join("ci.yml"), &ci_yaml, check)?;
+
+    // Generate release workflow
+    let release_workflow = build_release_workflow();
+    let release_yaml = workflow_to_yaml(&release_workflow)?;
+    check_or_write(&workflows_dir.join("release.yml"), &release_yaml, check)?;
 
     // Generate installer script
     let installer_content = generate_installer_script();
-    let installer_path = repo_root.join("install.sh");
-
-    if check {
-        // Check release workflow
-        let existing = fs_err::read_to_string(&release_path)
-            .map_err(|e| miette::miette!("failed to read {}: {}", release_path, e))?;
-
-        if existing != yaml_content {
-            return Err(miette::miette!(
-                "Release workflow is out of date. Run `cargo xtask ci` to update."
-            ));
-        }
-        println!("Release workflow is up to date.");
-
-        // Check installer script
-        let existing_installer = fs_err::read_to_string(&installer_path)
-            .map_err(|e| miette::miette!("failed to read {}: {}", installer_path, e))?;
-
-        if existing_installer != installer_content {
-            return Err(miette::miette!(
-                "Installer script is out of date. Run `cargo xtask ci` to update."
-            ));
-        }
-        println!("Installer script is up to date.");
-    } else {
-        // Write release workflow
-        fs_err::create_dir_all(release_path.parent().unwrap())
-            .map_err(|e| miette::miette!("failed to create directory: {}", e))?;
-
-        fs_err::write(&release_path, &yaml_content)
-            .map_err(|e| miette::miette!("failed to write {}: {}", release_path, e))?;
-
-        println!("Generated: {}", release_path);
-
-        // Write installer script
-        fs_err::write(&installer_path, &installer_content)
-            .map_err(|e| miette::miette!("failed to write {}: {}", installer_path, e))?;
-
-        println!("Generated: {}", installer_path);
-    }
+    check_or_write(&repo_root.join("install.sh"), &installer_content, check)?;
 
     Ok(())
 }

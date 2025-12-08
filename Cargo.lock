@@ -2167,6 +2167,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dodeca-integration"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "regex",
+ "reqwest",
+ "tempfile",
+ "test-log",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "dodeca-js"
 version = "0.1.0"
 dependencies = [

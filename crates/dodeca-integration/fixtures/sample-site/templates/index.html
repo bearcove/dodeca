@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>{{ section.title }}</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/main.css">
+</head>
+<body>
+  <h1>{{ section.title }}</h1>
+  {{ section.content | safe }}
+  <img src="/images/test.png" alt="Test Image">
+  <img src="/images/test.svg" alt="Test SVG">
+  <script src="/js/main.js"></script>
+</body>
+</html>
