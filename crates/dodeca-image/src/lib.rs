@@ -172,7 +172,7 @@ mod tests {
     #[test]
     fn test_resize_image() {
         // 4x4 red pixels (RGBA)
-        let pixels = vec![255u8, 0, 0, 255].repeat(4 * 4);
+        let pixels = [255u8, 0, 0, 255].repeat(4 * 4);
 
         let result = resize_image(pixels, 4, 4, 4, 2);
         let PlugResult::Ok(resized) = result else {

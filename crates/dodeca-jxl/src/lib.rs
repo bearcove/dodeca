@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn test_encode_jxl() {
         // 16x16 red pixels (RGBA) - JXL encoder needs larger images
-        let pixels = vec![255u8, 0, 0, 255].repeat(16 * 16);
+        let pixels = [255u8, 0, 0, 255].repeat(16 * 16);
 
         let result = encode_jxl(pixels, 16, 16, 80);
         let PlugResult::Ok(data) = result else {
