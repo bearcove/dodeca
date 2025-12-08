@@ -90,9 +90,8 @@ postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary seria
 # Devtools protocol (shared types between server and WASM client)
 dodeca-protocol = { path = "../dodeca-protocol" }
 
-# Code execution plugin types
-dodeca-code-execution = { path = "../dodeca-code-execution" }
-dodeca-code-execution-config = { path = "../dodeca-code-execution-config" }
+# Code execution plugin types (lightweight - no plugin implementation)
+dodeca-code-execution-types = { path = "../dodeca-code-execution-types" }
 
 # Content-addressed storage
 rapidhash = "4"

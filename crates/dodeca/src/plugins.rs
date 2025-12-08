@@ -858,7 +858,7 @@ pub fn has_linkcheck_plugin() -> bool {
 /// Extract code samples from markdown using plugin.
 ///
 /// Returns None if plugin is not loaded.
-pub fn extract_code_samples_plugin(content: &str, source_path: &str) -> Option<Vec<dodeca_code_execution::CodeSample>> {
+pub fn extract_code_samples_plugin(content: &str, source_path: &str) -> Option<Vec<dodeca_code_execution_types::CodeSample>> {
     let plugin = plugins().code_execution.as_ref()?;
 
     #[derive(Facet)]
@@ -872,7 +872,7 @@ pub fn extract_code_samples_plugin(content: &str, source_path: &str) -> Option<V
         content: content.to_string(),
     };
 
-    match plugin.call::<Input, PlugResult<dodeca_code_execution::ExtractSamplesOutput>>("extract_code_samples", &input) {
+    match plugin.call::<Input, PlugResult<dodeca_code_execution_types::ExtractSamplesOutput>>("extract_code_samples", &input) {
         Ok(PlugResult::Ok(output)) => Some(output.samples),
         Ok(PlugResult::Err(e)) => {
             warn!("code execution plugin error: {}", e);
@@ -889,21 +889,21 @@ pub fn extract_code_samples_plugin(content: &str, source_path: &str) -> Option<V
 ///
 /// Returns None if plugin is not loaded.
 pub fn execute_code_samples_plugin(
-    samples: Vec<dodeca_code_execution::CodeSample>,
-    config: dodeca_code_execution::CodeExecutionConfig,
-) -> Option<Vec<(dodeca_code_execution::CodeSample, dodeca_code_execution::ExecutionResult)>> {
+    samples: Vec<dodeca_code_execution_types::CodeSample>,
+    config: dodeca_code_execution_types::CodeExecutionConfig,
+) -> Option<Vec<(dodeca_code_execution_types::CodeSample, dodeca_code_execution_types::ExecutionResult)>> {
     let plugin = plugins().code_execution.as_ref()?;
 
     #[derive(Facet)]
     struct Input {
-        samples: Vec<dodeca_code_execution::CodeSample>,
-        config: dodeca_code_execution::CodeExecutionConfig,
+        samples: Vec<dodeca_code_execution_types::CodeSample>,
+        config: dodeca_code_execution_types::CodeExecutionConfig,
     }
 
     let input = Input { samples, config };
 
     // Use call_with_logger to route plugin logs to tracing
-    match plugin.call_with_logger::<Input, PlugResult<dodeca_code_execution::ExecuteSamplesOutput>>(
+    match plugin.call_with_logger::<Input, PlugResult<dodeca_code_execution_types::ExecuteSamplesOutput>>(
         "execute_code_samples",
         &input,
         Some(plugin_log_callback),

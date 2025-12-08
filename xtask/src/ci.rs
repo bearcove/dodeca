@@ -76,6 +76,7 @@ pub struct PluginGroup {
 /// - group2 (web assets): minify, css, sass - lightweight web processing
 /// - group3 (misc): fonts, pagefind, linkcheck, svgo, baseline
 /// - group4 (js): js - isolated because OXC is a heavy dependency
+/// - group5 (code): code-execution - isolated due to pulldown-cmark
 pub const PLUGIN_GROUPS: &[PluginGroup] = &[
     PluginGroup {
         name: "image",
@@ -92,6 +93,10 @@ pub const PLUGIN_GROUPS: &[PluginGroup] = &[
     PluginGroup {
         name: "js",
         plugins: &["dodeca-js"],
+    },
+    PluginGroup {
+        name: "code",
+        plugins: &["dodeca-code-execution"],
     },
 ];
 

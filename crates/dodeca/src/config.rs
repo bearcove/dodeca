@@ -11,7 +11,7 @@ use std::env;
 use std::fs;
 
 // Re-export shared config types
-pub use dodeca_code_execution_config::CodeExecutionConfig;
+pub use dodeca_code_execution_types::KdlCodeExecutionConfig as CodeExecutionConfig;
 
 /// Configuration file name
 const CONFIG_DIR: &str = ".config";

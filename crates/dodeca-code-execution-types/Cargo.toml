@@ -1,0 +1,14 @@
+[package]
+name = "dodeca-code-execution-types"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Shared types for dodeca code execution plugin interface"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+facet = { git = "https://github.com/facet-rs/facet" }
+
+# Re-export config types
+dodeca-code-execution-config = { path = "../dodeca-code-execution-config" }

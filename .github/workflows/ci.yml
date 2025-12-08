@@ -197,6 +197,34 @@ jobs:
           retention-days: "1"
 
 
+  build-plugins-code-linux: 
+    name: Build plugins/code (linux)
+    runs-on: depot-ubuntu-24.04-16
+    steps: 
+      - 
+        name: Checkout
+        uses: actions/checkout@v4
+      - 
+        name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - 
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
+      - 
+        name: Build code plugins
+        run: cargo build --release -p dodeca-code-execution
+      - 
+        name: Test code plugins
+        run: cargo test --release -p dodeca-code-execution
+      - 
+        name: Upload plugin artifacts
+        uses: actions/upload-artifact@v4
+        with: 
+          name: plugins-code-linux
+          path: target/release/libdodeca_code_execution.so
+          retention-days: "1"
+
+
   integration-linux: 
     name: Integration (linux)
     runs-on: depot-ubuntu-24.04-16
@@ -206,6 +234,7 @@ jobs:
       - build-plugins-web-linux
       - build-plugins-misc-linux
       - build-plugins-js-linux
+      - build-plugins-code-linux
 
     steps: 
       - 
@@ -401,6 +430,34 @@ jobs:
           retention-days: "1"
 
 
+  build-plugins-code-macos: 
+    name: Build plugins/code (macos)
+    runs-on: depot-macos-15
+    steps: 
+      - 
+        name: Checkout
+        uses: actions/checkout@v4
+      - 
+        name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - 
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
+      - 
+        name: Build code plugins
+        run: cargo build --release -p dodeca-code-execution
+      - 
+        name: Test code plugins
+        run: cargo test --release -p dodeca-code-execution
+      - 
+        name: Upload plugin artifacts
+        uses: actions/upload-artifact@v4
+        with: 
+          name: plugins-code-macos
+          path: target/release/libdodeca_code_execution.dylib
+          retention-days: "1"
+
+
   integration-macos: 
     name: Integration (macos)
     runs-on: depot-macos-15
@@ -410,6 +467,7 @@ jobs:
       - build-plugins-web-macos
       - build-plugins-misc-macos
       - build-plugins-js-macos
+      - build-plugins-code-macos
 
     steps: 
       - 

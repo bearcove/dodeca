@@ -1582,7 +1582,7 @@ pub fn execute_all_code_samples(db: &dyn Db, sources: SourceRegistry) -> Vec<Cod
     let mut all_results = Vec::new();
 
     // Create default configuration for code execution
-    let config = dodeca_code_execution::CodeExecutionConfig::default();
+    let config = dodeca_code_execution_types::CodeExecutionConfig::default();
 
     // Extract and execute code samples from all source files
     for source in sources.sources(db) {
@@ -1669,8 +1669,8 @@ pub fn execute_all_code_samples(db: &dyn Db, sources: SourceRegistry) -> Vec<Cod
 }
 
 /// Convert plugin DependencySource to db DependencySourceInfo
-fn convert_dependency_source(source: dodeca_code_execution::DependencySource) -> DependencySourceInfo {
-    use dodeca_code_execution::DependencySource;
+fn convert_dependency_source(source: dodeca_code_execution_types::DependencySource) -> DependencySourceInfo {
+    use dodeca_code_execution_types::DependencySource;
     match source {
         DependencySource::CratesIo => DependencySourceInfo::CratesIo,
         DependencySource::Git { url, commit } => DependencySourceInfo::Git { url, commit },

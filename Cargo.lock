@@ -2037,8 +2037,7 @@ dependencies = [
  "color-eyre",
  "crossterm",
  "divan",
- "dodeca-code-execution",
- "dodeca-code-execution-config",
+ "dodeca-code-execution-types",
  "dodeca-protocol",
  "facet",
  "facet-args",
@@ -2098,7 +2097,7 @@ dependencies = [
 name = "dodeca-code-execution"
 version = "0.1.0"
 dependencies = [
- "dodeca-code-execution-config",
+ "dodeca-code-execution-types",
  "facet",
  "facet-json",
  "linkme",
@@ -2112,6 +2111,14 @@ version = "0.1.0"
 dependencies = [
  "facet",
  "facet-kdl",
+]
+
+[[package]]
+name = "dodeca-code-execution-types"
+version = "0.1.0"
+dependencies = [
+ "dodeca-code-execution-config",
+ "facet",
 ]
 
 [[package]]
