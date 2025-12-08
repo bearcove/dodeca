@@ -129,38 +129,18 @@ impl<'a> Command<'a> {
         // Default deny
         profile.push_str("(deny default)\n");
 
+        // Import macOS system profile - provides essential low-level permissions for:
+        // - locale info
+        // - system libraries (/System/Library, /usr/lib, etc)
+        // - basic tools (/etc, /dev/urandom, etc)
+        // - Apple services (com.apple.system, com.apple.dyld, etc)
+        profile.push_str("(import \"/System/Library/Sandbox/Profiles/system.sb\")\n");
+
         // Debug logging for denied operations (useful for debugging)
         profile.push_str("(debug deny)\n");
 
         // Allow process execution
         profile.push_str("(allow process-fork)\n");
-        profile.push_str("(allow process-exec*)\n");
-
-        // Allow signal handling
-        profile.push_str("(allow signal)\n");
-
-        // Allow basic system operations
-        profile.push_str("(allow sysctl-read)\n");
-
-        // Allow mach services needed for basic operation
-        profile.push_str(
-            "(allow mach-lookup
-                (global-name \"com.apple.system.logger\")
-                (global-name \"com.apple.system.notification_center\")
-                (global-name \"com.apple.CoreServices.coreservicesd\")
-                (global-name \"com.apple.FSEvents\")
-                (global-name \"com.apple.lsd.mapdb\"))\n",
-        );
-
-        // Basic devices
-        if self.config.allow_dev_basics {
-            profile.push_str("(allow file-read* file-write* (literal \"/dev/null\"))\n");
-            profile.push_str("(allow file-read* file-write* (literal \"/dev/zero\"))\n");
-            profile.push_str("(allow file-read* (literal \"/dev/urandom\"))\n");
-            profile.push_str("(allow file-read* (literal \"/dev/random\"))\n");
-            profile.push_str("(allow file-read* file-write* (subpath \"/dev/fd\"))\n");
-            profile.push_str("(allow file-read* (literal \"/dev/tty\"))\n");
-        }
 
         // /tmp access
         if self.config.allow_tmp {
@@ -171,12 +151,6 @@ impl<'a> Command<'a> {
                 "(allow file-read* file-write* (regex #\"^/private/var/folders/.*\"))\n",
             );
         }
-
-        // Always allow reading system libraries and frameworks
-        profile.push_str("(allow file-read* (subpath \"/System/Library\"))\n");
-        profile.push_str("(allow file-read* (subpath \"/Library/Frameworks\"))\n");
-        profile.push_str("(allow file-read* (subpath \"/usr/lib\"))\n");
-        profile.push_str("(allow file-read* (subpath \"/usr/share\"))\n");
 
         // Add configured paths
         for (path, access) in &self.config.paths {
@@ -406,7 +380,9 @@ mod tests {
 
     #[test]
     fn test_simple_command() {
-        let config = SandboxConfig::new().allow_read("/usr").allow_read("/bin");
+        let config = SandboxConfig::new()
+            .allow_read("/usr")
+            .allow_read_execute("/bin");
 
         let sandbox = Sandbox::new(config).unwrap();
         let output = sandbox.command("/bin/echo").arg("hello").output().unwrap();
@@ -437,9 +413,9 @@ mod tests {
     #[test]
     fn test_write_blocked() {
         let config = SandboxConfig::new()
-            .allow_read("/usr")
-            .allow_read("/bin")
-            .allow_read("/var"); // read-only!
+            .allow_read("/var") // read-only!
+            .allow_read_execute("/usr")
+            .allow_read_execute("/bin");
 
         let sandbox = Sandbox::new(config).unwrap();
 
@@ -461,7 +437,7 @@ mod tests {
 
         let config = SandboxConfig::new()
             .allow_read("/usr")
-            .allow_read("/bin")
+            .allow_read_execute("/bin")
             .inherit_env("TEST_SANDBOX_VAR");
 
         let sandbox = Sandbox::new(config).unwrap();
