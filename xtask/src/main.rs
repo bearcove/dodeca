@@ -157,10 +157,10 @@ fn discover_plugins() -> Vec<String> {
 
             // Check if it's a cdylib (plugin)
             let cargo_toml = path.join("Cargo.toml");
-            if let Ok(content) = fs::read_to_string(&cargo_toml) {
-                if content.contains("cdylib") {
-                    plugins.push(name.to_string());
-                }
+            if let Ok(content) = fs::read_to_string(&cargo_toml)
+                && content.contains("cdylib")
+            {
+                plugins.push(name.to_string());
             }
         }
     }
@@ -270,7 +270,7 @@ fn install_dev() -> bool {
     let cargo_bin = match env::var("CARGO_HOME") {
         Ok(home) => PathBuf::from(home).join("bin"),
         Err(_) => {
-            if let Some(home) = env::var("HOME").ok() {
+            if let Ok(home) = env::var("HOME") {
                 PathBuf::from(home).join(".cargo").join("bin")
             } else {
                 eprintln!("Could not determine cargo bin directory");

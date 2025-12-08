@@ -646,7 +646,7 @@ mod tests {
 
         // Now we should have resolved the specific path
         let paths = resolver.resolved_paths();
-        assert!(paths.iter().any(|p| p.segments() == &["versions", "dodeca", "version"]));
+        assert!(paths.iter().any(|p| p.segments() == ["versions", "dodeca", "version"]));
     }
 
     #[test]

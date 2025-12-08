@@ -13,7 +13,7 @@ use crate::state::{send_message, DevtoolsState, ReplEntry};
 #[component]
 pub fn Repl() -> Element {
     let mut state = use_context::<Signal<DevtoolsState>>();
-    let mut input = use_signal(|| String::new());
+    let mut input = use_signal(String::new);
 
     let mut on_submit = move |_| {
         let expr = input();

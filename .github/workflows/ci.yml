@@ -39,7 +39,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install wasm-pack
-        run: cargo install wasm-pack
+        run: brew install wasm-pack
 
       - name: Build
         run: cargo xtask build
@@ -142,7 +142,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Install wasm-pack
-        run: cargo install wasm-pack
+        run: brew install wasm-pack
 
       - name: Build
         run: cargo xtask build
