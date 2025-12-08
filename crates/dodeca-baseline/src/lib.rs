@@ -39,6 +39,7 @@ mod tests {
 
         // Serialize input: { input: "hello" }
         #[derive(plugcard::facet::Facet)]
+        #[facet(crate = plugcard::facet)]
         struct Input {
             input: String,
         }
@@ -46,7 +47,7 @@ mod tests {
         let input = Input {
             input: "hello".to_string(),
         };
-        let input_bytes = plugcard::facet_postcard::to_allocvec(&input).unwrap();
+        let input_bytes = plugcard::facet_postcard::to_vec(&input).unwrap();
 
         let mut output_buf = [0u8; 256];
         let mut data = MethodCallData {
@@ -56,6 +57,7 @@ mod tests {
             output_ptr: output_buf.as_mut_ptr(),
             output_cap: output_buf.len(),
             output_len: 0,
+            log_callback: None,
             result: MethodCallResult::default(),
         };
 
@@ -77,13 +79,14 @@ mod tests {
 
         // Serialize input: { a: 5, b: 3 }
         #[derive(plugcard::facet::Facet)]
+        #[facet(crate = plugcard::facet)]
         struct Input {
             a: i32,
             b: i32,
         }
 
         let input = Input { a: 5, b: 3 };
-        let input_bytes = plugcard::facet_postcard::to_allocvec(&input).unwrap();
+        let input_bytes = plugcard::facet_postcard::to_vec(&input).unwrap();
 
         let mut output_buf = [0u8; 256];
         let mut data = MethodCallData {
@@ -93,6 +96,7 @@ mod tests {
             output_ptr: output_buf.as_mut_ptr(),
             output_cap: output_buf.len(),
             output_len: 0,
+            log_callback: None,
             result: MethodCallResult::default(),
         };
 

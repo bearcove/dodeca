@@ -124,6 +124,9 @@ jobs:
       - name: Build
         run: cargo xtask build
 
+      - name: Install nightly toolchain for code execution tests
+        run: rustup toolchain install nightly
+
       - name: Run tests
         run: cargo test --all-features
 
@@ -143,6 +146,9 @@ jobs:
 
       - name: Build
         run: cargo xtask build
+
+      - name: Install nightly toolchain for code execution tests
+        run: rustup toolchain install nightly
 
       - name: Run tests
         run: cargo test --all-features
