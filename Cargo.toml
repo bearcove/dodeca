@@ -22,6 +22,7 @@ members = [
     "crates/dodeca-code-execution",
     "crates/dodeca-code-execution-config",
     "crates/dodeca-code-execution-types",
+    "crates/dodeca-html-diff",
     "crates/dodeca-sandbox",
     "crates/dodeca-integration",
     "xtask",

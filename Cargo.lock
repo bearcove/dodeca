@@ -2049,12 +2049,10 @@ dependencies = [
  "futures",
  "futures-util",
  "gingembre",
- "html5ever 0.36.1",
  "if-addrs",
  "ignore",
  "livereload-client",
  "lol_html 2.7.0",
- "markup5ever_rcdom",
  "maud",
  "miette",
  "minijinja",
@@ -2159,6 +2157,19 @@ dependencies = [
  "fontcull",
  "linkme",
  "plugcard",
+]
+
+[[package]]
+name = "dodeca-html-diff"
+version = "0.1.0"
+dependencies = [
+ "dodeca-protocol",
+ "facet",
+ "html5ever 0.36.1",
+ "linkme",
+ "markup5ever_rcdom",
+ "plugcard",
+ "rayon",
 ]
 
 [[package]]

@@ -64,6 +64,8 @@ pub struct PluginRegistry {
     pub linkcheck: Option<Plugin>,
     /// Code sample execution plugin
     pub code_execution: Option<Plugin>,
+    /// HTML diff plugin for livereload
+    pub html_diff: Option<Plugin>,
 }
 
 impl PluginRegistry {
@@ -81,8 +83,9 @@ impl PluginRegistry {
         let fonts = Self::try_load_plugin(dir, "dodeca_fonts");
         let linkcheck = Self::try_load_plugin(dir, "dodeca_linkcheck");
         let code_execution = Self::try_load_plugin(dir, "dodeca_code_execution");
+        let html_diff = Self::try_load_plugin(dir, "dodeca_html_diff");
 
-        PluginRegistry { webp, jxl, minify, svgo, sass, css, js, pagefind, image, fonts, linkcheck, code_execution }
+        PluginRegistry { webp, jxl, minify, svgo, sass, css, js, pagefind, image, fonts, linkcheck, code_execution, html_diff }
     }
 
     /// Check if any plugins were loaded
@@ -99,6 +102,7 @@ impl PluginRegistry {
             || self.fonts.is_some()
             || self.linkcheck.is_some()
             || self.code_execution.is_some()
+            || self.html_diff.is_some()
     }
 
     fn try_load_plugin(dir: &Path, name: &str) -> Option<Plugin> {
@@ -196,6 +200,7 @@ pub fn plugins() -> &'static PluginRegistry {
             fonts: None,
             linkcheck: None,
             code_execution: None,
+            html_diff: None,
         }
     })
 }
@@ -920,6 +925,43 @@ pub fn execute_code_samples_plugin(
         }
         Err(e) => {
             warn!("code execution plugin call failed: {}", e);
+            None
+        }
+    }
+}
+
+/// Result of HTML diffing
+#[derive(Facet)]
+pub struct HtmlDiffResult {
+    pub patches: Vec<dodeca_protocol::Patch>,
+    pub nodes_compared: usize,
+    pub nodes_skipped: usize,
+}
+
+/// Diff two HTML documents and produce patches using the plugin.
+/// Returns None if the plugin is not loaded.
+pub fn diff_html_plugin(old_html: &str, new_html: &str) -> Option<HtmlDiffResult> {
+    let plugin = plugins().html_diff.as_ref()?;
+
+    #[derive(Facet)]
+    struct Input {
+        old_html: String,
+        new_html: String,
+    }
+
+    let input = Input {
+        old_html: old_html.to_string(),
+        new_html: new_html.to_string(),
+    };
+
+    match plugin.call::<Input, PlugResult<HtmlDiffResult>>("diff_html", &input) {
+        Ok(PlugResult::Ok(result)) => Some(result),
+        Ok(PlugResult::Err(e)) => {
+            warn!("html diff plugin error: {}", e);
+            None
+        }
+        Err(e) => {
+            warn!("html diff plugin call failed: {}", e);
             None
         }
     }

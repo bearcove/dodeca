@@ -53,6 +53,7 @@ pub const PLUGINS: &[&str] = &[
     "dodeca-baseline",
     "dodeca-css",
     "dodeca-fonts",
+    "dodeca-html-diff",
     "dodeca-image",
     "dodeca-js",
     "dodeca-jxl",
@@ -73,7 +74,7 @@ pub struct PluginGroup {
 
 /// Plugin groups:
 /// - group1 (image processing): webp, jxl, image - share image codec dependencies
-/// - group2 (web assets): minify, css, sass - lightweight web processing
+/// - group2 (web assets): minify, css, sass, html-diff - lightweight web processing
 /// - group3 (misc): fonts, pagefind, linkcheck, svgo, baseline
 /// - group4 (js): js - isolated because OXC is a heavy dependency
 /// - group5 (code): code-execution - isolated due to pulldown-cmark
@@ -84,7 +85,7 @@ pub const PLUGIN_GROUPS: &[PluginGroup] = &[
     },
     PluginGroup {
         name: "web",
-        plugins: &["dodeca-minify", "dodeca-css", "dodeca-sass"],
+        plugins: &["dodeca-minify", "dodeca-css", "dodeca-sass", "dodeca-html-diff"],
     },
     PluginGroup {
         name: "misc",

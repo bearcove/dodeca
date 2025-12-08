@@ -206,7 +206,7 @@ pub enum LiveReloadMsg {
     /// Full page reload (fallback)
     Reload,
     /// Patches for a specific route
-    Patches { route: String, patches: Vec<crate::html_diff::Patch> },
+    Patches { route: String, patches: Vec<dodeca_protocol::Patch> },
     /// CSS update (new cache-busted path)
     CssUpdate { path: String },
     /// Template error occurred
@@ -222,8 +222,8 @@ pub enum LiveReloadMsg {
 }
 
 /// Summarize patch operations for logging
-fn summarize_patches(patches: &[crate::html_diff::Patch]) -> String {
-    use crate::html_diff::Patch;
+fn summarize_patches(patches: &[dodeca_protocol::Patch]) -> String {
+    use dodeca_protocol::Patch;
 
     let mut replace = 0;
     let mut insert = 0;
@@ -414,7 +414,7 @@ impl SiteServer {
     /// Notify all connected browsers to reload
     /// Computes patches for all cached routes and sends them
     pub fn trigger_reload(&self) {
-        use crate::html_diff::{parse_html, diff};
+        use crate::plugins::diff_html_plugin;
 
         // Check for CSS changes first
         let old_css_path = {
@@ -508,14 +508,9 @@ impl SiteServer {
                         }
                     }
 
-                    // Try to parse both DOMs
-                    let old_dom = parse_html(&old);
-                    let new_dom = parse_html(&new);
-
-                    match (old_dom, new_dom) {
-                        (Some(old_dom), Some(new_dom)) => {
-                            let diff_result = diff(&old_dom, &new_dom);
-
+                    // Try to diff using the plugin
+                    match diff_html_plugin(&old, &new) {
+                        Some(diff_result) => {
                             if diff_result.patches.is_empty() {
                                 // DOM structure identical but HTML differs (whitespace/comments?)
                                 // This is a no-op - no need to reload for invisible changes
@@ -538,17 +533,13 @@ impl SiteServer {
                                 });
                             }
                         }
-                        (None, _) => {
-                            tracing::error!(
-                                "🔴 {} - failed to parse old HTML - THIS IS A BUG",
+                        None => {
+                            // Plugin not available or failed - fall back to full reload
+                            tracing::debug!(
+                                "{} - html_diff plugin not available, sending full reload",
                                 route
                             );
-                        }
-                        (_, None) => {
-                            tracing::error!(
-                                "🔴 {} - failed to parse new HTML - THIS IS A BUG",
-                                route
-                            );
+                            let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
                         }
                     }
                 }

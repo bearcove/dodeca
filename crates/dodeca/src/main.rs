@@ -7,7 +7,6 @@ mod data;
 mod db;
 mod error_pages;
 mod file_watcher;
-mod html_diff;
 mod image;
 mod link_checker;
 mod logging;

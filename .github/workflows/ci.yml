@@ -131,16 +131,16 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - 
         name: Build web plugins
-        run: cargo build --release -p dodeca-minify -p dodeca-css -p dodeca-sass
+        run: cargo build --release -p dodeca-minify -p dodeca-css -p dodeca-sass -p dodeca-html-diff
       - 
         name: Test web plugins
-        run: cargo test --release -p dodeca-minify -p dodeca-css -p dodeca-sass
+        run: cargo test --release -p dodeca-minify -p dodeca-css -p dodeca-sass -p dodeca-html-diff
       - 
         name: Upload plugin artifacts
         uses: actions/upload-artifact@v4
         with: 
           name: plugins-web-linux
-          path: "target/release/libdodeca_minify.so\ntarget/release/libdodeca_css.so\ntarget/release/libdodeca_sass.so"
+          path: "target/release/libdodeca_minify.so\ntarget/release/libdodeca_css.so\ntarget/release/libdodeca_sass.so\ntarget/release/libdodeca_html_diff.so"
           retention-days: "1"
 
 
@@ -367,16 +367,16 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - 
         name: Build web plugins
-        run: cargo build --release -p dodeca-minify -p dodeca-css -p dodeca-sass
+        run: cargo build --release -p dodeca-minify -p dodeca-css -p dodeca-sass -p dodeca-html-diff
       - 
         name: Test web plugins
-        run: cargo test --release -p dodeca-minify -p dodeca-css -p dodeca-sass
+        run: cargo test --release -p dodeca-minify -p dodeca-css -p dodeca-sass -p dodeca-html-diff
       - 
         name: Upload plugin artifacts
         uses: actions/upload-artifact@v4
         with: 
           name: plugins-web-macos
-          path: "target/release/libdodeca_minify.dylib\ntarget/release/libdodeca_css.dylib\ntarget/release/libdodeca_sass.dylib"
+          path: "target/release/libdodeca_minify.dylib\ntarget/release/libdodeca_css.dylib\ntarget/release/libdodeca_sass.dylib\ntarget/release/libdodeca_html_diff.dylib"
           retention-days: "1"
 
 

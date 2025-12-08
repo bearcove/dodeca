@@ -125,9 +125,7 @@ plugcard = { path = "../plugcard" }
 # Template engine
 gingembre = { path = "../gingembre" }
 
-# HTML parsing (for DOM diffing)
-html5ever = "0.36"
-markup5ever_rcdom = "0.36"
+# HTML diffing is handled via the dodeca-html-diff plugin
 
 # Minimal-versions workarounds: these transitive deps have ancient minimum
 # version specs that don't build on modern Rust
@@ -144,10 +142,6 @@ tempfile = "3"  # For isolated test fixtures
 livereload-client = { path = "../livereload-client" }  # For patch types in tests
 chromiumoxide = "0.8"  # Headless Chrome for E2E tests
 futures = "0.3"        # For StreamExt in browser tests
-
-[[bench]]
-name = "html_diff"
-harness = false
 
 [[bench]]
 name = "link_checker"

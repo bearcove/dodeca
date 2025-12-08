@@ -1,0 +1,21 @@
+[package]
+name = "dodeca-html-diff"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "HTML DOM diffing plugin for dodeca"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+plugcard = { path = "../plugcard" }
+dodeca-protocol = { path = "../dodeca-protocol" }
+facet = { git = "https://github.com/facet-rs/facet" }
+linkme = "0.3"
+
+html5ever = "0.36"
+markup5ever_rcdom = "0.36"
+rayon = "1"
+
+[dev-dependencies]
