@@ -148,10 +148,15 @@ impl PluginRegistry {
 pub fn plugins() -> &'static PluginRegistry {
     PLUGINS.get_or_init(|| {
         // Look for plugins in several locations:
-        // 1. Next to the executable
-        // 2. In plugins/ subdirectory next to executable (for installed releases)
-        // 3. In target/debug (for development)
-        // 4. In target/release
+        // 1. DODECA_PLUGIN_PATH environment variable (highest priority)
+        // 2. Next to the executable
+        // 3. In plugins/ subdirectory next to executable (for installed releases)
+        // 4. In target/debug (for development)
+        // 5. In target/release
+
+        let env_plugin_path = std::env::var("DODECA_PLUGIN_PATH")
+            .ok()
+            .map(PathBuf::from);
 
         let exe_dir = std::env::current_exe()
             .ok()
@@ -164,7 +169,7 @@ pub fn plugins() -> &'static PluginRegistry {
         #[cfg(not(debug_assertions))]
         let profile_dir = PathBuf::from("target/release");
 
-        let search_paths: Vec<PathBuf> = [exe_dir, plugins_dir, Some(profile_dir)]
+        let search_paths: Vec<PathBuf> = [env_plugin_path, exe_dir, plugins_dir, Some(profile_dir)]
             .into_iter()
             .flatten()
             .collect();
