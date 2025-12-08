@@ -2,11 +2,13 @@
 members = [
     "crates/dodeca",
     "crates/gingembre",
+    "crates/gingembre-types",
     "crates/livereload-client",
     "crates/dodeca-devtools",
     "crates/dodeca-protocol",
     "crates/plugcard",
     "crates/plugcard-macros",
+    "crates/rapace",
     "crates/dodeca-baseline",
     "crates/dodeca-webp",
     "crates/dodeca-jxl",

@@ -3095,6 +3095,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gingembre-types"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "facet-value",
+]
+
+[[package]]
 name = "glade"
 version = "0.1.0"
 source = "git+https://github.com/bearcove/glade#773bd62c424ec24239028be5c64e0bc57f789cb1"
@@ -6720,6 +6728,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16abd0c1b639e9eb4d7c50c0b8100b0d0f849be2349829c740fe8e6eb4816429"
 dependencies = [
  "rand_core 0.5.1",
+]
+
+[[package]]
+name = "rapace"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "facet-postcard",
+ "libc",
+ "paste",
+ "tokio",
 ]
 
 [[package]]
