@@ -274,8 +274,8 @@ jobs:
         name: Run integration tests
         run: "cargo test --release -p dodeca-integration --test '*'"
         env: 
-          DODECA_BIN: artifacts/bin/ddc
-          DODECA_PLUGINS: artifacts/plugins
+          DODECA_BIN: ${{ github.workspace }}/artifacts/bin/ddc
+          DODECA_PLUGINS: ${{ github.workspace }}/artifacts/plugins
 
 
   build-ddc-macos: 
@@ -510,7 +510,7 @@ jobs:
         name: Run integration tests
         run: "cargo test --release -p dodeca-integration --test '*'"
         env: 
-          DODECA_BIN: artifacts/bin/ddc
-          DODECA_PLUGINS: artifacts/plugins
+          DODECA_BIN: ${{ github.workspace }}/artifacts/bin/ddc
+          DODECA_PLUGINS: ${{ github.workspace }}/artifacts/plugins
 
 

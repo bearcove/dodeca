@@ -595,8 +595,8 @@ pub fn build_ci_workflow() -> Workflow {
                         "cargo test --release -p dodeca-integration --test '*'",
                     )
                     .with_env([
-                        ("DODECA_BIN", "artifacts/bin/ddc"),
-                        ("DODECA_PLUGINS", "artifacts/plugins"),
+                        ("DODECA_BIN", "${{ github.workspace }}/artifacts/bin/ddc"),
+                        ("DODECA_PLUGINS", "${{ github.workspace }}/artifacts/plugins"),
                     ]),
                 ]),
         );
