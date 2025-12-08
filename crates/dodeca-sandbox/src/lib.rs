@@ -62,7 +62,10 @@ mod tests {
     fn test_cargo_build() {
         use std::process::Command;
 
-        let temp_dir = tempfile::tempdir().unwrap();
+        // Create temp directory outside of /tmp to avoid conflict with
+        // the sandbox's isolated tmpfs mount on Linux
+        let home_dir = std::env::var("HOME").expect("HOME not set");
+        let temp_dir = tempfile::tempdir_in(&home_dir).unwrap();
         let project_dir = temp_dir.path();
 
         // Create a minimal Rust project
@@ -98,7 +101,6 @@ edition = "2021"
         assert!(fetch_status.success(), "cargo fetch failed");
 
         // Get paths from environment
-        let home_dir = std::env::var("HOME").expect("HOME not set");
         let rustup_home =
             std::env::var("RUSTUP_HOME").unwrap_or_else(|_| format!("{home_dir}/.rustup"));
         let cargo_home =
