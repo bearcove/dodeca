@@ -72,6 +72,9 @@ jobs:
         name: Build ddc
         run: cargo build --release -p dodeca
       - 
+        name: Verify ddc binary exists
+        run: ls -la target/release/ddc
+      - 
         name: Run ddc unit tests
         run: cargo test --release -p dodeca --lib
       - 
@@ -262,11 +265,11 @@ jobs:
           merge-multiple: "true"
 
       - 
+        name: List artifacts
+        run: ls -laR artifacts/
+      - 
         name: Make ddc executable
         run: chmod +x artifacts/bin/ddc
-      - 
-        name: List artifacts
-        run: find artifacts -type f | head -50
       - 
         name: Run integration tests
         run: "cargo test --release -p dodeca-integration --test '*'"
@@ -304,6 +307,9 @@ jobs:
       - 
         name: Build ddc
         run: cargo build --release -p dodeca
+      - 
+        name: Verify ddc binary exists
+        run: ls -la target/release/ddc
       - 
         name: Run ddc unit tests
         run: cargo test --release -p dodeca --lib
@@ -495,11 +501,11 @@ jobs:
           merge-multiple: "true"
 
       - 
+        name: List artifacts
+        run: ls -laR artifacts/
+      - 
         name: Make ddc executable
         run: chmod +x artifacts/bin/ddc
-      - 
-        name: List artifacts
-        run: find artifacts -type f | head -50
       - 
         name: Run integration tests
         run: "cargo test --release -p dodeca-integration --test '*'"

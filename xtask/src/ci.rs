@@ -504,6 +504,7 @@ pub fn build_ci_workflow() -> Workflow {
                     Step::run("Install wasm-pack", runner.wasm_install),
                     Step::run("Build WASM", "cargo xtask wasm"),
                     Step::run("Build ddc", "cargo build --release -p dodeca"),
+                    Step::run("Verify ddc binary exists", "ls -la target/release/ddc"),
                     Step::run("Run ddc unit tests", "cargo test --release -p dodeca --lib"),
                     Step::run("Clippy", "cargo clippy --all-features --all-targets -- -D warnings"),
                     upload_artifact(
@@ -587,8 +588,8 @@ pub fn build_ci_workflow() -> Workflow {
                             ("path", "artifacts/plugins".into()),
                             ("merge-multiple", "true".into()),
                         ]),
+                    Step::run("List artifacts", "ls -laR artifacts/"),
                     Step::run("Make ddc executable", "chmod +x artifacts/bin/ddc"),
-                    Step::run("List artifacts", "find artifacts -type f | head -50"),
                     Step::run(
                         "Run integration tests",
                         "cargo test --release -p dodeca-integration --test '*'",
