@@ -107,8 +107,28 @@ jobs:
       - name: Report status
         run: cargo clippy --all-features --all-targets -- -D warnings
 
-  test:
+  test-linux:
     runs-on: depot-ubuntu-24.04-16
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Build
+        run: cargo xtask build
+
+      - name: Run tests
+        run: cargo test --all-features
+
+  test-macos:
+    runs-on: depot-macos-15
     steps:
       - uses: actions/checkout@v5
 
