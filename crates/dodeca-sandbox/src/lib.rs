@@ -55,7 +55,6 @@ pub use unsupported::{Sandbox, Command, Output, ExitStatus, Stdio};
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
-#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod tests {
     use super::*;
 
