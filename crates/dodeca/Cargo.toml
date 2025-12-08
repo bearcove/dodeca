@@ -1,0 +1,163 @@
+[package]
+name = "dodeca"
+version = "0.2.13"
+edition = "2024"
+rust-version = "1.91"
+authors = ["Amos Wenger <amos@bearcove.eu>"]
+license = "MIT OR Apache-2.0"
+description = "A fully incremental static site generator"
+repository = "https://github.com/bearcove/dodeca"
+homepage = "https://dodeca.bearcove.eu/"
+keywords = ["static-site", "ssg", "incremental"]
+categories = ["command-line-utilities", "web-programming"]
+
+
+
+[package.metadata.wix]
+upgrade-guid = "F32CA0D7-4DDE-4333-A5EA-374211B0C136"
+path-guid = "68C82E46-C932-4CA9-BEE0-216F988EADF9"
+license = false
+eula = false
+
+[[bin]]
+name = "ddc"
+path = "src/main.rs"
+
+[dependencies]
+# Facet (dogfooding!)
+facet = { git = "https://github.com/facet-rs/facet" }
+facet-kdl = { git = "https://github.com/facet-rs/facet" }
+facet-toml = { git = "https://github.com/facet-rs/facet" }
+facet-json = { git = "https://github.com/facet-rs/facet" }
+facet-yaml = { git = "https://github.com/facet-rs/facet" }
+facet-value = { git = "https://github.com/facet-rs/facet" }
+
+# YAML parsing (for data files - facet-yaml doesn't support dynamic values)
+serde_yaml = "0.9"
+
+# Markdown parsing
+pulldown-cmark = "0.13"
+
+# HTML generation
+maud = "0.27"
+
+# File system
+ignore = "0.4"
+notify = "8"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# TUI
+ratatui = "0.30.0-beta.0"
+crossterm = "0.29"
+
+# HTTP server (for serve mode)
+axum = { version = "0.8", features = ["ws"] }
+futures-util = "0.3"  # For stream handling in WebSocket
+
+# Parallel processing
+rayon = "1"
+
+# CLI (using facet-args instead of clap)
+facet-args = { git = "https://github.com/facet-rs/facet" }
+
+# Error handling & diagnostics
+color-eyre = "0.6"
+miette = { version = "7", features = ["fancy"] }
+thiserror = "2"
+owo-colors = "4"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Open in browser
+open = "5"
+
+# Network interfaces
+if-addrs = "0.14"
+cidr = "0.3"
+
+# Incremental computation
+salsa = { version = "0.24", features = ["persistence"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary serialization with serde
+
+# Devtools protocol (shared types between server and WASM client)
+dodeca-protocol = { path = "../dodeca-protocol" }
+
+# Code execution plugin types
+dodeca-code-execution = { path = "../dodeca-code-execution" }
+dodeca-code-execution-config = { path = "../dodeca-code-execution-config" }
+
+# Content-addressed storage
+rapidhash = "4"
+canopydb = "0.2.5"
+
+# Date handling
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+
+# Misc
+camino = "1"  # UTF-8 paths
+base64 = "0.22"  # For encoding thumbhash data URLs
+aliri_braid = "0.4"  # Strongly-typed string wrappers
+regex = "1"  # For HTML heading extraction
+url = "2"  # URL parsing for domain extraction
+
+# Self-update (HTTP client)
+reqwest = { version = "0.12", features = ["json"] }
+
+# URL rewriting (HTML only - CSS/JS via plugins)
+lol_html = "2.7"        # Streaming HTML rewriter
+
+# Font subsetting is now handled via the dodeca-fonts plugin
+
+# Image processing is now handled entirely via plugins (dodeca-image, dodeca-webp, dodeca-jxl)
+
+# Code execution is handled via the dodeca-code-execution plugin
+
+# Plugin system for image encoding/decoding, minification, etc.
+plugcard = { path = "../plugcard" }
+
+# Template engine
+gingembre = { path = "../gingembre" }
+
+# HTML parsing (for DOM diffing)
+html5ever = "0.36"
+markup5ever_rcdom = "0.36"
+
+# Minimal-versions workarounds: these transitive deps have ancient minimum
+# version specs that don't build on modern Rust
+phf = "0.11"  # 0.11+ drops proc-macro-hack (which needs syn 0.15)
+nom = "7"     # 7+ drops lexical-core 0.7 (broken usize/u32 ops)
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["blocking"] }
+divan = "0.1"
+minijinja = "2"  # For template engine benchmarks
+test-log = { version = "0.2", features = ["trace"] }
+regex = "1"  # For test assertions
+tempfile = "3"  # For isolated test fixtures
+livereload-client = { path = "../livereload-client" }  # For patch types in tests
+chromiumoxide = "0.8"  # Headless Chrome for E2E tests
+futures = "0.3"        # For StreamExt in browser tests
+
+[[bench]]
+name = "html_diff"
+harness = false
+
+[[bench]]
+name = "link_checker"
+harness = false
+
+[[bench]]
+name = "ansi_to_html"
+harness = false
+
+[[bench]]
+name = "template"
+harness = false
