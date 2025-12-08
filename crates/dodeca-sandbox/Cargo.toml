@@ -1,0 +1,18 @@
+[package]
+name = "dodeca-sandbox"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+description = "Cross-platform process sandboxing for dodeca"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+thiserror = "2"
+tracing = "0.1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+hakoniwa = "1.2"
+
+[dev-dependencies]
+tempfile = "3"
