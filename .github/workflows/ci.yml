@@ -7,46 +7,6 @@ on:
     branches: [main]
 
 jobs:
-  check-linux:
-    runs-on: depot-ubuntu-24.04-16
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install wasm-pack
-        run: cargo install wasm-pack
-
-      - name: Build
-        run: cargo xtask build
-
-      - name: Check
-        run: cargo check --all-features
-
-  check-macos:
-    runs-on: depot-macos-15
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install wasm-pack
-        run: brew install wasm-pack
-
-      - name: Build
-        run: cargo xtask build
-
-      - name: Check
-        run: cargo check --all-features
-
   check-windows:
     runs-on: depot-windows-2022-16
     defaults:
@@ -70,10 +30,8 @@ jobs:
       - name: Check
         run: cargo check --all-features
 
-  clippy:
+  test-linux:
     runs-on: depot-ubuntu-24.04-16
-    permissions:
-      security-events: write
     steps:
       - uses: actions/checkout@v5
 
@@ -82,50 +40,18 @@ jobs:
           components: clippy
           targets: wasm32-unknown-unknown
 
+      - uses: dtolnay/rust-toolchain@nightly
+
       - uses: Swatinem/rust-cache@v2
 
       - name: Install wasm-pack
-        run: cargo install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Build
         run: cargo xtask build
 
-      - name: Install SARIF tools
-        run: cargo install clippy-sarif sarif-fmt
-
-      - name: Run clippy with SARIF output
-        run: |
-          cargo clippy --all-features --all-targets --message-format=json | clippy-sarif | tee clippy-results.sarif | sarif-fmt
-        continue-on-error: true
-
-      - name: Upload SARIF results
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: clippy-results.sarif
-          wait-for-processing: true
-
-      - name: Report status
+      - name: Clippy
         run: cargo clippy --all-features --all-targets -- -D warnings
-
-  test-linux:
-    runs-on: depot-ubuntu-24.04-16
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Install wasm-pack
-        run: cargo install wasm-pack
-
-      - name: Build
-        run: cargo xtask build
-
-      - name: Install nightly toolchain for code execution tests
-        run: rustup toolchain install nightly
 
       - name: Run tests
         run: cargo test --all-features
@@ -137,7 +63,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          components: clippy
           targets: wasm32-unknown-unknown
+
+      - uses: dtolnay/rust-toolchain@nightly
 
       - uses: Swatinem/rust-cache@v2
 
@@ -147,8 +76,8 @@ jobs:
       - name: Build
         run: cargo xtask build
 
-      - name: Install nightly toolchain for code execution tests
-        run: rustup toolchain install nightly
+      - name: Clippy
+        run: cargo clippy --all-features --all-targets -- -D warnings
 
       - name: Run tests
         run: cargo test --all-features
