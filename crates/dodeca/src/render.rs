@@ -129,6 +129,25 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>"##;
 
+/// CSS for page transitions and JS for sidebar active item scroll
+const PAGE_TRANSITIONS: &str = r##"<style>
+@view-transition { navigation: auto; }
+::view-transition-old(root) {
+    animation: fade-out 0.15s ease-out;
+}
+::view-transition-new(root) {
+    animation: fade-in 0.15s ease-in;
+}
+@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var active = document.querySelector('nav a.active, aside a.active, .sidebar a.active, [aria-current="page"]');
+    if (active) active.scrollIntoView({ block: 'center' });
+});
+</script>"##;
+
 /// CSS and JS for build info icon on code blocks
 const BUILD_INFO_STYLES: &str = r##"<style>
 pre .build-info-btn {
@@ -559,7 +578,7 @@ pub fn inject_livereload_with_build_info(
 
     // Always inject copy button script and syntax highlighting styles for code blocks
     // Try to inject after <html, but fall back to after <!doctype html> if <html not found
-    let scripts_to_inject = format!("{SYNTAX_HIGHLIGHT_STYLES}{CODE_COPY_SCRIPT}{build_info_assets}");
+    let scripts_to_inject = format!("{SYNTAX_HIGHLIGHT_STYLES}{CODE_COPY_SCRIPT}{PAGE_TRANSITIONS}{build_info_assets}");
     if result.contains("<html") {
         result = result.replacen("<html", &format!("{scripts_to_inject}<html"), 1);
     } else if let Some(pos) = result.to_lowercase().find("<!doctype html>") {
