@@ -1,7 +1,7 @@
 //! SVG rendering for pikchr diagrams
 
 use crate::ast::*;
-use crate::types::{BoxIn, EvalValue, Length as Inches, Point, PtIn, Scaler, Size, UnitVec};
+use crate::types::{BoxIn, EvalValue, Length as Inches, OffsetIn, Point, PtIn, Scaler, Size, UnitVec};
 use facet_svg::facet_xml::SerializeOptions;
 use facet_svg::{
     Circle, Color, Ellipse, Path, PathData, Polygon, Rect, Svg, SvgNode, SvgStyle, Text, facet_xml,
@@ -481,14 +481,8 @@ impl RenderContext {
     }
 
     /// Move position in the current direction
-    /// Note: SVG Y increases downward, so Up subtracts and Down adds
     pub fn advance(&mut self, distance: Inches) {
-        match self.direction {
-            Direction::Right => self.position.x += distance,
-            Direction::Left => self.position.x -= distance,
-            Direction::Up => self.position.y -= distance,
-            Direction::Down => self.position.y += distance,
-        }
+        self.position = self.position + self.direction.offset(distance);
     }
 
     /// Add an object to the context
@@ -872,8 +866,7 @@ fn render_object_stmt(
     let mut from_attachment: Option<EndpointObject> = None;
     let mut to_attachment: Option<EndpointObject> = None;
     // Accumulated direction offsets for compound moves like "up 1 right 2"
-    let mut direction_offset_x: Inches = Inches::ZERO;
-    let mut direction_offset_y: Inches = Inches::ZERO;
+    let mut direction_offset = OffsetIn::ZERO;
     let mut has_direction_move: bool = false;
     let mut even_clause: Option<(Direction, Position)> = None;
     let mut then_clauses: Vec<ThenClause> = Vec::new();
@@ -1054,13 +1047,7 @@ fn render_object_stmt(
                     width // default distance
                 };
                 // Accumulate offset based on direction
-                // Note: SVG Y increases downward, so Up subtracts and Down adds
-                match dir {
-                    Direction::Right => direction_offset_x += distance,
-                    Direction::Left => direction_offset_x -= distance,
-                    Direction::Up => direction_offset_y -= distance,
-                    Direction::Down => direction_offset_y += distance,
-                }
+                direction_offset += dir.offset(distance);
             }
             Attribute::DirectionEven(_go, dir, pos) => {
                 even_clause = Some((*dir, pos.clone()));
@@ -1078,13 +1065,8 @@ fn render_object_stmt(
                         d
                     };
                     has_direction_move = true;
-                    // Apply in context direction (SVG Y increases downward)
-                    match ctx.direction {
-                        Direction::Right => direction_offset_x += val,
-                        Direction::Left => direction_offset_x -= val,
-                        Direction::Up => direction_offset_y -= val,
-                        Direction::Down => direction_offset_y += val,
-                    }
+                    // Apply in context direction
+                    direction_offset += ctx.direction.offset(val);
                 }
             }
             Attribute::Then(Some(clause)) => {
@@ -1171,17 +1153,17 @@ fn render_object_stmt(
             if let Some(last_obj) = ctx.last_object() {
                 let (hw, hh) = (last_obj.width / 2.0, last_obj.height / 2.0);
                 let c = last_obj.center;
-                let exit_x = if direction_offset_x > Inches::ZERO {
+                let exit_x = if direction_offset.dx > Inches::ZERO {
                     c.x + hw // moving right, exit from right edge
-                } else if direction_offset_x < Inches::ZERO {
+                } else if direction_offset.dx < Inches::ZERO {
                     c.x - hw // moving left, exit from left edge
                 } else {
                     c.x // no horizontal movement, use center
                 };
                 // In SVG coordinates: positive Y offset = down = bottom edge
-                let exit_y = if direction_offset_y > Inches::ZERO {
+                let exit_y = if direction_offset.dy > Inches::ZERO {
                     c.y + hh // moving down (positive Y), exit from bottom edge
-                } else if direction_offset_y < Inches::ZERO {
+                } else if direction_offset.dy < Inches::ZERO {
                     c.y - hh // moving up (negative Y), exit from top edge
                 } else {
                     c.y // no vertical movement, use center
@@ -1213,10 +1195,7 @@ fn render_object_stmt(
                 points.push(to_position.unwrap());
             } else if has_direction_move {
                 // Apply accumulated offsets as single diagonal move (C pikchr behavior)
-                let next = Point::new(
-                    current_pos.x + direction_offset_x,
-                    current_pos.y + direction_offset_y,
-                );
+                let next = current_pos + direction_offset;
                 points.push(next);
                 current_pos = next;
 
@@ -1406,12 +1385,7 @@ fn calculate_center_from_edge(
 /// Move a point in a direction by a distance
 /// Note: SVG Y increases downward, so Up subtracts and Down adds
 fn move_in_direction(pos: PointIn, dir: Direction, distance: Inches) -> PointIn {
-    match dir {
-        Direction::Right => Point::new(pos.x + distance, pos.y),
-        Direction::Left => Point::new(pos.x - distance, pos.y),
-        Direction::Up => Point::new(pos.x, pos.y - distance),
-        Direction::Down => Point::new(pos.x, pos.y + distance),
-    }
+    pos + dir.offset(distance)
 }
 
 /// Evaluate a then clause and return the next point and direction
@@ -1491,24 +1465,14 @@ fn calculate_object_position_at(
     width: Inches,
     height: Inches,
 ) -> (PointIn, PointIn, PointIn) {
-    let (start, end) = match direction {
-        Direction::Right => (
-            Point::new(center.x - width / 2.0, center.y),
-            Point::new(center.x + width / 2.0, center.y),
-        ),
-        Direction::Left => (
-            Point::new(center.x + width / 2.0, center.y),
-            Point::new(center.x - width / 2.0, center.y),
-        ),
-        Direction::Up => (
-            Point::new(center.x, center.y - height / 2.0),
-            Point::new(center.x, center.y + height / 2.0),
-        ),
-        Direction::Down => (
-            Point::new(center.x, center.y + height / 2.0),
-            Point::new(center.x, center.y - height / 2.0),
-        ),
+    let half_dim = match direction {
+        Direction::Right | Direction::Left => width / 2.0,
+        Direction::Up | Direction::Down => height / 2.0,
     };
+    // Start is opposite to travel direction (entry edge)
+    let start = center + direction.opposite().offset(half_dim);
+    // End is in travel direction (exit edge)
+    let end = center + direction.offset(half_dim);
     (center, start, end)
 }
 
@@ -1522,12 +1486,7 @@ fn calculate_object_position(
     let (start, end, center) = match class {
         ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Move => {
             let start = ctx.position;
-            let end = match ctx.direction {
-                Direction::Right => Point::new(start.x + width, start.y),
-                Direction::Left => Point::new(start.x - width, start.y),
-                Direction::Up => Point::new(start.x, start.y + width),
-                Direction::Down => Point::new(start.x, start.y - width),
-            };
+            let end = start + ctx.direction.offset(width);
             let mid = start.midpoint(end);
             (start, end, mid)
         }
@@ -1536,24 +1495,16 @@ fn calculate_object_position(
             // The entry edge is placed at the current cursor, not the center.
             // This matches C pikchr behavior where objects chain edge-to-edge.
             let (half_w, half_h) = (width / 2.0, height / 2.0);
-            let center = match ctx.direction {
-                Direction::Right => Point::new(ctx.position.x + half_w, ctx.position.y),
-                Direction::Left => Point::new(ctx.position.x - half_w, ctx.position.y),
-                Direction::Up => Point::new(ctx.position.x, ctx.position.y + half_h),
-                Direction::Down => Point::new(ctx.position.x, ctx.position.y - half_h),
+            // Center is half-dimension in the direction of travel from cursor
+            let half_dim = match ctx.direction {
+                Direction::Right | Direction::Left => half_w,
+                Direction::Up | Direction::Down => half_h,
             };
-            let start = match ctx.direction {
-                Direction::Right => Point::new(center.x - half_w, center.y),
-                Direction::Left => Point::new(center.x + half_w, center.y),
-                Direction::Up => Point::new(center.x, center.y - half_h),
-                Direction::Down => Point::new(center.x, center.y + half_h),
-            };
-            let end = match ctx.direction {
-                Direction::Right => Point::new(center.x + half_w, center.y),
-                Direction::Left => Point::new(center.x - half_w, center.y),
-                Direction::Up => Point::new(center.x, center.y + half_h),
-                Direction::Down => Point::new(center.x, center.y - half_h),
-            };
+            let center = ctx.position + ctx.direction.offset(half_dim);
+            // Start is the entry edge (opposite to travel direction)
+            let start = center + ctx.direction.opposite().offset(half_dim);
+            // End is the exit edge (in travel direction)
+            let end = center + ctx.direction.offset(half_dim);
             (start, end, center)
         }
     };
@@ -2643,17 +2594,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 svg_children.push(SvgNode::Path(spline_path));
             }
             ObjectClass::Move => {
-                // Move: simple line without arrowheads
-                let move_path_data = PathData::new().m(sx, sy).l(ex, ey);
-                let move_path = Path {
-                    d: Some(move_path_data),
-                    fill: None,
-                    stroke: None,
-                    stroke_width: None,
-                    stroke_dasharray: None,
-                    style: svg_style,
-                };
-                svg_children.push(SvgNode::Path(move_path));
+                // Move: invisible - just advances the cursor, renders nothing
             }
 
             ObjectClass::Arc => {

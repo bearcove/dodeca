@@ -2,6 +2,9 @@
 //!
 //! These types represent the parsed structure of a pikchr diagram.
 
+use crate::types::{Length, OffsetIn};
+use glam::DVec2;
+
 /// A complete pikchr program
 #[derive(Debug, Clone)]
 pub struct Program {
@@ -44,6 +47,43 @@ pub enum Direction {
     Down,
     Left,
     Right,
+}
+
+impl Direction {
+    /// Unit vector for this direction in SVG coordinate space.
+    /// SVG Y increases downward, so:
+    /// - Up = (0, -1)
+    /// - Down = (0, +1)
+    /// - Right = (+1, 0)
+    /// - Left = (-1, 0)
+    #[inline]
+    pub fn unit_vector(self) -> DVec2 {
+        match self {
+            Direction::Right => DVec2::X,
+            Direction::Left => DVec2::NEG_X,
+            Direction::Up => DVec2::NEG_Y, // SVG Y-down!
+            Direction::Down => DVec2::Y,
+        }
+    }
+
+    /// Get offset for moving `distance` in this direction.
+    /// This is the ONE place that knows about SVG's Y-down coordinate system.
+    #[inline]
+    pub fn offset(self, distance: Length) -> OffsetIn {
+        let v = self.unit_vector() * distance.0;
+        OffsetIn::new(Length(v.x), Length(v.y))
+    }
+
+    /// Get the opposite direction
+    #[inline]
+    pub fn opposite(self) -> Direction {
+        match self {
+            Direction::Right => Direction::Left,
+            Direction::Left => Direction::Right,
+            Direction::Up => Direction::Down,
+            Direction::Down => Direction::Up,
+        }
+    }
 }
 
 /// Variable assignment
@@ -517,4 +557,65 @@ pub enum EdgePoint {
 #[derive(Debug, Clone)]
 pub struct StringLit {
     pub value: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_direction_offset_svg_coordinates() {
+        let d = Length::inches(1.0);
+
+        // Right increases X
+        let r = Direction::Right.offset(d);
+        assert!(r.dx > Length::ZERO, "Right should increase X");
+        assert_eq!(r.dy, Length::ZERO, "Right should not change Y");
+
+        // Left decreases X
+        let l = Direction::Left.offset(d);
+        assert!(l.dx < Length::ZERO, "Left should decrease X");
+        assert_eq!(l.dy, Length::ZERO, "Left should not change Y");
+
+        // Up decreases Y (SVG Y increases downward)
+        let u = Direction::Up.offset(d);
+        assert_eq!(u.dx, Length::ZERO, "Up should not change X");
+        assert!(u.dy < Length::ZERO, "Up should decrease Y (SVG Y-down)");
+
+        // Down increases Y
+        let down = Direction::Down.offset(d);
+        assert_eq!(down.dx, Length::ZERO, "Down should not change X");
+        assert!(down.dy > Length::ZERO, "Down should increase Y (SVG Y-down)");
+    }
+
+    #[test]
+    fn test_direction_unit_vector() {
+        // Right = (1, 0)
+        let r = Direction::Right.unit_vector();
+        assert_eq!(r.x, 1.0);
+        assert_eq!(r.y, 0.0);
+
+        // Left = (-1, 0)
+        let l = Direction::Left.unit_vector();
+        assert_eq!(l.x, -1.0);
+        assert_eq!(l.y, 0.0);
+
+        // Up = (0, -1) in SVG coordinates
+        let u = Direction::Up.unit_vector();
+        assert_eq!(u.x, 0.0);
+        assert_eq!(u.y, -1.0);
+
+        // Down = (0, 1) in SVG coordinates
+        let d = Direction::Down.unit_vector();
+        assert_eq!(d.x, 0.0);
+        assert_eq!(d.y, 1.0);
+    }
+
+    #[test]
+    fn test_direction_opposite() {
+        assert_eq!(Direction::Right.opposite(), Direction::Left);
+        assert_eq!(Direction::Left.opposite(), Direction::Right);
+        assert_eq!(Direction::Up.opposite(), Direction::Down);
+        assert_eq!(Direction::Down.opposite(), Direction::Up);
+    }
 }

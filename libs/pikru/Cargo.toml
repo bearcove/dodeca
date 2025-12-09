@@ -8,6 +8,7 @@ edition = "2024"
 exclude = ["vendor/**"]
 
 [dependencies]
+glam = "0.29"
 camino = "1.2.1"
 miette = { version = "7.6.0", features = ["fancy"] }
 pest = "2.8.4"

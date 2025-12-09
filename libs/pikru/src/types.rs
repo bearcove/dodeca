@@ -555,6 +555,14 @@ impl<T> Offset<T> {
     }
 }
 
+impl Offset<Length> {
+    /// Zero offset
+    pub const ZERO: Self = Offset {
+        dx: Length::ZERO,
+        dy: Length::ZERO,
+    };
+}
+
 /// Alias for offset in inch space
 pub type OffsetIn = Offset<Length>;
 
@@ -647,6 +655,25 @@ impl Sub<Point<Length>> for Point<Length> {
             dx: self.x - rhs.x,
             dy: self.y - rhs.y,
         }
+    }
+}
+
+/// Add two offsets
+impl Add<Offset<Length>> for Offset<Length> {
+    type Output = Offset<Length>;
+    fn add(self, rhs: Offset<Length>) -> Offset<Length> {
+        Offset {
+            dx: self.dx + rhs.dx,
+            dy: self.dy + rhs.dy,
+        }
+    }
+}
+
+/// AddAssign for Offset accumulation
+impl AddAssign<Offset<Length>> for Offset<Length> {
+    fn add_assign(&mut self, rhs: Offset<Length>) {
+        self.dx += rhs.dx;
+        self.dy += rhs.dy;
     }
 }
 
