@@ -10,6 +10,7 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use axum::{
@@ -40,6 +41,8 @@ pub struct PluginContext {
     pub content_client: ContentServiceClient<PluginTransport>,
     /// Live reload broadcast (plugin-internal)
     pub livereload_tx: broadcast::Sender<devtools::LiveReloadMsg>,
+    /// Flag to signal shutdown when host connection is lost
+    pub host_dead: AtomicBool,
 }
 
 /// Cache control headers
@@ -105,15 +108,29 @@ async fn main() -> Result<()> {
     let ctx = Arc::new(PluginContext {
         content_client,
         livereload_tx,
+        host_dead: AtomicBool::new(false),
     });
 
     // Build router
-    let app = build_router(ctx);
+    let app = build_router(ctx.clone());
 
     // Start HTTP server
     tracing::info!("HTTP server listening on {}", args.bind);
     let listener = tokio::net::TcpListener::bind(args.bind).await?;
-    axum::serve(listener, app).await?;
+
+    // Run server with graceful shutdown on host death
+    axum::serve(listener, app)
+        .with_graceful_shutdown(async move {
+            // Poll the host_dead flag
+            loop {
+                if ctx.host_dead.load(Ordering::Relaxed) {
+                    tracing::error!("Host connection lost, shutting down");
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
+        .await?;
 
     Ok(())
 }
@@ -147,9 +164,11 @@ async fn content_handler(
         Ok(c) => c,
         Err(e) => {
             tracing::error!("RPC error fetching {}: {:?}", path, e);
+            // Signal host death - this will trigger graceful shutdown
+            ctx.host_dead.store(true, Ordering::Relaxed);
             return Response::builder()
                 .status(StatusCode::BAD_GATEWAY)
-                .body(Body::from("Failed to fetch content from host"))
+                .body(Body::from("Host connection lost"))
                 .unwrap();
         }
     };
