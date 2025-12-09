@@ -2641,12 +2641,11 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 svg_children.push(SvgNode::Path(arc_path));
             }
             ObjectClass::Text => {
-                // TODO: Implement text rendering with DOM
                 for positioned_text in &obj.text {
                     let text_element = Text {
                         x: Some(tx),
                         y: Some(ty),
-                        fill: None,
+                        fill: Some("rgb(0,0,0)".to_string()),
                         stroke: None,
                         stroke_width: None,
                         style: SvgStyle::default(),
