@@ -481,12 +481,13 @@ impl RenderContext {
     }
 
     /// Move position in the current direction
+    /// Note: SVG Y increases downward, so Up subtracts and Down adds
     pub fn advance(&mut self, distance: Inches) {
         match self.direction {
             Direction::Right => self.position.x += distance,
             Direction::Left => self.position.x -= distance,
-            Direction::Up => self.position.y += distance,
-            Direction::Down => self.position.y -= distance,
+            Direction::Up => self.position.y -= distance,
+            Direction::Down => self.position.y += distance,
         }
     }
 
@@ -1053,11 +1054,12 @@ fn render_object_stmt(
                     width // default distance
                 };
                 // Accumulate offset based on direction
+                // Note: SVG Y increases downward, so Up subtracts and Down adds
                 match dir {
                     Direction::Right => direction_offset_x += distance,
                     Direction::Left => direction_offset_x -= distance,
-                    Direction::Up => direction_offset_y += distance,
-                    Direction::Down => direction_offset_y -= distance,
+                    Direction::Up => direction_offset_y -= distance,
+                    Direction::Down => direction_offset_y += distance,
                 }
             }
             Attribute::DirectionEven(_go, dir, pos) => {
@@ -1076,12 +1078,12 @@ fn render_object_stmt(
                         d
                     };
                     has_direction_move = true;
-                    // Apply in context direction
+                    // Apply in context direction (SVG Y increases downward)
                     match ctx.direction {
                         Direction::Right => direction_offset_x += val,
                         Direction::Left => direction_offset_x -= val,
-                        Direction::Up => direction_offset_y += val,
-                        Direction::Down => direction_offset_y -= val,
+                        Direction::Up => direction_offset_y -= val,
+                        Direction::Down => direction_offset_y += val,
                     }
                 }
             }
@@ -1176,10 +1178,11 @@ fn render_object_stmt(
                 } else {
                     c.x // no horizontal movement, use center
                 };
+                // In SVG coordinates: positive Y offset = down = bottom edge
                 let exit_y = if direction_offset_y > Inches::ZERO {
-                    c.y + hh // moving down, exit from bottom edge
+                    c.y + hh // moving down (positive Y), exit from bottom edge
                 } else if direction_offset_y < Inches::ZERO {
-                    c.y - hh // moving up, exit from top edge
+                    c.y - hh // moving up (negative Y), exit from top edge
                 } else {
                     c.y // no vertical movement, use center
                 };
@@ -1401,12 +1404,13 @@ fn calculate_center_from_edge(
 }
 
 /// Move a point in a direction by a distance
+/// Note: SVG Y increases downward, so Up subtracts and Down adds
 fn move_in_direction(pos: PointIn, dir: Direction, distance: Inches) -> PointIn {
     match dir {
         Direction::Right => Point::new(pos.x + distance, pos.y),
         Direction::Left => Point::new(pos.x - distance, pos.y),
-        Direction::Up => Point::new(pos.x, pos.y + distance),
-        Direction::Down => Point::new(pos.x, pos.y - distance),
+        Direction::Up => Point::new(pos.x, pos.y - distance),
+        Direction::Down => Point::new(pos.x, pos.y + distance),
     }
 }
 
