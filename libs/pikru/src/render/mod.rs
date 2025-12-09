@@ -12,6 +12,7 @@ pub mod context;
 pub mod defaults;
 pub mod eval;
 pub mod geometry;
+pub mod shapes;
 pub mod svg;
 pub mod types;
 
