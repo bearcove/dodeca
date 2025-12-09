@@ -90,6 +90,12 @@ postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary seria
 # Devtools protocol (shared types between server and WASM client)
 dodeca-protocol = { path = "../dodeca-protocol" }
 
+# RPC protocol for dev server plugin
+dodeca-serve-protocol = { path = "../dodeca-serve-protocol" }
+
+# RPC framework for plugin communication
+rapace = { git = "https://github.com/bearcove/rapace", features = ["stream"] }
+
 # Code execution plugin types (lightweight - no plugin implementation)
 dodeca-code-execution-types = { path = "../dodeca-code-execution-types" }
 

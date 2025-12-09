@@ -1030,8 +1030,44 @@ impl SiteServer {
         }
     }
 
+    /// Find content for RPC serving (returns protocol ServeContent type)
+    ///
+    /// This wraps find_content and converts the result to the protocol's ServeContent.
+    pub fn find_content_for_rpc(&self, path: &str) -> dodeca_serve_protocol::ServeContent {
+        use dodeca_serve_protocol::ServeContent as RpcServeContent;
+
+        match self.find_content(path) {
+            Some(ServeContent::Html(html)) => {
+                // Cache HTML for smart reload patching
+                self.cache_html(path, &html);
+                // Extract route from path
+                let route = if path == "/" {
+                    "/".to_string()
+                } else {
+                    path.trim_end_matches('/').to_string()
+                };
+                RpcServeContent::Html { content: html, route }
+            }
+            Some(ServeContent::Css(css)) => {
+                self.cache_css(path);
+                RpcServeContent::Css { content: css }
+            }
+            Some(ServeContent::Static(bytes, mime)) => {
+                RpcServeContent::Static { content: bytes, mime: mime.to_string() }
+            }
+            Some(ServeContent::StaticNoCache(bytes, mime)) => {
+                RpcServeContent::StaticNoCache { content: bytes, mime: mime.to_string() }
+            }
+            None => {
+                // 404 with similar routes
+                let similar = self.find_similar_routes(path);
+                RpcServeContent::NotFound { similar_routes: similar }
+            }
+        }
+    }
+
     /// Find routes similar to the requested path (for 404 suggestions)
-    fn find_similar_routes(&self, path: &str) -> Vec<(String, String)> {
+    pub fn find_similar_routes(&self, path: &str) -> Vec<(String, String)> {
         // Snapshot pattern: lock, clone, release, then query the clone
         let db = match self.db.lock() {
             Ok(db) => db.clone(),
@@ -1442,6 +1478,46 @@ const SNIPPETS: &[(&str, &str)] = &[
         include_str!("../../../crates/dodeca-devtools/pkg/snippets/dioxus-web-807c31b5ece9dd6a/src/js/eval.js"),
     ),
 ];
+
+/// Get devtools asset content by path (for RPC serving)
+///
+/// Returns (content, mime_type) if found.
+pub fn get_devtools_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
+    // Strip the /_/ prefix
+    let asset_path = path.strip_prefix("/_/")?;
+
+    // Check for snippets
+    if let Some(snippet_path) = asset_path.strip_prefix("snippets/") {
+        let full_path = format!("snippets/{}", snippet_path);
+        for (p, content) in SNIPPETS {
+            if full_path == *p {
+                return Some((content.as_bytes().to_vec(), "application/javascript"));
+            }
+        }
+        return None;
+    }
+
+    // Check for JS (cache-busted)
+    if asset_path.ends_with(".js") {
+        return Some((rewrite_devtools_js().into_bytes(), "application/javascript"));
+    }
+
+    // Check for WASM (cache-busted)
+    if asset_path.ends_with(".wasm") {
+        return Some((DEVTOOLS_WASM.to_vec(), "application/wasm"));
+    }
+
+    None
+}
+
+/// Get search file content by path (for RPC serving)
+pub fn get_search_file_content(
+    search_files: &RwLock<HashMap<String, Vec<u8>>>,
+    path: &str,
+) -> Option<Vec<u8>> {
+    let files = search_files.read().ok()?;
+    files.get(path).cloned()
+}
 
 /// Handler for devtools JS snippets
 async fn devtools_snippet_handler(
