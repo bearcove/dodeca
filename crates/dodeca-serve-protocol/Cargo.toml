@@ -5,8 +5,16 @@ edition = "2024"
 rust-version = "1.91"
 
 [dependencies]
-# RPC framework
+# RPC framework - main crate
 rapace = { git = "https://github.com/bearcove/rapace" }
+
+# Crates needed by rapace macro-generated code
+# These are re-exported by rapace but Rust 2024 extern crate resolution
+# requires explicit dependencies for the generated ::crate_name:: paths
+rapace-core = { git = "https://github.com/bearcove/rapace" }
+rapace-registry = { git = "https://github.com/bearcove/rapace" }
+facet-core = { git = "https://github.com/facet-rs/facet" }
+facet-postcard = { git = "https://github.com/facet-rs/facet" }
 
 # Serialization
 facet = { git = "https://github.com/facet-rs/facet" }

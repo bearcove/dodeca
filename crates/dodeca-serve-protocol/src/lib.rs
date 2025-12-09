@@ -28,14 +28,15 @@ pub enum ServeContent {
 /// Content service provided by the host
 ///
 /// The plugin calls these methods to get content from the host's Salsa DB.
+#[allow(async_fn_in_trait)]
 #[rapace::service]
 pub trait ContentService {
     /// Find content for a given path (HTML, CSS, static files, devtools assets)
-    async fn find_content(path: String) -> ServeContent;
+    async fn find_content(&self, path: String) -> crate::ServeContent;
 
     /// Get scope entries for devtools inspector
-    async fn get_scope(route: String, path: Vec<String>) -> Vec<ScopeEntry>;
+    async fn get_scope(&self, route: String, path: Vec<String>) -> Vec<crate::ScopeEntry>;
 
     /// Evaluate an expression in the template context
-    async fn eval_expression(route: String, expression: String) -> EvalResult;
+    async fn eval_expression(&self, route: String, expression: String) -> crate::EvalResult;
 }

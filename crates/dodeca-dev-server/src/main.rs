@@ -22,6 +22,8 @@ use axum::{
     routing::get,
 };
 use color_eyre::Result;
+use rapace::StreamTransport;
+use tokio::io::{ReadHalf, WriteHalf};
 use tokio::net::UnixStream;
 use tokio::sync::broadcast;
 
@@ -29,10 +31,13 @@ use dodeca_serve_protocol::{ContentServiceClient, ServeContent};
 
 mod devtools;
 
+/// Type alias for the transport we use
+type PluginTransport = StreamTransport<ReadHalf<UnixStream>, WriteHalf<UnixStream>>;
+
 /// Plugin context shared across handlers
 pub struct PluginContext {
     /// RPC client to call host for content
-    pub content_client: ContentServiceClient,
+    pub content_client: ContentServiceClient<PluginTransport>,
     /// Live reload broadcast (plugin-internal)
     pub livereload_tx: broadcast::Sender<devtools::LiveReloadMsg>,
 }
@@ -86,14 +91,12 @@ async fn main() -> Result<()> {
     let stream = UnixStream::connect(&args.host_socket).await?;
     tracing::info!("Connected to host");
 
-    // Split stream for rapace
-    let (read, write) = stream.into_split();
-
-    // Set up rapace connection
-    let (conn, _incoming) = rapace::socket::run(read, write).await?;
+    // Create rapace stream transport
+    let transport: PluginTransport = StreamTransport::new(stream);
+    let transport = Arc::new(transport);
 
     // Create content service client
-    let content_client = ContentServiceClient::new(conn);
+    let content_client = ContentServiceClient::new(transport);
 
     // Create live reload broadcast
     let (livereload_tx, _) = broadcast::channel(16);
