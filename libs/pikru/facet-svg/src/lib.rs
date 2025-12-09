@@ -204,7 +204,7 @@ pub struct Line {
 #[derive(Facet, Debug, Clone, Default)]
 #[facet(xml::ns_all = "http://www.w3.org/2000/svg")]
 pub struct Path {
-    #[facet(xml::attribute, opaque, proxy = PathDataProxy)]
+    #[facet(xml::attribute, proxy = PathDataProxy)]
     pub d: Option<PathData>,
     #[facet(xml::attribute)]
     pub fill: Option<String>,

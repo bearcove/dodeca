@@ -446,26 +446,27 @@ mod tests {
         .unwrap();
         println!("Generated XML: {}", xml);
 
-        // The issue: facet-xml generates:
+        // This test previously demonstrated a bug where facet-xml generated:
         // <Svg xmlns:svg="http://www.w3.org/2000/svg" svg:viewBox="0 0 100 100">
         //   <circle svg:cx="50" svg:cy="50" svg:r="25"/>
         // </Svg>
         //
-        // But valid SVG should be:
+        // The bug is now fixed! Valid SVG is generated:
         // <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
         //   <circle cx="50" cy="50" r="25"/>
         // </svg>
-        //
-        // The xml::ns_all attribute is causing namespace prefixing instead of
-        // setting the default namespace properly.
 
         assert!(
-            xml.contains("svg:"),
-            "Should contain namespace prefixes (demonstrates the bug)"
+            !xml.contains("svg:"),
+            "Should NOT contain namespace prefixes (bug is fixed)"
         );
         assert!(
-            xml.contains("xmlns:svg="),
-            "Should have xmlns:svg declaration (demonstrates the bug)"
+            xml.contains("xmlns=\"http://www.w3.org/2000/svg\""),
+            "Should have default xmlns declaration"
+        );
+        assert!(
+            xml.contains("<svg"),
+            "Element should be lowercase <svg>"
         );
     }
 

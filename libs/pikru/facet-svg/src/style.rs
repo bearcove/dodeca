@@ -109,6 +109,7 @@ impl Color {
 
 /// Structured SVG style attribute with BTreeMap for automatic sorting
 #[derive(Facet, Debug, Clone, PartialEq, Default)]
+#[facet(traits(Default))]
 pub struct SvgStyle {
     pub properties: BTreeMap<String, String>,
 }

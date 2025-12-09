@@ -168,6 +168,7 @@ pub fn compare_outputs(c_output: &str, rust_output: &str, rust_is_err: bool) -> 
 
     // Compare using facet-assert with float tolerance
     use facet_svg::facet_assert::{Sameness, check_same_with};
+
     match check_same_with(&c_svg, &rust_svg, svg_compare_options()) {
         Sameness::Same => CompareResult::Match,
         Sameness::Different(diff) => CompareResult::SvgMismatch {

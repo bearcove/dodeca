@@ -87,7 +87,8 @@ pub enum PathCommand {
 }
 
 /// Structured SVG path data
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, Facet)]
+#[facet(traits(Default))]
 pub struct PathData {
     pub commands: Vec<PathCommand>,
 }
