@@ -3,6 +3,8 @@
 //! This module defines the HostService and PluginService interfaces
 //! that are used by both shm_host and shm_plugin examples.
 
+#![allow(dead_code)]
+
 // Host service - provides data to plugin
 rapace::service! {
     pub trait HostService {

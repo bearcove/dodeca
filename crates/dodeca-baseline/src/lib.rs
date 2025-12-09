@@ -58,6 +58,7 @@ mod tests {
             output_cap: output_buf.len(),
             output_len: 0,
             log_callback: None,
+            host_callback: None,
             result: MethodCallResult::default(),
         };
 
@@ -97,6 +98,7 @@ mod tests {
             output_cap: output_buf.len(),
             output_len: 0,
             log_callback: None,
+            host_callback: None,
             result: MethodCallResult::default(),
         };
 
