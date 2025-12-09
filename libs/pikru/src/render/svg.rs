@@ -1,7 +1,5 @@
 //! SVG generation
 
-use std::fmt::Write;
-
 use crate::types::{Length as Inches, Point, Scaler};
 use facet_svg::facet_xml::SerializeOptions;
 use facet_svg::{
@@ -832,58 +830,4 @@ fn render_arrowhead_dom(
         stroke_dasharray: None,
         style: SvgStyle::new().add("fill", &fill_color.to_string()),
     })
-}
-
-/// Legacy string-based arrowhead rendering
-fn render_arrowhead(
-    svg: &mut String,
-    sx: f64,
-    sy: f64,
-    ex: f64,
-    ey: f64,
-    style: &ObjectStyle,
-    arrow_len: f64,
-    arrow_width: f64,
-) {
-    // Calculate direction vector
-    let dx = ex - sx;
-    let dy = ey - sy;
-    let len = (dx * dx + dy * dy).sqrt();
-
-    if len < 0.001 {
-        return; // Zero-length line, no arrowhead
-    }
-
-    // Unit vector in direction of line
-    let ux = dx / len;
-    let uy = dy / len;
-
-    // Perpendicular unit vector
-    let px = -uy;
-    let py = ux;
-
-    // Arrow tip is at (ex, ey)
-    // Base points are arrow_len back along the line, offset by half arrow_width perpendicular
-    // Note: arrowwid is the FULL base width, so we use arrow_width/2 for the half-width
-    let base_x = ex - ux * arrow_len;
-    let base_y = ey - uy * arrow_len;
-    let half_width = arrow_width / 2.0;
-
-    let p1_x = base_x + px * half_width;
-    let p1_y = base_y + py * half_width;
-    let p2_x = base_x - px * half_width;
-    let p2_y = base_y - py * half_width;
-
-    writeln!(
-        svg,
-        r#"  <polygon points="{},{} {},{} {},{}" style="fill:{}"/>"#,
-        fmt_num(ex),
-        fmt_num(ey),
-        fmt_num(p1_x),
-        fmt_num(p1_y),
-        fmt_num(p2_x),
-        fmt_num(p2_y),
-        color_to_rgb(&style.stroke)
-    )
-    .unwrap();
 }
