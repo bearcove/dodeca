@@ -2380,7 +2380,7 @@ checksum = "6738d2e996274e499bc7b0d693c858b7720b9cd2543a0643a3087e6cb0a4fa16"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2619,9 +2619,14 @@ dependencies = [
  "dodeca-protocol",
  "dodeca-serve-protocol",
  "facet",
+ "facet-core",
  "facet-postcard",
  "futures-util",
+ "parking_lot",
  "rapace",
+ "rapace-core",
+ "rapace-registry",
+ "rapace-testkit",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2677,6 +2682,7 @@ dependencies = [
  "rapace",
  "rapace-core",
  "rapace-registry",
+ "rapace-testkit",
 ]
 
 [[package]]
@@ -2865,7 +2871,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2890,7 +2896,7 @@ dependencies = [
 [[package]]
 name = "facet"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
+source = "git+https://github.com/facet-rs/facet#45be99757eafaf8b2ca1487d6c66e2157cc8b5cf"
 dependencies = [
  "facet-core",
  "facet-macros",
@@ -2914,13 +2920,12 @@ dependencies = [
 [[package]]
 name = "facet-core"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
+source = "git+https://github.com/facet-rs/facet#45be99757eafaf8b2ca1487d6c66e2157cc8b5cf"
 dependencies = [
  "autocfg",
  "bitflags 2.10.0",
  "impls",
  "indexmap 2.12.1",
- "paste",
 ]
 
 [[package]]
@@ -2960,7 +2965,7 @@ dependencies = [
 [[package]]
 name = "facet-macro-parse"
 version = "0.1.0"
-source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
+source = "git+https://github.com/facet-rs/facet#45be99757eafaf8b2ca1487d6c66e2157cc8b5cf"
 dependencies = [
  "facet-macro-types",
  "proc-macro2",
@@ -2971,7 +2976,7 @@ dependencies = [
 [[package]]
 name = "facet-macro-types"
 version = "0.1.0"
-source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
+source = "git+https://github.com/facet-rs/facet#45be99757eafaf8b2ca1487d6c66e2157cc8b5cf"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2981,7 +2986,7 @@ dependencies = [
 [[package]]
 name = "facet-macros"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
+source = "git+https://github.com/facet-rs/facet#45be99757eafaf8b2ca1487d6c66e2157cc8b5cf"
 dependencies = [
  "facet-core",
  "facet-macros-impl",
@@ -2990,7 +2995,7 @@ dependencies = [
 [[package]]
 name = "facet-macros-impl"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
+source = "git+https://github.com/facet-rs/facet#45be99757eafaf8b2ca1487d6c66e2157cc8b5cf"
 dependencies = [
  "facet-macro-parse",
  "facet-macro-types",
@@ -3003,7 +3008,7 @@ dependencies = [
 [[package]]
 name = "facet-postcard"
 version = "0.1.0"
-source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
+source = "git+https://github.com/facet-rs/facet#45be99757eafaf8b2ca1487d6c66e2157cc8b5cf"
 dependencies = [
  "facet-core",
  "facet-reflect",
@@ -3013,7 +3018,7 @@ dependencies = [
 [[package]]
 name = "facet-reflect"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
+source = "git+https://github.com/facet-rs/facet#45be99757eafaf8b2ca1487d6c66e2157cc8b5cf"
 dependencies = [
  "facet-core",
  "facet-macros",
@@ -5344,7 +5349,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6397,12 +6402,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
-
-[[package]]
 name = "pastey"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7000,7 +6999,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7137,7 +7136,6 @@ dependencies = [
 [[package]]
 name = "rapace"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/rapace#e94a2a03a00ff1c396408a2e99b63293047db85a"
 dependencies = [
  "facet",
  "facet-core",
@@ -7154,18 +7152,18 @@ dependencies = [
 [[package]]
 name = "rapace-core"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/rapace#e94a2a03a00ff1c396408a2e99b63293047db85a"
 dependencies = [
  "bitflags 2.10.0",
  "facet",
  "facet-core",
  "futures",
+ "parking_lot",
+ "tokio",
 ]
 
 [[package]]
 name = "rapace-macros"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/rapace#e94a2a03a00ff1c396408a2e99b63293047db85a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7175,15 +7173,29 @@ dependencies = [
 [[package]]
 name = "rapace-registry"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/rapace#e94a2a03a00ff1c396408a2e99b63293047db85a"
 dependencies = [
  "facet-core",
 ]
 
 [[package]]
+name = "rapace-testkit"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "facet-core",
+ "facet-postcard",
+ "futures",
+ "parking_lot",
+ "rapace-core",
+ "rapace-macros",
+ "rapace-registry",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
 name = "rapace-transport-mem"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/rapace#e94a2a03a00ff1c396408a2e99b63293047db85a"
 dependencies = [
  "futures",
  "parking_lot",
@@ -7194,7 +7206,6 @@ dependencies = [
 [[package]]
 name = "rapace-transport-stream"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/rapace#e94a2a03a00ff1c396408a2e99b63293047db85a"
 dependencies = [
  "parking_lot",
  "rapace-core",
@@ -7537,7 +7548,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8434,7 +8445,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9641,7 +9652,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

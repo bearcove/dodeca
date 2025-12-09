@@ -19,5 +19,8 @@ facet-postcard = { git = "https://github.com/facet-rs/facet" }
 # Serialization
 facet = { git = "https://github.com/facet-rs/facet" }
 
+# RpcSession + helpers for manual RPC clients
+rapace-testkit = { git = "https://github.com/bearcove/rapace" }
+
 # Re-export types from dodeca-protocol
 dodeca-protocol = { path = "../dodeca-protocol" }

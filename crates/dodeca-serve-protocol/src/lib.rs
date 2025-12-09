@@ -1,11 +1,47 @@
 //! RPC protocol for dodeca dev server plugin
 //!
-//! Defines the ContentService trait that the host implements and the plugin calls.
+//! Defines three RPC services:
+//! - `ContentService`: Host implements, plugin calls (for content from Salsa DB)
+//! - `TcpTunnel`: Plugin implements, host calls (for L4 TCP tunneling)
+//! - `WebSocketTunnel`: Host implements, plugin calls (for devtools WebSocket)
 
 use facet::Facet;
 
 // Re-export types from dodeca-protocol that are used in the RPC interface
 pub use dodeca_protocol::{EvalResult, ScopeEntry, ScopeValue};
+
+/// Handle returned when opening a TCP tunnel.
+///
+/// Contains the channel ID used for bidirectional streaming.
+/// After `open()` returns, both host and plugin use this channel_id
+/// to send and receive raw TCP bytes via rapace tunnel APIs.
+#[derive(Debug, Clone, PartialEq, Eq, Facet)]
+pub struct TunnelHandle {
+    /// The channel ID to use for tunnel data transfer.
+    pub channel_id: u32,
+}
+
+/// TCP tunnel service implemented by the plugin.
+///
+/// The host calls `open()` for each incoming browser TCP connection.
+/// The plugin connects to its internal HTTP server and bridges the tunnel.
+///
+/// Workflow:
+/// 1. Host accepts TCP connection from browser
+/// 2. Host calls `TcpTunnelClient::open()` via RPC
+/// 3. Plugin connects to its internal HTTP server (127.0.0.1:internal_port)
+/// 4. Plugin returns `TunnelHandle` with channel_id
+/// 5. Both sides use rapace tunnel APIs to bridge:
+///    - Host: browser TCP ↔ rapace chunks
+///    - Plugin: rapace chunks ↔ internal TCP
+#[allow(async_fn_in_trait)]
+#[rapace::service]
+pub trait TcpTunnel {
+    /// Open a new bidirectional TCP tunnel.
+    ///
+    /// Returns a handle containing the channel_id to use for data transfer.
+    async fn open(&self) -> crate::TunnelHandle;
+}
 
 /// Content returned by the host for a given path
 #[derive(Debug, Clone, Facet)]
@@ -34,9 +70,33 @@ pub trait ContentService {
     /// Find content for a given path (HTML, CSS, static files, devtools assets)
     async fn find_content(&self, path: String) -> crate::ServeContent;
 
-    /// Get scope entries for devtools inspector
+    /// Get scope entries for devtools (variable inspector)
     async fn get_scope(&self, route: String, path: Vec<String>) -> Vec<crate::ScopeEntry>;
 
-    /// Evaluate an expression in the template context
+    /// Evaluate an expression in the context of a route (REPL)
     async fn eval_expression(&self, route: String, expression: String) -> crate::EvalResult;
 }
+
+/// WebSocket tunnel service implemented by the host.
+///
+/// The plugin calls `open()` when a browser opens a WebSocket connection
+/// to the devtools endpoint (/_/ws). The host handles the devtools protocol
+/// directly - the plugin just pipes bytes.
+///
+/// Workflow:
+/// 1. Browser opens WebSocket to plugin at /_/ws
+/// 2. Plugin calls `WebSocketTunnelClient::open()` via RPC
+/// 3. Host returns `TunnelHandle` with channel_id
+/// 4. Plugin bridges: WebSocket frames ↔ rapace tunnel chunks
+/// 5. Host handles devtools protocol (get_scope, eval, reload broadcasts)
+#[allow(async_fn_in_trait)]
+#[rapace::service]
+pub trait WebSocketTunnel {
+    /// Open a new WebSocket tunnel to the host.
+    ///
+    /// Returns a handle containing the channel_id to use for data transfer.
+    /// After this returns, the plugin sends WebSocket frame bytes through the tunnel,
+    /// and the host handles the devtools protocol.
+    async fn open(&self) -> crate::TunnelHandle;
+}
+

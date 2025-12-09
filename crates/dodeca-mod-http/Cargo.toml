@@ -9,15 +9,18 @@ name = "dodeca-mod-http"
 path = "src/main.rs"
 
 [dependencies]
-# HTTP server
+# HTTP server (internal only - not exposed to network)
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
 
 # WebSocket
 futures-util = "0.3"
 
-# RPC to host
+# RPC framework - testkit provides RpcSession with tunnel support
 rapace = { git = "https://github.com/bearcove/rapace" }
+rapace-core = { git = "https://github.com/bearcove/rapace" }
+rapace-testkit = { git = "https://github.com/bearcove/rapace" }
+rapace-registry = { git = "https://github.com/bearcove/rapace" }
 dodeca-serve-protocol = { path = "../dodeca-serve-protocol" }
 
 # Devtools protocol (for WebSocket messages)
@@ -25,6 +28,7 @@ dodeca-protocol = { path = "../dodeca-protocol" }
 
 # Serialization
 facet = { git = "https://github.com/facet-rs/facet" }
+facet-core = { git = "https://github.com/facet-rs/facet" }
 facet-postcard = { git = "https://github.com/facet-rs/facet" }
 
 # Error handling
@@ -33,3 +37,6 @@ color-eyre = "0.6"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Concurrency
+parking_lot = "0.12"
