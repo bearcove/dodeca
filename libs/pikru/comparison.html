@@ -367,11 +367,13 @@
   border-left: 1px solid var(--border-color);
 }
 
-.mode-slider label {
+.slider-label-left,
+.slider-label-right {
   color: var(--text-secondary);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  font-weight: 500;
 }
 
 .opacity-slider {
@@ -400,12 +402,6 @@
   transform: scale(1.1);
 }
 
-.slider-value {
-  color: var(--text-primary);
-  min-width: 32px;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
 
 .ssim-btn {
   margin-left: auto;
@@ -681,16 +677,22 @@
   justify-content: center;
   padding: 12px;
   position: relative;
+  min-height: 0; /* Allow flex item to shrink below content size */
+  overflow: hidden;
 }
 
 .diff-canvas {
-  max-width: 90%;
-  max-height: 90%;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
   border-radius: var(--radius-sm);
 }
 
 @media (prefers-color-scheme: dark) {
-  .diff-canvas {
+  .diff-canvas,
+  .diff-legend span::before {
     filter: invert(1);
   }
 }
@@ -9550,9 +9552,9 @@ box &quot;B&quot; with nw at A.e
         </button>
       </div>
       <div class="mode-slider" style="display: none;">
-        <label>Opacity</label>
+        <span class="slider-label-left">C</span>
         <input type="range" min="0" max="100" value="50" class="opacity-slider">
-        <span class="slider-value">50%</span>
+        <span class="slider-label-right">Rust</span>
       </div>
       <button class="ssim-btn" title="Calculate SSIM similarity score">
         <span class="ssim-label">SSIM</span>
@@ -9572,18 +9574,12 @@ box &quot;B&quot; with nw at A.e
 
     // Wire up opacity slider
     const slider = controls.querySelector('.opacity-slider');
-    const sliderValue = controls.querySelector('.slider-value');
     slider.addEventListener('input', (e) => {
       state.opacity = e.target.value / 100;
-      sliderValue.textContent = `${e.target.value}%`;
       // Update the overlay directly without full re-render for smoother feedback
       const overlay = card.querySelector('.overlay-rust');
       if (overlay) {
         overlay.style.opacity = state.opacity;
-        const rustLabel = card.querySelector('.overlay-labels span:last-child');
-        if (rustLabel) {
-          rustLabel.textContent = `Rust (${e.target.value}%)`;
-        }
       }
     });
 

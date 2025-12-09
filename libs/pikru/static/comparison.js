@@ -105,9 +105,9 @@
         </button>
       </div>
       <div class="mode-slider" style="display: none;">
-        <label>Opacity</label>
+        <span class="slider-label-left">C</span>
         <input type="range" min="0" max="100" value="50" class="opacity-slider">
-        <span class="slider-value">50%</span>
+        <span class="slider-label-right">Rust</span>
       </div>
       <button class="ssim-btn" title="Calculate SSIM similarity score">
         <span class="ssim-label">SSIM</span>
@@ -127,18 +127,12 @@
 
     // Wire up opacity slider
     const slider = controls.querySelector('.opacity-slider');
-    const sliderValue = controls.querySelector('.slider-value');
     slider.addEventListener('input', (e) => {
       state.opacity = e.target.value / 100;
-      sliderValue.textContent = `${e.target.value}%`;
       // Update the overlay directly without full re-render for smoother feedback
       const overlay = card.querySelector('.overlay-rust');
       if (overlay) {
         overlay.style.opacity = state.opacity;
-        const rustLabel = card.querySelector('.overlay-labels span:last-child');
-        if (rustLabel) {
-          rustLabel.textContent = `Rust (${e.target.value}%)`;
-        }
       }
     });
 
