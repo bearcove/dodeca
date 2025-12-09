@@ -3085,6 +3085,73 @@ fn chop_against_file_compass_point(
     Some(result)
 }
 
+/// Chop against diamond using discrete compass points like C pikchr
+/// Diamond corners (NE/SE/SW/NW) are at quarter width/height, not half
+fn chop_against_diamond_compass_point(
+    cx: f64,
+    cy: f64,
+    half_w: f64,
+    half_h: f64,
+    toward: (f64, f64),
+) -> Option<(f64, f64)> {
+    if half_w <= 0.0 || half_h <= 0.0 {
+        return None;
+    }
+
+    // Same compass point selection as boxChop
+    let dx = (toward.0 - cx) * half_h / half_w;
+    let dy = -(toward.1 - cy);
+
+    let compass_point = if dx > 0.0 {
+        if dy >= 2.414 * dx {
+            CompassPoint::North
+        } else if dy > 0.414 * dx {
+            CompassPoint::NorthEast
+        } else if dy > -0.414 * dx {
+            CompassPoint::East
+        } else if dy > -2.414 * dx {
+            CompassPoint::SouthEast
+        } else {
+            CompassPoint::South
+        }
+    } else if dx < 0.0 {
+        if dy >= -2.414 * dx {
+            CompassPoint::North
+        } else if dy > -0.414 * dx {
+            CompassPoint::NorthWest
+        } else if dy > 0.414 * dx {
+            CompassPoint::West
+        } else if dy > 2.414 * dx {
+            CompassPoint::SouthWest
+        } else {
+            CompassPoint::South
+        }
+    } else {
+        if dy >= 0.0 {
+            CompassPoint::North
+        } else {
+            CompassPoint::South
+        }
+    };
+
+    // Diamond: cardinal points at half, diagonals at quarter
+    let w4 = half_w / 2.0; // quarter width
+    let h4 = half_h / 2.0; // quarter height
+
+    let result = match compass_point {
+        CompassPoint::North => (cx, cy - half_h),       // N: top vertex
+        CompassPoint::NorthEast => (cx + w4, cy - h4),  // NE: quarter point
+        CompassPoint::East => (cx + half_w, cy),        // E: right vertex
+        CompassPoint::SouthEast => (cx + w4, cy + h4),  // SE: quarter point
+        CompassPoint::South => (cx, cy + half_h),       // S: bottom vertex
+        CompassPoint::SouthWest => (cx - w4, cy + h4),  // SW: quarter point
+        CompassPoint::West => (cx - half_w, cy),        // W: left vertex
+        CompassPoint::NorthWest => (cx - w4, cy - h4),  // NW: quarter point
+    };
+
+    Some(result)
+}
+
 /// Chop against cylinder using discrete compass points like C pikchr
 /// Cylinder has special offsets: NE/SE/SW/NW corners are inset by the ellipse radius
 fn chop_against_cylinder_compass_point(
@@ -3198,8 +3265,8 @@ fn chop_against_endpoint(
             chop_against_box_compass_point(cx, cy, half_w, half_h, oval_radius, toward)
         }
         ObjectClass::Diamond => {
-            // boxChop - discrete compass points (diamond uses boxChop in C)
-            chop_against_box_compass_point(cx, cy, half_w, half_h, 0.0, toward)
+            // diamondOffset - corners at quarter width/height
+            chop_against_diamond_compass_point(cx, cy, half_w, half_h, toward)
         }
         _ => None,
     }
