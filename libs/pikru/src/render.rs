@@ -2315,16 +2315,15 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 svg_children.push(SvgNode::Path(path));
             }
             ObjectClass::Cylinder => {
-                // Cylinder: proper path-based rendering matching C pikchr
+                // Cylinder: single path with 3 arcs matching C pikchr
+                // Uses cylrad for the ellipse vertical radius (default 0.075")
                 let width = scaler.px(obj.width);
                 let height = scaler.px(obj.height);
-                let rx = width / 2.0;
-                let ry = width / 8.0; // Ellipse vertical radius
-                let top_y = ty - height / 2.0 + ry;
+                let cylrad = get_length(ctx, "cylrad", 0.075);
+                let ry = scaler.px(Inches::inches(cylrad));
 
-                let (body_path, bottom_arc_path) = create_cylinder_paths(tx, ty, width, height);
+                let (body_path, _) = create_cylinder_paths_with_rad(tx, ty, width, height, ry);
 
-                // Body path with fill
                 let body = Path {
                     d: Some(body_path),
                     fill: None,
@@ -2334,36 +2333,6 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     style: svg_style.clone(),
                 };
                 svg_children.push(SvgNode::Path(body));
-
-                // Top ellipse (full ellipse, filled)
-                let top_ellipse = Ellipse {
-                    cx: Some(tx),
-                    cy: Some(top_y),
-                    rx: Some(rx),
-                    ry: Some(ry),
-                    fill: None,
-                    stroke: None,
-                    stroke_width: None,
-                    stroke_dasharray: None,
-                    style: svg_style.clone(),
-                };
-                svg_children.push(SvgNode::Ellipse(top_ellipse));
-
-                // Bottom arc (only front half, stroke only)
-                let mut bottom_arc_style = svg_style.clone();
-                bottom_arc_style
-                    .properties
-                    .insert("fill".to_string(), "none".to_string());
-
-                let bottom_arc = Path {
-                    d: Some(bottom_arc_path),
-                    fill: None,
-                    stroke: None,
-                    stroke_width: None,
-                    stroke_dasharray: None,
-                    style: bottom_arc_style,
-                };
-                svg_children.push(SvgNode::Path(bottom_arc));
             }
             ObjectClass::File => {
                 // File: proper path-based rendering with fold matching C pikchr
@@ -3030,6 +2999,73 @@ fn chop_against_box_compass_point(
     Some(result)
 }
 
+/// Chop against cylinder using discrete compass points like C pikchr
+/// Cylinder has special offsets: NE/SE/SW/NW corners are inset by the ellipse radius
+fn chop_against_cylinder_compass_point(
+    cx: f64,
+    cy: f64,
+    half_w: f64,
+    half_h: f64,
+    ellipse_ry: f64,
+    toward: (f64, f64),
+) -> Option<(f64, f64)> {
+    if half_w <= 0.0 || half_h <= 0.0 {
+        return None;
+    }
+
+    // Same compass point selection as boxChop
+    let dx = (toward.0 - cx) * half_h / half_w;
+    let dy = -(toward.1 - cy);
+
+    let compass_point = if dx > 0.0 {
+        if dy >= 2.414 * dx {
+            CompassPoint::North
+        } else if dy > 0.414 * dx {
+            CompassPoint::NorthEast
+        } else if dy > -0.414 * dx {
+            CompassPoint::East
+        } else if dy > -2.414 * dx {
+            CompassPoint::SouthEast
+        } else {
+            CompassPoint::South
+        }
+    } else if dx < 0.0 {
+        if dy >= -2.414 * dx {
+            CompassPoint::North
+        } else if dy > -0.414 * dx {
+            CompassPoint::NorthWest
+        } else if dy > 0.414 * dx {
+            CompassPoint::West
+        } else if dy > 2.414 * dx {
+            CompassPoint::SouthWest
+        } else {
+            CompassPoint::South
+        }
+    } else {
+        if dy >= 0.0 {
+            CompassPoint::North
+        } else {
+            CompassPoint::South
+        }
+    };
+
+    // Cylinder offset: h2 = h1 - rad (diagonal corners are inset by ellipse radius)
+    let h2 = half_h - ellipse_ry;
+
+    let result = match compass_point {
+        CompassPoint::North => (cx, cy - half_h),
+        CompassPoint::NorthEast => (cx + half_w, cy - h2),
+        CompassPoint::East => (cx + half_w, cy),
+        CompassPoint::SouthEast => (cx + half_w, cy + h2),
+        CompassPoint::South => (cx, cy + half_h),
+        CompassPoint::SouthWest => (cx - half_w, cy + h2),
+        CompassPoint::West => (cx - half_w, cy),
+        CompassPoint::NorthWest => (cx - half_w, cy - h2),
+    };
+
+    Some(result)
+}
+
 fn chop_against_endpoint(
     scaler: &Scaler,
     endpoint: &EndpointObject,
@@ -3043,19 +3079,37 @@ fn chop_against_endpoint(
     let half_h = scaler.px(endpoint.height / 2.0);
     let corner_radius = scaler.px(endpoint.corner_radius);
 
+    // C pikchr chop function mapping:
+    // - boxChop: box, cylinder, diamond, file, oval, text
+    // - circleChop: circle, dot (uses radius, continuous intersection)
+    // - ellipseChop: ellipse (uses width/height, continuous intersection)
     match endpoint.class {
-        ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Cylinder => {
+        ObjectClass::Circle => {
+            // circleChop - continuous ray intersection with circle
+            chop_against_ellipse(cx, cy, half_w, half_h, toward)
+        }
+        ObjectClass::Ellipse => {
+            // ellipseChop - continuous ray intersection with ellipse
             chop_against_ellipse(cx, cy, half_w, half_h, toward)
         }
         ObjectClass::Box | ObjectClass::File => {
+            // boxChop - discrete compass points
             chop_against_box_compass_point(cx, cy, half_w, half_h, corner_radius, toward)
         }
+        ObjectClass::Cylinder => {
+            // cylinderOffset - special compass points with ellipse inset
+            let cylrad = scaler.px(Inches::inches(0.075)); // default cylrad
+            chop_against_cylinder_compass_point(cx, cy, half_w, half_h, cylrad, toward)
+        }
         ObjectClass::Oval => {
-            // Oval uses boxChop like C pikchr, with corner radius = half of smaller dimension
+            // boxChop with corner radius = half of smaller dimension
             let oval_radius = half_w.min(half_h);
             chop_against_box_compass_point(cx, cy, half_w, half_h, oval_radius, toward)
         }
-        ObjectClass::Diamond => chop_against_diamond(cx, cy, half_w, half_h, toward),
+        ObjectClass::Diamond => {
+            // boxChop - discrete compass points (diamond uses boxChop in C)
+            chop_against_box_compass_point(cx, cy, half_w, half_h, 0.0, toward)
+        }
         _ => None,
     }
 }
@@ -3211,24 +3265,34 @@ fn create_oval_path(x1: f64, y1: f64, x2: f64, y2: f64, rad: f64) -> PathData {
         .z() // Z: close path
 }
 
-/// Create cylinder paths using PathData fluent API (matching C pikchr output)
-fn create_cylinder_paths(cx: f64, cy: f64, width: f64, height: f64) -> (PathData, PathData) {
+/// Create cylinder path using PathData fluent API (matching C pikchr output)
+/// C pikchr renders cylinder as single path with 3 arcs
+fn create_cylinder_paths_with_rad(
+    cx: f64,
+    cy: f64,
+    width: f64,
+    height: f64,
+    ry: f64,
+) -> (PathData, PathData) {
     let rx = width / 2.0;
-    let ry = width / 8.0; // Ellipse vertical radius
-    let top_y = cy - height / 2.0 + ry;
-    let bottom_y = cy + height / 2.0 - ry;
+    let h2 = height / 2.0;
 
-    // Body path: left side down, bottom arc, right side up
+    // C pikchr cylinder path format:
+    // M left,top  L left,bottom  A bottom-arc  L right,top  A top-back-arc  A top-front-arc
+    let top_y = cy - h2 + ry;
+    let bottom_y = cy + h2 - ry;
+
+    // Single path with body and top ellipse (3 arcs total)
     let body_path = PathData::new()
-        .m(cx - rx, top_y) // Start at top-left
-        .l(cx - rx, bottom_y) // Line down to bottom-left
-        .a(rx, ry, 0.0, false, false, cx + rx, bottom_y) // Arc to bottom-right
-        .l(cx + rx, top_y); // Line up to top-right
+        .m(cx - rx, top_y) // M: start at left, top edge of body
+        .l(cx - rx, bottom_y) // L: line down left side
+        .a(rx, ry, 0.0, false, false, cx + rx, bottom_y) // A: arc across bottom
+        .l(cx + rx, top_y) // L: line up right side
+        .a(rx, ry, 0.0, false, false, cx - rx, top_y) // A: arc back across top (back half)
+        .a(rx, ry, 0.0, false, false, cx + rx, top_y); // A: arc across top (front half)
 
-    // Bottom ellipse arc (only the front half, as a visible edge)
-    let bottom_arc_path = PathData::new()
-        .m(cx - rx, bottom_y) // Start at left of bottom ellipse
-        .a(rx, ry, 0.0, false, false, cx + rx, bottom_y); // Arc to right
+    // Empty bottom arc path (C pikchr doesn't render a separate bottom arc)
+    let bottom_arc_path = PathData::new();
 
     (body_path, bottom_arc_path)
 }
