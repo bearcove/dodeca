@@ -484,7 +484,7 @@ mod tests {
     #[test]
     fn parse_all_pikchr_files() {
         // Files that are intentionally testing error handling (contain intentional syntax errors)
-        let error_test_files = ["test60.pikchr", "test62.pikchr"];
+        let error_test_files = ["test60.pikchr", "test61.pikchr", "test62.pikchr"];
 
         let test_dir = std::path::Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -589,7 +589,7 @@ mod tests {
     #[test]
     fn ast_all_pikchr_files() {
         // Files that are intentionally testing error handling
-        let error_test_files = ["test60.pikchr", "test62.pikchr"];
+        let error_test_files = ["test60.pikchr", "test61.pikchr", "test62.pikchr"];
 
         let test_dir = std::path::Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -643,7 +643,7 @@ mod tests {
         assert!(result.is_ok(), "Failed to render: {:?}", result.err());
         let svg = result.unwrap();
         assert!(svg.contains("<svg"), "Output should be SVG");
-        assert!(svg.contains("<rect"), "Should contain a rect for box");
+        assert!(svg.contains("<path"), "Should contain a path for box");
         assert!(svg.contains("Hello"), "Should contain the text");
     }
 
@@ -669,8 +669,8 @@ mod tests {
         let svg = result.unwrap();
         assert!(svg.contains("<svg"), "Output should be SVG");
         assert!(
-            svg.matches("<rect").count() >= 2,
-            "Should have at least 2 rects"
+            svg.matches("<path").count() >= 3,
+            "Should have at least 3 paths (2 boxes + 1 arrow)"
         );
     }
 
@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn render_all_pikchr_files() {
         // Files that are intentionally testing error handling
-        let error_test_files = ["test60.pikchr", "test62.pikchr"];
+        let error_test_files = ["test60.pikchr", "test61.pikchr", "test62.pikchr"];
 
         let test_dir = std::path::Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
