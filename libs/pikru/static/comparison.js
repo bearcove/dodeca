@@ -178,8 +178,11 @@
     comparison.classList.remove('mode-overlay', 'mode-swipe', 'mode-diff');
     const cColumn = comparison.querySelector('.c-output');
     const rustColumn = comparison.querySelector('.rust-output');
-    cColumn.style.display = '';
-    rustColumn.style.display = '';
+    // Reset visibility (keep in layout for height)
+    cColumn.style.visibility = '';
+    cColumn.style.pointerEvents = '';
+    rustColumn.style.visibility = '';
+    rustColumn.style.pointerEvents = '';
 
     switch (state.mode) {
       case MODES.SIDE_BY_SIDE:
@@ -205,8 +208,11 @@
 
     const cColumn = comparison.querySelector('.c-output');
     const rustColumn = comparison.querySelector('.rust-output');
-    cColumn.style.display = 'none';
-    rustColumn.style.display = 'none';
+    // Hide but keep in layout for height
+    cColumn.style.visibility = 'hidden';
+    cColumn.style.pointerEvents = 'none';
+    rustColumn.style.visibility = 'hidden';
+    rustColumn.style.pointerEvents = 'none';
 
     const container = document.createElement('div');
     container.className = 'diff-container';
@@ -235,8 +241,11 @@
 
     const cColumn = comparison.querySelector('.c-output');
     const rustColumn = comparison.querySelector('.rust-output');
-    cColumn.style.display = 'none';
-    rustColumn.style.display = 'none';
+    // Hide but keep in layout for height
+    cColumn.style.visibility = 'hidden';
+    cColumn.style.pointerEvents = 'none';
+    rustColumn.style.visibility = 'hidden';
+    rustColumn.style.pointerEvents = 'none';
 
     const container = document.createElement('div');
     container.className = 'overlay-container';
@@ -268,8 +277,11 @@
 
     const cColumn = comparison.querySelector('.c-output');
     const rustColumn = comparison.querySelector('.rust-output');
-    cColumn.style.display = 'none';
-    rustColumn.style.display = 'none';
+    // Hide but keep in layout for height
+    cColumn.style.visibility = 'hidden';
+    cColumn.style.pointerEvents = 'none';
+    rustColumn.style.visibility = 'hidden';
+    rustColumn.style.pointerEvents = 'none';
 
     const container = document.createElement('div');
     container.className = 'swipe-container';
@@ -420,11 +432,11 @@
           diffData.data[i+2] = 22;
           diffData.data[i+3] = 255;
         } else {
-          // Neither has content - white
-          diffData.data[i] = 255;
-          diffData.data[i+1] = 255;
-          diffData.data[i+2] = 255;
-          diffData.data[i+3] = 255;
+          // Neither has content - transparent
+          diffData.data[i] = 0;
+          diffData.data[i+1] = 0;
+          diffData.data[i+2] = 0;
+          diffData.data[i+3] = 0;
         }
       }
 
@@ -476,9 +488,24 @@
     }
   }
 
-  function svgToImage(svg) {
+  function svgToImage(svg, targetWidth = 600) {
     return new Promise((resolve, reject) => {
-      const svgData = new XMLSerializer().serializeToString(svg);
+      // Clone SVG and set explicit dimensions for proper rendering
+      const clone = svg.cloneNode(true);
+      const viewBox = clone.getAttribute('viewBox');
+
+      if (viewBox) {
+        const [, , vbWidth, vbHeight] = viewBox.split(/\s+/).map(Number);
+        const aspectRatio = vbHeight / vbWidth;
+        clone.setAttribute('width', targetWidth);
+        clone.setAttribute('height', Math.round(targetWidth * aspectRatio));
+      } else {
+        // Fallback: set reasonable default size
+        clone.setAttribute('width', targetWidth);
+        clone.setAttribute('height', targetWidth);
+      }
+
+      const svgData = new XMLSerializer().serializeToString(clone);
       const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
       const url = URL.createObjectURL(svgBlob);
 

@@ -224,7 +224,6 @@
    ============================================ */
 
 .overlay-container {
-  position: relative;
   background: light-dark(#fafafa, #333);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -236,8 +235,8 @@
 
 .overlay-container svg {
   position: absolute;
-  max-width: 100%;
-  max-height: 300px;
+  max-width: 90%;
+  max-height: 90%;
   width: auto;
   height: auto;
 }
@@ -284,12 +283,10 @@
    ============================================ */
 
 .swipe-container {
-  position: relative;
   background: light-dark(#fafafa, #333);
   border-radius: var(--radius-md);
   overflow: hidden;
   cursor: ew-resize;
-  padding: 12px;
 }
 
 .swipe-layer {
@@ -302,8 +299,8 @@
 }
 
 .swipe-layer svg {
-  max-width: 100%;
-  max-height: 300px;
+  max-width: 90%;
+  max-height: 90%;
   width: auto;
   height: auto;
 }
@@ -387,6 +384,9 @@
 .diff-container {
   display: flex;
   flex-direction: column;
+  background: light-dark(#fafafa, #333);
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
 
 .diff-header {
@@ -433,13 +433,12 @@
   align-items: center;
   justify-content: center;
   padding: 12px;
-  background: light-dark(#fafafa, #333);
   position: relative;
 }
 
 .diff-canvas {
-  max-width: 100%;
-  max-height: 300px;
+  max-width: 90%;
+  max-height: 90%;
   border-radius: var(--radius-sm);
 }
 
@@ -469,7 +468,16 @@
 .comparison.mode-overlay,
 .comparison.mode-swipe,
 .comparison.mode-diff {
-  display: block;
+  position: relative;
+}
+
+/* Overlay containers are positioned over the hidden grid */
+.comparison.mode-overlay .overlay-container,
+.comparison.mode-swipe .swipe-container,
+.comparison.mode-diff .diff-container {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
 }
 
 /* ============================================

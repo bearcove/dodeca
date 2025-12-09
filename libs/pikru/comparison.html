@@ -471,7 +471,6 @@
    ============================================ */
 
 .overlay-container {
-  position: relative;
   background: light-dark(#fafafa, #333);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -483,8 +482,8 @@
 
 .overlay-container svg {
   position: absolute;
-  max-width: 100%;
-  max-height: 300px;
+  max-width: 90%;
+  max-height: 90%;
   width: auto;
   height: auto;
 }
@@ -531,12 +530,10 @@
    ============================================ */
 
 .swipe-container {
-  position: relative;
   background: light-dark(#fafafa, #333);
   border-radius: var(--radius-md);
   overflow: hidden;
   cursor: ew-resize;
-  padding: 12px;
 }
 
 .swipe-layer {
@@ -549,8 +546,8 @@
 }
 
 .swipe-layer svg {
-  max-width: 100%;
-  max-height: 300px;
+  max-width: 90%;
+  max-height: 90%;
   width: auto;
   height: auto;
 }
@@ -634,6 +631,9 @@
 .diff-container {
   display: flex;
   flex-direction: column;
+  background: light-dark(#fafafa, #333);
+  border-radius: var(--radius-md);
+  overflow: hidden;
 }
 
 .diff-header {
@@ -680,13 +680,12 @@
   align-items: center;
   justify-content: center;
   padding: 12px;
-  background: light-dark(#fafafa, #333);
   position: relative;
 }
 
 .diff-canvas {
-  max-width: 100%;
-  max-height: 300px;
+  max-width: 90%;
+  max-height: 90%;
   border-radius: var(--radius-sm);
 }
 
@@ -716,7 +715,16 @@
 .comparison.mode-overlay,
 .comparison.mode-swipe,
 .comparison.mode-diff {
-  display: block;
+  position: relative;
+}
+
+/* Overlay containers are positioned over the hidden grid */
+.comparison.mode-overlay .overlay-container,
+.comparison.mode-swipe .swipe-container,
+.comparison.mode-diff .diff-container {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
 }
 
 /* ============================================
@@ -9615,8 +9623,11 @@ box &quot;B&quot; with nw at A.e
     comparison.classList.remove('mode-overlay', 'mode-swipe', 'mode-diff');
     const cColumn = comparison.querySelector('.c-output');
     const rustColumn = comparison.querySelector('.rust-output');
-    cColumn.style.display = '';
-    rustColumn.style.display = '';
+    // Reset visibility (keep in layout for height)
+    cColumn.style.visibility = '';
+    cColumn.style.pointerEvents = '';
+    rustColumn.style.visibility = '';
+    rustColumn.style.pointerEvents = '';
 
     switch (state.mode) {
       case MODES.SIDE_BY_SIDE:
@@ -9642,8 +9653,11 @@ box &quot;B&quot; with nw at A.e
 
     const cColumn = comparison.querySelector('.c-output');
     const rustColumn = comparison.querySelector('.rust-output');
-    cColumn.style.display = 'none';
-    rustColumn.style.display = 'none';
+    // Hide but keep in layout for height
+    cColumn.style.visibility = 'hidden';
+    cColumn.style.pointerEvents = 'none';
+    rustColumn.style.visibility = 'hidden';
+    rustColumn.style.pointerEvents = 'none';
 
     const container = document.createElement('div');
     container.className = 'diff-container';
@@ -9672,8 +9686,11 @@ box &quot;B&quot; with nw at A.e
 
     const cColumn = comparison.querySelector('.c-output');
     const rustColumn = comparison.querySelector('.rust-output');
-    cColumn.style.display = 'none';
-    rustColumn.style.display = 'none';
+    // Hide but keep in layout for height
+    cColumn.style.visibility = 'hidden';
+    cColumn.style.pointerEvents = 'none';
+    rustColumn.style.visibility = 'hidden';
+    rustColumn.style.pointerEvents = 'none';
 
     const container = document.createElement('div');
     container.className = 'overlay-container';
@@ -9705,8 +9722,11 @@ box &quot;B&quot; with nw at A.e
 
     const cColumn = comparison.querySelector('.c-output');
     const rustColumn = comparison.querySelector('.rust-output');
-    cColumn.style.display = 'none';
-    rustColumn.style.display = 'none';
+    // Hide but keep in layout for height
+    cColumn.style.visibility = 'hidden';
+    cColumn.style.pointerEvents = 'none';
+    rustColumn.style.visibility = 'hidden';
+    rustColumn.style.pointerEvents = 'none';
 
     const container = document.createElement('div');
     container.className = 'swipe-container';
@@ -9857,11 +9877,11 @@ box &quot;B&quot; with nw at A.e
           diffData.data[i+2] = 22;
           diffData.data[i+3] = 255;
         } else {
-          // Neither has content - white
-          diffData.data[i] = 255;
-          diffData.data[i+1] = 255;
-          diffData.data[i+2] = 255;
-          diffData.data[i+3] = 255;
+          // Neither has content - transparent
+          diffData.data[i] = 0;
+          diffData.data[i+1] = 0;
+          diffData.data[i+2] = 0;
+          diffData.data[i+3] = 0;
         }
       }
 
@@ -9913,9 +9933,24 @@ box &quot;B&quot; with nw at A.e
     }
   }
 
-  function svgToImage(svg) {
+  function svgToImage(svg, targetWidth = 600) {
     return new Promise((resolve, reject) => {
-      const svgData = new XMLSerializer().serializeToString(svg);
+      // Clone SVG and set explicit dimensions for proper rendering
+      const clone = svg.cloneNode(true);
+      const viewBox = clone.getAttribute('viewBox');
+
+      if (viewBox) {
+        const [, , vbWidth, vbHeight] = viewBox.split(/\s+/).map(Number);
+        const aspectRatio = vbHeight / vbWidth;
+        clone.setAttribute('width', targetWidth);
+        clone.setAttribute('height', Math.round(targetWidth * aspectRatio));
+      } else {
+        // Fallback: set reasonable default size
+        clone.setAttribute('width', targetWidth);
+        clone.setAttribute('height', targetWidth);
+      }
+
+      const svgData = new XMLSerializer().serializeToString(clone);
       const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' });
       const url = URL.createObjectURL(svgBlob);
 
