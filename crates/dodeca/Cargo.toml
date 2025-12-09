@@ -47,6 +47,8 @@ notify = "8"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+futures = "0.3"
 
 # TUI
 ratatui = "0.30.0-beta.0"

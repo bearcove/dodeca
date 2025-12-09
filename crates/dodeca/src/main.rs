@@ -2516,9 +2516,6 @@ async fn serve_with_tui(
             let ips = get_bind_ips(mode);
             let actual_port = preferred_port.unwrap_or(4000);
 
-            // Print machine-readable port for tests
-            println!("LISTENING_PORT={actual_port}");
-
             // Get current cache sizes
             let salsa_size = salsa_path.metadata().map(|m| m.len() as usize).unwrap_or(0);
             let cas_size = WalkBuilder::new(&cas_dir)

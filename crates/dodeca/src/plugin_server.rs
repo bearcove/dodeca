@@ -13,6 +13,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use color_eyre::Result;
+use futures::stream::{self, StreamExt};
 use rapace::{Frame, RpcError};
 use rapace_testkit::RpcSession;
 use rapace_transport_shm::{ShmSession, ShmSessionConfig, ShmTransport};
@@ -21,6 +22,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
 use tokio::sync::watch;
+use tokio_stream::wrappers::TcpListenerStream;
 
 use dodeca_serve_protocol::{ContentServiceServer, TcpTunnelClient};
 
@@ -290,36 +292,21 @@ pub async fn start_plugin_server_with_shutdown(
         return Err(color_eyre::eyre::eyre!("Failed to bind to any addresses"));
     }
 
-    // Create a channel to receive accepted connections from all listeners
-    let (accept_tx, mut accept_rx) = tokio::sync::mpsc::channel::<(TcpStream, std::net::SocketAddr)>(32);
-
-    // Spawn accept tasks for each listener
-    for listener in listeners {
-        let tx = accept_tx.clone();
-        tokio::spawn(async move {
-            loop {
-                match listener.accept().await {
-                    Ok((stream, addr)) => {
-                        if tx.send((stream, addr)).await.is_err() {
-                            break; // Channel closed, stop accepting
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!("Accept error: {:?}", e);
-                    }
-                }
-            }
-        });
-    }
-    drop(accept_tx); // Drop our copy so channel closes when all accept tasks are done
+    // Merge all listeners into a single stream - when we drop it, ports are released
+    let mut accept_stream = stream::select_all(
+        listeners
+            .into_iter()
+            .map(|l| TcpListenerStream::new(l))
+    );
 
     // Accept browser connections and tunnel them to the plugin
     loop {
         tokio::select! {
-            accept_result = accept_rx.recv() => {
+            accept_result = accept_stream.next() => {
                 match accept_result {
-                    Some((stream, addr)) => {
-                        tracing::debug!("Accepted browser connection from {}", addr);
+                    Some(Ok(stream)) => {
+                        let addr = stream.peer_addr().ok();
+                        tracing::debug!("Accepted browser connection from {:?}", addr);
                         let session = rpc_session.clone();
                         tokio::spawn(async move {
                             // Create a new TcpTunnelClient for this connection
@@ -328,6 +315,9 @@ pub async fn start_plugin_server_with_shutdown(
                                 tracing::error!("Failed to handle browser connection: {:?}", e);
                             }
                         });
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!("Accept error: {:?}", e);
                     }
                     None => {
                         // All listeners closed
@@ -361,7 +351,8 @@ pub async fn start_plugin_server_with_shutdown(
         }
     }
 
-    // Cleanup
+    // Cleanup: drop the stream to release listeners, then remove SHM file
+    drop(accept_stream);
     let _ = std::fs::remove_file(&shm_path);
 
     Ok(())
