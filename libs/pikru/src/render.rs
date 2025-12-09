@@ -225,6 +225,7 @@ pub struct EndpointObject {
     pub center: PointIn,
     pub width: Inches,
     pub height: Inches,
+    pub corner_radius: Inches,
 }
 
 impl EndpointObject {
@@ -234,6 +235,7 @@ impl EndpointObject {
             center: obj.center,
             width: obj.width,
             height: obj.height,
+            corner_radius: obj.style.corner_radius,
         }
     }
 }
@@ -2953,6 +2955,7 @@ fn chop_against_box_compass_point(
     cy: f64,
     half_w: f64,
     half_h: f64,
+    corner_radius: f64,
     toward: (f64, f64),
 ) -> Option<(f64, f64)> {
     if half_w <= 0.0 || half_h <= 0.0 {
@@ -3000,16 +3003,27 @@ fn chop_against_box_compass_point(
         }
     };
 
+    // Calculate corner inset for rounded corners
+    // This is (1 - cos(45°)) * rad = (1 - 1/√2) * rad ≈ 0.29289 * rad
+    // Matches C pikchr's boxOffset function
+    let rad = corner_radius.min(half_w).min(half_h);
+    let rx = if rad > 0.0 {
+        0.29289321881345252392 * rad
+    } else {
+        0.0
+    };
+
     // Return coordinates of the specific compass point
+    // For diagonal points, adjust inward by rx to account for rounded corners
     let result = match compass_point {
         CompassPoint::North => (cx, cy - half_h),
-        CompassPoint::NorthEast => (cx + half_w, cy - half_h),
+        CompassPoint::NorthEast => (cx + half_w - rx, cy - half_h + rx),
         CompassPoint::East => (cx + half_w, cy),
-        CompassPoint::SouthEast => (cx + half_w, cy + half_h),
+        CompassPoint::SouthEast => (cx + half_w - rx, cy + half_h - rx),
         CompassPoint::South => (cx, cy + half_h),
-        CompassPoint::SouthWest => (cx - half_w, cy + half_h),
+        CompassPoint::SouthWest => (cx - half_w + rx, cy + half_h - rx),
         CompassPoint::West => (cx - half_w, cy),
-        CompassPoint::NorthWest => (cx - half_w, cy - half_h),
+        CompassPoint::NorthWest => (cx - half_w + rx, cy - half_h + rx),
     };
 
     Some(result)
@@ -3026,13 +3040,14 @@ fn chop_against_endpoint(
     let cy = scaler.px(endpoint.center.y + offset_y);
     let half_w = scaler.px(endpoint.width / 2.0);
     let half_h = scaler.px(endpoint.height / 2.0);
+    let corner_radius = scaler.px(endpoint.corner_radius);
 
     match endpoint.class {
         ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval | ObjectClass::Cylinder => {
             chop_against_ellipse(cx, cy, half_w, half_h, toward)
         }
         ObjectClass::Box | ObjectClass::File => {
-            chop_against_box_compass_point(cx, cy, half_w, half_h, toward)
+            chop_against_box_compass_point(cx, cy, half_w, half_h, corner_radius, toward)
         }
         ObjectClass::Diamond => chop_against_diamond(cx, cy, half_w, half_h, toward),
         _ => None,
