@@ -8,7 +8,7 @@ members = [
     "crates/plugcard",
     "crates/plugcard-macros",
     "crates/dodeca-serve-protocol",
-    "crates/dodeca-dev-server",
+    "crates/dodeca-mod-http",
     "crates/dodeca-baseline",
     "crates/dodeca-webp",
     "crates/dodeca-jxl",

@@ -2502,23 +2502,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dodeca-dev-server"
-version = "0.1.0"
-dependencies = [
- "axum",
- "color-eyre",
- "dodeca-protocol",
- "dodeca-serve-protocol",
- "facet",
- "facet-postcard",
- "futures-util",
- "rapace",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "dodeca-devtools"
 version = "0.1.0"
 dependencies = [
@@ -2625,6 +2608,23 @@ dependencies = [
  "linkme",
  "minify-html",
  "plugcard",
+]
+
+[[package]]
+name = "dodeca-mod-http"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "color-eyre",
+ "dodeca-protocol",
+ "dodeca-serve-protocol",
+ "facet",
+ "facet-postcard",
+ "futures-util",
+ "rapace",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

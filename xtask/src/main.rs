@@ -209,12 +209,12 @@ fn build_plugins(release: bool) -> bool {
 
 fn build_dodeca(release: bool) -> bool {
     eprintln!(
-        "Building dodeca{}...",
+        "Building dodeca + dodeca-mod-http{}...",
         if release { " (release)" } else { "" }
     );
 
     let mut cmd = Command::new("cargo");
-    cmd.args(["build", "--package", "dodeca"]);
+    cmd.args(["build", "--package", "dodeca", "--package", "dodeca-mod-http"]);
     if release {
         cmd.arg("--release");
     }
@@ -298,6 +298,16 @@ fn install_dev() -> bool {
         return false;
     }
     eprintln!("  Installed ddc");
+
+    // Copy dodeca-mod-http binary
+    let mod_http_src = PathBuf::from("target/release/dodeca-mod-http");
+    let mod_http_dst = cargo_bin.join("dodeca-mod-http");
+    let _ = fs::remove_file(&mod_http_dst);
+    if let Err(e) = fs::copy(&mod_http_src, &mod_http_dst) {
+        eprintln!("Failed to copy dodeca-mod-http: {e}");
+        return false;
+    }
+    eprintln!("  Installed dodeca-mod-http");
 
     // Copy plugins
     let plugin_ext = if cfg!(target_os = "macos") {

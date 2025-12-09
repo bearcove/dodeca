@@ -1,6 +1,6 @@
-//! Dodeca dev server plugin
+//! Dodeca HTTP module (dodeca-mod-http)
 //!
-//! This binary runs the HTTP dev server for dodeca. It:
+//! This binary runs the HTTP server for dodeca. It:
 //! - Connects to the host via rapace RPC
 //! - Listens on HTTP (127.0.0.1:PORT)
 //! - Handles all HTTP requests via axum router
@@ -80,7 +80,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("dodeca_dev_server=info".parse()?)
+                .add_directive("dodeca_mod_http=info".parse()?)
         )
         .init();
 
@@ -211,7 +211,13 @@ async fn log_requests(request: Request, next: Next) -> Response {
     let path = request.uri().path().to_string();
     let start = Instant::now();
 
-    let response = next.run(request).await;
+    let mut response = next.run(request).await;
+
+    // Add header to identify this is served by the plugin
+    response.headers_mut().insert(
+        "x-served-by",
+        "dodeca-mod-http".parse().unwrap(),
+    );
 
     let status = response.status().as_u16();
     let latency_ms = start.elapsed().as_secs_f64() * 1000.0;

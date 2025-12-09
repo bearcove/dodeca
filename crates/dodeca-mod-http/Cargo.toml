@@ -1,11 +1,11 @@
 [package]
-name = "dodeca-dev-server"
+name = "dodeca-mod-http"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
 
 [[bin]]
-name = "dodeca-dev-server"
+name = "dodeca-mod-http"
 path = "src/main.rs"
 
 [dependencies]

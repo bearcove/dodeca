@@ -2161,11 +2161,11 @@ async fn serve_plain(
     let plugin_path = exe_path
         .parent()
         .ok_or_else(|| eyre!("Cannot find parent directory of executable"))?
-        .join("dodeca-dev-server");
+        .join("dodeca-mod-http");
 
     if !plugin_path.exists() {
         return Err(eyre!(
-            "Plugin binary not found at {}. Build it with: cargo build -p dodeca-dev-server",
+            "Plugin binary not found at {}. Build it with: cargo build -p dodeca-mod-http",
             plugin_path.display()
         ));
     }
