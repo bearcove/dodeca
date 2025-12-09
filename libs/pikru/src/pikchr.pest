@@ -151,22 +151,34 @@ FUNC1 = { "abs" | "cos" | "sin" | "int" | "sqrt" }
 FUNC2 = { "max" | "min" }
 
 // === Positions ===
-// IMPORTANT: More specific (longer) alternatives must come before shorter ones!
-// Parenthesized forms must come before bare expr,expr to avoid greedy matching
+// Each alternative is a named rule so parse_position knows which pattern matched.
 position = {
-    "(" ~ position ~ "," ~ position ~ ")"  // (pos, pos) - tuple extraction
-  | "(" ~ position ~ ")"  // (pos) - grouping
-  | place ~ ("+" | "-") ~ "(" ~ expr ~ "," ~ expr ~ ")"
-  | place ~ ("+" | "-") ~ expr ~ "," ~ expr
-  | expr ~ ("between" | ("of" ~ "the")? ~ "way" ~ "between") ~ position ~ "and" ~ position
-  | expr ~ "<" ~ position ~ "," ~ position ~ ">"
-  | expr ~ above_below ~ position
-  | expr ~ left_right_of ~ position
-  | expr ~ "on"? ~ "heading" ~ (EDGEPT | expr) ~ ("of" | "from") ~ position
-  | expr ~ EDGEPT ~ "of" ~ position
-  | expr ~ "," ~ expr  // bare x,y coordinates - must be after all expr-starting forms!
-  | place  // bare place must come last!
+    pos_tuple
+  | pos_group
+  | pos_place_offset_paren
+  | pos_place_offset
+  | pos_between
+  | pos_bracket
+  | pos_above_below
+  | pos_left_right
+  | pos_heading
+  | pos_edgept_of
+  | pos_coords
+  | pos_place
 }
+
+pos_tuple = { "(" ~ position ~ "," ~ position ~ ")" }
+pos_group = { "(" ~ position ~ ")" }
+pos_place_offset_paren = { place ~ ("+" | "-") ~ "(" ~ expr ~ "," ~ expr ~ ")" }
+pos_place_offset = { place ~ ("+" | "-") ~ expr ~ "," ~ expr }
+pos_between = { expr ~ ("between" | ("of" ~ "the")? ~ "way" ~ "between") ~ position ~ "and" ~ position }
+pos_bracket = { expr ~ "<" ~ position ~ "," ~ position ~ ">" }
+pos_above_below = { expr ~ above_below ~ position }
+pos_left_right = { expr ~ left_right_of ~ position }
+pos_heading = { expr ~ "on"? ~ "heading" ~ (EDGEPT | expr) ~ ("of" | "from") ~ position }
+pos_edgept_of = { expr ~ EDGEPT ~ "of" ~ position }
+pos_coords = { expr ~ "," ~ expr }
+pos_place = { place }
 
 place = {
     NTH ~ "vertex" ~ "of" ~ object

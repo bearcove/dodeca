@@ -1090,222 +1090,119 @@ fn parse_number(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
 
 fn parse_position(pair: Pair<Rule>) -> Result<Position, miette::Report> {
     let pair_str = pair.as_str().to_string();
-    let mut inner = pair.into_inner().peekable();
+    let mut inner = pair.into_inner();
 
-    // Check what the first item is
-    let first = match inner.peek() {
-        Some(p) => p,
-        None => return Err(miette::miette!("Empty position")),
-    };
+    let child = inner
+        .next()
+        .ok_or_else(|| miette::miette!("Empty position: {}", pair_str))?;
 
-    match first.as_rule() {
-        Rule::place => {
-            let place = parse_place(inner.next().unwrap())?;
-
-            // Check if there's a + or - offset
-            // Grammar: place ~ ("+" | "-") ~ "(" ~ expr ~ "," ~ expr ~ ")"
-            //       or place ~ ("+" | "-") ~ expr ~ "," ~ expr
-            // The operator might or might not be captured as a child
-            if let Some(next_pair) = inner.next() {
-                let next_str = next_pair.as_str();
-                let next_rule = next_pair.as_rule();
-
-                // Determine operator - could be "+" or "-" directly, or could be expr
-                let (op, first_expr_pair) = if next_str == "+" || next_str == "-" {
-                    let op = if next_str == "+" {
-                        BinaryOp::Add
-                    } else {
-                        BinaryOp::Sub
-                    };
-                    let first = inner
-                        .next()
-                        .ok_or_else(|| miette::miette!("Missing x expression"))?;
-                    (op, first)
-                } else if next_rule == Rule::expr {
-                    // Operator not captured - assume Add (default), use this as first expr
-                    // Check if the place string ends with + or -
-                    let op = if pair_str.contains('+') {
-                        BinaryOp::Add
-                    } else {
-                        BinaryOp::Sub
-                    };
-                    (op, next_pair)
-                } else {
-                    return Err(miette::miette!(
-                        "Unexpected after place: {} (rule: {:?})",
-                        next_str,
-                        next_rule
-                    ));
-                };
-
-                let x = parse_expr(first_expr_pair)?;
-                let y_pair = inner
-                    .next()
-                    .ok_or_else(|| miette::miette!("Missing y expression"))?;
-                let y = parse_expr(y_pair)?;
-                Ok(Position::PlaceOffset(place, op, x, y))
-            } else {
-                Ok(Position::Place(place))
-            }
+    match child.as_rule() {
+        Rule::pos_tuple => {
+            // "(" ~ position ~ "," ~ position ~ ")"
+            let mut kids = child.into_inner();
+            let pos1 = parse_position(kids.next().unwrap())?;
+            let pos2 = parse_position(kids.next().unwrap())?;
+            Ok(Position::Tuple(Box::new(pos1), Box::new(pos2)))
         }
-        Rule::position => {
-            // Nested position - either (pos) grouping or (pos, pos) tuple
-            let first_pos = parse_position(inner.next().unwrap())?;
-
-            if let Some(second_pair) = inner.next() {
-                if second_pair.as_rule() == Rule::position {
-                    // (pos, pos) - tuple extraction
-                    let second_pos = parse_position(second_pair)?;
-                    Ok(Position::Tuple(Box::new(first_pos), Box::new(second_pos)))
-                } else {
-                    // Just (pos) grouping
-                    Ok(first_pos)
-                }
-            } else {
-                Ok(first_pos)
-            }
+        Rule::pos_group => {
+            // "(" ~ position ~ ")"
+            let mut kids = child.into_inner();
+            parse_position(kids.next().unwrap())
         }
-        Rule::expr => {
-            let first_expr = parse_expr(inner.next().unwrap())?;
-
-            // Check what follows the expr
-            if let Some(next) = inner.peek() {
-                let next_str = next.as_str();
-
-                if next_str == "between" || next_str == "way" || next_str == "of" {
-                    // expr between pos and pos OR expr (of the)? way between pos and pos
-                    // Skip keywords until we get to positions
-                    while inner
-                        .peek()
-                        .map(|p| {
-                            let s = p.as_str();
-                            s == "between" || s == "way" || s == "of" || s == "the"
-                        })
-                        .unwrap_or(false)
-                    {
-                        inner.next();
-                    }
-                    let pos1 = parse_position(inner.next().unwrap())?;
-                    // Skip "and"
-                    if inner.peek().map(|p| p.as_str() == "and").unwrap_or(false) {
-                        inner.next();
-                    }
-                    let pos2 = parse_position(inner.next().unwrap())?;
-                    Ok(Position::Between(
-                        first_expr,
-                        Box::new(pos1),
-                        Box::new(pos2),
-                    ))
-                } else if next_str == "<" {
-                    // expr < pos, pos >
-                    inner.next(); // skip "<"
-                    let pos1 = parse_position(inner.next().unwrap())?;
-                    let pos2 = parse_position(inner.next().unwrap())?;
-                    Ok(Position::Bracket(
-                        first_expr,
-                        Box::new(pos1),
-                        Box::new(pos2),
-                    ))
-                } else if next.as_rule() == Rule::above_below {
-                    // expr above_below position (new rule-based matching)
-                    let ab_pair = inner.next().unwrap();
-                    let ab_str = ab_pair.as_str().trim();
-                    let ab = if ab_str == "above" {
-                        AboveBelow::Above
-                    } else {
-                        AboveBelow::Below
-                    };
-                    let pos = parse_position(inner.next().unwrap())?;
-                    Ok(Position::AboveBelow(first_expr, ab, Box::new(pos)))
-                } else if next.as_rule() == Rule::left_right_of {
-                    // expr left_right_of position (new rule-based matching)
-                    let lr_pair = inner.next().unwrap();
-                    let lr_str = lr_pair.as_str().trim();
-                    let lr = if lr_str.starts_with("left") {
-                        LeftRight::Left
-                    } else {
-                        LeftRight::Right
-                    };
-                    let pos = parse_position(inner.next().unwrap())?;
-                    Ok(Position::LeftRightOf(first_expr, lr, Box::new(pos)))
-                } else if next.as_rule() == Rule::EDGEPT {
-                    // expr EDGEPT of position
-                    let ep = parse_edgepoint(inner.next().unwrap())?;
-                    // Skip "of"
-                    if inner.peek().map(|p| p.as_str() == "of").unwrap_or(false) {
-                        inner.next();
-                    }
-                    let pos = parse_position(inner.next().unwrap())?;
-                    Ok(Position::EdgePointOf(first_expr, ep, Box::new(pos)))
-                } else if next.as_rule() == Rule::expr {
-                    // Could be:
-                    // - expr, expr - coordinate pair (2 children: expr, expr)
-                    // - expr heading expr from position (3 children: expr, expr, position)
-                    //   (pest silently consumes "heading" and "from" keywords)
-                    let second_pair = inner.next().unwrap();
-
-                    // Check if there's a position after the second expr
-                    if inner
-                        .peek()
-                        .map(|p| p.as_rule() == Rule::position)
-                        .unwrap_or(false)
-                    {
-                        // This is: expr heading (expr|EDGEPT) from position
-                        // second_pair is the heading angle/direction
-                        let heading = if second_pair.as_rule() == Rule::EDGEPT {
-                            HeadingDir::EdgePoint(parse_edgepoint(second_pair)?)
-                        } else {
-                            HeadingDir::Expr(parse_expr(second_pair)?)
-                        };
-                        let pos = parse_position(inner.next().unwrap())?;
-                        Ok(Position::Heading(first_expr, heading, Box::new(pos)))
-                    } else {
-                        // Just expr, expr - coordinate pair
-                        let second_expr = parse_expr(second_pair)?;
-                        Ok(Position::Coords(first_expr, second_expr))
-                    }
-                } else if next.as_rule() == Rule::position {
-                    // This can happen when pest parses "expr EDGEPT of object" where
-                    // "EDGEPT of object" becomes a place->position
-                    // We need to extract the EDGEPT from the position string
-                    let pos_str = next_str.to_string();
-                    let pos_pair = inner.next().unwrap();
-
-                    // Try to parse the edge point from the start of the string
-                    // Common patterns: "s of X", "n of X", "ne of X", "start of X", etc.
-                    let words: Vec<&str> = pos_str.split_whitespace().collect();
-                    if words.len() >= 3 && words[1] == "of" {
-                        // First word is likely an EDGEPT
-                        if let Ok(ep) = parse_edgepoint_str(words[0]) {
-                            // The rest is the position - which is already parsed as pos_pair
-                            // But pos_pair contains "EDGEPT of object", and we want just "object"
-                            // Since pest already parsed it as a position, just use it
-                            let pos = parse_position(pos_pair)?;
-                            return Ok(Position::EdgePointOf(first_expr, ep, Box::new(pos)));
-                        }
-                    }
-                    // Fallback: just return as EdgePointOf with a default center
-                    let pos = parse_position(pos_pair)?;
-                    Ok(Position::EdgePointOf(
-                        first_expr,
-                        EdgePoint::Center,
-                        Box::new(pos),
-                    ))
-                } else {
-                    Err(miette::miette!(
-                        "Unexpected in position after expr: {} (rule: {:?})",
-                        next_str,
-                        next.as_rule()
-                    ))
-                }
+        Rule::pos_place_offset_paren | Rule::pos_place_offset => {
+            // place ~ ("+" | "-") ~ expr ~ "," ~ expr
+            let child_str = child.as_str();
+            let mut kids = child.into_inner();
+            let place = parse_place(kids.next().unwrap())?;
+            let x = parse_expr(kids.next().unwrap())?;
+            let y = parse_expr(kids.next().unwrap())?;
+            // Determine op from the string (pest doesn't capture bare + or -)
+            let op = if child_str.contains('+') {
+                BinaryOp::Add
             } else {
-                // Just an expr - this shouldn't really happen for position
-                Err(miette::miette!("Position with bare expr: {}", pair_str))
-            }
+                BinaryOp::Sub
+            };
+            Ok(Position::PlaceOffset(place, op, x, y))
+        }
+        Rule::pos_between => {
+            // expr ~ ("between" | ...) ~ position ~ "and" ~ position
+            let mut kids = child.into_inner();
+            let factor = parse_expr(kids.next().unwrap())?;
+            let pos1 = parse_position(kids.next().unwrap())?;
+            let pos2 = parse_position(kids.next().unwrap())?;
+            Ok(Position::Between(factor, Box::new(pos1), Box::new(pos2)))
+        }
+        Rule::pos_bracket => {
+            // expr ~ "<" ~ position ~ "," ~ position ~ ">"
+            let mut kids = child.into_inner();
+            let factor = parse_expr(kids.next().unwrap())?;
+            let pos1 = parse_position(kids.next().unwrap())?;
+            let pos2 = parse_position(kids.next().unwrap())?;
+            Ok(Position::Bracket(factor, Box::new(pos1), Box::new(pos2)))
+        }
+        Rule::pos_above_below => {
+            // expr ~ above_below ~ position
+            let mut kids = child.into_inner();
+            let dist = parse_expr(kids.next().unwrap())?;
+            let ab_pair = kids.next().unwrap();
+            let ab = if ab_pair.as_str().trim() == "above" {
+                AboveBelow::Above
+            } else {
+                AboveBelow::Below
+            };
+            let pos = parse_position(kids.next().unwrap())?;
+            Ok(Position::AboveBelow(dist, ab, Box::new(pos)))
+        }
+        Rule::pos_left_right => {
+            // expr ~ left_right_of ~ position
+            let mut kids = child.into_inner();
+            let dist = parse_expr(kids.next().unwrap())?;
+            let lr_pair = kids.next().unwrap();
+            let lr = if lr_pair.as_str().starts_with("left") {
+                LeftRight::Left
+            } else {
+                LeftRight::Right
+            };
+            let pos = parse_position(kids.next().unwrap())?;
+            Ok(Position::LeftRightOf(dist, lr, Box::new(pos)))
+        }
+        Rule::pos_heading => {
+            // expr ~ "on"? ~ "heading" ~ (EDGEPT | expr) ~ ("of" | "from") ~ position
+            let mut kids = child.into_inner();
+            let dist = parse_expr(kids.next().unwrap())?;
+            let heading_pair = kids.next().unwrap();
+            let heading = if heading_pair.as_rule() == Rule::EDGEPT {
+                HeadingDir::EdgePoint(parse_edgepoint(heading_pair)?)
+            } else {
+                HeadingDir::Expr(parse_expr(heading_pair)?)
+            };
+            let pos = parse_position(kids.next().unwrap())?;
+            Ok(Position::Heading(dist, heading, Box::new(pos)))
+        }
+        Rule::pos_edgept_of => {
+            // expr ~ EDGEPT ~ "of" ~ position
+            let mut kids = child.into_inner();
+            let dist = parse_expr(kids.next().unwrap())?;
+            let ep = parse_edgepoint(kids.next().unwrap())?;
+            let pos = parse_position(kids.next().unwrap())?;
+            Ok(Position::EdgePointOf(dist, ep, Box::new(pos)))
+        }
+        Rule::pos_coords => {
+            // expr ~ "," ~ expr
+            let mut kids = child.into_inner();
+            let x = parse_expr(kids.next().unwrap())?;
+            let y = parse_expr(kids.next().unwrap())?;
+            Ok(Position::Coords(x, y))
+        }
+        Rule::pos_place => {
+            // place
+            let mut kids = child.into_inner();
+            let place = parse_place(kids.next().unwrap())?;
+            Ok(Position::Place(place))
         }
         _ => Err(miette::miette!(
-            "Unexpected position start: {:?} in '{}'",
-            first.as_rule(),
+            "Unexpected position rule: {:?} in '{}'",
+            child.as_rule(),
             pair_str
         )),
     }

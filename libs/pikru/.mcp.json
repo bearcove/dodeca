@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "pikru-test": {
+      "type": "stdio",
+      "command": "mcp-server/.venv/bin/python3",
+      "args": ["mcp-server/pikru_test_server.py"],
+      "env": {}
+    }
+  }
+}

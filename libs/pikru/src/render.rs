@@ -1010,7 +1010,9 @@ fn render_object_stmt(
                 ));
             }
             Attribute::At(pos) => {
+                tracing::debug!(?pos, "Attribute::At position");
                 if let Ok(p) = eval_position(ctx, pos) {
+                    tracing::debug!(x = p.x.0, y = p.y.0, "Attribute::At evaluated");
                     explicit_position = Some(p);
                 }
             }
@@ -1768,7 +1770,11 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, miette:
             let py = eval_len(ctx, y)?;
             Ok(Point::new(px, py))
         }
-        Position::Place(place) => eval_place(ctx, place),
+        Position::Place(place) => {
+            let result = eval_place(ctx, place)?;
+            tracing::debug!(?place, result_x = result.x.0, result_y = result.y.0, "Position::Place");
+            Ok(result)
+        }
         Position::PlaceOffset(place, op, dx, dy) => {
             let base = eval_place(ctx, place)?;
             let dx_val = eval_len(ctx, dx)?;
@@ -1785,10 +1791,21 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, miette:
             let f = eval_scalar(ctx, factor)?;
             let p1 = eval_position(ctx, pos1)?;
             let p2 = eval_position(ctx, pos2)?;
-            Ok(Point::new(
+            let result = Point::new(
                 p1.x + (p2.x - p1.x) * f,
                 p1.y + (p2.y - p1.y) * f,
-            ))
+            );
+            tracing::debug!(
+                f = f,
+                p1_x = p1.x.0,
+                p1_y = p1.y.0,
+                p2_x = p2.x.0,
+                p2_y = p2.y.0,
+                result_x = result.x.0,
+                result_y = result.y.0,
+                "Position::Between calculation"
+            );
+            Ok(result)
         }
         Position::Bracket(factor, pos1, pos2) => {
             // Same as between
@@ -2069,27 +2086,44 @@ fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
 }
 
 fn eval_color(rvalue: &RValue) -> String {
-    match rvalue {
-        RValue::PlaceName(name) => {
-            // Common color names
-            match name.to_lowercase().as_str() {
-                "red" => "red".to_string(),
-                "blue" => "blue".to_string(),
-                "green" => "green".to_string(),
-                "yellow" => "yellow".to_string(),
-                "orange" => "orange".to_string(),
-                "purple" => "purple".to_string(),
-                "pink" => "pink".to_string(),
-                "black" => "black".to_string(),
-                "white" => "white".to_string(),
-                "gray" | "grey" => "gray".to_string(),
-                "cyan" => "cyan".to_string(),
-                "magenta" => "magenta".to_string(),
-                "none" | "off" => "none".to_string(),
-                _ => name.clone(),
-            }
+    // Try to extract a color name from the rvalue
+    let name = match rvalue {
+        RValue::PlaceName(name) => Some(name.as_str()),
+        RValue::Expr(expr) => {
+            // Check if expr is a simple variable reference (color name)
+            extract_color_name_from_expr(expr)
         }
-        RValue::Expr(_) => "black".to_string(),
+    };
+
+    if let Some(name) = name {
+        // Common color names (case-insensitive)
+        match name.to_lowercase().as_str() {
+            "red" => "red".to_string(),
+            "blue" => "blue".to_string(),
+            "green" => "green".to_string(),
+            "yellow" => "yellow".to_string(),
+            "orange" => "orange".to_string(),
+            "purple" => "purple".to_string(),
+            "pink" => "pink".to_string(),
+            "black" => "black".to_string(),
+            "white" => "white".to_string(),
+            "gray" | "grey" => "gray".to_string(),
+            "cyan" => "cyan".to_string(),
+            "magenta" => "magenta".to_string(),
+            "none" | "off" => "none".to_string(),
+            _ => name.to_string(),
+        }
+    } else {
+        "black".to_string()
+    }
+}
+
+/// Try to extract a color name from an expression.
+/// Returns Some if the expr is a simple variable reference that could be a color name.
+fn extract_color_name_from_expr(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Variable(name) => Some(name.as_str()),
+        _ => None,
     }
 }
 
@@ -2650,7 +2684,15 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 svg_children.push(SvgNode::Path(arc_path));
             }
             ObjectClass::Text => {
-                for positioned_text in &obj.text {
+                // Multi-line text: distribute lines vertically around center
+                // C pikchr stacks lines with charht spacing, centered on the object center
+                let charht_px = scaler.px(Inches(defaults::FONT_SIZE));
+                let line_count = obj.text.len();
+                // Start Y: center minus half of total height, plus half charht for first line center
+                // Total height = (line_count - 1) * charht, distributed evenly around center
+                let start_y = ty - (line_count as f64 - 1.0) * charht_px / 2.0;
+
+                for (i, positioned_text) in obj.text.iter().enumerate() {
                     // Determine text anchor based on ljust/rjust
                     let anchor = if positioned_text.rjust {
                         "end"
@@ -2659,16 +2701,18 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     } else {
                         "middle"
                     };
+                    let line_y = start_y + i as f64 * charht_px;
                     let text_element = Text {
                         x: Some(tx),
-                        y: Some(ty),
+                        y: Some(line_y),
                         fill: Some("rgb(0,0,0)".to_string()),
                         stroke: None,
                         stroke_width: None,
                         style: SvgStyle::default(),
                         text_anchor: Some(anchor.to_string()),
                         dominant_baseline: Some("central".to_string()),
-                        content: positioned_text.value.clone(),
+                        // C pikchr uses NO-BREAK SPACE (U+00A0) in SVG text output
+                        content: positioned_text.value.replace(' ', "\u{00A0}"),
                     };
                     svg_children.push(SvgNode::Text(text_element));
                 }
@@ -2773,7 +2817,8 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     style: SvgStyle::default(),
                     text_anchor: Some(anchor.to_string()),
                     dominant_baseline: Some("central".to_string()),
-                    content: positioned_text.value.clone(),
+                    // C pikchr uses NO-BREAK SPACE (U+00A0) in SVG text output
+                    content: positioned_text.value.replace(' ', "\u{00A0}"),
                 };
                 svg_children.push(SvgNode::Text(text_element));
             }

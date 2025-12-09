@@ -271,6 +271,64 @@ def get_available_tests() -> list[str]:
     return sorted([f.stem for f in TESTS_DIR.glob("*.pikchr")])
 
 
+def run_rust_test(test_name: str) -> tuple[str, str]:
+    """
+    Run the actual Rust test for this pikchr file and return (status, diff_output).
+
+    This uses the same structural SVG diff logic as `cargo test`.
+    Returns: tuple of (status, diff_output) where:
+        - status: 'match', 'mismatch', 'rust_error', 'c_error', etc.
+        - diff_output: the structural diff output from the test (includes confusables explanation)
+    """
+    try:
+        # Run cargo test for just this specific test file
+        result = subprocess.run(
+            ["cargo", "test", f"{test_name}.pikchr", "--", "--nocapture"],
+            capture_output=True,
+            timeout=60,
+            cwd=str(PROJECT_ROOT)
+        )
+
+        stderr = result.stderr.decode()
+        stdout = result.stdout.decode()
+        combined = stderr + stdout
+
+        # Extract the diff output - everything after "SVG mismatch for" until "note:" or end
+        diff_output = ""
+        if "SVG mismatch" in combined:
+            # Find the start of the diff
+            start_idx = combined.find("SVG mismatch for")
+            if start_idx != -1:
+                # Find where the diff ends (at "note:" or "failures:")
+                end_idx = combined.find("\nnote:", start_idx)
+                if end_idx == -1:
+                    end_idx = combined.find("\nfailures:", start_idx)
+                if end_idx == -1:
+                    end_idx = len(combined)
+                diff_output = combined[start_idx:end_idx].strip()
+
+        if result.returncode == 0:
+            return ("match", "")
+        else:
+            if "Rust implementation failed but C succeeded" in combined:
+                return ("rust_error", diff_output or combined)
+            elif "C pikchr produced error but Rust succeeded" in combined:
+                return ("c_error", diff_output or combined)
+            elif "Both implementations errored" in combined:
+                return ("both_error", diff_output or combined)
+            elif "SVG mismatch" in combined:
+                return ("mismatch", diff_output)
+            elif "Parse error" in combined:
+                return ("parse_error", diff_output or combined)
+            else:
+                return ("mismatch", diff_output or combined)
+    except subprocess.TimeoutExpired:
+        return ("timeout", "Test timed out")
+    except Exception as e:
+        logger.error(f"Failed to run Rust test: {e}")
+        return ("test_error", str(e))
+
+
 def calculate_ssim(c_png: bytes | None, rust_png: bytes | None) -> float | None:
     """Calculate SSIM between two PNG images. Returns value between 0 and 1."""
     if not HAS_SKIMAGE or not c_png or not rust_png:
@@ -514,23 +572,9 @@ def run_pikru_test(test_name: str) -> list:
     # Count diff pixels
     pixel_counts = count_diff_pixels(c_png, rust_png)
 
-    # Determine match status
-    if c_is_error and rust_is_error:
-        status = "both_error"
-    elif c_is_error:
-        status = "c_error"
-    elif rust_is_error:
-        status = "rust_error"
-    elif c_svg and rust_svg:
-        # Use SSIM for match determination if available
-        if ssim_score is not None and ssim_score > 0.99:
-            status = "match"
-        elif pixel_counts and pixel_counts["overlap_pct"] == 100.0:
-            status = "match"
-        else:
-            status = "mismatch"
-    else:
-        status = "no_svg"
+    # Determine match status by running the actual Rust test
+    # This is the source of truth - same logic as `cargo test`
+    status, svg_diff = run_rust_test(test_name)
 
     # Build comparison details
     comparison = {
@@ -562,6 +606,7 @@ def run_pikru_test(test_name: str) -> list:
         "status": status,
         "source": source,
         "comparison": comparison,
+        "svg_diff": svg_diff if svg_diff else None,
     })
 
     # Add side-by-side image as proper MCP Image
