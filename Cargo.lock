@@ -2380,7 +2380,7 @@ checksum = "6738d2e996274e499bc7b0d693c858b7720b9cd2543a0643a3087e6cb0a4fa16"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2497,6 +2497,23 @@ dependencies = [
  "lightningcss",
  "linkme",
  "plugcard",
+]
+
+[[package]]
+name = "dodeca-dev-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "color-eyre",
+ "dodeca-protocol",
+ "dodeca-serve-protocol",
+ "facet",
+ "facet-postcard",
+ "futures-util",
+ "rapace",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -2645,6 +2662,15 @@ dependencies = [
  "grass",
  "linkme",
  "plugcard",
+]
+
+[[package]]
+name = "dodeca-serve-protocol"
+version = "0.1.0"
+dependencies = [
+ "dodeca-protocol",
+ "facet",
+ "rapace",
 ]
 
 [[package]]
@@ -2833,7 +2859,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -2858,7 +2884,7 @@ dependencies = [
 [[package]]
 name = "facet"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#724caf442feb52f2f77a6cd9fdb48a7a3dfbb600"
+source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
 dependencies = [
  "facet-core",
  "facet-macros",
@@ -2882,7 +2908,7 @@ dependencies = [
 [[package]]
 name = "facet-core"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#724caf442feb52f2f77a6cd9fdb48a7a3dfbb600"
+source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
 dependencies = [
  "autocfg",
  "bitflags 2.10.0",
@@ -2928,7 +2954,7 @@ dependencies = [
 [[package]]
 name = "facet-macro-parse"
 version = "0.1.0"
-source = "git+https://github.com/facet-rs/facet#724caf442feb52f2f77a6cd9fdb48a7a3dfbb600"
+source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
 dependencies = [
  "facet-macro-types",
  "proc-macro2",
@@ -2939,7 +2965,7 @@ dependencies = [
 [[package]]
 name = "facet-macro-types"
 version = "0.1.0"
-source = "git+https://github.com/facet-rs/facet#724caf442feb52f2f77a6cd9fdb48a7a3dfbb600"
+source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2949,7 +2975,7 @@ dependencies = [
 [[package]]
 name = "facet-macros"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#724caf442feb52f2f77a6cd9fdb48a7a3dfbb600"
+source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
 dependencies = [
  "facet-core",
  "facet-macros-impl",
@@ -2958,7 +2984,7 @@ dependencies = [
 [[package]]
 name = "facet-macros-impl"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#724caf442feb52f2f77a6cd9fdb48a7a3dfbb600"
+source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
 dependencies = [
  "facet-macro-parse",
  "facet-macro-types",
@@ -2971,7 +2997,7 @@ dependencies = [
 [[package]]
 name = "facet-postcard"
 version = "0.1.0"
-source = "git+https://github.com/facet-rs/facet#724caf442feb52f2f77a6cd9fdb48a7a3dfbb600"
+source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
 dependencies = [
  "facet-core",
  "facet-reflect",
@@ -2981,7 +3007,7 @@ dependencies = [
 [[package]]
 name = "facet-reflect"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#724caf442feb52f2f77a6cd9fdb48a7a3dfbb600"
+source = "git+https://github.com/facet-rs/facet#048a5662f7eff84fcfda6a845746649650e98a21"
 dependencies = [
  "facet-core",
  "facet-macros",
@@ -3897,7 +3923,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -5312,7 +5338,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6929,7 +6955,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -6966,9 +6992,9 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7105,11 +7131,67 @@ dependencies = [
 [[package]]
 name = "rapace"
 version = "0.1.0"
+source = "git+https://github.com/bearcove/rapace#6d102a09912f64c21dc0da30233803df548d12d8"
 dependencies = [
  "facet",
+ "facet-core",
  "facet-postcard",
- "libc",
- "paste",
+ "rapace-core",
+ "rapace-macros",
+ "rapace-registry",
+ "rapace-transport-mem",
+ "rapace-transport-stream",
+ "tokio",
+ "tokio-stream",
+]
+
+[[package]]
+name = "rapace-core"
+version = "0.1.0"
+source = "git+https://github.com/bearcove/rapace#6d102a09912f64c21dc0da30233803df548d12d8"
+dependencies = [
+ "bitflags 2.10.0",
+ "facet",
+ "facet-core",
+ "futures",
+]
+
+[[package]]
+name = "rapace-macros"
+version = "0.1.0"
+source = "git+https://github.com/bearcove/rapace#6d102a09912f64c21dc0da30233803df548d12d8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.111",
+]
+
+[[package]]
+name = "rapace-registry"
+version = "0.1.0"
+source = "git+https://github.com/bearcove/rapace#6d102a09912f64c21dc0da30233803df548d12d8"
+dependencies = [
+ "facet-core",
+]
+
+[[package]]
+name = "rapace-transport-mem"
+version = "0.1.0"
+source = "git+https://github.com/bearcove/rapace#6d102a09912f64c21dc0da30233803df548d12d8"
+dependencies = [
+ "futures",
+ "parking_lot",
+ "rapace-core",
+ "tokio",
+]
+
+[[package]]
+name = "rapace-transport-stream"
+version = "0.1.0"
+source = "git+https://github.com/bearcove/rapace#6d102a09912f64c21dc0da30233803df548d12d8"
+dependencies = [
+ "parking_lot",
+ "rapace-core",
  "tokio",
 ]
 
@@ -7449,7 +7531,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8346,7 +8428,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -8639,6 +8721,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
 dependencies = [
  "rustls",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-stream"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eca58d7bba4a75707817a2c44174253f9236b2d5fbd055602e9d5c07c139a047"
+dependencies = [
+ "futures-core",
+ "pin-project-lite",
  "tokio",
 ]
 
@@ -9542,7 +9635,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
