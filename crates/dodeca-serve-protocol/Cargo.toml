@@ -1,0 +1,15 @@
+[package]
+name = "dodeca-serve-protocol"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+
+[dependencies]
+# RPC framework
+rapace = { git = "https://github.com/bearcove/rapace" }
+
+# Serialization
+facet = { git = "https://github.com/facet-rs/facet" }
+
+# Re-export types from dodeca-protocol
+dodeca-protocol = { path = "../dodeca-protocol" }
