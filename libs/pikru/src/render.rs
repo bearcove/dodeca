@@ -72,6 +72,8 @@ mod defaults {
     pub const LINE_WIDTH: Inches = Inches::inches(0.5); // linewid default
     pub const BOX_WIDTH: Inches = Inches::inches(0.75);
     pub const BOX_HEIGHT: Inches = Inches::inches(0.5);
+    pub const OVAL_WIDTH: Inches = Inches::inches(1.0); // ovalwid default
+    pub const OVAL_HEIGHT: Inches = Inches::inches(0.5); // ovalht default
     pub const DIAMOND_WIDTH: Inches = Inches::inches(1.0); // C pikchr: diamond is larger than box
     pub const DIAMOND_HEIGHT: Inches = Inches::inches(0.75);
     pub const CIRCLE_RADIUS: Inches = Inches::inches(0.25);
@@ -786,8 +788,8 @@ fn render_object_stmt(
             ),
             ClassName::Oval => (
                 ObjectClass::Oval,
-                defaults::BOX_WIDTH,
-                defaults::BOX_HEIGHT / 2.0,
+                defaults::OVAL_WIDTH,
+                defaults::OVAL_HEIGHT,
             ),
             ClassName::Cylinder => (
                 ObjectClass::Cylinder,
@@ -2291,27 +2293,26 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             }
             ObjectClass::Oval => {
                 // Oval is a pill shape (rounded rectangle with fully rounded ends)
+                // C pikchr renders as a path, not a rect
                 let width = scaler.px(obj.width);
                 let height = scaler.px(obj.height);
-                let rx = height / 2.0; // Fully rounded ends
-                let ry = height / 2.0;
-                let x = tx - width / 2.0;
-                let y = ty - height / 2.0;
+                let rad = height.min(width) / 2.0; // radius is half of smaller dimension
+                let x1 = tx - width / 2.0;
+                let x2 = tx + width / 2.0;
+                let y1 = ty - height / 2.0;
+                let y2 = ty + height / 2.0;
 
-                let rect = Rect {
-                    x: Some(x),
-                    y: Some(y),
-                    width: Some(width),
-                    height: Some(height),
-                    rx: Some(rx),
-                    ry: Some(ry),
+                // Create path like C pikchr: start at bottom-left inner, go clockwise
+                let path_data = create_oval_path(x1, y1, x2, y2, rad);
+                let path = Path {
+                    d: Some(path_data),
                     fill: None,
                     stroke: None,
                     stroke_width: None,
                     stroke_dasharray: None,
                     style: svg_style.clone(),
                 };
-                svg_children.push(SvgNode::Rect(rect));
+                svg_children.push(SvgNode::Path(path));
             }
             ObjectClass::Cylinder => {
                 // Cylinder: proper path-based rendering matching C pikchr
@@ -3043,11 +3044,16 @@ fn chop_against_endpoint(
     let corner_radius = scaler.px(endpoint.corner_radius);
 
     match endpoint.class {
-        ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval | ObjectClass::Cylinder => {
+        ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Cylinder => {
             chop_against_ellipse(cx, cy, half_w, half_h, toward)
         }
         ObjectClass::Box | ObjectClass::File => {
             chop_against_box_compass_point(cx, cy, half_w, half_h, corner_radius, toward)
+        }
+        ObjectClass::Oval => {
+            // Oval uses boxChop like C pikchr, with corner radius = half of smaller dimension
+            let oval_radius = half_w.min(half_h);
+            chop_against_box_compass_point(cx, cy, half_w, half_h, oval_radius, toward)
         }
         ObjectClass::Diamond => chop_against_diamond(cx, cy, half_w, half_h, toward),
         _ => None,
@@ -3184,6 +3190,24 @@ fn create_rounded_box_path(x1: f64, y1: f64, x2: f64, y2: f64, r: f64) -> PathDa
         .a(r, r, 0.0, false, false, x1, y1 + r) // A: arc to left edge
         .l(x1, y2 - r) // L: line down to bottom-left before radius
         .a(r, r, 0.0, false, false, x1 + r, y2) // A: arc back to start
+        .z() // Z: close path
+}
+
+/// Create oval (pill shape) path using PathData fluent API (matching C pikchr output)
+/// Oval has fully rounded ends where rad = min(width, height) / 2
+fn create_oval_path(x1: f64, y1: f64, x2: f64, y2: f64, rad: f64) -> PathData {
+    // C pikchr path format for oval - uses 4 quarter-circle arcs:
+    // Start bottom-left, line bottom, arc to east, arc to top-right,
+    // line top, arc to west, arc back to bottom-left
+    let cy = (y1 + y2) / 2.0; // vertical center
+    PathData::new()
+        .m(x1 + rad, y2) // M: start at bottom-left inner corner
+        .l(x2 - rad, y2) // L: line to bottom-right inner corner
+        .a(rad, rad, 0.0, false, false, x2, cy) // A: quarter arc to east edge center
+        .a(rad, rad, 0.0, false, false, x2 - rad, y1) // A: quarter arc to top-right inner corner
+        .l(x1 + rad, y1) // L: line to top-left inner corner
+        .a(rad, rad, 0.0, false, false, x1, cy) // A: quarter arc to west edge center
+        .a(rad, rad, 0.0, false, false, x1 + rad, y2) // A: quarter arc back to start
         .z() // Z: close path
 }
 
