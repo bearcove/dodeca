@@ -338,9 +338,14 @@
       const width = Math.max(cImg.width, rustImg.width);
       const height = Math.max(cImg.height, rustImg.height);
 
-      canvas.width = width;
-      canvas.height = height;
+      // Handle HiDPI displays
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
       const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
 
       // Draw C version
       const cCanvas = document.createElement('canvas');
@@ -362,8 +367,13 @@
       rustCtx.drawImage(rustImg, 0, 0);
       const rustData = rustCtx.getImageData(0, 0, width, height);
 
-      // Generate diff
-      const diffData = ctx.createImageData(width, height);
+      // Generate diff on a temp canvas (putImageData ignores transforms)
+      const diffCanvas = document.createElement('canvas');
+      diffCanvas.width = width;
+      diffCanvas.height = height;
+      const diffCtx = diffCanvas.getContext('2d');
+      const diffData = diffCtx.createImageData(width, height);
+
       for (let i = 0; i < cData.data.length; i += 4) {
         const cGray = (cData.data[i] + cData.data[i+1] + cData.data[i+2]) / 3;
         const rustGray = (rustData.data[i] + rustData.data[i+1] + rustData.data[i+2]) / 3;
@@ -398,7 +408,9 @@
         }
       }
 
-      ctx.putImageData(diffData, 0, 0);
+      // Put diff data to temp canvas, then draw scaled to output canvas
+      diffCtx.putImageData(diffData, 0, 0);
+      ctx.drawImage(diffCanvas, 0, 0);
       loadingEl.style.display = 'none';
     } catch (err) {
       console.error('Failed to generate diff:', err);
