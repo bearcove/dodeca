@@ -464,10 +464,7 @@ mod tests {
             xml.contains("xmlns=\"http://www.w3.org/2000/svg\""),
             "Should have default xmlns declaration"
         );
-        assert!(
-            xml.contains("<svg"),
-            "Element should be lowercase <svg>"
-        );
+        assert!(xml.contains("<svg"), "Element should be lowercase <svg>");
     }
 
     #[test]
