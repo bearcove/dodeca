@@ -181,7 +181,7 @@ fn render_statement(
 }
 
 /// Expand a bounding box to include a rendered object (recursing into sublists)
-fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
+pub fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
     match obj.class {
         ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Arc => {
             // C pikchr does not enlarge the bounding box by stroke width for line-like objects.

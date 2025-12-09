@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use crate::ast::Direction;
 use crate::types::{EvalValue, Length as Inches};
 
+use super::expand_object_bounds;
 use super::types::*;
 
 /// Rendering context
@@ -89,9 +90,13 @@ impl RenderContext {
 
     /// Add an object to the context
     pub fn add_object(&mut self, obj: RenderedObject) {
-        // TODO: Call expand_object_bounds here
+        // Update bounds
+        expand_object_bounds(&mut self.bounds, &obj);
+
+        // Update position to the exit point of the object
         self.position = obj.end;
 
+        // Store named objects
         if let Some(ref name) = obj.name {
             self.objects.insert(name.clone(), obj.clone());
         }
