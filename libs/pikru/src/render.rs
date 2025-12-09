@@ -573,13 +573,28 @@ fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
                 }
             }
         }
-        _ => bounds.expand_rect(
-            obj.center,
-            Size {
-                w: obj.width,
-                h: obj.height,
-            },
-        ),
+        _ => {
+            // For invisible objects, only include text bounds, not shape bounds
+            if obj.style.invisible && !obj.text.is_empty() {
+                let charht = Inches(defaults::FONT_SIZE);
+                let charwid = defaults::CHARWID;
+                for text in &obj.text {
+                    let text_w = Inches(text_width_inches(&text.value, charwid));
+                    let hh = charht / 2.0;
+                    let hw = text_w / 2.0;
+                    bounds.expand_point(Point::new(obj.center.x - hw, obj.center.y - hh));
+                    bounds.expand_point(Point::new(obj.center.x + hw, obj.center.y + hh));
+                }
+            } else if !obj.style.invisible {
+                bounds.expand_rect(
+                    obj.center,
+                    Size {
+                        w: obj.width,
+                        h: obj.height,
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -2195,10 +2210,6 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
     // Render each object
     for obj in &ctx.object_list {
-        if obj.style.invisible {
-            continue;
-        }
-
         let tx = scaler.px(obj.center.x + offset_x);
         let ty = scaler.px(obj.center.y + offset_y);
         let sx = scaler.px(obj.start.x + offset_x);
@@ -2208,6 +2219,8 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
         let svg_style = create_svg_style(&obj.style, &scaler, dashwid);
 
+        // Render shape (skip if invisible, but still render text below)
+        if !obj.style.invisible {
         match obj.class {
             ObjectClass::Box => {
                 let x1 = tx - scaler.px(obj.width / 2.0);
@@ -2768,8 +2781,9 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 }
             }
         }
+        } // end if !obj.style.invisible
 
-        // Render text labels inside objects
+        // Render text labels inside objects (always rendered, even for invisible shapes)
         if obj.class != ObjectClass::Text && !obj.text.is_empty() {
             // For cylinders, C pikchr shifts text down by 0.75 * cylrad
             // This accounts for the top ellipse taking up space
