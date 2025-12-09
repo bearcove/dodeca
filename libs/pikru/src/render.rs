@@ -2773,10 +2773,19 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
         // Render text labels inside objects
         if obj.class != ObjectClass::Text && !obj.text.is_empty() {
+            // For cylinders, C pikchr shifts text down by 0.75 * cylrad
+            // This accounts for the top ellipse taking up space
+            let text_y_offset = if obj.class == ObjectClass::Cylinder {
+                let cylrad = get_length(ctx, "cylrad", 0.075);
+                scaler.px(Inches::inches(0.75 * cylrad))
+            } else {
+                0.0
+            };
+
             for positioned_text in &obj.text {
                 let text_element = Text {
                     x: Some(tx),
-                    y: Some(ty),
+                    y: Some(ty + text_y_offset),
                     fill: Some("rgb(0,0,0)".to_string()),
                     stroke: None,
                     stroke_width: None,
