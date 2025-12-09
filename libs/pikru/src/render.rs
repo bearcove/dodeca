@@ -1151,24 +1151,33 @@ fn render_object_stmt(
         } else if has_direction_move {
             // Get exit edge of last object based on accumulated offset direction
             if let Some(last_obj) = ctx.last_object() {
-                let (hw, hh) = (last_obj.width / 2.0, last_obj.height / 2.0);
-                let c = last_obj.center;
-                let exit_x = if direction_offset.dx > Inches::ZERO {
-                    c.x + hw // moving right, exit from right edge
-                } else if direction_offset.dx < Inches::ZERO {
-                    c.x - hw // moving left, exit from left edge
-                } else {
-                    c.x // no horizontal movement, use center
-                };
-                // In SVG coordinates: positive Y offset = down = bottom edge
-                let exit_y = if direction_offset.dy > Inches::ZERO {
-                    c.y + hh // moving down (positive Y), exit from bottom edge
-                } else if direction_offset.dy < Inches::ZERO {
-                    c.y - hh // moving up (negative Y), exit from top edge
-                } else {
-                    c.y // no vertical movement, use center
-                };
-                Point::new(exit_x, exit_y)
+                // For line-like objects, use the end point directly
+                match last_obj.class {
+                    ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Arc | ObjectClass::Move => {
+                        last_obj.end
+                    }
+                    _ => {
+                        // For box-like objects, calculate exit edge based on direction
+                        let (hw, hh) = (last_obj.width / 2.0, last_obj.height / 2.0);
+                        let c = last_obj.center;
+                        let exit_x = if direction_offset.dx > Inches::ZERO {
+                            c.x + hw // moving right, exit from right edge
+                        } else if direction_offset.dx < Inches::ZERO {
+                            c.x - hw // moving left, exit from left edge
+                        } else {
+                            c.x // no horizontal movement, use center
+                        };
+                        // In SVG coordinates: positive Y offset = down = bottom edge
+                        let exit_y = if direction_offset.dy > Inches::ZERO {
+                            c.y + hh // moving down (positive Y), exit from bottom edge
+                        } else if direction_offset.dy < Inches::ZERO {
+                            c.y - hh // moving up (negative Y), exit from top edge
+                        } else {
+                            c.y // no vertical movement, use center
+                        };
+                        Point::new(exit_x, exit_y)
+                    }
+                }
             } else {
                 ctx.position
             }
@@ -2642,6 +2651,14 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             }
             ObjectClass::Text => {
                 for positioned_text in &obj.text {
+                    // Determine text anchor based on ljust/rjust
+                    let anchor = if positioned_text.rjust {
+                        "end"
+                    } else if positioned_text.ljust {
+                        "start"
+                    } else {
+                        "middle"
+                    };
                     let text_element = Text {
                         x: Some(tx),
                         y: Some(ty),
@@ -2649,7 +2666,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         stroke: None,
                         stroke_width: None,
                         style: SvgStyle::default(),
-                        text_anchor: Some("middle".to_string()),
+                        text_anchor: Some(anchor.to_string()),
                         dominant_baseline: Some("central".to_string()),
                         content: positioned_text.value.clone(),
                     };
@@ -2739,6 +2756,14 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             };
 
             for positioned_text in &obj.text {
+                // Determine text anchor based on ljust/rjust
+                let anchor = if positioned_text.rjust {
+                    "end"
+                } else if positioned_text.ljust {
+                    "start"
+                } else {
+                    "middle"
+                };
                 let text_element = Text {
                     x: Some(tx),
                     y: Some(ty + text_y_offset),
@@ -2746,7 +2771,7 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     stroke: None,
                     stroke_width: None,
                     style: SvgStyle::default(),
-                    text_anchor: Some("middle".to_string()),
+                    text_anchor: Some(anchor.to_string()),
                     dominant_baseline: Some("central".to_string()),
                     content: positioned_text.value.clone(),
                 };
