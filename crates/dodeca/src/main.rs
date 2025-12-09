@@ -3,6 +3,7 @@
 mod cache_bust;
 mod cas;
 mod config;
+mod content_service;
 mod data;
 mod db;
 mod error_pages;
@@ -10,6 +11,7 @@ mod file_watcher;
 mod image;
 mod link_checker;
 mod logging;
+mod plugin_server;
 mod plugins;
 mod queries;
 mod render;
@@ -2102,6 +2104,9 @@ async fn serve_plain(
         }
     });
 
+    // Check if we should use the plugin-based architecture
+    let use_plugin = std::env::var("DDC_USE_PLUGIN").map(|v| v == "1").unwrap_or(false);
+
     // Determine IPs to bind to
     let ips = if address == "0.0.0.0" {
         let mut ips = vec![std::net::Ipv4Addr::LOCALHOST];
@@ -2111,14 +2116,37 @@ async fn serve_plain(
         vec![address.parse().unwrap_or(std::net::Ipv4Addr::LOCALHOST)]
     };
 
-    // Bind first to get actual port
-    let bound = serve::bind_listeners(&ips, port).await?;
-    let actual_port = bound.port;
+    // For plugin mode, don't pre-bind - let the plugin handle HTTP binding
+    // For traditional mode, bind first to get actual port
+    let actual_port: u16 = if use_plugin {
+        // Use the requested port (or default to 4000)
+        port.unwrap_or(4000)
+    } else {
+        let bound = serve::bind_listeners(&ips, port).await?;
+        let port = bound.port;
+        // Store bound for later use
+        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    // Print machine-readable port (for tests/scripts)
+        // Print machine-readable port (for tests/scripts)
+        println!("LISTENING_PORT={port}");
+
+        // Print human-readable URLs
+        print_server_urls(address, port);
+
+        if open {
+            let url = format!("http://127.0.0.1:{port}");
+            if let Err(e) = open::that(&url) {
+                eprintln!("{} Failed to open browser: {}", "warning:".yellow(), e);
+            }
+        }
+
+        // Traditional mode: run axum server directly
+        serve::run_on_listeners(server, bound, shutdown_rx).await?;
+        return Ok(());
+    };
+
+    // Plugin mode: print port info and start plugin server
     println!("LISTENING_PORT={actual_port}");
-
-    // Print human-readable URLs
     print_server_urls(address, actual_port);
 
     if open {
@@ -2128,9 +2156,30 @@ async fn serve_plain(
         }
     }
 
-    // Now run the server
-    let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-    serve::run_on_listeners(server, bound, shutdown_rx).await?;
+    // Find the plugin binary (next to the main binary)
+    let exe_path = std::env::current_exe()?;
+    let plugin_path = exe_path
+        .parent()
+        .ok_or_else(|| eyre!("Cannot find parent directory of executable"))?
+        .join("dodeca-dev-server");
+
+    if !plugin_path.exists() {
+        return Err(eyre!(
+            "Plugin binary not found at {}. Build it with: cargo build -p dodeca-dev-server",
+            plugin_path.display()
+        ));
+    }
+
+    // Use the plugin server
+    plugin_server::start_plugin_server(
+        server,
+        plugin_path,
+        std::net::SocketAddr::new(
+            address.parse().unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)),
+            actual_port,
+        ),
+    )
+    .await?;
 
     Ok(())
 }
