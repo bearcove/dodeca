@@ -168,12 +168,22 @@ fn compare_html() {
             justify-content: space-between;
             padding: 12px 16px;
             border-bottom: 1px solid light-dark(#eee, #444);
-            background: light-dark(#fafafa, #333);
+        }}
+        .test-card.match .test-header {{
+            background: light-dark(#dcfce7, #166534);
+        }}
+        .test-card.mismatch .test-header {{
+            background: light-dark(#fee2e2, #7f1d1d);
         }}
         .test-title {{
             font-weight: 600;
             font-size: 13px;
-            color: light-dark(#333, #e0e0e0);
+        }}
+        .test-card.match .test-title {{
+            color: light-dark(#166534, #dcfce7);
+        }}
+        .test-card.mismatch .test-title {{
+            color: light-dark(#991b1b, #fecaca);
         }}
         .test-status {{
             font-size: 11px;
@@ -181,13 +191,13 @@ fn compare_html() {
             padding: 3px 8px;
             border-radius: 4px;
         }}
-        .test-status.match {{
-            background: #dcfce7;
-            color: #166534;
+        .test-card.match .test-status {{
+            background: light-dark(#166534, #22c55e);
+            color: light-dark(white, #052e16);
         }}
-        .test-status.mismatch {{
-            background: #fee2e2;
-            color: #991b1b;
+        .test-card.mismatch .test-status {{
+            background: light-dark(#991b1b, #ef4444);
+            color: light-dark(white, #450a0a);
         }}
         .test-body {{
             padding: 12px 16px;
@@ -477,10 +487,10 @@ fn compare_html() {
 
         html.push_str(&format!(
             r#"
-<div class="test-card" id="{}">
+<div class="test-card {}" id="{}">
     <div class="test-header">
         <span class="test-title">{}</span>
-        <span class="test-status {}">{}</span>
+        <span class="test-status">{}</span>
     </div>
     <div class="test-body">
         <div class="comparison">
@@ -500,9 +510,9 @@ fn compare_html() {
     </div>
 </div>
 "#,
-            name_str,
-            name_str,
             status_class,
+            name_str,
+            name_str,
             status_text,
             c_content,
             rust_content,

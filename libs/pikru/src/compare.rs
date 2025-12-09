@@ -7,9 +7,9 @@ use facet_svg::{Svg, facet_assert::SameOptions, facet_xml};
 
 /// Tolerance for floating-point comparisons (pikchr uses single precision)
 /// Keep this tight so genuine geometry differences don't get masked.
-/// A value of 0.01 px comfortably covers formatting/rounding noise while
+/// A value of 0.002 px covers formatting/rounding noise while
 /// catching mis-chopped endpoints like autochop02.
-pub const FLOAT_TOLERANCE: f64 = 0.000000000000;
+pub const FLOAT_TOLERANCE: f64 = 0.002;
 
 /// Result of comparing two pikchr outputs
 #[derive(Debug, Clone)]

@@ -1845,11 +1845,13 @@ fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, miette:
                 HeadingDir::Expr(e) => eval_scalar(ctx, e).unwrap_or(0.0),
             };
             // Convert angle (degrees, 0 = north, clockwise) to radians
-            // Matching C pikchr: pt.x += dist*sin(r); pt.y += dist*cos(r);
+            // C pikchr uses: pt.x += dist*sin(r); pt.y += dist*cos(r);
+            // But C uses Y-up internally and flips on output. We use Y-down (SVG),
+            // so we negate the Y component here.
             let rad = angle.to_radians();
             Ok(Point::new(
                 base.x + Inches(d.0 * rad.sin()),
-                base.y + Inches(d.0 * rad.cos()),
+                base.y - Inches(d.0 * rad.cos()),
             ))
         }
         Position::Tuple(pos1, pos2) => {
@@ -2958,7 +2960,8 @@ fn chop_against_box_compass_point(
     }
 
     // Calculate direction from box center to target point
-    let dx = toward.0 - cx;
+    // C pikchr scales dx by h/w to normalize the box to a square for angle calculations
+    let dx = (toward.0 - cx) * half_h / half_w;
     // SVG Y increases downward; flip dy for compass math so 0° = north like C pikchr
     let dy = -(toward.1 - cy);
 
