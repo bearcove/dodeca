@@ -72,6 +72,9 @@ mod defaults {
     pub const LINE_WIDTH: Inches = Inches::inches(0.5); // linewid default
     pub const BOX_WIDTH: Inches = Inches::inches(0.75);
     pub const BOX_HEIGHT: Inches = Inches::inches(0.5);
+    pub const FILE_WIDTH: Inches = Inches::inches(0.5); // filewid default (taller than wide)
+    pub const FILE_HEIGHT: Inches = Inches::inches(0.75); // fileht default
+    pub const FILE_RAD: Inches = Inches::inches(0.15); // filerad default (fold size)
     pub const OVAL_WIDTH: Inches = Inches::inches(1.0); // ovalwid default
     pub const OVAL_HEIGHT: Inches = Inches::inches(0.5); // ovalht default
     pub const DIAMOND_WIDTH: Inches = Inches::inches(1.0); // C pikchr: diamond is larger than box
@@ -801,7 +804,7 @@ fn render_object_stmt(
                 defaults::DIAMOND_WIDTH,
                 defaults::DIAMOND_HEIGHT,
             ),
-            ClassName::File => (ObjectClass::File, defaults::BOX_WIDTH, defaults::BOX_HEIGHT),
+            ClassName::File => (ObjectClass::File, defaults::FILE_WIDTH, defaults::FILE_HEIGHT),
             ClassName::Line => (ObjectClass::Line, defaults::LINE_WIDTH, Inches::ZERO),
             ClassName::Arrow => (ObjectClass::Arrow, defaults::LINE_WIDTH, Inches::ZERO),
             ClassName::Spline => (ObjectClass::Spline, defaults::LINE_WIDTH, Inches::ZERO),
@@ -2338,8 +2341,9 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 // File: proper path-based rendering with fold matching C pikchr
                 let width = scaler.px(obj.width);
                 let height = scaler.px(obj.height);
+                let filerad = scaler.px(defaults::FILE_RAD);
 
-                let (main_path, fold_path) = create_file_paths(tx, ty, width, height);
+                let (main_path, fold_path) = create_file_paths(tx, ty, width, height, filerad);
 
                 // Main outline path
                 let main = Path {
@@ -2352,17 +2356,11 @@ fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 };
                 svg_children.push(SvgNode::Path(main));
 
-                // Fold line (stroke only, no fill)
-                let mut fold_style = SvgStyle::new();
+                // Fold line (stroke only, no fill) - uses same stroke as main shape
+                let mut fold_style = svg_style.clone();
                 fold_style
                     .properties
                     .insert("fill".to_string(), "none".to_string());
-                fold_style
-                    .properties
-                    .insert("stroke".to_string(), "rgb(0,0,0)".to_string());
-                fold_style
-                    .properties
-                    .insert("stroke-width".to_string(), "1".to_string());
 
                 let fold = Path {
                     d: Some(fold_path),
@@ -3008,6 +3006,85 @@ fn chop_against_box_compass_point(
     Some(result)
 }
 
+/// Chop against file using discrete compass points like C pikchr
+/// File has special offset: only NE corner is inset for the fold
+/// From C pikchr fileOffset: rx = 0.5 * rad (clamped)
+fn chop_against_file_compass_point(
+    cx: f64,
+    cy: f64,
+    half_w: f64,
+    half_h: f64,
+    filerad: f64,
+    toward: (f64, f64),
+) -> Option<(f64, f64)> {
+    if half_w <= 0.0 || half_h <= 0.0 {
+        return None;
+    }
+
+    // Same compass point selection as boxChop
+    let dx = (toward.0 - cx) * half_h / half_w;
+    let dy = -(toward.1 - cy);
+
+    let compass_point = if dx > 0.0 {
+        if dy >= 2.414 * dx {
+            CompassPoint::North
+        } else if dy > 0.414 * dx {
+            CompassPoint::NorthEast
+        } else if dy > -0.414 * dx {
+            CompassPoint::East
+        } else if dy > -2.414 * dx {
+            CompassPoint::SouthEast
+        } else {
+            CompassPoint::South
+        }
+    } else if dx < 0.0 {
+        if dy >= -2.414 * dx {
+            CompassPoint::North
+        } else if dy > -0.414 * dx {
+            CompassPoint::NorthWest
+        } else if dy > 0.414 * dx {
+            CompassPoint::West
+        } else if dy > 2.414 * dx {
+            CompassPoint::SouthWest
+        } else {
+            CompassPoint::South
+        }
+    } else {
+        if dy >= 0.0 {
+            CompassPoint::North
+        } else {
+            CompassPoint::South
+        }
+    };
+
+    // C pikchr fileOffset: rx = 0.5 * rad, clamped to [mn*0.25, mn] where mn = min(w2, h2)
+    let mn = half_w.min(half_h);
+    let mut rx = filerad;
+    if rx > mn {
+        rx = mn;
+    }
+    if rx < mn * 0.25 {
+        rx = mn * 0.25;
+    }
+    rx *= 0.5;
+
+    // File compass points - only NE is different (inset for fold)
+    // Note: in SVG Y increases downward, so "north" is smaller Y
+    // C pikchr uses Y increasing upward, so we flip the Y offsets
+    let result = match compass_point {
+        CompassPoint::North => (cx, cy - half_h),            // N: top center
+        CompassPoint::NorthEast => (cx + half_w - rx, cy - half_h + rx), // NE: inset for fold
+        CompassPoint::East => (cx + half_w, cy),             // E: right center
+        CompassPoint::SouthEast => (cx + half_w, cy + half_h), // SE: bottom-right (no inset)
+        CompassPoint::South => (cx, cy + half_h),            // S: bottom center
+        CompassPoint::SouthWest => (cx - half_w, cy + half_h), // SW: bottom-left
+        CompassPoint::West => (cx - half_w, cy),             // W: left center
+        CompassPoint::NorthWest => (cx - half_w, cy - half_h), // NW: top-left
+    };
+
+    Some(result)
+}
+
 /// Chop against cylinder using discrete compass points like C pikchr
 /// Cylinder has special offsets: NE/SE/SW/NW corners are inset by the ellipse radius
 fn chop_against_cylinder_compass_point(
@@ -3101,9 +3178,14 @@ fn chop_against_endpoint(
             // ellipseChop - continuous ray intersection with ellipse
             chop_against_ellipse(cx, cy, half_w, half_h, toward)
         }
-        ObjectClass::Box | ObjectClass::File => {
+        ObjectClass::Box => {
             // boxChop - discrete compass points
             chop_against_box_compass_point(cx, cy, half_w, half_h, corner_radius, toward)
+        }
+        ObjectClass::File => {
+            // fileOffset - like box but NE corner is inset for the fold
+            let filerad = scaler.px(defaults::FILE_RAD);
+            chop_against_file_compass_point(cx, cy, half_w, half_h, filerad, toward)
         }
         ObjectClass::Cylinder => {
             // cylinderOffset - special compass points with ellipse inset
@@ -3307,27 +3389,28 @@ fn create_cylinder_paths_with_rad(
 }
 
 /// Create file paths using PathData fluent API (matching C pikchr output)
-fn create_file_paths(cx: f64, cy: f64, width: f64, height: f64) -> (PathData, PathData) {
-    let fold_size = width.min(height) * 0.2; // Fold is 20% of smaller dimension
-    let x = cx - width / 2.0;
-    let y = cy - height / 2.0;
+fn create_file_paths(cx: f64, cy: f64, width: f64, height: f64, fold_size: f64) -> (PathData, PathData) {
+    // C pikchr file: fold cuts into top-right corner
+    // Path goes counter-clockwise from bottom-left
+    let left = cx - width / 2.0;
     let right = cx + width / 2.0;
+    let top = cy - height / 2.0;
     let bottom = cy + height / 2.0;
 
-    // Main outline path (going clockwise from top-left)
+    // Main outline path (counter-clockwise from bottom-left, matching C pikchr)
     let main_path = PathData::new()
-        .m(x, y) // Top-left
-        .l(right - fold_size, y) // Top-right minus fold
-        .l(right, y + fold_size) // Fold corner (diagonal)
+        .m(left, bottom) // Bottom-left
         .l(right, bottom) // Bottom-right
-        .l(x, bottom) // Bottom-left
+        .l(right, top + fold_size) // Right side, stopping at fold
+        .l(right - fold_size, top) // Diagonal to fold point on top
+        .l(left, top) // Top-left
         .z(); // Close path
 
-    // Fold line path (the crease)
+    // Fold line path (the crease inside the corner)
     let fold_path = PathData::new()
-        .m(right - fold_size, y) // Start at corner
-        .l(right - fold_size, y + fold_size) // Down to fold
-        .l(right, y + fold_size); // Across to edge
+        .m(right - fold_size, top) // Start at fold point on top edge
+        .l(right - fold_size, top + fold_size) // Down
+        .l(right, top + fold_size); // Across to right edge
 
     (main_path, fold_path)
 }
