@@ -2419,7 +2419,6 @@ name = "dodeca"
 version = "0.2.13"
 dependencies = [
  "aliri_braid",
- "axum",
  "base64 0.22.1",
  "camino",
  "canopydb",
@@ -2440,7 +2439,6 @@ dependencies = [
  "facet-value",
  "facet-yaml",
  "futures",
- "futures-util",
  "gingembre",
  "if-addrs",
  "ignore",
@@ -2459,6 +2457,7 @@ dependencies = [
  "pulldown-cmark",
  "rapace",
  "rapace-testkit",
+ "rapace-tracing",
  "rapace-transport-shm",
  "rapidhash",
  "ratatui",
@@ -2651,6 +2650,7 @@ dependencies = [
  "rapace-core",
  "rapace-registry",
  "rapace-testkit",
+ "rapace-tracing",
  "rapace-transport-shm",
  "tokio",
  "tracing",
@@ -2922,7 +2922,7 @@ dependencies = [
 [[package]]
 name = "facet"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#0b3e0b89779d97d24b7360e4c4651e95e248897e"
+source = "git+https://github.com/facet-rs/facet#7cadf0be6af7943793fbd2d6a76a6334ee9b001b"
 dependencies = [
  "facet-core",
  "facet-macros",
@@ -2946,7 +2946,7 @@ dependencies = [
 [[package]]
 name = "facet-core"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#0b3e0b89779d97d24b7360e4c4651e95e248897e"
+source = "git+https://github.com/facet-rs/facet#7cadf0be6af7943793fbd2d6a76a6334ee9b001b"
 dependencies = [
  "autocfg",
  "bitflags 2.10.0",
@@ -2990,7 +2990,7 @@ dependencies = [
 [[package]]
 name = "facet-macro-parse"
 version = "0.1.0"
-source = "git+https://github.com/facet-rs/facet#0b3e0b89779d97d24b7360e4c4651e95e248897e"
+source = "git+https://github.com/facet-rs/facet#7cadf0be6af7943793fbd2d6a76a6334ee9b001b"
 dependencies = [
  "facet-macro-types",
  "proc-macro2",
@@ -3001,7 +3001,7 @@ dependencies = [
 [[package]]
 name = "facet-macro-types"
 version = "0.1.0"
-source = "git+https://github.com/facet-rs/facet#0b3e0b89779d97d24b7360e4c4651e95e248897e"
+source = "git+https://github.com/facet-rs/facet#7cadf0be6af7943793fbd2d6a76a6334ee9b001b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3011,7 +3011,7 @@ dependencies = [
 [[package]]
 name = "facet-macros"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#0b3e0b89779d97d24b7360e4c4651e95e248897e"
+source = "git+https://github.com/facet-rs/facet#7cadf0be6af7943793fbd2d6a76a6334ee9b001b"
 dependencies = [
  "facet-core",
  "facet-macros-impl",
@@ -3020,7 +3020,7 @@ dependencies = [
 [[package]]
 name = "facet-macros-impl"
 version = "0.31.8"
-source = "git+https://github.com/facet-rs/facet#0b3e0b89779d97d24b7360e4c4651e95e248897e"
+source = "git+https://github.com/facet-rs/facet#7cadf0be6af7943793fbd2d6a76a6334ee9b001b"
 dependencies = [
  "facet-macro-parse",
  "facet-macro-types",
@@ -5374,7 +5374,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7223,6 +7223,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rapace-tracing"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "facet-core",
+ "facet-postcard",
+ "parking_lot",
+ "rapace-core",
+ "rapace-macros",
+ "rapace-registry",
+ "rapace-testkit",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "rapace-transport-mem"
 version = "0.1.0"
 dependencies = [
@@ -7235,7 +7252,6 @@ dependencies = [
 [[package]]
 name = "rapace-transport-shm"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/rapace#5c6ed2acd8166e6a9547bc89429dfdcf3b87bb1b"
 dependencies = [
  "libc",
  "parking_lot",

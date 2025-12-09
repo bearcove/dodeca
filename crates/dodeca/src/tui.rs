@@ -440,6 +440,8 @@ pub struct ServeApp {
     filter_handle: crate::logging::FilterHandle,
     /// Whether salsa debug logging is enabled
     salsa_debug: bool,
+    /// Current log level for TUI filtering
+    log_level: crate::logging::TuiLogLevel,
     show_help: bool,
     should_quit: bool,
 }
@@ -541,6 +543,7 @@ impl ServeApp {
         filter_handle: crate::logging::FilterHandle,
     ) -> Self {
         let salsa_debug = filter_handle.is_salsa_debug_enabled();
+        let log_level = filter_handle.get_log_level();
         Self {
             progress_rx,
             server_rx,
@@ -549,6 +552,7 @@ impl ServeApp {
             command_tx,
             filter_handle,
             salsa_debug,
+            log_level,
             show_help: false,
             should_quit: false,
         }
@@ -599,6 +603,11 @@ impl ServeApp {
                                 };
                                 self.event_buffer
                                     .push_back(LogEvent::info(format!("Salsa debug {status}")));
+                            }
+                            KeyCode::Char('l') => {
+                                self.log_level = self.filter_handle.cycle_log_level();
+                                self.event_buffer
+                                    .push_back(LogEvent::info(format!("Log level: {}", self.log_level.as_str())));
                             }
                             _ => {}
                         }
@@ -750,6 +759,10 @@ impl ServeApp {
             Span::raw(" debug ").tn_fg_dark(),
             Span::styled(debug_indicator, Style::default().fg(debug_color)),
             Span::raw("  ").tn_fg_dark(),
+            Span::raw("l").tn_yellow(),
+            Span::raw(" ").tn_fg_dark(),
+            Span::raw(self.log_level.as_str()).tn_cyan(),
+            Span::raw("  ").tn_fg_dark(),
             Span::raw("q").tn_yellow(),
             Span::raw(" quit").tn_fg_dark(),
         ]))
@@ -768,7 +781,7 @@ impl ServeApp {
 
         // Center the help panel
         let help_width = 40u16;
-        let help_height = 13u16;
+        let help_height = 14u16;
         let x = area.width.saturating_sub(help_width) / 2;
         let y = area.height.saturating_sub(help_height) / 2;
         let help_area = ratatui::layout::Rect::new(
@@ -794,6 +807,10 @@ impl ServeApp {
             Line::from(vec![
                 Span::raw("  d").tn_yellow(),
                 Span::raw("      Toggle salsa debug logs").tn_fg(),
+            ]),
+            Line::from(vec![
+                Span::raw("  l").tn_yellow(),
+                Span::raw("      Cycle log level").tn_fg(),
             ]),
             Line::from(vec![
                 Span::raw("  q").tn_yellow(),

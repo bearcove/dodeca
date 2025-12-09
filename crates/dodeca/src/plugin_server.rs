@@ -5,6 +5,7 @@
 //! - Spawning the plugin process
 //! - Serving ContentService RPCs from the plugin
 //! - Handling TCP connections from browsers via TcpTunnel
+//! - Forwarding tracing events from plugin to host
 
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -15,9 +16,11 @@ use color_eyre::Result;
 use rapace::{Frame, RpcError};
 use rapace_testkit::RpcSession;
 use rapace_transport_shm::{ShmSession, ShmSessionConfig, ShmTransport};
+use rapace_tracing::{EventMeta, Field, SpanMeta, TracingConfigClient, TracingSink, TracingSinkServer};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::Command;
+use tokio::sync::watch;
 
 use dodeca_serve_protocol::{ContentServiceServer, TcpTunnelClient};
 
@@ -58,17 +61,153 @@ pub fn create_content_service_dispatcher(
     }
 }
 
-/// Start the plugin server
+// ============================================================================
+// Forwarding TracingSink - re-emits plugin tracing events to host's tracing
+// ============================================================================
+
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// A TracingSink implementation that forwards events to the host's tracing subscriber.
+///
+/// Events from the plugin are re-emitted as regular tracing events on the host,
+/// making plugin logs appear in the host's output with their original target.
+#[derive(Clone)]
+pub struct ForwardingTracingSink {
+    next_span_id: Arc<AtomicU64>,
+}
+
+impl ForwardingTracingSink {
+    pub fn new() -> Self {
+        Self {
+            next_span_id: Arc::new(AtomicU64::new(1)),
+        }
+    }
+}
+
+impl Default for ForwardingTracingSink {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Format fields for display
+fn format_fields(fields: &[Field]) -> String {
+    fields
+        .iter()
+        .filter(|f| f.name != "message")
+        .map(|f| format!("{}={}", f.name, f.value))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+impl TracingSink for ForwardingTracingSink {
+    async fn new_span(&self, _span: SpanMeta) -> u64 {
+        // Just assign an ID - we don't reconstruct spans on host
+        self.next_span_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    async fn record(&self, _span_id: u64, _fields: Vec<Field>) {
+        // No-op: we don't track spans on host side
+    }
+
+    async fn event(&self, event: EventMeta) {
+        // Re-emit the event using host's tracing
+        // Note: tracing macros require static targets, so we include the plugin target in the message
+        let fields = format_fields(&event.fields);
+        let msg = if fields.is_empty() {
+            event.message.clone()
+        } else {
+            format!("{} {}", event.message, fields)
+        };
+
+        // Include the plugin's target in the log message
+        // Use a static target for the host side
+        match event.level.as_str() {
+            "ERROR" => tracing::error!(target: "plugin", "[{}] {}", event.target, msg),
+            "WARN" => tracing::warn!(target: "plugin", "[{}] {}", event.target, msg),
+            "INFO" => tracing::info!(target: "plugin", "[{}] {}", event.target, msg),
+            "DEBUG" => tracing::debug!(target: "plugin", "[{}] {}", event.target, msg),
+            "TRACE" => tracing::trace!(target: "plugin", "[{}] {}", event.target, msg),
+            _ => tracing::info!(target: "plugin", "[{}] {}", event.target, msg),
+        }
+    }
+
+    async fn enter(&self, _span_id: u64) {
+        // No-op: we don't track span enter/exit on host
+    }
+
+    async fn exit(&self, _span_id: u64) {
+        // No-op
+    }
+
+    async fn drop_span(&self, _span_id: u64) {
+        // No-op
+    }
+}
+
+/// Create a combined dispatcher that handles both ContentService and TracingSink.
+///
+/// Method IDs are now globally unique hashes, so we try each dispatcher in turn.
+/// The correct one will succeed, the others will return "unknown method_id".
+pub fn create_combined_dispatcher(
+    content_service: Arc<HostContentService>,
+    tracing_sink: ForwardingTracingSink,
+) -> impl Fn(u32, u32, Vec<u8>) -> Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
+       + Send
+       + Sync
+       + 'static {
+    move |_channel_id, method_id, payload| {
+        let content_service = content_service.clone();
+        let tracing_sink = tracing_sink.clone();
+        Box::pin(async move {
+            // Try TracingSink first
+            let tracing_server = TracingSinkServer::new(tracing_sink);
+            let result = tracing_server.dispatch(method_id, &payload).await;
+
+            // If not "unknown method_id", return the result
+            if !matches!(&result, Err(RpcError::Status { code: rapace::ErrorCode::Unimplemented, .. })) {
+                return result;
+            }
+
+            // Otherwise try ContentService
+            let content_server = ContentServiceServer::new((*content_service).clone());
+            content_server.dispatch(method_id, &payload).await
+        })
+    }
+}
+
+/// Find the plugin binary path (next to the main executable)
+pub fn find_plugin_path() -> Result<PathBuf> {
+    let exe_path = std::env::current_exe()?;
+    let plugin_path = exe_path
+        .parent()
+        .ok_or_else(|| color_eyre::eyre::eyre!("Cannot find parent directory of executable"))?
+        .join("dodeca-mod-http");
+
+    if !plugin_path.exists() {
+        return Err(color_eyre::eyre::eyre!(
+            "Plugin binary not found at {}. Build it with: cargo build -p dodeca-mod-http",
+            plugin_path.display()
+        ));
+    }
+
+    Ok(plugin_path)
+}
+
+/// Start the plugin server with optional shutdown signal
 ///
 /// This:
 /// 1. Creates a shared memory segment
 /// 2. Spawns the plugin process with --shm-path arg
 /// 3. Serves ContentService RPCs via SHM transport (zero-copy)
 /// 4. Listens for browser TCP connections and tunnels them to the plugin
-pub async fn start_plugin_server(
+///
+/// If `shutdown_rx` is provided, the server will stop when the signal is received.
+pub async fn start_plugin_server_with_shutdown(
     server: Arc<SiteServer>,
     plugin_path: PathBuf,
     bind_addr: std::net::SocketAddr,
+    mut shutdown_rx: Option<watch::Receiver<bool>>,
 ) -> Result<()> {
     // Create SHM file path
     let shm_path = format!("/tmp/dodeca-{}.shm", std::process::id());
@@ -102,9 +241,12 @@ pub async fn start_plugin_server(
     let rpc_session = Arc::new(RpcSession::with_channel_start(transport, 1));
     tracing::info!("Plugin connected via SHM");
 
-    // Create the ContentService implementation and dispatcher
+    // Create the ContentService and TracingSink implementations
     let content_service = Arc::new(HostContentService::new(server));
-    rpc_session.set_dispatcher(create_content_service_dispatcher(content_service));
+    let tracing_sink = ForwardingTracingSink::new();
+
+    // Set up combined dispatcher for both services
+    rpc_session.set_dispatcher(create_combined_dispatcher(content_service, tracing_sink));
 
     // Spawn the RPC session demux loop
     let session_runner = rpc_session.clone();
@@ -113,6 +255,16 @@ pub async fn start_plugin_server(
             tracing::error!("RPC session error: {:?}", e);
         }
     });
+
+    // Push the current RUST_LOG filter to the plugin
+    // The host is the single source of truth for log filtering
+    let filter_str = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+    let tracing_config_client = TracingConfigClient::new(rpc_session.clone());
+    if let Err(e) = tracing_config_client.set_filter(filter_str.clone()).await {
+        tracing::warn!("Failed to push filter to plugin: {:?}", e);
+    } else {
+        tracing::debug!("Pushed filter to plugin: {}", filter_str);
+    }
 
     // Start TCP listener for browser connections
     let listener = TcpListener::bind(bind_addr).await?;
@@ -146,6 +298,21 @@ pub async fn start_plugin_server(
                 }
                 break;
             }
+            _ = async {
+                if let Some(ref mut rx) = shutdown_rx {
+                    rx.changed().await.ok();
+                    if *rx.borrow() {
+                        return;
+                    }
+                }
+                // Never complete if no shutdown receiver
+                std::future::pending::<()>().await
+            } => {
+                tracing::info!("Shutdown signal received, stopping plugin server");
+                // Kill the plugin process
+                let _ = child.kill().await;
+                break;
+            }
         }
     }
 
@@ -153,6 +320,15 @@ pub async fn start_plugin_server(
     let _ = std::fs::remove_file(&shm_path);
 
     Ok(())
+}
+
+/// Start the plugin server (convenience wrapper without shutdown signal)
+pub async fn start_plugin_server(
+    server: Arc<SiteServer>,
+    plugin_path: PathBuf,
+    bind_addr: std::net::SocketAddr,
+) -> Result<()> {
+    start_plugin_server_with_shutdown(server, plugin_path, bind_addr, None).await
 }
 
 /// Handle a browser TCP connection by tunneling it through the plugin

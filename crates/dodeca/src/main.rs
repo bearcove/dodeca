@@ -1787,7 +1787,6 @@ async fn serve_plain(
     stable_assets: Vec<String>,
 ) -> Result<()> {
     use std::sync::Arc;
-    use tokio::sync::watch;
 
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
@@ -2104,48 +2103,10 @@ async fn serve_plain(
         }
     });
 
-    // Check if we should use the plugin-based architecture
-    let use_plugin = std::env::var("DDC_USE_PLUGIN").map(|v| v == "1").unwrap_or(false);
+    // Use the requested port (or default to 4000)
+    let actual_port: u16 = port.unwrap_or(4000);
 
-    // Determine IPs to bind to
-    let ips = if address == "0.0.0.0" {
-        let mut ips = vec![std::net::Ipv4Addr::LOCALHOST];
-        ips.extend(tui::get_lan_ips());
-        ips
-    } else {
-        vec![address.parse().unwrap_or(std::net::Ipv4Addr::LOCALHOST)]
-    };
-
-    // For plugin mode, don't pre-bind - let the plugin handle HTTP binding
-    // For traditional mode, bind first to get actual port
-    let actual_port: u16 = if use_plugin {
-        // Use the requested port (or default to 4000)
-        port.unwrap_or(4000)
-    } else {
-        let bound = serve::bind_listeners(&ips, port).await?;
-        let port = bound.port;
-        // Store bound for later use
-        let (_shutdown_tx, shutdown_rx) = watch::channel(false);
-
-        // Print machine-readable port (for tests/scripts)
-        println!("LISTENING_PORT={port}");
-
-        // Print human-readable URLs
-        print_server_urls(address, port);
-
-        if open {
-            let url = format!("http://127.0.0.1:{port}");
-            if let Err(e) = open::that(&url) {
-                eprintln!("{} Failed to open browser: {}", "warning:".yellow(), e);
-            }
-        }
-
-        // Traditional mode: run axum server directly
-        serve::run_on_listeners(server, bound, shutdown_rx).await?;
-        return Ok(());
-    };
-
-    // Plugin mode: print port info and start plugin server
+    // Print port info
     println!("LISTENING_PORT={actual_port}");
     print_server_urls(address, actual_port);
 
@@ -2156,21 +2117,8 @@ async fn serve_plain(
         }
     }
 
-    // Find the plugin binary (next to the main binary)
-    let exe_path = std::env::current_exe()?;
-    let plugin_path = exe_path
-        .parent()
-        .ok_or_else(|| eyre!("Cannot find parent directory of executable"))?
-        .join("dodeca-mod-http");
-
-    if !plugin_path.exists() {
-        return Err(eyre!(
-            "Plugin binary not found at {}. Build it with: cargo build -p dodeca-mod-http",
-            plugin_path.display()
-        ));
-    }
-
-    // Use the plugin server
+    // Find and start the plugin server
+    let plugin_path = plugin_server::find_plugin_path()?;
     plugin_server::start_plugin_server(
         server,
         plugin_path,
@@ -2543,6 +2491,14 @@ async fn serve_with_tui(
     let salsa_cache_path_clone = salsa_cache_path.clone();
     let cas_cache_dir_clone = cas_cache_dir.clone();
 
+    // Find the plugin path once upfront
+    let plugin_path = match plugin_server::find_plugin_path() {
+        Ok(p) => p,
+        Err(e) => {
+            return Err(eyre!("Failed to find plugin: {e}"));
+        }
+    };
+
     let start_server = |server: Arc<serve::SiteServer>,
                         mode: tui::BindMode,
                         preferred_port: Option<u16>,
@@ -2550,19 +2506,23 @@ async fn serve_with_tui(
                         server_tx: tui::ServerStatusTx,
                         event_tx: tui::EventTx,
                         salsa_path: Utf8PathBuf,
-                        cas_dir: Utf8PathBuf| {
+                        cas_dir: Utf8PathBuf,
+                        plugin_path: std::path::PathBuf| {
         tokio::spawn(async move {
             let ips = get_bind_ips(mode);
+            let actual_port = preferred_port.unwrap_or(4000);
 
-            // Bind to find actual port
-            let bound = match serve::bind_listeners(&ips, preferred_port).await {
-                Ok(b) => b,
-                Err(e) => {
-                    let _ = event_tx.send(LogEvent::error(format!("Failed to bind: {e}")));
-                    return;
-                }
+            // Determine bind address based on mode
+            let bind_addr = match mode {
+                tui::BindMode::Local => std::net::SocketAddr::new(
+                    std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+                    actual_port,
+                ),
+                tui::BindMode::Lan => std::net::SocketAddr::new(
+                    std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED),
+                    actual_port,
+                ),
             };
-            let actual_port = bound.port;
 
             // Print machine-readable port for tests
             println!("LISTENING_PORT={actual_port}");
@@ -2602,12 +2562,20 @@ async fn serve_with_tui(
                 let _ = event_tx.send(LogEvent::server(format!("  → {ip}:{actual_port}")));
             }
 
-            if let Err(e) = serve::run_on_listeners(server, bound, shutdown_rx).await {
+            if let Err(e) = plugin_server::start_plugin_server_with_shutdown(
+                server,
+                plugin_path,
+                bind_addr,
+                Some(shutdown_rx),
+            )
+            .await
+            {
                 let _ = event_tx.send(LogEvent::error(format!("Server error: {e}")));
             }
         })
     };
 
+    let plugin_path_clone = plugin_path.clone();
     let mut server_handle = start_server(
         server_for_http.clone(),
         initial_mode,
@@ -2617,6 +2585,7 @@ async fn serve_with_tui(
         event_tx_clone.clone(),
         salsa_cache_path_clone.clone(),
         cas_cache_dir_clone.clone(),
+        plugin_path_clone,
     );
 
     // Open browser if requested (use preferred port or default 4000)
@@ -2878,6 +2847,7 @@ async fn serve_with_tui(
     let event_tx_for_cmd = event_tx.clone();
     let salsa_path_for_cmd = salsa_cache_path_clone.clone();
     let cas_dir_for_cmd = cas_cache_dir_clone.clone();
+    let plugin_path_for_cmd = plugin_path.clone();
     // Use Arc<Mutex> for the shutdown sender so we can update it for each rebind
     let current_shutdown = Arc::new(std::sync::Mutex::new(shutdown_tx.clone()));
     let current_shutdown_for_handler = current_shutdown.clone();
@@ -2919,6 +2889,7 @@ async fn serve_with_tui(
                 event_tx_for_cmd.clone(),
                 salsa_path_for_cmd.clone(),
                 cas_dir_for_cmd.clone(),
+                plugin_path_for_cmd.clone(),
             );
         }
     });

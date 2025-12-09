@@ -52,10 +52,6 @@ tokio = { version = "1", features = ["full"] }
 ratatui = "0.30.0-beta.0"
 crossterm = "0.29"
 
-# HTTP server (for serve mode)
-axum = { version = "0.8", features = ["ws"] }
-futures-util = "0.3"  # For stream handling in WebSocket
-
 # Parallel processing
 rayon = "1"
 
@@ -97,6 +93,7 @@ dodeca-serve-protocol = { path = "../dodeca-serve-protocol" }
 rapace = { git = "https://github.com/bearcove/rapace", features = ["stream"] }
 rapace-testkit = { git = "https://github.com/bearcove/rapace" }
 rapace-transport-shm = { git = "https://github.com/bearcove/rapace" }
+rapace-tracing = { git = "https://github.com/bearcove/rapace" }
 
 # Code execution plugin types (lightweight - no plugin implementation)
 dodeca-code-execution-types = { path = "../dodeca-code-execution-types" }

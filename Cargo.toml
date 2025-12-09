@@ -54,10 +54,12 @@ arborium-highlight = { git = "https://github.com/bearcove/arborium" }
 arborium-tree-sitter = { git = "https://github.com/bearcove/arborium" }
 arborium-sysroot = { git = "https://github.com/bearcove/arborium" }
 
-# Use local rapace with RpcSession-based clients
+# Use local rapace with hashed method IDs
 [patch."https://github.com/bearcove/rapace"]
 rapace = { path = "../rapace/crates/rapace" }
 rapace-core = { path = "../rapace/crates/rapace-core" }
 rapace-macros = { path = "../rapace/crates/rapace-macros" }
 rapace-registry = { path = "../rapace/crates/rapace-registry" }
 rapace-testkit = { path = "../rapace/crates/rapace-testkit" }
+rapace-tracing = { path = "../rapace/crates/rapace-tracing" }
+rapace-transport-shm = { path = "../rapace/crates/rapace-transport-shm" }

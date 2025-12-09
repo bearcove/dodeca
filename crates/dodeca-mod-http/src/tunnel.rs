@@ -4,15 +4,14 @@
 //! Each tunnel bridges a rapace channel with a TCP connection to the
 //! internal HTTP server.
 
-use std::pin::Pin;
 use std::sync::Arc;
 
-use rapace_core::{Frame, RpcError, Transport};
+use rapace_core::Transport;
 use rapace_testkit::RpcSession;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use dodeca_serve_protocol::{TcpTunnel, TcpTunnelServer, TunnelHandle};
+use dodeca_serve_protocol::{TcpTunnel, TunnelHandle};
 
 /// Default buffer size for reads (4KB chunks).
 pub const CHUNK_SIZE: usize = 4096;
@@ -119,23 +118,5 @@ impl<T: Transport + Send + Sync + 'static> Clone for TcpTunnelImpl<T> {
             session: self.session.clone(),
             internal_port: self.internal_port,
         }
-    }
-}
-
-/// Create a dispatcher for TcpTunnelImpl.
-///
-/// This is used to integrate the tunnel service with RpcSession's dispatcher.
-pub fn create_tunnel_dispatcher<T: Transport + Send + Sync + 'static>(
-    service: Arc<TcpTunnelImpl<T>>,
-) -> impl Fn(u32, u32, Vec<u8>) -> Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
-       + Send
-       + Sync
-       + 'static {
-    move |_channel_id, method_id, payload| {
-        let service = service.clone();
-        Box::pin(async move {
-            let server = TcpTunnelServer::new(service.as_ref().clone());
-            server.dispatch(method_id, &payload).await
-        })
     }
 }

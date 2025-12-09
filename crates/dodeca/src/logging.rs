@@ -8,7 +8,7 @@
 
 use crate::tui::{EventKind, LogEvent, LogLevel};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::Sender;
 use std::time::Instant;
 use tracing::{Event, Level, Subscriber};
@@ -28,6 +28,7 @@ const SLOW_SPAN_THRESHOLD_MS: u128 = 50;
 pub struct TuiLayer {
     tx: Sender<LogEvent>,
     salsa_debug: Arc<AtomicBool>,
+    log_level: Arc<AtomicU8>,
 }
 
 impl TuiLayer {
@@ -35,6 +36,7 @@ impl TuiLayer {
         Self {
             tx,
             salsa_debug: Arc::new(AtomicBool::new(false)),
+            log_level: Arc::new(AtomicU8::new(TuiLogLevel::Info as u8)),
         }
     }
 
@@ -42,6 +44,19 @@ impl TuiLayer {
     pub fn filter_handle(&self) -> FilterHandle {
         FilterHandle {
             salsa_debug: self.salsa_debug.clone(),
+            log_level: self.log_level.clone(),
+        }
+    }
+
+    /// Get the current log level
+    fn get_log_level(&self) -> TuiLogLevel {
+        match self.log_level.load(Ordering::Relaxed) {
+            0 => TuiLogLevel::Error,
+            1 => TuiLogLevel::Warn,
+            2 => TuiLogLevel::Info,
+            3 => TuiLogLevel::Debug,
+            4 => TuiLogLevel::Trace,
+            _ => TuiLogLevel::Info,
         }
     }
 }
@@ -89,10 +104,10 @@ where
                 return;
             }
         } else {
-            // Only show ERROR, WARN, and INFO - filter out DEBUG and TRACE
-            match level {
-                Level::ERROR | Level::WARN | Level::INFO => {}
-                Level::DEBUG | Level::TRACE => return,
+            // Filter based on current log level
+            let current_level = self.get_log_level();
+            if !current_level.should_show(level) {
+                return;
             }
         }
 
@@ -126,10 +141,62 @@ where
     }
 }
 
+/// Log level for TUI filtering
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TuiLogLevel {
+    /// Show only errors
+    Error,
+    /// Show warnings and errors
+    Warn,
+    /// Show info, warnings, and errors (default)
+    #[default]
+    Info,
+    /// Show debug and above
+    Debug,
+    /// Show everything
+    Trace,
+}
+
+impl TuiLogLevel {
+    /// Cycle to the next log level (more verbose)
+    pub fn next(self) -> Self {
+        match self {
+            TuiLogLevel::Error => TuiLogLevel::Warn,
+            TuiLogLevel::Warn => TuiLogLevel::Info,
+            TuiLogLevel::Info => TuiLogLevel::Debug,
+            TuiLogLevel::Debug => TuiLogLevel::Trace,
+            TuiLogLevel::Trace => TuiLogLevel::Error,
+        }
+    }
+
+    /// Short display name for TUI
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TuiLogLevel::Error => "ERROR",
+            TuiLogLevel::Warn => "WARN",
+            TuiLogLevel::Info => "INFO",
+            TuiLogLevel::Debug => "DEBUG",
+            TuiLogLevel::Trace => "TRACE",
+        }
+    }
+
+    /// Check if a given tracing level should be shown at this TUI level
+    pub fn should_show(&self, level: Level) -> bool {
+        match self {
+            TuiLogLevel::Error => level == Level::ERROR,
+            TuiLogLevel::Warn => level <= Level::WARN,
+            TuiLogLevel::Info => level <= Level::INFO,
+            TuiLogLevel::Debug => level <= Level::DEBUG,
+            TuiLogLevel::Trace => true,
+        }
+    }
+}
+
 /// Handle for dynamically updating the log filter
 #[derive(Clone)]
 pub struct FilterHandle {
     salsa_debug: Arc<AtomicBool>,
+    log_level: Arc<AtomicU8>,
 }
 
 impl FilterHandle {
@@ -142,6 +209,31 @@ impl FilterHandle {
     /// Check if salsa debug is currently enabled
     pub fn is_salsa_debug_enabled(&self) -> bool {
         self.salsa_debug.load(Ordering::Relaxed)
+    }
+
+    /// Cycle to the next log level (more verbose, wrapping around)
+    pub fn cycle_log_level(&self) -> TuiLogLevel {
+        let current = self.get_log_level();
+        let next = current.next();
+        self.log_level.store(next as u8, Ordering::Relaxed);
+        next
+    }
+
+    /// Get the current log level
+    pub fn get_log_level(&self) -> TuiLogLevel {
+        match self.log_level.load(Ordering::Relaxed) {
+            0 => TuiLogLevel::Error,
+            1 => TuiLogLevel::Warn,
+            2 => TuiLogLevel::Info,
+            3 => TuiLogLevel::Debug,
+            4 => TuiLogLevel::Trace,
+            _ => TuiLogLevel::Info, // fallback
+        }
+    }
+
+    /// Check if a tracing level should be shown given current filter settings
+    pub fn should_show(&self, level: Level) -> bool {
+        self.get_log_level().should_show(level)
     }
 }
 
