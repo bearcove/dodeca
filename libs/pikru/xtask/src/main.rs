@@ -111,6 +111,12 @@ fn compare_html() {
         0.0
     };
 
+    // Read external CSS and JS files
+    let css_path = Path::new(manifest_dir).join("../static/comparison.css");
+    let js_path = Path::new(manifest_dir).join("../static/comparison.js");
+    let external_css = fs::read_to_string(&css_path).unwrap_or_else(|_| String::new());
+    let external_js = fs::read_to_string(&js_path).unwrap_or_else(|_| String::new());
+
     let mut html = String::new();
     html.push_str(&format!(
         r#"<!DOCTYPE html>
@@ -120,7 +126,7 @@ fn compare_html() {
     <title>Pikchr C vs Rust Comparison</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         html {{
             color-scheme: light dark;
@@ -358,6 +364,9 @@ fn compare_html() {
             white-space: nowrap;
             font-size: 11px;
         }}
+
+        /* External comparison tool styles */
+        {}
     </style>
 </head>
 <body>
@@ -371,7 +380,7 @@ fn compare_html() {
     <div class="nav-header">Tests</div>
     <div class="nav-list">
 "#,
-        pass_rate, passed, total
+        external_css, pass_rate, passed, total
     ));
 
     // Navigation links
@@ -501,7 +510,16 @@ fn compare_html() {
         ));
     }
 
-    html.push_str("</div>\n</body></html>");
+    html.push_str("</div>\n");
+
+    // Add external JavaScript
+    html.push_str(&format!(
+        r#"<script>
+{}
+</script>
+</body></html>"#,
+        external_js
+    ));
 
     fs::write(&output_path, html).expect("Failed to write HTML");
     eprintln!("Generated comparison at: {}", output_path.display());

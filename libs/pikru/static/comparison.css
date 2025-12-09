@@ -1,0 +1,450 @@
+/**
+ * Pikchr Comparison Tool - Styles
+ *
+ * A technical/utilitarian aesthetic with retro-scientific touches
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+:root {
+  /* Scientific instrument palette */
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --border-color: #30363d;
+  --border-accent: #484f58;
+
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #6e7681;
+
+  --accent-blue: #58a6ff;
+  --accent-orange: #f78166;
+  --accent-green: #3fb950;
+  --accent-purple: #a371f7;
+
+  --c-color: #58a6ff;
+  --rust-color: #f78166;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  --font-mono: 'IBM Plex Mono', 'SF Mono', Monaco, monospace;
+  --font-sans: 'IBM Plex Sans', -apple-system, sans-serif;
+
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+}
+
+/* Light mode overrides */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-primary: #f6f8fa;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f0f3f6;
+    --border-color: #d1d9e0;
+    --border-accent: #afb8c1;
+
+    --text-primary: #1f2328;
+    --text-secondary: #57606a;
+    --text-muted: #8c959f;
+
+    --c-color: #0969da;
+    --rust-color: #cf222e;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+  }
+}
+
+/* ============================================
+   Compare Controls
+   ============================================ */
+
+.compare-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.mode-buttons {
+  display: flex;
+  gap: 2px;
+  background: var(--bg-primary);
+  padding: 2px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.mode-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.mode-btn.active {
+  color: var(--accent-blue);
+  background: var(--bg-secondary);
+  box-shadow: var(--shadow-sm);
+}
+
+.mode-slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-left: 1px solid var(--border-color);
+}
+
+.mode-slider label {
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.opacity-slider {
+  width: 80px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: var(--bg-primary);
+  border-radius: 2px;
+  outline: none;
+}
+
+.opacity-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  background: var(--accent-blue);
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition-fast);
+}
+
+.opacity-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+.slider-value {
+  color: var(--text-primary);
+  min-width: 32px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ssim-btn {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.ssim-btn:hover {
+  border-color: var(--border-accent);
+  color: var(--text-primary);
+}
+
+.ssim-label {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.ssim-value {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ssim-btn.ssim-good {
+  border-color: var(--accent-green);
+  background: rgba(63, 185, 80, 0.1);
+}
+
+.ssim-btn.ssim-good .ssim-value {
+  color: var(--accent-green);
+}
+
+.ssim-btn.ssim-ok {
+  border-color: #d29922;
+  background: rgba(210, 153, 34, 0.1);
+}
+
+.ssim-btn.ssim-ok .ssim-value {
+  color: #d29922;
+}
+
+.ssim-btn.ssim-bad {
+  border-color: var(--accent-orange);
+  background: rgba(247, 129, 102, 0.1);
+}
+
+.ssim-btn.ssim-bad .ssim-value {
+  color: var(--accent-orange);
+}
+
+/* ============================================
+   Overlay / Onion Skin Mode
+   ============================================ */
+
+.overlay-container {
+  position: relative;
+  min-height: 200px;
+  background: white;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.overlay-container svg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 90%;
+  max-height: 280px;
+}
+
+.overlay-c {
+  z-index: 1;
+}
+
+.overlay-rust {
+  z-index: 2;
+  /* Tint the rust overlay slightly */
+  filter: hue-rotate(30deg);
+}
+
+/* ============================================
+   Swipe Compare Mode
+   ============================================ */
+
+.swipe-container {
+  position: relative;
+  min-height: 200px;
+  background: white;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: ew-resize;
+}
+
+.swipe-layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.swipe-layer svg {
+  max-width: 90%;
+  max-height: 280px;
+}
+
+.swipe-c {
+  z-index: 1;
+}
+
+.swipe-rust {
+  z-index: 2;
+}
+
+.swipe-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent-purple);
+  z-index: 10;
+  cursor: ew-resize;
+  box-shadow: 0 0 8px rgba(163, 113, 247, 0.5);
+}
+
+.swipe-handle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 24px;
+  height: 40px;
+  background: var(--accent-purple);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: var(--shadow-md);
+}
+
+.swipe-labels {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  justify-content: space-between;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.swipe-labels span {
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-radius: var(--radius-sm);
+}
+
+.label-c {
+  background: var(--c-color);
+  color: white;
+}
+
+.label-rust {
+  background: var(--rust-color);
+  color: white;
+}
+
+/* ============================================
+   Difference View Mode
+   ============================================ */
+
+.diff-container {
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+
+.diff-header {
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.diff-legend {
+  display: flex;
+  gap: 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.diff-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.diff-legend span::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.legend-c::before {
+  background: #3b82f6;
+}
+
+.legend-rust::before {
+  background: #f97316;
+}
+
+.legend-both::before {
+  background: #649664;
+}
+
+.diff-canvas-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  background: white;
+  position: relative;
+}
+
+.diff-canvas {
+  max-width: 100%;
+  max-height: 280px;
+  border-radius: var(--radius-sm);
+}
+
+.diff-loading {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* ============================================
+   Mode-specific comparison grid overrides
+   ============================================ */
+
+.comparison.mode-overlay,
+.comparison.mode-swipe,
+.comparison.mode-diff {
+  display: block;
+}
+
+/* ============================================
+   Keyboard shortcut hints
+   ============================================ */
+
+.mode-btn::after {
+  content: attr(data-key);
+  position: absolute;
+  bottom: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.compare-controls:hover .mode-btn::after {
+  opacity: 1;
+}
