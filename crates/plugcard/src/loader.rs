@@ -1,6 +1,6 @@
 //! Host-side plugin loading via libloading.
 
-use crate::{LogCallback, MethodCallData, MethodCallResult, MethodSignature, ABI_VERSION};
+use crate::{HostCallback, LogCallback, MethodCallData, MethodCallResult, MethodSignature, ABI_VERSION};
 use facet::Facet;
 use libloading::{Library, Symbol};
 use std::path::Path;
@@ -147,7 +147,7 @@ impl Plugin {
     ///
     /// This is the low-level interface. For ergonomic use, see `call()`.
     pub fn call_raw(&self, key: u64, input: &[u8]) -> Result<Vec<u8>, CallError> {
-        self.call_raw_with_logger(key, input, None)
+        self.call_raw_with_callbacks(key, input, None, None)
     }
 
     /// Call a method with serialized input and a log callback.
@@ -158,6 +158,19 @@ impl Plugin {
         key: u64,
         input: &[u8],
         log_callback: Option<LogCallback>,
+    ) -> Result<Vec<u8>, CallError> {
+        self.call_raw_with_callbacks(key, input, log_callback, None)
+    }
+
+    /// Call a method with serialized input and both log and host callbacks.
+    ///
+    /// This is the low-level interface with full callback support.
+    pub fn call_raw_with_callbacks(
+        &self,
+        key: u64,
+        input: &[u8],
+        log_callback: Option<LogCallback>,
+        host_callback: Option<HostCallback>,
     ) -> Result<Vec<u8>, CallError> {
         // Start with a reasonable buffer, grow if needed
         let mut output = vec![0u8; 64 * 1024]; // 64KB initial
@@ -171,6 +184,7 @@ impl Plugin {
                 output_cap: output.len(),
                 output_len: 0,
                 log_callback,
+                host_callback,
                 result: MethodCallResult::Success,
             };
 
@@ -228,12 +242,40 @@ impl Plugin {
         I: Facet<'static>,
         O: Facet<'static>,
     {
+        self.call_with_callbacks(name, input, log_callback, None)
+    }
+
+    /// Call a method with typed input and output, with both log and host callbacks.
+    ///
+    /// The host callback allows the plugin to call back into the host for services
+    /// like syntax highlighting.
+    ///
+    /// ```rust,ignore
+    /// let result: String = plugin.call_with_callbacks(
+    ///     "process_markdown",
+    ///     &input,
+    ///     Some(log_callback),
+    ///     Some(host_callback),
+    /// )?;
+    /// ```
+    pub fn call_with_callbacks<I, O>(
+        &self,
+        name: &str,
+        input: &I,
+        log_callback: Option<LogCallback>,
+        host_callback: Option<HostCallback>,
+    ) -> Result<O, CallError>
+    where
+        I: Facet<'static>,
+        O: Facet<'static>,
+    {
         let method = self.find_method(name).ok_or(CallError::UnknownMethod)?;
 
         let input_bytes =
             crate::facet_postcard::to_vec(input).map_err(|_| CallError::SerializeError)?;
 
-        let output_bytes = self.call_raw_with_logger(method.key, &input_bytes, log_callback)?;
+        let output_bytes =
+            self.call_raw_with_callbacks(method.key, &input_bytes, log_callback, host_callback)?;
 
         crate::facet_postcard::from_bytes(&output_bytes).map_err(|_| CallError::DeserializeError)
     }

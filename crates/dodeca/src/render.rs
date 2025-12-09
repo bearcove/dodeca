@@ -50,6 +50,40 @@ a[data-dead] {
 }
 </style>"#;
 
+/// CSS for syntax highlighting (arborium theme - Tokyo Night style)
+/// These styles target custom elements like <a-k>, <a-c>, <a-f> etc.
+const SYNTAX_HIGHLIGHT_STYLES: &str = r##"<style>
+/* Arborium syntax highlighting - Tokyo Night theme */
+a-k { color: #bb9af7; } /* keywords */
+a-f { color: #7aa2f7; } /* functions */
+a-s { color: #9ece6a; } /* strings */
+a-c { color: #565f89; } /* comments */
+a-t { color: #2ac3de; } /* types */
+a-v { color: #c0caf5; } /* variables */
+a-vb { color: #f7768e; } /* built-in variables (self, this) */
+a-co { color: #ff9e64; } /* constants */
+a-n { color: #ff9e64; } /* numbers */
+a-o { color: #89ddff; } /* operators */
+a-p { color: #a9b1d6; } /* punctuation */
+a-pr { color: #73daca; } /* properties */
+a-at { color: #bb9af7; } /* attributes */
+a-tg { color: #f7768e; } /* tags (HTML/XML) */
+a-m { color: #7dcfff; } /* macros */
+a-l { color: #e0af68; } /* labels */
+a-ns { color: #2ac3de; } /* namespaces/modules */
+a-cr { color: #7aa2f7; } /* constructors */
+a-tt { color: #c0caf5; font-weight: bold; } /* titles */
+a-st { font-weight: bold; } /* strong */
+a-em { } /* emphasis */
+a-tu { color: #7aa2f7; text-decoration: underline; } /* links */
+a-tl { color: #9ece6a; } /* literals */
+a-tx { text-decoration: line-through; } /* strikethrough */
+a-da { color: #9ece6a; } /* diff add */
+a-dd { color: #f7768e; } /* diff delete */
+a-eb { color: #ff9e64; } /* embedded */
+a-er { color: #f7768e; text-decoration: wavy underline; } /* errors */
+</style>"##;
+
 /// Script and styles for copy button on code blocks (always injected)
 const CODE_COPY_SCRIPT: &str = r##"<style>
 pre { position: relative; }
@@ -59,17 +93,17 @@ pre .copy-btn {
     right: 0.5rem;
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(60,60,70,0.9);
+    border: 1px solid rgba(255,255,255,0.3);
     border-radius: 0.25rem;
-    color: inherit;
+    color: #c0caf5;
     cursor: pointer;
     opacity: 0;
     transition: opacity 0.15s;
 }
 pre:hover .copy-btn { opacity: 1; }
-pre .copy-btn:hover { background: rgba(255,255,255,0.2); }
-pre .copy-btn.copied { background: rgba(50,205,50,0.3); }
+pre .copy-btn:hover { background: rgba(80,80,95,0.95); }
+pre .copy-btn.copied { background: rgba(50,160,50,0.9); }
 </style>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -523,9 +557,9 @@ pub fn inject_livereload_with_build_info(
         String::new()
     };
 
-    // Always inject copy button script for code blocks
+    // Always inject copy button script and syntax highlighting styles for code blocks
     // Try to inject after <html, but fall back to after <!doctype html> if <html not found
-    let scripts_to_inject = format!("{CODE_COPY_SCRIPT}{build_info_assets}");
+    let scripts_to_inject = format!("{SYNTAX_HIGHLIGHT_STYLES}{CODE_COPY_SCRIPT}{build_info_assets}");
     if result.contains("<html") {
         result = result.replacen("<html", &format!("{scripts_to_inject}<html"), 1);
     } else if let Some(pos) = result.to_lowercase().find("<!doctype html>") {

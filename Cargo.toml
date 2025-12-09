@@ -2,7 +2,6 @@
 members = [
     "crates/dodeca",
     "crates/gingembre",
-    "crates/gingembre-types",
     "crates/livereload-client",
     "crates/dodeca-devtools",
     "crates/dodeca-protocol",
@@ -25,6 +24,7 @@ members = [
     "crates/dodeca-code-execution-config",
     "crates/dodeca-code-execution-types",
     "crates/dodeca-html-diff",
+    "crates/dodeca-syntax-highlight",
     "crates/dodeca-sandbox",
     "crates/dodeca-integration",
     "xtask",

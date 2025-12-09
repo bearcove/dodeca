@@ -4,7 +4,7 @@
 //! Currently supports image encoding/decoding plugins (WebP, JXL).
 
 use facet::Facet;
-use plugcard::{LoadError, LogLevel, Plugin, PlugResult};
+use plugcard::{host_services, HostCallData, HostCallResult, LoadError, LogLevel, Plugin, PlugResult};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tracing::{debug, error, info, trace, warn};
@@ -24,6 +24,81 @@ extern "C" fn plugin_log_callback(level: LogLevel, ptr: *const u8, len: usize) {
         LogLevel::Warn => warn!(target: "plugin", "{}", message),
         LogLevel::Error => error!(target: "plugin", "{}", message),
     }
+}
+
+/// Request for syntax highlighting (must match what plugins send)
+#[derive(Facet)]
+struct HighlightRequest {
+    code: String,
+    language: String,
+}
+
+/// Host callback that provides services to plugins
+extern "C" fn host_service_callback(data: *mut HostCallData) {
+    // Safety: caller guarantees data is valid
+    let data = unsafe { &mut *data };
+
+    match data.service_id {
+        host_services::HIGHLIGHT_CODE => {
+            handle_highlight_code(data);
+        }
+        _ => {
+            data.result = HostCallResult::UnknownService;
+        }
+    }
+}
+
+/// Handle the HIGHLIGHT_CODE service request
+fn handle_highlight_code(data: &mut HostCallData) {
+    // Deserialize input
+    let input_slice = unsafe { std::slice::from_raw_parts(data.input_ptr, data.input_len) };
+    let request: HighlightRequest = match plugcard::facet_postcard::from_bytes(input_slice) {
+        Ok(r) => r,
+        Err(_) => {
+            data.result = HostCallResult::DeserializeError;
+            return;
+        }
+    };
+
+    // Call the syntax highlighting plugin
+    let result = match highlight_code_plugin(&request.code, &request.language) {
+        Some(r) => r,
+        None => {
+            // Plugin not available - return unhighlighted HTML-escaped text
+            HighlightResult {
+                html: html_escape(&request.code),
+                highlighted: false,
+            }
+        }
+    };
+
+    // Serialize output
+    let output_slice = unsafe { std::slice::from_raw_parts_mut(data.output_ptr, data.output_cap) };
+    match plugcard::facet_postcard::to_slice(&result, output_slice) {
+        Ok(written) => {
+            data.output_len = written;
+            data.result = HostCallResult::Success;
+        }
+        Err(_) => {
+            data.result = HostCallResult::BufferTooSmall;
+        }
+    }
+}
+
+/// Simple HTML escaping for fallback when plugin is unavailable
+fn html_escape(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => result.push_str("&amp;"),
+            '<' => result.push_str("&lt;"),
+            '>' => result.push_str("&gt;"),
+            '"' => result.push_str("&quot;"),
+            '\'' => result.push_str("&#x27;"),
+            _ => result.push(c),
+        }
+    }
+    result
 }
 
 /// Decoded image data returned by plugins
@@ -66,6 +141,8 @@ pub struct PluginRegistry {
     pub code_execution: Option<Plugin>,
     /// HTML diff plugin for livereload
     pub html_diff: Option<Plugin>,
+    /// Syntax highlighting plugin
+    pub syntax_highlight: Option<Plugin>,
 }
 
 impl PluginRegistry {
@@ -84,8 +161,9 @@ impl PluginRegistry {
         let linkcheck = Self::try_load_plugin(dir, "dodeca_linkcheck");
         let code_execution = Self::try_load_plugin(dir, "dodeca_code_execution");
         let html_diff = Self::try_load_plugin(dir, "dodeca_html_diff");
+        let syntax_highlight = Self::try_load_plugin(dir, "dodeca_syntax_highlight");
 
-        PluginRegistry { webp, jxl, minify, svgo, sass, css, js, pagefind, image, fonts, linkcheck, code_execution, html_diff }
+        PluginRegistry { webp, jxl, minify, svgo, sass, css, js, pagefind, image, fonts, linkcheck, code_execution, html_diff, syntax_highlight }
     }
 
     /// Check if any plugins were loaded
@@ -103,6 +181,7 @@ impl PluginRegistry {
             || self.linkcheck.is_some()
             || self.code_execution.is_some()
             || self.html_diff.is_some()
+            || self.syntax_highlight.is_some()
     }
 
     fn try_load_plugin(dir: &Path, name: &str) -> Option<Plugin> {
@@ -201,6 +280,7 @@ pub fn plugins() -> &'static PluginRegistry {
             linkcheck: None,
             code_execution: None,
             html_diff: None,
+            syntax_highlight: None,
         }
     })
 }
@@ -912,11 +992,12 @@ pub fn execute_code_samples_plugin(
 
     let input = Input { samples, config };
 
-    // Use call_with_logger to route plugin logs to tracing
-    match plugin.call_with_logger::<Input, PlugResult<dodeca_code_execution_types::ExecuteSamplesOutput>>(
+    // Use call_with_callbacks to provide both logging and host services (like syntax highlighting)
+    match plugin.call_with_callbacks::<Input, PlugResult<dodeca_code_execution_types::ExecuteSamplesOutput>>(
         "execute_code_samples",
         &input,
         Some(plugin_log_callback),
+        Some(host_service_callback),
     ) {
         Ok(PlugResult::Ok(output)) => Some(output.results),
         Ok(PlugResult::Err(e)) => {
@@ -966,4 +1047,50 @@ pub fn diff_html_plugin(old_html: &str, new_html: &str) -> Option<HtmlDiffResult
         }
     }
 }
+
+// ============================================================================
+// Syntax highlighting plugin functions
+// ============================================================================
+
+/// Result of syntax highlighting
+#[derive(Facet, Debug, Clone)]
+pub struct HighlightResult {
+    /// The highlighted HTML (with <span> tags for tokens)
+    pub html: String,
+    /// Whether highlighting was successful (vs fallback to plain text)
+    pub highlighted: bool,
+}
+
+/// Highlight source code using the syntax highlighting plugin.
+///
+/// Returns the code with syntax highlighting applied as HTML.
+/// If the plugin is not loaded or the language is not supported,
+/// returns None.
+pub fn highlight_code_plugin(code: &str, language: &str) -> Option<HighlightResult> {
+    let plugin = plugins().syntax_highlight.as_ref()?;
+
+    #[derive(Facet)]
+    struct Input {
+        code: String,
+        language: String,
+    }
+
+    let input = Input {
+        code: code.to_string(),
+        language: language.to_string(),
+    };
+
+    match plugin.call::<Input, PlugResult<HighlightResult>>("highlight_code", &input) {
+        Ok(PlugResult::Ok(result)) => Some(result),
+        Ok(PlugResult::Err(e)) => {
+            warn!("syntax highlight plugin error: {}", e);
+            None
+        }
+        Err(e) => {
+            warn!("syntax highlight plugin call failed: {}", e);
+            None
+        }
+    }
+}
+
 

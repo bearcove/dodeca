@@ -62,7 +62,7 @@ use linkme::distributed_slice;
 /// - The plugin export interface changes
 ///
 /// Format: 0xMMMMmmpp (Major, minor, patch as u32)
-pub const ABI_VERSION: u32 = 0x0001_0001; // 1.0.1 - added log callback
+pub const ABI_VERSION: u32 = 0x0001_0002; // 1.0.2 - added host callback
 
 /// Log level for plugin log messages
 #[repr(u8)]
@@ -80,6 +80,57 @@ pub enum LogLevel {
 /// Arguments: (level, message_ptr, message_len)
 /// The message is UTF-8 encoded.
 pub type LogCallback = extern "C" fn(LogLevel, *const u8, usize);
+
+/// Result of a host service call.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HostCallResult {
+    /// Call succeeded, output contains serialized result
+    #[default]
+    Success,
+    /// Unknown service ID
+    UnknownService,
+    /// Failed to deserialize input
+    DeserializeError,
+    /// Failed to serialize output (buffer too small)
+    BufferTooSmall,
+    /// Service returned an error
+    ServiceError,
+}
+
+/// Data for host service calls (plugin -> host).
+#[repr(C)]
+pub struct HostCallData {
+    /// Service identifier
+    pub service_id: u32,
+    /// Pointer to serialized input data
+    pub input_ptr: *const u8,
+    /// Length of input data
+    pub input_len: usize,
+    /// Pointer to output buffer (plugin-allocated)
+    pub output_ptr: *mut u8,
+    /// Capacity of output buffer
+    pub output_cap: usize,
+    /// Actual length written to output (set by host)
+    pub output_len: usize,
+    /// Result status (set by host)
+    pub result: HostCallResult,
+}
+
+/// Type for the host callback function.
+///
+/// Plugins call this to request services from the host (e.g., syntax highlighting).
+/// The callback reads input from input_ptr/input_len, writes output to output_ptr,
+/// sets output_len and result.
+pub type HostCallback = extern "C" fn(*mut HostCallData);
+
+/// Well-known host service IDs.
+pub mod host_services {
+    /// Syntax highlighting service.
+    /// Input: HighlightRequest { code: String, language: String }
+    /// Output: HighlightResult { html: String, highlighted: bool }
+    pub const HIGHLIGHT_CODE: u32 = 1;
+}
 
 /// A Result type that can be serialized with facet-postcard.
 ///
@@ -148,6 +199,8 @@ pub struct MethodCallData {
     pub output_len: usize,
     /// Optional log callback for plugin to send log messages to host
     pub log_callback: Option<LogCallback>,
+    /// Optional host callback for plugin to call host services
+    pub host_callback: Option<HostCallback>,
     /// Result status
     pub result: MethodCallResult,
 }
@@ -236,7 +289,7 @@ pub fn list_methods() -> &'static [MethodSignature] {
 }
 
 // ============================================================================
-// Plugin-side logging support
+// Plugin-side logging and host callback support
 // ============================================================================
 
 use std::cell::Cell;
@@ -245,6 +298,10 @@ thread_local! {
     /// Thread-local storage for the current log callback.
     /// Set by the wrapper before calling the plugin function.
     static CURRENT_LOG_CALLBACK: Cell<Option<LogCallback>> = const { Cell::new(None) };
+
+    /// Thread-local storage for the current host callback.
+    /// Set by the wrapper before calling the plugin function.
+    static CURRENT_HOST_CALLBACK: Cell<Option<HostCallback>> = const { Cell::new(None) };
 }
 
 /// Set the current log callback (called by generated wrapper code).
@@ -252,6 +309,13 @@ thread_local! {
 #[doc(hidden)]
 pub fn set_log_callback(callback: Option<LogCallback>) -> Option<LogCallback> {
     CURRENT_LOG_CALLBACK.with(|c| c.replace(callback))
+}
+
+/// Set the current host callback (called by generated wrapper code).
+/// Returns the previous callback so it can be restored.
+#[doc(hidden)]
+pub fn set_host_callback(callback: Option<HostCallback>) -> Option<HostCallback> {
+    CURRENT_HOST_CALLBACK.with(|c| c.replace(callback))
 }
 
 /// Log a message at the specified level.
@@ -319,6 +383,119 @@ macro_rules! log_error {
     ($($arg:tt)*) => {{
         $crate::error(&format!($($arg)*));
     }};
+}
+
+// ============================================================================
+// Plugin-side host service calls
+// ============================================================================
+
+/// Error from calling a host service.
+#[derive(Debug)]
+pub enum HostCallError {
+    /// No host callback is set (host doesn't support callbacks)
+    NoCallback,
+    /// Unknown service ID
+    UnknownService,
+    /// Failed to serialize input
+    SerializeError,
+    /// Failed to deserialize output
+    DeserializeError,
+    /// Output buffer too small (internal error, should retry)
+    BufferTooSmall,
+    /// Service returned an error
+    ServiceError,
+}
+
+impl std::fmt::Display for HostCallError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HostCallError::NoCallback => write!(f, "no host callback available"),
+            HostCallError::UnknownService => write!(f, "unknown host service"),
+            HostCallError::SerializeError => write!(f, "failed to serialize input"),
+            HostCallError::DeserializeError => write!(f, "failed to deserialize output"),
+            HostCallError::BufferTooSmall => write!(f, "output buffer too small"),
+            HostCallError::ServiceError => write!(f, "host service error"),
+        }
+    }
+}
+
+impl std::error::Error for HostCallError {}
+
+/// Call a host service with typed input and output.
+///
+/// This is the primary API for plugins to call back into the host.
+///
+/// # Example
+/// ```rust,ignore
+/// use plugcard::{call_host, host_services};
+///
+/// #[derive(Facet)]
+/// struct HighlightRequest { code: String, language: String }
+///
+/// #[derive(Facet)]
+/// struct HighlightResult { html: String, highlighted: bool }
+///
+/// let result: HighlightResult = call_host(
+///     host_services::HIGHLIGHT_CODE,
+///     &HighlightRequest { code: "fn main() {}".into(), language: "rust".into() }
+/// )?;
+/// ```
+pub fn call_host<I, O>(service_id: u32, input: &I) -> Result<O, HostCallError>
+where
+    I: Facet<'static>,
+    O: Facet<'static>,
+{
+    let callback = CURRENT_HOST_CALLBACK.with(|c| c.get());
+    let Some(callback) = callback else {
+        return Err(HostCallError::NoCallback);
+    };
+
+    // Serialize input
+    let input_bytes = facet_postcard::to_vec(input).map_err(|_| HostCallError::SerializeError)?;
+
+    // Start with a reasonable buffer, grow if needed
+    let mut output = vec![0u8; 64 * 1024]; // 64KB initial
+
+    loop {
+        let mut data = HostCallData {
+            service_id,
+            input_ptr: input_bytes.as_ptr(),
+            input_len: input_bytes.len(),
+            output_ptr: output.as_mut_ptr(),
+            output_cap: output.len(),
+            output_len: 0,
+            result: HostCallResult::Success,
+        };
+
+        callback(&mut data);
+
+        match data.result {
+            HostCallResult::Success => {
+                output.truncate(data.output_len);
+                return facet_postcard::from_bytes(&output)
+                    .map_err(|_| HostCallError::DeserializeError);
+            }
+            HostCallResult::BufferTooSmall => {
+                // Double buffer and retry
+                if output.len() >= 256 * 1024 * 1024 {
+                    // 256MB limit
+                    return Err(HostCallError::BufferTooSmall);
+                }
+                output.resize(output.len() * 2, 0);
+                continue;
+            }
+            HostCallResult::UnknownService => return Err(HostCallError::UnknownService),
+            HostCallResult::DeserializeError => return Err(HostCallError::DeserializeError),
+            HostCallResult::ServiceError => return Err(HostCallError::ServiceError),
+        }
+    }
+}
+
+/// Check if host callbacks are available.
+///
+/// Returns true if a host callback is set, meaning `call_host` can be used.
+pub fn has_host_callback() -> bool {
+    CURRENT_HOST_CALLBACK.with(|c| c.get().is_some())
 }
 
 // Re-exports for macro use

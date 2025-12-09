@@ -1362,7 +1362,7 @@ fn split_frontmatter(content: &str) -> (String, String) {
 
 /// Render markdown to HTML, resolving internal links and extracting headings
 fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
-    use pulldown_cmark::{Event, HeadingLevel, Tag};
+    use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag};
 
     let options = Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
@@ -1375,9 +1375,40 @@ fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
     let mut headings = Vec::new();
     let mut current_heading: Option<(u8, String, String)> = None; // (level, id, text)
 
-    // Transform events to resolve @/ links and extract headings
-    let events: Vec<Event> = parser
-        .map(|event| match event {
+    // Track code block state for syntax highlighting
+    let mut in_code_block = false;
+    let mut code_block_lang = String::new();
+    let mut code_block_content = String::new();
+
+    // Transform events to resolve @/ links, extract headings, and handle code blocks
+    let mut output_events: Vec<Event> = Vec::new();
+
+    for event in parser {
+        match event {
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(ref lang))) => {
+                in_code_block = true;
+                code_block_lang = lang.to_string();
+                code_block_content.clear();
+                // Don't emit start event - we'll emit raw HTML instead
+            }
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Indented)) => {
+                in_code_block = true;
+                code_block_lang.clear();
+                code_block_content.clear();
+            }
+            Event::End(pulldown_cmark::TagEnd::CodeBlock) => {
+                if in_code_block {
+                    // Apply syntax highlighting
+                    let highlighted_html = highlight_code_block(&code_block_content, &code_block_lang);
+                    output_events.push(Event::Html(highlighted_html.into()));
+                    in_code_block = false;
+                    code_block_lang.clear();
+                    code_block_content.clear();
+                }
+            }
+            Event::Text(ref text) if in_code_block => {
+                code_block_content.push_str(text);
+            }
             Event::Start(Tag::Heading { level, ref id, .. }) => {
                 let level_num = match level {
                     HeadingLevel::H1 => 1,
@@ -1392,7 +1423,7 @@ fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
                     id.as_ref().map(|s| s.to_string()).unwrap_or_default(),
                     String::new(),
                 ));
-                event
+                output_events.push(event);
             }
             Event::End(pulldown_cmark::TagEnd::Heading(_)) => {
                 if let Some((level, id, text)) = current_heading.take() {
@@ -1404,13 +1435,13 @@ fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
                         level,
                     });
                 }
-                event
+                output_events.push(event);
             }
             Event::Text(ref text) | Event::Code(ref text) => {
                 if let Some((_, _, ref mut heading_text)) = current_heading {
                     heading_text.push_str(text);
                 }
-                event
+                output_events.push(event);
             }
             Event::Start(Tag::Link {
                 link_type,
@@ -1419,19 +1450,21 @@ fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
                 id,
             }) => {
                 let resolved = resolve_internal_link(&dest_url);
-                Event::Start(Tag::Link {
+                output_events.push(Event::Start(Tag::Link {
                     link_type,
                     dest_url: resolved.into(),
                     title,
                     id,
-                })
+                }));
             }
-            other => other,
-        })
-        .collect();
+            other => {
+                output_events.push(other);
+            }
+        }
+    }
 
     let mut html_output = String::new();
-    html::push_html(&mut html_output, events.into_iter());
+    html::push_html(&mut html_output, output_events.into_iter());
 
     // Also extract headings from any inline HTML in the output
     let html_headings = extract_html_headings(&html_output);
@@ -1447,6 +1480,49 @@ fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
     let html_output = inject_heading_ids(&html_output, &headings);
 
     (html_output, headings)
+}
+
+/// Highlight a code block using the syntax highlighting plugin
+fn highlight_code_block(code: &str, language: &str) -> String {
+    use crate::plugins::highlight_code_plugin;
+
+    // Try to use the syntax highlighting plugin
+    if let Some(result) = highlight_code_plugin(code, language) {
+        // Wrap in pre/code tags with language class
+        let lang_class = if language.is_empty() {
+            String::new()
+        } else {
+            format!(" class=\"language-{}\"", html_escape_attr(language))
+        };
+        format!("<pre><code{}>{}</code></pre>", lang_class, result.html)
+    } else {
+        // Fallback: escape HTML and wrap in pre/code
+        let lang_class = if language.is_empty() {
+            String::new()
+        } else {
+            format!(" class=\"language-{}\"", html_escape_attr(language))
+        };
+        format!(
+            "<pre><code{}>{}</code></pre>",
+            lang_class,
+            html_escape_content(code)
+        )
+    }
+}
+
+/// Escape HTML attribute value
+fn html_escape_attr(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+/// Escape HTML content
+fn html_escape_content(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 /// Convert text to a URL-safe slug for heading IDs
