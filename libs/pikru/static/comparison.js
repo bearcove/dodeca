@@ -131,7 +131,15 @@
     slider.addEventListener('input', (e) => {
       state.opacity = e.target.value / 100;
       sliderValue.textContent = `${e.target.value}%`;
-      updateView(card);
+      // Update the overlay directly without full re-render for smoother feedback
+      const overlay = card.querySelector('.overlay-rust');
+      if (overlay) {
+        overlay.style.opacity = state.opacity;
+        const rustLabel = card.querySelector('.overlay-labels span:last-child');
+        if (rustLabel) {
+          rustLabel.textContent = `Rust (${e.target.value}%)`;
+        }
+      }
     });
 
     // Wire up SSIM button
@@ -241,8 +249,17 @@
     rustClone.classList.add('overlay-rust');
     rustClone.style.opacity = state.opacity;
 
+    // Add labels showing which is base vs overlay
+    const labels = document.createElement('div');
+    labels.className = 'overlay-labels';
+    labels.innerHTML = `
+      <span>C (base)</span>
+      <span>Rust (${Math.round(state.opacity * 100)}%)</span>
+    `;
+
     container.appendChild(cClone);
     container.appendChild(rustClone);
+    container.appendChild(labels);
     comparison.appendChild(container);
   }
 
@@ -285,15 +302,18 @@
     // Set initial clip
     updateSwipeClip(container, state.swipePosition);
 
-    // Add drag handling
+    // Add drag handling - can start drag from anywhere in container
     const divider = container.querySelector('.swipe-divider');
     let isDragging = false;
 
-    divider.addEventListener('mousedown', startDrag);
-    divider.addEventListener('touchstart', startDrag, { passive: true });
+    // Start drag from container click (not just divider)
+    container.addEventListener('mousedown', startDrag);
+    container.addEventListener('touchstart', startDrag, { passive: true });
 
     function startDrag(e) {
       isDragging = true;
+      // Immediately update position on click
+      drag(e);
       document.addEventListener('mousemove', drag);
       document.addEventListener('mouseup', stopDrag);
       document.addEventListener('touchmove', drag, { passive: true });

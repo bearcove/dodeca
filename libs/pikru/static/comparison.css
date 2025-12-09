@@ -225,21 +225,27 @@
 
 .overlay-container {
   position: relative;
-  min-height: 300px;
-  background: white;
+  background: light-dark(#fafafa, #333);
   border-radius: var(--radius-md);
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 12px;
 }
 
 .overlay-container svg {
   position: absolute;
-  max-width: 90%;
-  max-height: 90%;
+  max-width: 100%;
+  max-height: 300px;
   width: auto;
   height: auto;
+}
+
+@media (prefers-color-scheme: dark) {
+  .overlay-container svg {
+    filter: invert(1);
+  }
 }
 
 .overlay-c {
@@ -248,8 +254,29 @@
 
 .overlay-rust {
   z-index: 2;
-  /* Tint the rust overlay slightly */
-  filter: hue-rotate(30deg);
+}
+
+.overlay-labels {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  justify-content: space-between;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.overlay-labels span {
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
 }
 
 /* ============================================
@@ -258,11 +285,11 @@
 
 .swipe-container {
   position: relative;
-  min-height: 300px;
-  background: white;
+  background: light-dark(#fafafa, #333);
   border-radius: var(--radius-md);
   overflow: hidden;
   cursor: ew-resize;
+  padding: 12px;
 }
 
 .swipe-layer {
@@ -271,14 +298,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 12px;
 }
 
 .swipe-layer svg {
   max-width: 100%;
-  max-height: 100%;
+  max-height: 300px;
   width: auto;
   height: auto;
+}
+
+@media (prefers-color-scheme: dark) {
+  .swipe-layer svg {
+    filter: invert(1);
+  }
 }
 
 .swipe-c {
@@ -352,7 +385,6 @@
    ============================================ */
 
 .diff-container {
-  min-height: 300px;
   display: flex;
   flex-direction: column;
 }
@@ -401,14 +433,20 @@
   align-items: center;
   justify-content: center;
   padding: 12px;
-  background: white;
+  background: light-dark(#fafafa, #333);
   position: relative;
 }
 
 .diff-canvas {
   max-width: 100%;
-  max-height: 280px;
+  max-height: 300px;
   border-radius: var(--radius-sm);
+}
+
+@media (prefers-color-scheme: dark) {
+  .diff-canvas {
+    filter: invert(1);
+  }
 }
 
 .diff-loading {

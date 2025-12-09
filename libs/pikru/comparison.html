@@ -472,21 +472,27 @@
 
 .overlay-container {
   position: relative;
-  min-height: 300px;
-  background: white;
+  background: light-dark(#fafafa, #333);
   border-radius: var(--radius-md);
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 12px;
 }
 
 .overlay-container svg {
   position: absolute;
-  max-width: 90%;
-  max-height: 90%;
+  max-width: 100%;
+  max-height: 300px;
   width: auto;
   height: auto;
+}
+
+@media (prefers-color-scheme: dark) {
+  .overlay-container svg {
+    filter: invert(1);
+  }
 }
 
 .overlay-c {
@@ -495,8 +501,29 @@
 
 .overlay-rust {
   z-index: 2;
-  /* Tint the rust overlay slightly */
-  filter: hue-rotate(30deg);
+}
+
+.overlay-labels {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  justify-content: space-between;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.overlay-labels span {
+  padding: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
 }
 
 /* ============================================
@@ -505,11 +532,11 @@
 
 .swipe-container {
   position: relative;
-  min-height: 300px;
-  background: white;
+  background: light-dark(#fafafa, #333);
   border-radius: var(--radius-md);
   overflow: hidden;
   cursor: ew-resize;
+  padding: 12px;
 }
 
 .swipe-layer {
@@ -518,14 +545,20 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 12px;
 }
 
 .swipe-layer svg {
   max-width: 100%;
-  max-height: 100%;
+  max-height: 300px;
   width: auto;
   height: auto;
+}
+
+@media (prefers-color-scheme: dark) {
+  .swipe-layer svg {
+    filter: invert(1);
+  }
 }
 
 .swipe-c {
@@ -599,7 +632,6 @@
    ============================================ */
 
 .diff-container {
-  min-height: 300px;
   display: flex;
   flex-direction: column;
 }
@@ -648,14 +680,20 @@
   align-items: center;
   justify-content: center;
   padding: 12px;
-  background: white;
+  background: light-dark(#fafafa, #333);
   position: relative;
 }
 
 .diff-canvas {
   max-width: 100%;
-  max-height: 280px;
+  max-height: 300px;
   border-radius: var(--radius-sm);
+}
+
+@media (prefers-color-scheme: dark) {
+  .diff-canvas {
+    filter: invert(1);
+  }
 }
 
 .diff-loading {
@@ -9530,7 +9568,15 @@ box &quot;B&quot; with nw at A.e
     slider.addEventListener('input', (e) => {
       state.opacity = e.target.value / 100;
       sliderValue.textContent = `${e.target.value}%`;
-      updateView(card);
+      // Update the overlay directly without full re-render for smoother feedback
+      const overlay = card.querySelector('.overlay-rust');
+      if (overlay) {
+        overlay.style.opacity = state.opacity;
+        const rustLabel = card.querySelector('.overlay-labels span:last-child');
+        if (rustLabel) {
+          rustLabel.textContent = `Rust (${e.target.value}%)`;
+        }
+      }
     });
 
     // Wire up SSIM button
@@ -9640,8 +9686,17 @@ box &quot;B&quot; with nw at A.e
     rustClone.classList.add('overlay-rust');
     rustClone.style.opacity = state.opacity;
 
+    // Add labels showing which is base vs overlay
+    const labels = document.createElement('div');
+    labels.className = 'overlay-labels';
+    labels.innerHTML = `
+      <span>C (base)</span>
+      <span>Rust (${Math.round(state.opacity * 100)}%)</span>
+    `;
+
     container.appendChild(cClone);
     container.appendChild(rustClone);
+    container.appendChild(labels);
     comparison.appendChild(container);
   }
 
@@ -9684,15 +9739,18 @@ box &quot;B&quot; with nw at A.e
     // Set initial clip
     updateSwipeClip(container, state.swipePosition);
 
-    // Add drag handling
+    // Add drag handling - can start drag from anywhere in container
     const divider = container.querySelector('.swipe-divider');
     let isDragging = false;
 
-    divider.addEventListener('mousedown', startDrag);
-    divider.addEventListener('touchstart', startDrag, { passive: true });
+    // Start drag from container click (not just divider)
+    container.addEventListener('mousedown', startDrag);
+    container.addEventListener('touchstart', startDrag, { passive: true });
 
     function startDrag(e) {
       isDragging = true;
+      // Immediately update position on click
+      drag(e);
       document.addEventListener('mousemove', drag);
       document.addEventListener('mouseup', stopDrag);
       document.addEventListener('touchmove', drag, { passive: true });
