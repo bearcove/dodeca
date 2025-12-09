@@ -18,86 +18,99 @@ Use Rust's type system to make incorrect code impossible to write:
 
 This way, the Y-flip logic lives in ONE place (the `to_unit_vector()` method), and everywhere else just does vector math.
 
+## Use `glam` crate
+
+Instead of rolling our own vector types, use the `glam` crate which is:
+- Battle-tested, widely used in game dev and graphics
+- Zero-cost abstractions, SIMD-optimized
+- Has `DVec2` for f64 vectors (we need f64 precision for inches)
+
+```toml
+# Cargo.toml
+[dependencies]
+glam = { version = "0.29", features = ["std"] }
+```
+
 ## Implementation Plan
 
-### Step 1: Add Vector Type to `src/types.rs`
+### Step 1: Add glam dependency
+
+```toml
+# Cargo.toml
+[dependencies]
+glam = "0.29"
+```
+
+### Step 2: Create typed wrappers in `src/types.rs`
+
+We can use `glam::DVec2` directly, or wrap it for type safety. The key is having a clear way to convert between our `Length` type and glam's vectors.
 
 ```rust
-/// A 2D vector (displacement), distinct from a Point (position)
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Vec2 {
-    pub dx: Length,
-    pub dy: Length,
-}
+use glam::DVec2;
 
-impl Vec2 {
-    pub const ZERO: Self = Self { dx: Length::ZERO, dy: Length::ZERO };
+/// A 2D offset/displacement in inches
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Offset(pub DVec2);
+
+impl Offset {
+    pub const ZERO: Self = Self(DVec2::ZERO);
 
     pub fn new(dx: Length, dy: Length) -> Self {
-        Self { dx, dy }
+        Self(DVec2::new(dx.0, dy.0))
     }
 
-    /// Scale vector by a scalar
-    pub fn scale(self, s: f64) -> Self {
-        Self {
-            dx: self.dx * s,
-            dy: self.dy * s,
-        }
-    }
+    pub fn dx(&self) -> Length { Length(self.0.x) }
+    pub fn dy(&self) -> Length { Length(self.0.y) }
 }
 
-impl std::ops::Mul<Length> for Vec2 {
-    type Output = Vec2;
-    fn mul(self, rhs: Length) -> Vec2 {
-        Vec2 {
-            dx: Length(self.dx.0 * rhs.0),
-            dy: Length(self.dy.0 * rhs.0),
-        }
-    }
-}
-
-impl std::ops::Add<Vec2> for Point<Length> {
+impl std::ops::Add<Offset> for Point<Length> {
     type Output = Point<Length>;
-    fn add(self, rhs: Vec2) -> Point<Length> {
+    fn add(self, rhs: Offset) -> Point<Length> {
         Point {
-            x: self.x + rhs.dx,
-            y: self.y + rhs.dy,
+            x: Length(self.x.0 + rhs.0.x),
+            y: Length(self.y.0 + rhs.0.y),
         }
+    }
+}
+
+impl std::ops::AddAssign<Offset> for Offset {
+    fn add_assign(&mut self, rhs: Offset) {
+        self.0 += rhs.0;
     }
 }
 ```
 
-### Step 2: Add `to_unit_vector()` to Direction (in `src/ast.rs` or `src/types.rs`)
+### Step 3: Add `offset()` to Direction (in `src/ast.rs` or `src/types.rs`)
 
 ```rust
+use glam::DVec2;
+
 impl Direction {
-    /// Convert direction to a unit vector in SVG coordinate space.
+    /// Unit vector for this direction in SVG coordinate space.
     /// SVG Y increases downward, so:
     /// - Up = (0, -1)
     /// - Down = (0, +1)
     /// - Right = (+1, 0)
     /// - Left = (-1, 0)
-    pub fn to_unit_vector(self) -> Vec2 {
+    pub fn unit_vector(self) -> DVec2 {
         match self {
-            Direction::Right => Vec2::new(Length::inches(1.0), Length::ZERO),
-            Direction::Left => Vec2::new(Length::inches(-1.0), Length::ZERO),
-            Direction::Up => Vec2::new(Length::ZERO, Length::inches(-1.0)),
-            Direction::Down => Vec2::new(Length::ZERO, Length::inches(1.0)),
+            Direction::Right => DVec2::X,
+            Direction::Left => DVec2::NEG_X,
+            Direction::Up => DVec2::NEG_Y,  // SVG Y-down!
+            Direction::Down => DVec2::Y,
         }
     }
 
     /// Get offset for moving `distance` in this direction
-    pub fn offset(self, distance: Length) -> Vec2 {
-        let unit = self.to_unit_vector();
-        Vec2 {
-            dx: Length(unit.dx.0 * distance.0),
-            dy: Length(unit.dy.0 * distance.0),
-        }
+    pub fn offset(self, distance: Length) -> Offset {
+        Offset(self.unit_vector() * distance.0)
     }
 }
 ```
 
-### Step 3: Refactor `RenderContext::advance()` in `src/render.rs`
+Note: `glam` provides `DVec2::X`, `DVec2::Y`, `DVec2::NEG_X`, `DVec2::NEG_Y` as pre-defined unit vectors.
+
+### Step 4: Refactor `RenderContext::advance()` in `src/render.rs`
 
 Before:
 ```rust
@@ -119,7 +132,7 @@ pub fn advance(&mut self, distance: Inches) {
 }
 ```
 
-### Step 4: Refactor `move_in_direction()` in `src/render.rs`
+### Step 5: Refactor `move_in_direction()` in `src/render.rs`
 
 Before:
 ```rust
@@ -140,7 +153,7 @@ fn move_in_direction(pos: PointIn, dir: Direction, distance: Inches) -> PointIn 
 }
 ```
 
-### Step 5: Refactor all other scattered `match dir` blocks
+### Step 6: Refactor all other scattered `match dir` blocks
 
 Search for all occurrences of patterns like:
 - `Direction::Up =>`
@@ -177,7 +190,7 @@ Replace with vector operations. The key locations from the audit:
    let center = ctx.position + ctx.direction.offset(half_h);
    ```
 
-### Step 6: Consider using `Vec2` for accumulated offsets
+### Step 7: Use `Offset` for accumulated offsets
 
 Instead of:
 ```rust
@@ -187,12 +200,12 @@ let mut direction_offset_y: Inches = Inches::ZERO;
 
 Use:
 ```rust
-let mut direction_offset = Vec2::ZERO;
+let mut direction_offset = Offset::ZERO;
 // ...
-direction_offset = direction_offset + dir.offset(distance);
+direction_offset += dir.offset(distance);
 ```
 
-### Step 7: Add unit tests for Direction::offset()
+### Step 8: Add unit tests for Direction::offset()
 
 ```rust
 #[cfg(test)]
