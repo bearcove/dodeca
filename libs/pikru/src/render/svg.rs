@@ -62,9 +62,9 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     let thickness = get_length(ctx, "thickness", defaults::STROKE_WIDTH.raw());
 
     let margin = margin_base + thickness;
-    let r_scale = 144.0; // match pikchr.c rScale - always use base scale for coordinates
     let scale = get_scalar(ctx, "scale", 1.0);
-    // C pikchr uses r_scale for coordinate conversion, scale only affects display size
+    let r_scale = scale * 144.0; // match pikchr.c rScale - use scale factor for coordinates
+    // C pikchr uses r_scale for coordinate conversion
     let scaler = Scaler::try_new(r_scale)
         .map_err(|e| miette::miette!("invalid scale value {}: {}", r_scale, e))?;
     let arrow_ht = Inches(get_length(ctx, "arrowht", 0.08));

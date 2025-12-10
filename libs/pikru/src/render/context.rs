@@ -111,6 +111,14 @@ impl RenderContext {
             .find(|o| class.map(|c| o.class() == c).unwrap_or(true))
     }
 
+    /// Get a scalar value from variables, with fallback
+    pub fn get_scalar(&self, name: &str, default: f64) -> f64 {
+        self.variables
+            .get(name)
+            .map(|v| v.as_scalar())
+            .unwrap_or(default)
+    }
+
     /// Move position in the current direction
     pub fn advance(&mut self, distance: Inches) {
         self.position = self.position + self.direction.offset(distance);
