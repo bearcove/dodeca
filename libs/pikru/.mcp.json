@@ -2,7 +2,7 @@
   "mcpServers": {
     "pikru-test": {
       "type": "stdio",
-      "command": "target/release/pikru-mcp",
+      "command": "pikru-mcp",
       "args": [],
       "env": {}
     }
