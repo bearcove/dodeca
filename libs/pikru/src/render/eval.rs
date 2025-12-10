@@ -475,14 +475,13 @@ fn resolve_path_in_object<'a>(
         return Some(obj);
     }
 
-    let _next_name = &path[0];
-    let _remaining = &path[1..];
+    let (next_name, remaining) = path.split_first().unwrap();
+    let children = obj.children()?;
+    let child = children
+        .iter()
+        .find(|child| child.name.as_deref() == Some(next_name.as_str()))?;
 
-    // Search in children for matching name (only for Sublist shapes)
-    // Note: In the new structure, children are stored as ShapeEnums, not RenderedObjects
-    // This path-based resolution may need rethinking with the new structure
-    // For now, return None since children are no longer directly accessible as RenderedObjects
-    None
+    resolve_path_in_object(child, remaining)
 }
 
 fn nth_class_to_class_name(nc: &NthClass) -> Option<ClassName> {

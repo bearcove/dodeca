@@ -193,7 +193,7 @@ impl RenderedObject {
         self.shape.class()
     }
 
-    pub fn children(&self) -> Option<&[super::shapes::ShapeEnum]> {
+    pub fn children(&self) -> Option<&[RenderedObject]> {
         if let super::shapes::ShapeEnum::Sublist(ref s) = self.shape {
             Some(&s.children)
         } else {

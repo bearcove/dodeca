@@ -1185,18 +1185,14 @@ fn render_object_stmt(
             style: style.clone(),
             text: text.clone(),
         }),
-        ClassName::Sublist => {
-            // Convert RenderedObject children to ShapeEnum children
-            let shape_children: Vec<ShapeEnum> = children.into_iter().map(|obj| obj.shape).collect();
-            ShapeEnum::Sublist(SublistShape {
-                center,
-                width,
-                height,
-                style: style.clone(),
-                text: text.clone(),
-                children: shape_children,
-            })
-        }
+        ClassName::Sublist => ShapeEnum::Sublist(SublistShape {
+            center,
+            width,
+            height,
+            style: style.clone(),
+            text: text.clone(),
+            children,
+        }),
     };
 
     Ok(RenderedObject {

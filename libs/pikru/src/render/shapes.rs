@@ -6,20 +6,21 @@
 //! - Render itself to SVG
 
 use crate::types::{BoxIn, Length as Inches, OffsetIn, Point, Scaler, Size, UnitVec};
-use facet_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode, SvgStyle};
+use facet_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode, SvgStyle, Text as SvgText};
+use glam::DVec2;
 
 use super::defaults;
-use super::{text_width_inches, count_text_above_below, compute_text_vslots, TextVSlot};
+use super::{count_text_above_below, compute_text_vslots, text_width_inches, TextVSlot};
 
 /// Bounding box type alias
 pub type BoundingBox = BoxIn;
 use super::geometry::{
-    arc_control_point, create_arc_path, create_cylinder_paths_with_rad, create_file_paths,
-    create_oval_path, create_rounded_box_path, create_spline_path,
+    apply_auto_chop_simple_line, arc_control_point, chop_line, create_arc_path,
+    create_cylinder_paths_with_rad, create_file_paths, create_oval_path, create_rounded_box_path,
+    create_spline_path,
 };
 use super::svg::{color_to_rgb, render_arrowhead_dom};
-use super::types::{ClassName, ObjectStyle, PointIn, PositionedText};
-use glam::dvec2;
+use super::types::{ClassName, ObjectStyle, PointIn, PositionedText, RenderedObject};
 
 use enum_dispatch::enum_dispatch;
 
@@ -92,7 +93,16 @@ pub trait Shape {
     }
 
     /// Render this shape to SVG nodes
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode>;
+    fn render_svg(
+        &self,
+        obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        arrow_len: Inches,
+        arrow_wid: Inches,
+    ) -> Vec<SvgNode>;
 
     /// Get waypoints if this is a path-like shape (line, spline)
     /// Returns None for non-path shapes
@@ -220,22 +230,30 @@ impl Shape for CircleShape {
         true
     }
 
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(
+        &self,
+        _obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        _arrow_len: Inches,
+        _arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
         if self.style.invisible {
             return nodes;
         }
 
-        let tx = scaler.px(self.center.x + offset_x);
-        let ty = scaler.px(self.center.y + offset_y);
+        let center_svg = self.center.to_svg(scaler, offset_x, max_y);
         let r = scaler.px(self.radius);
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
 
         let circle = SvgCircle {
-            cx: Some(tx),
-            cy: Some(ty),
+            cx: Some(center_svg.x),
+            cy: Some(center_svg.y),
             r: Some(r),
             fill: None,
             stroke: None,
@@ -298,19 +316,29 @@ impl Shape for BoxShape {
         &self.text
     }
 
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(
+        &self,
+        _obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        _arrow_len: Inches,
+        _arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
         if self.style.invisible {
             return nodes;
         }
 
-        let tx = scaler.px(self.center.x + offset_x);
-        let ty = scaler.px(self.center.y + offset_y);
-        let x1 = tx - scaler.px(self.width / 2.0);
-        let x2 = tx + scaler.px(self.width / 2.0);
-        let y1 = ty - scaler.px(self.height / 2.0);
-        let y2 = ty + scaler.px(self.height / 2.0);
+        let center_svg = self.center.to_svg(scaler, offset_x, max_y);
+        let hw = scaler.px(self.width / 2.0);
+        let hh = scaler.px(self.height / 2.0);
+        let x1 = center_svg.x - hw;
+        let x2 = center_svg.x + hw;
+        let y1 = center_svg.y - hh;
+        let y2 = center_svg.y + hh;
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
 
@@ -380,23 +408,31 @@ impl Shape for EllipseShape {
         true
     }
 
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(
+        &self,
+        _obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        _arrow_len: Inches,
+        _arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
         if self.style.invisible {
             return nodes;
         }
 
-        let tx = scaler.px(self.center.x + offset_x);
-        let ty = scaler.px(self.center.y + offset_y);
+        let center_svg = self.center.to_svg(scaler, offset_x, max_y);
         let rx = scaler.px(self.width / 2.0);
         let ry = scaler.px(self.height / 2.0);
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
 
         let ellipse = SvgEllipse {
-            cx: Some(tx),
-            cy: Some(ty),
+            cx: Some(center_svg.x),
+            cy: Some(center_svg.y),
             rx: Some(rx),
             ry: Some(ry),
             fill: None,
@@ -450,19 +486,29 @@ impl Shape for OvalShape {
         true
     }
 
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(
+        &self,
+        _obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        _arrow_len: Inches,
+        _arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
         if self.style.invisible {
             return nodes;
         }
 
-        let tx = scaler.px(self.center.x + offset_x);
-        let ty = scaler.px(self.center.y + offset_y);
-        let x1 = tx - scaler.px(self.width / 2.0);
-        let x2 = tx + scaler.px(self.width / 2.0);
-        let y1 = ty - scaler.px(self.height / 2.0);
-        let y2 = ty + scaler.px(self.height / 2.0);
+        let center_svg = self.center.to_svg(scaler, offset_x, max_y);
+        let hw = scaler.px(self.width / 2.0);
+        let hh = scaler.px(self.height / 2.0);
+        let x1 = center_svg.x - hw;
+        let x2 = center_svg.x + hw;
+        let y1 = center_svg.y - hh;
+        let y2 = center_svg.y + hh;
 
         // Oval radius is half the smaller dimension
         let rad = scaler.px(self.width.min(self.height) / 2.0);
@@ -519,26 +565,49 @@ impl Shape for DiamondShape {
         &self.text
     }
 
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(
+        &self,
+        _obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        _arrow_len: Inches,
+        _arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
         if self.style.invisible {
             return nodes;
         }
 
-        let tx = scaler.px(self.center.x + offset_x);
-        let ty = scaler.px(self.center.y + offset_y);
+        let center_svg = self.center.to_svg(scaler, offset_x, max_y);
         let hw = scaler.px(self.width / 2.0);
         let hh = scaler.px(self.height / 2.0);
 
+        tracing::debug!(
+            center_pikchr_x = self.center.x.0,
+            center_pikchr_y = self.center.y.0,
+            center_svg_x = center_svg.x,
+            center_svg_y = center_svg.y,
+            offset_x = offset_x.0,
+            max_y = max_y.0,
+            "DiamondShape render_svg"
+        );
+
+        let left = center_svg.x - hw;
+        let right = center_svg.x + hw;
+        let top = center_svg.y - hh;
+        let bottom = center_svg.y + hh;
+
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
 
-        // Diamond: vertices at N, E, S, W
+        // Diamond: start at west edge to match C pikchr ordering
         let path_data = PathData::new()
-            .m(tx, ty - hh)      // North
-            .l(tx + hw, ty)      // East
-            .l(tx, ty + hh)      // South
-            .l(tx - hw, ty)      // West
+            .m(left, center_svg.y)      // West
+            .l(center_svg.x, bottom)    // South
+            .l(right, center_svg.y)     // East
+            .l(center_svg.x, top)       // North
             .z();
 
         let path = Path {
@@ -590,15 +659,23 @@ impl Shape for CylinderShape {
         &self.text
     }
 
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(
+        &self,
+        _obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        _arrow_len: Inches,
+        _arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
         if self.style.invisible {
             return nodes;
         }
 
-        let tx = scaler.px(self.center.x + offset_x);
-        let ty = scaler.px(self.center.y + offset_y);
+        let center_svg = self.center.to_svg(scaler, offset_x, max_y);
         let w = scaler.px(self.width);
         let h = scaler.px(self.height);
 
@@ -607,7 +684,8 @@ impl Shape for CylinderShape {
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
 
-        let (body_path, bottom_arc_path) = create_cylinder_paths_with_rad(tx, ty, w, h, rad);
+        let (body_path, bottom_arc_path) =
+            create_cylinder_paths_with_rad(center_svg.x, center_svg.y, w, h, rad);
 
         let body = Path {
             d: Some(body_path),
@@ -619,15 +697,17 @@ impl Shape for CylinderShape {
         };
         nodes.push(SvgNode::Path(body));
 
-        let bottom_arc = Path {
-            d: Some(bottom_arc_path),
-            fill: None,
-            stroke: None,
-            stroke_width: None,
-            stroke_dasharray: None,
-            style: svg_style,
-        };
-        nodes.push(SvgNode::Path(bottom_arc));
+        if !bottom_arc_path.commands.is_empty() {
+            let bottom_arc = Path {
+                d: Some(bottom_arc_path),
+                fill: None,
+                stroke: None,
+                stroke_width: None,
+                stroke_dasharray: None,
+                style: svg_style,
+            };
+            nodes.push(SvgNode::Path(bottom_arc));
+        }
 
         nodes
     }
@@ -682,22 +762,30 @@ impl Shape for FileShape {
         &self.text
     }
 
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(
+        &self,
+        _obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        _arrow_len: Inches,
+        _arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
         if self.style.invisible {
             return nodes;
         }
 
-        let tx = scaler.px(self.center.x + offset_x);
-        let ty = scaler.px(self.center.y + offset_y);
+        let center_svg = self.center.to_svg(scaler, offset_x, max_y);
         let w = scaler.px(self.width);
         let h = scaler.px(self.height);
         let rad = scaler.px(self.fold_radius);
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
 
-        let (main_path, fold_path) = create_file_paths(tx, ty, w, h, rad);
+        let (main_path, fold_path) = create_file_paths(center_svg.x, center_svg.y, w, h, rad);
 
         let main = Path {
             d: Some(main_path),
@@ -806,7 +894,16 @@ impl Shape for LineShape {
         self.waypoints.last().copied().unwrap_or(Point::ORIGIN)
     }
 
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(
+        &self,
+        obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        arrow_len: Inches,
+        arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
         if self.style.invisible || self.waypoints.len() < 2 {
@@ -814,16 +911,106 @@ impl Shape for LineShape {
         }
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
+        let arrow_len_px = scaler.px(arrow_len);
+        let arrow_wid_px = scaler.px(arrow_wid);
+        let arrow_chop = arrow_len_px / 2.0;
 
-        // Build path from waypoints
+        let mut svg_points: Vec<DVec2> = self
+            .waypoints
+            .iter()
+            .map(|pt| pt.to_svg(scaler, offset_x, max_y))
+            .collect();
+
+        if svg_points.len() <= 2 {
+            let start = svg_points[0];
+            let end = svg_points[svg_points.len() - 1];
+            let (mut draw_start, mut draw_end) = apply_auto_chop_simple_line(
+                scaler,
+                obj,
+                start,
+                end,
+                offset_x,
+                max_y,
+            );
+
+            if self.style.arrow_end {
+                if let Some(arrowhead) = render_arrowhead_dom(
+                    draw_start,
+                    draw_end,
+                    &self.style,
+                    arrow_len_px,
+                    arrow_wid_px,
+                ) {
+                    nodes.push(SvgNode::Polygon(arrowhead));
+                }
+            }
+            if self.style.arrow_start {
+                if let Some(arrowhead) = render_arrowhead_dom(
+                    draw_end,
+                    draw_start,
+                    &self.style,
+                    arrow_len_px,
+                    arrow_wid_px,
+                ) {
+                    nodes.push(SvgNode::Polygon(arrowhead));
+                }
+            }
+
+            if self.style.arrow_start {
+                let (new_start, _) = chop_line(draw_start, draw_end, arrow_chop);
+                draw_start = new_start;
+            }
+            if self.style.arrow_end {
+                let (_, new_end) = chop_line(draw_start, draw_end, arrow_chop);
+                draw_end = new_end;
+            }
+
+            let mut path_data = PathData::new()
+                .m(draw_start.x, draw_start.y)
+                .l(draw_end.x, draw_end.y);
+            if self.style.close_path {
+                path_data = path_data.z();
+            }
+            let path = Path {
+                d: Some(path_data),
+                fill: None,
+                stroke: None,
+                stroke_width: None,
+                stroke_dasharray: None,
+                style: svg_style,
+            };
+            nodes.push(SvgNode::Path(path));
+            return nodes;
+        }
+
+        if self.style.chop && svg_points.len() >= 2 {
+            let chop_amount = scaler.px(defaults::CIRCLE_RADIUS);
+            let (new_start, _) = chop_line(svg_points[0], svg_points[1], chop_amount);
+            svg_points[0] = new_start;
+            let n = svg_points.len();
+            let (_, new_end) = chop_line(svg_points[n - 2], svg_points[n - 1], chop_amount);
+            svg_points[n - 1] = new_end;
+        }
+
+        if (self.style.arrow_start || self.style.arrow_end) && svg_points.len() >= 2 {
+            if self.style.arrow_start {
+                let (new_start, _) = chop_line(svg_points[0], svg_points[1], arrow_chop);
+                svg_points[0] = new_start;
+            }
+            if self.style.arrow_end {
+                let n = svg_points.len();
+                let (_, new_end) = chop_line(svg_points[n - 2], svg_points[n - 1], arrow_chop);
+                svg_points[n - 1] = new_end;
+            }
+            // TODO: Render arrowheads for multi-segment lines
+        }
+
         let mut path_data = PathData::new();
-        for (i, pt) in self.waypoints.iter().enumerate() {
-            let px = scaler.px(pt.x + offset_x);
-            let py = scaler.px(pt.y + offset_y);
+        for (i, pt) in svg_points.iter().enumerate() {
             if i == 0 {
-                path_data = path_data.m(px, py);
+                path_data = path_data.m(pt.x, pt.y);
             } else {
-                path_data = path_data.l(px, py);
+                path_data = path_data.l(pt.x, pt.y);
             }
         }
 
@@ -840,8 +1027,6 @@ impl Shape for LineShape {
             style: svg_style,
         };
         nodes.push(SvgNode::Path(path));
-
-        // TODO: Render arrowheads
 
         nodes
     }
@@ -929,7 +1114,16 @@ impl Shape for SplineShape {
         self.waypoints.last().copied().unwrap_or(Point::ORIGIN)
     }
 
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, max_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(
+        &self,
+        _obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        arrow_len: Inches,
+        arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
         if self.style.invisible || self.waypoints.len() < 2 {
@@ -938,6 +1132,24 @@ impl Shape for SplineShape {
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
         let path_data = create_spline_path(&self.waypoints, scaler, offset_x, max_y);
+        let arrow_len_px = scaler.px(arrow_len);
+        let arrow_wid_px = scaler.px(arrow_wid);
+
+        let n = self.waypoints.len();
+        if self.style.arrow_end && n >= 2 {
+            let p1 = self.waypoints[n - 2].to_svg(scaler, offset_x, max_y);
+            let p2 = self.waypoints[n - 1].to_svg(scaler, offset_x, max_y);
+            if let Some(arrowhead) = render_arrowhead_dom(p1, p2, &self.style, arrow_len_px, arrow_wid_px) {
+                nodes.push(SvgNode::Polygon(arrowhead));
+            }
+        }
+        if self.style.arrow_start && n >= 2 {
+            let p1 = self.waypoints[0].to_svg(scaler, offset_x, max_y);
+            let p2 = self.waypoints[1].to_svg(scaler, offset_x, max_y);
+            if let Some(arrowhead) = render_arrowhead_dom(p2, p1, &self.style, arrow_len_px, arrow_wid_px) {
+                nodes.push(SvgNode::Polygon(arrowhead));
+            }
+        }
 
         let path = Path {
             d: Some(path_data),
@@ -1029,22 +1241,30 @@ impl Shape for DotShape {
         true
     }
 
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(
+        &self,
+        _obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        _arrow_len: Inches,
+        _arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
         if self.style.invisible {
             return nodes;
         }
 
-        let tx = scaler.px(self.center.x + offset_x);
-        let ty = scaler.px(self.center.y + offset_y);
+        let center_svg = self.center.to_svg(scaler, offset_x, max_y);
         let r = scaler.px(self.radius);
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
 
         let circle = SvgCircle {
-            cx: Some(tx),
-            cy: Some(ty),
+            cx: Some(center_svg.x),
+            cy: Some(center_svg.y),
             r: Some(r),
             fill: None,
             stroke: None,
@@ -1093,10 +1313,57 @@ impl Shape for TextShape {
         &self.text
     }
 
-    fn render_svg(&self, _scaler: &Scaler, _offset_x: Inches, _offset_y: Inches, _dashwid: Inches) -> Vec<SvgNode> {
-        // Text rendering is handled separately
-        // This shape type exists mainly for bounds calculation
-        Vec::new()
+    fn render_svg(
+        &self,
+        _obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        _dashwid: Inches,
+        _arrow_len: Inches,
+        _arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
+        let mut nodes = Vec::new();
+
+        if self.text.is_empty() {
+            return nodes;
+        }
+
+        let center_svg = self.center.to_svg(scaler, offset_x, max_y);
+        let charht_px = scaler.px(Inches(defaults::FONT_SIZE));
+        let line_count = self.text.len();
+        let start_y = center_svg.y - (line_count as f64 - 1.0) * charht_px / 2.0;
+
+        let text_color = if self.style.stroke == "black" || self.style.stroke == "none" {
+            "rgb(0,0,0)".to_string()
+        } else {
+            color_to_rgb(&self.style.stroke)
+        };
+
+        for (i, positioned_text) in self.text.iter().enumerate() {
+            let anchor = if positioned_text.rjust {
+                "end"
+            } else if positioned_text.ljust {
+                "start"
+            } else {
+                "middle"
+            };
+            let line_y = start_y + i as f64 * charht_px;
+            let text_element = SvgText {
+                x: Some(center_svg.x),
+                y: Some(line_y),
+                fill: Some(text_color.clone()),
+                stroke: None,
+                stroke_width: None,
+                style: SvgStyle::default(),
+                text_anchor: Some(anchor.to_string()),
+                dominant_baseline: Some("central".to_string()),
+                content: positioned_text.value.replace(' ', "\u{00A0}"),
+            };
+            nodes.push(SvgNode::Text(text_element));
+        }
+
+        nodes
     }
 
     fn translate(&mut self, offset: OffsetIn) {
@@ -1226,29 +1493,32 @@ impl Shape for ArcShape {
         self.end
     }
 
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(
+        &self,
+        _obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        arrow_len: Inches,
+        arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
         if self.style.invisible {
             return nodes;
         }
 
-        // Convert points to SVG coordinates
-        let start_svg = dvec2(
-            scaler.px(self.start.x + offset_x),
-            scaler.px(self.start.y + offset_y),
-        );
-        let end_svg = dvec2(
-            scaler.px(self.end.x + offset_x),
-            scaler.px(self.end.y + offset_y),
-        );
+        // Convert points to SVG coordinates with proper Y-flipping
+        let start_svg = self.start.to_svg(scaler, offset_x, max_y);
+        let end_svg = self.end.to_svg(scaler, offset_x, max_y);
 
         // Calculate control point for arrowheads
         let control = arc_control_point(self.style.clockwise, start_svg, end_svg);
 
         // Calculate arrow dimensions
-        let arrow_len = scaler.px(defaults::ARROW_LEN);
-        let arrow_wid = scaler.px(defaults::ARROW_WID);
+        let arrow_len = scaler.px(arrow_len);
+        let arrow_wid = scaler.px(arrow_wid);
 
         // Render arrowheads first (like svg.rs does)
         if self.style.arrow_start {
@@ -1364,7 +1634,16 @@ impl Shape for MoveShape {
         self.end
     }
 
-    fn render_svg(&self, _scaler: &Scaler, _offset_x: Inches, _offset_y: Inches, _dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(
+        &self,
+        _obj: &RenderedObject,
+        _scaler: &Scaler,
+        _offset_x: Inches,
+        _offset_y: Inches,
+        _dashwid: Inches,
+        _arrow_len: Inches,
+        _arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
         // Move shapes are invisible - render nothing
         Vec::new()
     }
@@ -1383,7 +1662,7 @@ pub struct SublistShape {
     pub height: Inches,
     pub style: ObjectStyle,
     pub text: Vec<PositionedText>,
-    pub children: Vec<ShapeEnum>,
+    pub children: Vec<RenderedObject>,
 }
 
 impl SublistShape {
@@ -1420,12 +1699,29 @@ impl Shape for SublistShape {
         &self.text
     }
 
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(
+        &self,
+        _obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        arrow_len: Inches,
+        arrow_wid: Inches,
+    ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        // Render all child shapes
         for child in &self.children {
-            let child_nodes = child.render_svg(scaler, offset_x, offset_y, dashwid);
+            let child_shape = &child.shape;
+            let child_nodes = child_shape.render_svg(
+                child,
+                scaler,
+                offset_x,
+                max_y,
+                dashwid,
+                arrow_len,
+                arrow_wid,
+            );
             nodes.extend(child_nodes);
         }
 
@@ -1442,7 +1738,8 @@ impl Shape for SublistShape {
     /// cref: pik_bbox_add_elist (pikchr.c:7206) - sublist bbox from children
     fn expand_bounds(&self, bounds: &mut BoundingBox) {
         for child in &self.children {
-            child.expand_bounds(bounds);
+            let shape = &child.shape;
+            shape.expand_bounds(bounds);
         }
     }
 }
@@ -1540,7 +1837,7 @@ impl ShapeEnum {
     }
 
     /// Get mutable reference to children (for Sublist only)
-    pub fn children_mut(&mut self) -> Option<&mut Vec<ShapeEnum>> {
+    pub fn children_mut(&mut self) -> Option<&mut Vec<RenderedObject>> {
         match self {
             ShapeEnum::Sublist(s) => Some(&mut s.children),
             _ => None,

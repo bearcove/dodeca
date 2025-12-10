@@ -16,7 +16,7 @@ pest_derive = "2.8.4"
 rootcause = "0.10.0"
 time = { version = "0.3.44", features = ["formatting", "macros"] }
 facet-svg = { path = "facet-svg" }
-facet = { path = "../facet/facet" }
+facet = { git = "https://github.com/facet-rs/facet" }
 tracing = "0.1.43"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 pest_ascii_tree = "0.1.0"
