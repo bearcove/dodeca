@@ -1,0 +1,46 @@
+[package]
+name = "pikru-mcp"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pikru = { path = "../.." }
+
+# MCP SDK
+rust-mcp-sdk = { version = "0.7", default-features = false, features = [
+    "server",
+    "macros",
+    "stdio",
+    "2025_06_18",
+] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Image processing
+image = "0.25"
+image-compare = "0.4"
+
+# SVG rendering
+resvg = "0.45"
+tiny-skia = "0.11"
+usvg = "0.45"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Process management
+which = "7"
+
+# Regex for SVG parsing
+regex-lite = "0.1"
+
+# Base64 encoding for images
+base64 = "0.22"

@@ -1,5 +1,5 @@
 [workspace]
-members = ["facet-svg", "xtask"]
+members = ["facet-svg", "xtask", "crates/pikru-mcp"]
 
 [package]
 name = "pikru"

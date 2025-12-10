@@ -8,6 +8,7 @@
 use std::fmt;
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
 
+use glam::DVec2;
 use miette::SourceSpan;
 
 // ==================== Source Tracking ====================
@@ -557,6 +558,24 @@ impl Point<Length> {
             x: (self.x + other.x) / 2.0,
             y: (self.y + other.y) / 2.0,
         }
+    }
+
+    /// Convert from pikchr coordinates (Y-up) to SVG pixels (Y-down).
+    ///
+    /// C pikchr stores coordinates with Y-up (mathematical convention) but
+    /// flips Y during rendering with `y = bbox.ne.y - y`. This method does
+    /// the same flip, converting from internal coordinates to SVG pixel space.
+    ///
+    /// # Arguments
+    /// * `scaler` - Converts inches to pixels
+    /// * `offset_x` - Horizontal offset to apply (usually `-bounds.min.x`)
+    /// * `max_y` - The maximum Y value (`bounds.max.y`) for the Y-flip
+    #[inline]
+    pub fn to_svg(&self, scaler: &Scaler, offset_x: Length, max_y: Length) -> DVec2 {
+        DVec2::new(
+            scaler.px(self.x + offset_x),
+            scaler.px(max_y - self.y), // Y-flip like C pikchr
+        )
     }
 }
 

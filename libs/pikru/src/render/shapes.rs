@@ -805,7 +805,7 @@ impl Shape for SplineShape {
         self.waypoints.last().copied().unwrap_or(Point::new(Inches::ZERO, Inches::ZERO))
     }
 
-    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+    fn render_svg(&self, scaler: &Scaler, offset_x: Inches, max_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
         if self.style.invisible || self.waypoints.len() < 2 {
@@ -813,7 +813,7 @@ impl Shape for SplineShape {
         }
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
-        let path_data = create_spline_path(&self.waypoints, offset_x, offset_y);
+        let path_data = create_spline_path(&self.waypoints, scaler, offset_x, max_y);
 
         let path = Path {
             d: Some(path_data),

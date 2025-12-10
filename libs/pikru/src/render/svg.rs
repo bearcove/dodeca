@@ -6,7 +6,7 @@ use facet_svg::{
     Circle, Color, Ellipse, Path, PathData, Polygon, Svg, SvgNode, SvgStyle, Text, facet_xml,
     fmt_num,
 };
-use glam::DVec2;
+use glam::{DVec2, dvec2};
 use time::{OffsetDateTime, format_description};
 
 use super::context::RenderContext;
@@ -82,7 +82,10 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     let view_width = bounds.width().max(min_dim);
     let view_height = bounds.height().max(min_dim);
     let offset_x = -bounds.min.x;
-    let offset_y = -bounds.min.y;
+    // Y-flip: C pikchr uses `y = bbox.ne.y - y` to flip from Y-up to SVG Y-down
+    // For to_svg(), we pass max_y = bounds.max.y so that:
+    //   svg_y = scaler.px(max_y - point.y) which gives the correct flipped coordinate
+    let max_y = bounds.max.y;
 
     // Build SVG DOM
     let mut svg_children: Vec<SvgNode> = Vec::new();
@@ -114,12 +117,10 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
     // Render each object
     for obj in &ctx.object_list {
-        let tx = scaler.px(obj.center.x + offset_x);
-        let ty = scaler.px(obj.center.y + offset_y);
-        let sx = scaler.px(obj.start.x + offset_x);
-        let sy = scaler.px(obj.start.y + offset_y);
-        let ex = scaler.px(obj.end.x + offset_x);
-        let ey = scaler.px(obj.end.y + offset_y);
+        // Convert from pikchr coordinates (Y-up) to SVG pixels (Y-down)
+        let center = obj.center.to_svg(&scaler, offset_x, max_y);
+        let start = obj.start.to_svg(&scaler, offset_x, max_y);
+        let end = obj.end.to_svg(&scaler, offset_x, max_y);
 
         let svg_style = create_svg_style(&obj.style, &scaler, dashwid);
 
@@ -127,10 +128,12 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         if !obj.style.invisible {
             match obj.class {
                 ObjectClass::Box => {
-                    let x1 = tx - scaler.px(obj.width / 2.0);
-                    let x2 = tx + scaler.px(obj.width / 2.0);
-                    let y1 = ty - scaler.px(obj.height / 2.0);
-                    let y2 = ty + scaler.px(obj.height / 2.0);
+                    let half_w = scaler.px(obj.width / 2.0);
+                    let half_h = scaler.px(obj.height / 2.0);
+                    let x1 = center.x - half_w;
+                    let x2 = center.x + half_w;
+                    let y1 = center.y - half_h;
+                    let y2 = center.y + half_h;
 
                     let path_data = if obj.style.corner_radius > Inches::ZERO {
                         // Rounded box using proper path with arcs
@@ -160,8 +163,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 ObjectClass::Circle => {
                     let r = scaler.px(obj.width / 2.0);
                     let circle = Circle {
-                        cx: Some(tx),
-                        cy: Some(ty),
+                        cx: Some(center.x),
+                        cy: Some(center.y),
                         r: Some(r),
                         fill: None,
                         stroke: None,
@@ -184,8 +187,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         .properties
                         .insert("fill".to_string(), fill.to_string());
                     let circle = Circle {
-                        cx: Some(tx),
-                        cy: Some(ty),
+                        cx: Some(center.x),
+                        cy: Some(center.y),
                         r: Some(r),
                         fill: None,
                         stroke: None,
@@ -199,8 +202,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     let rx = scaler.px(obj.width / 2.0);
                     let ry = scaler.px(obj.height / 2.0);
                     let ellipse = Ellipse {
-                        cx: Some(tx),
-                        cy: Some(ty),
+                        cx: Some(center.x),
+                        cy: Some(center.y),
                         rx: Some(rx),
                         ry: Some(ry),
                         fill: None,
@@ -217,10 +220,10 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     let width = scaler.px(obj.width);
                     let height = scaler.px(obj.height);
                     let rad = height.min(width) / 2.0; // radius is half of smaller dimension
-                    let x1 = tx - width / 2.0;
-                    let x2 = tx + width / 2.0;
-                    let y1 = ty - height / 2.0;
-                    let y2 = ty + height / 2.0;
+                    let x1 = center.x - width / 2.0;
+                    let x2 = center.x + width / 2.0;
+                    let y1 = center.y - height / 2.0;
+                    let y2 = center.y + height / 2.0;
 
                     // Create path like C pikchr: start at bottom-left inner, go clockwise
                     let path_data = create_oval_path(x1, y1, x2, y2, rad);
@@ -242,7 +245,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     let cylrad = get_length(ctx, "cylrad", 0.075);
                     let ry = scaler.px(Inches::inches(cylrad));
 
-                    let (body_path, _) = create_cylinder_paths_with_rad(tx, ty, width, height, ry);
+                    let (body_path, _) =
+                        create_cylinder_paths_with_rad(center.x, center.y, width, height, ry);
 
                     let body = Path {
                         d: Some(body_path),
@@ -260,7 +264,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     let height = scaler.px(obj.height);
                     let filerad = scaler.px(defaults::FILE_RAD);
 
-                    let (main_path, fold_path) = create_file_paths(tx, ty, width, height, filerad);
+                    let (main_path, fold_path) =
+                        create_file_paths(center.x, center.y, width, height, filerad);
 
                     // Main outline path
                     let main = Path {
@@ -294,15 +299,15 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     // C pikchr uses path: M left,cy L cx,bottom L right,cy L cx,top Z
                     let half_w = scaler.px(obj.width / 2.0);
                     let half_h = scaler.px(obj.height / 2.0);
-                    let left = tx - half_w;
-                    let right = tx + half_w;
-                    let top = ty - half_h;
-                    let bottom = ty + half_h;
+                    let left = center.x - half_w;
+                    let right = center.x + half_w;
+                    let top = center.y - half_h;
+                    let bottom = center.y + half_h;
                     let path_data = PathData::new()
-                        .m(left, ty) // Left vertex
-                        .l(tx, bottom) // Bottom vertex
-                        .l(right, ty) // Right vertex
-                        .l(tx, top) // Top vertex
+                        .m(left, center.y) // Left vertex
+                        .l(center.x, bottom) // Bottom vertex
+                        .l(right, center.y) // Right vertex
+                        .l(center.x, top) // Top vertex
                         .z(); // Close path
                     let path = Path {
                         d: Some(path_data),
@@ -317,12 +322,12 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 ObjectClass::Line | ObjectClass::Arrow => {
                     // Auto-chop always applies for object-attached endpoints (trims to boundary)
                     // The explicit "chop" attribute is for additional user-requested shortening
-                    let (draw_sx, draw_sy, draw_ex, draw_ey) = if obj.waypoints.len() <= 2 {
+                    let (draw_start, draw_end) = if obj.waypoints.len() <= 2 {
                         apply_auto_chop_simple_line(
-                            &scaler, obj, sx, sy, ex, ey, offset_x, offset_y,
+                            &scaler, obj, start, end, offset_x, max_y,
                         )
                     } else {
-                        (sx, sy, ex, ey)
+                        (start, end)
                     };
 
                     if obj.waypoints.len() <= 2 {
@@ -330,10 +335,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         // First render arrowhead polygon if needed (rendered before line, like C)
                         if obj.style.arrow_end {
                             if let Some(arrowhead) = render_arrowhead_dom(
-                                draw_sx,
-                                draw_sy,
-                                draw_ex,
-                                draw_ey,
+                                draw_start,
+                                draw_end,
                                 &obj.style,
                                 arrow_len_px.0,
                                 arrow_wid_px.0,
@@ -343,10 +346,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         }
                         if obj.style.arrow_start {
                             if let Some(arrowhead) = render_arrowhead_dom(
-                                draw_ex,
-                                draw_ey,
-                                draw_sx,
-                                draw_sy,
+                                draw_end,
+                                draw_start,
                                 &obj.style,
                                 arrow_len_px.0,
                                 arrow_wid_px.0,
@@ -357,31 +358,25 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
                         // Chop line endpoints for arrowheads (by arrowht/2 as in C pikchr, in pixels)
                         let arrow_chop_px = arrow_len_px.0 / 2.0;
-                        let (line_sx, line_sy, line_ex, line_ey) = {
-                            let mut sx = draw_sx;
-                            let mut sy = draw_sy;
-                            let mut ex = draw_ex;
-                            let mut ey = draw_ey;
+                        let (line_start, line_end) = {
+                            let mut s = draw_start;
+                            let mut e = draw_end;
 
                             if obj.style.arrow_start {
-                                let (new_sx, new_sy, _, _) =
-                                    chop_line(sx, sy, ex, ey, arrow_chop_px);
-                                sx = new_sx;
-                                sy = new_sy;
+                                let (new_s, _) = chop_line(s, e, arrow_chop_px);
+                                s = new_s;
                             }
                             if obj.style.arrow_end {
-                                let (_, _, new_ex, new_ey) =
-                                    chop_line(sx, sy, ex, ey, arrow_chop_px);
-                                ex = new_ex;
-                                ey = new_ey;
+                                let (_, new_e) = chop_line(s, e, arrow_chop_px);
+                                e = new_e;
                             }
-                            (sx, sy, ex, ey)
+                            (s, e)
                         };
 
                         // Render the line path (with chopped endpoints)
                         let line_path_data = PathData::new()
-                            .m(line_sx, line_sy)
-                            .l(line_ex, line_ey);
+                            .m(line_start.x, line_start.y)
+                            .l(line_end.x, line_end.y);
                         let line_path = Path {
                             d: Some(line_path_data),
                             fill: None,
@@ -398,32 +393,32 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         let mut points = obj.waypoints.clone();
                         if obj.style.chop && points.len() >= 2 {
                             let chop_amount_px = scaler.px(defaults::CIRCLE_RADIUS);
-                            // Chop start
-                            let p0 = points[0];
-                            let p1 = points[1];
-                            let (new_x, new_y, _, _) =
-                                chop_line(p0.x.0, p0.y.0, p1.x.0, p1.y.0, chop_amount_px);
-                            points[0] = Point::new(Inches(new_x), Inches(new_y));
+                            // Chop start - convert to SVG coords, chop, then back
+                            let p0 = points[0].to_svg(&scaler, offset_x, max_y);
+                            let p1 = points[1].to_svg(&scaler, offset_x, max_y);
+                            let (new_start, _) = chop_line(p0, p1, chop_amount_px);
+                            // Store as SVG coords for later rendering
+                            points[0] = Point::new(Inches(new_start.x / scaler.r_scale - offset_x.0),
+                                                   Inches(max_y.0 - new_start.y / scaler.r_scale));
 
                             // Chop end
                             let n = points.len();
-                            let pn1 = points[n - 2];
-                            let pn = points[n - 1];
-                            let (_, _, new_x, new_y) =
-                                chop_line(pn1.x.0, pn1.y.0, pn.x.0, pn.y.0, chop_amount_px);
-                            points[n - 1] = Point::new(Inches(new_x), Inches(new_y));
+                            let pn1 = points[n - 2].to_svg(&scaler, offset_x, max_y);
+                            let pn = points[n - 1].to_svg(&scaler, offset_x, max_y);
+                            let (_, new_end) = chop_line(pn1, pn, chop_amount_px);
+                            points[n - 1] = Point::new(Inches(new_end.x / scaler.r_scale - offset_x.0),
+                                                       Inches(max_y.0 - new_end.y / scaler.r_scale));
                         }
 
                         if obj.style.close_path {
                             // Build path using fluent API (no arrow chopping for closed paths)
                             let mut path_data = PathData::new();
                             for (i, p) in points.iter().enumerate() {
-                                let px = scaler.px(p.x + offset_x);
-                                let py = scaler.px(p.y + offset_y);
+                                let svg_pt = p.to_svg(&scaler, offset_x, max_y);
                                 if i == 0 {
-                                    path_data = path_data.m(px, py);
+                                    path_data = path_data.m(svg_pt.x, svg_pt.y);
                                 } else {
-                                    path_data = path_data.l(px, py);
+                                    path_data = path_data.l(svg_pt.x, svg_pt.y);
                                 }
                             }
                             path_data = path_data.z();
@@ -445,33 +440,32 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
                                 // Chop start if arrow_start
                                 if obj.style.arrow_start {
-                                    let p0 = points[0];
-                                    let p1 = points[1];
-                                    let (new_x, new_y, _, _) =
-                                        chop_line(p0.x.0, p0.y.0, p1.x.0, p1.y.0, chop_amount_px);
-                                    points[0] = Point::new(Inches(new_x), Inches(new_y));
+                                    let p0 = points[0].to_svg(&scaler, offset_x, max_y);
+                                    let p1 = points[1].to_svg(&scaler, offset_x, max_y);
+                                    let (new_start, _) = chop_line(p0, p1, chop_amount_px);
+                                    points[0] = Point::new(Inches(new_start.x / scaler.r_scale - offset_x.0),
+                                                           Inches(max_y.0 - new_start.y / scaler.r_scale));
                                 }
 
                                 // Chop end if arrow_end
                                 if obj.style.arrow_end {
                                     let n = points.len();
-                                    let pn1 = points[n - 2];
-                                    let pn = points[n - 1];
-                                    let (_, _, new_x, new_y) =
-                                        chop_line(pn1.x.0, pn1.y.0, pn.x.0, pn.y.0, chop_amount_px);
-                                    points[n - 1] = Point::new(Inches(new_x), Inches(new_y));
+                                    let pn1 = points[n - 2].to_svg(&scaler, offset_x, max_y);
+                                    let pn = points[n - 1].to_svg(&scaler, offset_x, max_y);
+                                    let (_, new_end) = chop_line(pn1, pn, chop_amount_px);
+                                    points[n - 1] = Point::new(Inches(new_end.x / scaler.r_scale - offset_x.0),
+                                                               Inches(max_y.0 - new_end.y / scaler.r_scale));
                                 }
                             }
 
                             // Now render the polyline using fluent API
                             let mut path_data = PathData::new();
                             for (i, p) in points.iter().enumerate() {
-                                let px = scaler.px(p.x + offset_x);
-                                let py = scaler.px(p.y + offset_y);
+                                let svg_pt = p.to_svg(&scaler, offset_x, max_y);
                                 if i == 0 {
-                                    path_data = path_data.m(px, py);
+                                    path_data = path_data.m(svg_pt.x, svg_pt.y);
                                 } else {
-                                    path_data = path_data.l(px, py);
+                                    path_data = path_data.l(svg_pt.x, svg_pt.y);
                                 }
                             }
                             let path = Path {
@@ -488,18 +482,16 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 }
                 ObjectClass::Spline => {
                     // Proper spline rendering with Bezier curves
-                    let spline_path_data = create_spline_path(&obj.waypoints, offset_x, offset_y);
+                    let spline_path_data = create_spline_path(&obj.waypoints, &scaler, offset_x, max_y);
 
                     // Render arrowheads first (before path, like C pikchr)
                     let n = obj.waypoints.len();
                     if obj.style.arrow_end && n >= 2 {
-                        let p1 = obj.waypoints[n - 2];
-                        let p2 = obj.waypoints[n - 1];
+                        let p1 = obj.waypoints[n - 2].to_svg(&scaler, offset_x, max_y);
+                        let p2 = obj.waypoints[n - 1].to_svg(&scaler, offset_x, max_y);
                         if let Some(arrowhead) = render_arrowhead_dom(
-                            p1.x.0 + offset_x.0,
-                            p1.y.0 + offset_y.0,
-                            p2.x.0 + offset_x.0,
-                            p2.y.0 + offset_y.0,
+                            p1,
+                            p2,
                             &obj.style,
                             arrow_len_px.0,
                             arrow_wid_px.0,
@@ -508,13 +500,11 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         }
                     }
                     if obj.style.arrow_start && n >= 2 {
-                        let p1 = obj.waypoints[0];
-                        let p2 = obj.waypoints[1];
+                        let p1 = obj.waypoints[0].to_svg(&scaler, offset_x, max_y);
+                        let p2 = obj.waypoints[1].to_svg(&scaler, offset_x, max_y);
                         if let Some(arrowhead) = render_arrowhead_dom(
-                            p2.x.0 + offset_x.0,
-                            p2.y.0 + offset_y.0,
-                            p1.x.0 + offset_x.0,
-                            p1.y.0 + offset_y.0,
+                            p2,
+                            p1,
                             &obj.style,
                             arrow_len_px.0,
                             arrow_wid_px.0,
@@ -539,8 +529,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
                 ObjectClass::Arc => {
                     // Arc rendering using quadratic bezier (matching C pikchr)
-                    let start = DVec2::new(sx, sy);
-                    let end = DVec2::new(ex, ey);
+                    // start and end are already in SVG coordinates (Y-flipped)
                     let control = arc_control_point(obj.style.clockwise, start, end);
                     let arc_path_data = create_arc_path(start, end, obj.style.clockwise);
 
@@ -549,10 +538,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     if obj.style.arrow_start {
                         // Arrow at start: from control point toward start
                         if let Some(arrowhead) = render_arrowhead_dom(
-                            control.x,
-                            control.y,
-                            start.x,
-                            start.y,
+                            control,
+                            start,
                             &obj.style,
                             arrow_len_px.0,
                             arrow_wid_px.0,
@@ -563,10 +550,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     if obj.style.arrow_end {
                         // Arrow at end: from control point toward end
                         if let Some(arrowhead) = render_arrowhead_dom(
-                            control.x,
-                            control.y,
-                            end.x,
-                            end.y,
+                            control,
+                            end,
                             &obj.style,
                             arrow_len_px.0,
                             arrow_wid_px.0,
@@ -592,7 +577,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     let line_count = obj.text.len();
                     // Start Y: center minus half of total height, plus half charht for first line center
                     // Total height = (line_count - 1) * charht, distributed evenly around center
-                    let start_y = ty - (line_count as f64 - 1.0) * charht_px / 2.0;
+                    let start_y = center.y - (line_count as f64 - 1.0) * charht_px / 2.0;
 
                     for (i, positioned_text) in obj.text.iter().enumerate() {
                         // Determine text anchor based on ljust/rjust
@@ -605,7 +590,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         };
                         let line_y = start_y + i as f64 * charht_px;
                         let text_element = Text {
-                            x: Some(tx),
+                            x: Some(center.x),
                             y: Some(line_y),
                             fill: Some("rgb(0,0,0)".to_string()),
                             stroke: None,
@@ -623,16 +608,17 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 ObjectClass::Sublist => {
                     // Render sublist children with offset
                     for child in &obj.children {
-                        let child_tx = scaler.px(child.center.x + offset_x);
-                        let child_ty = scaler.px(child.center.y + offset_y);
+                        let child_center = child.center.to_svg(&scaler, offset_x, max_y);
                         let child_svg_style = create_svg_style(&child.style, &scaler, dashwid);
 
                         match child.class {
                             ObjectClass::Box => {
-                                let x1 = child_tx - scaler.px(child.width / 2.0);
-                                let x2 = child_tx + scaler.px(child.width / 2.0);
-                                let y1 = child_ty - scaler.px(child.height / 2.0);
-                                let y2 = child_ty + scaler.px(child.height / 2.0);
+                                let half_w = scaler.px(child.width / 2.0);
+                                let half_h = scaler.px(child.height / 2.0);
+                                let x1 = child_center.x - half_w;
+                                let x2 = child_center.x + half_w;
+                                let y1 = child_center.y - half_h;
+                                let y2 = child_center.y + half_h;
 
                                 let path_data = PathData::new()
                                     .m(x1, y2)
@@ -653,8 +639,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                             ObjectClass::Circle => {
                                 let r = scaler.px(child.width / 2.0);
                                 let circle = Circle {
-                                    cx: Some(child_tx),
-                                    cy: Some(child_ty),
+                                    cx: Some(child_center.x),
+                                    cy: Some(child_center.y),
                                     r: Some(r),
                                     fill: None,
                                     stroke: None,
@@ -668,8 +654,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                                 // For other shapes, just render as a simple circle placeholder
                                 let r = scaler.px(child.width / 4.0);
                                 let circle = Circle {
-                                    cx: Some(child_tx),
-                                    cy: Some(child_ty),
+                                    cx: Some(child_center.x),
+                                    cy: Some(child_center.y),
                                     r: Some(r),
                                     fill: None,
                                     stroke: None,
@@ -706,8 +692,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     "middle"
                 };
                 let text_element = Text {
-                    x: Some(tx),
-                    y: Some(ty + text_y_offset),
+                    x: Some(center.x),
+                    y: Some(center.y + text_y_offset),
                     fill: Some("rgb(0,0,0)".to_string()),
                     stroke: None,
                     stroke_width: None,
@@ -778,53 +764,45 @@ fn create_svg_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> Sv
 }
 
 /// Render an arrowhead polygon at the end of a line
-/// The arrowhead points in the direction from (sx, sy) to (ex, ey)
+/// The arrowhead points in the direction from start to end
 fn render_arrowhead_dom(
-    sx: f64,
-    sy: f64,
-    ex: f64,
-    ey: f64,
+    start: DVec2,
+    end: DVec2,
     style: &ObjectStyle,
     arrow_len: f64,
     arrow_width: f64,
 ) -> Option<Polygon> {
     // Calculate direction vector
-    let dx = ex - sx;
-    let dy = ey - sy;
-    let len = (dx * dx + dy * dy).sqrt();
+    let delta = end - start;
+    let len = delta.length();
 
     if len < 0.001 {
         return None; // Zero-length line, no arrowhead
     }
 
     // Unit vector in direction of line
-    let ux = dx / len;
-    let uy = dy / len;
+    let unit = delta / len;
 
     // Perpendicular unit vector
-    let px = -uy;
-    let py = ux;
+    let perp = dvec2(-unit.y, unit.x);
 
-    // Arrow tip is at (ex, ey)
+    // Arrow tip is at end
     // Base points are arrow_len back along the line, offset by half arrow_width perpendicular
     // Note: arrowwid is the FULL base width, so we use arrow_width/2 for the half-width
-    let base_x = ex - ux * arrow_len;
-    let base_y = ey - uy * arrow_len;
+    let base = end - unit * arrow_len;
     let half_width = arrow_width / 2.0;
 
-    let p1_x = base_x + px * half_width;
-    let p1_y = base_y + py * half_width;
-    let p2_x = base_x - px * half_width;
-    let p2_y = base_y - py * half_width;
+    let p1 = base + perp * half_width;
+    let p2 = base - perp * half_width;
 
     let points = format!(
         "{},{} {},{} {},{}",
-        fmt_num(ex),
-        fmt_num(ey),
-        fmt_num(p1_x),
-        fmt_num(p1_y),
-        fmt_num(p2_x),
-        fmt_num(p2_y)
+        fmt_num(end.x),
+        fmt_num(end.y),
+        fmt_num(p1.x),
+        fmt_num(p1.y),
+        fmt_num(p2.x),
+        fmt_num(p2.y)
     );
 
     let fill_color = Color::parse(&style.stroke);
