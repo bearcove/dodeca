@@ -61,25 +61,57 @@ impl RenderContext {
             };
         }
 
+        // Built-in variables mirror pikchr.c aBuiltin[]
+        // Names must match C exactly for compatibility
         builtin_vars! {
-            scale      => EvalValue::Scalar(1.0),
-            linewidth  => EvalValue::Length(Inches::from(0.5)),
-            boxwidth   => EvalValue::Length(Inches::from(0.75)),
-            boxheight  => EvalValue::Length(Inches::from(0.5)),
-            filewidth  => EvalValue::Length(Inches::from(0.5)),
-            fileheight => EvalValue::Length(Inches::from(0.75)),
-            filerad    => EvalValue::Length(Inches::from(0.15)),
-            ovalwidth  => EvalValue::Length(Inches::from(1.0)),
-            ovalheight => EvalValue::Length(Inches::from(0.5)),
-            diamondwidth  => EvalValue::Length(Inches::from(1.0)),
-            diamondheight => EvalValue::Length(Inches::from(0.75)),
-            circlerad  => EvalValue::Length(Inches::from(0.25)),
-            strokewidth => EvalValue::Length(Inches::from(0.015)),
-            arrowlen   => EvalValue::Length(Inches::from(0.08)),
+            // Arc
+            arcrad     => EvalValue::Length(Inches::from(0.25)),
+            // Arrow
+            arrowht    => EvalValue::Length(Inches::from(0.08)),  // C name
             arrowwid   => EvalValue::Length(Inches::from(0.06)),
-            fontsize   => EvalValue::Scalar(0.14),
-            margin     => EvalValue::Scalar(0.0),
+            // Box
+            boxht      => EvalValue::Length(Inches::from(0.5)),   // C name
+            boxwid     => EvalValue::Length(Inches::from(0.75)),  // C name
+            boxrad     => EvalValue::Length(Inches::from(0.0)),
+            // Character/text metrics
+            charht     => EvalValue::Scalar(0.14),
             charwid    => EvalValue::Scalar(0.08),
+            // Circle
+            circlerad  => EvalValue::Length(Inches::from(0.25)),
+            // Cylinder
+            cylht      => EvalValue::Length(Inches::from(0.5)),
+            cylwid     => EvalValue::Length(Inches::from(0.75)),
+            cylrad     => EvalValue::Length(Inches::from(0.1)),
+            // Dash
+            dashwid    => EvalValue::Length(Inches::from(0.05)),
+            // Diamond
+            diamondht  => EvalValue::Length(Inches::from(0.75)), // C name
+            diamondwid => EvalValue::Length(Inches::from(1.0)),  // C name
+            // Dot
+            dotrad     => EvalValue::Length(Inches::from(0.025)),
+            // Ellipse
+            ellipseht  => EvalValue::Length(Inches::from(0.5)),
+            ellipsewid => EvalValue::Length(Inches::from(0.75)),
+            // File
+            fileht     => EvalValue::Length(Inches::from(0.75)), // C name
+            filewid    => EvalValue::Length(Inches::from(0.5)),  // C name
+            filerad    => EvalValue::Length(Inches::from(0.15)),
+            // Line
+            lineht     => EvalValue::Length(Inches::from(0.5)),
+            linewid    => EvalValue::Length(Inches::from(0.5)),
+            linerad    => EvalValue::Length(Inches::from(0.0)),
+            // Move
+            movewid    => EvalValue::Length(Inches::from(0.5)),
+            // Oval
+            ovalht     => EvalValue::Length(Inches::from(0.5)),  // C name
+            ovalwid    => EvalValue::Length(Inches::from(1.0)),  // C name
+            // Scale
+            scale      => EvalValue::Scalar(1.0),
+            // Text
+            textht     => EvalValue::Length(Inches::from(0.5)),
+            textwid    => EvalValue::Length(Inches::from(0.75)),
+            // Thickness/stroke
+            thickness  => EvalValue::Length(Inches::from(0.015)),
         }
     }
 
@@ -117,6 +149,14 @@ impl RenderContext {
             .get(name)
             .map(|v| v.as_scalar())
             .unwrap_or(default)
+    }
+
+    /// Get a length value from variables, with fallback
+    pub fn get_length(&self, name: &str, default: f64) -> Inches {
+        self.variables
+            .get(name)
+            .and_then(|v| v.as_length())
+            .unwrap_or(Inches(default))
     }
 
     /// Move position in the current direction

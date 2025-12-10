@@ -444,52 +444,81 @@ fn render_object_stmt(
     obj_stmt: &ObjectStatement,
     name: Option<String>,
 ) -> Result<RenderedObject, miette::Report> {
-    // Determine base object properties
+    // Determine base object properties from context variables (like C pikchr's pik_value)
     let (class, mut width, mut height) = match &obj_stmt.basetype {
         BaseType::Class(cn) => match cn {
-            ClassName::Box => (ObjectClass::Box, defaults::BOX_WIDTH, defaults::BOX_HEIGHT),
-            ClassName::Circle => (
-                ObjectClass::Circle,
-                defaults::CIRCLE_RADIUS * 2.0,
-                defaults::CIRCLE_RADIUS * 2.0,
+            ClassName::Box => (
+                ObjectClass::Box,
+                ctx.get_length("boxwid", 0.75),
+                ctx.get_length("boxht", 0.5),
             ),
+            ClassName::Circle => {
+                let rad = ctx.get_length("circlerad", 0.25);
+                (ObjectClass::Circle, rad * 2.0, rad * 2.0)
+            }
             ClassName::Ellipse => (
                 ObjectClass::Ellipse,
-                defaults::BOX_WIDTH,
-                defaults::BOX_HEIGHT,
+                ctx.get_length("ellipsewid", 0.75),
+                ctx.get_length("ellipseht", 0.5),
             ),
             ClassName::Oval => (
                 ObjectClass::Oval,
-                defaults::OVAL_WIDTH,
-                defaults::OVAL_HEIGHT,
+                ctx.get_length("ovalwid", 1.0),
+                ctx.get_length("ovalht", 0.5),
             ),
             ClassName::Cylinder => (
                 ObjectClass::Cylinder,
-                defaults::BOX_WIDTH,
-                defaults::BOX_HEIGHT,
+                ctx.get_length("cylwid", 0.75),
+                ctx.get_length("cylht", 0.5),
             ),
             ClassName::Diamond => (
                 ObjectClass::Diamond,
-                defaults::DIAMOND_WIDTH,
-                defaults::DIAMOND_HEIGHT,
+                ctx.get_length("diamondwid", 1.0),
+                ctx.get_length("diamondht", 0.75),
             ),
             ClassName::File => (
                 ObjectClass::File,
-                defaults::FILE_WIDTH,
-                defaults::FILE_HEIGHT,
+                ctx.get_length("filewid", 0.5),
+                ctx.get_length("fileht", 0.75),
             ),
-            ClassName::Line => (ObjectClass::Line, defaults::LINE_WIDTH, Inches::ZERO),
-            ClassName::Arrow => (ObjectClass::Arrow, defaults::LINE_WIDTH, Inches::ZERO),
-            ClassName::Spline => (ObjectClass::Spline, defaults::LINE_WIDTH, Inches::ZERO),
-            ClassName::Arc => (ObjectClass::Arc, defaults::LINE_WIDTH, defaults::LINE_WIDTH),
-            ClassName::Move => (ObjectClass::Move, defaults::LINE_WIDTH, Inches::ZERO),
-            ClassName::Dot => (ObjectClass::Dot, Inches(0.03), Inches(0.03)),
-            ClassName::Text => (ObjectClass::Text, Inches::ZERO, Inches::ZERO),
+            ClassName::Line => (
+                ObjectClass::Line,
+                ctx.get_length("linewid", 0.5),
+                ctx.get_length("lineht", 0.5),
+            ),
+            ClassName::Arrow => (
+                ObjectClass::Arrow,
+                ctx.get_length("linewid", 0.5),
+                ctx.get_length("lineht", 0.5),
+            ),
+            ClassName::Spline => (
+                ObjectClass::Spline,
+                ctx.get_length("linewid", 0.5),
+                ctx.get_length("lineht", 0.5),
+            ),
+            ClassName::Arc => {
+                let arcrad = ctx.get_length("arcrad", 0.25);
+                (ObjectClass::Arc, arcrad, arcrad)
+            }
+            ClassName::Move => (
+                ObjectClass::Move,
+                ctx.get_length("movewid", 0.5),
+                Inches::ZERO,
+            ),
+            ClassName::Dot => {
+                let dotrad = ctx.get_length("dotrad", 0.025);
+                (ObjectClass::Dot, dotrad * 2.0, dotrad * 2.0)
+            }
+            ClassName::Text => (
+                ObjectClass::Text,
+                ctx.get_length("textwid", 0.75),
+                ctx.get_length("textht", 0.5),
+            ),
         },
         BaseType::Text(s, _) => {
             // Use proportional character widths like C pikchr
-            let charwid = defaults::CHARWID;
-            let charht = defaults::FONT_SIZE;
+            let charwid = ctx.get_scalar("charwid", 0.08);
+            let charht = ctx.get_scalar("charht", 0.14);
             let w = text_width_inches(&s.value, charwid);
             let h = charht;
             (ObjectClass::Text, Inches(w), Inches(h))
