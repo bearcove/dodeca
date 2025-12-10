@@ -81,7 +81,7 @@ impl RenderContext {
             // Cylinder
             cylht      => EvalValue::Length(Inches::from(0.5)),
             cylwid     => EvalValue::Length(Inches::from(0.75)),
-            cylrad     => EvalValue::Length(Inches::from(0.1)),
+            cylrad     => EvalValue::Length(Inches::from(0.075)),
             // Dash
             dashwid    => EvalValue::Length(Inches::from(0.05)),
             // Diamond
