@@ -104,7 +104,21 @@ fn render_statement(
 ) -> Result<(), miette::Report> {
     match stmt {
         Statement::Direction(dir) => {
+            // cref: pik_set_direction (pikchr.c:5746)
+            // When direction changes, update the cursor to the previous object's
+            // exit point in the NEW direction. This makes "arrow; circle; down; arrow"
+            // work correctly - the second arrow starts from circle's south edge.
             ctx.direction = *dir;
+            if let Some(last_obj) = ctx.object_list.last() {
+                use crate::types::UnitVec;
+                let unit_dir = match dir {
+                    Direction::Right => UnitVec::EAST,
+                    Direction::Left => UnitVec::WEST,
+                    Direction::Up => UnitVec::NORTH,
+                    Direction::Down => UnitVec::SOUTH,
+                };
+                ctx.position = last_obj.edge_point(unit_dir);
+            }
         }
         Statement::Assignment(assign) => {
             let value = eval_rvalue(ctx, &assign.rvalue)?;
@@ -809,9 +823,56 @@ fn render_object_stmt(
         let fit_width = Inches(max_text_width + charwid);
 
         // C pikchr fit: h = 2.0 * max(h1, h2) + 0.5 * charHeight
-        let center_lines = text.iter().filter(|t| !t.above && !t.below).count();
-        let half_height = charht * 0.5 * center_lines.max(1) as f64;
-        let fit_height = Inches(2.0 * half_height + 0.5 * charht);
+        // cref: pik_size_to_fit (pikchr.c:6461-6466) - computes h1, h2 from actual text bbox
+        // cref: pik_append_txt (pikchr.c:5104-5143) - computes region heights
+        //
+        // We need to calculate the actual text bbox considering above/below positioning.
+        // C assigns text to slots (CENTER, ABOVE, ABOVE2, BELOW, BELOW2) and computes
+        // the max height in each slot, then positions text accordingly.
+        let vslots = compute_text_vslots(&text);
+
+        // Compute heights for each region (matching C's logic in pik_append_txt)
+        let mut hc = 0.0_f64;  // center height
+        let mut ha1 = 0.0_f64; // above height
+        let mut ha2 = 0.0_f64; // above2 height
+        let mut hb1 = 0.0_f64; // below height
+        let mut hb2 = 0.0_f64; // below2 height
+
+        for slot in &vslots {
+            match slot {
+                TextVSlot::Center => hc = hc.max(charht),
+                TextVSlot::Above => ha1 = ha1.max(charht),
+                TextVSlot::Above2 => ha2 = ha2.max(charht),
+                TextVSlot::Below => hb1 = hb1.max(charht),
+                TextVSlot::Below2 => hb2 = hb2.max(charht),
+            }
+        }
+
+        // Calculate h1 (max extent above center) and h2 (max extent below center)
+        // cref: pik_append_txt lines 5155-5158 for Y positioning
+        // Y positions relative to center (ptAt):
+        //   ABOVE2: 0.5*hc + ha1 + 0.5*ha2 + 0.5*charht (top of text)
+        //   ABOVE:  0.5*hc + 0.5*ha1 + 0.5*charht
+        //   CENTER: 0.5*charht (half height above center)
+        //   BELOW:  -(0.5*hc + 0.5*hb1) - 0.5*charht (bottom of text)
+        //   BELOW2: -(0.5*hc + hb1 + 0.5*hb2) - 0.5*charht
+        let h1 = if ha2 > 0.0 {
+            0.5 * hc + ha1 + 0.5 * ha2 + 0.5 * charht
+        } else if ha1 > 0.0 {
+            0.5 * hc + 0.5 * ha1 + 0.5 * charht
+        } else {
+            0.5 * hc.max(charht)
+        };
+
+        let h2 = if hb2 > 0.0 {
+            0.5 * hc + hb1 + 0.5 * hb2 + 0.5 * charht
+        } else if hb1 > 0.0 {
+            0.5 * hc + 0.5 * hb1 + 0.5 * charht
+        } else {
+            0.5 * hc.max(charht)
+        };
+
+        let fit_height = Inches(2.0 * h1.max(h2) + 0.5 * charht);
 
         // Apply shape-specific fit logic matching C pikchr's xFit callbacks
         match class {
