@@ -119,7 +119,9 @@ fn chop_against_box_compass_point(
     // Calculate direction from box center to target point
     // C pikchr scales dx by h/w to normalize the box to a square for angle calculations
     let dx = (toward.x - center.x) * half_h / half_w;
-    // SVG Y increases downward; flip dy for compass math so 0° = north like C pikchr
+    // Coordinates are already in SVG space (Y-down). In this space, negative dy = north.
+    // The compass selection logic below expects: positive dy = north, negative dy = south.
+    // So we negate dy to convert from SVG convention to compass convention.
     let dy = -(toward.y - center.y);
 
     // C pikchr logic: determine compass point based on angle

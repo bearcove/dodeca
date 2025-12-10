@@ -321,12 +321,11 @@ pub fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, mie
             };
             // Convert angle (degrees, 0 = north, clockwise) to radians
             // C pikchr uses: pt.x += dist*sin(r); pt.y += dist*cos(r);
-            // But C uses Y-up internally and flips on output. We use Y-down (SVG),
-            // so we negate the Y component here.
+            // We use the same Y-up convention internally, flip happens in to_svg().
             let rad = angle.to_radians();
             Ok(Point::new(
                 base.x + Inches(d.0 * rad.sin()),
-                base.y - Inches(d.0 * rad.cos()),
+                base.y + Inches(d.0 * rad.cos()),
             ))
         }
         Position::Tuple(pos1, pos2) => {
