@@ -8,6 +8,108 @@
 use std::fmt;
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
 
+use miette::SourceSpan;
+
+// ==================== Source Tracking ====================
+
+/// A location in source code (byte offsets)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub struct Span {
+    /// Byte offset of start (inclusive)
+    pub start: usize,
+    /// Byte offset of end (exclusive)
+    pub end: usize,
+}
+
+impl Span {
+    /// Create a new span
+    #[inline]
+    pub const fn new(start: usize, end: usize) -> Self {
+        Span { start, end }
+    }
+
+    /// Create a zero-width span at a position
+    #[inline]
+    pub const fn at(pos: usize) -> Self {
+        Span { start: pos, end: pos }
+    }
+
+    /// Merge two spans to cover both
+    #[inline]
+    pub fn merge(self, other: Span) -> Span {
+        Span {
+            start: self.start.min(other.start),
+            end: self.end.max(other.end),
+        }
+    }
+
+    /// Length in bytes
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.end.saturating_sub(self.start)
+    }
+
+    /// Check if span is empty
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.start >= self.end
+    }
+}
+
+impl From<Span> for SourceSpan {
+    fn from(s: Span) -> Self {
+        SourceSpan::new(s.start.into(), s.len().into())
+    }
+}
+
+/// A value with its source location
+#[derive(Clone, Debug)]
+pub struct Spanned<T> {
+    pub node: T,
+    pub span: Span,
+}
+
+impl<T> Spanned<T> {
+    /// Create a new spanned value
+    #[inline]
+    pub fn new(node: T, span: Span) -> Self {
+        Spanned { node, span }
+    }
+
+    /// Map the inner value while preserving span
+    #[inline]
+    pub fn map<U, F: FnOnce(T) -> U>(self, f: F) -> Spanned<U> {
+        Spanned {
+            node: f(self.node),
+            span: self.span,
+        }
+    }
+
+    /// Get a reference to the inner value
+    #[inline]
+    pub fn as_ref(&self) -> Spanned<&T> {
+        Spanned {
+            node: &self.node,
+            span: self.span,
+        }
+    }
+
+    /// Unwrap the inner value, discarding span
+    #[inline]
+    pub fn into_inner(self) -> T {
+        self.node
+    }
+}
+
+impl<T: PartialEq> PartialEq for Spanned<T> {
+    fn eq(&self, other: &Self) -> bool {
+        // Compare only the node, not the span (useful for testing)
+        self.node == other.node
+    }
+}
+
+impl<T: Copy> Copy for Spanned<T> {}
+
 /// Error type for invalid numeric values
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum NumericError {
@@ -681,6 +783,28 @@ impl AddAssign<Offset<Length>> for Offset<Length> {
 pub type PtIn = Point<Length>;
 pub type PtPx = Point<Px>;
 pub type BoxIn = BBox<Length>;
+
+// ==================== Semantic Aliases (from TYPES.md) ====================
+
+/// Absolute position in inch space.
+///
+/// This is the semantic name for `Point<Length>`.
+/// Use `Pos2` when you mean "a location in the diagram".
+pub type Pos2 = Point<Length>;
+
+/// Relative offset/displacement in inch space.
+///
+/// This is the semantic name for `Offset<Length>`.
+/// Use `Vec2` when you mean "a distance and direction" (not a location).
+///
+/// Key operations:
+/// - `Pos2 + Vec2 = Pos2` (translate a position)
+/// - `Pos2 - Pos2 = Vec2` (displacement between positions)
+/// - `Vec2 + Vec2 = Vec2` (combine offsets)
+pub type Vec2 = Offset<Length>;
+
+/// Size in inches (always non-negative conceptually).
+pub type Size2 = Size<Length>;
 
 #[cfg(test)]
 mod tests {

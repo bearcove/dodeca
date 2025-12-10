@@ -945,6 +945,250 @@ impl Shape for TextShape {
 }
 
 // ============================================================================
+// Shape Enum
+// ============================================================================
+
+/// A shape enum wrapping all shape types
+///
+/// This provides uniform storage while each variant holds shape-specific geometry.
+#[derive(Debug, Clone)]
+pub enum ShapeEnum {
+    Box(BoxShape),
+    Circle(CircleShape),
+    Ellipse(EllipseShape),
+    Oval(OvalShape),
+    Diamond(DiamondShape),
+    Cylinder(CylinderShape),
+    File(FileShape),
+    Line(LineShape),
+    Spline(SplineShape),
+    Dot(DotShape),
+    Text(TextShape),
+}
+
+impl ShapeEnum {
+    /// Get the center point
+    pub fn center(&self) -> PointIn {
+        match self {
+            ShapeEnum::Box(s) => s.center(),
+            ShapeEnum::Circle(s) => s.center(),
+            ShapeEnum::Ellipse(s) => s.center(),
+            ShapeEnum::Oval(s) => s.center(),
+            ShapeEnum::Diamond(s) => s.center(),
+            ShapeEnum::Cylinder(s) => s.center(),
+            ShapeEnum::File(s) => s.center(),
+            ShapeEnum::Line(s) => s.center(),
+            ShapeEnum::Spline(s) => s.center(),
+            ShapeEnum::Dot(s) => s.center(),
+            ShapeEnum::Text(s) => s.center(),
+        }
+    }
+
+    /// Get the width
+    pub fn width(&self) -> Inches {
+        match self {
+            ShapeEnum::Box(s) => s.width(),
+            ShapeEnum::Circle(s) => s.width(),
+            ShapeEnum::Ellipse(s) => s.width(),
+            ShapeEnum::Oval(s) => s.width(),
+            ShapeEnum::Diamond(s) => s.width(),
+            ShapeEnum::Cylinder(s) => s.width(),
+            ShapeEnum::File(s) => s.width(),
+            ShapeEnum::Line(s) => s.width(),
+            ShapeEnum::Spline(s) => s.width(),
+            ShapeEnum::Dot(s) => s.width(),
+            ShapeEnum::Text(s) => s.width(),
+        }
+    }
+
+    /// Get the height
+    pub fn height(&self) -> Inches {
+        match self {
+            ShapeEnum::Box(s) => s.height(),
+            ShapeEnum::Circle(s) => s.height(),
+            ShapeEnum::Ellipse(s) => s.height(),
+            ShapeEnum::Oval(s) => s.height(),
+            ShapeEnum::Diamond(s) => s.height(),
+            ShapeEnum::Cylinder(s) => s.height(),
+            ShapeEnum::File(s) => s.height(),
+            ShapeEnum::Line(s) => s.height(),
+            ShapeEnum::Spline(s) => s.height(),
+            ShapeEnum::Dot(s) => s.height(),
+            ShapeEnum::Text(s) => s.height(),
+        }
+    }
+
+    /// Get the style
+    pub fn style(&self) -> &ObjectStyle {
+        match self {
+            ShapeEnum::Box(s) => s.style(),
+            ShapeEnum::Circle(s) => s.style(),
+            ShapeEnum::Ellipse(s) => s.style(),
+            ShapeEnum::Oval(s) => s.style(),
+            ShapeEnum::Diamond(s) => s.style(),
+            ShapeEnum::Cylinder(s) => s.style(),
+            ShapeEnum::File(s) => s.style(),
+            ShapeEnum::Line(s) => s.style(),
+            ShapeEnum::Spline(s) => s.style(),
+            ShapeEnum::Dot(s) => s.style(),
+            ShapeEnum::Text(s) => s.style(),
+        }
+    }
+
+    /// Get the text labels
+    pub fn text(&self) -> &[PositionedText] {
+        match self {
+            ShapeEnum::Box(s) => s.text(),
+            ShapeEnum::Circle(s) => s.text(),
+            ShapeEnum::Ellipse(s) => s.text(),
+            ShapeEnum::Oval(s) => s.text(),
+            ShapeEnum::Diamond(s) => s.text(),
+            ShapeEnum::Cylinder(s) => s.text(),
+            ShapeEnum::File(s) => s.text(),
+            ShapeEnum::Line(s) => s.text(),
+            ShapeEnum::Spline(s) => s.text(),
+            ShapeEnum::Dot(s) => s.text(),
+            ShapeEnum::Text(s) => s.text(),
+        }
+    }
+
+    /// Whether this shape is round
+    pub fn is_round(&self) -> bool {
+        match self {
+            ShapeEnum::Circle(_) | ShapeEnum::Ellipse(_) | ShapeEnum::Oval(_) | ShapeEnum::Dot(_) => true,
+            _ => false,
+        }
+    }
+
+    /// Whether this shape is a path (line-like)
+    pub fn is_path(&self) -> bool {
+        matches!(self, ShapeEnum::Line(_) | ShapeEnum::Spline(_))
+    }
+
+    /// Get waypoints if this is a path shape
+    pub fn waypoints(&self) -> Option<&[PointIn]> {
+        match self {
+            ShapeEnum::Line(s) => Some(&s.waypoints),
+            ShapeEnum::Spline(s) => Some(&s.waypoints),
+            _ => None,
+        }
+    }
+
+    /// Get the start point
+    pub fn start(&self) -> PointIn {
+        match self {
+            ShapeEnum::Box(s) => s.start(),
+            ShapeEnum::Circle(s) => s.start(),
+            ShapeEnum::Ellipse(s) => s.start(),
+            ShapeEnum::Oval(s) => s.start(),
+            ShapeEnum::Diamond(s) => s.start(),
+            ShapeEnum::Cylinder(s) => s.start(),
+            ShapeEnum::File(s) => s.start(),
+            ShapeEnum::Line(s) => s.start(),
+            ShapeEnum::Spline(s) => s.start(),
+            ShapeEnum::Dot(s) => s.start(),
+            ShapeEnum::Text(s) => s.start(),
+        }
+    }
+
+    /// Get the end point
+    pub fn end(&self) -> PointIn {
+        match self {
+            ShapeEnum::Box(s) => s.end(),
+            ShapeEnum::Circle(s) => s.end(),
+            ShapeEnum::Ellipse(s) => s.end(),
+            ShapeEnum::Oval(s) => s.end(),
+            ShapeEnum::Diamond(s) => s.end(),
+            ShapeEnum::Cylinder(s) => s.end(),
+            ShapeEnum::File(s) => s.end(),
+            ShapeEnum::Line(s) => s.end(),
+            ShapeEnum::Spline(s) => s.end(),
+            ShapeEnum::Dot(s) => s.end(),
+            ShapeEnum::Text(s) => s.end(),
+        }
+    }
+
+    /// Calculate edge point in a given direction
+    pub fn edge_point(&self, direction: EdgeDirection) -> PointIn {
+        match self {
+            ShapeEnum::Box(s) => s.edge_point(direction),
+            ShapeEnum::Circle(s) => s.edge_point(direction),
+            ShapeEnum::Ellipse(s) => s.edge_point(direction),
+            ShapeEnum::Oval(s) => s.edge_point(direction),
+            ShapeEnum::Diamond(s) => s.edge_point(direction),
+            ShapeEnum::Cylinder(s) => s.edge_point(direction),
+            ShapeEnum::File(s) => s.edge_point(direction),
+            ShapeEnum::Line(s) => s.edge_point(direction),
+            ShapeEnum::Spline(s) => s.edge_point(direction),
+            ShapeEnum::Dot(s) => s.edge_point(direction),
+            ShapeEnum::Text(s) => s.edge_point(direction),
+        }
+    }
+
+    /// Render to SVG nodes
+    pub fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
+        match self {
+            ShapeEnum::Box(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
+            ShapeEnum::Circle(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
+            ShapeEnum::Ellipse(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
+            ShapeEnum::Oval(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
+            ShapeEnum::Diamond(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
+            ShapeEnum::Cylinder(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
+            ShapeEnum::File(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
+            ShapeEnum::Line(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
+            ShapeEnum::Spline(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
+            ShapeEnum::Dot(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
+            ShapeEnum::Text(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
+        }
+    }
+}
+
+// Implement From for each shape type
+impl From<BoxShape> for ShapeEnum {
+    fn from(s: BoxShape) -> Self { ShapeEnum::Box(s) }
+}
+
+impl From<CircleShape> for ShapeEnum {
+    fn from(s: CircleShape) -> Self { ShapeEnum::Circle(s) }
+}
+
+impl From<EllipseShape> for ShapeEnum {
+    fn from(s: EllipseShape) -> Self { ShapeEnum::Ellipse(s) }
+}
+
+impl From<OvalShape> for ShapeEnum {
+    fn from(s: OvalShape) -> Self { ShapeEnum::Oval(s) }
+}
+
+impl From<DiamondShape> for ShapeEnum {
+    fn from(s: DiamondShape) -> Self { ShapeEnum::Diamond(s) }
+}
+
+impl From<CylinderShape> for ShapeEnum {
+    fn from(s: CylinderShape) -> Self { ShapeEnum::Cylinder(s) }
+}
+
+impl From<FileShape> for ShapeEnum {
+    fn from(s: FileShape) -> Self { ShapeEnum::File(s) }
+}
+
+impl From<LineShape> for ShapeEnum {
+    fn from(s: LineShape) -> Self { ShapeEnum::Line(s) }
+}
+
+impl From<SplineShape> for ShapeEnum {
+    fn from(s: SplineShape) -> Self { ShapeEnum::Spline(s) }
+}
+
+impl From<DotShape> for ShapeEnum {
+    fn from(s: DotShape) -> Self { ShapeEnum::Dot(s) }
+}
+
+impl From<TextShape> for ShapeEnum {
+    fn from(s: TextShape) -> Self { ShapeEnum::Text(s) }
+}
+
+// ============================================================================
 // Helper Functions
 // ============================================================================
 
