@@ -127,7 +127,12 @@ def extract_svg(output: str) -> str | None:
     return None
 
 
-def svg_to_png(svg_content: str, width: int = 400) -> bytes | None:
+# Maximum dimensions for output images
+MAX_IMAGE_WIDTH = 800
+MAX_IMAGE_HEIGHT = 400
+
+
+def svg_to_png(svg_content: str, width: int = 300) -> bytes | None:
     """Convert SVG to PNG bytes using rsvg-convert."""
     if not svg_content:
         return None
@@ -149,28 +154,28 @@ def svg_to_png(svg_content: str, width: int = 400) -> bytes | None:
 
 def create_side_by_side(c_png: bytes | None, rust_png: bytes | None,
                         c_error: str | None = None, rust_error: str | None = None) -> bytes:
-    """Create a side-by-side comparison image."""
-    width = 400
-    height = 300
+    """Create a side-by-side comparison image, limited to MAX_IMAGE_WIDTH x MAX_IMAGE_HEIGHT."""
+    placeholder_width = 300
+    placeholder_height = 200
 
     if c_png:
         c_img = PILImage.open(io.BytesIO(c_png)).convert("RGBA")
     else:
-        c_img = PILImage.new("RGBA", (width, height), (255, 200, 200, 255))
+        c_img = PILImage.new("RGBA", (placeholder_width, placeholder_height), (255, 200, 200, 255))
         draw = ImageDraw.Draw(c_img)
         error_text = c_error[:50] if c_error else "No SVG"
-        draw.text((10, height // 2), error_text, fill=(128, 0, 0))
+        draw.text((10, placeholder_height // 2), error_text, fill=(128, 0, 0))
 
     if rust_png:
         rust_img = PILImage.open(io.BytesIO(rust_png)).convert("RGBA")
     else:
-        rust_img = PILImage.new("RGBA", (width, height), (255, 200, 200, 255))
+        rust_img = PILImage.new("RGBA", (placeholder_width, placeholder_height), (255, 200, 200, 255))
         draw = ImageDraw.Draw(rust_img)
         error_text = rust_error[:50] if rust_error else "No SVG"
-        draw.text((10, height // 2), error_text, fill=(128, 0, 0))
+        draw.text((10, placeholder_height // 2), error_text, fill=(128, 0, 0))
 
+    # Match heights
     max_height = max(c_img.height, rust_img.height)
-
     if c_img.height != max_height:
         ratio = max_height / c_img.height
         c_img = c_img.resize((int(c_img.width * ratio), max_height), PILImage.Resampling.LANCZOS)
@@ -178,18 +183,31 @@ def create_side_by_side(c_png: bytes | None, rust_png: bytes | None,
         ratio = max_height / rust_img.height
         rust_img = rust_img.resize((int(rust_img.width * ratio), max_height), PILImage.Resampling.LANCZOS)
 
-    label_height = 30
-    gap = 20
+    label_height = 25
+    gap = 10
     total_width = c_img.width + gap + rust_img.width
     total_height = max_height + label_height
+
+    # Scale down if exceeds max dimensions
+    if total_width > MAX_IMAGE_WIDTH or total_height > MAX_IMAGE_HEIGHT:
+        scale = min(MAX_IMAGE_WIDTH / total_width, MAX_IMAGE_HEIGHT / total_height)
+        new_c_width = int(c_img.width * scale)
+        new_rust_width = int(rust_img.width * scale)
+        new_height = int(max_height * scale)
+        c_img = c_img.resize((new_c_width, new_height), PILImage.Resampling.LANCZOS)
+        rust_img = rust_img.resize((new_rust_width, new_height), PILImage.Resampling.LANCZOS)
+        gap = int(gap * scale)
+        label_height = int(label_height * scale)
+        total_width = c_img.width + gap + rust_img.width
+        total_height = new_height + label_height
 
     combined = PILImage.new("RGBA", (total_width, total_height), (255, 255, 255, 255))
 
     draw = ImageDraw.Draw(combined)
     draw.rectangle([(0, 0), (c_img.width, label_height)], fill=(59, 130, 246))
-    draw.text((10, 5), "C pikchr", fill=(255, 255, 255))
+    draw.text((5, 2), "C pikchr", fill=(255, 255, 255))
     draw.rectangle([(c_img.width + gap, 0), (total_width, label_height)], fill=(249, 115, 22))
-    draw.text((c_img.width + gap + 10, 5), "Rust pikchr", fill=(255, 255, 255))
+    draw.text((c_img.width + gap + 5, 2), "Rust pikchr", fill=(255, 255, 255))
 
     combined.paste(c_img, (0, label_height))
     combined.paste(rust_img, (c_img.width + gap, label_height))
@@ -200,7 +218,7 @@ def create_side_by_side(c_png: bytes | None, rust_png: bytes | None,
 
 
 def create_diff_image(c_png: bytes | None, rust_png: bytes | None) -> bytes | None:
-    """Create a color diff image showing differences."""
+    """Create a color diff image showing differences, limited to MAX_IMAGE_WIDTH x MAX_IMAGE_HEIGHT."""
     if not c_png or not rust_png:
         return None
 
@@ -240,19 +258,32 @@ def create_diff_image(c_png: bytes | None, rust_png: bytes | None) -> bytes | No
                 else:
                     diff_data[x, y] = (255, 255, 255, 255)  # White - neither
 
-        legend_height = 40
-        final = PILImage.new("RGBA", (width, height + legend_height), (255, 255, 255, 255))
+        legend_height = 30
+        final_width = width
+        final_height = height + legend_height
+
+        # Scale down if exceeds max dimensions
+        if final_width > MAX_IMAGE_WIDTH or final_height > MAX_IMAGE_HEIGHT:
+            scale = min(MAX_IMAGE_WIDTH / final_width, MAX_IMAGE_HEIGHT / final_height)
+            new_width = int(width * scale)
+            new_height = int(height * scale)
+            diff = diff.resize((new_width, new_height), PILImage.Resampling.LANCZOS)
+            legend_height = int(legend_height * scale)
+            final_width = new_width
+            final_height = new_height + legend_height
+
+        final = PILImage.new("RGBA", (final_width, final_height), (255, 255, 255, 255))
         draw = ImageDraw.Draw(final)
 
-        box_size = 15
-        draw.rectangle([(10, 10), (10 + box_size, 10 + box_size)], fill=(59, 130, 246))
-        draw.text((30, 10), "C only", fill=(0, 0, 0))
+        box_size = 12
+        draw.rectangle([(10, 8), (10 + box_size, 8 + box_size)], fill=(59, 130, 246))
+        draw.text((25, 8), "C only", fill=(0, 0, 0))
 
-        draw.rectangle([(100, 10), (100 + box_size, 10 + box_size)], fill=(249, 115, 22))
-        draw.text((120, 10), "Rust only", fill=(0, 0, 0))
+        draw.rectangle([(90, 8), (90 + box_size, 8 + box_size)], fill=(249, 115, 22))
+        draw.text((105, 8), "Rust only", fill=(0, 0, 0))
 
-        draw.rectangle([(200, 10), (200 + box_size, 10 + box_size)], fill=(100, 150, 100))
-        draw.text((220, 10), "Both", fill=(0, 0, 0))
+        draw.rectangle([(180, 8), (180 + box_size, 8 + box_size)], fill=(100, 150, 100))
+        draw.text((195, 8), "Both", fill=(0, 0, 0))
 
         final.paste(diff, (0, legend_height))
 
