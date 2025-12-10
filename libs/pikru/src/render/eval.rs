@@ -1,7 +1,7 @@
 //! Expression evaluation functions
 
 use crate::ast::*;
-use crate::types::{Length as Inches, OffsetIn, Point, UnitVec};
+use crate::types::{Angle, Length as Inches, OffsetIn, Point};
 
 use super::context::RenderContext;
 use super::types::*;
@@ -309,17 +309,16 @@ pub fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, mie
             let d = eval_len(ctx, dist)?;
             let base = eval_position(ctx, base_pos)?;
             // Calculate offset based on edge direction
-            let dir = edge_point_offset(edge);
+            let dir = edge.to_unit_vec();
             Ok(base + dir * d)
         }
         Position::Heading(dist, heading, base_pos) => {
             let d = eval_len(ctx, dist)?;
             let base = eval_position(ctx, base_pos)?;
             let angle = match heading {
-                HeadingDir::EdgePoint(ep) => edge_point_to_angle(ep),
-                HeadingDir::Expr(e) => eval_scalar(ctx, e).unwrap_or(0.0),
+                HeadingDir::EdgePoint(ep) => ep.to_angle(),
+                HeadingDir::Expr(e) => Angle::degrees(eval_scalar(ctx, e).unwrap_or(0.0)),
             };
-            // Convert angle (degrees, 0 = north, clockwise) to radians
             // C pikchr uses: pt.x += dist*sin(r); pt.y += dist*cos(r);
             // We use the same Y-up convention internally, flip happens in to_svg().
             let rad = angle.to_radians();
@@ -361,37 +360,6 @@ fn endpoint_object_from_place(ctx: &RenderContext, place: &Place) -> Option<Endp
     }
 }
 
-/// Get the unit offset direction for an edge point
-pub fn edge_point_offset(edge: &EdgePoint) -> UnitVec {
-    match edge {
-        EdgePoint::North | EdgePoint::N | EdgePoint::Top | EdgePoint::T => UnitVec::NORTH,
-        EdgePoint::South | EdgePoint::S | EdgePoint::Bottom => UnitVec::SOUTH,
-        EdgePoint::East | EdgePoint::E | EdgePoint::Right => UnitVec::EAST,
-        EdgePoint::West | EdgePoint::W | EdgePoint::Left => UnitVec::WEST,
-        EdgePoint::NorthEast => UnitVec::NORTH_EAST,
-        EdgePoint::NorthWest => UnitVec::NORTH_WEST,
-        EdgePoint::SouthEast => UnitVec::SOUTH_EAST,
-        EdgePoint::SouthWest => UnitVec::SOUTH_WEST,
-        EdgePoint::Center | EdgePoint::C => UnitVec::ZERO,
-        EdgePoint::Start => UnitVec::WEST, // Start is typically the entry direction
-        EdgePoint::End => UnitVec::EAST,   // End is typically the exit direction
-    }
-}
-
-/// Convert an edge point to an angle (degrees, 0 = north, clockwise)
-fn edge_point_to_angle(edge: &EdgePoint) -> f64 {
-    match edge {
-        EdgePoint::North | EdgePoint::N | EdgePoint::Top | EdgePoint::T => 0.0,
-        EdgePoint::NorthEast => 45.0,
-        EdgePoint::East | EdgePoint::E | EdgePoint::Right => 90.0,
-        EdgePoint::SouthEast => 135.0,
-        EdgePoint::South | EdgePoint::S | EdgePoint::Bottom => 180.0,
-        EdgePoint::SouthWest => 225.0,
-        EdgePoint::West | EdgePoint::W | EdgePoint::Left => 270.0,
-        EdgePoint::NorthWest => 315.0,
-        _ => 0.0,
-    }
-}
 
 fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, miette::Report> {
     match place {
@@ -521,7 +489,7 @@ fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
         EdgePoint::Center | EdgePoint::C => obj.center,
         EdgePoint::Start => obj.start,
         EdgePoint::End => obj.end,
-        _ => obj.edge_point(edge_point_offset(edge)),
+        _ => obj.edge_point(edge.to_unit_vec()),
     }
 }
 
@@ -529,42 +497,12 @@ pub fn eval_color(rvalue: &RValue) -> String {
     // Try to extract a color name from the rvalue
     let name = match rvalue {
         RValue::PlaceName(name) => Some(name.as_str()),
-        RValue::Expr(expr) => {
-            // Check if expr is a simple variable reference (color name)
-            extract_color_name_from_expr(expr)
-        }
+        RValue::Expr(Expr::Variable(name)) => Some(name.as_str()),
+        _ => None,
     };
 
-    if let Some(name) = name {
-        // Common color names (case-insensitive)
-        match name.to_lowercase().as_str() {
-            "red" => "red".to_string(),
-            "blue" => "blue".to_string(),
-            "green" => "green".to_string(),
-            "yellow" => "yellow".to_string(),
-            "orange" => "orange".to_string(),
-            "purple" => "purple".to_string(),
-            "pink" => "pink".to_string(),
-            "black" => "black".to_string(),
-            "white" => "white".to_string(),
-            "gray" | "grey" => "gray".to_string(),
-            "cyan" => "cyan".to_string(),
-            "magenta" => "magenta".to_string(),
-            "none" | "off" => "none".to_string(),
-            _ => name.to_string(),
-        }
-    } else {
-        "black".to_string()
-    }
-}
-
-/// Try to extract a color name from an expression.
-/// Returns Some if the expr is a simple variable reference that could be a color name.
-fn extract_color_name_from_expr(expr: &Expr) -> Option<&str> {
-    match expr {
-        Expr::Variable(name) => Some(name.as_str()),
-        _ => None,
-    }
+    name.map(|n| n.parse::<crate::types::Color>().unwrap().to_string())
+        .unwrap_or_else(|| "black".to_string())
 }
 
 /// Helper to extract a length from an EvalValue, with fallback

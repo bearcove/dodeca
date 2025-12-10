@@ -2,7 +2,7 @@
 //!
 //! These types represent the parsed structure of a pikchr diagram.
 
-use crate::types::{Length, OffsetIn};
+use crate::types::{Angle, Length, OffsetIn, UnitVec};
 use glam::DVec2;
 
 /// A complete pikchr program
@@ -552,6 +552,40 @@ pub enum EdgePoint {
     W,
     C,
     T,
+}
+
+impl EdgePoint {
+    /// Get the unit offset direction for this edge point
+    pub fn to_unit_vec(self) -> UnitVec {
+        match self {
+            Self::North | Self::N | Self::Top | Self::T => UnitVec::NORTH,
+            Self::South | Self::S | Self::Bottom => UnitVec::SOUTH,
+            Self::East | Self::E | Self::Right => UnitVec::EAST,
+            Self::West | Self::W | Self::Left => UnitVec::WEST,
+            Self::NorthEast => UnitVec::NORTH_EAST,
+            Self::NorthWest => UnitVec::NORTH_WEST,
+            Self::SouthEast => UnitVec::SOUTH_EAST,
+            Self::SouthWest => UnitVec::SOUTH_WEST,
+            Self::Center | Self::C => UnitVec::ZERO,
+            Self::Start => UnitVec::WEST, // Start is typically the entry direction
+            Self::End => UnitVec::EAST,   // End is typically the exit direction
+        }
+    }
+
+    /// Convert to an angle (0° = north, clockwise)
+    pub fn to_angle(self) -> Angle {
+        Angle::degrees(match self {
+            Self::North | Self::N | Self::Top | Self::T => 0.0,
+            Self::NorthEast => 45.0,
+            Self::East | Self::E | Self::Right => 90.0,
+            Self::SouthEast => 135.0,
+            Self::South | Self::S | Self::Bottom => 180.0,
+            Self::SouthWest => 225.0,
+            Self::West | Self::W | Self::Left => 270.0,
+            Self::NorthWest => 315.0,
+            _ => 0.0,
+        })
+    }
 }
 
 /// String literal

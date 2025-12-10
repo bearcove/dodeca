@@ -20,6 +20,70 @@ pub enum CompassPoint {
     NorthWest,
 }
 
+impl CompassPoint {
+    /// Determine the compass point for a normalized direction vector.
+    ///
+    /// C pikchr uses slope thresholds to divide 360 degrees into 8 sectors.
+    /// The magic numbers 2.414 ≈ tan(67.5°) and 0.414 ≈ tan(22.5°) define
+    /// the sector boundaries.
+    ///
+    /// # Arguments
+    /// * `dir` - Direction vector where x is east (+) / west (-) and y is north (+) / south (-).
+    ///           Should be pre-normalized for aspect ratio if the shape isn't square.
+    pub fn from_direction(dir: DVec2) -> Self {
+        let (dx, dy) = (dir.x, dir.y);
+        if dx > 0.0 {
+            if dy >= 2.414 * dx {
+                CompassPoint::North // > 67.5 degrees
+            } else if dy > 0.414 * dx {
+                CompassPoint::NorthEast // 22.5 to 67.5 degrees
+            } else if dy > -0.414 * dx {
+                CompassPoint::East // -22.5 to 22.5 degrees
+            } else if dy > -2.414 * dx {
+                CompassPoint::SouthEast // -67.5 to -22.5 degrees
+            } else {
+                CompassPoint::South // < -67.5 degrees
+            }
+        } else if dx < 0.0 {
+            if dy >= -2.414 * dx {
+                CompassPoint::North // > 67.5 degrees
+            } else if dy > -0.414 * dx {
+                CompassPoint::NorthWest // 22.5 to 67.5 degrees
+            } else if dy > 0.414 * dx {
+                CompassPoint::West // -22.5 to 22.5 degrees
+            } else if dy > 2.414 * dx {
+                CompassPoint::SouthWest // -67.5 to -22.5 degrees
+            } else {
+                CompassPoint::South // < -67.5 degrees
+            }
+        } else {
+            // dx == 0, vertical line
+            if dy >= 0.0 {
+                CompassPoint::North
+            } else {
+                CompassPoint::South
+            }
+        }
+    }
+
+    /// Determine compass point from SVG coordinates.
+    ///
+    /// Handles coordinate transform (SVG Y-down → compass Y-up) and
+    /// aspect ratio normalization for non-square shapes.
+    ///
+    /// # Arguments
+    /// * `center` - Shape center in SVG pixels (Y-down)
+    /// * `toward` - Target point in SVG pixels (Y-down)
+    /// * `half_size` - Half width (x) and half height (y) of the shape in pixels
+    pub fn from_svg_direction(center: DVec2, toward: DVec2, half_size: DVec2) -> Self {
+        // C pikchr scales dx by h/w to normalize the box to a square for angle calculations
+        let dx = (toward.x - center.x) * half_size.y / half_size.x;
+        // Coordinates are in SVG space (Y-down). Negate dy to convert to compass convention.
+        let dy = -(toward.y - center.y);
+        Self::from_direction(dvec2(dx, dy))
+    }
+}
+
 /// Shorten a line by `amount` from both ends
 /// Returns (new_start, new_end) as DVec2
 pub fn chop_line(start: DVec2, end: DVec2, amount: f64) -> (DVec2, DVec2) {
@@ -107,62 +171,20 @@ pub fn apply_auto_chop_simple_line(
 /// Chop against box using discrete compass points like C pikchr
 fn chop_against_box_compass_point(
     center: DVec2,
-    half_w: f64,
-    half_h: f64,
+    half_size: DVec2,
     corner_radius: f64,
     toward: DVec2,
 ) -> Option<DVec2> {
-    if half_w <= 0.0 || half_h <= 0.0 {
+    if half_size.x <= 0.0 || half_size.y <= 0.0 {
         return None;
     }
 
-    // Calculate direction from box center to target point
-    // C pikchr scales dx by h/w to normalize the box to a square for angle calculations
-    let dx = (toward.x - center.x) * half_h / half_w;
-    // Coordinates are already in SVG space (Y-down). In this space, negative dy = north.
-    // The compass selection logic below expects: positive dy = north, negative dy = south.
-    // So we negate dy to convert from SVG convention to compass convention.
-    let dy = -(toward.y - center.y);
-
-    // C pikchr logic: determine compass point based on angle
-    // Uses slope thresholds to divide 360 degrees into 8 sectors
-    let compass_point = if dx > 0.0 {
-        if dy >= 2.414 * dx {
-            CompassPoint::North // > 67.5 degrees
-        } else if dy > 0.414 * dx {
-            CompassPoint::NorthEast // 22.5 to 67.5 degrees
-        } else if dy > -0.414 * dx {
-            CompassPoint::East // -22.5 to 22.5 degrees
-        } else if dy > -2.414 * dx {
-            CompassPoint::SouthEast // -67.5 to -22.5 degrees
-        } else {
-            CompassPoint::South // < -67.5 degrees
-        }
-    } else if dx < 0.0 {
-        if dy >= -2.414 * dx {
-            CompassPoint::North // > 67.5 degrees
-        } else if dy > -0.414 * dx {
-            CompassPoint::NorthWest // 22.5 to 67.5 degrees
-        } else if dy > 0.414 * dx {
-            CompassPoint::West // -22.5 to 22.5 degrees
-        } else if dy > 2.414 * dx {
-            CompassPoint::SouthWest // -67.5 to -22.5 degrees
-        } else {
-            CompassPoint::South // < -67.5 degrees
-        }
-    } else {
-        // dx == 0, vertical line
-        if dy >= 0.0 {
-            CompassPoint::North
-        } else {
-            CompassPoint::South
-        }
-    };
+    let compass_point = CompassPoint::from_svg_direction(center, toward, half_size);
 
     // Calculate corner inset for rounded corners
     // This is (1 - cos(45°)) * rad = (1 - 1/√2) * rad ≈ 0.29289 * rad
     // Matches C pikchr's boxOffset function
-    let rad = corner_radius.min(half_w).min(half_h);
+    let rad = corner_radius.min(half_size.x).min(half_size.y);
     let rx = if rad > 0.0 {
         0.29289321881345252392 * rad
     } else {
@@ -172,14 +194,14 @@ fn chop_against_box_compass_point(
     // Return coordinates of the specific compass point
     // For diagonal points, adjust inward by rx to account for rounded corners
     let offset = match compass_point {
-        CompassPoint::North => dvec2(0.0, -half_h),
-        CompassPoint::NorthEast => dvec2(half_w - rx, -half_h + rx),
-        CompassPoint::East => dvec2(half_w, 0.0),
-        CompassPoint::SouthEast => dvec2(half_w - rx, half_h - rx),
-        CompassPoint::South => dvec2(0.0, half_h),
-        CompassPoint::SouthWest => dvec2(-half_w + rx, half_h - rx),
-        CompassPoint::West => dvec2(-half_w, 0.0),
-        CompassPoint::NorthWest => dvec2(-half_w + rx, -half_h + rx),
+        CompassPoint::North => dvec2(0.0, -half_size.y),
+        CompassPoint::NorthEast => dvec2(half_size.x - rx, -half_size.y + rx),
+        CompassPoint::East => dvec2(half_size.x, 0.0),
+        CompassPoint::SouthEast => dvec2(half_size.x - rx, half_size.y - rx),
+        CompassPoint::South => dvec2(0.0, half_size.y),
+        CompassPoint::SouthWest => dvec2(-half_size.x + rx, half_size.y - rx),
+        CompassPoint::West => dvec2(-half_size.x, 0.0),
+        CompassPoint::NorthWest => dvec2(-half_size.x + rx, -half_size.y + rx),
     };
 
     Some(center + offset)
@@ -190,51 +212,18 @@ fn chop_against_box_compass_point(
 /// From C pikchr fileOffset: rx = 0.5 * rad (clamped)
 fn chop_against_file_compass_point(
     center: DVec2,
-    half_w: f64,
-    half_h: f64,
+    half_size: DVec2,
     filerad: f64,
     toward: DVec2,
 ) -> Option<DVec2> {
-    if half_w <= 0.0 || half_h <= 0.0 {
+    if half_size.x <= 0.0 || half_size.y <= 0.0 {
         return None;
     }
 
-    // Same compass point selection as boxChop
-    let dx = (toward.x - center.x) * half_h / half_w;
-    let dy = -(toward.y - center.y);
-
-    let compass_point = if dx > 0.0 {
-        if dy >= 2.414 * dx {
-            CompassPoint::North
-        } else if dy > 0.414 * dx {
-            CompassPoint::NorthEast
-        } else if dy > -0.414 * dx {
-            CompassPoint::East
-        } else if dy > -2.414 * dx {
-            CompassPoint::SouthEast
-        } else {
-            CompassPoint::South
-        }
-    } else if dx < 0.0 {
-        if dy >= -2.414 * dx {
-            CompassPoint::North
-        } else if dy > -0.414 * dx {
-            CompassPoint::NorthWest
-        } else if dy > 0.414 * dx {
-            CompassPoint::West
-        } else if dy > 2.414 * dx {
-            CompassPoint::SouthWest
-        } else {
-            CompassPoint::South
-        }
-    } else if dy >= 0.0 {
-        CompassPoint::North
-    } else {
-        CompassPoint::South
-    };
+    let compass_point = CompassPoint::from_svg_direction(center, toward, half_size);
 
     // C pikchr fileOffset: rx = 0.5 * rad, clamped to [mn*0.25, mn] where mn = min(w2, h2)
-    let mn = half_w.min(half_h);
+    let mn = half_size.x.min(half_size.y);
     let mut rx = filerad;
     if rx > mn {
         rx = mn;
@@ -246,14 +235,14 @@ fn chop_against_file_compass_point(
 
     // File compass points - only NE is different (inset for fold)
     let offset = match compass_point {
-        CompassPoint::North => dvec2(0.0, -half_h),
-        CompassPoint::NorthEast => dvec2(half_w - rx, -half_h + rx), // NE: inset for fold
-        CompassPoint::East => dvec2(half_w, 0.0),
-        CompassPoint::SouthEast => dvec2(half_w, half_h), // SE: no inset
-        CompassPoint::South => dvec2(0.0, half_h),
-        CompassPoint::SouthWest => dvec2(-half_w, half_h),
-        CompassPoint::West => dvec2(-half_w, 0.0),
-        CompassPoint::NorthWest => dvec2(-half_w, -half_h),
+        CompassPoint::North => dvec2(0.0, -half_size.y),
+        CompassPoint::NorthEast => dvec2(half_size.x - rx, -half_size.y + rx), // NE: inset for fold
+        CompassPoint::East => dvec2(half_size.x, 0.0),
+        CompassPoint::SouthEast => dvec2(half_size.x, half_size.y), // SE: no inset
+        CompassPoint::South => dvec2(0.0, half_size.y),
+        CompassPoint::SouthWest => dvec2(-half_size.x, half_size.y),
+        CompassPoint::West => dvec2(-half_size.x, 0.0),
+        CompassPoint::NorthWest => dvec2(-half_size.x, -half_size.y),
     };
 
     Some(center + offset)
@@ -263,61 +252,27 @@ fn chop_against_file_compass_point(
 /// Diamond corners (NE/SE/SW/NW) are at quarter width/height, not half
 fn chop_against_diamond_compass_point(
     center: DVec2,
-    half_w: f64,
-    half_h: f64,
+    half_size: DVec2,
     toward: DVec2,
 ) -> Option<DVec2> {
-    if half_w <= 0.0 || half_h <= 0.0 {
+    if half_size.x <= 0.0 || half_size.y <= 0.0 {
         return None;
     }
 
-    // Same compass point selection as boxChop
-    let dx = (toward.x - center.x) * half_h / half_w;
-    let dy = -(toward.y - center.y);
-
-    let compass_point = if dx > 0.0 {
-        if dy >= 2.414 * dx {
-            CompassPoint::North
-        } else if dy > 0.414 * dx {
-            CompassPoint::NorthEast
-        } else if dy > -0.414 * dx {
-            CompassPoint::East
-        } else if dy > -2.414 * dx {
-            CompassPoint::SouthEast
-        } else {
-            CompassPoint::South
-        }
-    } else if dx < 0.0 {
-        if dy >= -2.414 * dx {
-            CompassPoint::North
-        } else if dy > -0.414 * dx {
-            CompassPoint::NorthWest
-        } else if dy > 0.414 * dx {
-            CompassPoint::West
-        } else if dy > 2.414 * dx {
-            CompassPoint::SouthWest
-        } else {
-            CompassPoint::South
-        }
-    } else if dy >= 0.0 {
-        CompassPoint::North
-    } else {
-        CompassPoint::South
-    };
+    let compass_point = CompassPoint::from_svg_direction(center, toward, half_size);
 
     // Diamond: cardinal points at half, diagonals at quarter
-    let w4 = half_w / 2.0; // quarter width
-    let h4 = half_h / 2.0; // quarter height
+    let quarter = half_size / 2.0;
 
     let offset = match compass_point {
-        CompassPoint::North => dvec2(0.0, -half_h),
-        CompassPoint::NorthEast => dvec2(w4, -h4),
-        CompassPoint::East => dvec2(half_w, 0.0),
-        CompassPoint::SouthEast => dvec2(w4, h4),
-        CompassPoint::South => dvec2(0.0, half_h),
-        CompassPoint::SouthWest => dvec2(-w4, h4),
-        CompassPoint::West => dvec2(-half_w, 0.0),
-        CompassPoint::NorthWest => dvec2(-w4, -h4),
+        CompassPoint::North => dvec2(0.0, -half_size.y),
+        CompassPoint::NorthEast => dvec2(quarter.x, -quarter.y),
+        CompassPoint::East => dvec2(half_size.x, 0.0),
+        CompassPoint::SouthEast => dvec2(quarter.x, quarter.y),
+        CompassPoint::South => dvec2(0.0, half_size.y),
+        CompassPoint::SouthWest => dvec2(-quarter.x, quarter.y),
+        CompassPoint::West => dvec2(-half_size.x, 0.0),
+        CompassPoint::NorthWest => dvec2(-quarter.x, -quarter.y),
     };
 
     Some(center + offset)
@@ -327,61 +282,28 @@ fn chop_against_diamond_compass_point(
 /// Cylinder has special offsets: NE/SE/SW/NW corners are inset by the ellipse radius
 fn chop_against_cylinder_compass_point(
     center: DVec2,
-    half_w: f64,
-    half_h: f64,
+    half_size: DVec2,
     ellipse_ry: f64,
     toward: DVec2,
 ) -> Option<DVec2> {
-    if half_w <= 0.0 || half_h <= 0.0 {
+    if half_size.x <= 0.0 || half_size.y <= 0.0 {
         return None;
     }
 
-    // Same compass point selection as boxChop
-    let dx = (toward.x - center.x) * half_h / half_w;
-    let dy = -(toward.y - center.y);
-
-    let compass_point = if dx > 0.0 {
-        if dy >= 2.414 * dx {
-            CompassPoint::North
-        } else if dy > 0.414 * dx {
-            CompassPoint::NorthEast
-        } else if dy > -0.414 * dx {
-            CompassPoint::East
-        } else if dy > -2.414 * dx {
-            CompassPoint::SouthEast
-        } else {
-            CompassPoint::South
-        }
-    } else if dx < 0.0 {
-        if dy >= -2.414 * dx {
-            CompassPoint::North
-        } else if dy > -0.414 * dx {
-            CompassPoint::NorthWest
-        } else if dy > 0.414 * dx {
-            CompassPoint::West
-        } else if dy > 2.414 * dx {
-            CompassPoint::SouthWest
-        } else {
-            CompassPoint::South
-        }
-    } else if dy >= 0.0 {
-        CompassPoint::North
-    } else {
-        CompassPoint::South
-    };
+    let compass_point = CompassPoint::from_svg_direction(center, toward, half_size);
 
     // Cylinder offset: h2 = h1 - rad (diagonal corners are inset by ellipse radius)
-    let h2 = half_h - ellipse_ry;
+    let h2 = half_size.y - ellipse_ry;
 
     let offset = match compass_point {
-        CompassPoint::North => dvec2(0.0, -half_h),
-        CompassPoint::NorthEast => dvec2(half_w, -h2),
-        CompassPoint::East => dvec2(half_w, 0.0),
-        CompassPoint::SouthEast => dvec2(half_w, h2),
-        CompassPoint::South => dvec2(0.0, half_h),
-        CompassPoint::SouthWest => dvec2(-half_w, h2),
-        CompassPoint::West => dvec2(-half_w, 0.0),
-        CompassPoint::NorthWest => dvec2(-half_w, -h2),
+        CompassPoint::North => dvec2(0.0, -half_size.y),
+        CompassPoint::NorthEast => dvec2(half_size.x, -h2),
+        CompassPoint::East => dvec2(half_size.x, 0.0),
+        CompassPoint::SouthEast => dvec2(half_size.x, h2),
+        CompassPoint::South => dvec2(0.0, half_size.y),
+        CompassPoint::SouthWest => dvec2(-half_size.x, h2),
+        CompassPoint::West => dvec2(-half_size.x, 0.0),
+        CompassPoint::NorthWest => dvec2(-half_size.x, -h2),
     };
 
     Some(center + offset)
@@ -395,8 +317,10 @@ fn chop_against_endpoint(
     max_y: Inches,
 ) -> Option<DVec2> {
     let center = endpoint.center.to_svg(scaler, offset_x, max_y);
-    let half_w = scaler.px(endpoint.width / 2.0);
-    let half_h = scaler.px(endpoint.height / 2.0);
+    let half_size = dvec2(
+        scaler.px(endpoint.width / 2.0),
+        scaler.px(endpoint.height / 2.0),
+    );
     let corner_radius = scaler.px(endpoint.corner_radius);
 
     // C pikchr chop function mapping:
@@ -406,41 +330,41 @@ fn chop_against_endpoint(
     match endpoint.class {
         ObjectClass::Circle => {
             // circleChop - continuous ray intersection with circle
-            chop_against_ellipse(center, half_w, half_h, toward)
+            chop_against_ellipse(center, half_size, toward)
         }
         ObjectClass::Ellipse => {
             // ellipseChop - continuous ray intersection with ellipse
-            chop_against_ellipse(center, half_w, half_h, toward)
+            chop_against_ellipse(center, half_size, toward)
         }
         ObjectClass::Box => {
             // boxChop - discrete compass points
-            chop_against_box_compass_point(center, half_w, half_h, corner_radius, toward)
+            chop_against_box_compass_point(center, half_size, corner_radius, toward)
         }
         ObjectClass::File => {
             // fileOffset - like box but NE corner is inset for the fold
             let filerad = scaler.px(defaults::FILE_RAD);
-            chop_against_file_compass_point(center, half_w, half_h, filerad, toward)
+            chop_against_file_compass_point(center, half_size, filerad, toward)
         }
         ObjectClass::Cylinder => {
             // cylinderOffset - special compass points with ellipse inset
             let cylrad = scaler.px(Inches::inches(0.075)); // default cylrad
-            chop_against_cylinder_compass_point(center, half_w, half_h, cylrad, toward)
+            chop_against_cylinder_compass_point(center, half_size, cylrad, toward)
         }
         ObjectClass::Oval => {
             // boxChop with corner radius = half of smaller dimension
-            let oval_radius = half_w.min(half_h);
-            chop_against_box_compass_point(center, half_w, half_h, oval_radius, toward)
+            let oval_radius = half_size.x.min(half_size.y);
+            chop_against_box_compass_point(center, half_size, oval_radius, toward)
         }
         ObjectClass::Diamond => {
             // diamondOffset - corners at quarter width/height
-            chop_against_diamond_compass_point(center, half_w, half_h, toward)
+            chop_against_diamond_compass_point(center, half_size, toward)
         }
         _ => None,
     }
 }
 
-fn chop_against_ellipse(center: DVec2, rx: f64, ry: f64, toward: DVec2) -> Option<DVec2> {
-    if rx <= 0.0 || ry <= 0.0 {
+fn chop_against_ellipse(center: DVec2, half_size: DVec2, toward: DVec2) -> Option<DVec2> {
+    if half_size.x <= 0.0 || half_size.y <= 0.0 {
         return None;
     }
 
@@ -449,7 +373,8 @@ fn chop_against_ellipse(center: DVec2, rx: f64, ry: f64, toward: DVec2) -> Optio
         return None;
     }
 
-    let denom = (delta.x * delta.x) / (rx * rx) + (delta.y * delta.y) / (ry * ry);
+    let denom = (delta.x * delta.x) / (half_size.x * half_size.x)
+        + (delta.y * delta.y) / (half_size.y * half_size.y);
     if denom <= 0.0 {
         return None;
     }

@@ -23,8 +23,8 @@ pub use types::*;
 use crate::ast::*;
 use crate::types::{EvalValue, Length as Inches, OffsetIn, Point, Size};
 use eval::{
-    edge_point_offset, endpoint_object_from_position, eval_color, eval_expr, eval_len,
-    eval_position, eval_rvalue, eval_scalar, resolve_object,
+    endpoint_object_from_position, eval_color, eval_expr, eval_len, eval_position, eval_rvalue,
+    eval_scalar, resolve_object,
 };
 use svg::generate_svg;
 
@@ -921,7 +921,7 @@ fn calculate_center_from_edge(
     let diag = class.diagonal_factor();
 
     // Use UnitVec for direction, then negate to go from edge back to center
-    let offset = edge_point_offset(&edge).scale_xy(hw * diag, hh * diag);
+    let offset = edge.to_unit_vec().scale_xy(hw * diag, hh * diag);
 
     // Edge point = center + offset, so center = edge point - offset
     target - offset
@@ -995,7 +995,7 @@ fn eval_then_clause(
                 default_distance
             };
             // Get direction from edge point and compute displacement
-            let dir = edge_point_offset(edge);
+            let dir = edge.to_unit_vec();
             let displacement = dir * distance;
             let next = current_pos + displacement;
             Ok((next, current_dir))

@@ -29,24 +29,27 @@ fn utc_timestamp() -> String {
 
 /// Convert a color name to rgb() format like C pikchr
 pub fn color_to_rgb(color: &str) -> String {
-    match color.to_lowercase().as_str() {
-        "black" => "rgb(0,0,0)".to_string(),
-        "white" => "rgb(255,255,255)".to_string(),
-        "red" => "rgb(255,0,0)".to_string(),
-        "green" => "rgb(0,128,0)".to_string(),
-        "blue" => "rgb(0,0,255)".to_string(),
-        "yellow" => "rgb(255,255,0)".to_string(),
-        "cyan" => "rgb(0,255,255)".to_string(),
-        "magenta" => "rgb(255,0,255)".to_string(),
-        "gray" | "grey" => "rgb(128,128,128)".to_string(),
-        "lightgray" | "lightgrey" => "rgb(211,211,211)".to_string(),
-        "darkgray" | "darkgrey" => "rgb(169,169,169)".to_string(),
-        "orange" => "rgb(255,165,0)".to_string(),
-        "pink" => "rgb(255,192,203)".to_string(),
-        "purple" => "rgb(128,0,128)".to_string(),
-        "none" => "none".to_string(),
-        _ => color.to_string(),
+    color.parse::<crate::types::Color>().unwrap().to_rgb_string()
+}
+
+/// Build a polyline path from a series of points.
+/// Converts points to SVG coordinates and creates M/L commands.
+fn build_polyline_path(
+    points: &[Point<Inches>],
+    scaler: &Scaler,
+    offset_x: Inches,
+    max_y: Inches,
+) -> PathData {
+    let mut path_data = PathData::new();
+    for (i, p) in points.iter().enumerate() {
+        let svg_pt = p.to_svg(scaler, offset_x, max_y);
+        if i == 0 {
+            path_data = path_data.m(svg_pt.x, svg_pt.y);
+        } else {
+            path_data = path_data.l(svg_pt.x, svg_pt.y);
+        }
     }
+    path_data
 }
 
 /// Generate SVG from render context
@@ -421,17 +424,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         }
 
                         if obj.style.close_path {
-                            // Build path using fluent API (no arrow chopping for closed paths)
-                            let mut path_data = PathData::new();
-                            for (i, p) in points.iter().enumerate() {
-                                let svg_pt = p.to_svg(&scaler, offset_x, max_y);
-                                if i == 0 {
-                                    path_data = path_data.m(svg_pt.x, svg_pt.y);
-                                } else {
-                                    path_data = path_data.l(svg_pt.x, svg_pt.y);
-                                }
-                            }
-                            path_data = path_data.z();
+                            // Build closed path (no arrow chopping for closed paths)
+                            let path_data = build_polyline_path(&points, &scaler, offset_x, max_y).z();
                             let path = Path {
                                 d: Some(path_data),
                                 fill: None,
@@ -468,16 +462,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                                 }
                             }
 
-                            // Now render the polyline using fluent API
-                            let mut path_data = PathData::new();
-                            for (i, p) in points.iter().enumerate() {
-                                let svg_pt = p.to_svg(&scaler, offset_x, max_y);
-                                if i == 0 {
-                                    path_data = path_data.m(svg_pt.x, svg_pt.y);
-                                } else {
-                                    path_data = path_data.l(svg_pt.x, svg_pt.y);
-                                }
-                            }
+                            // Now render the polyline
+                            let path_data = build_polyline_path(&points, &scaler, offset_x, max_y);
                             let path = Path {
                                 d: Some(path_data),
                                 fill: None,

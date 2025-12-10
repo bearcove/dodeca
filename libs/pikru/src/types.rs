@@ -470,6 +470,66 @@ pub enum Color {
     Raw(String),
 }
 
+impl Color {
+    /// Convert color to RGB string format for SVG output.
+    /// Named colors are converted to their rgb() equivalents.
+    pub fn to_rgb_string(&self) -> String {
+        match self {
+            Color::Rgb(r, g, b) => format!("rgb({},{},{})", r, g, b),
+            Color::Rgba(r, g, b, _) => format!("rgb({},{},{})", r, g, b), // SVG doesn't use alpha here
+            Color::Named(name) | Color::Raw(name) => {
+                // Convert named colors to rgb() format like C pikchr
+                match name.to_lowercase().as_str() {
+                    "black" => "rgb(0,0,0)".to_string(),
+                    "white" => "rgb(255,255,255)".to_string(),
+                    "red" => "rgb(255,0,0)".to_string(),
+                    "green" => "rgb(0,128,0)".to_string(),
+                    "blue" => "rgb(0,0,255)".to_string(),
+                    "yellow" => "rgb(255,255,0)".to_string(),
+                    "cyan" => "rgb(0,255,255)".to_string(),
+                    "magenta" => "rgb(255,0,255)".to_string(),
+                    "gray" | "grey" => "rgb(128,128,128)".to_string(),
+                    "lightgray" | "lightgrey" => "rgb(211,211,211)".to_string(),
+                    "darkgray" | "darkgrey" => "rgb(169,169,169)".to_string(),
+                    "orange" => "rgb(255,165,0)".to_string(),
+                    "pink" => "rgb(255,192,203)".to_string(),
+                    "purple" => "rgb(128,0,128)".to_string(),
+                    "none" => "none".to_string(),
+                    _ => name.clone(),
+                }
+            }
+        }
+    }
+}
+
+impl std::str::FromStr for Color {
+    type Err = std::convert::Infallible;
+
+    /// Parse a color from a string. Always succeeds - unknown colors become Raw.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // Normalize common color names (case-insensitive, handle aliases)
+        let normalized = match s.to_lowercase().as_str() {
+            "red" => "red",
+            "blue" => "blue",
+            "green" => "green",
+            "yellow" => "yellow",
+            "orange" => "orange",
+            "purple" => "purple",
+            "pink" => "pink",
+            "black" => "black",
+            "white" => "white",
+            "gray" | "grey" => "gray",
+            "lightgray" | "lightgrey" => "lightgray",
+            "darkgray" | "darkgrey" => "darkgray",
+            "cyan" => "cyan",
+            "magenta" => "magenta",
+            "none" | "off" => "none",
+            _ => return Ok(Color::Raw(s.to_string())),
+        };
+        Ok(Color::Named(normalized.to_string()))
+    }
+}
+
 impl fmt::Display for Color {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
