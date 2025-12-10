@@ -443,15 +443,15 @@ pub fn resolve_object<'a>(ctx: &'a RenderContext, obj: &Object) -> Option<&'a Re
         }
         Object::Nth(nth) => match nth {
             Nth::Last(class) => {
-                let oc = class.as_ref().and_then(|c| nth_class_to_object_class(c));
+                let oc = class.as_ref().and_then(|c| nth_class_to_class_name(c));
                 ctx.get_last_object(oc)
             }
             Nth::First(class) => {
-                let oc = class.as_ref().and_then(|c| nth_class_to_object_class(c));
+                let oc = class.as_ref().and_then(|c| nth_class_to_class_name(c));
                 ctx.get_nth_object(1, oc)
             }
             Nth::Ordinal(n, _, class) => {
-                let oc = class.as_ref().and_then(|c| nth_class_to_object_class(c));
+                let oc = class.as_ref().and_then(|c| nth_class_to_class_name(c));
                 ctx.get_nth_object(*n as usize, oc)
             }
             Nth::Previous => {
@@ -485,25 +485,10 @@ fn resolve_path_in_object<'a>(
     None
 }
 
-fn nth_class_to_object_class(nc: &NthClass) -> Option<ObjectClass> {
+fn nth_class_to_class_name(nc: &NthClass) -> Option<ClassName> {
     match nc {
-        NthClass::ClassName(cn) => Some(match cn {
-            ClassName::Box => ObjectClass::Box,
-            ClassName::Circle => ObjectClass::Circle,
-            ClassName::Ellipse => ObjectClass::Ellipse,
-            ClassName::Oval => ObjectClass::Oval,
-            ClassName::Cylinder => ObjectClass::Cylinder,
-            ClassName::Diamond => ObjectClass::Diamond,
-            ClassName::File => ObjectClass::File,
-            ClassName::Line => ObjectClass::Line,
-            ClassName::Arrow => ObjectClass::Arrow,
-            ClassName::Spline => ObjectClass::Spline,
-            ClassName::Arc => ObjectClass::Arc,
-            ClassName::Move => ObjectClass::Move,
-            ClassName::Dot => ObjectClass::Dot,
-            ClassName::Text => ObjectClass::Text,
-        }),
-        NthClass::Sublist => Some(ObjectClass::Sublist),
+        NthClass::ClassName(cn) => Some(*cn),
+        NthClass::Sublist => Some(ClassName::Sublist),
     }
 }
 

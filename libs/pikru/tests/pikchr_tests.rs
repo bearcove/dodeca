@@ -1,6 +1,20 @@
 use datatest_stable::Utf8Path;
 use pikru::compare::{CompareResult, compare_outputs};
 use std::process::Command;
+use std::sync::Once;
+
+static INIT_TRACING: Once = Once::new();
+
+fn init_tracing() {
+    INIT_TRACING.call_once(|| {
+        tracing_subscriber::fmt()
+            .with_env_filter(
+                tracing_subscriber::EnvFilter::from_default_env()
+            )
+            .with_test_writer()
+            .init();
+    });
+}
 
 /// Path to the C pikchr binary (built from vendor/pikchr-c)
 const C_PIKCHR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/pikchr-c/pikchr");
@@ -31,6 +45,8 @@ fn run_c_pikchr(source: &str) -> String {
 }
 
 fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
+    init_tracing();
+
     // Install miette fancy GraphicalReporter for better error display
     miette::set_hook(Box::new(
         |_| Box::new(miette::GraphicalReportHandler::new()),

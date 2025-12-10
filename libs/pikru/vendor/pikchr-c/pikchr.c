@@ -192,6 +192,13 @@
 ** compiler warnings with -Wextra */
 #define UNUSED_PARAMETER(X)  (void)(X)
 
+/* Debug macro - compile with -DPIKCHR_DEBUG to enable */
+#ifdef PIKCHR_DEBUG
+#define DBG(...) fprintf(stderr, __VA_ARGS__)
+#else
+#define DBG(...) ((void)0)
+#endif
+
 typedef struct Pik Pik;          /* Complete parsing context */
 typedef struct PToken PToken;    /* A single token */
 typedef struct PObj PObj;        /* A single diagram object */
@@ -3932,14 +3939,17 @@ static PPoint circleChop(Pik *p, PObj *pObj, PPoint *pPt){
 }
 static void circleFit(Pik *p, PObj *pObj, PNum w, PNum h){
   PNum mx = 0.0;
+  DBG("[C circleFit] w=%g h=%g\n", w, h);
   if( w>0 ) mx = w;
   if( h>mx ) mx = h;
   if( w*h>0 && (w*w + h*h) > mx*mx ){
     mx = hypot(w,h);
+    DBG("[C circleFit] using hypot, mx=%g\n", mx);
   }
   if( mx>0.0 ){
     pObj->rad = 0.5*mx;
     pObj->w = pObj->h = mx;
+    DBG("[C circleFit] final rad=%g (inches), rad*144=%g (pixels)\n", pObj->rad, pObj->rad * 144.0);
   }
   UNUSED_PARAMETER(p);
 }
@@ -5155,6 +5165,8 @@ static void pik_append_txt(Pik *p, PObj *pObj, PBox *pBox){
       PNum cw = pik_text_length(t, t->eCode & TP_MONO)*p->charWidth*xtraFontScale*0.01;
       PNum ch = p->charHeight*0.5*xtraFontScale;
       PNum x0, y0, x1, y1;  /* Boundary of text relative to pObj->ptAt */
+      DBG("[C pik_append_txt bbox] text='%.*s' text_len=%d cw=%g ch=%g x=%g y=%g nx=%g charWidth=%g\n",
+          (int)t->n, t->z, pik_text_length(t, t->eCode & TP_MONO), cw, ch, x, y, nx, p->charWidth);
       if( (t->eCode & (TP_BOLD|TP_MONO))==TP_BOLD ){
         cw *= 1.1;
       }
@@ -5174,6 +5186,8 @@ static void pik_append_txt(Pik *p, PObj *pObj, PBox *pBox){
         x1 = nx-cw/2;
         y1 = y-ch;
       }
+      DBG("[C pik_append_txt bbox] x0=%g y0=%g x1=%g y1=%g (centered: nx=%g +/- cw/2=%g)\n",
+          x0, y0, x1, y1, nx, cw/2);
       if( (t->eCode & TP_ALIGN)!=0 && pObj->nPath>=2 ){
         int nn = pObj->nPath;
         PNum dx = pObj->aPath[nn-1].x - pObj->aPath[0].x;
@@ -5191,8 +5205,12 @@ static void pik_append_txt(Pik *p, PObj *pObj, PBox *pBox){
           x1 = tt;
         }
       }
+      DBG("[C pik_append_txt bbox] adding x+x0=%g, orig_y+y0=%g and x+x1=%g, orig_y+y1=%g\n",
+          x+x0, orig_y+y0, x+x1, orig_y+y1);
       pik_bbox_add_xy(pBox, x+x0, orig_y+y0);
       pik_bbox_add_xy(pBox, x+x1, orig_y+y1);
+      DBG("[C pik_append_txt bbox] after add: bbox sw=(%g,%g) ne=(%g,%g)\n",
+          pBox->sw.x, pBox->sw.y, pBox->ne.x, pBox->ne.y);
       continue;
     }
     nx += x;
@@ -6431,6 +6449,9 @@ static void pik_size_to_fit(Pik *p, PObj *pObj, PToken *pFit, int eWhich){
   pik_bbox_init(&bbox);
   pik_compute_layout_settings(p);
   pik_append_txt(p, pObj, &bbox);
+  DBG("[C pik_size_to_fit] bbox: sw=(%g,%g) ne=(%g,%g) ptAt=(%g,%g)\n",
+      bbox.sw.x, bbox.sw.y, bbox.ne.x, bbox.ne.y, pObj->ptAt.x, pObj->ptAt.y);
+  DBG("[C pik_size_to_fit] charWidth=%g charHeight=%g\n", p->charWidth, p->charHeight);
   if( (eWhich & 1)!=0 || pObj->bAltAutoFit ){
     w = (bbox.ne.x - bbox.sw.x) + p->charWidth;
   }else{
@@ -6441,9 +6462,11 @@ static void pik_size_to_fit(Pik *p, PObj *pObj, PToken *pFit, int eWhich){
     h1 = (bbox.ne.y - pObj->ptAt.y);
     h2 = (pObj->ptAt.y - bbox.sw.y);
     h = 2.0*( h1<h2 ? h2 : h1 ) + 0.5*p->charHeight;
+    DBG("[C pik_size_to_fit] h1=%g h2=%g\n", h1, h2);
   }else{
     h = 0;
   }
+  DBG("[C pik_size_to_fit] computed w=%g h=%g\n", w, h);
   pObj->type->xFit(p, pObj, w, h);
   pObj->mProp |= A_FIT;
 }
@@ -7192,8 +7215,13 @@ static void pik_bbox_add_elist(Pik *p, PList *pList, PNum wArrow){
   int i;
   for(i=0; i<pList->n; i++){
     PObj *pObj = pList->a[i];
+    DBG("[C bbox_add_elist] obj type=%s sw=%g bbox=(%g,%g)-(%g,%g)\n",
+        pObj->type->zName, pObj->sw,
+        pObj->bbox.sw.x, pObj->bbox.sw.y, pObj->bbox.ne.x, pObj->bbox.ne.y);
     if( pObj->sw>=0.0 ) pik_bbox_addbox(&p->bbox, &pObj->bbox);
     pik_append_txt(p, pObj, &p->bbox);
+    DBG("[C bbox_add_elist] after txt: bbox=(%g,%g)-(%g,%g)\n",
+        p->bbox.sw.x, p->bbox.sw.y, p->bbox.ne.x, p->bbox.ne.y);
     if( pObj->pSublist ) pik_bbox_add_elist(p, pObj->pSublist, wArrow);
 
 
@@ -7274,12 +7302,19 @@ static void pik_render(Pik *p, PList *pList){
     pik_bbox_init(&p->bbox);
     pik_bbox_add_elist(p, pList, wArrow);
 
+    DBG("[C render] bbox before margin: sw=(%g,%g) ne=(%g,%g)\n",
+        p->bbox.sw.x, p->bbox.sw.y, p->bbox.ne.x, p->bbox.ne.y);
+    DBG("[C render] margin=%g thickness=%g\n", margin, thickness);
+
     /* Expand the bounding box slightly to account for line thickness
     ** and the optional "margin = EXPR" setting. */
     p->bbox.ne.x += margin + pik_value(p,"rightmargin",11,0);
     p->bbox.ne.y += margin + pik_value(p,"topmargin",9,0);
     p->bbox.sw.x -= margin + pik_value(p,"leftmargin",10,0);
     p->bbox.sw.y -= margin + pik_value(p,"bottommargin",12,0);
+
+    DBG("[C render] bbox after margin: sw=(%g,%g) ne=(%g,%g)\n",
+        p->bbox.sw.x, p->bbox.sw.y, p->bbox.ne.x, p->bbox.ne.y);
 
     /* Output the SVG */
     pik_append(p, "<svg xmlns='http://www.w3.org/2000/svg'"

@@ -54,6 +54,7 @@ fn build_polyline_path(
 }
 
 /// Generate SVG from render context
+// cref: pik_render (pikchr.c:7253) - main SVG output function
 pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     let margin_base = get_length(ctx, "margin", defaults::MARGIN);
     let left_margin = get_length(ctx, "leftmargin", 0.0);
@@ -74,6 +75,15 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     let arrow_len_px = scaler.len(arrow_ht);
     let arrow_wid_px = scaler.len(arrow_wid);
     let mut bounds = ctx.bounds;
+
+    // Debug: compare with C bbox
+    tracing::debug!(
+        sw_x = bounds.min.x.0,
+        sw_y = bounds.min.y.0,
+        ne_x = bounds.max.x.0,
+        ne_y = bounds.max.y.0,
+        "bbox before margin"
+    );
 
     // Expand bounds with margins first (before checking for zero dimensions)
     bounds.max.x += Inches(margin + right_margin);
@@ -141,7 +151,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         // Render shape (skip if invisible, but still render text below)
         if !obj.style().invisible {
             match obj.class() {
-                ObjectClass::Box => {
+                ClassName::Box => {
                     let half_w = scaler.px(obj.width() / 2.0);
                     let half_h = scaler.px(obj.height() / 2.0);
                     let x1 = center.x - half_w;
@@ -174,7 +184,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     };
                     svg_children.push(SvgNode::Path(path));
                 }
-                ObjectClass::Circle => {
+                ClassName::Circle => {
                     let r = scaler.px(obj.width() / 2.0);
                     let circle = Circle {
                         cx: Some(center.x),
@@ -188,7 +198,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     };
                     svg_children.push(SvgNode::Circle(circle));
                 }
-                ObjectClass::Dot => {
+                ClassName::Dot => {
                     // Dot is a small filled circle
                     let r = scaler.px(obj.width() / 2.0);
                     let fill = if obj.style().fill == "none" {
@@ -212,7 +222,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     };
                     svg_children.push(SvgNode::Circle(circle));
                 }
-                ObjectClass::Ellipse => {
+                ClassName::Ellipse => {
                     let rx = scaler.px(obj.width() / 2.0);
                     let ry = scaler.px(obj.height() / 2.0);
                     let ellipse = Ellipse {
@@ -228,7 +238,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     };
                     svg_children.push(SvgNode::Ellipse(ellipse));
                 }
-                ObjectClass::Oval => {
+                ClassName::Oval => {
                     // Oval is a pill shape (rounded rectangle with fully rounded ends)
                     // C pikchr renders as a path, not a rect
                     let width = scaler.px(obj.width());
@@ -251,7 +261,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     };
                     svg_children.push(SvgNode::Path(path));
                 }
-                ObjectClass::Cylinder => {
+                ClassName::Cylinder => {
                     // Cylinder: single path with 3 arcs matching C pikchr
                     // Uses cylrad for the ellipse vertical radius (default 0.075")
                     let width = scaler.px(obj.width());
@@ -272,7 +282,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     };
                     svg_children.push(SvgNode::Path(body));
                 }
-                ObjectClass::File => {
+                ClassName::File => {
                     // File: proper path-based rendering with fold matching C pikchr
                     let width = scaler.px(obj.width());
                     let height = scaler.px(obj.height());
@@ -308,7 +318,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     };
                     svg_children.push(SvgNode::Path(fold));
                 }
-                ObjectClass::Diamond => {
+                ClassName::Diamond => {
                     // Diamond: rotated square/rhombus with vertices at edges
                     // C pikchr uses path: M left,cy L cx,bottom L right,cy L cx,top Z
                     let half_w = scaler.px(obj.width() / 2.0);
@@ -333,7 +343,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     };
                     svg_children.push(SvgNode::Path(path));
                 }
-                ObjectClass::Line | ObjectClass::Arrow => {
+                ClassName::Line | ClassName::Arrow => {
                     // Auto-chop always applies for object-attached endpoints (trims to boundary)
                     // The explicit "chop" attribute is for additional user-requested shortening
                     let (draw_start, draw_end) = if obj.waypoints().unwrap_or(&[]).len() <= 2 {
@@ -477,7 +487,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                         }
                     }
                 }
-                ObjectClass::Spline => {
+                ClassName::Spline => {
                     // Proper spline rendering with Bezier curves
                     let spline_path_data = create_spline_path(obj.waypoints().unwrap_or(&[]), &scaler, offset_x, max_y);
 
@@ -520,11 +530,11 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     };
                     svg_children.push(SvgNode::Path(spline_path));
                 }
-                ObjectClass::Move => {
+                ClassName::Move => {
                     // Move: invisible - just advances the cursor, renders nothing
                 }
 
-                ObjectClass::Arc => {
+                ClassName::Arc => {
                     // Arc rendering using quadratic bezier (matching C pikchr)
                     // start and end are already in SVG coordinates (Y-flipped)
                     let control = arc_control_point(obj.style().clockwise, start, end);
@@ -567,7 +577,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     };
                     svg_children.push(SvgNode::Path(arc_path));
                 }
-                ObjectClass::Text => {
+                ClassName::Text => {
                     // Multi-line text: distribute lines vertically around center
                     // C pikchr stacks lines with charht spacing, centered on the object center
                     let charht_px = scaler.px(Inches(defaults::FONT_SIZE));
@@ -608,7 +618,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     }
                 }
 
-                ObjectClass::Sublist => {
+                ClassName::Sublist => {
                     // Render sublist children with offset
                     // Children are now ShapeEnums, use their render_svg method
                     if let Some(children) = obj.children() {
@@ -622,10 +632,10 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         } // end if !obj.style().invisible
 
         // Render text labels inside objects (always rendered, even for invisible shapes)
-        if obj.class() != ObjectClass::Text && !obj.text().is_empty() {
+        if obj.class() != ClassName::Text && !obj.text().is_empty() {
             // For cylinders, C pikchr shifts text down by 0.75 * cylrad
             // This accounts for the top ellipse taking up space
-            let text_y_offset = if obj.class() == ObjectClass::Cylinder {
+            let text_y_offset = if obj.class() == ClassName::Cylinder {
                 let cylrad = get_length(ctx, "cylrad", 0.075);
                 scaler.px(Inches::inches(0.75 * cylrad))
             } else {

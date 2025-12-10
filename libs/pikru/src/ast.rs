@@ -218,6 +218,7 @@ pub enum ClassName {
     Move,
     Oval,
     Spline,
+    Sublist,
     Text,
 }
 

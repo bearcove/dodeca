@@ -126,7 +126,7 @@ impl RenderContext {
     }
 
     /// Get the nth object of a class (1-indexed)
-    pub fn get_nth_object(&self, n: usize, class: Option<ObjectClass>) -> Option<&RenderedObject> {
+    pub fn get_nth_object(&self, n: usize, class: Option<ClassName>) -> Option<&RenderedObject> {
         let filtered: Vec<_> = self
             .object_list
             .iter()
@@ -136,7 +136,7 @@ impl RenderContext {
     }
 
     /// Get the last object of a class
-    pub fn get_last_object(&self, class: Option<ObjectClass>) -> Option<&RenderedObject> {
+    pub fn get_last_object(&self, class: Option<ClassName>) -> Option<&RenderedObject> {
         self.object_list
             .iter()
             .rev()
@@ -144,6 +144,7 @@ impl RenderContext {
     }
 
     /// Get a scalar value from variables, with fallback
+    // cref: pik_value (pikchr.c:6102)
     pub fn get_scalar(&self, name: &str, default: f64) -> f64 {
         self.variables
             .get(name)
@@ -152,6 +153,7 @@ impl RenderContext {
     }
 
     /// Get a length value from variables, with fallback
+    // cref: pik_value (pikchr.c:6102)
     pub fn get_length(&self, name: &str, default: f64) -> Inches {
         self.variables
             .get(name)
@@ -173,7 +175,7 @@ impl RenderContext {
         // For shaped objects, this is the edge point in the travel direction
         // For line-like objects, this is already handled correctly by their end()
         let exit_point = match obj.class() {
-            ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Move => {
+            ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move => {
                 // For line-like objects, end() is correct
                 obj.end()
             }

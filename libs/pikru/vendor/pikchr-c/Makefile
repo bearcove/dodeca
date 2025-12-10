@@ -17,9 +17,9 @@ pikchrfuzz:	pikchr.c
 	clang -g -O3 -fsanitize=fuzzer,undefined,address -o pikchrfuzz \
 	  -DPIKCHR_FUZZ pikchr.c $(LIBS)
 
-pikchr.c:	pikchr.y pikchr.h.in lempar.c lemon VERSION.h
-	./lemon pikchr.y
-	cat pikchr.h.in >pikchr.h
+# NOTE: pikchr.c generation from pikchr.y has been disabled to preserve
+# our debug modifications. If you need to regenerate, run manually:
+#   ./lemon pikchr.y && cat pikchr.h.in >pikchr.h
 
 VERSION.h:	VERSION manifest manifest.uuid mkversion.c
 	$(CC) -o mkversion mkversion.c
@@ -47,5 +47,5 @@ test:	pikchr
 	./pikchr --dont-stop --dark-mode */*.pikchr >darkmode.html
 	open darkmode.html
 
-clean:	
-	rm -f pikchr pikchr.c pikchr.h pikchr.out lemon out.html
+clean:
+	rm -f pikchr pikchr.h pikchr.out lemon out.html

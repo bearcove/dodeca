@@ -21,3 +21,17 @@ cargo test test12 -- --nocapture
 ```
 
 Never try to count/grep test results from the full suite - it will hang.
+
+## Debugging
+
+When in doubt, add tracing:
+- C code: `DBG()` macro
+- Rust code: `tracing::debug!()` (not `eprintln!`)
+
+## Code annotations
+
+All Rust functions ported from C must be annotated with a cref comment:
+```rust
+// cref: c_function_name
+fn rust_function() { ... }
+```

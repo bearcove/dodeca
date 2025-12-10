@@ -189,8 +189,8 @@ impl RenderedObject {
         self.shape.waypoints()
     }
 
-    pub fn class(&self) -> ObjectClass {
-        self.shape.object_class()
+    pub fn class(&self) -> ClassName {
+        self.shape.class()
     }
 
     pub fn children(&self) -> Option<&[super::shapes::ShapeEnum]> {
@@ -204,7 +204,7 @@ impl RenderedObject {
 
 #[derive(Debug, Clone)]
 pub struct EndpointObject {
-    pub class: ObjectClass,
+    pub class: ClassName,
     pub center: PointIn,
     pub width: Inches,
     pub height: Inches,
@@ -214,7 +214,7 @@ pub struct EndpointObject {
 impl EndpointObject {
     pub fn from_rendered(obj: &RenderedObject) -> Self {
         Self {
-            class: obj.shape.object_class(),
+            class: obj.shape.class(),
             center: obj.shape.center(),
             width: obj.shape.width(),
             height: obj.shape.height(),
@@ -223,26 +223,10 @@ impl EndpointObject {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ObjectClass {
-    Box,
-    Circle,
-    Ellipse,
-    Oval,
-    Cylinder,
-    Diamond,
-    File,
-    Line,
-    Arrow,
-    Spline,
-    Arc,
-    Move,
-    Dot,
-    Text,
-    Sublist,
-}
+/// Re-export ClassName as the object class type
+pub use crate::ast::ClassName;
 
-impl ObjectClass {
+impl ClassName {
     /// Returns true if this is a round shape (circle, ellipse, oval)
     pub fn is_round(self) -> bool {
         matches!(self, Self::Circle | Self::Ellipse | Self::Oval)

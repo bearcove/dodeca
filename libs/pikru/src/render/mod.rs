@@ -2,7 +2,7 @@
 //!
 //! This module is organized into submodules:
 //! - `defaults`: Default sizes and settings
-//! - `types`: Core types like Value, PositionedText, RenderedObject, ObjectClass, ObjectStyle
+//! - `types`: Core types like Value, PositionedText, RenderedObject, ClassName, ObjectStyle
 //! - `context`: RenderContext for tracking state during rendering
 //! - `eval`: Expression evaluation functions
 //! - `geometry`: Chop functions and path creation
@@ -22,7 +22,7 @@ pub use shapes::Shape;
 pub use types::*;
 
 use crate::ast::*;
-use crate::types::{EvalValue, Length as Inches, OffsetIn, Point, Size};
+use crate::types::{EvalValue, Length as Inches, OffsetIn, Point};
 use eval::{
     endpoint_object_from_position, eval_color, eval_expr, eval_len, eval_position, eval_rvalue,
     eval_scalar, resolve_object,
@@ -49,6 +49,7 @@ pub const AW_CHAR: [u8; 95] = [
 ];
 
 /// Calculate text width using proportional character widths like C pikchr.
+// cref: pik_text_length (pikchr.c:6368)
 pub fn pik_text_length(text: &str) -> u32 {
     let mut cnt: u32 = 0;
     for c in text.chars() {
@@ -183,195 +184,109 @@ fn render_statement(
 }
 
 /// Expand a bounding box to include a rendered object (recursing into sublists)
+// cref: pik_bbox_add_elist (pikchr.c:7206) - iterates objects
 pub fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
-    match obj.class() {
-        ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Arc => {
-            // C pikchr does not enlarge the bounding box by stroke width for line-like objects.
-            // Using the raw waypoints here keeps the computed viewBox identical to the C output.
-            if let Some(waypoints) = obj.waypoints() {
-                for pt in waypoints {
-                    bounds.expand_point(Point::new(pt.x, pt.y));
-                }
-            }
-            // Include text labels for lines (they extend above and below)
-            if !obj.text().is_empty() {
-                let charht = Inches(defaults::FONT_SIZE);
-                let (above_count, below_count) = count_text_above_below(obj.text());
-                // Text extends above and below the line center
-                let text_above = charht * above_count as f64;
-                let text_below = charht * below_count as f64;
-                let center = obj.center();
-                bounds.expand_point(Point::new(center.x, center.y - text_above));
-                bounds.expand_point(Point::new(center.x, center.y + text_below));
-            }
-        }
-        ObjectClass::Sublist => {
-            // For sublists, we need to recurse into the shape's children
-            // Children are stored as ShapeEnums, so we need to expand bounds for each directly
-            if let shapes::ShapeEnum::Sublist(sublist) = &obj.shape {
-                for child_shape in &sublist.children {
-                    expand_shape_bounds(bounds, child_shape);
-                }
-            }
-        }
-        ObjectClass::Text => {
-            // For text objects, iterate ALL text spans and expand bounds for each.
-            // Handle ljust/rjust - text extends in one direction from anchor point.
-            let charht = Inches(defaults::FONT_SIZE);
-            let charwid = defaults::CHARWID;
-            let center = obj.center();
-            let width = obj.width();
-            let height = obj.height();
-            let text = obj.text();
-
-            if text.is_empty() {
-                // No text - just use object dimensions
-                bounds.expand_rect(center, Size { w: width, h: height });
-            } else {
-                for t in text {
-                    let text_w = Inches(text_width_inches(&t.value, charwid));
-                    let hh = charht / 2.0;
-
-                    if t.rjust {
-                        // rjust: text extends to the LEFT of center (anchor at right edge)
-                        bounds.expand_point(Point::new(center.x - text_w, center.y - hh));
-                        bounds.expand_point(Point::new(center.x, center.y + hh));
-                    } else if t.ljust {
-                        // ljust: text extends to the RIGHT of center (anchor at left edge)
-                        bounds.expand_point(Point::new(center.x, center.y - hh));
-                        bounds.expand_point(Point::new(center.x + text_w, center.y + hh));
-                    } else {
-                        // Centered text
-                        bounds.expand_rect(center, Size { w: text_w, h: charht });
-                    }
-                }
-            }
-        }
-        _ => {
-            // For invisible objects, only include text bounds, not shape bounds
-            let style = obj.style();
-            let text = obj.text();
-            let center = obj.center();
-
-            if style.invisible && !text.is_empty() {
-                let charht = Inches(defaults::FONT_SIZE);
-                let charwid = defaults::CHARWID;
-                for t in text {
-                    let text_w = Inches(text_width_inches(&t.value, charwid));
-                    let hh = charht / 2.0;
-                    let hw = text_w / 2.0;
-                    bounds.expand_point(Point::new(center.x - hw, center.y - hh));
-                    bounds.expand_point(Point::new(center.x + hw, center.y + hh));
-                }
-            } else if !style.invisible {
-                bounds.expand_rect(center, Size { w: obj.width(), h: obj.height() })
-            }
-        }
-    }
+    // Delegate to the shape's expand_bounds method via enum_dispatch
+    obj.shape.expand_bounds(bounds);
 }
 
-/// Expand a bounding box to include a shape (for sublists)
-fn expand_shape_bounds(bounds: &mut BoundingBox, shape: &shapes::ShapeEnum) {
-    use shapes::ShapeEnum;
+/// Vertical slot assignment for text
+/// cref: pik_txt_vertical_layout (pikchr.c:4984)
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TextVSlot {
+    Above2,
+    Above,
+    Center,
+    Below,
+    Below2,
+}
 
-    match shape {
-        ShapeEnum::Line(_) | ShapeEnum::Spline(_) | ShapeEnum::Arc(_) => {
-            // For line-like shapes, expand by waypoints
-            if let Some(waypoints) = shape.waypoints() {
-                for pt in waypoints {
-                    bounds.expand_point(Point::new(pt.x, pt.y));
-                }
-            } else {
-                // Arc has start/end instead of waypoints
-                bounds.expand_point(shape.start());
-                bounds.expand_point(shape.end());
-            }
-            // Include text labels
-            if !shape.text().is_empty() {
-                let charht = Inches(defaults::FONT_SIZE);
-                let (above_count, below_count) = count_text_above_below(shape.text());
-                let text_above = charht * above_count as f64;
-                let text_below = charht * below_count as f64;
-                let center = shape.center();
-                bounds.expand_point(Point::new(center.x, center.y - text_above));
-                bounds.expand_point(Point::new(center.x, center.y + text_below));
-            }
-        }
-        ShapeEnum::Sublist(sublist) => {
-            // Recurse into sublist children
-            for child in &sublist.children {
-                expand_shape_bounds(bounds, child);
-            }
-        }
-        ShapeEnum::Text(text_shape) => {
-            // Handle text shape bounds similarly
-            let charht = Inches(defaults::FONT_SIZE);
-            let charwid = defaults::CHARWID;
-            let center = text_shape.center;
+/// Compute vertical slot assignments for text lines
+/// cref: pik_txt_vertical_layout (pikchr.c:4984)
+pub fn compute_text_vslots(texts: &[PositionedText]) -> Vec<TextVSlot> {
+    let n = texts.len();
+    if n == 0 {
+        return vec![];
+    }
 
-            if text_shape.text.is_empty() {
-                bounds.expand_rect(center, Size { w: text_shape.width, h: text_shape.height });
+    // First, check what slots are explicitly assigned
+    let mut slots: Vec<Option<TextVSlot>> = texts
+        .iter()
+        .map(|t| {
+            if t.above {
+                Some(TextVSlot::Above)
+            } else if t.below {
+                Some(TextVSlot::Below)
             } else {
-                for t in &text_shape.text {
-                    let text_w = Inches(text_width_inches(&t.value, charwid));
-                    let hh = charht / 2.0;
-                    if t.rjust {
-                        bounds.expand_point(Point::new(center.x - text_w, center.y - hh));
-                        bounds.expand_point(Point::new(center.x, center.y + hh));
-                    } else if t.ljust {
-                        bounds.expand_point(Point::new(center.x, center.y - hh));
-                        bounds.expand_point(Point::new(center.x + text_w, center.y + hh));
-                    } else {
-                        bounds.expand_rect(center, Size { w: text_w, h: charht });
-                    }
-                }
+                None // unassigned
             }
+        })
+        .collect();
+
+    if n == 1 {
+        // Single text defaults to center
+        if slots[0].is_none() {
+            slots[0] = Some(TextVSlot::Center);
         }
-        _ => {
-            // For other shapes, expand by bounding box
-            let style = shape.style();
-            if style.invisible && !shape.text().is_empty() {
-                let charht = Inches(defaults::FONT_SIZE);
-                let charwid = defaults::CHARWID;
-                let center = shape.center();
-                for t in shape.text() {
-                    let text_w = Inches(text_width_inches(&t.value, charwid));
-                    let hh = charht / 2.0;
-                    let hw = text_w / 2.0;
-                    bounds.expand_point(Point::new(center.x - hw, center.y - hh));
-                    bounds.expand_point(Point::new(center.x + hw, center.y + hh));
-                }
-            } else if !style.invisible {
-                bounds.expand_rect(shape.center(), Size { w: shape.width(), h: shape.height() })
-            }
+        return slots.into_iter().map(|s| s.unwrap()).collect();
+    }
+
+    // Build list of free slots (from top to bottom)
+    let all_slots_mask: u8 = slots
+        .iter()
+        .map(|s| match s {
+            Some(TextVSlot::Above2) => 1,
+            Some(TextVSlot::Above) => 2,
+            Some(TextVSlot::Center) => 4,
+            Some(TextVSlot::Below) => 8,
+            Some(TextVSlot::Below2) => 16,
+            None => 0,
+        })
+        .fold(0, |a, b| a | b);
+
+    let mut free_slots = Vec::new();
+    if n >= 4 && (all_slots_mask & 1) == 0 {
+        free_slots.push(TextVSlot::Above2);
+    }
+    if (all_slots_mask & 2) == 0 {
+        free_slots.push(TextVSlot::Above);
+    }
+    if (n & 1) != 0 {
+        // odd number of texts: include center slot
+        free_slots.push(TextVSlot::Center);
+    }
+    if (all_slots_mask & 8) == 0 {
+        free_slots.push(TextVSlot::Below);
+    }
+    if n >= 4 && (all_slots_mask & 16) == 0 {
+        free_slots.push(TextVSlot::Below2);
+    }
+
+    // Assign free slots to unassigned texts
+    let mut free_iter = free_slots.into_iter();
+    for slot in &mut slots {
+        if slot.is_none() {
+            *slot = free_iter.next();
         }
     }
+
+    slots
+        .into_iter()
+        .map(|s| s.unwrap_or(TextVSlot::Center))
+        .collect()
 }
 
 /// Count text labels above and below for lines
-fn count_text_above_below(texts: &[PositionedText]) -> (usize, usize) {
-    let mut above = 0;
-    let mut below = 0;
-    let mut center = 0;
-
-    for text in texts {
-        if text.above {
-            above += 1;
-        } else if text.below {
-            below += 1;
-        } else {
-            center += 1;
-        }
-    }
-
-    // For lines, center text is distributed: first half above, second half below
-    // If only center texts (no explicit above/below), distribute evenly
-    if above == 0 && below == 0 && center > 0 {
-        // C pikchr: first text above, rest below (for 2 texts: 1 above, 1 below)
-        above = (center + 1) / 2; // ceiling division
-        below = center / 2;
-    }
-
+pub fn count_text_above_below(texts: &[PositionedText]) -> (usize, usize) {
+    let slots = compute_text_vslots(texts);
+    let above = slots
+        .iter()
+        .filter(|s| matches!(s, TextVSlot::Above | TextVSlot::Above2))
+        .count();
+    let below = slots
+        .iter()
+        .filter(|s| matches!(s, TextVSlot::Below | TextVSlot::Below2))
+        .count();
     (above, below)
 }
 
@@ -387,7 +302,7 @@ fn compute_children_bounds(children: &[RenderedObject]) -> BoundingBox {
 /// Create a partial RenderedObject for `this` keyword resolution during attribute processing.
 /// This allows expressions like `ht this.wid` to access the current object's computed properties.
 fn make_partial_object(
-    class: ObjectClass,
+    class_name: Option<ClassName>,
     width: Inches,
     height: Inches,
     style: &ObjectStyle,
@@ -397,14 +312,14 @@ fn make_partial_object(
     let center = pin(0.0, 0.0);
 
     // Create a simple shape for the partial object based on class
-    let shape = match class {
-        ObjectClass::Circle => ShapeEnum::Circle(CircleShape {
+    let shape = match class_name {
+        Some(ClassName::Circle) => ShapeEnum::Circle(CircleShape {
             center,
             radius: width / 2.0,
             style: style.clone(),
             text: Vec::new(),
         }),
-        ObjectClass::Line | ObjectClass::Arrow => ShapeEnum::Line(LineShape {
+        Some(ClassName::Line) | Some(ClassName::Arrow) => ShapeEnum::Line(LineShape {
             waypoints: vec![center, pin(width.0, 0.0)],
             style: style.clone(),
             text: Vec::new(),
@@ -431,12 +346,12 @@ fn make_partial_object(
 /// Update the current_object in context with latest dimensions
 fn update_current_object(
     ctx: &mut RenderContext,
-    class: ObjectClass,
+    class_name: Option<ClassName>,
     width: Inches,
     height: Inches,
     style: &ObjectStyle,
 ) {
-    ctx.current_object = Some(make_partial_object(class, width, height, style));
+    ctx.current_object = Some(make_partial_object(class_name, width, height, style));
 }
 
 fn render_object_stmt(
@@ -444,81 +359,81 @@ fn render_object_stmt(
     obj_stmt: &ObjectStatement,
     name: Option<String>,
 ) -> Result<RenderedObject, miette::Report> {
+    // Extract class name for shapes that have one
+    let class_name: Option<ClassName> = match &obj_stmt.basetype {
+        BaseType::Class(cn) => Some(*cn),
+        BaseType::Text(_, _) => Some(ClassName::Text),
+        BaseType::Sublist(_) => Some(ClassName::Sublist),
+    };
+    // Unwrap for use in fit/position logic - Sublist uses default Box-like behavior
+    let class = class_name.unwrap_or(ClassName::Box);
+
     // Determine base object properties from context variables (like C pikchr's pik_value)
-    let (class, mut width, mut height) = match &obj_stmt.basetype {
+    let (mut width, mut height) = match &obj_stmt.basetype {
         BaseType::Class(cn) => match cn {
             ClassName::Box => (
-                ObjectClass::Box,
                 ctx.get_length("boxwid", 0.75),
                 ctx.get_length("boxht", 0.5),
             ),
             ClassName::Circle => {
                 let rad = ctx.get_length("circlerad", 0.25);
-                (ObjectClass::Circle, rad * 2.0, rad * 2.0)
+                (rad * 2.0, rad * 2.0)
             }
             ClassName::Ellipse => (
-                ObjectClass::Ellipse,
                 ctx.get_length("ellipsewid", 0.75),
                 ctx.get_length("ellipseht", 0.5),
             ),
             ClassName::Oval => (
-                ObjectClass::Oval,
                 ctx.get_length("ovalwid", 1.0),
                 ctx.get_length("ovalht", 0.5),
             ),
             ClassName::Cylinder => (
-                ObjectClass::Cylinder,
                 ctx.get_length("cylwid", 0.75),
                 ctx.get_length("cylht", 0.5),
             ),
             ClassName::Diamond => (
-                ObjectClass::Diamond,
                 ctx.get_length("diamondwid", 1.0),
                 ctx.get_length("diamondht", 0.75),
             ),
             ClassName::File => (
-                ObjectClass::File,
                 ctx.get_length("filewid", 0.5),
                 ctx.get_length("fileht", 0.75),
             ),
             ClassName::Line => (
-                ObjectClass::Line,
                 ctx.get_length("linewid", 0.5),
                 ctx.get_length("lineht", 0.5),
             ),
             ClassName::Arrow => (
-                ObjectClass::Arrow,
                 ctx.get_length("linewid", 0.5),
                 ctx.get_length("lineht", 0.5),
             ),
             ClassName::Spline => (
-                ObjectClass::Spline,
                 ctx.get_length("linewid", 0.5),
                 ctx.get_length("lineht", 0.5),
             ),
             ClassName::Arc => {
                 let arcrad = ctx.get_length("arcrad", 0.25);
-                (ObjectClass::Arc, arcrad, arcrad)
+                (arcrad, arcrad)
             }
             ClassName::Move => (
-                ObjectClass::Move,
                 ctx.get_length("movewid", 0.5),
                 Inches::ZERO,
             ),
             ClassName::Dot => {
                 let dotrad = ctx.get_length("dotrad", 0.025);
-                (ObjectClass::Dot, dotrad * 2.0, dotrad * 2.0)
+                (dotrad * 2.0, dotrad * 2.0)
             }
             ClassName::Text => {
                 // Default dimensions - will be overridden by actual text content later
                 // Use charht for height to match C pikchr's text sizing
                 let charht = ctx.get_scalar("charht", 0.14);
                 (
-                    ObjectClass::Text,
                     ctx.get_length("textwid", 0.75),
                     Inches(charht),
                 )
             }
+            // Sublist is handled via BaseType::Sublist, not BaseType::Class(Sublist)
+            ClassName::Sublist => (Inches::ZERO, Inches::ZERO),
         },
         BaseType::Text(s, _) => {
             // Use proportional character widths like C pikchr
@@ -526,11 +441,11 @@ fn render_object_stmt(
             let charht = ctx.get_scalar("charht", 0.14);
             let w = text_width_inches(&s.value, charwid);
             let h = charht;
-            (ObjectClass::Text, Inches(w), Inches(h))
+            (Inches(w), Inches(h))
         }
         BaseType::Sublist(_) => {
             // Placeholder - will be computed from rendered children below
-            (ObjectClass::Sublist, Inches::ZERO, Inches::ZERO)
+            (Inches::ZERO, Inches::ZERO)
         }
     };
 
@@ -578,7 +493,7 @@ fn render_object_stmt(
     }
 
     // Default arrow style for arrows
-    if class == ObjectClass::Arrow {
+    if class_name == Some(ClassName::Arrow) {
         style.arrow_end = true;
     }
 
@@ -600,33 +515,85 @@ fn render_object_stmt(
             }
         }
         // Apply fit sizing - SET size to fit text (can shrink below default)
+        // This matches C pikchr's pik_size_to_fit() function
         if !fit_text.is_empty() {
-            let char_width = defaults::FONT_SIZE * 0.6;
-            // C pikchr uses padding of approximately 0.55 * font_size
-            let padding = defaults::FONT_SIZE * 0.55;
+            let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
+            let charht = ctx.get_scalar("charht", defaults::FONT_SIZE);
+
+            // Calculate text bounding box like C pikchr's pik_append_txt
+            // For centered text: bbox extends from -cw/2 to +cw/2 horizontally
+            // and -ch to +ch vertically (where ch = charht * 0.5)
             let max_text_width = fit_text
                 .iter()
-                .map(|t| t.value.len() as f64 * char_width)
+                .map(|t| text_width_inches(&t.value, charwid))
                 .fold(0.0_f64, |a, b| a.max(b));
-            let center_lines = fit_text.iter().filter(|t| !t.above && !t.below).count();
-            let fit_width = Inches(max_text_width + padding * 2.0);
-            let fit_height = Inches((center_lines as f64 * defaults::FONT_SIZE) + padding * 2.0);
 
-            // For circles, use the larger of fit_width/fit_height as diameter
-            if class == ObjectClass::Circle {
-                let diameter = fit_width.max(fit_height);
-                width = diameter;
-                height = diameter;
-            } else {
-                width = fit_width;
-                height = fit_height;
+            // C pikchr fit: w = (bbox.ne.x - bbox.sw.x) + charWidth
+            // For centered text, bbox width = text_width, so w = text_width + charwid
+            let fit_width = Inches(max_text_width + charwid);
+
+            // C pikchr fit: h = 2.0 * max(h1, h2) + 0.5 * charHeight
+            // For single centered line: h1 = h2 = charht * 0.5, so h = charht + 0.5*charht = 1.5*charht
+            let center_lines = fit_text.iter().filter(|t| !t.above && !t.below).count();
+            let half_height = charht * 0.5 * center_lines.max(1) as f64;
+            let fit_height = Inches(2.0 * half_height + 0.5 * charht);
+
+            // Apply shape-specific fit logic matching C pikchr's xFit callbacks
+            match class_name {
+                Some(ClassName::Circle) => {
+                    // cref: circleFit (pikchr.c:3940) - uses hypot(w,h) when both are positive
+                    let w = fit_width.raw();
+                    let h = fit_height.raw();
+                    let mut mx = w.max(h);
+                    if w > 0.0 && h > 0.0 && (w * w + h * h) > mx * mx {
+                        mx = w.hypot(h);
+                    }
+                    let diameter = Inches(mx);
+                    width = diameter;
+                    height = diameter;
+                }
+                Some(ClassName::Cylinder) => {
+                    // cref: cylinderFit (pikchr.c:3976) - height = h + 0.25*rad + stroke_width
+                    let rad = ctx.get_length("cylrad", 0.075);
+                    width = fit_width;
+                    height = fit_height + rad * 0.25 + style.stroke_width;
+                }
+                Some(ClassName::Diamond) => {
+                    // cref: diamondFit (pikchr.c:4096) - 1.5x initial scale, then proportional expansion
+                    let mut w = fit_width.raw() * 1.5;
+                    let mut h = fit_height.raw() * 1.5;
+                    if w > 0.0 && h > 0.0 {
+                        let x = w * fit_height.raw() / h + fit_width.raw();
+                        let y = h * x / w;
+                        w = x;
+                        h = y;
+                    }
+                    width = Inches(w);
+                    height = Inches(h);
+                }
+                Some(ClassName::File) => {
+                    // cref: fileFit (pikchr.c:4214) - height = h + 2*rad (corner fold padding)
+                    let rad = ctx.get_length("filerad", 0.15);
+                    width = fit_width;
+                    height = fit_height + rad * 2.0;
+                }
+                Some(ClassName::Oval) => {
+                    // cref: ovalFit (pikchr.c:4320) - enforce width >= height
+                    width = fit_width.max(fit_height);
+                    height = fit_height;
+                }
+                _ => {
+                    // cref: boxFit (pikchr.c:3845) - Box, Ellipse, Text: direct assignment
+                    width = fit_width;
+                    height = fit_height;
+                }
             }
             style.fit = true;
         }
     }
 
     // Initialize current_object for `this` keyword support
-    update_current_object(ctx, class, width, height, &style);
+    update_current_object(ctx, class_name, width, height, &style);
 
     // Process attributes
     for attr in &obj_stmt.attributes {
@@ -639,8 +606,8 @@ fn render_object_stmt(
                         NumProperty::Width => width,
                         NumProperty::Height => height,
                         NumProperty::Radius => {
-                            match class {
-                                ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Arc => {
+                            match class_name {
+                                Some(ClassName::Circle) | Some(ClassName::Ellipse) | Some(ClassName::Arc) => {
                                     width / 2.0 // current radius
                                 }
                                 _ => style.corner_radius,
@@ -658,20 +625,20 @@ fn render_object_stmt(
                 match prop {
                     NumProperty::Width => {
                         width = val;
-                        update_current_object(ctx, class, width, height, &style);
+                        update_current_object(ctx, class_name, width, height, &style);
                     }
                     NumProperty::Height => {
                         height = val;
-                        update_current_object(ctx, class, width, height, &style);
+                        update_current_object(ctx, class_name, width, height, &style);
                     }
                     NumProperty::Radius => {
                         // For circles/ellipses, radius sets size (diameter = 2 * radius)
                         // For boxes, radius sets corner rounding
-                        match class {
-                            ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Arc => {
+                        match class_name {
+                            Some(ClassName::Circle) | Some(ClassName::Ellipse) | Some(ClassName::Arc) => {
                                 width = val * 2.0;
                                 height = val * 2.0;
-                                update_current_object(ctx, class, width, height, &style);
+                                update_current_object(ctx, class_name, width, height, &style);
                             }
                             _ => {
                                 style.corner_radius = val;
@@ -681,7 +648,7 @@ fn render_object_stmt(
                     NumProperty::Diameter => {
                         width = val;
                         height = val;
-                        update_current_object(ctx, class, width, height, &style);
+                        update_current_object(ctx, class_name, width, height, &style);
                     }
                     NumProperty::Thickness => style.stroke_width = val,
                 }
@@ -825,33 +792,89 @@ fn render_object_stmt(
     }
 
     // Apply fit: auto-size shape to fit text content
-    if style.fit && !text.is_empty() {
-        // Estimate text width: ~7 pixels per character for a 12pt font
-        let char_width = defaults::FONT_SIZE * 0.6;
-        // C pikchr uses padding of approximately 0.55 * font_size
-        let padding = defaults::FONT_SIZE * 0.55;
+    // cref: pik_size_to_fit (pikchr.c:6438)
+    // cref: textOffset (pikchr.c:4416) - text objects always get auto-fitted
+    let should_fit = style.fit || class == ClassName::Text;
+    if should_fit && !text.is_empty() {
+        let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
+        let charht = ctx.get_scalar("charht", defaults::FONT_SIZE);
 
-        // Find the widest text line
+        // Calculate text bounding box like C pikchr's pik_append_txt
         let max_text_width = text
             .iter()
-            .map(|t| t.value.len() as f64 * char_width)
+            .map(|t| text_width_inches(&t.value, charwid))
             .fold(0.0_f64, |a, b| a.max(b));
 
-        // Count lines (excluding above/below positioned text)
+        // C pikchr fit: w = (bbox.ne.x - bbox.sw.x) + charWidth
+        let fit_width = Inches(max_text_width + charwid);
+
+        // C pikchr fit: h = 2.0 * max(h1, h2) + 0.5 * charHeight
         let center_lines = text.iter().filter(|t| !t.above && !t.below).count();
+        let half_height = charht * 0.5 * center_lines.max(1) as f64;
+        let fit_height = Inches(2.0 * half_height + 0.5 * charht);
 
-        let fit_width = Inches(max_text_width + padding * 2.0);
-        let fit_height = Inches((center_lines as f64 * defaults::FONT_SIZE) + padding * 2.0);
-
-        // For "fit", SET the size (can shrink), don't just expand
-        // For circles, use the larger of fit_width/fit_height as diameter
-        if class == ObjectClass::Circle {
-            let diameter = fit_width.max(fit_height);
-            width = diameter;
-            height = diameter;
-        } else {
-            width = fit_width;
-            height = fit_height;
+        // Apply shape-specific fit logic matching C pikchr's xFit callbacks
+        match class {
+            ClassName::Circle => {
+                // cref: circleFit (pikchr.c:3940)
+                let w = fit_width.raw();
+                let h = fit_height.raw();
+                let mut mx = w.max(h);
+                tracing::debug!(w, h, mx, "circleFit initial");
+                if w > 0.0 && h > 0.0 && (w * w + h * h) > mx * mx {
+                    mx = w.hypot(h);
+                    tracing::debug!(mx, "circleFit using hypot");
+                }
+                let diameter = Inches(mx);
+                let radius = diameter / 2.0;
+                tracing::debug!(rad_inches = radius.raw(), rad_px = radius.raw() * 144.0, "circleFit final");
+                width = diameter;
+                height = diameter;
+            }
+            ClassName::Cylinder => {
+                // cref: cylinderFit (pikchr.c:3976)
+                let rad = ctx.get_length("cylrad", 0.075);
+                width = fit_width;
+                height = fit_height + rad * 0.25 + style.stroke_width;
+            }
+            ClassName::Diamond => {
+                // cref: diamondFit (pikchr.c:4096)
+                let mut w = fit_width.raw() * 1.5;
+                let mut h = fit_height.raw() * 1.5;
+                if w > 0.0 && h > 0.0 {
+                    let x = w * fit_height.raw() / h + fit_width.raw();
+                    let y = h * x / w;
+                    w = x;
+                    h = y;
+                }
+                width = Inches(w);
+                height = Inches(h);
+            }
+            ClassName::File => {
+                // cref: fileFit (pikchr.c:4214)
+                let rad = ctx.get_length("filerad", 0.15);
+                width = fit_width;
+                height = fit_height + rad * 2.0;
+            }
+            ClassName::Oval => {
+                // cref: ovalFit (pikchr.c:4320)
+                width = fit_width.max(fit_height);
+                height = fit_height;
+            }
+            _ => {
+                // cref: boxFit (pikchr.c:3845) - Box, Ellipse, Text: direct assignment
+                width = fit_width;
+                height = fit_height;
+            }
+        }
+        if class == ClassName::Text {
+            tracing::debug!(
+                fit_width = fit_width.raw(),
+                fit_height = fit_height.raw(),
+                width = width.raw(),
+                height = height.raw(),
+                "textFit"
+            );
         }
     }
 
@@ -871,11 +894,11 @@ fn render_object_stmt(
             if let Some(last_obj) = ctx.last_object() {
                 // For line-like objects, use the end point directly
                 match last_obj.class() {
-                    ObjectClass::Line
-                    | ObjectClass::Arrow
-                    | ObjectClass::Spline
-                    | ObjectClass::Arc
-                    | ObjectClass::Move => last_obj.end(),
+                    ClassName::Line
+                    | ClassName::Arrow
+                    | ClassName::Spline
+                    | ClassName::Arc
+                    | ClassName::Move => last_obj.end(),
                     _ => {
                         // For box-like objects, calculate exit edge based on direction
                         let (hw, hh) = (last_obj.width() / 2.0, last_obj.height() / 2.0);
@@ -1009,7 +1032,7 @@ fn render_object_stmt(
     // Create the appropriate shape based on class
     use shapes::*;
     let shape = match class {
-        ObjectClass::Box => ShapeEnum::Box(BoxShape {
+        ClassName::Box => ShapeEnum::Box(BoxShape {
             center,
             width,
             height,
@@ -1017,41 +1040,41 @@ fn render_object_stmt(
             style: style.clone(),
             text: text.clone(),
         }),
-        ObjectClass::Circle => ShapeEnum::Circle(CircleShape {
+        ClassName::Circle => ShapeEnum::Circle(CircleShape {
             center,
             radius: width / 2.0,
             style: style.clone(),
             text: text.clone(),
         }),
-        ObjectClass::Ellipse => ShapeEnum::Ellipse(EllipseShape {
+        ClassName::Ellipse => ShapeEnum::Ellipse(EllipseShape {
             center,
             width,
             height,
             style: style.clone(),
             text: text.clone(),
         }),
-        ObjectClass::Oval => ShapeEnum::Oval(OvalShape {
+        ClassName::Oval => ShapeEnum::Oval(OvalShape {
             center,
             width,
             height,
             style: style.clone(),
             text: text.clone(),
         }),
-        ObjectClass::Diamond => ShapeEnum::Diamond(DiamondShape {
+        ClassName::Diamond => ShapeEnum::Diamond(DiamondShape {
             center,
             width,
             height,
             style: style.clone(),
             text: text.clone(),
         }),
-        ObjectClass::Cylinder => ShapeEnum::Cylinder(CylinderShape {
+        ClassName::Cylinder => ShapeEnum::Cylinder(CylinderShape {
             center,
             width,
             height,
             style: style.clone(),
             text: text.clone(),
         }),
-        ObjectClass::File => ShapeEnum::File(FileShape {
+        ClassName::File => ShapeEnum::File(FileShape {
             center,
             width,
             height,
@@ -1059,9 +1082,9 @@ fn render_object_stmt(
             style: style.clone(),
             text: text.clone(),
         }),
-        ObjectClass::Line | ObjectClass::Arrow => {
+        ClassName::Line | ClassName::Arrow => {
             let mut line_style = style.clone();
-            if class == ObjectClass::Arrow {
+            if class == ClassName::Arrow {
                 line_style.arrow_end = true;
             }
             ShapeEnum::Line(LineShape {
@@ -1070,38 +1093,38 @@ fn render_object_stmt(
                 text: text.clone(),
             })
         }
-        ObjectClass::Spline => ShapeEnum::Spline(SplineShape {
+        ClassName::Spline => ShapeEnum::Spline(SplineShape {
             waypoints: waypoints.clone(),
             style: style.clone(),
             text: text.clone(),
         }),
-        ObjectClass::Arc => ShapeEnum::Arc(ArcShape {
+        ClassName::Arc => ShapeEnum::Arc(ArcShape {
             start,
             end,
             style: style.clone(),
             text: text.clone(),
             clockwise: style.clockwise,
         }),
-        ObjectClass::Move => ShapeEnum::Move(MoveShape {
+        ClassName::Move => ShapeEnum::Move(MoveShape {
             start,
             end,
             style: style.clone(),
             text: text.clone(),
         }),
-        ObjectClass::Dot => ShapeEnum::Dot(DotShape {
+        ClassName::Dot => ShapeEnum::Dot(DotShape {
             center,
             radius: width / 2.0,
             style: style.clone(),
             text: text.clone(),
         }),
-        ObjectClass::Text => ShapeEnum::Text(TextShape {
+        ClassName::Text => ShapeEnum::Text(TextShape {
             center,
             width,
             height,
             style: style.clone(),
             text: text.clone(),
         }),
-        ObjectClass::Sublist => {
+        ClassName::Sublist => {
             // Convert RenderedObject children to ShapeEnum children
             let shape_children: Vec<ShapeEnum> = children.into_iter().map(|obj| obj.shape).collect();
             ShapeEnum::Sublist(SublistShape {
@@ -1160,7 +1183,7 @@ fn calculate_center_from_edge(
     target: PointIn,
     width: Inches,
     height: Inches,
-    class: ObjectClass,
+    class: ClassName,
 ) -> PointIn {
     match edge {
         EdgePoint::Center | EdgePoint::C | EdgePoint::Start | EdgePoint::End => return target,
@@ -1274,39 +1297,56 @@ fn calculate_object_position_at(
 
 fn calculate_object_position(
     ctx: &RenderContext,
-    class: ObjectClass,
+    class: ClassName,
     width: Inches,
     height: Inches,
 ) -> (PointIn, PointIn, PointIn) {
+    // cref: pik_elem_new (pikchr.c:5615) - initial positioning logic
+    // First object: centered at (0,0) with eWith=CP_C
+    // Subsequent objects: entry edge at previous exit, with eWith=CP_W/E/N/S
+
+    let is_first_object = ctx.object_list.is_empty();
+
     // For line-like objects, start is at cursor, end is cursor + length in direction
     let (start, end, center) = match class {
-        ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Move => {
+        ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move => {
             let start = ctx.position;
             let end = start + ctx.direction.offset(width);
             let mid = start.midpoint(end);
             (start, end, mid)
         }
         _ => {
-            // For shaped objects (box, circle, etc.):
-            // The entry edge is placed at the current cursor, not the center.
-            // This matches C pikchr behavior where objects chain edge-to-edge.
             let (half_w, half_h) = (width / 2.0, height / 2.0);
-            // Center is half-dimension in the direction of travel from cursor
-            let half_dim = match ctx.direction {
-                Direction::Right | Direction::Left => half_w,
-                Direction::Up | Direction::Down => half_h,
-            };
-            let center = ctx.position + ctx.direction.offset(half_dim);
-            // Start is the entry edge (opposite to travel direction)
-            let start = center + ctx.direction.opposite().offset(half_dim);
-            // End is the exit edge (in travel direction)
-            let end = center + ctx.direction.offset(half_dim);
-            (start, end, center)
+
+            if is_first_object {
+                // First object: center at cursor (which is 0,0)
+                // cref: pik_elem_new line 5632: pNew->eWith = CP_C
+                let center = ctx.position;
+                let half_dim = match ctx.direction {
+                    Direction::Right | Direction::Left => half_w,
+                    Direction::Up | Direction::Down => half_h,
+                };
+                let start = center + ctx.direction.opposite().offset(half_dim);
+                let end = center + ctx.direction.offset(half_dim);
+                (start, end, center)
+            } else {
+                // Subsequent objects: entry edge at cursor
+                // cref: pik_elem_new line 5637: pNew->eWith = CP_W/E/N/S
+                let half_dim = match ctx.direction {
+                    Direction::Right | Direction::Left => half_w,
+                    Direction::Up | Direction::Down => half_h,
+                };
+                let center = ctx.position + ctx.direction.offset(half_dim);
+                let start = center + ctx.direction.opposite().offset(half_dim);
+                let end = center + ctx.direction.offset(half_dim);
+                (start, end, center)
+            }
         }
     };
 
     tracing::debug!(
         ?class,
+        is_first_object,
         cursor_x = ctx.position.x.0,
         cursor_y = ctx.position.y.0,
         dir = ?ctx.direction,

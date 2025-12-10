@@ -328,34 +328,34 @@ fn chop_against_endpoint(
     // - circleChop: circle, dot (uses radius, continuous intersection)
     // - ellipseChop: ellipse (uses width/height, continuous intersection)
     match endpoint.class {
-        ObjectClass::Circle => {
+        ClassName::Circle => {
             // circleChop - continuous ray intersection with circle
             chop_against_ellipse(center, half_size, toward)
         }
-        ObjectClass::Ellipse => {
+        ClassName::Ellipse => {
             // ellipseChop - continuous ray intersection with ellipse
             chop_against_ellipse(center, half_size, toward)
         }
-        ObjectClass::Box => {
+        ClassName::Box => {
             // boxChop - discrete compass points
             chop_against_box_compass_point(center, half_size, corner_radius, toward)
         }
-        ObjectClass::File => {
+        ClassName::File => {
             // fileOffset - like box but NE corner is inset for the fold
             let filerad = scaler.px(defaults::FILE_RAD);
             chop_against_file_compass_point(center, half_size, filerad, toward)
         }
-        ObjectClass::Cylinder => {
+        ClassName::Cylinder => {
             // cylinderOffset - special compass points with ellipse inset
             let cylrad = scaler.px(Inches::inches(0.075)); // default cylrad
             chop_against_cylinder_compass_point(center, half_size, cylrad, toward)
         }
-        ObjectClass::Oval => {
+        ClassName::Oval => {
             // boxChop with corner radius = half of smaller dimension
             let oval_radius = half_size.x.min(half_size.y);
             chop_against_box_compass_point(center, half_size, oval_radius, toward)
         }
-        ObjectClass::Diamond => {
+        ClassName::Diamond => {
             // diamondOffset - corners at quarter width/height
             chop_against_diamond_compass_point(center, half_size, toward)
         }

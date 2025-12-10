@@ -5,16 +5,20 @@
 //! - Find edge points for line connections
 //! - Render itself to SVG
 
-use crate::types::{Length as Inches, OffsetIn, Point, Scaler, UnitVec};
+use crate::types::{BoxIn, Length as Inches, OffsetIn, Point, Scaler, Size, UnitVec};
 use facet_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode, SvgStyle};
 
 use super::defaults;
+use super::{text_width_inches, count_text_above_below, compute_text_vslots, TextVSlot};
+
+/// Bounding box type alias
+pub type BoundingBox = BoxIn;
 use super::geometry::{
     arc_control_point, create_arc_path, create_cylinder_paths_with_rad, create_file_paths,
     create_oval_path, create_rounded_box_path, create_spline_path,
 };
 use super::svg::{color_to_rgb, render_arrowhead_dom};
-use super::types::{ObjectStyle, PointIn, PositionedText};
+use super::types::{ClassName, ObjectStyle, PointIn, PositionedText};
 use glam::dvec2;
 
 use enum_dispatch::enum_dispatch;
@@ -98,6 +102,30 @@ pub trait Shape {
 
     /// Translate this shape by an offset
     fn translate(&mut self, offset: OffsetIn);
+
+    /// Expand a bounding box to include this shape
+    /// cref: pik_bbox_add_elist (pikchr.c:7206)
+    /// Default implementation for box-like shapes
+    fn expand_bounds(&self, bounds: &mut BoundingBox) {
+        let style = self.style();
+        let text = self.text();
+        let center = self.center();
+
+        if style.invisible && !text.is_empty() {
+            // For invisible objects, only include text bounds
+            let charht = Inches(defaults::FONT_SIZE);
+            let charwid = defaults::CHARWID;
+            for t in text {
+                let text_w = Inches(text_width_inches(&t.value, charwid));
+                let hh = charht / 2.0;
+                let hw = text_w / 2.0;
+                bounds.expand_point(Point::new(center.x - hw, center.y - hh));
+                bounds.expand_point(Point::new(center.x + hw, center.y + hh));
+            }
+        } else if !style.invisible {
+            bounds.expand_rect(center, Size { w: self.width(), h: self.height() });
+        }
+    }
 }
 
 /// Cardinal and intercardinal directions for edge points
@@ -827,6 +855,24 @@ impl Shape for LineShape {
             *pt += offset;
         }
     }
+
+    /// cref: pik_bbox_add_elist (pikchr.c:7206) - line bbox from waypoints
+    fn expand_bounds(&self, bounds: &mut BoundingBox) {
+        // Expand by waypoints
+        for pt in &self.waypoints {
+            bounds.expand_point(*pt);
+        }
+        // Include text labels (they extend above and below the line)
+        if !self.text.is_empty() {
+            let charht = Inches(defaults::FONT_SIZE);
+            let (above_count, below_count) = count_text_above_below(&self.text);
+            let text_above = charht * above_count as f64;
+            let text_below = charht * below_count as f64;
+            let center = self.center();
+            bounds.expand_point(Point::new(center.x, center.y + text_above));
+            bounds.expand_point(Point::new(center.x, center.y - text_below));
+        }
+    }
 }
 
 /// A spline (curved line) shape
@@ -913,6 +959,24 @@ impl Shape for SplineShape {
     fn translate(&mut self, offset: OffsetIn) {
         for pt in self.waypoints.iter_mut() {
             *pt += offset;
+        }
+    }
+
+    /// cref: pik_bbox_add_elist (pikchr.c:7206) - spline bbox from waypoints
+    fn expand_bounds(&self, bounds: &mut BoundingBox) {
+        // Expand by waypoints
+        for pt in &self.waypoints {
+            bounds.expand_point(*pt);
+        }
+        // Include text labels
+        if !self.text.is_empty() {
+            let charht = Inches(defaults::FONT_SIZE);
+            let (above_count, below_count) = count_text_above_below(&self.text);
+            let text_above = charht * above_count as f64;
+            let text_below = charht * below_count as f64;
+            let center = self.center();
+            bounds.expand_point(Point::new(center.x, center.y + text_above));
+            bounds.expand_point(Point::new(center.x, center.y - text_below));
         }
     }
 }
@@ -1038,6 +1102,75 @@ impl Shape for TextShape {
     fn translate(&mut self, offset: OffsetIn) {
         self.center += offset;
     }
+
+    /// cref: pik_bbox_add_elist (pikchr.c:7214) - adds both object bbox and text bbox
+    fn expand_bounds(&self, bounds: &mut BoundingBox) {
+        let charht = Inches(defaults::FONT_SIZE);
+        let charwid = defaults::CHARWID;
+        let center = self.center;
+
+        // First, expand with object dimensions (which include fit padding)
+        // cref: pikchr.c:7113-7114 - pik_bbox_add_xy for object's width/height
+        bounds.expand_rect(center, Size { w: self.width, h: self.height });
+
+        if self.text.is_empty() {
+            return;
+        }
+
+        // Also expand with text line positions (they may extend beyond object bounds)
+        // cref: pik_append_txt (pikchr.c:5077)
+        {
+            // Compute vertical slot assignments matching C's pik_txt_vertical_layout
+            let vslots = compute_text_vslots(&self.text);
+
+            // Compute heights for each region (max charht in each slot)
+            // cref: pikchr.c:5104-5143
+            let mut hc = Inches::ZERO;
+            let mut ha1 = Inches::ZERO;
+            let mut ha2 = Inches::ZERO;
+            let mut hb1 = Inches::ZERO;
+            let mut hb2 = Inches::ZERO;
+
+            for slot in &vslots {
+                match slot {
+                    TextVSlot::Center => hc = hc.max(charht),
+                    TextVSlot::Above => ha1 = ha1.max(charht),
+                    TextVSlot::Above2 => ha2 = ha2.max(charht),
+                    TextVSlot::Below => hb1 = hb1.max(charht),
+                    TextVSlot::Below2 => hb2 = hb2.max(charht),
+                }
+            }
+
+            // Calculate Y position for each text line
+            // cref: pikchr.c:5155-5158
+            let y_base = Inches::ZERO;
+            for (i, t) in self.text.iter().enumerate() {
+                let text_w = Inches(text_width_inches(&t.value, charwid));
+                let ch = charht / 2.0;
+
+                let y = match vslots.get(i).unwrap_or(&TextVSlot::Center) {
+                    TextVSlot::Above2 => y_base + hc * 0.5 + ha1 + ha2 * 0.5,
+                    TextVSlot::Above => y_base + hc * 0.5 + ha1 * 0.5,
+                    TextVSlot::Center => y_base,
+                    TextVSlot::Below => y_base - hc * 0.5 - hb1 * 0.5,
+                    TextVSlot::Below2 => y_base - hc * 0.5 - hb1 - hb2 * 0.5,
+                };
+
+                let line_y = center.y + y;
+
+                if t.rjust {
+                    bounds.expand_point(Point::new(center.x - text_w, line_y - ch));
+                    bounds.expand_point(Point::new(center.x, line_y + ch));
+                } else if t.ljust {
+                    bounds.expand_point(Point::new(center.x, line_y - ch));
+                    bounds.expand_point(Point::new(center.x + text_w, line_y + ch));
+                } else {
+                    bounds.expand_point(Point::new(center.x - text_w / 2.0, line_y - ch));
+                    bounds.expand_point(Point::new(center.x + text_w / 2.0, line_y + ch));
+                }
+            }
+        }
+    }
 }
 
 /// An arc shape - a curved arc between two points
@@ -1161,6 +1294,22 @@ impl Shape for ArcShape {
     fn translate(&mut self, offset: OffsetIn) {
         self.start += offset;
         self.end += offset;
+    }
+
+    /// cref: pik_bbox_add_elist (pikchr.c:7206) - arc bbox from endpoints
+    fn expand_bounds(&self, bounds: &mut BoundingBox) {
+        bounds.expand_point(self.start);
+        bounds.expand_point(self.end);
+        // Include text labels
+        if !self.text.is_empty() {
+            let charht = Inches(defaults::FONT_SIZE);
+            let (above_count, below_count) = count_text_above_below(&self.text);
+            let text_above = charht * above_count as f64;
+            let text_below = charht * below_count as f64;
+            let center = self.center();
+            bounds.expand_point(Point::new(center.x, center.y + text_above));
+            bounds.expand_point(Point::new(center.x, center.y - text_below));
+        }
     }
 }
 
@@ -1289,6 +1438,13 @@ impl Shape for SublistShape {
             child.translate(offset);
         }
     }
+
+    /// cref: pik_bbox_add_elist (pikchr.c:7206) - sublist bbox from children
+    fn expand_bounds(&self, bounds: &mut BoundingBox) {
+        for child in &self.children {
+            child.expand_bounds(bounds);
+        }
+    }
 }
 
 // ============================================================================
@@ -1400,24 +1556,23 @@ impl ShapeEnum {
         }
     }
 
-    /// Get the ObjectClass for this shape (for compatibility with chopping logic)
-    pub fn object_class(&self) -> super::types::ObjectClass {
-        use super::types::ObjectClass;
+    /// Get the ClassName for this shape
+    pub fn class(&self) -> ClassName {
         match self {
-            ShapeEnum::Box(_) => ObjectClass::Box,
-            ShapeEnum::Circle(_) => ObjectClass::Circle,
-            ShapeEnum::Ellipse(_) => ObjectClass::Ellipse,
-            ShapeEnum::Oval(_) => ObjectClass::Oval,
-            ShapeEnum::Diamond(_) => ObjectClass::Diamond,
-            ShapeEnum::Cylinder(_) => ObjectClass::Cylinder,
-            ShapeEnum::File(_) => ObjectClass::File,
-            ShapeEnum::Line(_) => ObjectClass::Line,
-            ShapeEnum::Spline(_) => ObjectClass::Spline,
-            ShapeEnum::Dot(_) => ObjectClass::Dot,
-            ShapeEnum::Text(_) => ObjectClass::Text,
-            ShapeEnum::Arc(_) => ObjectClass::Arc,
-            ShapeEnum::Move(_) => ObjectClass::Move,
-            ShapeEnum::Sublist(_) => ObjectClass::Sublist,
+            ShapeEnum::Box(_) => ClassName::Box,
+            ShapeEnum::Circle(_) => ClassName::Circle,
+            ShapeEnum::Ellipse(_) => ClassName::Ellipse,
+            ShapeEnum::Oval(_) => ClassName::Oval,
+            ShapeEnum::Diamond(_) => ClassName::Diamond,
+            ShapeEnum::Cylinder(_) => ClassName::Cylinder,
+            ShapeEnum::File(_) => ClassName::File,
+            ShapeEnum::Line(_) => ClassName::Line,
+            ShapeEnum::Spline(_) => ClassName::Spline,
+            ShapeEnum::Dot(_) => ClassName::Dot,
+            ShapeEnum::Text(_) => ClassName::Text,
+            ShapeEnum::Arc(_) => ClassName::Arc,
+            ShapeEnum::Move(_) => ClassName::Move,
+            ShapeEnum::Sublist(_) => ClassName::Sublist,
         }
     }
 }
