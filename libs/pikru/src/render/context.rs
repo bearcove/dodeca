@@ -51,8 +51,36 @@ impl RenderContext {
     }
 
     fn init_builtin_variables(&mut self) {
-        // TODO: Move the big init_builtin_variables implementation here
-        // Built-in length defaults mirror pikchr.c aBuiltin[]
+        // Built-in variables mirror pikchr.c aBuiltin[]
+        // These are the default values that should be available in all pikchr scripts
+        macro_rules! builtin_vars {
+            ($($name:ident => $value:expr),* $(,)?) => {
+                $(
+                    self.variables.insert(stringify!($name).to_string(), $value);
+                )*
+            };
+        }
+
+        builtin_vars! {
+            scale      => EvalValue::Scalar(1.0),
+            linewidth  => EvalValue::Length(Inches::from(0.5)),
+            boxwidth   => EvalValue::Length(Inches::from(0.75)),
+            boxheight  => EvalValue::Length(Inches::from(0.5)),
+            filewidth  => EvalValue::Length(Inches::from(0.5)),
+            fileheight => EvalValue::Length(Inches::from(0.75)),
+            filerad    => EvalValue::Length(Inches::from(0.15)),
+            ovalwidth  => EvalValue::Length(Inches::from(1.0)),
+            ovalheight => EvalValue::Length(Inches::from(0.5)),
+            diamondwidth  => EvalValue::Length(Inches::from(1.0)),
+            diamondheight => EvalValue::Length(Inches::from(0.75)),
+            circlerad  => EvalValue::Length(Inches::from(0.25)),
+            strokewidth => EvalValue::Length(Inches::from(0.015)),
+            arrowlen   => EvalValue::Length(Inches::from(0.08)),
+            arrowwid   => EvalValue::Length(Inches::from(0.06)),
+            fontsize   => EvalValue::Scalar(0.14),
+            margin     => EvalValue::Scalar(0.0),
+            charwid    => EvalValue::Scalar(0.08),
+        }
     }
 
     /// Get the last rendered object
@@ -93,8 +121,27 @@ impl RenderContext {
         // Update bounds
         expand_object_bounds(&mut self.bounds, &obj);
 
-        // Update position to the exit point of the object
-        self.position = obj.end();
+        // Update position to exit edge of object in current direction
+        // For shaped objects, this is the edge point in the travel direction
+        // For line-like objects, this is already handled correctly by their end()
+        let exit_point = match obj.class() {
+            ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Move => {
+                // For line-like objects, end() is correct
+                obj.end()
+            }
+            _ => {
+                // For shaped objects, get edge point in current direction
+                use crate::types::UnitVec;
+                let unit_dir = match self.direction {
+                    crate::ast::Direction::Right => UnitVec::EAST,
+                    crate::ast::Direction::Left => UnitVec::WEST,
+                    crate::ast::Direction::Up => UnitVec::NORTH,
+                    crate::ast::Direction::Down => UnitVec::SOUTH,
+                };
+                obj.edge_point(unit_dir)
+            }
+        };
+        self.position = exit_point;
 
         // Store named objects
         if let Some(ref name) = obj.name {

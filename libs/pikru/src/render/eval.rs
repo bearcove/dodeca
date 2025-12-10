@@ -1,10 +1,36 @@
 //! Expression evaluation functions
 
 use crate::ast::*;
-use crate::types::{Angle, Length as Inches, OffsetIn, Point};
+use crate::types::{Angle, Length as Inches, OffsetIn, Point, EvalValue};
 
 use super::context::RenderContext;
 use super::types::*;
+
+// From implementations for EvalValue
+impl From<f64> for EvalValue {
+    fn from(value: f64) -> Self {
+        EvalValue::Scalar(value)
+    }
+}
+
+impl From<f32> for EvalValue {
+    fn from(value: f32) -> Self {
+        EvalValue::Scalar(value as f64)
+    }
+}
+
+// From implementations for Length (Inches)
+impl From<f64> for Inches {
+    fn from(value: f64) -> Self {
+        Inches::inches(value)
+    }
+}
+
+impl From<f32> for Inches {
+    fn from(value: f32) -> Self {
+        Inches::inches(value as f64)
+    }
+}
 
 pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Report> {
     match expr {
@@ -449,8 +475,8 @@ fn resolve_path_in_object<'a>(
         return Some(obj);
     }
 
-    let next_name = &path[0];
-    let remaining = &path[1..];
+    let _next_name = &path[0];
+    let _remaining = &path[1..];
 
     // Search in children for matching name (only for Sublist shapes)
     // Note: In the new structure, children are stored as ShapeEnums, not RenderedObjects
