@@ -602,8 +602,8 @@ fn render_object_stmt(
         // Apply fit sizing - SET size to fit text (can shrink below default)
         if !fit_text.is_empty() {
             let char_width = defaults::FONT_SIZE * 0.6;
-            // C pikchr uses smaller padding for fit - approximately 0.5 * font_size
-            let padding = defaults::FONT_SIZE * 0.5;
+            // C pikchr uses padding of approximately 0.55 * font_size
+            let padding = defaults::FONT_SIZE * 0.55;
             let max_text_width = fit_text
                 .iter()
                 .map(|t| t.value.len() as f64 * char_width)
@@ -828,8 +828,8 @@ fn render_object_stmt(
     if style.fit && !text.is_empty() {
         // Estimate text width: ~7 pixels per character for a 12pt font
         let char_width = defaults::FONT_SIZE * 0.6;
-        // C pikchr uses smaller padding for fit - approximately 0.5 * font_size
-        let padding = defaults::FONT_SIZE * 0.5;
+        // C pikchr uses padding of approximately 0.55 * font_size
+        let padding = defaults::FONT_SIZE * 0.55;
 
         // Find the widest text line
         let max_text_width = text
