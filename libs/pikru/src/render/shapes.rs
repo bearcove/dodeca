@@ -5,7 +5,7 @@
 //! - Find edge points for line connections
 //! - Render itself to SVG
 
-use crate::types::{Length as Inches, OffsetIn, Point, Scaler, UnitVec};
+use crate::types::{Length as Inches, Point, Scaler, UnitVec};
 use facet_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode, SvgStyle};
 
 use super::defaults;
@@ -60,8 +60,7 @@ pub trait Shape {
         };
 
         // Use UnitVec for direction, scale x by hw and y by hh
-        let dir = direction.unit_vec();
-        let offset = OffsetIn::new(hw * dir.dx() * diag, hh * dir.dy() * diag);
+        let offset = direction.unit_vec().scale_xy(hw * diag, hh * diag);
 
         center + offset
     }

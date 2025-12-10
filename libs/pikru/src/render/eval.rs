@@ -518,31 +518,11 @@ fn nth_class_to_object_class(nc: &NthClass) -> Option<ObjectClass> {
 
 fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
     match edge {
-        EdgePoint::Center | EdgePoint::C => return obj.center,
-        EdgePoint::Start => return obj.start,
-        EdgePoint::End => return obj.end,
-        _ => {}
+        EdgePoint::Center | EdgePoint::C => obj.center,
+        EdgePoint::Start => obj.start,
+        EdgePoint::End => obj.end,
+        _ => obj.edge_point(edge_point_offset(edge)),
     }
-
-    let hw = obj.width / 2.0;
-    let hh = obj.height / 2.0;
-
-    // For circles/ellipses, diagonal edge points use the perimeter, not bounding box corners
-    let is_round = matches!(
-        obj.class,
-        ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval
-    );
-    let diag = if is_round {
-        std::f64::consts::FRAC_1_SQRT_2
-    } else {
-        1.0
-    };
-
-    // Use UnitVec for direction, scale x by hw and y by hh
-    let dir = edge_point_offset(edge);
-    let offset = OffsetIn::new(hw * dir.dx() * diag, hh * dir.dy() * diag);
-
-    obj.center + offset
 }
 
 pub fn eval_color(rvalue: &RValue) -> String {

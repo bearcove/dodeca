@@ -745,6 +745,15 @@ impl UnitVec {
     pub fn dy(self) -> f64 {
         self.dy
     }
+
+    /// Scale by different amounts in x and y (for non-square shapes)
+    /// Returns an offset with dx scaled by `sx` and dy scaled by `sy`
+    pub fn scale_xy(self, sx: Length, sy: Length) -> Offset<Length> {
+        Offset {
+            dx: sx * self.dx,
+            dy: sy * self.dy,
+        }
+    }
 }
 
 /// Multiply a unit vector by a length to get an offset (not a point!)

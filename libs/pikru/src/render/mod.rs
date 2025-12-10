@@ -931,8 +931,7 @@ fn calculate_center_from_edge(
     };
 
     // Use UnitVec for direction, then negate to go from edge back to center
-    let dir = edge_point_offset(&edge);
-    let offset = OffsetIn::new(hw * dir.dx() * diag, hh * dir.dy() * diag);
+    let offset = edge_point_offset(&edge).scale_xy(hw * diag, hh * diag);
 
     // Edge point = center + offset, so center = edge point - offset
     target - offset

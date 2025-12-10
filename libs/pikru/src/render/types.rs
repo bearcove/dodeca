@@ -1,7 +1,7 @@
 //! Core types for pikchr rendering
 
 use crate::ast::TextAttr;
-use crate::types::{BoxIn, EvalValue, Length as Inches, OffsetIn, Point, PtIn};
+use crate::types::{BoxIn, EvalValue, Length as Inches, OffsetIn, Point, PtIn, UnitVec};
 
 use super::defaults;
 
@@ -144,6 +144,30 @@ impl RenderedObject {
         for child in self.children.iter_mut() {
             child.translate(offset);
         }
+    }
+
+    /// Returns true if this is a round shape (circle, ellipse, oval)
+    pub fn is_round(&self) -> bool {
+        matches!(
+            self.class,
+            ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval
+        )
+    }
+
+    /// Calculate edge point in a given direction
+    /// For round shapes, diagonal directions use the perimeter (1/√2 factor)
+    pub fn edge_point(&self, dir: UnitVec) -> PointIn {
+        let hw = self.width / 2.0;
+        let hh = self.height / 2.0;
+
+        // For round shapes, diagonal edge points use the perimeter, not bounding box corners
+        let diag = if self.is_round() {
+            std::f64::consts::FRAC_1_SQRT_2
+        } else {
+            1.0
+        };
+
+        self.center + dir.scale_xy(hw * diag, hh * diag)
     }
 }
 
