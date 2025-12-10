@@ -586,10 +586,16 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                             "middle"
                         };
                         let line_y = start_y + i as f64 * charht_px;
+                        // Text color comes from stroke ("color" attribute in pikchr)
+                        let text_color = if obj.style().stroke == "black" || obj.style().stroke == "none" {
+                            "rgb(0,0,0)".to_string()
+                        } else {
+                            color_to_rgb(&obj.style().stroke)
+                        };
                         let text_element = Text {
                             x: Some(center.x),
                             y: Some(line_y),
-                            fill: Some("rgb(0,0,0)".to_string()),
+                            fill: Some(text_color),
                             stroke: None,
                             stroke_width: None,
                             style: SvgStyle::default(),
@@ -626,6 +632,12 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 0.0
             };
 
+            // Text color comes from stroke ("color" attribute in pikchr)
+            let text_color = if obj.style().stroke == "black" || obj.style().stroke == "none" {
+                "rgb(0,0,0)".to_string()
+            } else {
+                color_to_rgb(&obj.style().stroke)
+            };
             for positioned_text in obj.text() {
                 // Determine text anchor based on ljust/rjust
                 let anchor = if positioned_text.rjust {
@@ -638,7 +650,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 let text_element = Text {
                     x: Some(center.x),
                     y: Some(center.y + text_y_offset),
-                    fill: Some("rgb(0,0,0)".to_string()),
+                    fill: Some(text_color.clone()),
                     stroke: None,
                     stroke_width: None,
                     style: SvgStyle::default(),

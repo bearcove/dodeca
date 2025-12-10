@@ -509,11 +509,16 @@ fn render_object_stmt(
                 let dotrad = ctx.get_length("dotrad", 0.025);
                 (ObjectClass::Dot, dotrad * 2.0, dotrad * 2.0)
             }
-            ClassName::Text => (
-                ObjectClass::Text,
-                ctx.get_length("textwid", 0.75),
-                ctx.get_length("textht", 0.5),
-            ),
+            ClassName::Text => {
+                // Default dimensions - will be overridden by actual text content later
+                // Use charht for height to match C pikchr's text sizing
+                let charht = ctx.get_scalar("charht", 0.14);
+                (
+                    ObjectClass::Text,
+                    ctx.get_length("textwid", 0.75),
+                    Inches(charht),
+                )
+            }
         },
         BaseType::Text(s, _) => {
             // Use proportional character widths like C pikchr
