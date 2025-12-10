@@ -323,6 +323,8 @@ pub struct CodeExecutionResult {
     pub error: Option<String>,
     /// Build metadata for reproducibility
     pub metadata: Option<CodeExecutionMetadata>,
+    /// Whether this sample was intentionally skipped
+    pub skipped: bool,
 }
 
 /// Build metadata captured during code execution for reproducibility

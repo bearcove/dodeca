@@ -138,6 +138,7 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
                 duration_ms: 0,
                 error: None,
                 metadata: None,
+                skipped: true,
             }
         } else {
             // Check if this language is enabled
@@ -152,6 +153,7 @@ pub fn execute_code_samples(input: ExecuteSamplesInput) -> PlugResult<ExecuteSam
                     duration_ms: 0,
                     error: None,
                     metadata: None,
+                    skipped: true,
                 }
             } else {
                 execute_single_sample(&sample, &input.config, shared_target_info.as_ref())
@@ -319,6 +321,7 @@ fn execute_single_sample(
                     sample.language
                 )),
                 metadata: None,
+                skipped: false,
             };
         }
     };
@@ -335,6 +338,7 @@ fn execute_single_sample(
             duration_ms: start_time.elapsed().as_millis() as u64,
             error: Some(format!("Unsupported language: {}", sample.language)),
             metadata: None,
+            skipped: false,
         }
     }
 }
@@ -367,6 +371,7 @@ fn execute_rust_sample(
             duration_ms: start_time.elapsed().as_millis() as u64,
             error: Some(format!("Failed to create temp project: {}", e)),
             metadata,
+            skipped: false,
         };
     }
 
@@ -382,6 +387,7 @@ fn execute_rust_sample(
             duration_ms: start_time.elapsed().as_millis() as u64,
             error: Some(format!("Failed to write Cargo.toml: {}", e)),
             metadata,
+            skipped: false,
         };
     }
 
@@ -397,6 +403,7 @@ fn execute_rust_sample(
             duration_ms: start_time.elapsed().as_millis() as u64,
             error: Some(format!("Failed to create src dir: {}", e)),
             metadata,
+            skipped: false,
         };
     }
 
@@ -417,6 +424,7 @@ fn execute_rust_sample(
             duration_ms: start_time.elapsed().as_millis() as u64,
             error: Some(format!("Failed to write main.rs: {}", e)),
             metadata,
+            skipped: false,
         };
     }
 
@@ -459,6 +467,7 @@ fn execute_rust_sample(
                 duration_ms: start_time.elapsed().as_millis() as u64,
                 error: Some(e),
                 metadata,
+                skipped: false,
             };
         }
     };
@@ -491,6 +500,7 @@ fn execute_rust_sample(
             ))
         },
         metadata,
+        skipped: false,
     };
 
     // Clean up the project dir (but not shared target - that's the cache!)
@@ -553,8 +563,77 @@ fn prepare_rust_code(code: &str, auto_imports: &[String]) -> String {
 }
 
 /// Determine if a code block should be executed based on language
+/// Handles comma-separated attributes like "rust,noexec" or "rust,skip"
 fn should_execute(language: &str) -> bool {
-    matches!(language.to_lowercase().as_str(), "rust" | "rs")
+    // Extract the base language (before any comma)
+    let base_language = language.split(',').next().unwrap_or("").trim();
+
+    // Check if base language is Rust
+    if !matches!(base_language.to_lowercase().as_str(), "rust" | "rs") {
+        return false;
+    }
+
+    // Check if any attributes indicate skipping
+    let attributes = language.split(',').skip(1).map(|s| s.trim());
+    for attr in attributes {
+        if matches!(attr.to_lowercase().as_str(), "noexec" | "skip" | "no-verify") {
+            return false;
+        }
+    }
+
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_should_execute_basic_rust() {
+        assert!(should_execute("rust"));
+        assert!(should_execute("rs"));
+    }
+
+    #[test]
+    fn test_should_execute_with_noexec() {
+        assert!(!should_execute("rust,noexec"));
+        assert!(!should_execute("rust, noexec")); // with space
+        assert!(!should_execute("rs,noexec"));
+    }
+
+    #[test]
+    fn test_should_execute_with_skip() {
+        assert!(!should_execute("rust,skip"));
+        assert!(!should_execute("rust, skip")); // with space
+    }
+
+    #[test]
+    fn test_should_execute_with_no_verify() {
+        assert!(!should_execute("rust,no-verify"));
+        assert!(!should_execute("rust, no-verify")); // with space
+    }
+
+    #[test]
+    fn test_should_execute_non_rust_languages() {
+        assert!(!should_execute("python"));
+        assert!(!should_execute("javascript"));
+        assert!(!should_execute(""));
+    }
+
+    #[test]
+    fn test_should_execute_case_insensitive() {
+        assert!(should_execute("Rust"));
+        assert!(should_execute("RUST"));
+        assert!(!should_execute("rust,NOEXEC"));
+        assert!(!should_execute("RUST,NoExec"));
+    }
+
+    #[test]
+    fn test_should_execute_multiple_attributes() {
+        // Only the skip/noexec attribute matters
+        assert!(!should_execute("rust,noexec,other"));
+        assert!(should_execute("rust,other")); // other non-skip attributes don't affect execution
+    }
 }
 
 /// Execute a command with timeout (captures output)

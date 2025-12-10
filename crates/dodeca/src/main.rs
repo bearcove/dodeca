@@ -918,12 +918,32 @@ pub fn build(
             );
         }
     } else if !site_output.code_execution_results.is_empty() {
+        let executed = site_output
+            .code_execution_results
+            .iter()
+            .filter(|r| !r.skipped)
+            .count();
+        let skipped = site_output
+            .code_execution_results
+            .iter()
+            .filter(|r| r.skipped)
+            .count();
+
         if verbose {
-            println!(
-                "{} {} code samples executed successfully",
-                "✓".green(),
-                site_output.code_execution_results.len()
-            );
+            if skipped > 0 {
+                println!(
+                    "{} {} code samples executed successfully, {} code samples skipped",
+                    "✓".green(),
+                    executed,
+                    skipped
+                );
+            } else {
+                println!(
+                    "{} {} code samples executed successfully",
+                    "✓".green(),
+                    executed
+                );
+            }
         }
     }
 
@@ -1263,11 +1283,31 @@ fn build_with_mini_tui(
             failed_executions.len()
         ));
     } else if !site_output.code_execution_results.is_empty() {
-        println!(
-            "{} {} code samples executed successfully",
-            "✓".green(),
-            site_output.code_execution_results.len()
-        );
+        let executed = site_output
+            .code_execution_results
+            .iter()
+            .filter(|r| !r.skipped)
+            .count();
+        let skipped = site_output
+            .code_execution_results
+            .iter()
+            .filter(|r| r.skipped)
+            .count();
+
+        if skipped > 0 {
+            println!(
+                "{} {} code samples executed successfully, {} code samples skipped",
+                "✓".green(),
+                executed,
+                skipped
+            );
+        } else {
+            println!(
+                "{} {} code samples executed successfully",
+                "✓".green(),
+                executed
+            );
+        }
     }
 
     draw_progress(&mut terminal, "Writing...", &stats_for_display, 0, 0);

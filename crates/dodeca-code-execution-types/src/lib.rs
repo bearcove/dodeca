@@ -185,6 +185,8 @@ pub struct ExecutionResult {
     pub error: Option<String>,
     /// Build metadata for reproducibility
     pub metadata: Option<BuildMetadata>,
+    /// Whether this sample was intentionally skipped
+    pub skipped: bool,
 }
 
 /// Build metadata captured for reproducibility

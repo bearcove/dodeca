@@ -1707,6 +1707,7 @@ pub fn execute_all_code_samples(db: &dyn Db, sources: SourceRegistry) -> Vec<Cod
                             duration_ms: result.duration_ms,
                             error: result.error,
                             metadata,
+                            skipped: result.skipped,
                         };
                         all_results.push(code_result);
                     }
