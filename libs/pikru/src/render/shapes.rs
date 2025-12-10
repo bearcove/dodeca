@@ -56,8 +56,16 @@ pub trait Shape {
         let hw = self.width() / 2.0;
         let hh = self.height() / 2.0;
 
-        // For round shapes, diagonal points are on the perimeter, not bounding box corners
-        let diag = if self.is_round() {
+        // For round shapes, diagonal points are on the perimeter (scaled by 1/√2),
+        // but cardinal points are at full radius
+        let is_diagonal = matches!(
+            direction,
+            EdgeDirection::NorthEast
+                | EdgeDirection::NorthWest
+                | EdgeDirection::SouthEast
+                | EdgeDirection::SouthWest
+        );
+        let diag = if self.is_round() && is_diagonal {
             std::f64::consts::FRAC_1_SQRT_2
         } else {
             1.0
