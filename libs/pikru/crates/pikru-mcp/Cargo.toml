@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-pikru = { path = "../.." }
-
 # MCP SDK
 rust-mcp-sdk = { version = "0.7", default-features = false, features = [
     "server",
@@ -44,3 +42,6 @@ regex-lite = "0.1"
 
 # Base64 encoding for images
 base64 = "0.22"
+
+# Strip ANSI escape sequences
+strip-ansi-escapes = "0.2"

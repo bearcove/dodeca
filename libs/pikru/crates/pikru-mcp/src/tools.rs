@@ -23,6 +23,10 @@ pub struct TestResult {
     pub test_name: String,
     pub status: String,
     pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub c_error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rust_error: Option<String>,
     pub comparison: Comparison,
     pub svg_diff: Option<String>,
 }
@@ -238,6 +242,8 @@ impl RunPikruTestTool {
             test_name: self.test_name.clone(),
             status,
             source,
+            c_error,
+            rust_error,
             comparison: Comparison {
                 ssim,
                 pixel_diff,
@@ -269,7 +275,7 @@ impl RunPikruTestTool {
         let mut content: Vec<ContentBlock> = vec![TextContent::from(json).into()];
 
         // Create side-by-side image
-        if let Some(side_by_side) = create_side_by_side(&c_png, &rust_png, &c_error, &rust_error) {
+        if let Some(side_by_side) = create_side_by_side(&c_png, &rust_png) {
             let b64 = base64::engine::general_purpose::STANDARD.encode(&side_by_side);
             content.push(
                 ImageContent::new(b64, "image/png".to_string(), None, None).into(),
@@ -347,17 +353,34 @@ fn run_c_pikchr(source: &str, c_pikchr_path: &Path) -> (Option<String>, Option<S
     }
 }
 
-fn run_rust_pikchr(test_file: &Path, _paths: &PikruPaths) -> (Option<String>, Option<String>) {
-    // Use pikru library directly
-    let source = match std::fs::read_to_string(test_file) {
-        Ok(s) => s,
-        Err(e) => return (None, Some(format!("Failed to read test file: {e}"))),
-    };
+fn run_rust_pikchr(test_file: &Path, paths: &PikruPaths) -> (Option<String>, Option<String>) {
+    // Shell out to `cargo run --example simple` so we always test current code
+    // without needing to rebuild the MCP
+    let output = Command::new("cargo")
+        .args(["run", "--example", "simple", "--"])
+        .arg(test_file)
+        .current_dir(&paths.project_root)
+        .output();
 
-    match pikru::pikchr(&source) {
-        Ok(svg) => (Some(svg), None),
-        Err(e) => (None, Some(format!("Rust pikchr error: {e}"))),
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+            if out.status.success() && stdout.contains("<svg") {
+                (extract_svg(&stdout), None)
+            } else {
+                (None, Some(format!("Rust pikchr error: {}", stderr)))
+            }
+        }
+        Err(e) => (None, Some(format!("Failed to run Rust pikchr: {e}"))),
     }
+}
+
+/// Strip ANSI escape sequences from text
+fn strip_ansi(text: &str) -> String {
+    let bytes = strip_ansi_escapes::strip(text);
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn run_cargo_test(test_name: &str, project_root: &Path) -> (String, Option<String>) {
@@ -389,14 +412,14 @@ fn run_cargo_test(test_name: &str, project_root: &Path) -> (String, Option<Strin
                 "error".to_string()
             };
 
-            // Extract diff output
+            // Extract diff output and strip ANSI escapes
             let svg_diff = if let Some(start) = combined.find("SVG mismatch for") {
                 let end = combined[start..]
                     .find("\nnote:")
                     .or_else(|| combined[start..].find("\nfailures:"))
                     .map(|i| start + i)
                     .unwrap_or(combined.len());
-                Some(combined[start..end].trim().to_string())
+                Some(strip_ansi(combined[start..end].trim()))
             } else {
                 None
             };
@@ -607,8 +630,6 @@ fn calculate_ssim(c_png: &[u8], rust_png: &[u8]) -> Option<f64> {
 fn create_side_by_side(
     c_png: &Option<Vec<u8>>,
     rust_png: &Option<Vec<u8>>,
-    c_error: &Option<String>,
-    rust_error: &Option<String>,
 ) -> Option<Vec<u8>> {
     use image::{ImageBuffer, Rgba, RgbaImage};
 
@@ -619,9 +640,7 @@ fn create_side_by_side(
     let c_img: RgbaImage = if let Some(data) = c_png {
         image::load_from_memory(data).ok()?.to_rgba8()
     } else {
-        let mut img = ImageBuffer::from_pixel(placeholder_width, placeholder_height, Rgba([255, 200, 200, 255]));
-        // Draw error text would require a font, so just use colored background
-        img
+        ImageBuffer::from_pixel(placeholder_width, placeholder_height, Rgba([255, 200, 200, 255]))
     };
 
     // Load or create placeholder for Rust image
