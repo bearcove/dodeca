@@ -146,26 +146,12 @@ impl RenderedObject {
         }
     }
 
-    /// Returns true if this is a round shape (circle, ellipse, oval)
-    pub fn is_round(&self) -> bool {
-        matches!(
-            self.class,
-            ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval
-        )
-    }
-
     /// Calculate edge point in a given direction
     /// For round shapes, diagonal directions use the perimeter (1/√2 factor)
     pub fn edge_point(&self, dir: UnitVec) -> PointIn {
         let hw = self.width / 2.0;
         let hh = self.height / 2.0;
-
-        // For round shapes, diagonal edge points use the perimeter, not bounding box corners
-        let diag = if self.is_round() {
-            std::f64::consts::FRAC_1_SQRT_2
-        } else {
-            1.0
-        };
+        let diag = self.class.diagonal_factor();
 
         self.center + dir.scale_xy(hw * diag, hh * diag)
     }
@@ -209,6 +195,24 @@ pub enum ObjectClass {
     Dot,
     Text,
     Sublist,
+}
+
+impl ObjectClass {
+    /// Returns true if this is a round shape (circle, ellipse, oval)
+    pub fn is_round(self) -> bool {
+        matches!(self, Self::Circle | Self::Ellipse | Self::Oval)
+    }
+
+    /// Diagonal factor for edge point calculations.
+    /// Round shapes use 1/√2 so diagonal points land on the perimeter.
+    /// Rectangular shapes use 1.0 so diagonal points land on bounding box corners.
+    pub fn diagonal_factor(self) -> f64 {
+        if self.is_round() {
+            std::f64::consts::FRAC_1_SQRT_2
+        } else {
+            1.0
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

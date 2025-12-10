@@ -918,17 +918,7 @@ fn calculate_center_from_edge(
 
     let hw = width / 2.0;
     let hh = height / 2.0;
-
-    // For circles/ellipses, diagonal edge points use the perimeter, not bounding box corners
-    let is_round = matches!(
-        class,
-        ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval
-    );
-    let diag = if is_round {
-        std::f64::consts::FRAC_1_SQRT_2
-    } else {
-        1.0
-    };
+    let diag = class.diagonal_factor();
 
     // Use UnitVec for direction, then negate to go from edge back to center
     let offset = edge_point_offset(&edge).scale_xy(hw * diag, hh * diag);

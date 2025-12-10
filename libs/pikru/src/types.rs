@@ -552,6 +552,12 @@ impl<T> Point<T> {
 }
 
 impl Point<Length> {
+    /// Origin point (0, 0)
+    pub const ORIGIN: Self = Point {
+        x: Length::ZERO,
+        y: Length::ZERO,
+    };
+
     /// Calculate the midpoint between two points
     pub fn midpoint(self, other: Self) -> Self {
         Point {

@@ -685,7 +685,7 @@ impl LineShape {
 impl Shape for LineShape {
     fn center(&self) -> PointIn {
         if self.waypoints.is_empty() {
-            return Point::new(Inches::ZERO, Inches::ZERO);
+            return Point::ORIGIN;
         }
         // Center is midpoint between start and end
         let start = *self.waypoints.first().unwrap();
@@ -722,11 +722,11 @@ impl Shape for LineShape {
     }
 
     fn start(&self) -> PointIn {
-        self.waypoints.first().copied().unwrap_or(Point::new(Inches::ZERO, Inches::ZERO))
+        self.waypoints.first().copied().unwrap_or(Point::ORIGIN)
     }
 
     fn end(&self) -> PointIn {
-        self.waypoints.last().copied().unwrap_or(Point::new(Inches::ZERO, Inches::ZERO))
+        self.waypoints.last().copied().unwrap_or(Point::ORIGIN)
     }
 
     fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
@@ -781,7 +781,7 @@ pub struct SplineShape {
 impl Shape for SplineShape {
     fn center(&self) -> PointIn {
         if self.waypoints.is_empty() {
-            return Point::new(Inches::ZERO, Inches::ZERO);
+            return Point::ORIGIN;
         }
         let start = *self.waypoints.first().unwrap();
         let end = *self.waypoints.last().unwrap();
@@ -817,11 +817,11 @@ impl Shape for SplineShape {
     }
 
     fn start(&self) -> PointIn {
-        self.waypoints.first().copied().unwrap_or(Point::new(Inches::ZERO, Inches::ZERO))
+        self.waypoints.first().copied().unwrap_or(Point::ORIGIN)
     }
 
     fn end(&self) -> PointIn {
-        self.waypoints.last().copied().unwrap_or(Point::new(Inches::ZERO, Inches::ZERO))
+        self.waypoints.last().copied().unwrap_or(Point::ORIGIN)
     }
 
     fn render_svg(&self, scaler: &Scaler, offset_x: Inches, max_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
