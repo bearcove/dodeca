@@ -5,7 +5,7 @@
 //! - Find edge points for line connections
 //! - Render itself to SVG
 
-use crate::types::{Length as Inches, Point, Scaler, UnitVec};
+use crate::types::{Length as Inches, OffsetIn, Point, Scaler, UnitVec};
 use facet_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode, SvgStyle};
 
 use super::defaults;
@@ -17,7 +17,10 @@ use super::svg::{color_to_rgb, render_arrowhead_dom};
 use super::types::{ObjectStyle, PointIn, PositionedText};
 use glam::dvec2;
 
+use enum_dispatch::enum_dispatch;
+
 /// Common behavior for all shapes
+#[enum_dispatch]
 pub trait Shape {
     /// The center point of the shape
     fn center(&self) -> PointIn;
@@ -78,6 +81,15 @@ pub trait Shape {
 
     /// Render this shape to SVG nodes
     fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode>;
+
+    /// Get waypoints if this is a path-like shape (line, spline)
+    /// Returns None for non-path shapes
+    fn waypoints(&self) -> Option<&[PointIn]> {
+        None
+    }
+
+    /// Translate this shape by an offset
+    fn translate(&mut self, offset: OffsetIn);
 }
 
 /// Cardinal and intercardinal directions for edge points
@@ -199,6 +211,10 @@ impl Shape for CircleShape {
 
         nodes
     }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        self.center += offset;
+    }
 }
 
 /// A box (rectangle) shape
@@ -287,6 +303,10 @@ impl Shape for BoxShape {
 
         nodes
     }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        self.center += offset;
+    }
 }
 
 /// An ellipse shape
@@ -352,6 +372,10 @@ impl Shape for EllipseShape {
         nodes.push(SvgNode::Ellipse(ellipse));
 
         nodes
+    }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        self.center += offset;
     }
 }
 
@@ -422,6 +446,10 @@ impl Shape for OvalShape {
 
         nodes
     }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        self.center += offset;
+    }
 }
 
 /// A diamond shape
@@ -488,6 +516,10 @@ impl Shape for DiamondShape {
         nodes.push(SvgNode::Path(path));
 
         nodes
+    }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        self.center += offset;
     }
 }
 
@@ -562,6 +594,10 @@ impl Shape for CylinderShape {
         nodes.push(SvgNode::Path(bottom_arc));
 
         nodes
+    }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        self.center += offset;
     }
 }
 
@@ -654,6 +690,10 @@ impl Shape for FileShape {
         nodes.push(SvgNode::Path(fold));
 
         nodes
+    }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        self.center += offset;
     }
 }
 
@@ -769,6 +809,16 @@ impl Shape for LineShape {
 
         nodes
     }
+
+    fn waypoints(&self) -> Option<&[PointIn]> {
+        Some(&self.waypoints)
+    }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        for pt in self.waypoints.iter_mut() {
+            *pt += offset;
+        }
+    }
 }
 
 /// A spline (curved line) shape
@@ -847,6 +897,16 @@ impl Shape for SplineShape {
 
         nodes
     }
+
+    fn waypoints(&self) -> Option<&[PointIn]> {
+        Some(&self.waypoints)
+    }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        for pt in self.waypoints.iter_mut() {
+            *pt += offset;
+        }
+    }
 }
 
 /// A dot shape (small filled circle)
@@ -924,6 +984,10 @@ impl Shape for DotShape {
 
         nodes
     }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        self.center += offset;
+    }
 }
 
 /// A standalone text shape
@@ -961,6 +1025,10 @@ impl Shape for TextShape {
         // Text rendering is handled separately
         // This shape type exists mainly for bounds calculation
         Vec::new()
+    }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        self.center += offset;
     }
 }
 
@@ -1081,6 +1149,11 @@ impl Shape for ArcShape {
 
         nodes
     }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        self.start += offset;
+        self.end += offset;
+    }
 }
 
 /// A move shape - invisible positioning, renders nothing
@@ -1137,6 +1210,11 @@ impl Shape for MoveShape {
     fn render_svg(&self, _scaler: &Scaler, _offset_x: Inches, _offset_y: Inches, _dashwid: Inches) -> Vec<SvgNode> {
         // Move shapes are invisible - render nothing
         Vec::new()
+    }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        self.start += offset;
+        self.end += offset;
     }
 }
 
@@ -1196,6 +1274,13 @@ impl Shape for SublistShape {
 
         nodes
     }
+
+    fn translate(&mut self, offset: OffsetIn) {
+        self.center += offset;
+        for child in self.children.iter_mut() {
+            child.translate(offset);
+        }
+    }
 }
 
 // ============================================================================
@@ -1206,6 +1291,7 @@ impl Shape for SublistShape {
 ///
 /// This provides uniform storage while each variant holds shape-specific geometry.
 #[derive(Debug, Clone)]
+#[enum_dispatch(Shape)]
 pub enum ShapeEnum {
     Box(BoxShape),
     Circle(CircleShape),
@@ -1224,245 +1310,9 @@ pub enum ShapeEnum {
 }
 
 impl ShapeEnum {
-    /// Get the center point
-    pub fn center(&self) -> PointIn {
-        match self {
-            ShapeEnum::Box(s) => s.center(),
-            ShapeEnum::Circle(s) => s.center(),
-            ShapeEnum::Ellipse(s) => s.center(),
-            ShapeEnum::Oval(s) => s.center(),
-            ShapeEnum::Diamond(s) => s.center(),
-            ShapeEnum::Cylinder(s) => s.center(),
-            ShapeEnum::File(s) => s.center(),
-            ShapeEnum::Line(s) => s.center(),
-            ShapeEnum::Spline(s) => s.center(),
-            ShapeEnum::Dot(s) => s.center(),
-            ShapeEnum::Text(s) => s.center(),
-            ShapeEnum::Arc(s) => s.center(),
-            ShapeEnum::Move(s) => s.center(),
-            ShapeEnum::Sublist(s) => s.center(),
-        }
-    }
-
-    /// Get the width
-    pub fn width(&self) -> Inches {
-        match self {
-            ShapeEnum::Box(s) => s.width(),
-            ShapeEnum::Circle(s) => s.width(),
-            ShapeEnum::Ellipse(s) => s.width(),
-            ShapeEnum::Oval(s) => s.width(),
-            ShapeEnum::Diamond(s) => s.width(),
-            ShapeEnum::Cylinder(s) => s.width(),
-            ShapeEnum::File(s) => s.width(),
-            ShapeEnum::Line(s) => s.width(),
-            ShapeEnum::Spline(s) => s.width(),
-            ShapeEnum::Dot(s) => s.width(),
-            ShapeEnum::Text(s) => s.width(),
-            ShapeEnum::Arc(s) => s.width(),
-            ShapeEnum::Move(s) => s.width(),
-            ShapeEnum::Sublist(s) => s.width(),
-        }
-    }
-
-    /// Get the height
-    pub fn height(&self) -> Inches {
-        match self {
-            ShapeEnum::Box(s) => s.height(),
-            ShapeEnum::Circle(s) => s.height(),
-            ShapeEnum::Ellipse(s) => s.height(),
-            ShapeEnum::Oval(s) => s.height(),
-            ShapeEnum::Diamond(s) => s.height(),
-            ShapeEnum::Cylinder(s) => s.height(),
-            ShapeEnum::File(s) => s.height(),
-            ShapeEnum::Line(s) => s.height(),
-            ShapeEnum::Spline(s) => s.height(),
-            ShapeEnum::Dot(s) => s.height(),
-            ShapeEnum::Text(s) => s.height(),
-            ShapeEnum::Arc(s) => s.height(),
-            ShapeEnum::Move(s) => s.height(),
-            ShapeEnum::Sublist(s) => s.height(),
-        }
-    }
-
-    /// Get the style
-    pub fn style(&self) -> &ObjectStyle {
-        match self {
-            ShapeEnum::Box(s) => s.style(),
-            ShapeEnum::Circle(s) => s.style(),
-            ShapeEnum::Ellipse(s) => s.style(),
-            ShapeEnum::Oval(s) => s.style(),
-            ShapeEnum::Diamond(s) => s.style(),
-            ShapeEnum::Cylinder(s) => s.style(),
-            ShapeEnum::File(s) => s.style(),
-            ShapeEnum::Line(s) => s.style(),
-            ShapeEnum::Spline(s) => s.style(),
-            ShapeEnum::Dot(s) => s.style(),
-            ShapeEnum::Text(s) => s.style(),
-            ShapeEnum::Arc(s) => s.style(),
-            ShapeEnum::Move(s) => s.style(),
-            ShapeEnum::Sublist(s) => s.style(),
-        }
-    }
-
-    /// Get the text labels
-    pub fn text(&self) -> &[PositionedText] {
-        match self {
-            ShapeEnum::Box(s) => s.text(),
-            ShapeEnum::Circle(s) => s.text(),
-            ShapeEnum::Ellipse(s) => s.text(),
-            ShapeEnum::Oval(s) => s.text(),
-            ShapeEnum::Diamond(s) => s.text(),
-            ShapeEnum::Cylinder(s) => s.text(),
-            ShapeEnum::File(s) => s.text(),
-            ShapeEnum::Line(s) => s.text(),
-            ShapeEnum::Spline(s) => s.text(),
-            ShapeEnum::Dot(s) => s.text(),
-            ShapeEnum::Text(s) => s.text(),
-            ShapeEnum::Arc(s) => s.text(),
-            ShapeEnum::Move(s) => s.text(),
-            ShapeEnum::Sublist(s) => s.text(),
-        }
-    }
-
-    /// Whether this shape is round
-    pub fn is_round(&self) -> bool {
-        match self {
-            ShapeEnum::Circle(_) | ShapeEnum::Ellipse(_) | ShapeEnum::Oval(_) | ShapeEnum::Dot(_) => true,
-            _ => false,
-        }
-    }
-
     /// Whether this shape is a path (line-like)
     pub fn is_path(&self) -> bool {
         matches!(self, ShapeEnum::Line(_) | ShapeEnum::Spline(_) | ShapeEnum::Arc(_) | ShapeEnum::Move(_))
-    }
-
-    /// Get waypoints if this is a path shape
-    pub fn waypoints(&self) -> Option<&[PointIn]> {
-        match self {
-            ShapeEnum::Line(s) => Some(&s.waypoints),
-            ShapeEnum::Spline(s) => Some(&s.waypoints),
-            _ => None,
-        }
-    }
-
-    /// Get the start point
-    pub fn start(&self) -> PointIn {
-        match self {
-            ShapeEnum::Box(s) => s.start(),
-            ShapeEnum::Circle(s) => s.start(),
-            ShapeEnum::Ellipse(s) => s.start(),
-            ShapeEnum::Oval(s) => s.start(),
-            ShapeEnum::Diamond(s) => s.start(),
-            ShapeEnum::Cylinder(s) => s.start(),
-            ShapeEnum::File(s) => s.start(),
-            ShapeEnum::Line(s) => s.start(),
-            ShapeEnum::Spline(s) => s.start(),
-            ShapeEnum::Dot(s) => s.start(),
-            ShapeEnum::Text(s) => s.start(),
-            ShapeEnum::Arc(s) => s.start(),
-            ShapeEnum::Move(s) => s.start(),
-            ShapeEnum::Sublist(s) => s.start(),
-        }
-    }
-
-    /// Get the end point
-    pub fn end(&self) -> PointIn {
-        match self {
-            ShapeEnum::Box(s) => s.end(),
-            ShapeEnum::Circle(s) => s.end(),
-            ShapeEnum::Ellipse(s) => s.end(),
-            ShapeEnum::Oval(s) => s.end(),
-            ShapeEnum::Diamond(s) => s.end(),
-            ShapeEnum::Cylinder(s) => s.end(),
-            ShapeEnum::File(s) => s.end(),
-            ShapeEnum::Line(s) => s.end(),
-            ShapeEnum::Spline(s) => s.end(),
-            ShapeEnum::Dot(s) => s.end(),
-            ShapeEnum::Text(s) => s.end(),
-            ShapeEnum::Arc(s) => s.end(),
-            ShapeEnum::Move(s) => s.end(),
-            ShapeEnum::Sublist(s) => s.end(),
-        }
-    }
-
-    /// Calculate edge point in a given direction
-    pub fn edge_point(&self, direction: EdgeDirection) -> PointIn {
-        match self {
-            ShapeEnum::Box(s) => s.edge_point(direction),
-            ShapeEnum::Circle(s) => s.edge_point(direction),
-            ShapeEnum::Ellipse(s) => s.edge_point(direction),
-            ShapeEnum::Oval(s) => s.edge_point(direction),
-            ShapeEnum::Diamond(s) => s.edge_point(direction),
-            ShapeEnum::Cylinder(s) => s.edge_point(direction),
-            ShapeEnum::File(s) => s.edge_point(direction),
-            ShapeEnum::Line(s) => s.edge_point(direction),
-            ShapeEnum::Spline(s) => s.edge_point(direction),
-            ShapeEnum::Dot(s) => s.edge_point(direction),
-            ShapeEnum::Text(s) => s.edge_point(direction),
-            ShapeEnum::Arc(s) => s.edge_point(direction),
-            ShapeEnum::Move(s) => s.edge_point(direction),
-            ShapeEnum::Sublist(s) => s.edge_point(direction),
-        }
-    }
-
-    /// Render to SVG nodes
-    pub fn render_svg(&self, scaler: &Scaler, offset_x: Inches, offset_y: Inches, dashwid: Inches) -> Vec<SvgNode> {
-        match self {
-            ShapeEnum::Box(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-            ShapeEnum::Circle(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-            ShapeEnum::Ellipse(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-            ShapeEnum::Oval(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-            ShapeEnum::Diamond(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-            ShapeEnum::Cylinder(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-            ShapeEnum::File(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-            ShapeEnum::Line(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-            ShapeEnum::Spline(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-            ShapeEnum::Dot(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-            ShapeEnum::Text(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-            ShapeEnum::Arc(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-            ShapeEnum::Move(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-            ShapeEnum::Sublist(s) => s.render_svg(scaler, offset_x, offset_y, dashwid),
-        }
-    }
-
-    /// Translate the shape by an offset
-    pub fn translate(&mut self, offset: crate::types::OffsetIn) {
-        match self {
-            ShapeEnum::Box(s) => s.center += offset,
-            ShapeEnum::Circle(s) => s.center += offset,
-            ShapeEnum::Ellipse(s) => s.center += offset,
-            ShapeEnum::Oval(s) => s.center += offset,
-            ShapeEnum::Diamond(s) => s.center += offset,
-            ShapeEnum::Cylinder(s) => s.center += offset,
-            ShapeEnum::File(s) => s.center += offset,
-            ShapeEnum::Line(s) => {
-                for pt in s.waypoints.iter_mut() {
-                    *pt += offset;
-                }
-            }
-            ShapeEnum::Spline(s) => {
-                for pt in s.waypoints.iter_mut() {
-                    *pt += offset;
-                }
-            }
-            ShapeEnum::Dot(s) => s.center += offset,
-            ShapeEnum::Text(s) => s.center += offset,
-            ShapeEnum::Arc(s) => {
-                s.start += offset;
-                s.end += offset;
-            }
-            ShapeEnum::Move(s) => {
-                s.start += offset;
-                s.end += offset;
-            }
-            ShapeEnum::Sublist(s) => {
-                s.center += offset;
-                for child in s.children.iter_mut() {
-                    child.translate(offset);
-                }
-            }
-        }
     }
 
     /// Set the center point of the shape
@@ -1564,62 +1414,7 @@ impl ShapeEnum {
     }
 }
 
-// Implement From for each shape type
-impl From<BoxShape> for ShapeEnum {
-    fn from(s: BoxShape) -> Self { ShapeEnum::Box(s) }
-}
-
-impl From<CircleShape> for ShapeEnum {
-    fn from(s: CircleShape) -> Self { ShapeEnum::Circle(s) }
-}
-
-impl From<EllipseShape> for ShapeEnum {
-    fn from(s: EllipseShape) -> Self { ShapeEnum::Ellipse(s) }
-}
-
-impl From<OvalShape> for ShapeEnum {
-    fn from(s: OvalShape) -> Self { ShapeEnum::Oval(s) }
-}
-
-impl From<DiamondShape> for ShapeEnum {
-    fn from(s: DiamondShape) -> Self { ShapeEnum::Diamond(s) }
-}
-
-impl From<CylinderShape> for ShapeEnum {
-    fn from(s: CylinderShape) -> Self { ShapeEnum::Cylinder(s) }
-}
-
-impl From<FileShape> for ShapeEnum {
-    fn from(s: FileShape) -> Self { ShapeEnum::File(s) }
-}
-
-impl From<LineShape> for ShapeEnum {
-    fn from(s: LineShape) -> Self { ShapeEnum::Line(s) }
-}
-
-impl From<SplineShape> for ShapeEnum {
-    fn from(s: SplineShape) -> Self { ShapeEnum::Spline(s) }
-}
-
-impl From<DotShape> for ShapeEnum {
-    fn from(s: DotShape) -> Self { ShapeEnum::Dot(s) }
-}
-
-impl From<TextShape> for ShapeEnum {
-    fn from(s: TextShape) -> Self { ShapeEnum::Text(s) }
-}
-
-impl From<ArcShape> for ShapeEnum {
-    fn from(s: ArcShape) -> Self { ShapeEnum::Arc(s) }
-}
-
-impl From<MoveShape> for ShapeEnum {
-    fn from(s: MoveShape) -> Self { ShapeEnum::Move(s) }
-}
-
-impl From<SublistShape> for ShapeEnum {
-    fn from(s: SublistShape) -> Self { ShapeEnum::Sublist(s) }
-}
+// Note: From impls are automatically generated by enum_dispatch
 
 // ============================================================================
 // Helper Functions

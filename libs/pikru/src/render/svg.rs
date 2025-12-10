@@ -1,5 +1,6 @@
 //! SVG generation
 
+use super::shapes::Shape;
 use crate::types::{Length as Inches, Point, Scaler};
 use facet_svg::facet_xml::SerializeOptions;
 use facet_svg::{

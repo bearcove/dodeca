@@ -18,6 +18,7 @@ pub mod types;
 
 // Re-export commonly used items
 pub use context::RenderContext;
+pub use shapes::Shape;
 pub use types::*;
 
 use crate::ast::*;

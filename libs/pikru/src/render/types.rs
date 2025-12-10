@@ -4,6 +4,7 @@ use crate::ast::TextAttr;
 use crate::types::{BoxIn, EvalValue, Length as Inches, OffsetIn, Point, PtIn, UnitVec};
 
 use super::defaults;
+use super::shapes::Shape;
 
 /// Generic numeric value that can be either a length (in inches) or a unitless scalar.
 #[derive(Debug, Clone, Copy, PartialEq)]
