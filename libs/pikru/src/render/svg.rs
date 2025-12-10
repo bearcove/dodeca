@@ -6,14 +6,16 @@ use facet_svg::{
     Circle, Color, Ellipse, Path, PathData, Polygon, Svg, SvgNode, SvgStyle, Text, facet_xml,
     fmt_num,
 };
+use glam::DVec2;
 use time::{OffsetDateTime, format_description};
 
 use super::context::RenderContext;
 use super::defaults;
 use super::eval::{get_length, get_scalar};
 use super::geometry::{
-    apply_auto_chop_simple_line, chop_line, create_arc_path, create_cylinder_paths_with_rad,
-    create_file_paths, create_oval_path, create_rounded_box_path, create_spline_path,
+    apply_auto_chop_simple_line, arc_control_point, chop_line, create_arc_path,
+    create_cylinder_paths_with_rad, create_file_paths, create_oval_path, create_rounded_box_path,
+    create_spline_path,
 };
 use super::types::*;
 
@@ -536,17 +538,21 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 }
 
                 ObjectClass::Arc => {
-                    // Proper arc rendering using curved arc paths
-                    let radius = scaler.px(obj.width / 2.0); // Use width as arc radius
-                    let arc_path_data = create_arc_path(sx, sy, ex, ey, radius);
+                    // Arc rendering using quadratic bezier (matching C pikchr)
+                    let start = DVec2::new(sx, sy);
+                    let end = DVec2::new(ex, ey);
+                    let control = arc_control_point(obj.style.clockwise, start, end);
+                    let arc_path_data = create_arc_path(start, end, obj.style.clockwise);
 
                     // Render arrowheads first (before path, like C pikchr)
-                    if obj.style.arrow_end {
+                    // For arcs, arrowheads point from control point toward the endpoint
+                    if obj.style.arrow_start {
+                        // Arrow at start: from control point toward start
                         if let Some(arrowhead) = render_arrowhead_dom(
-                            sx,
-                            sy,
-                            ex,
-                            ey,
+                            control.x,
+                            control.y,
+                            start.x,
+                            start.y,
                             &obj.style,
                             arrow_len_px.0,
                             arrow_wid_px.0,
@@ -554,12 +560,13 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                             svg_children.push(SvgNode::Polygon(arrowhead));
                         }
                     }
-                    if obj.style.arrow_start {
+                    if obj.style.arrow_end {
+                        // Arrow at end: from control point toward end
                         if let Some(arrowhead) = render_arrowhead_dom(
-                            ex,
-                            ey,
-                            sx,
-                            sy,
+                            control.x,
+                            control.y,
+                            end.x,
+                            end.y,
                             &obj.style,
                             arrow_len_px.0,
                             arrow_wid_px.0,

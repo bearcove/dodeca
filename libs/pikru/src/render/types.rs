@@ -184,6 +184,8 @@ pub struct ObjectStyle {
     pub chop: bool,
     pub fit: bool,
     pub close_path: bool,
+    /// For arcs: true = clockwise, false = counter-clockwise (default)
+    pub clockwise: bool,
 }
 
 impl Default for ObjectStyle {
@@ -201,6 +203,7 @@ impl Default for ObjectStyle {
             chop: false,
             fit: false,
             close_path: false,
+            clockwise: false,
         }
     }
 }

@@ -569,6 +569,8 @@ fn render_object_stmt(
                 }
                 BoolProperty::Thick => style.stroke_width = defaults::STROKE_WIDTH * 2.0,
                 BoolProperty::Thin => style.stroke_width = defaults::STROKE_WIDTH * 0.5,
+                BoolProperty::Clockwise => style.clockwise = true,
+                BoolProperty::CounterClockwise => style.clockwise = false,
                 _ => {}
             },
             Attribute::StringAttr(s, pos) => {

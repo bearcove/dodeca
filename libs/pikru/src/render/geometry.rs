@@ -2,6 +2,7 @@
 
 use crate::types::{Length as Inches, Scaler};
 use facet_svg::PathData;
+use glam::DVec2;
 
 use super::defaults;
 use super::types::*;
@@ -642,25 +643,43 @@ pub fn create_spline_path(waypoints: &[PointIn], offset_x: Inches, offset_y: Inc
     path
 }
 
-/// Create arc path using PathData fluent API (matching C pikchr output)
-pub fn create_arc_path(sx: f64, sy: f64, ex: f64, ey: f64, radius: f64) -> PathData {
-    // Determine arc direction and sweep
-    let dx = ex - sx;
-    let dy = ey - sy;
+/// Calculate the control point for a quadratic bezier arc.
+///
+/// Based on C pikchr's `arcControlPoint`, adapted for SVG coordinates (Y-down).
+/// The control point is offset perpendicular to the line from start to end,
+/// at a distance of half the line length.
+///
+/// # Arguments
+/// * `clockwise` - true for clockwise arc, false for counter-clockwise (visual, in SVG space)
+/// * `from` - start point (in SVG pixel coordinates, Y increases downward)
+/// * `to` - end point (in SVG pixel coordinates, Y increases downward)
+///
+/// # Returns
+/// The control point for the quadratic bezier
+pub fn arc_control_point(clockwise: bool, from: DVec2, to: DVec2) -> DVec2 {
+    let midpoint = (from + to) * 0.5;
+    let delta = to - from;
+    // Perpendicular vector: (dy, -dx) rotates CW in standard math (Y-up),
+    // which appears as CCW in SVG coords (Y-down).
+    // C pikchr uses Y-up internally and flips on render, so we need the
+    // opposite perpendicular direction to match visually.
+    let perp = DVec2::new(delta.y, -delta.x);
 
-    // Default to quarter-circle arc
-    let r = if radius > 0.0 {
-        radius / 2.0
+    if clockwise {
+        midpoint + perp * 0.5
     } else {
-        (dx.abs() + dy.abs()) / 2.0
-    };
+        midpoint - perp * 0.5
+    }
+}
 
-    // sweep-flag: 0 = counter-clockwise, 1 = clockwise
-    // large-arc-flag: 0 = small arc, 1 = large arc
-    let sweep = true; // Default clockwise
-    let large_arc = false;
+/// Create arc path using quadratic bezier (matching C pikchr output).
+///
+/// C pikchr renders arcs as quadratic bezier curves, NOT as SVG arc commands.
+/// This gives more predictable curves that match the original implementation.
+pub fn create_arc_path(start: DVec2, end: DVec2, clockwise: bool) -> PathData {
+    let control = arc_control_point(clockwise, start, end);
 
     PathData::new()
-        .m(sx, sy) // Move to start point
-        .a(r, r, 0.0, large_arc, sweep, ex, ey) // Arc to end point
+        .m(start.x, start.y)
+        .q(control.x, control.y, end.x, end.y)
 }
