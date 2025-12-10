@@ -17,7 +17,8 @@ use futures::stream::{self, StreamExt};
 use rapace::{Frame, RpcError};
 use rapace_testkit::RpcSession;
 use rapace_tracing::{
-    EventMeta, Field, SpanMeta, TracingConfigClient, TracingSink, TracingSinkServer,
+    EventMeta, Field, SpanMeta, TracingConfig, TracingConfigClient, TracingSink,
+    TracingSinkServer,
 };
 use rapace_transport_shm::{ShmSession, ShmSessionConfig, ShmTransport};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};

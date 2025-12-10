@@ -182,7 +182,50 @@ Rapace plugins are standalone executables that communicate with the host via sha
 
 ### Current Rapace Plugins
 
-- `dodeca-mod-http` - HTTP dev server with WebSocket support for live reload
+- `mod-http` - HTTP dev server with WebSocket support for live reload
+- `mod-arborium` - Syntax highlighting using tree-sitter via arborium library
+
+### Directory Organization
+
+Rapace plugins live in a separate `mods/` directory outside the main workspace. This separation enables plugins to link independently without triggering rebuilds of the core binary.
+
+**Directory structure:**
+
+```
+mods/
+├── mod-http/                 # HTTP dev server plugin
+│   ├── Cargo.toml           # package: mod-http, bin: dodeca-mod-http
+│   └── src/main.rs
+├── mod-http-proto/          # HTTP plugin protocol definitions
+│   ├── Cargo.toml           # package: mod-http-proto
+│   └── src/lib.rs
+├── mod-arborium/            # Syntax highlighting plugin
+│   ├── Cargo.toml           # package: mod-arborium, bin: dodeca-mod-arborium
+│   └── src/main.rs
+└── mod-arborium-proto/      # Syntax highlighting protocol definitions
+    ├── Cargo.toml           # package: mod-arborium-proto
+    └── src/lib.rs
+```
+
+**Naming convention for new mods:**
+
+Each rapace plugin follows this consistent pattern:
+
+1. **Plugin binary**: `mods/mod-{name}/`
+   - Cargo package name: `mod-{name}`
+   - Binary name: `dodeca-mod-{name}` (defined in `[[bin]]` section)
+
+2. **Protocol crate**: `mods/mod-{name}-proto/`
+   - Cargo package name: `mod-{name}-proto`
+   - Contains `#[rapace::service]` trait definitions
+
+3. **Dependencies**:
+   - Plugin depends on its protocol via relative path: `{ path = "../mod-{name}-proto" }`
+   - Both plugin and protocol depend on rapace framework crates from git
+
+4. **Workspace exclusion**:
+   - The root `Cargo.toml` excludes mods: `exclude = ["mods/*"]`
+   - This allows mods to have independent dependency versions and compile separately
 
 ### Architecture
 
@@ -253,11 +296,31 @@ The macro generates:
 
 ### Creating a Rapace Plugin
 
-1. Define the protocol in a shared crate (e.g., `dodeca-serve-protocol`)
-2. Implement the server side in the host
-3. Create the plugin binary that connects and uses the client
+To create a new rapace plugin, follow this structure (using `example` as the plugin name):
 
-See `crates/dodeca-mod-http/` for a complete example.
+1. **Create the protocol crate** at `mods/mod-example-proto/`
+   - Package name: `mod-example-proto`
+   - Define your RPC traits using `#[rapace::service]`
+
+2. **Create the plugin binary** at `mods/mod-example/`
+   - Package name: `mod-example`
+   - Binary name: `dodeca-mod-example`
+   - Depend on `mod-example-proto` via relative path
+
+3. **Implement the server side** in the host
+   - The host implements the traits defined in the protocol crate
+   - Register the service with the RpcSession
+
+4. **Plugin implementation**
+   - Connect to the RpcSession in the host via shared memory
+   - Call the host's service methods as needed
+
+**Key points:**
+- Each plugin is completely independent; use relative path dependencies for its protocol crate
+- The root workspace excludes `mods/*`, so plugins build independently from the core binary
+- Plugins can have their own dependency versions since they're not in the workspace
+
+See `mods/mod-http/` and `mods/mod-arborium/` for complete examples.
 
 ---
 

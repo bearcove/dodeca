@@ -11,8 +11,6 @@ homepage = "https://dodeca.bearcove.eu/"
 keywords = ["static-site", "ssg", "incremental"]
 categories = ["command-line-utilities", "web-programming"]
 
-
-
 [package.metadata.wix]
 upgrade-guid = "F32CA0D7-4DDE-4333-A5EA-374211B0C136"
 path-guid = "68C82E46-C932-4CA9-BEE0-216F988EADF9"
@@ -89,15 +87,13 @@ postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary seria
 dodeca-protocol = { path = "../dodeca-protocol" }
 
 # RPC protocol for dev server plugin
-dodeca-serve-protocol = { path = "../dodeca-serve-protocol" }
+mod-http-proto = { path = "../../mods/mod-http-proto" }
 
 # Syntax highlight service protocol
-dodeca-syntax-highlight-protocol = { path = "../dodeca-syntax-highlight-protocol" }
+mod-arborium-proto = { path = "../../mods/mod-arborium-proto" }
 
 # RPC framework for plugin communication
 rapace = { git = "https://github.com/bearcove/rapace", features = ["stream"] }
-rapace-testkit = { git = "https://github.com/bearcove/rapace" }
-rapace-transport-shm = { git = "https://github.com/bearcove/rapace" }
 rapace-tracing = { git = "https://github.com/bearcove/rapace" }
 
 # Code execution plugin types (lightweight - no plugin implementation)

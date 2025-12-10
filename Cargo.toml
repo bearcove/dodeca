@@ -1,36 +1,10 @@
 [workspace]
 members = [
-    "crates/dodeca",
-    "crates/gingembre",
-    "crates/livereload-client",
-    "crates/dodeca-devtools",
-    "crates/dodeca-protocol",
-    "crates/plugcard",
-    "crates/plugcard-macros",
-    "crates/dodeca-serve-protocol",
-    "crates/dodeca-mod-http",
-    "crates/dodeca-baseline",
-    "crates/dodeca-webp",
-    "crates/dodeca-jxl",
-    "crates/dodeca-minify",
-    "crates/dodeca-svgo",
-    "crates/dodeca-sass",
-    "crates/dodeca-css",
-    "crates/dodeca-js",
-    "crates/dodeca-pagefind",
-    "crates/dodeca-image",
-    "crates/dodeca-fonts",
-    "crates/dodeca-linkcheck",
-    "crates/dodeca-code-execution",
-    "crates/dodeca-code-execution-config",
-    "crates/dodeca-code-execution-types",
-    "crates/dodeca-html-diff",
-    "crates/dodeca-syntax-highlight",
-    "crates/dodeca-syntax-highlight-protocol",
-    "crates/dodeca-syntax-highlight-rapace",
-    "crates/dodeca-sandbox",
-    "crates/dodeca-integration",
+    "crates/*",
     "xtask",
+]
+exclude = [
+    "mods/*"
 ]
 resolver = "3"
 
@@ -49,18 +23,3 @@ opt-level = 1
 [profile.dist]
 inherits = "release"
 lto = "thin"
-
-# Patch arborium crates to use git version with bugfix
-[patch.crates-io]
-arborium-highlight = { git = "https://github.com/bearcove/arborium" }
-arborium-tree-sitter = { git = "https://github.com/bearcove/arborium" }
-arborium-sysroot = { git = "https://github.com/bearcove/arborium" }
-
-[patch."https://github.com/bearcove/rapace"]
-rapace = { path = "../rapace/crates/rapace" }
-rapace-core = { path = "../rapace/crates/rapace-core" }
-rapace-macros = { path = "../rapace/crates/rapace-macros" }
-rapace-registry = { path = "../rapace/crates/rapace-registry" }
-rapace-testkit = { path = "../rapace/crates/rapace-testkit" }
-rapace-tracing = { path = "../rapace/crates/rapace-tracing" }
-rapace-transport-shm = { path = "../rapace/crates/rapace-transport-shm" }

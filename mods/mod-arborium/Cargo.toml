@@ -1,5 +1,5 @@
 [package]
-name = "dodeca-syntax-highlight-rapace"
+name = "mod-arborium"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
@@ -8,13 +8,12 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [[bin]]
-name = "dodeca-syntax-highlight-rapace"
+name = "dodeca-mod-arborium"
 path = "src/main.rs"
 
 [dependencies]
 # RPC framework
 rapace = { git = "https://github.com/bearcove/rapace" }
-rapace-testkit = { git = "https://github.com/bearcove/rapace" }
 rapace-transport-shm = { git = "https://github.com/bearcove/rapace" }
 rapace-tracing = { git = "https://github.com/bearcove/rapace" }
 
@@ -48,7 +47,7 @@ arborium = { version = "0.700", features = [
 ] }
 
 # Protocol definition
-dodeca-syntax-highlight-protocol = { path = "../dodeca-syntax-highlight-protocol" }
+mod-arborium-proto = { path = "../mod-arborium-proto" }
 
 # Error handling
 color-eyre = "0.6"
