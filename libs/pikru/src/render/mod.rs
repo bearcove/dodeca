@@ -594,10 +594,11 @@ fn render_object_stmt(
                 ));
             }
         }
-        // Apply fit sizing
+        // Apply fit sizing - SET size to fit text (can shrink below default)
         if !fit_text.is_empty() {
             let char_width = defaults::FONT_SIZE * 0.6;
-            let padding = defaults::FONT_SIZE;
+            // C pikchr uses smaller padding for fit - approximately 0.5 * font_size
+            let padding = defaults::FONT_SIZE * 0.5;
             let max_text_width = fit_text
                 .iter()
                 .map(|t| t.value.len() as f64 * char_width)
@@ -605,8 +606,16 @@ fn render_object_stmt(
             let center_lines = fit_text.iter().filter(|t| !t.above && !t.below).count();
             let fit_width = Inches(max_text_width + padding * 2.0);
             let fit_height = Inches((center_lines as f64 * defaults::FONT_SIZE) + padding * 2.0);
-            width = width.max(fit_width);
-            height = height.max(fit_height);
+
+            // For circles, use the larger of fit_width/fit_height as diameter
+            if class == ObjectClass::Circle {
+                let diameter = fit_width.max(fit_height);
+                width = diameter;
+                height = diameter;
+            } else {
+                width = fit_width;
+                height = fit_height;
+            }
             style.fit = true;
         }
     }
@@ -810,11 +819,12 @@ fn render_object_stmt(
         }
     }
 
-    // Apply fit: auto-size box to fit text content
+    // Apply fit: auto-size shape to fit text content
     if style.fit && !text.is_empty() {
         // Estimate text width: ~7 pixels per character for a 12pt font
         let char_width = defaults::FONT_SIZE * 0.6;
-        let padding = defaults::FONT_SIZE; // Padding around text
+        // C pikchr uses smaller padding for fit - approximately 0.5 * font_size
+        let padding = defaults::FONT_SIZE * 0.5;
 
         // Find the widest text line
         let max_text_width = text
@@ -828,9 +838,16 @@ fn render_object_stmt(
         let fit_width = Inches(max_text_width + padding * 2.0);
         let fit_height = Inches((center_lines as f64 * defaults::FONT_SIZE) + padding * 2.0);
 
-        // Only expand, don't shrink
-        width = width.max(fit_width);
-        height = height.max(fit_height);
+        // For "fit", SET the size (can shrink), don't just expand
+        // For circles, use the larger of fit_width/fit_height as diameter
+        if class == ObjectClass::Circle {
+            let diameter = fit_width.max(fit_height);
+            width = diameter;
+            height = diameter;
+        } else {
+            width = fit_width;
+            height = fit_height;
+        }
     }
 
     // Calculate position based on object type
@@ -974,7 +991,12 @@ fn render_object_stmt(
 
     // If no explicit name and there's text, use the first text value as implicit name
     // This matches C pikchr behavior where `circle "C2"` can be referenced as C2
-    let final_name = name.or_else(|| text.first().map(|t| t.value.clone()));
+    // BUT: don't overwrite an existing named object - C pikchr doesn't allow that
+    let final_name = name.or_else(|| {
+        text.first()
+            .map(|t| t.value.clone())
+            .filter(|n| ctx.get_object(n).is_none())
+    });
 
     // Clear current_object now that we're done building this object
     ctx.current_object = None;
