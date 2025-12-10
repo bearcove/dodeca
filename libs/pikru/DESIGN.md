@@ -1,14 +1,13 @@
-# Pikru Parity Refactor Plan
+# Pikru Design & Progress
 
-A roadmap for achieving C-pikchr compatibility using Rust-first, zero-cost abstractions.
+A Rust implementation of pikchr aiming for C-pikchr compatibility using zero-cost abstractions.
 
 ## Design Principles
 
 1. **Explicit units** - Lengths (inches), pixels, scalars, and angles as distinct newtypes prevent unit confusion at compile time.
 2. **Geometry/serialization separation** - Layout in inches; convert to pixels once at emit time.
 3. **Centralized state** - Single context for variables, directions, current position, object lookup.
-4. **Output variants** - SVG for diagrams, HTML for print/assert diagnostics.
-5. **C layout semantics** - Match the reference implementation; rScale applied only at emission.
+4. **C layout semantics** - Match the reference implementation; rScale applied only at emission.
 
 ## Type System
 
@@ -40,19 +39,6 @@ A roadmap for achieving C-pikchr compatibility using Rust-first, zero-cost abstr
                     └───────────────────────────────────────┘
 ```
 
-### Planned (not yet implemented)
-
-| Type | Purpose |
-|------|---------|
-| `Stroke` | `{ color, width: Length, dash: DashPattern, invisible: bool }` |
-| `Fill` | `{ color: Color }` |
-| `DashPattern` | `Solid \| Dotted(Length, Length) \| Dashed(Length, Length)` |
-| `Shape<T>` | `Box \| Circle \| Ellipse \| Line { pts: Vec<Point<T>> } \| ...` |
-| `Drawable<T>` | `{ shape, stroke, fill, text: Vec<TextSpan> }` |
-| `TextSpan` | `{ pos: Point<T>, value: String, font: FontSpec }` |
-| `EvalValue` | `Length \| Scalar \| Color \| Angle` for type-checked expr eval |
-| `LayoutContext` | dir, pos, typed vars, last/prev objects, bbox accumulator |
-
 ## Pipeline
 
 ```
@@ -60,46 +46,46 @@ A roadmap for achieving C-pikchr compatibility using Rust-first, zero-cost abstr
   │ Parse │───▶│ Expand │───▶│ Evaluate (inches)│───▶│ Emit (pixels)   │
   │  AST  │    │ Macros │    │  LayoutContext   │    │ Scaler → SVG    │
   └───────┘    └────────┘    └──────────────────┘    └─────────────────┘
-                                      │
-                              ┌───────▼───────┐
-                              │ Drawable<Len> │
-                              │ with styles   │
-                              └───────────────┘
 ```
+
+## Coordinate System
+
+C pikchr uses Y-up internally and flips to Y-down (SVG) at render time via `pik_append_xy`:
+```c
+y = bbox.ne.y - y;  // Y-flip
+```
+
+Rust pikru does the same: internal coordinates are Y-up, `to_svg()` method handles the flip.
 
 ## Progress Tracker
 
 ### Done
 
-- [x] **Primitives**: `Length`, `Px`, `Scalar`, `Angle`, `Color` newtypes
-- [x] **Geometry**: Generic `Point<T>`, `Size<T>`, `BBox<T>`
-- [x] **Scaler**: `len()`, `point()`, `px()`, `size()`, `bbox()` methods
-- [x] **Operator traits**: `Add`, `Sub`, `Mul<f64>`, `Div<f64>`, `AddAssign`, `SubAssign` on `Length`
-- [x] **Tests**: `even_with` and `until_even_with` parity tests against C
-- [x] **Typed geometry in render.rs**: `PtIn`, `BoxIn` aliases used throughout
-- [x] **Scaler in emitter**: All coord/stroke/dash conversions via `Scaler`
-- [x] **Removed `to_px_len()`**: All 35+ call sites migrated to `scaler.px()`
-- [x] **Bounds fixes**: Zero-dim check after margins; line bounds include stroke padding
-- [x] **Text font size**: Respects `scale` variable via `Scaler`
-- [x] **Error diagnostics**: Print expressions show actual error messages (division-by-zero, sqrt of negative)
-- [x] **Typed evaluator & angles (Step 4)**: `EvalValue` plumbing, `Length::try_new` on parsed numbers, overflow checks via `validate_value()`, typed math ops, and fully validated `Angle` constructors/accessors
+- [x] Primitives: `Length`, `Px`, `Scalar`, `Angle`, `Color` newtypes
+- [x] Geometry: Generic `Point<T>`, `Size<T>`, `BBox<T>`
+- [x] Scaler: `len()`, `point()`, `px()`, `size()`, `bbox()` methods
+- [x] Operator traits on `Length`
+- [x] Typed geometry in render.rs: `PtIn`, `BoxIn` aliases
+- [x] Scaler in emitter: All coord/stroke/dash conversions via `Scaler`
+- [x] Y-flip: `Point<Length>::to_svg()` with `max_y - y` transformation
+- [x] Direction vectors: `Direction::unit_vector()` and `Direction::offset()`
+- [x] Typed evaluator with `EvalValue` enum
+- [x] Angle safety: validated constructors/accessors
 
 ### In Progress
 
-- [ ] Step 3 – Layout semantics parity (advance/centering rules, chop + arrowheads, sublist local coords, bbox accumulation in inches)
+- [ ] Layout semantics parity (advance/centering rules, chop + arrowheads, sublist local coords)
 
 ### Pending
 
 | Step | Description |
 |------|-------------|
-| 3 | Layout semantics: advance, centering, chop/arrowheads, sublist local coords, bbox in inches |
+| 3 | Layout semantics: advance, centering, chop/arrowheads, sublist local coords |
 | 5 | `Drawable<Length>` model populated from AST; styles from vars |
 | 6 | Emit: dash arrays from `dashwid`, arrow sizes, stroke widths via Scaler |
 | 7 | Print/assert: HTML output with `<br>` and C-like error lines |
-| 8 | Style parity: hex/rgb/rgba colors, fg/bg vars, font-size, `data-pikchr-date`, `class="pikchr"` |
+| 8 | Style parity: hex/rgb/rgba colors, fg/bg vars, font-size, `class="pikchr"` |
 | 9 | Margins: margin + thickness + side margins in inches before viewBox |
-
-Step 4 closed on December 3, 2025; evaluator + angle safety are complete, so focus shifts to Step 3 before the downstream emit/styling work.
 
 ## Notes
 
