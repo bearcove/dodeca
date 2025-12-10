@@ -840,8 +840,10 @@ fn render_object_stmt(
                 // The children's center in local coords
                 let local_center = bounds.center();
                 // Offset from local center to final center
-                let offset = Point::new(center.x - local_center.x, center.y - local_center.y);
-                translate_children(&mut children, offset);
+                let offset = center - local_center;
+                for child in children.iter_mut() {
+                    child.translate(offset);
+                }
             }
         }
     }
@@ -901,31 +903,6 @@ fn render_sublist(
     Ok(ctx.object_list)
 }
 
-/// Translate children from local sublist space to a given offset (usually parent center)
-fn translate_children(children: &mut [RenderedObject], offset: PointIn) {
-    for child in children.iter_mut() {
-        translate_object(child, offset);
-    }
-}
-
-fn translate_object(obj: &mut RenderedObject, offset: PointIn) {
-    obj.center.x += offset.x;
-    obj.center.y += offset.y;
-    obj.start.x += offset.x;
-    obj.start.y += offset.y;
-    obj.end.x += offset.x;
-    obj.end.y += offset.y;
-
-    for pt in obj.waypoints.iter_mut() {
-        pt.x += offset.x;
-        pt.y += offset.y;
-    }
-
-    for child in obj.children.iter_mut() {
-        translate_object(child, offset);
-    }
-}
-
 /// Calculate center position given that a specific edge should be at target
 fn calculate_center_from_edge(
     edge: EdgePoint,
@@ -934,11 +911,15 @@ fn calculate_center_from_edge(
     height: Inches,
     class: ObjectClass,
 ) -> PointIn {
+    match edge {
+        EdgePoint::Center | EdgePoint::C | EdgePoint::Start | EdgePoint::End => return target,
+        _ => {}
+    }
+
     let hw = width / 2.0;
     let hh = height / 2.0;
 
-    // For circles/ellipses, diagonal edge points use the actual point on the
-    // perimeter at 45 degrees, not the bounding box corner.
+    // For circles/ellipses, diagonal edge points use the perimeter, not bounding box corners
     let is_round = matches!(
         class,
         ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval
@@ -949,20 +930,12 @@ fn calculate_center_from_edge(
         1.0
     };
 
-    match edge {
-        EdgePoint::North | EdgePoint::N | EdgePoint::Top | EdgePoint::T => {
-            Point::new(target.x, target.y + hh)
-        }
-        EdgePoint::South | EdgePoint::S | EdgePoint::Bottom => Point::new(target.x, target.y - hh),
-        EdgePoint::East | EdgePoint::E | EdgePoint::Right => Point::new(target.x - hw, target.y),
-        EdgePoint::West | EdgePoint::W | EdgePoint::Left => Point::new(target.x + hw, target.y),
-        EdgePoint::NorthEast => Point::new(target.x - hw * diag, target.y + hh * diag),
-        EdgePoint::NorthWest => Point::new(target.x + hw * diag, target.y + hh * diag),
-        EdgePoint::SouthEast => Point::new(target.x - hw * diag, target.y - hh * diag),
-        EdgePoint::SouthWest => Point::new(target.x + hw * diag, target.y - hh * diag),
-        EdgePoint::Center | EdgePoint::C => target,
-        EdgePoint::Start | EdgePoint::End => target, // For lines, just use target
-    }
+    // Use UnitVec for direction, then negate to go from edge back to center
+    let dir = edge_point_offset(&edge);
+    let offset = OffsetIn::new(hw * dir.dx() * diag, hh * dir.dy() * diag);
+
+    // Edge point = center + offset, so center = edge point - offset
+    target - offset
 }
 
 /// Move a point in a direction by a distance
@@ -1091,6 +1064,22 @@ fn calculate_object_position(
             (start, end, center)
         }
     };
+
+    tracing::debug!(
+        ?class,
+        cursor_x = ctx.position.x.0,
+        cursor_y = ctx.position.y.0,
+        dir = ?ctx.direction,
+        w = width.0,
+        h = height.0,
+        center_x = center.x.0,
+        center_y = center.y.0,
+        start_x = start.x.0,
+        start_y = start.y.0,
+        end_x = end.x.0,
+        end_y = end.y.0,
+        "calculate_object_position"
+    );
 
     (center, start, end)
 }

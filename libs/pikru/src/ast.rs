@@ -50,24 +50,25 @@ pub enum Direction {
 }
 
 impl Direction {
-    /// Unit vector for this direction in SVG coordinate space.
-    /// SVG Y increases downward, so:
-    /// - Up = (0, -1)
-    /// - Down = (0, +1)
+    /// Unit vector for this direction in internal coordinate space (Y-up).
+    /// Like C pikchr, we use Y-up internally:
+    /// - Up = (0, +1)
+    /// - Down = (0, -1)
     /// - Right = (+1, 0)
     /// - Left = (-1, 0)
+    /// The Y-flip to SVG (Y-down) happens in `Point::to_svg()`.
     #[inline]
     pub fn unit_vector(self) -> DVec2 {
         match self {
             Direction::Right => DVec2::X,
             Direction::Left => DVec2::NEG_X,
-            Direction::Up => DVec2::NEG_Y, // SVG Y-down!
-            Direction::Down => DVec2::Y,
+            Direction::Up => DVec2::Y,    // Y-up: Up increases Y
+            Direction::Down => DVec2::NEG_Y, // Y-up: Down decreases Y
         }
     }
 
     /// Get offset for moving `distance` in this direction.
-    /// This is the ONE place that knows about SVG's Y-down coordinate system.
+    /// Uses Y-up internal coordinates (like C pikchr).
     #[inline]
     pub fn offset(self, distance: Length) -> OffsetIn {
         let v = self.unit_vector() * distance.0;
@@ -577,15 +578,15 @@ mod tests {
         assert!(l.dx < Length::ZERO, "Left should decrease X");
         assert_eq!(l.dy, Length::ZERO, "Left should not change Y");
 
-        // Up decreases Y (SVG Y increases downward)
+        // Up increases Y (Y-up internal coordinates, like C pikchr)
         let u = Direction::Up.offset(d);
         assert_eq!(u.dx, Length::ZERO, "Up should not change X");
-        assert!(u.dy < Length::ZERO, "Up should decrease Y (SVG Y-down)");
+        assert!(u.dy > Length::ZERO, "Up should increase Y (Y-up internally)");
 
-        // Down increases Y
+        // Down decreases Y (Y-up internal coordinates)
         let down = Direction::Down.offset(d);
         assert_eq!(down.dx, Length::ZERO, "Down should not change X");
-        assert!(down.dy > Length::ZERO, "Down should increase Y (SVG Y-down)");
+        assert!(down.dy < Length::ZERO, "Down should decrease Y (Y-up internally)");
     }
 
     #[test]
@@ -600,15 +601,15 @@ mod tests {
         assert_eq!(l.x, -1.0);
         assert_eq!(l.y, 0.0);
 
-        // Up = (0, -1) in SVG coordinates
+        // Up = (0, 1) in Y-up coordinates (like C pikchr)
         let u = Direction::Up.unit_vector();
         assert_eq!(u.x, 0.0);
-        assert_eq!(u.y, -1.0);
+        assert_eq!(u.y, 1.0);
 
-        // Down = (0, 1) in SVG coordinates
+        // Down = (0, -1) in Y-up coordinates
         let d = Direction::Down.unit_vector();
         assert_eq!(d.x, 0.0);
-        assert_eq!(d.y, 1.0);
+        assert_eq!(d.y, -1.0);
     }
 
     #[test]

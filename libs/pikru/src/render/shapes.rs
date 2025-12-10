@@ -5,7 +5,7 @@
 //! - Find edge points for line connections
 //! - Render itself to SVG
 
-use crate::types::{Length as Inches, Point, Scaler};
+use crate::types::{Length as Inches, OffsetIn, Point, Scaler, UnitVec};
 use facet_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode, SvgStyle};
 
 use super::defaults;
@@ -41,6 +41,13 @@ pub trait Shape {
     /// Calculate the edge point in a given direction
     /// Default implementation uses bounding box; shapes can override for precise edges
     fn edge_point(&self, direction: EdgeDirection) -> PointIn {
+        match direction {
+            EdgeDirection::Center => return self.center(),
+            EdgeDirection::Start => return self.start(),
+            EdgeDirection::End => return self.end(),
+            _ => {}
+        }
+
         let center = self.center();
         let hw = self.width() / 2.0;
         let hh = self.height() / 2.0;
@@ -52,19 +59,11 @@ pub trait Shape {
             1.0
         };
 
-        match direction {
-            EdgeDirection::North => Point::new(center.x, center.y - hh),
-            EdgeDirection::South => Point::new(center.x, center.y + hh),
-            EdgeDirection::East => Point::new(center.x + hw, center.y),
-            EdgeDirection::West => Point::new(center.x - hw, center.y),
-            EdgeDirection::NorthEast => Point::new(center.x + hw * diag, center.y - hh * diag),
-            EdgeDirection::NorthWest => Point::new(center.x - hw * diag, center.y - hh * diag),
-            EdgeDirection::SouthEast => Point::new(center.x + hw * diag, center.y + hh * diag),
-            EdgeDirection::SouthWest => Point::new(center.x - hw * diag, center.y + hh * diag),
-            EdgeDirection::Center => center,
-            EdgeDirection::Start => self.start(),
-            EdgeDirection::End => self.end(),
-        }
+        // Use UnitVec for direction, scale x by hw and y by hh
+        let dir = direction.unit_vec();
+        let offset = OffsetIn::new(hw * dir.dx() * diag, hh * dir.dy() * diag);
+
+        center + offset
     }
 
     /// Start point (for lines, this is the first waypoint; for shapes, usually center or west edge)
@@ -95,6 +94,23 @@ pub enum EdgeDirection {
     Center,
     Start,
     End,
+}
+
+impl EdgeDirection {
+    /// Get the unit vector for this direction (Y-up convention)
+    pub fn unit_vec(self) -> UnitVec {
+        match self {
+            EdgeDirection::North => UnitVec::NORTH,
+            EdgeDirection::South => UnitVec::SOUTH,
+            EdgeDirection::East => UnitVec::EAST,
+            EdgeDirection::West => UnitVec::WEST,
+            EdgeDirection::NorthEast => UnitVec::NORTH_EAST,
+            EdgeDirection::NorthWest => UnitVec::NORTH_WEST,
+            EdgeDirection::SouthEast => UnitVec::SOUTH_EAST,
+            EdgeDirection::SouthWest => UnitVec::SOUTH_WEST,
+            EdgeDirection::Center | EdgeDirection::Start | EdgeDirection::End => UnitVec::ZERO,
+        }
+    }
 }
 
 // ============================================================================
@@ -673,27 +689,29 @@ impl Shape for LineShape {
             return Point::new(Inches::ZERO, Inches::ZERO);
         }
         // Center is midpoint between start and end
-        let start = self.waypoints.first().unwrap();
-        let end = self.waypoints.last().unwrap();
-        Point::new((start.x + end.x) / 2.0, (start.y + end.y) / 2.0)
+        let start = *self.waypoints.first().unwrap();
+        let end = *self.waypoints.last().unwrap();
+        start.midpoint(end)
     }
 
     fn width(&self) -> Inches {
         if self.waypoints.len() < 2 {
             return Inches::ZERO;
         }
-        let start = self.waypoints.first().unwrap();
-        let end = self.waypoints.last().unwrap();
-        (end.x - start.x).abs()
+        let start = *self.waypoints.first().unwrap();
+        let end = *self.waypoints.last().unwrap();
+        let delta = end - start;
+        delta.dx.abs()
     }
 
     fn height(&self) -> Inches {
         if self.waypoints.len() < 2 {
             return Inches::ZERO;
         }
-        let start = self.waypoints.first().unwrap();
-        let end = self.waypoints.last().unwrap();
-        (end.y - start.y).abs()
+        let start = *self.waypoints.first().unwrap();
+        let end = *self.waypoints.last().unwrap();
+        let delta = end - start;
+        delta.dy.abs()
     }
 
     fn style(&self) -> &ObjectStyle {
@@ -766,27 +784,29 @@ impl Shape for SplineShape {
         if self.waypoints.is_empty() {
             return Point::new(Inches::ZERO, Inches::ZERO);
         }
-        let start = self.waypoints.first().unwrap();
-        let end = self.waypoints.last().unwrap();
-        Point::new((start.x + end.x) / 2.0, (start.y + end.y) / 2.0)
+        let start = *self.waypoints.first().unwrap();
+        let end = *self.waypoints.last().unwrap();
+        start.midpoint(end)
     }
 
     fn width(&self) -> Inches {
         if self.waypoints.len() < 2 {
             return Inches::ZERO;
         }
-        let start = self.waypoints.first().unwrap();
-        let end = self.waypoints.last().unwrap();
-        (end.x - start.x).abs()
+        let start = *self.waypoints.first().unwrap();
+        let end = *self.waypoints.last().unwrap();
+        let delta = end - start;
+        delta.dx.abs()
     }
 
     fn height(&self) -> Inches {
         if self.waypoints.len() < 2 {
             return Inches::ZERO;
         }
-        let start = self.waypoints.first().unwrap();
-        let end = self.waypoints.last().unwrap();
-        (end.y - start.y).abs()
+        let start = *self.waypoints.first().unwrap();
+        let end = *self.waypoints.last().unwrap();
+        let delta = end - start;
+        delta.dy.abs()
     }
 
     fn style(&self) -> &ObjectStyle {
@@ -1234,17 +1254,18 @@ mod tests {
 
         let north = circle.edge_point(EdgeDirection::North);
         assert_eq!(north.x, Inches(0.0));
-        assert_eq!(north.y, Inches(-1.0));
+        assert_eq!(north.y, Inches(1.0)); // Y-up: North = +Y
 
         let east = circle.edge_point(EdgeDirection::East);
         assert_eq!(east.x, Inches(1.0));
         assert_eq!(east.y, Inches(0.0));
 
         // Diagonal should be at 1/sqrt(2) distance, not corner
+        // Y-up: NorthEast = (+x, +y)
         let ne = circle.edge_point(EdgeDirection::NorthEast);
         let expected = std::f64::consts::FRAC_1_SQRT_2;
         assert!((ne.x.0 - expected).abs() < 0.001);
-        assert!((ne.y.0 - (-expected)).abs() < 0.001);
+        assert!((ne.y.0 - expected).abs() < 0.001); // Y-up: +Y for North
     }
 
     #[test]

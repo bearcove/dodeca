@@ -1,7 +1,7 @@
 //! Core types for pikchr rendering
 
 use crate::ast::TextAttr;
-use crate::types::{BoxIn, EvalValue, Length as Inches, Point, PtIn};
+use crate::types::{BoxIn, EvalValue, Length as Inches, OffsetIn, Point, PtIn};
 
 use super::defaults;
 
@@ -128,6 +128,23 @@ pub struct RenderedObject {
     pub text: Vec<PositionedText>,
     pub style: ObjectStyle,
     pub children: Vec<RenderedObject>,
+}
+
+impl RenderedObject {
+    /// Translate this object and all its children by an offset
+    pub fn translate(&mut self, offset: OffsetIn) {
+        self.center += offset;
+        self.start += offset;
+        self.end += offset;
+
+        for pt in self.waypoints.iter_mut() {
+            *pt += offset;
+        }
+
+        for child in self.children.iter_mut() {
+            child.translate(offset);
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

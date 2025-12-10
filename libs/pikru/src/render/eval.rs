@@ -1,7 +1,7 @@
 //! Expression evaluation functions
 
 use crate::ast::*;
-use crate::types::{Length as Inches, Point, UnitVec};
+use crate::types::{Length as Inches, OffsetIn, Point, UnitVec};
 
 use super::context::RenderContext;
 use super::types::*;
@@ -254,11 +254,10 @@ pub fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, mie
             let base = eval_place(ctx, place)?;
             let dx_val = eval_len(ctx, dx)?;
             let dy_val = eval_len(ctx, dy)?;
-            // Pikchr uses Y-UP semantics in user syntax, but we use Y-DOWN internally.
-            // So adding Y moves up (smaller Y in our system), subtracting moves down.
+            let offset = OffsetIn::new(dx_val, dy_val);
             match op {
-                BinaryOp::Add => Ok(Point::new(base.x + dx_val, base.y + dy_val)),
-                BinaryOp::Sub => Ok(Point::new(base.x - dx_val, base.y - dy_val)),
+                BinaryOp::Add => Ok(base + offset),
+                BinaryOp::Sub => Ok(base - offset),
                 _ => Ok(base),
             }
         }
@@ -266,7 +265,8 @@ pub fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, mie
             let f = eval_scalar(ctx, factor)?;
             let p1 = eval_position(ctx, pos1)?;
             let p2 = eval_position(ctx, pos2)?;
-            let result = Point::new(p1.x + (p2.x - p1.x) * f, p1.y + (p2.y - p1.y) * f);
+            // Interpolate: p1 + (p2 - p1) * f
+            let result = p1 + (p2 - p1) * f;
             tracing::debug!(
                 f = f,
                 p1_x = p1.x.0,
@@ -280,30 +280,30 @@ pub fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, mie
             Ok(result)
         }
         Position::Bracket(factor, pos1, pos2) => {
-            // Same as between
+            // Same as between: p1 + (p2 - p1) * f
             let f = eval_scalar(ctx, factor)?;
             let p1 = eval_position(ctx, pos1)?;
             let p2 = eval_position(ctx, pos2)?;
-            Ok(Point::new(
-                p1.x + (p2.x - p1.x) * f,
-                p1.y + (p2.y - p1.y) * f,
-            ))
+            Ok(p1 + (p2 - p1) * f)
         }
         Position::AboveBelow(dist, ab, base_pos) => {
             let d = eval_len(ctx, dist)?;
             let base = eval_position(ctx, base_pos)?;
-            match ab {
-                AboveBelow::Above => Ok(Point::new(base.x, base.y + d)),
-                AboveBelow::Below => Ok(Point::new(base.x, base.y - d)),
-            }
+            // Y-up: Above = +Y, Below = -Y
+            let offset = match ab {
+                AboveBelow::Above => OffsetIn::new(Inches::ZERO, d),
+                AboveBelow::Below => OffsetIn::new(Inches::ZERO, -d),
+            };
+            Ok(base + offset)
         }
         Position::LeftRightOf(dist, lr, base_pos) => {
             let d = eval_len(ctx, dist)?;
             let base = eval_position(ctx, base_pos)?;
-            match lr {
-                LeftRight::Left => Ok(Point::new(base.x - d, base.y)),
-                LeftRight::Right => Ok(Point::new(base.x + d, base.y)),
-            }
+            let offset = match lr {
+                LeftRight::Left => OffsetIn::new(-d, Inches::ZERO),
+                LeftRight::Right => OffsetIn::new(d, Inches::ZERO),
+            };
+            Ok(base + offset)
         }
         Position::EdgePointOf(dist, edge, base_pos) => {
             let d = eval_len(ctx, dist)?;
@@ -517,14 +517,17 @@ fn nth_class_to_object_class(nc: &NthClass) -> Option<ObjectClass> {
 }
 
 fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
-    let cx = obj.center.x.0;
-    let cy = obj.center.y.0;
-    let hw = obj.width.0 / 2.0;
-    let hh = obj.height.0 / 2.0;
+    match edge {
+        EdgePoint::Center | EdgePoint::C => return obj.center,
+        EdgePoint::Start => return obj.start,
+        EdgePoint::End => return obj.end,
+        _ => {}
+    }
 
-    // For circles/ellipses, diagonal edge points (ne, nw, se, sw) use the actual
-    // point on the perimeter at 45 degrees, not the bounding box corner.
-    // The diagonal factor is 1/sqrt(2) ≈ 0.707
+    let hw = obj.width / 2.0;
+    let hh = obj.height / 2.0;
+
+    // For circles/ellipses, diagonal edge points use the perimeter, not bounding box corners
     let is_round = matches!(
         obj.class,
         ObjectClass::Circle | ObjectClass::Ellipse | ObjectClass::Oval
@@ -535,25 +538,11 @@ fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
         1.0
     };
 
-    match edge {
-        EdgePoint::North | EdgePoint::N | EdgePoint::Top | EdgePoint::T => {
-            Point::new(Inches(cx), Inches(cy - hh))
-        }
-        EdgePoint::South | EdgePoint::S | EdgePoint::Bottom => {
-            Point::new(Inches(cx), Inches(cy + hh))
-        }
-        EdgePoint::East | EdgePoint::E | EdgePoint::Right => {
-            Point::new(Inches(cx + hw), Inches(cy))
-        }
-        EdgePoint::West | EdgePoint::W | EdgePoint::Left => Point::new(Inches(cx - hw), Inches(cy)),
-        EdgePoint::NorthEast => Point::new(Inches(cx + hw * diag), Inches(cy - hh * diag)),
-        EdgePoint::NorthWest => Point::new(Inches(cx - hw * diag), Inches(cy - hh * diag)),
-        EdgePoint::SouthEast => Point::new(Inches(cx + hw * diag), Inches(cy + hh * diag)),
-        EdgePoint::SouthWest => Point::new(Inches(cx - hw * diag), Inches(cy + hh * diag)),
-        EdgePoint::Center | EdgePoint::C => obj.center,
-        EdgePoint::Start => obj.start,
-        EdgePoint::End => obj.end,
-    }
+    // Use UnitVec for direction, scale x by hw and y by hh
+    let dir = edge_point_offset(edge);
+    let offset = OffsetIn::new(hw * dir.dx() * diag, hh * dir.dy() * diag);
+
+    obj.center + offset
 }
 
 pub fn eval_color(rvalue: &RValue) -> String {

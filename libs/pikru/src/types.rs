@@ -700,25 +700,26 @@ const FRAC_1_SQRT_2: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
 impl UnitVec {
     pub const ZERO: UnitVec = UnitVec { dx: 0.0, dy: 0.0 };
-    pub const NORTH: UnitVec = UnitVec { dx: 0.0, dy: -1.0 };
-    pub const SOUTH: UnitVec = UnitVec { dx: 0.0, dy: 1.0 };
+    // Y-up convention: North = +Y, South = -Y
+    pub const NORTH: UnitVec = UnitVec { dx: 0.0, dy: 1.0 };
+    pub const SOUTH: UnitVec = UnitVec { dx: 0.0, dy: -1.0 };
     pub const EAST: UnitVec = UnitVec { dx: 1.0, dy: 0.0 };
     pub const WEST: UnitVec = UnitVec { dx: -1.0, dy: 0.0 };
     pub const NORTH_EAST: UnitVec = UnitVec {
         dx: FRAC_1_SQRT_2,
-        dy: -FRAC_1_SQRT_2,
+        dy: FRAC_1_SQRT_2,
     };
     pub const NORTH_WEST: UnitVec = UnitVec {
         dx: -FRAC_1_SQRT_2,
-        dy: -FRAC_1_SQRT_2,
+        dy: FRAC_1_SQRT_2,
     };
     pub const SOUTH_EAST: UnitVec = UnitVec {
         dx: FRAC_1_SQRT_2,
-        dy: FRAC_1_SQRT_2,
+        dy: -FRAC_1_SQRT_2,
     };
     pub const SOUTH_WEST: UnitVec = UnitVec {
         dx: -FRAC_1_SQRT_2,
-        dy: FRAC_1_SQRT_2,
+        dy: -FRAC_1_SQRT_2,
     };
 
     /// Create a normalized unit vector from components.
@@ -795,6 +796,77 @@ impl AddAssign<Offset<Length>> for Offset<Length> {
     fn add_assign(&mut self, rhs: Offset<Length>) {
         self.dx += rhs.dx;
         self.dy += rhs.dy;
+    }
+}
+
+/// AddAssign offset to point (translate in place)
+impl AddAssign<Offset<Length>> for Point<Length> {
+    fn add_assign(&mut self, rhs: Offset<Length>) {
+        self.x += rhs.dx;
+        self.y += rhs.dy;
+    }
+}
+
+/// Subtract offset from point to get a new point
+impl Sub<Offset<Length>> for Point<Length> {
+    type Output = Point<Length>;
+    fn sub(self, rhs: Offset<Length>) -> Point<Length> {
+        Point {
+            x: self.x - rhs.dx,
+            y: self.y - rhs.dy,
+        }
+    }
+}
+
+/// SubAssign offset from point (translate in place)
+impl SubAssign<Offset<Length>> for Point<Length> {
+    fn sub_assign(&mut self, rhs: Offset<Length>) {
+        self.x -= rhs.dx;
+        self.y -= rhs.dy;
+    }
+}
+
+/// Subtract two offsets
+impl Sub<Offset<Length>> for Offset<Length> {
+    type Output = Offset<Length>;
+    fn sub(self, rhs: Offset<Length>) -> Offset<Length> {
+        Offset {
+            dx: self.dx - rhs.dx,
+            dy: self.dy - rhs.dy,
+        }
+    }
+}
+
+/// Negate an offset
+impl Neg for Offset<Length> {
+    type Output = Offset<Length>;
+    fn neg(self) -> Offset<Length> {
+        Offset {
+            dx: -self.dx,
+            dy: -self.dy,
+        }
+    }
+}
+
+/// Scale an offset by a scalar
+impl Mul<f64> for Offset<Length> {
+    type Output = Offset<Length>;
+    fn mul(self, rhs: f64) -> Offset<Length> {
+        Offset {
+            dx: self.dx * rhs,
+            dy: self.dy * rhs,
+        }
+    }
+}
+
+/// Scale an offset by a Scalar
+impl Mul<Scalar> for Offset<Length> {
+    type Output = Offset<Length>;
+    fn mul(self, rhs: Scalar) -> Offset<Length> {
+        Offset {
+            dx: self.dx * rhs.0,
+            dy: self.dy * rhs.0,
+        }
     }
 }
 

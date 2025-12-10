@@ -87,6 +87,16 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     //   svg_y = scaler.px(max_y - point.y) which gives the correct flipped coordinate
     let max_y = bounds.max.y;
 
+    tracing::debug!(
+        bounds_min_x = bounds.min.x.0,
+        bounds_min_y = bounds.min.y.0,
+        bounds_max_x = bounds.max.x.0,
+        bounds_max_y = bounds.max.y.0,
+        offset_x = offset_x.0,
+        max_y = max_y.0,
+        "generate_svg bounds"
+    );
+
     // Build SVG DOM
     let mut svg_children: Vec<SvgNode> = Vec::new();
 
