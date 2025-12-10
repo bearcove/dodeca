@@ -123,7 +123,7 @@ pub fn apply_auto_chop_simple_line(
     // - If line connects two objects (both attachments): chop both endpoints
     // - If line has only end attachment (to Object): chop end only
     // - If line has only start attachment (from Object): do NOT chop start
-    let has_explicit_chop = obj.style.chop;
+    let has_explicit_chop = obj.style().chop;
     let has_both_attachments = obj.start_attachment.is_some() && obj.end_attachment.is_some();
     let should_chop_start = has_explicit_chop || has_both_attachments;
     let should_chop_end = obj.end_attachment.is_some(); // Always chop end if attached

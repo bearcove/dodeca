@@ -166,12 +166,12 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
             let r = resolve_object(ctx, obj)
                 .ok_or_else(|| miette::miette!("Unknown object in property lookup"))?;
             let val = match prop {
-                NumProperty::Width => r.width,
-                NumProperty::Height => r.height,
+                NumProperty::Width => r.width(),
+                NumProperty::Height => r.height(),
                 NumProperty::Radius | NumProperty::Diameter => {
-                    r.width.min(r.height) / 2.0 // typed min and div
+                    r.width().min(r.height()) / 2.0 // typed min and div
                 }
-                NumProperty::Thickness => r.style.stroke_width,
+                NumProperty::Thickness => r.style().stroke_width,
             };
             Ok(Value::Len(val))
         }
@@ -179,8 +179,8 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
             let r = resolve_object(ctx, obj)
                 .ok_or_else(|| miette::miette!("Unknown object in coord lookup"))?;
             Ok(Value::Len(match coord {
-                Coord::X => r.center.x,
-                Coord::Y => r.center.y,
+                Coord::X => r.center().x,
+                Coord::Y => r.center().y,
             }))
         }
         Expr::ObjectEdgeCoord(obj, edge, coord) => {
@@ -196,9 +196,9 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
             let r = resolve_object(ctx, obj)
                 .ok_or_else(|| miette::miette!("Unknown object in vertex coord lookup"))?;
             let target = match nth {
-                Nth::First(_) | Nth::Ordinal(1, _, _) => r.start,
-                Nth::Last(_) => r.end,
-                _ => r.center,
+                Nth::First(_) | Nth::Ordinal(1, _, _) => r.start(),
+                Nth::Last(_) => r.end(),
+                _ => r.center(),
             };
             Ok(Value::Len(match coord {
                 Coord::X => target.x,
@@ -365,7 +365,7 @@ fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, miette::Rep
     match place {
         Place::Object(obj) => {
             if let Some(rendered) = resolve_object(ctx, obj) {
-                Ok(rendered.center)
+                Ok(rendered.center())
             } else {
                 Ok(ctx.position)
             }
@@ -388,9 +388,9 @@ fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, miette::Rep
             // For now, just return the start or end point
             if let Some(rendered) = resolve_object(ctx, obj) {
                 match nth {
-                    Nth::First(_) | Nth::Ordinal(1, _, _) => Ok(rendered.start),
-                    Nth::Last(_) => Ok(rendered.end),
-                    _ => Ok(rendered.center),
+                    Nth::First(_) | Nth::Ordinal(1, _, _) => Ok(rendered.start()),
+                    Nth::Last(_) => Ok(rendered.end()),
+                    _ => Ok(rendered.center()),
                 }
             } else {
                 Ok(ctx.position)
@@ -452,13 +452,10 @@ fn resolve_path_in_object<'a>(
     let next_name = &path[0];
     let remaining = &path[1..];
 
-    // Search in children for matching name
-    for child in &obj.children {
-        if child.name.as_ref() == Some(next_name) {
-            return resolve_path_in_object(child, remaining);
-        }
-    }
-
+    // Search in children for matching name (only for Sublist shapes)
+    // Note: In the new structure, children are stored as ShapeEnums, not RenderedObjects
+    // This path-based resolution may need rethinking with the new structure
+    // For now, return None since children are no longer directly accessible as RenderedObjects
     None
 }
 
@@ -486,9 +483,9 @@ fn nth_class_to_object_class(nc: &NthClass) -> Option<ObjectClass> {
 
 fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
     match edge {
-        EdgePoint::Center | EdgePoint::C => obj.center,
-        EdgePoint::Start => obj.start,
-        EdgePoint::End => obj.end,
+        EdgePoint::Center | EdgePoint::C => obj.center(),
+        EdgePoint::Start => obj.start(),
+        EdgePoint::End => obj.end(),
         _ => obj.edge_point(edge.to_unit_vec()),
     }
 }

@@ -116,44 +116,88 @@ impl PositionedText {
 #[derive(Debug, Clone)]
 pub struct RenderedObject {
     pub name: Option<String>,
-    pub class: ObjectClass,
-    pub center: PointIn,
-    pub width: Inches,
-    pub height: Inches,
-    pub start: PointIn,
-    pub end: PointIn,
+    pub shape: super::shapes::ShapeEnum,
     pub start_attachment: Option<EndpointObject>,
     pub end_attachment: Option<EndpointObject>,
-    pub waypoints: Vec<PointIn>,
-    pub text: Vec<PositionedText>,
-    pub style: ObjectStyle,
-    pub children: Vec<RenderedObject>,
 }
 
 impl RenderedObject {
-    /// Translate this object and all its children by an offset
+    /// Translate this object by an offset
     pub fn translate(&mut self, offset: OffsetIn) {
-        self.center += offset;
-        self.start += offset;
-        self.end += offset;
-
-        for pt in self.waypoints.iter_mut() {
-            *pt += offset;
-        }
-
-        for child in self.children.iter_mut() {
-            child.translate(offset);
-        }
+        self.shape.translate(offset);
     }
 
     /// Calculate edge point in a given direction
     /// For round shapes, diagonal directions use the perimeter (1/√2 factor)
     pub fn edge_point(&self, dir: UnitVec) -> PointIn {
-        let hw = self.width / 2.0;
-        let hh = self.height / 2.0;
-        let diag = self.class.diagonal_factor();
+        // Convert UnitVec to EdgeDirection
+        use super::shapes::EdgeDirection;
+        let edge_dir = if dir == UnitVec::NORTH {
+            EdgeDirection::North
+        } else if dir == UnitVec::SOUTH {
+            EdgeDirection::South
+        } else if dir == UnitVec::EAST {
+            EdgeDirection::East
+        } else if dir == UnitVec::WEST {
+            EdgeDirection::West
+        } else if dir == UnitVec::NORTH_EAST {
+            EdgeDirection::NorthEast
+        } else if dir == UnitVec::NORTH_WEST {
+            EdgeDirection::NorthWest
+        } else if dir == UnitVec::SOUTH_EAST {
+            EdgeDirection::SouthEast
+        } else if dir == UnitVec::SOUTH_WEST {
+            EdgeDirection::SouthWest
+        } else {
+            EdgeDirection::Center
+        };
 
-        self.center + dir.scale_xy(hw * diag, hh * diag)
+        self.shape.edge_point(edge_dir)
+    }
+
+    // Convenience accessors that delegate to shape
+    pub fn center(&self) -> PointIn {
+        self.shape.center()
+    }
+
+    pub fn width(&self) -> Inches {
+        self.shape.width()
+    }
+
+    pub fn height(&self) -> Inches {
+        self.shape.height()
+    }
+
+    pub fn start(&self) -> PointIn {
+        self.shape.start()
+    }
+
+    pub fn end(&self) -> PointIn {
+        self.shape.end()
+    }
+
+    pub fn style(&self) -> &ObjectStyle {
+        self.shape.style()
+    }
+
+    pub fn text(&self) -> &[PositionedText] {
+        self.shape.text()
+    }
+
+    pub fn waypoints(&self) -> Option<&[PointIn]> {
+        self.shape.waypoints()
+    }
+
+    pub fn class(&self) -> ObjectClass {
+        self.shape.object_class()
+    }
+
+    pub fn children(&self) -> Option<&[super::shapes::ShapeEnum]> {
+        if let super::shapes::ShapeEnum::Sublist(ref s) = self.shape {
+            Some(&s.children)
+        } else {
+            None
+        }
     }
 }
 
@@ -169,11 +213,11 @@ pub struct EndpointObject {
 impl EndpointObject {
     pub fn from_rendered(obj: &RenderedObject) -> Self {
         Self {
-            class: obj.class,
-            center: obj.center,
-            width: obj.width,
-            height: obj.height,
-            corner_radius: obj.style.corner_radius,
+            class: obj.shape.object_class(),
+            center: obj.shape.center(),
+            width: obj.shape.width(),
+            height: obj.shape.height(),
+            corner_radius: obj.shape.style().corner_radius,
         }
     }
 }

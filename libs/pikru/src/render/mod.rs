@@ -183,27 +183,34 @@ fn render_statement(
 
 /// Expand a bounding box to include a rendered object (recursing into sublists)
 pub fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
-    match obj.class {
+    match obj.class() {
         ObjectClass::Line | ObjectClass::Arrow | ObjectClass::Spline | ObjectClass::Arc => {
             // C pikchr does not enlarge the bounding box by stroke width for line-like objects.
             // Using the raw waypoints here keeps the computed viewBox identical to the C output.
-            for pt in &obj.waypoints {
-                bounds.expand_point(Point::new(pt.x, pt.y));
+            if let Some(waypoints) = obj.waypoints() {
+                for pt in waypoints {
+                    bounds.expand_point(Point::new(pt.x, pt.y));
+                }
             }
             // Include text labels for lines (they extend above and below)
-            if !obj.text.is_empty() {
+            if !obj.text().is_empty() {
                 let charht = Inches(defaults::FONT_SIZE);
-                let (above_count, below_count) = count_text_above_below(&obj.text);
+                let (above_count, below_count) = count_text_above_below(obj.text());
                 // Text extends above and below the line center
                 let text_above = charht * above_count as f64;
                 let text_below = charht * below_count as f64;
-                bounds.expand_point(Point::new(obj.center.x, obj.center.y - text_above));
-                bounds.expand_point(Point::new(obj.center.x, obj.center.y + text_below));
+                let center = obj.center();
+                bounds.expand_point(Point::new(center.x, center.y - text_above));
+                bounds.expand_point(Point::new(center.x, center.y + text_below));
             }
         }
         ObjectClass::Sublist => {
-            for child in &obj.children {
-                expand_object_bounds(bounds, child);
+            // For sublists, we need to recurse into the shape's children
+            // Children are stored as ShapeEnums, so we need to expand bounds for each directly
+            if let shapes::ShapeEnum::Sublist(sublist) = &obj.shape {
+                for child_shape in &sublist.children {
+                    expand_shape_bounds(bounds, child_shape);
+                }
             }
         }
         ObjectClass::Text => {
@@ -211,62 +218,130 @@ pub fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
             // Handle ljust/rjust - text extends in one direction from anchor point.
             let charht = Inches(defaults::FONT_SIZE);
             let charwid = defaults::CHARWID;
+            let center = obj.center();
+            let width = obj.width();
+            let height = obj.height();
+            let text = obj.text();
 
-            if obj.text.is_empty() {
+            if text.is_empty() {
                 // No text - just use object dimensions
-                bounds.expand_rect(
-                    obj.center,
-                    Size {
-                        w: obj.width,
-                        h: obj.height,
-                    },
-                );
+                bounds.expand_rect(center, Size { w: width, h: height });
             } else {
-                for text in &obj.text {
-                    let text_w = Inches(text_width_inches(&text.value, charwid));
+                for t in text {
+                    let text_w = Inches(text_width_inches(&t.value, charwid));
                     let hh = charht / 2.0;
 
-                    if text.rjust {
+                    if t.rjust {
                         // rjust: text extends to the LEFT of center (anchor at right edge)
-                        bounds.expand_point(Point::new(obj.center.x - text_w, obj.center.y - hh));
-                        bounds.expand_point(Point::new(obj.center.x, obj.center.y + hh));
-                    } else if text.ljust {
+                        bounds.expand_point(Point::new(center.x - text_w, center.y - hh));
+                        bounds.expand_point(Point::new(center.x, center.y + hh));
+                    } else if t.ljust {
                         // ljust: text extends to the RIGHT of center (anchor at left edge)
-                        bounds.expand_point(Point::new(obj.center.x, obj.center.y - hh));
-                        bounds.expand_point(Point::new(obj.center.x + text_w, obj.center.y + hh));
+                        bounds.expand_point(Point::new(center.x, center.y - hh));
+                        bounds.expand_point(Point::new(center.x + text_w, center.y + hh));
                     } else {
                         // Centered text
-                        bounds.expand_rect(
-                            obj.center,
-                            Size {
-                                w: text_w,
-                                h: charht,
-                            },
-                        );
+                        bounds.expand_rect(center, Size { w: text_w, h: charht });
                     }
                 }
             }
         }
         _ => {
             // For invisible objects, only include text bounds, not shape bounds
-            if obj.style.invisible && !obj.text.is_empty() {
+            let style = obj.style();
+            let text = obj.text();
+            let center = obj.center();
+
+            if style.invisible && !text.is_empty() {
                 let charht = Inches(defaults::FONT_SIZE);
                 let charwid = defaults::CHARWID;
-                for text in &obj.text {
-                    let text_w = Inches(text_width_inches(&text.value, charwid));
+                for t in text {
+                    let text_w = Inches(text_width_inches(&t.value, charwid));
                     let hh = charht / 2.0;
                     let hw = text_w / 2.0;
-                    bounds.expand_point(Point::new(obj.center.x - hw, obj.center.y - hh));
-                    bounds.expand_point(Point::new(obj.center.x + hw, obj.center.y + hh));
+                    bounds.expand_point(Point::new(center.x - hw, center.y - hh));
+                    bounds.expand_point(Point::new(center.x + hw, center.y + hh));
                 }
-            } else if !obj.style.invisible {
-                bounds.expand_rect(
-                    obj.center,
-                    Size {
-                        w: obj.width,
-                        h: obj.height,
-                    },
-                )
+            } else if !style.invisible {
+                bounds.expand_rect(center, Size { w: obj.width(), h: obj.height() })
+            }
+        }
+    }
+}
+
+/// Expand a bounding box to include a shape (for sublists)
+fn expand_shape_bounds(bounds: &mut BoundingBox, shape: &shapes::ShapeEnum) {
+    use shapes::ShapeEnum;
+
+    match shape {
+        ShapeEnum::Line(_) | ShapeEnum::Spline(_) | ShapeEnum::Arc(_) => {
+            // For line-like shapes, expand by waypoints
+            if let Some(waypoints) = shape.waypoints() {
+                for pt in waypoints {
+                    bounds.expand_point(Point::new(pt.x, pt.y));
+                }
+            } else {
+                // Arc has start/end instead of waypoints
+                bounds.expand_point(shape.start());
+                bounds.expand_point(shape.end());
+            }
+            // Include text labels
+            if !shape.text().is_empty() {
+                let charht = Inches(defaults::FONT_SIZE);
+                let (above_count, below_count) = count_text_above_below(shape.text());
+                let text_above = charht * above_count as f64;
+                let text_below = charht * below_count as f64;
+                let center = shape.center();
+                bounds.expand_point(Point::new(center.x, center.y - text_above));
+                bounds.expand_point(Point::new(center.x, center.y + text_below));
+            }
+        }
+        ShapeEnum::Sublist(sublist) => {
+            // Recurse into sublist children
+            for child in &sublist.children {
+                expand_shape_bounds(bounds, child);
+            }
+        }
+        ShapeEnum::Text(text_shape) => {
+            // Handle text shape bounds similarly
+            let charht = Inches(defaults::FONT_SIZE);
+            let charwid = defaults::CHARWID;
+            let center = text_shape.center;
+
+            if text_shape.text.is_empty() {
+                bounds.expand_rect(center, Size { w: text_shape.width, h: text_shape.height });
+            } else {
+                for t in &text_shape.text {
+                    let text_w = Inches(text_width_inches(&t.value, charwid));
+                    let hh = charht / 2.0;
+                    if t.rjust {
+                        bounds.expand_point(Point::new(center.x - text_w, center.y - hh));
+                        bounds.expand_point(Point::new(center.x, center.y + hh));
+                    } else if t.ljust {
+                        bounds.expand_point(Point::new(center.x, center.y - hh));
+                        bounds.expand_point(Point::new(center.x + text_w, center.y + hh));
+                    } else {
+                        bounds.expand_rect(center, Size { w: text_w, h: charht });
+                    }
+                }
+            }
+        }
+        _ => {
+            // For other shapes, expand by bounding box
+            let style = shape.style();
+            if style.invisible && !shape.text().is_empty() {
+                let charht = Inches(defaults::FONT_SIZE);
+                let charwid = defaults::CHARWID;
+                let center = shape.center();
+                for t in shape.text() {
+                    let text_w = Inches(text_width_inches(&t.value, charwid));
+                    let hh = charht / 2.0;
+                    let hw = text_w / 2.0;
+                    bounds.expand_point(Point::new(center.x - hw, center.y - hh));
+                    bounds.expand_point(Point::new(center.x + hw, center.y + hh));
+                }
+            } else if !style.invisible {
+                bounds.expand_rect(shape.center(), Size { w: shape.width(), h: shape.height() })
             }
         }
     }
@@ -316,20 +391,39 @@ fn make_partial_object(
     height: Inches,
     style: &ObjectStyle,
 ) -> RenderedObject {
+    use shapes::*;
+
+    let center = pin(0.0, 0.0);
+
+    // Create a simple shape for the partial object based on class
+    let shape = match class {
+        ObjectClass::Circle => ShapeEnum::Circle(CircleShape {
+            center,
+            radius: width / 2.0,
+            style: style.clone(),
+            text: Vec::new(),
+        }),
+        ObjectClass::Line | ObjectClass::Arrow => ShapeEnum::Line(LineShape {
+            waypoints: vec![center, pin(width.0, 0.0)],
+            style: style.clone(),
+            text: Vec::new(),
+        }),
+        // For most other shapes, use a box
+        _ => ShapeEnum::Box(BoxShape {
+            center,
+            width,
+            height,
+            corner_radius: style.corner_radius,
+            style: style.clone(),
+            text: Vec::new(),
+        }),
+    };
+
     RenderedObject {
         name: None,
-        class,
-        center: pin(0.0, 0.0),
-        width,
-        height,
-        start: pin(0.0, 0.0),
-        end: pin(0.0, 0.0),
+        shape,
         start_attachment: None,
         end_attachment: None,
-        waypoints: Vec::new(),
-        text: Vec::new(),
-        style: style.clone(),
-        children: Vec::new(),
     }
 }
 
@@ -655,17 +749,17 @@ fn render_object_stmt(
                 match obj_ref {
                     Some(obj) => {
                         if let Some(source) = resolve_object(ctx, obj) {
-                            width = source.width;
-                            height = source.height;
-                            style = source.style.clone();
+                            width = source.width();
+                            height = source.height();
+                            style = source.style().clone();
                         }
                     }
                     None => {
                         // "same" without object - use last object of same class
                         if let Some(source) = ctx.get_last_object(Some(class)) {
-                            width = source.width;
-                            height = source.height;
-                            style = source.style.clone();
+                            width = source.width();
+                            height = source.height();
+                            style = source.style().clone();
                         }
                     }
                 }
@@ -724,16 +818,16 @@ fn render_object_stmt(
             // Get exit edge of last object based on accumulated offset direction
             if let Some(last_obj) = ctx.last_object() {
                 // For line-like objects, use the end point directly
-                match last_obj.class {
+                match last_obj.class() {
                     ObjectClass::Line
                     | ObjectClass::Arrow
                     | ObjectClass::Spline
                     | ObjectClass::Arc
-                    | ObjectClass::Move => last_obj.end,
+                    | ObjectClass::Move => last_obj.end(),
                     _ => {
                         // For box-like objects, calculate exit edge based on direction
-                        let (hw, hh) = (last_obj.width / 2.0, last_obj.height / 2.0);
-                        let c = last_obj.center;
+                        let (hw, hh) = (last_obj.width() / 2.0, last_obj.height() / 2.0);
+                        let c = last_obj.center();
                         let exit_x = if direction_offset.dx > Inches::ZERO {
                             c.x + hw // moving right, exit from right edge
                         } else if direction_offset.dx < Inches::ZERO {
@@ -855,20 +949,120 @@ fn render_object_stmt(
     // Clear current_object now that we're done building this object
     ctx.current_object = None;
 
+    // Create the appropriate shape based on class
+    use shapes::*;
+    let shape = match class {
+        ObjectClass::Box => ShapeEnum::Box(BoxShape {
+            center,
+            width,
+            height,
+            corner_radius: style.corner_radius,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ObjectClass::Circle => ShapeEnum::Circle(CircleShape {
+            center,
+            radius: width / 2.0,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ObjectClass::Ellipse => ShapeEnum::Ellipse(EllipseShape {
+            center,
+            width,
+            height,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ObjectClass::Oval => ShapeEnum::Oval(OvalShape {
+            center,
+            width,
+            height,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ObjectClass::Diamond => ShapeEnum::Diamond(DiamondShape {
+            center,
+            width,
+            height,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ObjectClass::Cylinder => ShapeEnum::Cylinder(CylinderShape {
+            center,
+            width,
+            height,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ObjectClass::File => ShapeEnum::File(FileShape {
+            center,
+            width,
+            height,
+            fold_radius: defaults::FILE_RAD,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ObjectClass::Line | ObjectClass::Arrow => {
+            let mut line_style = style.clone();
+            if class == ObjectClass::Arrow {
+                line_style.arrow_end = true;
+            }
+            ShapeEnum::Line(LineShape {
+                waypoints: waypoints.clone(),
+                style: line_style,
+                text: text.clone(),
+            })
+        }
+        ObjectClass::Spline => ShapeEnum::Spline(SplineShape {
+            waypoints: waypoints.clone(),
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ObjectClass::Arc => ShapeEnum::Arc(ArcShape {
+            start,
+            end,
+            style: style.clone(),
+            text: text.clone(),
+            clockwise: style.clockwise,
+        }),
+        ObjectClass::Move => ShapeEnum::Move(MoveShape {
+            start,
+            end,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ObjectClass::Dot => ShapeEnum::Dot(DotShape {
+            center,
+            radius: width / 2.0,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ObjectClass::Text => ShapeEnum::Text(TextShape {
+            center,
+            width,
+            height,
+            style: style.clone(),
+            text: text.clone(),
+        }),
+        ObjectClass::Sublist => {
+            // Convert RenderedObject children to ShapeEnum children
+            let shape_children: Vec<ShapeEnum> = children.into_iter().map(|obj| obj.shape).collect();
+            ShapeEnum::Sublist(SublistShape {
+                center,
+                width,
+                height,
+                style: style.clone(),
+                text: text.clone(),
+                children: shape_children,
+            })
+        }
+    };
+
     Ok(RenderedObject {
         name: final_name,
-        class,
-        center,
-        width,
-        height,
-        start,
-        end,
+        shape,
         start_attachment: from_attachment,
         end_attachment: to_attachment,
-        waypoints,
-        text,
-        style,
-        children,
     })
 }
 

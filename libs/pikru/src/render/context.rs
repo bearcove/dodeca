@@ -70,7 +70,7 @@ impl RenderContext {
         let filtered: Vec<_> = self
             .object_list
             .iter()
-            .filter(|o| class.map(|c| o.class == c).unwrap_or(true))
+            .filter(|o| class.map(|c| o.class() == c).unwrap_or(true))
             .collect();
         filtered.get(n.saturating_sub(1)).copied()
     }
@@ -80,7 +80,7 @@ impl RenderContext {
         self.object_list
             .iter()
             .rev()
-            .find(|o| class.map(|c| o.class == c).unwrap_or(true))
+            .find(|o| class.map(|c| o.class() == c).unwrap_or(true))
     }
 
     /// Move position in the current direction
@@ -94,7 +94,7 @@ impl RenderContext {
         expand_object_bounds(&mut self.bounds, &obj);
 
         // Update position to the exit point of the object
-        self.position = obj.end;
+        self.position = obj.end();
 
         // Store named objects
         if let Some(ref name) = obj.name {
