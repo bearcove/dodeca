@@ -62,11 +62,11 @@ impl<T: Transport + Send + Sync + 'static> TcpTunnel for TcpTunnelImpl<T> {
         // Task A: rapace → TCP (read from tunnel, write to TCP socket)
         tokio::spawn(async move {
             while let Some(chunk) = tunnel_rx.recv().await {
-                if !chunk.payload.is_empty() {
-                    if let Err(e) = tcp_write.write_all(&chunk.payload).await {
-                        tracing::debug!(channel_id, error = %e, "TCP write error");
-                        break;
-                    }
+                if !chunk.payload.is_empty()
+                    && let Err(e) = tcp_write.write_all(&chunk.payload).await
+                {
+                    tracing::debug!(channel_id, error = %e, "TCP write error");
+                    break;
                 }
                 if chunk.is_eos {
                     tracing::debug!(channel_id, "received EOS from host");

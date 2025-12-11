@@ -192,12 +192,11 @@ pub async fn connect_websocket(mut state: Signal<DevtoolsState>) -> Result<(), S
 /// Send a message to the server
 pub fn send_message(msg: &ClientMessage) {
     WEBSOCKET.with(|cell| {
-        if let Some(ws) = cell.borrow().as_ref() {
-            if ws.ready_state() == WebSocket::OPEN {
-                if let Ok(bytes) = facet_postcard::to_vec(msg) {
-                    let _ = ws.send_with_u8_array(&bytes);
-                }
-            }
+        if let Some(ws) = cell.borrow().as_ref()
+            && ws.ready_state() == WebSocket::OPEN
+            && let Ok(bytes) = facet_postcard::to_vec(msg)
+        {
+            let _ = ws.send_with_u8_array(&bytes);
         }
     });
 }

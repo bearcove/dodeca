@@ -1,7 +1,5 @@
 //! Syntax highlighting implementation for the rapace plugin
 
-use std::sync::Arc;
-
 use mod_arborium_proto::{HighlightResult, SyntaxHighlightService};
 
 /// Syntax highlighting implementation

@@ -8,6 +8,9 @@ publish = false
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
 [dependencies]
 # CI generation
 facet = { version = "0.32.2", features = ["indexmap"] }

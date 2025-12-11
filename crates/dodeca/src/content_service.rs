@@ -25,13 +25,13 @@ impl HostContentService {
 impl ContentService for HostContentService {
     async fn find_content(&self, path: String) -> ServeContent {
         // Check devtools assets first (/_/*.js, /_/*.wasm, /_/snippets/*)
-        if path.starts_with("/_/") {
-            if let Some((content, mime)) = get_devtools_asset(&path) {
-                return ServeContent::StaticNoCache {
-                    content,
-                    mime: mime.to_string(),
-                };
-            }
+        if path.starts_with("/_/")
+            && let Some((content, mime)) = get_devtools_asset(&path)
+        {
+            return ServeContent::StaticNoCache {
+                content,
+                mime: mime.to_string(),
+            };
         }
 
         // Check search files (pagefind)

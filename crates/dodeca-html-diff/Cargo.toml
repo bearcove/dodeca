@@ -8,6 +8,9 @@ description = "HTML DOM diffing plugin for dodeca"
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 

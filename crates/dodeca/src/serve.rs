@@ -811,15 +811,11 @@ impl SiteServer {
                     );
                     if path == format!("/{jxl_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) = process_image(&db, *file) {
-                            if let Some(variant) =
+                        if let Some(processed) = process_image(&db, *file)
+                            && let Some(variant) =
                                 processed.jxl_variants.iter().find(|v| v.width == width)
-                            {
-                                return Some(ServeContent::Static(
-                                    variant.data.clone(),
-                                    "image/jxl",
-                                ));
-                            }
+                        {
+                            return Some(ServeContent::Static(variant.data.clone(), "image/jxl"));
                         }
                     }
 
@@ -845,15 +841,11 @@ impl SiteServer {
                     );
                     if path == format!("/{webp_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) = process_image(&db, *file) {
-                            if let Some(variant) =
+                        if let Some(processed) = process_image(&db, *file)
+                            && let Some(variant) =
                                 processed.webp_variants.iter().find(|v| v.width == width)
-                            {
-                                return Some(ServeContent::Static(
-                                    variant.data.clone(),
-                                    "image/webp",
-                                ));
-                            }
+                        {
+                            return Some(ServeContent::Static(variant.data.clone(), "image/webp"));
                         }
                     }
                 }

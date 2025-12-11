@@ -21,10 +21,10 @@ pub use crate::error_pages::RENDER_ERROR_MARKER;
 fn find_parent_section<'a>(route: &Route, site_tree: &'a SiteTree) -> Option<&'a Section> {
     let mut current = route.clone();
     loop {
-        if let Some(section) = site_tree.sections.get(&current) {
-            if current != *route {
-                return Some(section);
-            }
+        if let Some(section) = site_tree.sections.get(&current)
+            && current != *route
+        {
+            return Some(section);
         }
         match current.parent() {
             Some(parent) => current = parent,
@@ -1222,6 +1222,7 @@ mod tests {
             duration_ms: 100,
             error: None,
             metadata,
+            skipped: false,
         }
     }
 

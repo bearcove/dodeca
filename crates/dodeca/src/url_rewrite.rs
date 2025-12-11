@@ -44,19 +44,19 @@ pub fn rewrite_urls_in_html(html: &str, path_map: &HashMap<String, String>) -> S
             element_content_handlers: vec![
                 // Rewrite href attributes (links, stylesheets)
                 element!("[href]", |el| {
-                    if let Some(href) = el.get_attribute("href") {
-                        if let Some(new_href) = href_map.get(&href) {
-                            el.set_attribute("href", new_href).ok();
-                        }
+                    if let Some(href) = el.get_attribute("href")
+                        && let Some(new_href) = href_map.get(&href)
+                    {
+                        el.set_attribute("href", new_href).ok();
                     }
                     Ok(())
                 }),
                 // Rewrite src attributes (images, scripts)
                 element!("[src]", |el| {
-                    if let Some(src) = el.get_attribute("src") {
-                        if let Some(new_src) = src_map.get(&src) {
-                            el.set_attribute("src", new_src).ok();
-                        }
+                    if let Some(src) = el.get_attribute("src")
+                        && let Some(new_src) = src_map.get(&src)
+                    {
+                        el.set_attribute("src", new_src).ok();
                     }
                     Ok(())
                 }),

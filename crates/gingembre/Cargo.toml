@@ -13,6 +13,9 @@ categories = ["template-engine", "web-programming"]
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
 [dependencies]
 miette = { version = "7", features = ["fancy"] }
 thiserror = "2"

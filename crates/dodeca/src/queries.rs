@@ -1224,69 +1224,68 @@ pub fn serve_html<'db>(
     let mut image_variants: HashMap<String, ResponsiveImageInfo> = HashMap::new();
     for file in static_files.files(db) {
         let path = file.path(db).as_str();
-        if InputFormat::is_processable(path) {
-            if let Some(metadata) = image_metadata(db, *file) {
-                use crate::cas::ImageVariantKey;
+        if InputFormat::is_processable(path)
+            && let Some(metadata) = image_metadata(db, *file)
+        {
+            use crate::cas::ImageVariantKey;
 
-                let input_hash = image_input_hash(db, *file);
-                let mut jxl_srcset = Vec::new();
-                let mut webp_srcset = Vec::new();
+            let input_hash = image_input_hash(db, *file);
+            let mut jxl_srcset = Vec::new();
+            let mut webp_srcset = Vec::new();
 
-                // Build JXL srcset using input-based hashes
-                for &width in &metadata.variant_widths {
-                    let base_path =
-                        image::change_extension(path, image::OutputFormat::Jxl.extension());
-                    let variant_path = if width == metadata.width {
-                        base_path
-                    } else {
-                        add_width_suffix(&base_path, width)
-                    };
-                    let key = ImageVariantKey {
-                        input_hash,
-                        format: image::OutputFormat::Jxl,
-                        width,
-                    };
-                    let cache_busted = format!(
-                        "{}.{}",
-                        variant_path.trim_end_matches(".jxl"),
-                        key.url_hash()
-                    ) + ".jxl";
-                    jxl_srcset.push((format!("/{cache_busted}"), width));
-                }
-
-                // Build WebP srcset using input-based hashes
-                for &width in &metadata.variant_widths {
-                    let base_path =
-                        image::change_extension(path, image::OutputFormat::WebP.extension());
-                    let variant_path = if width == metadata.width {
-                        base_path
-                    } else {
-                        add_width_suffix(&base_path, width)
-                    };
-                    let key = ImageVariantKey {
-                        input_hash,
-                        format: image::OutputFormat::WebP,
-                        width,
-                    };
-                    let cache_busted = format!(
-                        "{}.{}",
-                        variant_path.trim_end_matches(".webp"),
-                        key.url_hash()
-                    ) + ".webp";
-                    webp_srcset.push((format!("/{cache_busted}"), width));
-                }
-
-                image_variants.insert(
-                    format!("/{path}"),
-                    ResponsiveImageInfo {
-                        jxl_srcset,
-                        webp_srcset,
-                        original_width: metadata.width,
-                        original_height: metadata.height,
-                        thumbhash_data_url: metadata.thumbhash_data_url.clone(),
-                    },
-                );
+            // Build JXL srcset using input-based hashes
+            for &width in &metadata.variant_widths {
+                let base_path = image::change_extension(path, image::OutputFormat::Jxl.extension());
+                let variant_path = if width == metadata.width {
+                    base_path
+                } else {
+                    add_width_suffix(&base_path, width)
+                };
+                let key = ImageVariantKey {
+                    input_hash,
+                    format: image::OutputFormat::Jxl,
+                    width,
+                };
+                let cache_busted = format!(
+                    "{}.{}",
+                    variant_path.trim_end_matches(".jxl"),
+                    key.url_hash()
+                ) + ".jxl";
+                jxl_srcset.push((format!("/{cache_busted}"), width));
             }
+
+            // Build WebP srcset using input-based hashes
+            for &width in &metadata.variant_widths {
+                let base_path =
+                    image::change_extension(path, image::OutputFormat::WebP.extension());
+                let variant_path = if width == metadata.width {
+                    base_path
+                } else {
+                    add_width_suffix(&base_path, width)
+                };
+                let key = ImageVariantKey {
+                    input_hash,
+                    format: image::OutputFormat::WebP,
+                    width,
+                };
+                let cache_busted = format!(
+                    "{}.{}",
+                    variant_path.trim_end_matches(".webp"),
+                    key.url_hash()
+                ) + ".webp";
+                webp_srcset.push((format!("/{cache_busted}"), width));
+            }
+
+            image_variants.insert(
+                format!("/{path}"),
+                ResponsiveImageInfo {
+                    jxl_srcset,
+                    webp_srcset,
+                    original_width: metadata.width,
+                    original_height: metadata.height,
+                    thumbhash_data_url: metadata.thumbhash_data_url.clone(),
+                },
+            );
         }
     }
 
@@ -1346,12 +1345,12 @@ fn split_frontmatter(content: &str) -> (String, String) {
     let content = content.trim_start();
 
     // Check for +++ delimiters (TOML frontmatter)
-    if let Some(rest) = content.strip_prefix("+++") {
-        if let Some(end) = rest.find("+++") {
-            let frontmatter = rest[..end].trim().to_string();
-            let body = rest[end + 3..].trim_start().to_string();
-            return (frontmatter, body);
-        }
+    if let Some(rest) = content.strip_prefix("+++")
+        && let Some(end) = rest.find("+++")
+    {
+        let frontmatter = rest[..end].trim().to_string();
+        let body = rest[end + 3..].trim_start().to_string();
+        return (frontmatter, body);
     }
 
     // No frontmatter found
@@ -1665,52 +1664,50 @@ pub fn execute_all_code_samples(db: &dyn Db, sources: SourceRegistry) -> Vec<Cod
         let source_path = source.path(db).as_str();
 
         // Extract code samples from this source file
-        if let Some(samples) = extract_code_samples_plugin(content.as_str(), source_path) {
-            if !samples.is_empty() {
-                tracing::info!("Found {} code samples in {}", samples.len(), source_path);
+        if let Some(samples) = extract_code_samples_plugin(content.as_str(), source_path)
+            && !samples.is_empty()
+        {
+            tracing::info!("Found {} code samples in {}", samples.len(), source_path);
 
-                // Execute the code samples
-                if let Some(execution_results) =
-                    execute_code_samples_plugin(samples, config.clone())
-                {
-                    // Convert plugin results to our internal format
-                    for (sample, result) in execution_results {
-                        // Convert metadata if present
-                        let metadata = result.metadata.map(|m| CodeExecutionMetadata {
-                            rustc_version: m.rustc_version,
-                            cargo_version: m.cargo_version,
-                            target: m.target,
-                            timestamp: m.timestamp,
-                            cache_hit: m.cache_hit,
-                            platform: m.platform,
-                            arch: m.arch,
-                            dependencies: m
-                                .dependencies
-                                .into_iter()
-                                .map(|d| ResolvedDependencyInfo {
-                                    name: d.name,
-                                    version: d.version,
-                                    source: convert_dependency_source(d.source),
-                                })
-                                .collect(),
-                        });
+            // Execute the code samples
+            if let Some(execution_results) = execute_code_samples_plugin(samples, config.clone()) {
+                // Convert plugin results to our internal format
+                for (sample, result) in execution_results {
+                    // Convert metadata if present
+                    let metadata = result.metadata.map(|m| CodeExecutionMetadata {
+                        rustc_version: m.rustc_version,
+                        cargo_version: m.cargo_version,
+                        target: m.target,
+                        timestamp: m.timestamp,
+                        cache_hit: m.cache_hit,
+                        platform: m.platform,
+                        arch: m.arch,
+                        dependencies: m
+                            .dependencies
+                            .into_iter()
+                            .map(|d| ResolvedDependencyInfo {
+                                name: d.name,
+                                version: d.version,
+                                source: convert_dependency_source(d.source),
+                            })
+                            .collect(),
+                    });
 
-                        let code_result = CodeExecutionResult {
-                            source_path: sample.source_path,
-                            line: sample.line as u32,
-                            language: sample.language,
-                            code: sample.code,
-                            success: result.success,
-                            exit_code: result.exit_code,
-                            stdout: result.stdout,
-                            stderr: result.stderr,
-                            duration_ms: result.duration_ms,
-                            error: result.error,
-                            metadata,
-                            skipped: result.skipped,
-                        };
-                        all_results.push(code_result);
-                    }
+                    let code_result = CodeExecutionResult {
+                        source_path: sample.source_path,
+                        line: sample.line as u32,
+                        language: sample.language,
+                        code: sample.code,
+                        success: result.success,
+                        exit_code: result.exit_code,
+                        stdout: result.stdout,
+                        stderr: result.stderr,
+                        duration_ms: result.duration_ms,
+                        error: result.error,
+                        metadata,
+                        skipped: result.skipped,
+                    };
+                    all_results.push(code_result);
                 }
             }
         }

@@ -13,6 +13,9 @@ categories = ["development-tools", "rust-patterns"]
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
 [dependencies]
 # Serialization via facet (replacing serde + postcard)
 facet = "0.32.2"

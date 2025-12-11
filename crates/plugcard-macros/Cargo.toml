@@ -13,6 +13,9 @@ categories = ["development-tools::procedural-macro-helpers"]
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
 [lib]
 proc-macro = true
 

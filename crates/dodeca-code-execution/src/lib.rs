@@ -576,64 +576,15 @@ fn should_execute(language: &str) -> bool {
     // Check if any attributes indicate skipping
     let attributes = language.split(',').skip(1).map(|s| s.trim());
     for attr in attributes {
-        if matches!(attr.to_lowercase().as_str(), "noexec" | "skip" | "no-verify") {
+        if matches!(
+            attr.to_lowercase().as_str(),
+            "noexec" | "skip" | "no-verify"
+        ) {
             return false;
         }
     }
 
     true
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_should_execute_basic_rust() {
-        assert!(should_execute("rust"));
-        assert!(should_execute("rs"));
-    }
-
-    #[test]
-    fn test_should_execute_with_noexec() {
-        assert!(!should_execute("rust,noexec"));
-        assert!(!should_execute("rust, noexec")); // with space
-        assert!(!should_execute("rs,noexec"));
-    }
-
-    #[test]
-    fn test_should_execute_with_skip() {
-        assert!(!should_execute("rust,skip"));
-        assert!(!should_execute("rust, skip")); // with space
-    }
-
-    #[test]
-    fn test_should_execute_with_no_verify() {
-        assert!(!should_execute("rust,no-verify"));
-        assert!(!should_execute("rust, no-verify")); // with space
-    }
-
-    #[test]
-    fn test_should_execute_non_rust_languages() {
-        assert!(!should_execute("python"));
-        assert!(!should_execute("javascript"));
-        assert!(!should_execute(""));
-    }
-
-    #[test]
-    fn test_should_execute_case_insensitive() {
-        assert!(should_execute("Rust"));
-        assert!(should_execute("RUST"));
-        assert!(!should_execute("rust,NOEXEC"));
-        assert!(!should_execute("RUST,NoExec"));
-    }
-
-    #[test]
-    fn test_should_execute_multiple_attributes() {
-        // Only the skip/noexec attribute matters
-        assert!(!should_execute("rust,noexec,other"));
-        assert!(should_execute("rust,other")); // other non-skip attributes don't affect execution
-    }
 }
 
 /// Execute a command with timeout (captures output)
@@ -921,5 +872,57 @@ fn capture_build_metadata(cache_dir: &std::path::Path, cache_hit: bool) -> Build
         platform: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
         dependencies,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_should_execute_basic_rust() {
+        assert!(should_execute("rust"));
+        assert!(should_execute("rs"));
+    }
+
+    #[test]
+    fn test_should_execute_with_noexec() {
+        assert!(!should_execute("rust,noexec"));
+        assert!(!should_execute("rust, noexec")); // with space
+        assert!(!should_execute("rs,noexec"));
+    }
+
+    #[test]
+    fn test_should_execute_with_skip() {
+        assert!(!should_execute("rust,skip"));
+        assert!(!should_execute("rust, skip")); // with space
+    }
+
+    #[test]
+    fn test_should_execute_with_no_verify() {
+        assert!(!should_execute("rust,no-verify"));
+        assert!(!should_execute("rust, no-verify")); // with space
+    }
+
+    #[test]
+    fn test_should_execute_non_rust_languages() {
+        assert!(!should_execute("python"));
+        assert!(!should_execute("javascript"));
+        assert!(!should_execute(""));
+    }
+
+    #[test]
+    fn test_should_execute_case_insensitive() {
+        assert!(should_execute("Rust"));
+        assert!(should_execute("RUST"));
+        assert!(!should_execute("rust,NOEXEC"));
+        assert!(!should_execute("RUST,NoExec"));
+    }
+
+    #[test]
+    fn test_should_execute_multiple_attributes() {
+        // Only the skip/noexec attribute matters
+        assert!(!should_execute("rust,noexec,other"));
+        assert!(should_execute("rust,other")); // other non-skip attributes don't affect execution
     }
 }

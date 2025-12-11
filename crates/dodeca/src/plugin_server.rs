@@ -312,8 +312,7 @@ pub async fn start_plugin_server_with_shutdown(
     }
 
     // Merge all listeners into a single stream - when we drop it, ports are released
-    let mut accept_stream =
-        stream::select_all(listeners.into_iter().map(|l| TcpListenerStream::new(l)));
+    let mut accept_stream = stream::select_all(listeners.into_iter().map(TcpListenerStream::new));
 
     // Accept browser connections and tunnel them to the plugin
     loop {
@@ -435,11 +434,11 @@ async fn handle_browser_connection(
     // Task B: rapace → Browser (read from tunnel, write to browser)
     tokio::spawn(async move {
         while let Some(chunk) = tunnel_rx.recv().await {
-            if !chunk.payload.is_empty() {
-                if let Err(e) = browser_write.write_all(&chunk.payload).await {
-                    tracing::debug!(channel_id, error = %e, "Browser write error");
-                    break;
-                }
+            if !chunk.payload.is_empty()
+                && let Err(e) = browser_write.write_all(&chunk.payload).await
+            {
+                tracing::debug!(channel_id, error = %e, "Browser write error");
+                break;
             }
             if chunk.is_eos {
                 tracing::debug!(channel_id, "Received EOS from plugin");

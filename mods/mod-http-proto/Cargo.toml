@@ -7,6 +7,9 @@ rust-version = "1.91"
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
 [dependencies]
 # RPC framework - main crate
 rapace = "0.1.1"
