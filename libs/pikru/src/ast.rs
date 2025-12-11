@@ -62,7 +62,7 @@ impl Direction {
         match self {
             Direction::Right => DVec2::X,
             Direction::Left => DVec2::NEG_X,
-            Direction::Up => DVec2::Y,    // Y-up: Up increases Y
+            Direction::Up => DVec2::Y,       // Y-up: Up increases Y
             Direction::Down => DVec2::NEG_Y, // Y-up: Down decreases Y
         }
     }
@@ -616,12 +616,18 @@ mod tests {
         // Up increases Y (Y-up internal coordinates, like C pikchr)
         let u = Direction::Up.offset(d);
         assert_eq!(u.dx, Length::ZERO, "Up should not change X");
-        assert!(u.dy > Length::ZERO, "Up should increase Y (Y-up internally)");
+        assert!(
+            u.dy > Length::ZERO,
+            "Up should increase Y (Y-up internally)"
+        );
 
         // Down decreases Y (Y-up internal coordinates)
         let down = Direction::Down.offset(d);
         assert_eq!(down.dx, Length::ZERO, "Down should not change X");
-        assert!(down.dy < Length::ZERO, "Down should decrease Y (Y-up internally)");
+        assert!(
+            down.dy < Length::ZERO,
+            "Down should decrease Y (Y-up internally)"
+        );
     }
 
     #[test]

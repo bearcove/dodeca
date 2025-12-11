@@ -385,10 +385,7 @@ fn render_object_stmt(
     // Determine base object properties from context variables (like C pikchr's pik_value)
     let (mut width, mut height) = match &obj_stmt.basetype {
         BaseType::Class(cn) => match cn {
-            ClassName::Box => (
-                ctx.get_length("boxwid", 0.75),
-                ctx.get_length("boxht", 0.5),
-            ),
+            ClassName::Box => (ctx.get_length("boxwid", 0.75), ctx.get_length("boxht", 0.5)),
             ClassName::Circle => {
                 let rad = ctx.get_length("circlerad", 0.25);
                 (rad * 2.0, rad * 2.0)
@@ -401,10 +398,7 @@ fn render_object_stmt(
                 ctx.get_length("ovalwid", 1.0),
                 ctx.get_length("ovalht", 0.5),
             ),
-            ClassName::Cylinder => (
-                ctx.get_length("cylwid", 0.75),
-                ctx.get_length("cylht", 0.5),
-            ),
+            ClassName::Cylinder => (ctx.get_length("cylwid", 0.75), ctx.get_length("cylht", 0.5)),
             ClassName::Diamond => (
                 ctx.get_length("diamondwid", 1.0),
                 ctx.get_length("diamondht", 0.75),
@@ -429,10 +423,7 @@ fn render_object_stmt(
                 let arcrad = ctx.get_length("arcrad", 0.25);
                 (arcrad, arcrad)
             }
-            ClassName::Move => (
-                ctx.get_length("movewid", 0.5),
-                Inches::ZERO,
-            ),
+            ClassName::Move => (ctx.get_length("movewid", 0.5), Inches::ZERO),
             ClassName::Dot => {
                 let dotrad = ctx.get_length("dotrad", 0.025);
                 (dotrad * 2.0, dotrad * 2.0)
@@ -441,10 +432,7 @@ fn render_object_stmt(
                 // Default dimensions - will be overridden by actual text content later
                 // Use charht for height to match C pikchr's text sizing
                 let charht = ctx.get_scalar("charht", 0.14);
-                (
-                    ctx.get_length("textwid", 0.75),
-                    Inches(charht),
-                )
+                (ctx.get_length("textwid", 0.75), Inches(charht))
             }
             // Sublist is handled via BaseType::Sublist, not BaseType::Class(Sublist)
             ClassName::Sublist => (Inches::ZERO, Inches::ZERO),
@@ -621,7 +609,9 @@ fn render_object_stmt(
                         NumProperty::Height => height,
                         NumProperty::Radius => {
                             match class_name {
-                                Some(ClassName::Circle) | Some(ClassName::Ellipse) | Some(ClassName::Arc) => {
+                                Some(ClassName::Circle)
+                                | Some(ClassName::Ellipse)
+                                | Some(ClassName::Arc) => {
                                     width / 2.0 // current radius
                                 }
                                 _ => style.corner_radius,
@@ -649,7 +639,9 @@ fn render_object_stmt(
                         // For circles/ellipses, radius sets size (diameter = 2 * radius)
                         // For boxes, radius sets corner rounding
                         match class_name {
-                            Some(ClassName::Circle) | Some(ClassName::Ellipse) | Some(ClassName::Arc) => {
+                            Some(ClassName::Circle)
+                            | Some(ClassName::Ellipse)
+                            | Some(ClassName::Arc) => {
                                 width = val * 2.0;
                                 height = val * 2.0;
                                 update_current_object(ctx, class_name, width, height, &style);
@@ -832,7 +824,7 @@ fn render_object_stmt(
         let vslots = compute_text_vslots(&text);
 
         // Compute heights for each region (matching C's logic in pik_append_txt)
-        let mut hc = 0.0_f64;  // center height
+        let mut hc = 0.0_f64; // center height
         let mut ha1 = 0.0_f64; // above height
         let mut ha2 = 0.0_f64; // above2 height
         let mut hb1 = 0.0_f64; // below height
@@ -888,7 +880,11 @@ fn render_object_stmt(
                 }
                 let diameter = Inches(mx);
                 let radius = diameter / 2.0;
-                tracing::debug!(rad_inches = radius.raw(), rad_px = radius.raw() * 144.0, "circleFit final");
+                tracing::debug!(
+                    rad_inches = radius.raw(),
+                    rad_px = radius.raw() * 144.0,
+                    "circleFit final"
+                );
                 width = diameter;
                 height = diameter;
             }

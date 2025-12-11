@@ -1,9 +1,9 @@
 use async_trait::async_trait;
 use rust_mcp_sdk::schema::{
-    schema_utils::CallToolError, CallToolRequest, CallToolResult, ListToolsRequest,
-    ListToolsResult, RpcError,
+    CallToolRequest, CallToolResult, ListToolsRequest, ListToolsResult, RpcError,
+    schema_utils::CallToolError,
 };
-use rust_mcp_sdk::{mcp_server::ServerHandler, McpServer};
+use rust_mcp_sdk::{McpServer, mcp_server::ServerHandler};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -48,7 +48,10 @@ impl PikruServerHandler {
         let c_pikchr = project_root.join("vendor/pikchr-c/pikchr");
 
         if !tests_dir.exists() {
-            return Err(format!("Tests directory not found: {}", tests_dir.display()));
+            return Err(format!(
+                "Tests directory not found: {}",
+                tests_dir.display()
+            ));
         }
         if !c_pikchr.exists() {
             return Err(format!("C pikchr binary not found: {}", c_pikchr.display()));

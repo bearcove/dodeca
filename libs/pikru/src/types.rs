@@ -32,7 +32,10 @@ impl Span {
     /// Create a zero-width span at a position
     #[inline]
     pub const fn at(pos: usize) -> Self {
-        Span { start: pos, end: pos }
+        Span {
+            start: pos,
+            end: pos,
+        }
     }
 
     /// Merge two spans to cover both

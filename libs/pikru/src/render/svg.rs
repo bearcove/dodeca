@@ -1,9 +1,9 @@
 //! SVG generation
 
-use super::shapes::Shape;
+use super::shapes::{Shape, svg_style_from_entries};
 use crate::types::{Length as Inches, Scaler};
 use facet_svg::facet_xml::SerializeOptions;
-use facet_svg::{Color, Polygon, Svg, SvgNode, SvgStyle, Text, facet_xml, fmt_num};
+use facet_svg::{Color, Polygon, Svg, SvgNode, SvgStyle, Text, facet_xml};
 use glam::{DVec2, dvec2};
 use time::{OffsetDateTime, format_description};
 
@@ -22,7 +22,10 @@ fn utc_timestamp() -> String {
 
 /// Convert a color name to rgb() format like C pikchr
 pub fn color_to_rgb(color: &str) -> String {
-    color.parse::<crate::types::Color>().unwrap().to_rgb_string()
+    color
+        .parse::<crate::types::Color>()
+        .unwrap()
+        .to_rgb_string()
 }
 
 /// Generate SVG from render context
@@ -118,15 +121,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         if !obj.style().invisible {
             // Use the shape's render_svg method which properly handles Y-flipping
             let shape = &obj.shape;
-            let shape_nodes = shape.render_svg(
-                obj,
-                &scaler,
-                offset_x,
-                max_y,
-                dashwid,
-                arrow_ht,
-                arrow_wid,
-            );
+            let shape_nodes =
+                shape.render_svg(obj, &scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid);
             svg_children.extend(shape_nodes);
         }
 
@@ -240,6 +236,13 @@ pub fn render_arrowhead_dom(
         stroke: None,
         stroke_width: None,
         stroke_dasharray: None,
-        style: SvgStyle::new().add("fill", &fill_color.to_string()),
+        style: svg_style_from_entries(vec![("fill", fill_color.to_string())]),
     })
+}
+
+fn fmt_num(value: f64) -> String {
+    let s = format!("{:.10}", value);
+    let s = s.trim_end_matches('0');
+    let s = s.trim_end_matches('.');
+    s.to_string()
 }

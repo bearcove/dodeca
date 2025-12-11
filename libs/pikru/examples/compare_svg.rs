@@ -89,6 +89,14 @@ fn collect_element_tags(children: &[SvgNode], elements: &mut Vec<String>) {
             SvgNode::Polygon(_) => elements.push("polygon".to_string()),
             SvgNode::Polyline(_) => elements.push("polyline".to_string()),
             SvgNode::Text(_) => elements.push("text".to_string()),
+            SvgNode::Use(_) => elements.push("use".to_string()),
+            SvgNode::Image(_) => elements.push("image".to_string()),
+            SvgNode::Title(_) => elements.push("title".to_string()),
+            SvgNode::Desc(_) => elements.push("desc".to_string()),
+            SvgNode::Symbol(symbol) => {
+                elements.push("symbol".to_string());
+                collect_element_tags(&symbol.children, elements);
+            }
         }
     }
 }

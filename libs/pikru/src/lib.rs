@@ -373,10 +373,10 @@ mod tests {
         let path = Path {
             d: Some(path_data),
             fill: None,
-            stroke: None,
+            stroke: Some("black".to_string()),
             stroke_width: None,
             stroke_dasharray: None,
-            style: facet_svg::SvgStyle::new().add("stroke", "black"),
+            style: facet_svg::SvgStyle::default(),
         };
 
         let svg = Svg {

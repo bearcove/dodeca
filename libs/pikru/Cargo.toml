@@ -1,5 +1,5 @@
 [workspace]
-members = ["facet-svg", "xtask", "crates/pikru-mcp"]
+members = ["xtask", "crates/pikru-mcp"]
 
 [package]
 name = "pikru"
@@ -15,8 +15,9 @@ pest = "2.8.4"
 pest_derive = "2.8.4"
 rootcause = "0.10.0"
 time = { version = "0.3.44", features = ["formatting", "macros"] }
-facet-svg = { path = "facet-svg" }
-facet = { git = "https://github.com/facet-rs/facet" }
+facet-svg = { git = "https://github.com/facet-rs/facet", rev = "22d291822d42359b0a100f8c10b58f49235cc8c5" }
+facet-assert = { git = "https://github.com/facet-rs/facet", rev = "22d291822d42359b0a100f8c10b58f49235cc8c5" }
+facet = { path = "/Users/amos/bearcove/facet/facet" }
 tracing = "0.1.43"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 pest_ascii_tree = "0.1.0"

@@ -3,13 +3,13 @@ mod tools;
 
 use handler::PikruServerHandler;
 use rust_mcp_sdk::schema::{
-    Implementation, InitializeResult, ServerCapabilities, ServerCapabilitiesTools,
-    LATEST_PROTOCOL_VERSION,
+    Implementation, InitializeResult, LATEST_PROTOCOL_VERSION, ServerCapabilities,
+    ServerCapabilitiesTools,
 };
 use rust_mcp_sdk::{
-    error::SdkResult,
-    mcp_server::{server_runtime, ServerRuntime},
     McpServer, StdioTransport, TransportOptions,
+    error::SdkResult,
+    mcp_server::{ServerRuntime, server_runtime},
 };
 use std::sync::Arc;
 
@@ -42,9 +42,8 @@ async fn main() -> SdkResult<()> {
     };
 
     let transport = StdioTransport::new(TransportOptions::default())?;
-    let handler = PikruServerHandler::new().map_err(|e| {
-        rust_mcp_sdk::error::McpSdkError::from(std::io::Error::other(e))
-    })?;
+    let handler = PikruServerHandler::new()
+        .map_err(|e| rust_mcp_sdk::error::McpSdkError::from(std::io::Error::other(e)))?;
     let server: Arc<ServerRuntime> =
         server_runtime::create_server(server_details, transport, handler);
 

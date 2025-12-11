@@ -1,7 +1,7 @@
 //! Expression evaluation functions
 
 use crate::ast::*;
-use crate::types::{Angle, Length as Inches, OffsetIn, Point, EvalValue};
+use crate::types::{Angle, EvalValue, Length as Inches, OffsetIn, Point};
 
 use super::context::RenderContext;
 use super::types::*;
@@ -362,7 +362,10 @@ pub fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, mie
     }
 }
 
-pub fn endpoint_object_from_position(ctx: &RenderContext, pos: &Position) -> Option<EndpointObject> {
+pub fn endpoint_object_from_position(
+    ctx: &RenderContext,
+    pos: &Position,
+) -> Option<EndpointObject> {
     match pos {
         Position::Place(place) => endpoint_object_from_place(ctx, place),
         // Extract underlying Place from offset positions (e.g., C0.ne + (0.05,0))
@@ -385,7 +388,6 @@ fn endpoint_object_from_place(ctx: &RenderContext, place: &Place) -> Option<Endp
         | Place::Vertex(_, obj) => resolve_object(ctx, obj).map(EndpointObject::from_rendered),
     }
 }
-
 
 fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, miette::Report> {
     match place {

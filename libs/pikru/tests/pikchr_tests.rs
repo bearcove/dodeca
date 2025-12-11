@@ -8,9 +8,7 @@ static INIT_TRACING: Once = Once::new();
 fn init_tracing() {
     INIT_TRACING.call_once(|| {
         tracing_subscriber::fmt()
-            .with_env_filter(
-                tracing_subscriber::EnvFilter::from_default_env()
-            )
+            .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .with_test_writer()
             .init();
     });
@@ -69,26 +67,35 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
     // Use shared comparison logic
     let result = compare_outputs(&c_output, &rust_output, rust_is_err);
 
+    if result.is_match() {
+        return Ok(());
+    }
+
     match result {
-        CompareResult::Match | CompareResult::BothErrorMatch | CompareResult::NonSvgMatch => Ok(()),
+        CompareResult::SvgMismatch { details } => {
+            panic!("SVG mismatch for {}\n{}", path, details);
+        }
+        CompareResult::ParseError { details } => {
+            panic!("Parse error for {}\n{}", path, details);
+        }
         CompareResult::BothErrorMismatch {
             c_output,
             rust_output,
         } => {
             panic!(
-                "Both implementations errored but with different messages for {}\nC: {}\nRust: {}",
+                "Both implementations errored differently for {}\nC: {}\nRust: {}",
                 path, c_output, rust_output
             );
         }
         CompareResult::CErrorRustSuccess { c_output } => {
             panic!(
-                "C pikchr produced error but Rust succeeded for {}\nC output: {}",
+                "C pikchr errored but Rust succeeded for {}\nC output: {}",
                 path, c_output
             );
         }
         CompareResult::RustErrorCSuccess { rust_error } => {
             panic!(
-                "Rust implementation failed but C succeeded for {}\nRust error: {}",
+                "Rust errored but C succeeded for {}\nRust error: {}",
                 path, rust_error
             );
         }
@@ -101,12 +108,9 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
                 path, c_output, rust_output
             );
         }
-        CompareResult::SvgMismatch { details } => {
-            panic!("SVG mismatch for {}\n{}", path, details);
-        }
-        CompareResult::ParseError { details } => {
-            panic!("Parse error for {}\n{}", path, details);
-        }
+        CompareResult::Match
+        | CompareResult::BothErrorMatch
+        | CompareResult::NonSvgMatch => unreachable!(),
     }
 }
 

@@ -3,7 +3,8 @@
 //! This module provides shared comparison logic used by both the test harness
 //! and the xtask visual comparison tool.
 
-use facet_svg::{Svg, facet_assert::SameOptions, facet_xml};
+use facet_assert::{SameOptions, SameReport, check_same_with_report};
+use facet_svg::{Svg, facet_xml};
 
 /// Tolerance for floating-point comparisons (pikchr uses single precision)
 /// Keep this tight so genuine geometry differences don't get masked.
@@ -167,14 +168,13 @@ pub fn compare_outputs(c_output: &str, rust_output: &str, rust_is_err: bool) -> 
     };
 
     // Compare using facet-assert with float tolerance
-    use facet_svg::facet_assert::{Sameness, check_same_with};
-
-    match check_same_with(&c_svg, &rust_svg, svg_compare_options()) {
-        Sameness::Same => CompareResult::Match,
-        Sameness::Different(diff) => CompareResult::SvgMismatch {
-            details: format!("{}", diff),
-        },
-        Sameness::Opaque { type_name } => CompareResult::SvgMismatch {
+    match check_same_with_report(&c_svg, &rust_svg, svg_compare_options()) {
+        SameReport::Same => CompareResult::Match,
+        SameReport::Different(report) => {
+            let xml_diff = report.render_ansi_xml();
+            CompareResult::SvgMismatch { details: xml_diff }
+        }
+        SameReport::Opaque { type_name } => CompareResult::SvgMismatch {
             details: format!("Opaque type comparison not supported: {}", type_name),
         },
     }

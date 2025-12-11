@@ -1,6 +1,6 @@
-use rust_mcp_sdk::macros::{mcp_tool, JsonSchema};
+use rust_mcp_sdk::macros::{JsonSchema, mcp_tool};
 use rust_mcp_sdk::schema::{
-    schema_utils::CallToolError, CallToolResult, ContentBlock, ImageContent, TextContent,
+    CallToolResult, ContentBlock, ImageContent, TextContent, schema_utils::CallToolError,
 };
 use rust_mcp_sdk::tool_box;
 use serde::{Deserialize, Serialize};
@@ -277,18 +277,14 @@ impl RunPikruTestTool {
         // Create side-by-side image
         if let Some(side_by_side) = create_side_by_side(&c_png, &rust_png) {
             let b64 = base64::engine::general_purpose::STANDARD.encode(&side_by_side);
-            content.push(
-                ImageContent::new(b64, "image/png".to_string(), None, None).into(),
-            );
+            content.push(ImageContent::new(b64, "image/png".to_string(), None, None).into());
         }
 
         // Create diff image
         if let (Some(c), Some(r)) = (&c_png, &rust_png) {
             if let Some(diff_img) = create_diff_image(c, r) {
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&diff_img);
-                content.push(
-                    ImageContent::new(b64, "image/png".to_string(), None, None).into(),
-                );
+                content.push(ImageContent::new(b64, "image/png".to_string(), None, None).into());
             }
         }
 
@@ -426,7 +422,10 @@ fn run_cargo_test(test_name: &str, project_root: &Path) -> (String, Option<Strin
 
             (status, svg_diff)
         }
-        Err(e) => ("error".to_string(), Some(format!("Failed to run test: {e}"))),
+        Err(e) => (
+            "error".to_string(),
+            Some(format!("Failed to run test: {e}")),
+        ),
     }
 }
 
@@ -627,10 +626,7 @@ fn calculate_ssim(c_png: &[u8], rust_png: &[u8]) -> Option<f64> {
     Some((result.score * 10000.0).round() / 10000.0)
 }
 
-fn create_side_by_side(
-    c_png: &Option<Vec<u8>>,
-    rust_png: &Option<Vec<u8>>,
-) -> Option<Vec<u8>> {
+fn create_side_by_side(c_png: &Option<Vec<u8>>, rust_png: &Option<Vec<u8>>) -> Option<Vec<u8>> {
     use image::{ImageBuffer, Rgba, RgbaImage};
 
     let placeholder_width = 300u32;
@@ -640,31 +636,43 @@ fn create_side_by_side(
     let c_img: RgbaImage = if let Some(data) = c_png {
         image::load_from_memory(data).ok()?.to_rgba8()
     } else {
-        ImageBuffer::from_pixel(placeholder_width, placeholder_height, Rgba([255, 200, 200, 255]))
+        ImageBuffer::from_pixel(
+            placeholder_width,
+            placeholder_height,
+            Rgba([255, 200, 200, 255]),
+        )
     };
 
     // Load or create placeholder for Rust image
     let rust_img: RgbaImage = if let Some(data) = rust_png {
         image::load_from_memory(data).ok()?.to_rgba8()
     } else {
-        ImageBuffer::from_pixel(placeholder_width, placeholder_height, Rgba([255, 200, 200, 255]))
+        ImageBuffer::from_pixel(
+            placeholder_width,
+            placeholder_height,
+            Rgba([255, 200, 200, 255]),
+        )
     };
 
     // Match heights
     let max_height = c_img.height().max(rust_img.height());
     let c_img = if c_img.height() != max_height {
-        image::imageops::resize(&c_img,
+        image::imageops::resize(
+            &c_img,
             (c_img.width() as f32 * max_height as f32 / c_img.height() as f32) as u32,
             max_height,
-            image::imageops::Lanczos3)
+            image::imageops::Lanczos3,
+        )
     } else {
         c_img
     };
     let rust_img = if rust_img.height() != max_height {
-        image::imageops::resize(&rust_img,
+        image::imageops::resize(
+            &rust_img,
             (rust_img.width() as f32 * max_height as f32 / rust_img.height() as f32) as u32,
             max_height,
-            image::imageops::Lanczos3)
+            image::imageops::Lanczos3,
+        )
     } else {
         rust_img
     };
@@ -675,7 +683,8 @@ fn create_side_by_side(
     let total_height = max_height + label_height;
 
     // Create combined image
-    let mut combined: RgbaImage = ImageBuffer::from_pixel(total_width, total_height, Rgba([255, 255, 255, 255]));
+    let mut combined: RgbaImage =
+        ImageBuffer::from_pixel(total_width, total_height, Rgba([255, 255, 255, 255]));
 
     // Draw blue header for C
     for x in 0..c_img.width() {
@@ -721,7 +730,8 @@ fn create_diff_image(c_png: &[u8], rust_png: &[u8]) -> Option<Vec<u8>> {
     let rust_img = image::imageops::resize(&rust_img, width, height, image::imageops::Lanczos3);
 
     let legend_height = 30u32;
-    let mut diff: RgbaImage = ImageBuffer::from_pixel(width, height + legend_height, Rgba([255, 255, 255, 255]));
+    let mut diff: RgbaImage =
+        ImageBuffer::from_pixel(width, height + legend_height, Rgba([255, 255, 255, 255]));
 
     // Draw legend boxes
     let box_size = 12u32;
@@ -751,15 +761,16 @@ fn create_diff_image(c_png: &[u8], rust_png: &[u8]) -> Option<Vec<u8>> {
             let rust_pixel = rust_img.get_pixel(x, y);
 
             let c_gray = (c_pixel[0] as f32 + c_pixel[1] as f32 + c_pixel[2] as f32) / 3.0;
-            let rust_gray = (rust_pixel[0] as f32 + rust_pixel[1] as f32 + rust_pixel[2] as f32) / 3.0;
+            let rust_gray =
+                (rust_pixel[0] as f32 + rust_pixel[1] as f32 + rust_pixel[2] as f32) / 3.0;
 
             let c_present = c_gray < 250.0 && c_pixel[3] > 128;
             let rust_present = rust_gray < 250.0 && rust_pixel[3] > 128;
 
             let color = match (c_present, rust_present) {
-                (true, true) => Rgba([100, 150, 100, 255]),   // Green - both
-                (true, false) => Rgba([59, 130, 246, 255]),   // Blue - C only
-                (false, true) => Rgba([249, 115, 22, 255]),   // Orange - Rust only
+                (true, true) => Rgba([100, 150, 100, 255]), // Green - both
+                (true, false) => Rgba([59, 130, 246, 255]), // Blue - C only
+                (false, true) => Rgba([249, 115, 22, 255]), // Orange - Rust only
                 (false, false) => Rgba([255, 255, 255, 255]), // White - neither
             };
 

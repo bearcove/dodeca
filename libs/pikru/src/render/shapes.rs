@@ -6,11 +6,13 @@
 //! - Render itself to SVG
 
 use crate::types::{BoxIn, Length as Inches, OffsetIn, Point, Scaler, Size, UnitVec};
-use facet_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode, SvgStyle, Text as SvgText};
+use facet_svg::{
+    Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode, SvgStyle, Text as SvgText,
+};
 use glam::DVec2;
 
 use super::defaults;
-use super::{count_text_above_below, compute_text_vslots, text_width_inches, TextVSlot};
+use super::{TextVSlot, compute_text_vslots, count_text_above_below, text_width_inches};
 
 /// Bounding box type alias
 pub type BoundingBox = BoxIn;
@@ -70,8 +72,12 @@ pub trait Shape {
                 | EdgeDirection::SouthEast
                 | EdgeDirection::SouthWest
         );
-        let diag = if self.is_round() && is_diagonal {
-            std::f64::consts::FRAC_1_SQRT_2
+        let diag = if is_diagonal {
+            if self.is_round() {
+                1.0
+            } else {
+                std::f64::consts::SQRT_2
+            }
         } else {
             1.0
         };
@@ -133,7 +139,13 @@ pub trait Shape {
                 bounds.expand_point(Point::new(center.x + hw, center.y + hh));
             }
         } else if !style.invisible {
-            bounds.expand_rect(center, Size { w: self.width(), h: self.height() });
+            bounds.expand_rect(
+                center,
+                Size {
+                    w: self.width(),
+                    h: self.height(),
+                },
+            );
         }
     }
 }
@@ -347,12 +359,7 @@ impl Shape for BoxShape {
             create_rounded_box_path(x1, y1, x2, y2, r)
         } else {
             // Regular box: start bottom-left, go clockwise
-            PathData::new()
-                .m(x1, y2)
-                .l(x2, y2)
-                .l(x2, y1)
-                .l(x1, y1)
-                .z()
+            PathData::new().m(x1, y2).l(x2, y2).l(x2, y1).l(x1, y1).z()
         };
 
         let path = Path {
@@ -604,10 +611,10 @@ impl Shape for DiamondShape {
 
         // Diamond: start at west edge to match C pikchr ordering
         let path_data = PathData::new()
-            .m(left, center_svg.y)      // West
-            .l(center_svg.x, bottom)    // South
-            .l(right, center_svg.y)     // East
-            .l(center_svg.x, top)       // North
+            .m(left, center_svg.y) // West
+            .l(center_svg.x, bottom) // South
+            .l(right, center_svg.y) // East
+            .l(center_svg.x, top) // North
             .z();
 
         let path = Path {
@@ -798,10 +805,14 @@ impl Shape for FileShape {
         nodes.push(SvgNode::Path(main));
 
         // Fold line uses same style but no fill
-        let fold_style = SvgStyle::new()
-            .add("fill", "none")
-            .add("stroke", &color_to_rgb(&self.style.stroke))
-            .add("stroke-width", &format!("{}", scaler.px(self.style.stroke_width)));
+        let fold_style = svg_style_from_entries(vec![
+            ("fill", "none".to_string()),
+            ("stroke", color_to_rgb(&self.style.stroke)),
+            (
+                "stroke-width",
+                format!("{}", scaler.px(self.style.stroke_width)),
+            ),
+        ]);
 
         let fold = Path {
             d: Some(fold_path),
@@ -924,14 +935,8 @@ impl Shape for LineShape {
         if svg_points.len() <= 2 {
             let start = svg_points[0];
             let end = svg_points[svg_points.len() - 1];
-            let (mut draw_start, mut draw_end) = apply_auto_chop_simple_line(
-                scaler,
-                obj,
-                start,
-                end,
-                offset_x,
-                max_y,
-            );
+            let (mut draw_start, mut draw_end) =
+                apply_auto_chop_simple_line(scaler, obj, start, end, offset_x, max_y);
 
             if self.style.arrow_end {
                 if let Some(arrowhead) = render_arrowhead_dom(
@@ -1139,14 +1144,18 @@ impl Shape for SplineShape {
         if self.style.arrow_end && n >= 2 {
             let p1 = self.waypoints[n - 2].to_svg(scaler, offset_x, max_y);
             let p2 = self.waypoints[n - 1].to_svg(scaler, offset_x, max_y);
-            if let Some(arrowhead) = render_arrowhead_dom(p1, p2, &self.style, arrow_len_px, arrow_wid_px) {
+            if let Some(arrowhead) =
+                render_arrowhead_dom(p1, p2, &self.style, arrow_len_px, arrow_wid_px)
+            {
                 nodes.push(SvgNode::Polygon(arrowhead));
             }
         }
         if self.style.arrow_start && n >= 2 {
             let p1 = self.waypoints[0].to_svg(scaler, offset_x, max_y);
             let p2 = self.waypoints[1].to_svg(scaler, offset_x, max_y);
-            if let Some(arrowhead) = render_arrowhead_dom(p2, p1, &self.style, arrow_len_px, arrow_wid_px) {
+            if let Some(arrowhead) =
+                render_arrowhead_dom(p2, p1, &self.style, arrow_len_px, arrow_wid_px)
+            {
                 nodes.push(SvgNode::Polygon(arrowhead));
             }
         }
@@ -1378,7 +1387,13 @@ impl Shape for TextShape {
 
         // First, expand with object dimensions (which include fit padding)
         // cref: pikchr.c:7113-7114 - pik_bbox_add_xy for object's width/height
-        bounds.expand_rect(center, Size { w: self.width, h: self.height });
+        bounds.expand_rect(
+            center,
+            Size {
+                w: self.width,
+                h: self.height,
+            },
+        );
 
         if self.text.is_empty() {
             return;
@@ -1522,24 +1537,16 @@ impl Shape for ArcShape {
 
         // Render arrowheads first (like svg.rs does)
         if self.style.arrow_start {
-            if let Some(arrowhead) = render_arrowhead_dom(
-                control,
-                start_svg,
-                &self.style,
-                arrow_len,
-                arrow_wid,
-            ) {
+            if let Some(arrowhead) =
+                render_arrowhead_dom(control, start_svg, &self.style, arrow_len, arrow_wid)
+            {
                 nodes.push(SvgNode::Polygon(arrowhead));
             }
         }
         if self.style.arrow_end {
-            if let Some(arrowhead) = render_arrowhead_dom(
-                control,
-                end_svg,
-                &self.style,
-                arrow_len,
-                arrow_wid,
-            ) {
+            if let Some(arrowhead) =
+                render_arrowhead_dom(control, end_svg, &self.style, arrow_len, arrow_wid)
+            {
                 nodes.push(SvgNode::Polygon(arrowhead));
             }
         }
@@ -1714,13 +1721,7 @@ impl Shape for SublistShape {
         for child in &self.children {
             let child_shape = &child.shape;
             let child_nodes = child_shape.render_svg(
-                child,
-                scaler,
-                offset_x,
-                max_y,
-                dashwid,
-                arrow_len,
-                arrow_wid,
+                child, scaler, offset_x, max_y, dashwid, arrow_len, arrow_wid,
             );
             nodes.extend(child_nodes);
         }
@@ -1773,7 +1774,10 @@ pub enum ShapeEnum {
 impl ShapeEnum {
     /// Whether this shape is a path (line-like)
     pub fn is_path(&self) -> bool {
-        matches!(self, ShapeEnum::Line(_) | ShapeEnum::Spline(_) | ShapeEnum::Arc(_) | ShapeEnum::Move(_))
+        matches!(
+            self,
+            ShapeEnum::Line(_) | ShapeEnum::Spline(_) | ShapeEnum::Arc(_) | ShapeEnum::Move(_)
+        )
     }
 
     /// Set the center point of the shape
@@ -1882,21 +1886,50 @@ impl ShapeEnum {
 
 /// Build an SVG style from an ObjectStyle
 fn build_svg_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> SvgStyle {
-    let mut svg_style = SvgStyle::new();
-    svg_style = svg_style.add("fill", &color_to_rgb(&style.fill));
-    svg_style = svg_style.add("stroke", &color_to_rgb(&style.stroke));
-    svg_style = svg_style.add("stroke-width", &format!("{}", scaler.px(style.stroke_width)));
+    let mut entries = vec![
+        ("fill", color_to_rgb(&style.fill)),
+        ("stroke", color_to_rgb(&style.stroke)),
+        (
+            "stroke-width",
+            format!("{}", scaler.px(style.stroke_width)),
+        ),
+    ];
 
     if style.dashed {
         let dash = scaler.px(dashwid);
-        svg_style = svg_style.add("stroke-dasharray", &format!("{},{}", dash, dash));
+        entries.push(("stroke-dasharray", format!("{},{}", dash, dash)));
     } else if style.dotted {
         let dot = scaler.px(style.stroke_width);
         let gap = scaler.px(dashwid);
-        svg_style = svg_style.add("stroke-dasharray", &format!("{},{}", dot, gap));
+        entries.push(("stroke-dasharray", format!("{},{}", dot, gap)));
     }
 
-    svg_style
+    svg_style_from_entries(entries)
+}
+
+pub(crate) fn svg_style_from_entries(entries: Vec<(&'static str, String)>) -> SvgStyle {
+    let mut css = String::new();
+    for (name, value) in entries {
+        if value.is_empty() {
+            continue;
+        }
+        css.push_str(name);
+        css.push(':');
+        css.push_str(&value);
+        css.push(';');
+    }
+
+    if css.is_empty() {
+        SvgStyle::default()
+    } else {
+        match SvgStyle::parse(&css) {
+            Ok(style) => style,
+            Err(err) => {
+                tracing::warn!(css = %css, %err, "failed to parse generated SVG style");
+                SvgStyle::default()
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -1938,7 +1971,11 @@ mod tests {
 
     #[test]
     fn box_dimensions() {
-        let bx = BoxShape::new(Point::new(Inches(0.0), Inches(0.0)), Inches(2.0), Inches(1.0));
+        let bx = BoxShape::new(
+            Point::new(Inches(0.0), Inches(0.0)),
+            Inches(2.0),
+            Inches(1.0),
+        );
         assert_eq!(bx.width(), Inches(2.0));
         assert_eq!(bx.height(), Inches(1.0));
         assert!(!bx.is_round());

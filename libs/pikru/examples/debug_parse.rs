@@ -9,7 +9,10 @@ fn main() {
 
     match PikchrParser::parse(Rule::statement, input) {
         Ok(pairs) => {
-            println!("{}", pest_ascii_tree::into_ascii_tree(pairs.clone()).unwrap());
+            println!(
+                "{}",
+                pest_ascii_tree::into_ascii_tree(pairs.clone()).unwrap()
+            );
         }
         Err(e) => {
             eprintln!("Parse error: {}", e);

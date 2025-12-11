@@ -30,7 +30,15 @@ fn count_elements(children: &[SvgNode]) -> usize {
             | SvgNode::Path(_)
             | SvgNode::Polygon(_)
             | SvgNode::Polyline(_)
-            | SvgNode::Text(_) => count += 1,
+            | SvgNode::Text(_)
+            | SvgNode::Use(_)
+            | SvgNode::Image(_)
+            | SvgNode::Title(_)
+            | SvgNode::Desc(_) => count += 1,
+            SvgNode::Symbol(symbol) => {
+                count += 1;
+                count += count_elements(&symbol.children);
+            }
         }
     }
     count
