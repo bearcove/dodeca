@@ -5368,6 +5368,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-fonts"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "dodeca-plugin-runtime",
+ "facet",
+ "facet-kdl",
+ "fontcull",
+ "mod-fonts-proto",
+ "rapace",
+ "rapace-plugin",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "mod-fonts-proto"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "rapace",
+]
+
+[[package]]
 name = "mod-http"
 version = "0.1.0"
 dependencies = [
@@ -5440,6 +5464,30 @@ dependencies = [
 
 [[package]]
 name = "mod-js-proto"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "rapace",
+]
+
+[[package]]
+name = "mod-jxl"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "dodeca-plugin-runtime",
+ "facet",
+ "facet-kdl",
+ "jpegxl-rs",
+ "mod-jxl-proto",
+ "rapace",
+ "rapace-plugin",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "mod-jxl-proto"
 version = "0.1.0"
 dependencies = [
  "facet",
