@@ -1,1 +1,80 @@
-# picante
+# Picante
+
+Picante is an **async** incremental query runtime for Rust, inspired by Salsa but built for **Tokio-first** pipelines (like Dodeca).
+
+**What it has today**
+
+- Inputs (`InputIngredient<K, V>`) and derived async queries (`DerivedIngredient<DB, K, V>`)
+- Dependency tracking via Tokio task-locals
+- Per-task cycle detection (fast path)
+- Async single-flight memoization per `(kind, key)`
+- Cache persistence to disk (snapshot file) using `facet` + `facet-postcard` (**no serde**)
+- Runtime notifications for live reload (`Runtime::subscribe_revisions`, `Runtime::subscribe_events`)
+
+## Quickstart (minimal)
+
+```rust
+use picante::{DerivedIngredient, HasRuntime, InputIngredient, QueryKindId, Runtime};
+use std::sync::Arc;
+
+#[derive(Default)]
+struct Db {
+    runtime: Runtime,
+}
+
+impl HasRuntime for Db {
+    fn runtime(&self) -> &Runtime {
+        &self.runtime
+    }
+}
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> picante::PicanteResult<()> {
+    let db = Db::default();
+
+    let text: Arc<InputIngredient<String, String>> =
+        Arc::new(InputIngredient::new(QueryKindId(1), "Text"));
+
+    let len: Arc<DerivedIngredient<Db, String, u64>> = {
+        let text = text.clone();
+        Arc::new(DerivedIngredient::new(QueryKindId(2), "Len", move |db, key| {
+            let text = text.clone();
+            Box::pin(async move {
+                let s = text.get(db, &key)?.unwrap_or_default();
+                Ok(s.len() as u64)
+            })
+        }))
+    };
+
+    text.set(&db, "a".into(), "hello".into());
+    assert_eq!(len.get(&db, "a".into()).await?, 5);
+
+    Ok(())
+}
+```
+
+## Persistence (snapshot cache)
+
+Picante can save/load inputs and memoized derived values (including dependency lists):
+
+```rust
+use picante::persist::{load_cache, save_cache};
+
+// save_cache(path, db.runtime(), &[&*text, &*len]).await?;
+// load_cache(path, db.runtime(), &[&*text, &*len]).await?;
+```
+
+If you need cache size limits or custom corruption handling, use:
+- `save_cache_with_options`
+- `load_cache_with_options`
+
+## Notes
+
+- Tokio-only: query execution uses Tokio task-local context.
+- Global invalidation v1: updating any input bumps a single global `Revision`.
+
+## License
+
+Licensed under either of:
+- Apache License, Version 2.0
+- MIT license

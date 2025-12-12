@@ -1,1 +1,5 @@
 /target
+.cache
+.dodeca.db
+docs/public
+lcov.info

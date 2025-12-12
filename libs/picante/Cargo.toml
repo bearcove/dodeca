@@ -9,6 +9,7 @@ license = "Apache-2.0 OR MIT"
 
 [workspace.dependencies]
 dashmap = "5.5.3"
+divan = "0.1"
 facet = "0.32.2"
 facet-postcard = "0.32.2"
 futures = "0.3.31"
