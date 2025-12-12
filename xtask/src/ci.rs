@@ -48,67 +48,113 @@ pub const TARGETS: &[Target] = &[
     },
 ];
 
-/// Plugin crates to build.
-pub const PLUGINS: &[&str] = &[
-    "dodeca-baseline",
-    "dodeca-css",
-    "dodeca-fonts",
-    "dodeca-html-diff",
-    "dodeca-image",
-    "dodeca-js",
-    "dodeca-jxl",
-    "dodeca-linkcheck",
-    "dodeca-minify",
-    "dodeca-pagefind",
-    "dodeca-sass",
-    "dodeca-svgo",
-    "dodeca-webp",
-];
+/// Discover cdylib plugins by scanning crates/dodeca-*/Cargo.toml for cdylib crate-type.
+pub fn discover_cdylib_plugins(repo_root: &Utf8Path) -> Vec<String> {
+    let mut plugins = Vec::new();
+    let crates_dir = repo_root.join("crates");
+
+    if let Ok(entries) = std::fs::read_dir(&crates_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && name.starts_with("dodeca-")
+            {
+                let cargo_toml = path.join("Cargo.toml");
+                if let Ok(content) = std::fs::read_to_string(&cargo_toml)
+                    && content.contains("cdylib")
+                {
+                    plugins.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    plugins.sort();
+    plugins
+}
+
+/// Discover rapace plugins by scanning mods/mod-*/Cargo.toml for [[bin]] sections.
+/// Returns (package_name, binary_name) pairs.
+pub fn discover_rapace_plugins(repo_root: &Utf8Path) -> Vec<(String, String)> {
+    let mut plugins = Vec::new();
+    let mods_dir = repo_root.join("mods");
+
+    if let Ok(entries) = std::fs::read_dir(&mods_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                // Skip proto crates
+                && name.starts_with("mod-")
+                && !name.ends_with("-proto")
+            {
+                let cargo_toml = path.join("Cargo.toml");
+                if let Ok(content) = std::fs::read_to_string(&cargo_toml)
+                    && content.contains("[[bin]]")
+                {
+                    let bin_name = format!("dodeca-{}", name);
+                    plugins.push((name.to_string(), bin_name));
+                }
+            }
+        }
+    }
+
+    plugins.sort();
+    plugins
+}
 
 /// Plugin groups for parallel CI builds.
 /// Groups are designed to balance build times and minimize dependency overlap.
+/// Each plugin is a (package_name, binary_name) pair.
 pub struct PluginGroup {
     pub name: &'static str,
-    pub plugins: &'static [&'static str],
+    pub plugins: &'static [(&'static str, &'static str)],
 }
 
-/// Plugin groups:
-/// - group1 (image processing): webp, jxl, image - share image codec dependencies
-/// - group2 (web assets): minify, css, sass, html-diff - lightweight web processing
-/// - group3 (misc): fonts, pagefind, linkcheck, svgo, baseline
-/// - group4 (js): js - isolated because OXC is a heavy dependency
-/// - group5 (code): code-execution - isolated due to pulldown-cmark
+/// Plugin groups (rapace binaries from mods/):
+/// - image: webp, jxl, image - share image codec dependencies
+/// - web: minify, css, sass, html-diff - lightweight web processing
+/// - misc: fonts, pagefind, linkcheck, svgo, arborium
+/// - js: js - isolated because OXC is a heavy dependency
+/// - code: code-execution - isolated due to pulldown-cmark
 pub const PLUGIN_GROUPS: &[PluginGroup] = &[
     PluginGroup {
         name: "image",
-        plugins: &["dodeca-webp", "dodeca-jxl", "dodeca-image"],
+        plugins: &[
+            ("mod-webp", "dodeca-mod-webp"),
+            ("mod-jxl", "dodeca-mod-jxl"),
+            ("mod-image", "dodeca-mod-image"),
+        ],
     },
     PluginGroup {
         name: "web",
         plugins: &[
-            "dodeca-minify",
-            "dodeca-css",
-            "dodeca-sass",
-            "dodeca-html-diff",
+            ("mod-minify", "dodeca-mod-minify"),
+            ("mod-css", "dodeca-mod-css"),
+            ("mod-sass", "dodeca-mod-sass"),
+            ("mod-html-diff", "dodeca-mod-html-diff"),
         ],
     },
     PluginGroup {
         name: "misc",
         plugins: &[
-            "dodeca-fonts",
-            "dodeca-pagefind",
-            "dodeca-linkcheck",
-            "dodeca-svgo",
-            "dodeca-baseline",
+            ("mod-fonts", "dodeca-mod-fonts"),
+            ("mod-pagefind", "dodeca-mod-pagefind"),
+            ("mod-linkcheck", "dodeca-mod-linkcheck"),
+            ("mod-svgo", "dodeca-mod-svgo"),
+            ("mod-arborium", "dodeca-mod-arborium"),
         ],
     },
     PluginGroup {
         name: "js",
-        plugins: &["dodeca-js"],
+        plugins: &[("mod-js", "dodeca-mod-js")],
     },
     PluginGroup {
         name: "code",
-        plugins: &["dodeca-code-execution"],
+        plugins: &[("mod-code-execution", "dodeca-mod-code-execution")],
+    },
+    PluginGroup {
+        name: "http",
+        plugins: &[("mod-http", "dodeca-mod-http")],
     },
 ];
 
@@ -442,24 +488,18 @@ pub mod common {
 struct CiRunner {
     os: &'static str,
     runner: &'static str,
-    lib_ext: &'static str,
-    lib_prefix: &'static str,
     wasm_install: &'static str,
 }
 
 const CI_LINUX: CiRunner = CiRunner {
     os: "linux",
     runner: "depot-ubuntu-24.04-16",
-    lib_ext: "so",
-    lib_prefix: "lib",
     wasm_install: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh",
 };
 
 const CI_MACOS: CiRunner = CiRunner {
     os: "macos",
     runner: "depot-macos-15",
-    lib_ext: "dylib",
-    lib_prefix: "lib",
     wasm_install: "brew install wasm-pack",
 };
 
@@ -494,8 +534,6 @@ pub fn build_ci_workflow() -> Workflow {
     // For Linux and macOS, we use parallel builds with artifact passing
     for runner in [&CI_LINUX, &CI_MACOS] {
         let os = runner.os;
-        let lib_ext = runner.lib_ext;
-        let lib_prefix = runner.lib_prefix;
 
         // Job: Build ddc binary + WASM
         let build_ddc_id = format!("build-ddc-{os}");
@@ -530,27 +568,28 @@ pub fn build_ci_workflow() -> Workflow {
 
         for group in PLUGIN_GROUPS {
             let job_id = format!("build-plugins-{}-{os}", group.name);
-            let plugins_arg: String = group
+
+            // Build args: -p package --bin binary for each plugin
+            let build_arg: String = group
                 .plugins
                 .iter()
-                .map(|p| format!("-p {p}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-            let test_arg: String = group
-                .plugins
-                .iter()
-                .map(|p| format!("-p {p}"))
+                .map(|(pkg, bin)| format!("-p {pkg} --bin {bin}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
-            // Build the glob pattern for uploading plugin .so/.dylib files
+            // Test args: just the package names
+            let test_arg: String = group
+                .plugins
+                .iter()
+                .map(|(pkg, _)| format!("-p {pkg}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            // Upload paths: binary executables
             let upload_paths: String = group
                 .plugins
                 .iter()
-                .map(|p| {
-                    let lib_name = p.replace('-', "_");
-                    format!("target/release/{lib_prefix}{lib_name}.{lib_ext}")
-                })
+                .map(|(_, bin)| format!("target/release/{bin}"))
                 .collect::<Vec<_>>()
                 .join("\n");
 
@@ -564,7 +603,7 @@ pub fn build_ci_workflow() -> Workflow {
                         rust_cache(),
                         Step::run(
                             format!("Build {} plugins", group.name),
-                            format!("cargo build --release {plugins_arg}"),
+                            format!("cargo build --release {build_arg}"),
                         ),
                         Step::run(
                             format!("Test {} plugins", group.name),

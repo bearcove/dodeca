@@ -105,10 +105,10 @@ impl CodeExecutor for CodeExecutorImpl {
 }
 
 fn should_execute(language: &str) -> bool {
-    match language.to_lowercase().as_str() {
-        "rust" | "rs" | "javascript" | "js" | "python" | "py" | "bash" | "sh" => true,
-        _ => false,
-    }
+    matches!(
+        language.to_lowercase().as_str(),
+        "rust" | "rs" | "javascript" | "js" | "python" | "py" | "bash" | "sh"
+    )
 }
 
 fn execute_code_sample(sample: &CodeSample, _config: &CodeExecutionConfig) -> ExecutionResult {

@@ -764,6 +764,7 @@ pub async fn compress_to_woff2_plugin(data: &[u8]) -> Option<Vec<u8>> {
 #[derive(Debug, Clone)]
 pub struct CheckOptions {
     /// Domains to skip (e.g., ["localhost", "127.0.0.1"])
+    #[allow(dead_code)] // TODO: pass to plugin
     pub skip_domains: Vec<String>,
     /// Rate limiting between requests (milliseconds)
     pub rate_limit_ms: u64,
