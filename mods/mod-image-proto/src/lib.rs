@@ -25,6 +25,24 @@ pub enum ImageResult {
     Error { message: String },
 }
 
+/// Input for resize operation
+#[derive(Debug, Clone, Facet)]
+pub struct ResizeInput {
+    pub pixels: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    pub channels: u8,
+    pub target_width: u32,
+}
+
+/// Input for thumbhash generation
+#[derive(Debug, Clone, Facet)]
+pub struct ThumbhashInput {
+    pub pixels: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+}
+
 /// Image processing service implemented by the plugin.
 ///
 /// The host calls these methods to process image content.
@@ -41,20 +59,8 @@ pub trait ImageProcessor {
     async fn decode_gif(&self, data: Vec<u8>) -> ImageResult;
 
     /// Resize an image maintaining aspect ratio using Lanczos3 filter
-    async fn resize_image(
-        &self,
-        pixels: Vec<u8>,
-        width: u32,
-        height: u32,
-        channels: u8,
-        target_width: u32,
-    ) -> ImageResult;
+    async fn resize_image(&self, input: ResizeInput) -> ImageResult;
 
     /// Generate a thumbhash data URL from RGBA pixels
-    async fn generate_thumbhash_data_url(
-        &self,
-        pixels: Vec<u8>,
-        width: u32,
-        height: u32,
-    ) -> ImageResult;
+    async fn generate_thumbhash_data_url(&self, input: ThumbhashInput) -> ImageResult;
 }
