@@ -120,9 +120,6 @@ aliri_braid = "0.4"  # Strongly-typed string wrappers
 regex = "1"  # For HTML heading extraction
 url = "2"  # URL parsing for domain extraction
 
-# Self-update (HTTP client)
-reqwest = { version = "0.12", features = ["json"] }
-
 # URL rewriting (HTML only - CSS/JS via plugins)
 lol_html = "2.7"        # Streaming HTML rewriter
 
@@ -146,7 +143,6 @@ phf = "0.11"  # 0.11+ drops proc-macro-hack (which needs syn 0.15)
 nom = "7"     # 7+ drops lexical-core 0.7 (broken usize/u32 ops)
 
 [dev-dependencies]
-reqwest = { version = "0.12", features = ["blocking"] }
 divan = "0.1"
 minijinja = "2"  # For template engine benchmarks
 test-log = { version = "0.2", features = ["trace"] }

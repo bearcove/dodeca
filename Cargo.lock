@@ -2474,7 +2474,6 @@ dependencies = [
  "ratatui",
  "rayon",
  "regex",
- "reqwest",
  "salsa",
  "serde",
  "serde_json",

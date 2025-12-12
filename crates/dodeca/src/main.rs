@@ -16,7 +16,6 @@ mod plugins;
 mod queries;
 mod render;
 mod search;
-mod self_update;
 mod serve;
 mod svg;
 mod template;
@@ -123,7 +122,6 @@ enum Command {
     Build(BuildArgs),
     Serve(ServeArgs),
     Clean(CleanArgs),
-    SelfUpdate,
 }
 
 fn print_usage() {
@@ -137,10 +135,6 @@ fn print_usage() {
         "serve".green()
     );
     eprintln!("    {}      Clear all caches", "clean".green());
-    eprintln!(
-        "    {}  Update ddc to the latest version",
-        "self-update".green()
-    );
     eprintln!("\n{}", "BUILD OPTIONS:".yellow());
     eprintln!("    [path]           Project directory");
     eprintln!("    -c, --content    Content directory");
@@ -205,7 +199,7 @@ fn parse_args() -> Result<Command> {
             })?;
             Ok(Command::Clean(clean_args))
         }
-        "self-update" => Ok(Command::SelfUpdate),
+  
         "--help" | "-h" | "help" => {
             print_usage();
             std::process::exit(0);
@@ -378,9 +372,6 @@ async fn main() -> Result<()> {
             } else {
                 println!("{} {}", "Cleared:".green(), cleared.join(", "));
             }
-        }
-        Command::SelfUpdate => {
-            self_update::self_update().await?;
         }
     }
 
