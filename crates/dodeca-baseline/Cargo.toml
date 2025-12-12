@@ -18,6 +18,3 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 plugcard = { path = "../plugcard" }
-# Needed directly because proc-macro derives reference their crates by name
-linkme = "0.3"
-postcard-schema = { version = "0.1", features = ["derive", "alloc"] }

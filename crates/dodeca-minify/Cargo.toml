@@ -18,8 +18,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 plugcard = { path = "../plugcard" }
-facet = "0.32.2"
-linkme = "0.3"
 
 # HTML minification
 minify-html = "0.18"

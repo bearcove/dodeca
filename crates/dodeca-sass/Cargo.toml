@@ -19,7 +19,6 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 plugcard = { path = "../plugcard" }
 facet = "0.32.2"
-linkme = "0.3"
 
 # SASS/SCSS compilation
 grass = "0.13"

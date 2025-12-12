@@ -17,11 +17,5 @@ rapace = { git = "https://github.com/bearcove/rapace" }
 # Serialization
 facet = "0.32.2"
 
-# RpcSession + helpers for manual RPC clients
-rapace-testkit = { git = "https://github.com/bearcove/rapace" }
-
 # Re-export types from dodeca-protocol
 dodeca-protocol = { path = "../../crates/dodeca-protocol" }
-
-# Tracing is used by rapace macro-generated code (::tracing:: paths in generated code)
-tracing = "0.1"

@@ -19,8 +19,5 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 plugcard = { path = "../plugcard" }
 dodeca-code-execution-types = { path = "../dodeca-code-execution-types" }
-facet = "0.32.2"
-facet-json = "0.32.2"
-linkme = "0.3"
 pulldown-cmark = "0.13"
 # TODO: Replace blake3 with facet-compatible hashing crate
