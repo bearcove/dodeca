@@ -88,6 +88,21 @@ mod-http-proto = { path = "../../mods/mod-http-proto" }
 # Syntax highlight service protocol
 mod-arborium-proto = { path = "../../mods/mod-arborium-proto" }
 
+# All plugin protocol definitions
+mod-code-execution-proto = { path = "../../mods/mod-code-execution-proto" }
+mod-css-proto = { path = "../../mods/mod-css-proto" }
+mod-fonts-proto = { path = "../../mods/mod-fonts-proto" }
+mod-html-diff-proto = { path = "../../mods/mod-html-diff-proto" }
+mod-image-proto = { path = "../../mods/mod-image-proto" }
+mod-js-proto = { path = "../../mods/mod-js-proto" }
+mod-jxl-proto = { path = "../../mods/mod-jxl-proto" }
+mod-linkcheck-proto = { path = "../../mods/mod-linkcheck-proto" }
+mod-minify-proto = { path = "../../mods/mod-minify-proto" }
+mod-pagefind-proto = { path = "../../mods/mod-pagefind-proto" }
+mod-sass-proto = { path = "../../mods/mod-sass-proto" }
+mod-svgo-proto = { path = "../../mods/mod-svgo-proto" }
+mod-webp-proto = { path = "../../mods/mod-webp-proto" }
+
 # RPC framework for plugin communication
 rapace = { git = "https://github.com/bearcove/rapace", features = ["stream"] }
 rapace-tracing = { git = "https://github.com/bearcove/rapace" }
