@@ -3,7 +3,6 @@
 //! Defines services for extracting and executing code samples from markdown.
 
 use facet::Facet;
-use std::collections::HashMap;
 
 // Re-export types from the types crate
 pub use dodeca_code_execution_types::{

@@ -117,8 +117,8 @@ lol_html = "2.7"        # Streaming HTML rewriter
 
 # Code execution is handled via the dodeca-code-execution plugin
 
-# Plugin system for image encoding/decoding, minification, etc.
-plugcard = { path = "../plugcard" }
+# Plugin system has been replaced with Rapace
+# All plugins are now in the mods/ directory
 
 # Template engine
 gingembre = { path = "../gingembre" }

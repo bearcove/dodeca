@@ -1,19 +1,7 @@
-//! Dodeca code execution plugin (dodeca-mod-code-execution)
-//!
-//! This plugin extracts and executes code samples from markdown content.
-
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
-use std::collections::HashMap;
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
-use std::time::Duration;
 
-use dodeca_code_execution_types::*;
-use mod_code_execution_proto::{CodeExecutor, CodeExecutionResult, CodeExecutorServer};
-
-// Re-export types for easier access
-pub use dodeca_code_execution_types::*;
+use mod_code_execution_proto::*;
 
 /// Code executor implementation
 pub struct CodeExecutorImpl;
@@ -107,7 +95,7 @@ impl CodeExecutor for CodeExecutorImpl {
             } else {
                 execute_code_sample(&sample, &input.config)
             };
-            results.push(result);
+            results.push((sample, result));
         }
 
         CodeExecutionResult::ExecuteSuccess {
@@ -123,13 +111,13 @@ fn should_execute(language: &str) -> bool {
     }
 }
 
-fn execute_code_sample(sample: &CodeSample, config: &CodeExecutionConfig) -> ExecutionResult {
+fn execute_code_sample(sample: &CodeSample, _config: &CodeExecutionConfig) -> ExecutionResult {
     // Simple execution for now - this would need the full language config logic
-    let (command, args) = match sample.language.as_str().to_lowercase() {
-        "rust" | "rs" => ("cargo", vec!["run", "--release", "--bin", "sample"]),
-        "javascript" | "js" => ("node", vec!["-e", &sample.code]),
-        "python" | "py" => ("python", vec!["-c", &sample.code]),
-        "bash" | "sh" => ("bash", vec!["-c", &sample.code]),
+    let (command, args) = match sample.language.to_lowercase().as_str() {
+        "rust" | "rs" => ("cargo".to_string(), vec!["run", "--release", "--bin", "sample"]),
+        "javascript" | "js" => ("node".to_string(), vec!["-e", &sample.code]),
+        "python" | "py" => ("python".to_string(), vec!["-c", &sample.code]),
+        "bash" | "sh" => ("bash".to_string(), vec!["-c", &sample.code]),
         _ => return ExecutionResult {
             success: false,
             exit_code: None,
@@ -144,7 +132,7 @@ fn execute_code_sample(sample: &CodeSample, config: &CodeExecutionConfig) -> Exe
 
     let start_time = std::time::Instant::now();
 
-    match Command::new(command)
+    match Command::new(&command)
         .args(&args)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -154,14 +142,14 @@ fn execute_code_sample(sample: &CodeSample, config: &CodeExecutionConfig) -> Exe
             let duration_ms = start_time.elapsed().as_millis();
             ExecutionResult {
                 success: output.status.success(),
-                exit_code: Some(output.status.code().into()),
-                stdout: String::from_utf8_lossy(&output.stdout),
-                stderr: String::from_utf8_lossy(&output.stderr),
-                duration_ms,
+                exit_code: output.status.code(),
+                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                duration_ms: duration_ms.try_into().unwrap(),
                 error: if output.status.success() {
                     None
                 } else {
-                    Some(format!("Process exited with code {}", output.status.code()))
+                    Some(format!("Process exited with code {:?}", output.status.code()))
                 },
                 metadata: None,
                 skipped: false,
