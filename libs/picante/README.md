@@ -21,17 +21,24 @@
 ## Quickstart (minimal)
 
 ```rust
-use picante::{DerivedIngredient, HasRuntime, InputIngredient, QueryKindId, Runtime};
+use picante::{DerivedIngredient, DynIngredient, HasRuntime, IngredientLookup, IngredientRegistry, InputIngredient, QueryKindId, Runtime};
 use std::sync::Arc;
 
 #[derive(Default)]
 struct Db {
     runtime: Runtime,
+    ingredients: IngredientRegistry<Db>,
 }
 
 impl HasRuntime for Db {
     fn runtime(&self) -> &Runtime {
         &self.runtime
+    }
+}
+
+impl IngredientLookup for Db {
+    fn ingredient(&self, kind: QueryKindId) -> Option<&dyn DynIngredient<Self>> {
+        self.ingredients.ingredient(kind)
     }
 }
 
@@ -82,4 +89,4 @@ If you need cache size limits or custom corruption handling, use:
 
 ## License
 
-Licensed under either of Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0) or MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT) at your option.
+Licensed under either of Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>) or MIT license ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>) at your option.
