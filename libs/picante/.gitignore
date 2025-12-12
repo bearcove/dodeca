@@ -1,4 +1,5 @@
 /target
+.claude
 .cache
 .dodeca.db
 docs/public
