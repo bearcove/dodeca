@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
+use rapace::rapace_core::TunnelChunk;
 use rapace::{RpcSession, Transport};
-use rapace_core::TunnelChunk;
 use tokio::io::AsyncWrite;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
@@ -96,6 +96,7 @@ impl<T: Transport + Send + Sync + 'static> Clone for TcpTunnelImpl<T> {
 }
 
 /// Writer that sends data to the rapace session
+#[allow(clippy::type_complexity)]
 struct TunnelWriter<T: Transport> {
     channel_id: u32,
     session: Arc<RpcSession<T>>,
@@ -218,6 +219,7 @@ impl<T: Transport + Send + Sync + 'static> AsyncWrite for TunnelWriter<T> {
 }
 
 /// Bidirectional stream combining StreamReader for reads and TunnelWriter for writes
+#[allow(clippy::type_complexity)]
 struct TunnelStream<T: Transport> {
     reader: StreamReader<
         tokio_stream::adapters::Map<

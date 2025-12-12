@@ -12,13 +12,13 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
 # RPC framework - main crate
-rapace = "0.1.1"
+rapace = { git = "https://github.com/bearcove/rapace" }
 
 # Serialization
 facet = "0.32.2"
 
 # RpcSession + helpers for manual RPC clients
-rapace-testkit = "0.1.1"
+rapace-testkit = { git = "https://github.com/bearcove/rapace" }
 
 # Re-export types from dodeca-protocol
 dodeca-protocol = { path = "../../crates/dodeca-protocol" }

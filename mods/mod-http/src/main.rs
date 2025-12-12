@@ -19,12 +19,12 @@
 //! - Uses SHM transport for zero-copy content transfer
 
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use color_eyre::Result;
+use rapace::RpcSession;
 use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
-use rapace::{Frame, RpcError, RpcSession};
+use rapace_plugin::{DispatcherBuilder, ServiceDispatch};
 use rapace_tracing::{RapaceTracingLayer, TracingConfigImpl, TracingConfigServer};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -33,48 +33,6 @@ use mod_http_proto::{ContentServiceClient, TcpTunnelServer, WebSocketTunnelClien
 
 mod devtools;
 mod tunnel;
-
-/// Create a combined dispatcher for both TcpTunnel and TracingConfig services.
-///
-/// Method IDs are globally unique hashes, so we try each service in turn.
-/// The correct one will succeed, the others will return "unknown method_id".
-#[allow(clippy::type_complexity)]
-fn create_plugin_dispatcher(
-    tunnel_service: Arc<tunnel::TcpTunnelImpl<PluginTransport>>,
-    tracing_config: TracingConfigImpl,
-) -> impl Fn(
-    u32,
-    u32,
-    Vec<u8>,
-) -> Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
-+ Send
-+ Sync
-+ 'static {
-    move |_channel_id, method_id, payload| {
-        let tunnel_service = tunnel_service.clone();
-        let tracing_config = tracing_config.clone();
-        Box::pin(async move {
-            // Try TracingConfig first
-            let config_server = TracingConfigServer::new(tracing_config);
-            let result = config_server.dispatch(method_id, &payload).await;
-
-            // If not "unknown method_id", return the result
-            if !matches!(
-                &result,
-                Err(RpcError::Status {
-                    code: rapace::ErrorCode::Unimplemented,
-                    ..
-                })
-            ) {
-                return result;
-            }
-
-            // Otherwise try TcpTunnel
-            let tunnel_server = TcpTunnelServer::new(tunnel_service.as_ref().clone());
-            tunnel_server.dispatch(method_id, &payload).await
-        })
-    }
-}
 
 /// Type alias for our transport (SHM-based for zero-copy)
 type PluginTransport = ShmTransport;
@@ -94,6 +52,48 @@ impl PluginContext {
     /// Create a WebSocketTunnelClient for opening devtools tunnels to host
     pub fn ws_tunnel_client(&self) -> WebSocketTunnelClient<PluginTransport> {
         WebSocketTunnelClient::new(self.session.clone())
+    }
+}
+
+/// Service wrapper for TcpTunnel to satisfy ServiceDispatch
+struct TcpTunnelService(Arc<TcpTunnelServer<tunnel::TcpTunnelImpl<PluginTransport>>>);
+
+impl ServiceDispatch for TcpTunnelService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let server = self.0.clone();
+        let bytes = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &bytes).await })
+    }
+}
+
+/// Service wrapper for TracingConfig to satisfy ServiceDispatch
+struct TracingService(Arc<TracingConfigServer<TracingConfigImpl>>);
+
+impl ServiceDispatch for TracingService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let server = self.0.clone();
+        let bytes = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &bytes).await })
     }
 }
 
@@ -176,12 +176,22 @@ async fn main() -> Result<()> {
     // Build axum router (service)
     let app = build_router(ctx);
 
-    // Create the tunnel service (host calls this to open HTTP tunnels)
+    // Create the tunnel implementation (host calls this to open HTTP tunnels)
     // Pass the app so we can serve it directly on tunnel streams
-    let tunnel_service = Arc::new(tunnel::TcpTunnelImpl::new(session.clone(), app));
+    let tunnel_impl = tunnel::TcpTunnelImpl::new(session.clone(), app);
 
-    // Set combined dispatcher for both TcpTunnel and TracingConfig services
-    session.set_dispatcher(create_plugin_dispatcher(tunnel_service, tracing_config));
+    // Wrap services with rapace-plugin multi-service dispatcher
+    let dispatcher = DispatcherBuilder::new()
+        // Order matters: try tracing first, then tunnel (matches previous behavior)
+        .add_service(TracingService(Arc::new(TracingConfigServer::new(
+            tracing_config,
+        ))))
+        .add_service(TcpTunnelService(Arc::new(TcpTunnelServer::new(
+            tunnel_impl,
+        ))))
+        .build();
+
+    session.set_dispatcher(dispatcher);
 
     // Run the RPC session demux loop (this is the main event loop now)
     tracing::info!("Plugin ready, waiting for tunnel connections");

@@ -26,7 +26,7 @@ fi
 
 # Build ddc and dodeca-mod-http (rapace plugin binary)
 echo "Building ddc and dodeca-mod-http..."
-cargo build --release --target "$TARGET" -p dodeca -p dodeca-mod-http
+cargo build --release --target "$TARGET" -p dodeca -p mod-http --bin dodeca-mod-http
 
 # Build plugins
 echo "Building plugins..."

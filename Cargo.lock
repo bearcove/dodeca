@@ -2413,7 +2413,7 @@ checksum = "6738d2e996274e499bc7b0d693c858b7720b9cd2543a0643a3087e6cb0a4fa16"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2860,7 +2860,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3939,7 +3939,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -5194,8 +5194,7 @@ dependencies = [
  "color-eyre",
  "mod-arborium-proto",
  "rapace",
- "rapace-tracing",
- "rapace-transport-shm",
+ "rapace-plugin",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -5227,11 +5226,8 @@ dependencies = [
  "mod-http-proto",
  "parking_lot",
  "rapace",
- "rapace-core",
- "rapace-registry",
- "rapace-testkit",
+ "rapace-plugin",
  "rapace-tracing",
- "rapace-transport-shm",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -5431,7 +5427,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7051,7 +7047,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -7088,9 +7084,9 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "once_cell",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7226,9 +7222,8 @@ dependencies = [
 
 [[package]]
 name = "rapace"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f262768f7f06f68c80e9ef34ebdfd57684dac42d9e55a482d5e966b5ff47706c"
+version = "0.2.0"
+source = "git+https://github.com/bearcove/rapace#7ca59f6975d68fd50d47eab2b840cdc6818db9a3"
 dependencies = [
  "facet",
  "facet-core",
@@ -7247,14 +7242,12 @@ dependencies = [
 
 [[package]]
 name = "rapace-core"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae3e42c2c1d2cc9a25d970367b80594fa65b16daeff439aba66a093846c80d60"
+version = "0.2.0"
+source = "git+https://github.com/bearcove/rapace#7ca59f6975d68fd50d47eab2b840cdc6818db9a3"
 dependencies = [
  "async-stream",
  "bitflags 2.10.0",
  "facet",
- "facet-core",
  "futures",
  "parking_lot",
  "tokio",
@@ -7263,9 +7256,8 @@ dependencies = [
 
 [[package]]
 name = "rapace-macros"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54d8caccae2931b6927cdc568fea3f15676583a48cf82665ec77670a42fa685e"
+version = "0.2.0"
+source = "git+https://github.com/bearcove/rapace#7ca59f6975d68fd50d47eab2b840cdc6818db9a3"
 dependencies = [
  "heck 0.4.1",
  "proc-macro-crate",
@@ -7275,44 +7267,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "rapace-plugin"
+version = "0.2.0"
+source = "git+https://github.com/bearcove/rapace#7ca59f6975d68fd50d47eab2b840cdc6818db9a3"
+dependencies = [
+ "rapace",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "rapace-registry"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8e4b5a34bee66faedc1675945c1ec91efe1414eff11e76bc921e39ee766cc77"
+version = "0.2.0"
+source = "git+https://github.com/bearcove/rapace#7ca59f6975d68fd50d47eab2b840cdc6818db9a3"
 dependencies = [
  "facet-core",
 ]
 
 [[package]]
 name = "rapace-testkit"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18da880a50cf0ff1fe5b45ffc28855a5ae89d8701fa180bdd4f75f2715619865"
+version = "0.2.0"
+source = "git+https://github.com/bearcove/rapace#7ca59f6975d68fd50d47eab2b840cdc6818db9a3"
 dependencies = [
- "facet",
- "facet-core",
  "facet-postcard",
  "futures",
- "parking_lot",
  "rapace",
  "rapace-core",
- "rapace-macros",
  "rapace-registry",
  "tokio",
  "tokio-stream",
- "tracing",
 ]
 
 [[package]]
 name = "rapace-tracing"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2fe153f85cb90edfc178fe424f1df0f0c5e2033040566cd1565670549864c61f"
+version = "0.2.0"
+source = "git+https://github.com/bearcove/rapace#7ca59f6975d68fd50d47eab2b840cdc6818db9a3"
 dependencies = [
  "facet",
  "parking_lot",
  "rapace",
- "rapace-testkit",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -7320,11 +7313,9 @@ dependencies = [
 
 [[package]]
 name = "rapace-transport-mem"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebe661e8e2088715052e90aeba6c7f15a97394eacb7cf50a5c3305b9a4b0009f"
+version = "0.2.0"
+source = "git+https://github.com/bearcove/rapace#7ca59f6975d68fd50d47eab2b840cdc6818db9a3"
 dependencies = [
- "futures",
  "parking_lot",
  "rapace-core",
  "tokio",
@@ -7332,22 +7323,21 @@ dependencies = [
 
 [[package]]
 name = "rapace-transport-shm"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "510b643d6e15376282b09def8a3576a6b8643187459d8dba0fa7bfdfb9abe9eb"
+version = "0.2.0"
+source = "git+https://github.com/bearcove/rapace#7ca59f6975d68fd50d47eab2b840cdc6818db9a3"
 dependencies = [
  "allocator-api2",
  "libc",
  "parking_lot",
  "rapace-core",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
 name = "rapace-transport-stream"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2671f9dd3181ac76de145090e1c625c81f8f6bfa0940cf112e10d0350da7cc7"
+version = "0.2.0"
+source = "git+https://github.com/bearcove/rapace#7ca59f6975d68fd50d47eab2b840cdc6818db9a3"
 dependencies = [
  "parking_lot",
  "rapace-core",
@@ -7690,7 +7680,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8588,7 +8578,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9796,7 +9786,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

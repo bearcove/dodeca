@@ -181,7 +181,7 @@ pub fn find_plugin_path() -> Result<PathBuf> {
 
     if !plugin_path.exists() {
         return Err(color_eyre::eyre::eyre!(
-            "Plugin binary not found at {}. Build it with: cargo build -p dodeca-mod-http",
+            "Plugin binary not found at {}. Build it with: cargo build -p mod-http --bin dodeca-mod-http",
             plugin_path.display()
         ));
     }
@@ -402,6 +402,7 @@ pub async fn start_plugin_server_with_shutdown(
 ///
 /// Note: This function never returns as it runs the server loop indefinitely.
 /// The actual bound port is printed via println!("LISTENING_PORT={}").
+#[allow(dead_code)]
 pub async fn start_plugin_server(
     server: Arc<SiteServer>,
     plugin_path: PathBuf,

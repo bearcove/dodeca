@@ -272,6 +272,7 @@ impl TestSite {
     }
 
     /// Get the fixture directory path
+    #[allow(dead_code)]
     pub fn fixture_dir(&self) -> &Path {
         &self.fixture_dir
     }

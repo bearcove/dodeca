@@ -99,8 +99,8 @@ mod-http-proto = { path = "../../mods/mod-http-proto" }
 mod-arborium-proto = { path = "../../mods/mod-arborium-proto" }
 
 # RPC framework for plugin communication
-rapace = { version = "0.1.1", features = ["stream"] }
-rapace-tracing = "0.1.1"
+rapace = { git = "https://github.com/bearcove/rapace", features = ["stream"] }
+rapace-tracing = { git = "https://github.com/bearcove/rapace" }
 async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
 
 # Code execution plugin types (lightweight - no plugin implementation)

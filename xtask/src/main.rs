@@ -219,6 +219,8 @@ fn build_dodeca(release: bool) -> bool {
         "--package",
         "dodeca",
         "--package",
+        "mod-http",
+        "--bin",
         "dodeca-mod-http",
     ]);
     if release {
