@@ -21,6 +21,7 @@ mod svg;
 mod template;
 mod theme;
 mod tui;
+mod tui_host;
 mod types;
 mod url_rewrite;
 

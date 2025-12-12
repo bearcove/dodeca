@@ -2529,6 +2529,7 @@ dependencies = [
  "mod-pagefind-proto",
  "mod-sass-proto",
  "mod-svgo-proto",
+ "mod-tui-proto",
  "mod-webp-proto",
  "notify",
  "open",
@@ -9144,6 +9145,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

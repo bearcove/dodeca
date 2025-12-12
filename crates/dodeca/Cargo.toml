@@ -47,7 +47,7 @@ notify = "8"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
-tokio-stream = { version = "0.1", features = ["net"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
 futures = "0.3"
 
 # TUI
@@ -98,6 +98,7 @@ mod-js-proto = { path = "../../mods/mod-js-proto" }
 mod-jxl-proto = { path = "../../mods/mod-jxl-proto" }
 mod-linkcheck-proto = { path = "../../mods/mod-linkcheck-proto" }
 mod-minify-proto = { path = "../../mods/mod-minify-proto" }
+mod-tui-proto = { path = "../../mods/mod-tui-proto" }
 mod-pagefind-proto = { path = "../../mods/mod-pagefind-proto" }
 mod-sass-proto = { path = "../../mods/mod-sass-proto" }
 mod-svgo-proto = { path = "../../mods/mod-svgo-proto" }
