@@ -1,9 +1,3 @@
-[![Crates.io](https://img.shields.io/crates/v/picante.svg)](https://crates.io/crates/picante)
-[![docs.rs](https://docs.rs/picante/badge.svg)](https://docs.rs/picante)
-[![License](https://img.shields.io/crates/l/picante.svg)](https://github.com/bearcove/picante#license)
-[![codecov](https://codecov.io/gh/bearcove/picante/graph/badge.svg)](https://codecov.io/gh/bearcove/picante)
-![Experimental](https://img.shields.io/badge/status-experimental-yellow.svg)
-
 **picante** is an **async** incremental query runtime for Rust, inspired by Salsa but built for **Tokio-first** pipelines (like Dodeca).
 
 **What it has today**
@@ -76,7 +70,3 @@ If you need cache size limits or custom corruption handling, use:
 
 - Tokio-only: query execution uses Tokio task-local context.
 - Global invalidation v1: updating any input bumps a single global `Revision`.
-
-## License
-
-Licensed under either of Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0) or MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT) at your option.
