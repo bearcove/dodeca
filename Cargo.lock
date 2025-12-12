@@ -2653,10 +2653,12 @@ dependencies = [
 name = "dodeca-plugin-runtime"
 version = "0.1.0"
 dependencies = [
+ "color-eyre",
  "rapace",
  "rapace-plugin",
  "rapace-tracing",
  "tokio",
+ "tracing",
  "tracing-subscriber",
 ]
 
@@ -5392,6 +5394,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-html-diff"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "dodeca-plugin-runtime",
+ "dodeca-protocol",
+ "facet",
+ "facet-kdl",
+ "mod-html-diff-proto",
+ "rapace",
+ "rapace-plugin",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "mod-html-diff-proto"
+version = "0.1.0"
+dependencies = [
+ "dodeca-protocol",
+ "facet",
+ "rapace",
+]
+
+[[package]]
 name = "mod-http"
 version = "0.1.0"
 dependencies = [
@@ -5519,6 +5546,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-pagefind"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "dodeca-plugin-runtime",
+ "facet",
+ "facet-kdl",
+ "mod-pagefind-proto",
+ "pagefind",
+ "rapace",
+ "rapace-plugin",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "mod-pagefind-proto"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "rapace",
+]
+
+[[package]]
 name = "mod-sass"
 version = "0.1.0"
 dependencies = [
@@ -5536,6 +5587,30 @@ dependencies = [
 
 [[package]]
 name = "mod-sass-proto"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "rapace",
+]
+
+[[package]]
+name = "mod-svgo"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "dodeca-plugin-runtime",
+ "facet",
+ "facet-kdl",
+ "mod-svgo-proto",
+ "rapace",
+ "rapace-plugin",
+ "svag",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "mod-svgo-proto"
 version = "0.1.0"
 dependencies = [
  "facet",

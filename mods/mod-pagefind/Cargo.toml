@@ -1,0 +1,35 @@
+[package]
+name = "mod-pagefind"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "dodeca-mod-pagefind"
+path = "src/main.rs"
+
+[dependencies]
+# Search indexing
+pagefind = "1.4"
+
+# Error handling
+color-eyre = "0.6"
+
+# Async runtime
+tokio = { version = "1", features = ["rt", "time", "rt-multi-thread"] }
+
+# Logging
+tracing = "0.1"
+
+# Plugin runtime (with utilities)
+dodeca-plugin-runtime = { path = "../../crates/dodeca-plugin-runtime" }
+
+# RPC framework
+rapace = { git = "https://github.com/bearcove/rapace", features = ["stream"] }
+rapace-plugin = { git = "https://github.com/bearcove/rapace" }
+
+# Local protocol definitions
+mod-pagefind-proto = { path = "../mod-pagefind-proto" }
+
+# Facet for serialization  
+facet = { version = "0.32.2" }
+facet-kdl = { version = "0.32.2" }

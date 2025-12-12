@@ -15,3 +15,5 @@ rapace-plugin = { git = "https://github.com/bearcove/rapace" }
 rapace-tracing = { git = "https://github.com/bearcove/rapace" }
 tracing-subscriber = { version = "0.3", features = ["registry"] }
 tokio = { version = "1", features = ["full"] }
+color-eyre = "0.6"
+tracing = "0.1"
