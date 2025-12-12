@@ -5346,6 +5346,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-code-execution"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "dodeca-code-execution-config",
+ "dodeca-code-execution-types",
+ "dodeca-plugin-runtime",
+ "facet",
+ "facet-kdl",
+ "mod-code-execution-proto",
+ "pulldown-cmark",
+ "rapace",
+ "rapace-plugin",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "mod-code-execution-proto"
+version = "0.1.0"
+dependencies = [
+ "dodeca-code-execution-types",
+ "facet",
+ "rapace",
+]
+
+[[package]]
 name = "mod-css"
 version = "0.1.0"
 dependencies = [

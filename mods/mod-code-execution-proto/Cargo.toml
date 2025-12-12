@@ -1,0 +1,9 @@
+[package]
+name = "mod-code-execution-proto"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+facet = { version = "0.32.2" }
+rapace = { git = "https://github.com/bearcove/rapace" }
+dodeca-code-execution-types = { path = "../../crates/dodeca-code-execution-types" }
