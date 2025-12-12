@@ -1,42 +1,60 @@
 //! Content-addressed storage for incremental builds
 //!
-//! Uses rapidhash for fast hashing and canopydb for persistent storage.
+//! Uses rapidhash for fast hashing and simple file-based persistence.
 //! Tracks which files have been written and their content hashes to avoid
 //! unnecessary disk writes.
 //!
 //! Blobs (processed images, decompressed fonts) are stored on disk rather than
-//! in the database to keep the database lean and fast for metadata queries.
+//! in the database to keep things lean and fast.
 
-/// CAS/canopy database version - bump this when making incompatible changes
-pub const CAS_VERSION: u32 = 4;
+/// CAS version - bump this when making incompatible changes
+pub const CAS_VERSION: u32 = 5;
 
 use crate::db::ProcessedImages;
 use camino::Utf8Path;
-use canopydb::Database;
 use rapidhash::fast::RapidHasher;
+use std::collections::HashMap;
 use std::fs;
 use std::hash::Hasher;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-// Global asset cache instance (for metadata only)
-static ASSET_CACHE: OnceLock<Database> = OnceLock::new();
-
 // Global blob storage directory
 static BLOB_DIR: OnceLock<PathBuf> = OnceLock::new();
 
+/// Persisted hash map: path -> content hash
+#[derive(Default, facet::Facet)]
+struct HashStore {
+    hashes: HashMap<String, u64>,
+}
+
 /// Content-addressed storage for build outputs
 pub struct ContentStore {
-    db: Database,
+    path: PathBuf,
+    store: HashStore,
 }
 
 impl ContentStore {
     /// Open or create a content store at the given path
     pub fn open(path: &Utf8Path) -> color_eyre::Result<Self> {
-        // canopydb stores data in a directory
-        fs::create_dir_all(path)?;
-        let db = Database::new(path.as_std_path())?;
-        Ok(Self { db })
+        let path = path.as_std_path().to_path_buf();
+        let store = if path.exists() {
+            let data = fs::read(&path)?;
+            facet_postcard::from_slice(&data).unwrap_or_default()
+        } else {
+            HashStore::default()
+        };
+        Ok(Self { path, store })
+    }
+
+    /// Save the store to disk
+    pub fn save(&self) -> color_eyre::Result<()> {
+        let data = facet_postcard::to_vec(&self.store)?;
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&self.path, data)?;
+        Ok(())
     }
 
     /// Compute the rapidhash of content
@@ -48,26 +66,12 @@ impl ContentStore {
 
     /// Write content to a file if it has changed since last build.
     /// Returns true if the file was written, false if skipped (unchanged).
-    pub fn write_if_changed(&self, path: &Utf8Path, content: &[u8]) -> color_eyre::Result<bool> {
+    pub fn write_if_changed(&mut self, path: &Utf8Path, content: &[u8]) -> color_eyre::Result<bool> {
         let hash = Self::hash(content);
-        let hash_bytes = hash.to_le_bytes();
-        let path_key = path.as_str().as_bytes();
+        let path_key = path.as_str().to_string();
 
-        // Check if we have a stored hash for this path
-        let unchanged = {
-            let rx = self.db.begin_read()?;
-            if let Some(tree) = rx.get_tree(b"hashes")? {
-                if let Some(stored) = tree.get(path_key)? {
-                    stored.as_ref() == hash_bytes
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        };
-
-        if unchanged {
+        // Check if hash matches
+        if self.store.hashes.get(&path_key) == Some(&hash) {
             return Ok(false);
         }
 
@@ -78,11 +82,7 @@ impl ContentStore {
         fs::write(path, content)?;
 
         // Update stored hash
-        let tx = self.db.begin_write()?;
-        let mut tree = tx.get_or_create_tree(b"hashes")?;
-        tree.insert(path_key, &hash_bytes)?;
-        drop(tree);
-        tx.commit()?;
+        self.store.hashes.insert(path_key, hash);
 
         Ok(true)
     }
@@ -169,20 +169,17 @@ fn ensure_gitignore_has_cache(cache_dir: &Path) {
     }
 }
 
-/// Initialize the global asset cache
+/// Initialize the global asset cache (blob storage for images, fonts)
 pub fn init_asset_cache(cache_dir: &Path) -> color_eyre::Result<()> {
-    tracing::info!(cache_dir = %cache_dir.display(), "init_asset_cache called");
+    tracing::debug!(cache_dir = %cache_dir.display(), "init_asset_cache called");
 
     // Ensure .cache is gitignored before creating directories
     ensure_gitignore_has_cache(cache_dir);
 
-    // canopydb stores data in a directory, not a single file
-    let db_path = cache_dir.join("assets.canopy");
-
     // Blob storage directory (for processed images, decompressed fonts)
     let blob_path = cache_dir.join("blobs");
 
-    // Check version file - if missing or mismatched, delete the cache directories
+    // Check version file - if missing or mismatched, delete the cache
     let version_path = cache_dir.join("cas.version");
     let version_ok = if version_path.exists() {
         match fs::read_to_string(&version_path) {
@@ -193,45 +190,22 @@ pub fn init_asset_cache(cache_dir: &Path) -> color_eyre::Result<()> {
         false
     };
 
-    if !version_ok {
-        // Delete stale cache if it exists
-        if db_path.exists() || blob_path.exists() {
-            tracing::info!(
-                "CAS version mismatch (expected v{}), deleting stale cache",
-                CAS_VERSION
-            );
-            let _ = fs::remove_dir_all(&db_path);
-            let _ = fs::remove_dir_all(&blob_path);
-        }
+    if !version_ok && blob_path.exists() {
+        tracing::info!(
+            "CAS version mismatch (expected v{}), deleting stale cache",
+            CAS_VERSION
+        );
+        let _ = fs::remove_dir_all(&blob_path);
     }
 
-    // Ensure directories exist
-    tracing::debug!(db_path = %db_path.display(), blob_path = %blob_path.display(), "Creating cache directories");
-    fs::create_dir_all(&db_path)?;
+    // Ensure blob directory exists
     fs::create_dir_all(&blob_path)?;
 
     // Write version file
     fs::write(&version_path, CAS_VERSION.to_string())?;
 
-    tracing::debug!(
-        path = %db_path.display(),
-        exists = db_path.exists(),
-        is_dir = db_path.is_dir(),
-        "Opening canopydb"
-    );
-    let db = Database::new(&db_path).map_err(|e| {
-        tracing::error!(
-            path = %db_path.display(),
-            exists = db_path.exists(),
-            error = %e,
-            "Failed to open canopydb"
-        );
-        e
-    })?;
-    let _ = ASSET_CACHE.set(db);
     let _ = BLOB_DIR.set(blob_path.clone());
-    tracing::info!("Asset cache initialized at {:?}", db_path);
-    tracing::info!("Blob storage initialized at {:?}", blob_path);
+    tracing::debug!("Blob storage initialized at {:?}", blob_path);
     Ok(())
 }
 

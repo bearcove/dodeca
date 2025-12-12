@@ -1,7 +1,7 @@
 [package]
 name = "mod-js"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [[bin]]
 name = "dodeca-mod-js"
@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 # JavaScript processing
-oxc = { version = "0.100", features = ["full"] }
+oxc = { version = "0.102", features = ["full"] }
 
 # Error handling
 color-eyre = "0.6"

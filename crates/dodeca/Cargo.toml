@@ -34,6 +34,7 @@ facet-kdl = "0.32.2"
 facet-toml = "0.32.2"
 facet-json = "0.32.2"
 facet-value = "0.32.2"
+facet-postcard = "0.32.2"
 
 # YAML parsing (for data files - facet-yaml doesn't support dynamic values)
 serde_yaml = "0.9"
@@ -114,7 +115,6 @@ dodeca-code-execution-types = { path = "../dodeca-code-execution-types" }
 
 # Content-addressed storage
 rapidhash = "4"
-canopydb = "0.2.5"
 
 # Date handling
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
@@ -147,7 +147,7 @@ regex = "1"  # For test assertions
 tempfile = "3"  # For isolated test fixtures
 futures = "0.3"        # For StreamExt in browser tests
 async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
-reqwest = { version = "0.11", features = ["blocking"] }
+reqwest = { version = "0.12", features = ["blocking"] }
 
 [[bench]]
 name = "link_checker"

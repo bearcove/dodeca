@@ -823,7 +823,7 @@ pub fn build(
     // Open content-addressed storage at base dir
     let base_dir = content_dir.parent().unwrap_or(content_dir);
     let cas_path = base_dir.join(".dodeca.db");
-    let store = cas::ContentStore::open(&cas_path)?;
+    let mut store = cas::ContentStore::open(&cas_path)?;
 
     // Initialize asset cache (processed images, OG images, etc.)
     let cache_dir = base_dir.join(".cache");
@@ -1117,6 +1117,9 @@ pub fn build(
         );
     }
 
+    // Save content store hashes
+    store.save()?;
+
     Ok(ctx)
 }
 
@@ -1142,7 +1145,7 @@ fn build_with_mini_tui(
     // Open CAS
     let base_dir = content_dir.parent().unwrap_or(content_dir);
     let cas_path = base_dir.join(".dodeca.db");
-    let store = cas::ContentStore::open(&cas_path)?;
+    let mut store = cas::ContentStore::open(&cas_path)?;
 
     // Initialize asset cache (processed images, OG images, etc.)
     let cache_dir = base_dir.join(".cache");
@@ -1520,6 +1523,9 @@ fn build_with_mini_tui(
         output_dir.cyan(),
         format_bytes(output_size)
     );
+
+    // Save content store hashes
+    store.save()?;
 
     Ok(())
 }
