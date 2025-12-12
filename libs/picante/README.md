@@ -11,7 +11,7 @@
 
 **What it has today**
 
-- Inputs (`InputIngredient<K, V>`) and derived async queries (`DerivedIngredient<DB, K, V>`)
+- Inputs (`InputIngredient<K, V>`), interning (`InternedIngredient<K>`), and derived async queries (`DerivedIngredient<DB, K, V>`)
 - Dependency tracking via Tokio task-locals
 - Per-task cycle detection (fast path)
 - Async single-flight memoization per `(kind, key)`
