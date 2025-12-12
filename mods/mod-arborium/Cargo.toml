@@ -62,4 +62,6 @@ tokio = { version = "1", features = ["full"] }
 
 # Logging
 tracing = "0.1"
-tracing-subscriber = "0.3"
+
+# Shared plugin runtime (Rapace tracing, dispatcher helpers)
+dodeca-plugin-runtime = { path = "../../crates/dodeca-plugin-runtime" }

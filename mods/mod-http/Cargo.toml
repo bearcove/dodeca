@@ -48,6 +48,7 @@ color-eyre = "0.6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
 rapace-tracing = { git = "https://github.com/bearcove/rapace" }
+dodeca-plugin-runtime = { path = "../../crates/dodeca-plugin-runtime" }
 
 # Concurrency
 parking_lot = "0.12"

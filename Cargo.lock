@@ -2657,6 +2657,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "dodeca-plugin-runtime"
+version = "0.1.0"
+dependencies = [
+ "rapace",
+ "rapace-plugin",
+ "rapace-tracing",
+ "tokio",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "dodeca-protocol"
 version = "0.1.0"
 dependencies = [
@@ -5192,12 +5203,12 @@ version = "0.1.0"
 dependencies = [
  "arborium",
  "color-eyre",
+ "dodeca-plugin-runtime",
  "mod-arborium-proto",
  "rapace",
  "rapace-plugin",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -5216,6 +5227,7 @@ dependencies = [
  "axum",
  "bytes",
  "color-eyre",
+ "dodeca-plugin-runtime",
  "dodeca-protocol",
  "facet",
  "facet-core",

@@ -3,6 +3,7 @@
 //! Plugins are loaded from dynamic libraries (.so on Linux, .dylib on macOS).
 //! Currently supports image encoding/decoding plugins (WebP, JXL).
 
+use crate::plugin_server::ForwardingTracingSink;
 use facet::Facet;
 use mod_arborium_proto::{HighlightResult, SyntaxHighlightServiceClient};
 use plugcard::{
@@ -10,6 +11,7 @@ use plugcard::{
 };
 use rapace::RpcSession;
 use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
+use rapace_tracing::{TracingConfigClient, TracingSinkServer};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -243,6 +245,30 @@ impl PluginRegistry {
         let transport = Arc::new(ShmTransport::new(session));
         let rpc_session = Arc::new(RpcSession::with_channel_start(transport, 1));
         let client = Arc::new(SyntaxHighlightServiceClient::new(rpc_session.clone()));
+
+        // Set up tracing sink so plugin logs are forwarded to host tracing
+        let tracing_sink = ForwardingTracingSink::new();
+        rpc_session.set_dispatcher(move |_channel_id, method_id, payload| {
+            let tracing_sink = tracing_sink.clone();
+            Box::pin(async move {
+                let server = TracingSinkServer::new(tracing_sink);
+                server.dispatch(method_id, &payload).await
+            })
+        });
+
+        // Push the current RUST_LOG filter to the plugin
+        {
+            let rpc_session = rpc_session.clone();
+            tokio::spawn(async move {
+                let tracing_config_client = TracingConfigClient::new(rpc_session.clone());
+                let filter_str = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+                if let Err(e) = tracing_config_client.set_filter(filter_str.clone()).await {
+                    warn!("Failed to push filter to syntax highlight plugin: {:?}", e);
+                } else {
+                    debug!("Pushed filter to syntax highlight plugin: {}", filter_str);
+                }
+            });
+        }
 
         {
             let session_runner = rpc_session.clone();

@@ -22,12 +22,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use color_eyre::Result;
+use dodeca_plugin_runtime::{PluginTracing, add_tracing_service};
 use rapace::RpcSession;
 use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
 use rapace_plugin::{DispatcherBuilder, ServiceDispatch};
-use rapace_tracing::{RapaceTracingLayer, TracingConfigImpl, TracingConfigServer};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
 
 use mod_http_proto::{ContentServiceClient, TcpTunnelServer, WebSocketTunnelClient};
 
@@ -59,27 +57,6 @@ impl PluginContext {
 struct TcpTunnelService(Arc<TcpTunnelServer<tunnel::TcpTunnelImpl<PluginTransport>>>);
 
 impl ServiceDispatch for TcpTunnelService {
-    fn dispatch(
-        &self,
-        method_id: u32,
-        payload: &[u8],
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
-                + Send
-                + 'static,
-        >,
-    > {
-        let server = self.0.clone();
-        let bytes = payload.to_vec();
-        Box::pin(async move { server.dispatch(method_id, &bytes).await })
-    }
-}
-
-/// Service wrapper for TracingConfig to satisfy ServiceDispatch
-struct TracingService(Arc<TracingConfigServer<TracingConfigImpl>>);
-
-impl ServiceDispatch for TracingService {
     fn dispatch(
         &self,
         method_id: u32,
@@ -156,15 +133,9 @@ async fn main() -> Result<()> {
     // Host uses odd channel IDs (1, 3, 5, ...)
     let session = Arc::new(RpcSession::with_channel_start(transport, 2));
 
-    // Initialize tracing with RapaceTracingLayer to forward logs to host
+    // Initialize tracing to forward logs to host via RapaceTracingLayer
     // The host controls the filter level via TracingConfig RPC
-    let rt = tokio::runtime::Handle::current();
-    let (tracing_layer, shared_filter) = RapaceTracingLayer::new(session.clone(), rt);
-
-    // Create TracingConfig implementation for host to push filter updates
-    let tracing_config = TracingConfigImpl::new(shared_filter);
-
-    tracing_subscriber::registry().with(tracing_layer).init();
+    let PluginTracing { tracing_config, .. } = dodeca_plugin_runtime::init_tracing(session.clone());
 
     tracing::info!("Connected to host via SHM");
 
@@ -181,15 +152,12 @@ async fn main() -> Result<()> {
     let tunnel_impl = tunnel::TcpTunnelImpl::new(session.clone(), app);
 
     // Wrap services with rapace-plugin multi-service dispatcher
-    let dispatcher = DispatcherBuilder::new()
-        // Order matters: try tracing first, then tunnel (matches previous behavior)
-        .add_service(TracingService(Arc::new(TracingConfigServer::new(
-            tracing_config,
-        ))))
-        .add_service(TcpTunnelService(Arc::new(TcpTunnelServer::new(
-            tunnel_impl,
-        ))))
-        .build();
+    let dispatcher = DispatcherBuilder::new();
+    let dispatcher = add_tracing_service(dispatcher, tracing_config);
+    let dispatcher = dispatcher.add_service(TcpTunnelService(Arc::new(TcpTunnelServer::new(
+        tunnel_impl,
+    ))));
+    let dispatcher = dispatcher.build();
 
     session.set_dispatcher(dispatcher);
 
