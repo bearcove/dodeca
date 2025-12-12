@@ -1,15 +1,15 @@
 [package]
-name = "mod-js"
+name = "mod-webp"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "dodeca-mod-js"
+name = "dodeca-mod-webp"
 path = "src/main.rs"
 
 [dependencies]
-# JavaScript processing
-oxc = { version = "0.100", features = ["full"] }
+# WebP processing
+webp = "0.3"
 
 # Error handling
 color-eyre = "0.6"
@@ -28,7 +28,7 @@ rapace = { git = "https://github.com/bearcove/rapace", features = ["stream"] }
 rapace-plugin = { git = "https://github.com/bearcove/rapace" }
 
 # Local protocol definitions
-mod-js-proto = { path = "../mod-js-proto" }
+mod-webp-proto = { path = "../mod-webp-proto" }
 
 # Facet for serialization  
 facet = { version = "0.32.2" }

@@ -1,15 +1,15 @@
 [package]
-name = "mod-js"
+name = "mod-minify"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "dodeca-mod-js"
+name = "dodeca-mod-minify"
 path = "src/main.rs"
 
 [dependencies]
-# JavaScript processing
-oxc = { version = "0.100", features = ["full"] }
+# HTML minification
+minify-html = "0.15"
 
 # Error handling
 color-eyre = "0.6"
@@ -28,7 +28,7 @@ rapace = { git = "https://github.com/bearcove/rapace", features = ["stream"] }
 rapace-plugin = { git = "https://github.com/bearcove/rapace" }
 
 # Local protocol definitions
-mod-js-proto = { path = "../mod-js-proto" }
+mod-minify-proto = { path = "../mod-minify-proto" }
 
 # Facet for serialization  
 facet = { version = "0.32.2" }
