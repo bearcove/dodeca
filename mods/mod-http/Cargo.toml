@@ -18,6 +18,12 @@ path = "src/main.rs"
 # HTTP server (internal only - not exposed to network)
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io"] }
+bytes = "1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+tower = "0.5"
 
 # WebSocket
 futures-util = "0.3"

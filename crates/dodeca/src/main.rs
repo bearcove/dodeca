@@ -104,6 +104,10 @@ struct ServeArgs {
     /// Start with public access enabled (listen on all interfaces)
     #[facet(args::named, args::short = 'P', rename = "public")]
     public_access: bool,
+
+    /// Unix socket path to receive listening FD (for testing)
+    #[facet(args::named, default)]
+    fd_socket: Option<String>,
 }
 
 /// Clean command arguments
@@ -332,6 +336,7 @@ async fn main() -> Result<()> {
                     args.port,
                     args.open,
                     cfg.stable_assets,
+                    args.fd_socket,
                 )
                 .await?;
             }
@@ -1826,6 +1831,7 @@ async fn serve_plain(
     port: Option<u16>,
     open: bool,
     stable_assets: Vec<String>,
+    fd_socket: Option<String>,
 ) -> Result<()> {
     use std::sync::Arc;
 
@@ -2145,10 +2151,80 @@ async fn serve_plain(
     });
 
     // Use the requested port (or default to 4000)
-    let actual_port: u16 = port.unwrap_or(4000);
+    let requested_port: u16 = port.unwrap_or(4000);
 
-    // Print port info
-    println!("LISTENING_PORT={actual_port}");
+    // Find the plugin path
+    let plugin_path = plugin_server::find_plugin_path()?;
+
+    // Parse the address to get the IP to bind to
+    let bind_ip: std::net::Ipv4Addr = match address.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => ip,
+        Ok(std::net::IpAddr::V6(_)) => std::net::Ipv4Addr::LOCALHOST, // Fallback for IPv6
+        Err(_) => std::net::Ipv4Addr::LOCALHOST,
+    };
+
+    // Create channel to receive actual bound port
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+
+    // Receive listening FD if --fd-socket was provided (for testing)
+    let pre_bound_listener = if let Some(socket_path) = fd_socket {
+        use async_send_fd::AsyncRecvFd;
+        use std::os::unix::io::FromRawFd;
+        use tokio::net::UnixStream;
+
+        tracing::info!("Connecting to Unix socket for FD passing: {}", socket_path);
+        let unix_stream = UnixStream::connect(&socket_path)
+            .await
+            .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", socket_path, e))?;
+
+        tracing::info!("Receiving TCP listener FD from test harness");
+        let fd = unix_stream
+            .recv_fd()
+            .await
+            .map_err(|e| eyre!("Failed to receive FD: {}", e))?;
+
+        // SAFETY: We just received this FD from the test harness, which created a valid TcpListener
+        // and sent us its file descriptor. We're the only owner now.
+        let std_listener = unsafe { std::net::TcpListener::from_raw_fd(fd) };
+
+        // IMPORTANT: tokio requires the listener to be in non-blocking mode
+        std_listener
+            .set_nonblocking(true)
+            .map_err(|e| eyre!("Failed to set listener to non-blocking: {}", e))?;
+
+        let listener = tokio::net::TcpListener::from_std(std_listener)
+            .map_err(|e| eyre!("Failed to convert std TcpListener to tokio: {}", e))?;
+
+        tracing::info!("Successfully received TCP listener FD");
+        Some(listener)
+    } else {
+        None
+    };
+
+    // Start the plugin server in background
+    let server_clone = server.clone();
+    tokio::spawn(async move {
+        if let Err(e) = plugin_server::start_plugin_server_with_shutdown(
+            server_clone,
+            plugin_path,
+            vec![bind_ip],
+            requested_port,
+            None,
+            Some(port_tx),
+            pre_bound_listener,
+        )
+        .await
+        {
+            eprintln!("Server error: {e}");
+        }
+    });
+
+    // Wait for the actual bound port
+    let actual_port = port_rx
+        .await
+        .map_err(|_| eyre!("Failed to get bound port"))?;
+
+    // Print server URLs (LISTENING_PORT already printed by start_plugin_server)
     print_server_urls(address, actual_port);
 
     if open {
@@ -2158,15 +2234,8 @@ async fn serve_plain(
         }
     }
 
-    // Find and start the plugin server
-    let plugin_path = plugin_server::find_plugin_path()?;
-    // Parse the address to get the IP to bind to
-    let bind_ip: std::net::Ipv4Addr = match address.parse::<std::net::IpAddr>() {
-        Ok(std::net::IpAddr::V4(ip)) => ip,
-        Ok(std::net::IpAddr::V6(_)) => std::net::Ipv4Addr::LOCALHOST, // Fallback for IPv6
-        Err(_) => std::net::Ipv4Addr::LOCALHOST,
-    };
-    plugin_server::start_plugin_server(server, plugin_path, vec![bind_ip], actual_port).await?;
+    // Block forever (server is running in background)
+    std::future::pending::<()>().await;
 
     Ok(())
 }
@@ -2549,7 +2618,42 @@ async fn serve_with_tui(
                         plugin_path: std::path::PathBuf| {
         tokio::spawn(async move {
             let ips = get_bind_ips(mode);
-            let actual_port = preferred_port.unwrap_or(4000);
+            let requested_port = preferred_port.unwrap_or(4000);
+
+            // Create channel to receive actual bound port
+            let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+
+            // Start the server (this spawns the accept loop and sends back the port)
+            let server_clone = server.clone();
+            let ips_clone = ips.clone();
+            let shutdown_rx_clone = shutdown_rx.clone();
+            let plugin_path_clone = plugin_path.clone();
+            let event_tx_clone = event_tx.clone();
+
+            tokio::spawn(async move {
+                if let Err(e) = plugin_server::start_plugin_server_with_shutdown(
+                    server_clone,
+                    plugin_path_clone,
+                    ips_clone,
+                    requested_port,
+                    Some(shutdown_rx_clone),
+                    Some(port_tx),
+                    None, // No pre-bound listener for TUI mode
+                )
+                .await
+                {
+                    let _ = event_tx_clone.send(LogEvent::error(format!("Server error: {e}")));
+                }
+            });
+
+            // Wait for actual bound port
+            let actual_port = match port_rx.await {
+                Ok(port) => port,
+                Err(_) => {
+                    let _ = event_tx.send(LogEvent::error("Failed to get bound port".to_string()));
+                    return;
+                }
+            };
 
             // Get current cache sizes
             let salsa_size = salsa_path.metadata().map(|m| m.len() as usize).unwrap_or(0);
@@ -2584,19 +2688,6 @@ async fn serve_with_tui(
             )));
             for ip in &ips {
                 let _ = event_tx.send(LogEvent::server(format!("  → {ip}:{actual_port}")));
-            }
-
-            // Pass the specific IPs to bind to - no more 0.0.0.0!
-            if let Err(e) = plugin_server::start_plugin_server_with_shutdown(
-                server,
-                plugin_path,
-                ips,
-                actual_port,
-                Some(shutdown_rx),
-            )
-            .await
-            {
-                let _ = event_tx.send(LogEvent::error(format!("Server error: {e}")));
             }
         })
     };

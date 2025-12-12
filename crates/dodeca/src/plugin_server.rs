@@ -207,6 +207,8 @@ pub async fn start_plugin_server_with_shutdown(
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
     mut shutdown_rx: Option<watch::Receiver<bool>>,
+    port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
+    pre_bound_listener: Option<TcpListener>,
 ) -> Result<()> {
     // Create SHM file path
     let shm_path = format!("/tmp/dodeca-{}.shm", std::process::id());
@@ -269,24 +271,69 @@ pub async fn start_plugin_server_with_shutdown(
         tracing::debug!("Pushed filter to plugin: {}", filter_str);
     }
 
-    // Start TCP listeners for browser connections - one per IP
-    // This ensures we only bind to the specific interfaces requested
-    let mut listeners = Vec::new();
-    for ip in &bind_ips {
-        let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(*ip), port);
-        match TcpListener::bind(addr).await {
-            Ok(listener) => {
-                tracing::info!("Listening on {}", addr);
-                listeners.push(listener);
-            }
-            Err(e) => {
-                tracing::warn!("Failed to bind to {}: {}", addr, e);
+    // Start TCP listeners for browser connections
+    let (listeners, bound_port) = if let Some(listener) = pre_bound_listener {
+        // Use the pre-bound listener from FD passing (for testing)
+        let bound_port = listener
+            .local_addr()
+            .map_err(|e| {
+                color_eyre::eyre::eyre!("Failed to get pre-bound listener address: {}", e)
+            })?
+            .port();
+        tracing::info!("Using pre-bound listener on port {}", bound_port);
+
+        // Print READY signal for test harness
+        println!("READY");
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+
+        (vec![listener], bound_port)
+    } else {
+        // Bind to requested IPs normally - one listener per IP
+        // This ensures we only bind to the specific interfaces requested
+        let mut listeners = Vec::new();
+        let mut actual_port: Option<u16> = None;
+        for ip in &bind_ips {
+            let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(*ip), port);
+            match TcpListener::bind(addr).await {
+                Ok(listener) => {
+                    // Get the actual bound port (important when port=0)
+                    if let Ok(bound_addr) = listener.local_addr() {
+                        let bound_port = bound_addr.port();
+                        if actual_port.is_none() {
+                            actual_port = Some(bound_port);
+                        }
+                        tracing::info!("Listening on {}:{}", ip, bound_port);
+                    }
+                    listeners.push(listener);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to bind to {}: {}", addr, e);
+                }
             }
         }
-    }
 
-    if listeners.is_empty() {
-        return Err(color_eyre::eyre::eyre!("Failed to bind to any addresses"));
+        if listeners.is_empty() {
+            return Err(color_eyre::eyre::eyre!("Failed to bind to any addresses"));
+        }
+
+        let bound_port =
+            actual_port.ok_or_else(|| color_eyre::eyre::eyre!("Could not determine bound port"))?;
+
+        // Print the actual bound port for the test harness to discover
+        eprintln!("DEBUG: About to print LISTENING_PORT={}", bound_port);
+        println!("LISTENING_PORT={}", bound_port);
+        // Flush stdout to ensure test harness sees it immediately
+        use std::io::Write;
+        let _ = std::io::stdout().flush();
+        eprintln!("DEBUG: Flushed LISTENING_PORT");
+
+        (listeners, bound_port)
+    };
+
+    // Send the bound port back to the caller (if channel provided)
+    if let Some(tx) = port_tx {
+        let _ = tx.send(bound_port);
     }
 
     // Merge all listeners into a single stream - when we drop it, ports are released
@@ -352,13 +399,16 @@ pub async fn start_plugin_server_with_shutdown(
 }
 
 /// Start the plugin server (convenience wrapper without shutdown signal)
+///
+/// Note: This function never returns as it runs the server loop indefinitely.
+/// The actual bound port is printed via println!("LISTENING_PORT={}").
 pub async fn start_plugin_server(
     server: Arc<SiteServer>,
     plugin_path: PathBuf,
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
 ) -> Result<()> {
-    start_plugin_server_with_shutdown(server, plugin_path, bind_ips, port, None).await
+    start_plugin_server_with_shutdown(server, plugin_path, bind_ips, port, None, None, None).await
 }
 
 /// Handle a browser TCP connection by tunneling it through the plugin

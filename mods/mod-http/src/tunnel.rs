@@ -1,37 +1,36 @@
 //! TCP tunnel implementation for the plugin.
 //!
 //! Implements the TcpTunnel service that the host calls to open tunnels.
-//! Each tunnel bridges a rapace channel with a TCP connection to the
-//! internal HTTP server.
+//! Each tunnel serves HTTP directly on the rapace channel stream.
 
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
+use bytes::Bytes;
 use rapace::{RpcSession, Transport};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use rapace_core::TunnelChunk;
+use tokio::io::AsyncWrite;
+use tokio_stream::StreamExt;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::io::StreamReader;
 
 use mod_http_proto::{TcpTunnel, TunnelHandle};
-
-/// Default buffer size for reads (4KB chunks).
-pub const CHUNK_SIZE: usize = 4096;
 
 /// Plugin-side implementation of TcpTunnel.
 ///
 /// Each `open()` call:
 /// 1. Allocates a new channel_id
-/// 2. Connects to the internal HTTP server
-/// 3. Spawns tasks to bridge rapace ↔ TCP
+/// 2. Creates a duplex stream from rapace channels
+/// 3. Serves HTTP directly on that stream with hyper
 pub struct TcpTunnelImpl<T: Transport> {
     session: Arc<RpcSession<T>>,
-    internal_port: u16,
+    app: axum::Router,
 }
 
 impl<T: Transport + Send + Sync + 'static> TcpTunnelImpl<T> {
-    pub fn new(session: Arc<RpcSession<T>>, internal_port: u16) -> Self {
-        Self {
-            session,
-            internal_port,
-        }
+    pub fn new(session: Arc<RpcSession<T>>, app: axum::Router) -> Self {
+        Self { session, app }
     }
 }
 
@@ -43,67 +42,43 @@ impl<T: Transport + Send + Sync + 'static> TcpTunnel for TcpTunnelImpl<T> {
         tracing::debug!(channel_id, "tunnel open requested");
 
         // Register the tunnel to receive incoming chunks from host
-        let mut tunnel_rx = self.session.register_tunnel(channel_id);
+        let tunnel_rx = self.session.register_tunnel(channel_id);
 
-        // Connect to the internal HTTP server
-        let addr = format!("127.0.0.1:{}", self.internal_port);
-        let tcp_stream = match TcpStream::connect(&addr).await {
-            Ok(stream) => stream,
-            Err(e) => {
-                tracing::error!(channel_id, error = %e, "failed to connect to internal HTTP server");
-                // Return the handle anyway - the tunnel tasks will fail gracefully
-                return TunnelHandle { channel_id };
+        // Convert receiver to a Stream, then to AsyncRead using StreamReader
+        fn chunk_to_bytes(chunk: TunnelChunk) -> Result<Bytes, std::io::Error> {
+            if chunk.is_eos {
+                Ok(Bytes::new()) // EOF
+            } else {
+                Ok(Bytes::from(chunk.payload))
             }
+        }
+        let rx_stream = ReceiverStream::new(tunnel_rx).map(chunk_to_bytes as fn(_) -> _);
+        let reader = StreamReader::new(rx_stream);
+
+        // Create AsyncWrite that sends to the session
+        let writer = TunnelWriter {
+            channel_id,
+            session: self.session.clone(),
+            pending_send: None,
+            closed: false,
         };
 
-        let (mut tcp_read, mut tcp_write) = tcp_stream.into_split();
-        let session = self.session.clone();
+        // Combine into a duplex stream
+        let stream = TunnelStream { reader, writer };
 
-        // Task A: rapace → TCP (read from tunnel, write to TCP socket)
+        // Serve HTTP directly on the tunnel stream
+        let service = self.app.clone();
         tokio::spawn(async move {
-            while let Some(chunk) = tunnel_rx.recv().await {
-                if !chunk.payload.is_empty()
-                    && let Err(e) = tcp_write.write_all(&chunk.payload).await
-                {
-                    tracing::debug!(channel_id, error = %e, "TCP write error");
-                    break;
-                }
-                if chunk.is_eos {
-                    tracing::debug!(channel_id, "received EOS from host");
-                    // Half-close the TCP write side
-                    let _ = tcp_write.shutdown().await;
-                    break;
-                }
+            if let Err(e) = hyper::server::conn::http1::Builder::new()
+                .serve_connection(
+                    hyper_util::rt::TokioIo::new(stream),
+                    hyper_util::service::TowerToHyperService::new(service),
+                )
+                .await
+            {
+                tracing::debug!(channel_id, error = %e, "HTTP connection error");
             }
-            tracing::debug!(channel_id, "rapace→TCP task finished");
-        });
-
-        // Task B: TCP → rapace (read from TCP socket, write to tunnel)
-        let session_b = session.clone();
-        tokio::spawn(async move {
-            let mut buf = vec![0u8; CHUNK_SIZE];
-            loop {
-                match tcp_read.read(&mut buf).await {
-                    Ok(0) => {
-                        // TCP EOF - close the tunnel
-                        tracing::debug!(channel_id, "TCP EOF, closing tunnel");
-                        let _ = session_b.close_tunnel(channel_id).await;
-                        break;
-                    }
-                    Ok(n) => {
-                        if let Err(e) = session_b.send_chunk(channel_id, buf[..n].to_vec()).await {
-                            tracing::debug!(channel_id, error = %e, "tunnel send error");
-                            break;
-                        }
-                    }
-                    Err(e) => {
-                        tracing::debug!(channel_id, error = %e, "TCP read error");
-                        let _ = session_b.close_tunnel(channel_id).await;
-                        break;
-                    }
-                }
-            }
-            tracing::debug!(channel_id, "TCP→rapace task finished");
+            tracing::debug!(channel_id, "HTTP connection finished");
         });
 
         TunnelHandle { channel_id }
@@ -115,7 +90,169 @@ impl<T: Transport + Send + Sync + 'static> Clone for TcpTunnelImpl<T> {
     fn clone(&self) -> Self {
         Self {
             session: self.session.clone(),
-            internal_port: self.internal_port,
+            app: self.app.clone(),
         }
+    }
+}
+
+/// Writer that sends data to the rapace session
+struct TunnelWriter<T: Transport> {
+    channel_id: u32,
+    session: Arc<RpcSession<T>>,
+    pending_send:
+        Option<Pin<Box<dyn std::future::Future<Output = Result<(), rapace::RpcError>> + Send>>>,
+    closed: bool,
+}
+
+impl<T: Transport + Send + Sync + 'static> AsyncWrite for TunnelWriter<T> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        if self.closed {
+            return Poll::Ready(Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "tunnel closed",
+            )));
+        }
+
+        // If there's a pending send, poll it first
+        if let Some(fut) = self.pending_send.as_mut() {
+            match fut.as_mut().poll(cx) {
+                Poll::Ready(Ok(())) => {
+                    self.pending_send = None;
+                }
+                Poll::Ready(Err(e)) => {
+                    self.pending_send = None;
+                    return Poll::Ready(Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        format!("send failed: {e:?}"),
+                    )));
+                }
+                Poll::Pending => {
+                    return Poll::Pending;
+                }
+            }
+        }
+
+        // Start a new send
+        let channel_id = self.channel_id;
+        let session = self.session.clone();
+        let data = buf.to_vec();
+        let len = data.len();
+
+        let fut = Box::pin(async move { session.send_chunk(channel_id, data).await });
+        self.pending_send = Some(fut);
+
+        // Immediately poll the future once
+        if let Some(fut) = self.pending_send.as_mut() {
+            match fut.as_mut().poll(cx) {
+                Poll::Ready(Ok(())) => {
+                    self.pending_send = None;
+                    Poll::Ready(Ok(len))
+                }
+                Poll::Ready(Err(e)) => {
+                    self.pending_send = None;
+                    Poll::Ready(Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        format!("send failed: {e:?}"),
+                    )))
+                }
+                Poll::Pending => Poll::Pending,
+            }
+        } else {
+            Poll::Ready(Ok(len))
+        }
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        // Wait for pending send to complete
+        if let Some(fut) = self.pending_send.as_mut() {
+            match fut.as_mut().poll(cx) {
+                Poll::Ready(Ok(())) => {
+                    self.pending_send = None;
+                    Poll::Ready(Ok(()))
+                }
+                Poll::Ready(Err(e)) => {
+                    self.pending_send = None;
+                    Poll::Ready(Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        format!("send failed: {e:?}"),
+                    )))
+                }
+                Poll::Pending => Poll::Pending,
+            }
+        } else {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        if self.closed {
+            return Poll::Ready(Ok(()));
+        }
+
+        // First, flush any pending send
+        if self.pending_send.is_some() {
+            match self.as_mut().poll_flush(cx) {
+                Poll::Ready(Ok(())) => {}
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+
+        self.closed = true;
+        let channel_id = self.channel_id;
+        let session = self.session.clone();
+
+        // Close the tunnel (fire and forget is OK here since we're shutting down)
+        tokio::spawn(async move {
+            if let Err(e) = session.close_tunnel(channel_id).await {
+                tracing::debug!(channel_id, error = %e, "failed to close tunnel");
+            }
+        });
+
+        Poll::Ready(Ok(()))
+    }
+}
+
+/// Bidirectional stream combining StreamReader for reads and TunnelWriter for writes
+struct TunnelStream<T: Transport> {
+    reader: StreamReader<
+        tokio_stream::adapters::Map<
+            ReceiverStream<TunnelChunk>,
+            fn(TunnelChunk) -> Result<Bytes, std::io::Error>,
+        >,
+        Bytes,
+    >,
+    writer: TunnelWriter<T>,
+}
+
+impl<T: Transport + Send + Sync + 'static> tokio::io::AsyncRead for TunnelStream<T> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.reader).poll_read(cx, buf)
+    }
+}
+
+impl<T: Transport + Send + Sync + 'static> tokio::io::AsyncWrite for TunnelStream<T> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.writer).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.writer).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.writer).poll_shutdown(cx)
     }
 }

@@ -101,6 +101,7 @@ mod-arborium-proto = { path = "../../mods/mod-arborium-proto" }
 # RPC framework for plugin communication
 rapace = { version = "0.1.1", features = ["stream"] }
 rapace-tracing = "0.1.1"
+async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
 
 # Code execution plugin types (lightweight - no plugin implementation)
 dodeca-code-execution-types = { path = "../dodeca-code-execution-types" }
@@ -154,6 +155,7 @@ tempfile = "3"  # For isolated test fixtures
 livereload-client = { path = "../livereload-client" }  # For patch types in tests
 chromiumoxide = "0.8"  # Headless Chrome for E2E tests
 futures = "0.3"        # For StreamExt in browser tests
+async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
 
 [[bench]]
 name = "link_checker"

@@ -168,36 +168,26 @@ async fn main() -> Result<()> {
 
     tracing::info!("Connected to host via SHM");
 
-    // Start internal HTTP server on localhost (OS-assigned port)
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let internal_port = listener.local_addr()?.port();
-    tracing::info!("Internal HTTP server on 127.0.0.1:{}", internal_port);
-
     // Build plugin context
     let ctx = Arc::new(PluginContext {
         session: session.clone(),
     });
 
+    // Build axum router (service)
+    let app = build_router(ctx);
+
     // Create the tunnel service (host calls this to open HTTP tunnels)
-    let tunnel_service = Arc::new(tunnel::TcpTunnelImpl::new(session.clone(), internal_port));
+    // Pass the app so we can serve it directly on tunnel streams
+    let tunnel_service = Arc::new(tunnel::TcpTunnelImpl::new(session.clone(), app));
 
     // Set combined dispatcher for both TcpTunnel and TracingConfig services
     session.set_dispatcher(create_plugin_dispatcher(tunnel_service, tracing_config));
 
-    // Spawn the RPC session demux loop
-    let session_clone = session.clone();
-    tokio::spawn(async move {
-        if let Err(e) = session_clone.run().await {
-            tracing::error!(error = ?e, "RPC session error - host connection lost");
-        }
-    });
-
-    // Build axum router
-    let app = build_router(ctx);
-
-    // Run internal HTTP server
+    // Run the RPC session demux loop (this is the main event loop now)
     tracing::info!("Plugin ready, waiting for tunnel connections");
-    axum::serve(listener, app).await?;
+    if let Err(e) = session.run().await {
+        tracing::error!(error = ?e, "RPC session error - host connection lost");
+    }
 
     Ok(())
 }
