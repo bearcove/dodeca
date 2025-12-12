@@ -453,12 +453,11 @@ async fn main() -> Result<()> {
         terminal.draw(|frame| app.draw(frame))?;
 
         // Poll for terminal events with short timeout
-        if event::poll(Duration::from_millis(16))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    app.handle_key(key.code, key.modifiers);
-                }
-            }
+        if event::poll(Duration::from_millis(16))?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            app.handle_key(key.code, key.modifiers);
         }
 
         if app.should_quit {

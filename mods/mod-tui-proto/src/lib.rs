@@ -264,6 +264,7 @@ pub enum CommandResult {
 /// Service hosted by dodeca for the TUI to connect to.
 ///
 /// The TUI subscribes to streams for live updates and sends commands back.
+#[allow(async_fn_in_trait)]
 #[rapace::service]
 pub trait TuiHost {
     /// Subscribe to build progress updates.

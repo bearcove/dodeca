@@ -2288,8 +2288,8 @@ async fn serve_with_tui(
     cas::init_asset_cache(cache_dir.as_std_path())?;
 
     // Create channels
-    let (progress_tx, progress_rx) = tui::progress_channel();
-    let (server_tx, server_rx) = tui::server_status_channel();
+    let (progress_tx, mut progress_rx) = tui::progress_channel();
+    let (server_tx, mut server_rx) = tui::server_status_channel();
     let (event_tx, event_rx) = tui::event_channel();
 
     // Initialize tracing with TUI layer - routes log events to Activity panel
@@ -3003,11 +3003,97 @@ async fn serve_with_tui(
         }
     });
 
-    // Run TUI on main thread
-    let mut terminal = tui::init_terminal()?;
-    let mut app = tui::ServeApp::new(progress_rx, server_rx, event_rx, cmd_tx, filter_handle);
-    let _ = app.run(&mut terminal);
-    tui::restore_terminal()?;
+    // Run TUI plugin (replaces inline TUI)
+    // Find the TUI plugin binary
+    let tui_plugin_path = match tui_host::find_tui_plugin_path() {
+        Ok(p) => p,
+        Err(e) => {
+            // Fall back to inline TUI if plugin not found
+            tracing::warn!("TUI plugin not found ({e}), falling back to inline TUI");
+            let mut terminal = tui::init_terminal()?;
+            let mut app =
+                tui::ServeApp::new(progress_rx, server_rx, event_rx, cmd_tx, filter_handle);
+            let _ = app.run(&mut terminal);
+            tui::restore_terminal()?;
+
+            // Signal server to shutdown
+            {
+                let shutdown = current_shutdown.lock().unwrap();
+                let _ = shutdown.send(true);
+            }
+
+            // Save cache before exit
+            if let Err(e) = std::fs::create_dir_all(cache_path.parent().unwrap()) {
+                eprintln!("Failed to create cache dir: {e}");
+            }
+            let cache_start = std::time::Instant::now();
+            match server.save_cache(cache_path.as_std_path()) {
+                Ok(()) => eprintln!("Cache saved in {:.2?}", cache_start.elapsed()),
+                Err(e) => eprintln!("Failed to save cache: {e}"),
+            }
+
+            return Ok(());
+        }
+    };
+
+    // Create a proto command channel for TuiHost, with a bridge to the old channel
+    let (proto_cmd_tx, mut proto_cmd_rx) =
+        tokio::sync::mpsc::unbounded_channel::<mod_tui_proto::ServerCommand>();
+
+    // Bridge proto commands to old tui commands
+    tokio::spawn(async move {
+        while let Some(proto_cmd) = proto_cmd_rx.recv().await {
+            let old_cmd = tui_host::convert_server_command(proto_cmd);
+            let _ = cmd_tx.send(old_cmd);
+        }
+    });
+
+    // Create TuiHost service with the proto command channel
+    let tui_host = tui_host::TuiHostImpl::new(proto_cmd_tx);
+    let tui_handle = tui_host.handle();
+
+    // Spawn forwarders to bridge old channels to TuiHost
+    // Forward progress updates
+    let tui_handle_progress = tui_handle.clone();
+    tokio::spawn(async move {
+        loop {
+            if progress_rx.has_changed().unwrap_or(false) {
+                let progress = progress_rx.borrow_and_update().clone();
+                tui_handle_progress.send_progress(tui_host::convert_build_progress(&progress));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+        }
+    });
+
+    // Forward server status updates
+    let tui_handle_status = tui_handle.clone();
+    tokio::spawn(async move {
+        loop {
+            if server_rx.has_changed().unwrap_or(false) {
+                let status = server_rx.borrow_and_update().clone();
+                tui_handle_status.send_status(tui_host::convert_server_status(&status));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+        }
+    });
+
+    // Forward log events
+    let tui_handle_events = tui_handle.clone();
+    tokio::spawn(async move {
+        while let Ok(event) = event_rx.recv() {
+            tui_handle_events.send_event(tui_host::convert_log_event(&event));
+        }
+    });
+
+    // Create shutdown channel for TUI plugin
+    let (tui_shutdown_tx, tui_shutdown_rx) = watch::channel(false);
+
+    // Run the TUI plugin (blocks until TUI exits)
+    let _ = tui_host::start_tui_plugin(tui_host, tui_plugin_path, Some(tui_shutdown_rx)).await;
+
+    // Ignore unused variables (filter_handle was used by inline TUI)
+    let _ = filter_handle;
+    let _ = tui_shutdown_tx;
 
     // Signal server to shutdown (use current_shutdown in case it was swapped)
     {
