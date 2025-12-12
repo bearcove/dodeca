@@ -13,7 +13,7 @@ env:
 
 jobs:
   test:
-    name: Test
+    name: Test + Coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -21,14 +21,30 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@1.91
 
+      - name: Install Nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Run tests
-        run: cargo test --workspace --all-features
+      - name: Run tests with coverage
+        run: |
+          cargo +nightly llvm-cov --no-report --workspace --all-features
+          cargo +nightly llvm-cov --no-report --workspace --all-features --doc
+          mkdir coverage
+          cargo +nightly llvm-cov report --doctests --lcov --output-path coverage/lcov.info
 
       - name: Compile benches
         run: cargo bench --workspace --all-features --no-run
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: coverage/lcov.info
+          fail_ci_if_error: false
 
   clippy:
     name: Clippy
@@ -44,7 +60,7 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Clippy
+      - name: Run clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   fmt:
@@ -77,31 +93,4 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
         run: cargo doc --workspace --all-features --no-deps
-
-  coverage:
-    name: Coverage
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.91
-        with:
-          components: llvm-tools-preview
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Generate coverage
-        run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-        with:
-          files: lcov.info
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
 
