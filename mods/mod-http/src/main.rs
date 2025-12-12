@@ -125,7 +125,7 @@ fn parse_args() -> Result<Args> {
     })
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     color_eyre::install()?;
 

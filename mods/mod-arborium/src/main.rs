@@ -33,7 +33,7 @@ struct Args {
     shm_path: PathBuf,
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     color_eyre::install()?;
 

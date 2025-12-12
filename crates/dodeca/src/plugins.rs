@@ -1177,11 +1177,9 @@ pub fn highlight_code_rapace(code: &str, language: &str) -> Option<HighlightResu
     // Get the syntax highlight service client
     let client = syntax_highlight_client()?;
 
-    // Call the service
-    match tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(client.highlight_code(code.to_string(), language.to_string()))
-    {
+    // Call the service using the current runtime handle instead of creating a new runtime
+    let handle = tokio::runtime::Handle::try_current().ok()?;
+    match handle.block_on(client.highlight_code(code.to_string(), language.to_string())) {
         Ok(result) => Some(result),
         Err(e) => {
             warn!("syntax highlight service call failed: {}", e);
