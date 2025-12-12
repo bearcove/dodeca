@@ -4,9 +4,11 @@
 //! Works entirely in memory - no files need to be written to disk.
 
 use crate::db::{OutputFile, SiteOutput};
-use crate::plugins::{SearchPage, build_search_index_plugin};
+use crate::plugins::build_search_index_plugin;
 use color_eyre::eyre::eyre;
+use mod_pagefind_proto::SearchPage;
 use std::collections::HashMap;
+use tokio::runtime::Handle;
 
 /// Search index files (path -> content)
 pub type SearchFiles = HashMap<String, Vec<u8>>;
@@ -36,8 +38,11 @@ pub fn build_search_index(output: &SiteOutput) -> color_eyre::Result<SearchFiles
         })
         .collect();
 
-    // Build index via plugin
-    let files = build_search_index_plugin(pages).map_err(|e| eyre!("pagefind: {}", e))?;
+    // Build index via plugin (block in current runtime)
+    let handle = Handle::current();
+    let files = handle
+        .block_on(build_search_index_plugin(pages))
+        .map_err(|e| eyre!("pagefind: {}", e))?;
 
     // Convert to HashMap
     let mut result = HashMap::new();

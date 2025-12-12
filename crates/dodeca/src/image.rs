@@ -11,6 +11,7 @@
 //! - Thumbhash placeholders for instant loading
 
 use crate::plugins::{self, DecodedImage};
+use tokio::runtime::Handle;
 
 /// Standard responsive breakpoints (in pixels)
 /// Only widths smaller than the original will be generated
@@ -105,40 +106,49 @@ pub fn get_dimensions(data: &[u8], format: InputFormat) -> Option<(u32, u32)> {
 
 /// Decode an image from bytes using the appropriate plugin
 fn decode_image(data: &[u8], format: InputFormat) -> Option<DecodedImage> {
+    let handle = Handle::current();
     match format {
-        InputFormat::Png => plugins::decode_png_plugin(data),
-        InputFormat::Jpg => plugins::decode_jpeg_plugin(data),
-        InputFormat::Gif => plugins::decode_gif_plugin(data),
-        InputFormat::WebP => plugins::decode_webp_plugin(data),
-        InputFormat::Jxl => plugins::decode_jxl_plugin(data),
+        InputFormat::Png => handle.block_on(plugins::decode_png_plugin(data)),
+        InputFormat::Jpg => handle.block_on(plugins::decode_jpeg_plugin(data)),
+        InputFormat::Gif => handle.block_on(plugins::decode_gif_plugin(data)),
+        InputFormat::WebP => handle.block_on(plugins::decode_webp_plugin(data)),
+        InputFormat::Jxl => handle.block_on(plugins::decode_jxl_plugin(data)),
     }
 }
 
 /// Resize an image to a target width, maintaining aspect ratio
 fn resize_image(decoded: &DecodedImage, target_width: u32) -> Option<DecodedImage> {
-    plugins::resize_image_plugin(
+    let handle = Handle::current();
+    handle.block_on(plugins::resize_image_plugin(
         &decoded.pixels,
         decoded.width,
         decoded.height,
         decoded.channels,
         target_width,
-    )
+    ))
 }
 
 /// Generate a thumbhash and encode it as a data URL
 fn generate_thumbhash_data_url(decoded: &DecodedImage) -> Option<String> {
-    plugins::generate_thumbhash_plugin(&decoded.pixels, decoded.width, decoded.height)
+    let handle = Handle::current();
+    handle.block_on(plugins::generate_thumbhash_plugin(
+        &decoded.pixels,
+        decoded.width,
+        decoded.height,
+    ))
 }
 
 /// Encode pixels to WebP format (via plugin)
 fn encode_webp(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
-    plugins::encode_webp_plugin(pixels, width, height, 82)
+    let handle = Handle::current();
+    handle.block_on(plugins::encode_webp_plugin(pixels, width, height, 82))
 }
 
 /// Encode pixels to JPEG-XL format (via plugin)
 fn encode_jxl(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     // Quality 80 maps to distance ~3 in the plugin (high quality)
-    plugins::encode_jxl_plugin(pixels, width, height, 80)
+    let handle = Handle::current();
+    handle.block_on(plugins::encode_jxl_plugin(pixels, width, height, 80))
 }
 
 /// Image metadata without the processed bytes

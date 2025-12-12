@@ -13,6 +13,7 @@ use facet::Facet;
 use facet_value::Value;
 use pulldown_cmark::{Options, Parser, html};
 use std::collections::{BTreeMap, HashMap};
+use tokio::runtime::Handle;
 
 /// Load a template file's content - tracked by Salsa for dependency tracking
 #[salsa::tracked]
@@ -370,8 +371,9 @@ pub fn compile_sass<'db>(db: &'db dyn Db, registry: SassRegistry) -> Option<Comp
         return None;
     }
 
-    // Compile via plugin
-    match crate::plugins::compile_sass_plugin(&sass_map) {
+    // Compile via plugin (block in tracked query)
+    let handle = Handle::current();
+    match handle.block_on(crate::plugins::compile_sass_plugin(&sass_map)) {
         Ok(css) => Some(CompiledCss(css)),
         Err(e) => {
             tracing::error!("SASS compilation failed: {}", e);
@@ -657,8 +659,9 @@ pub fn decompress_font(db: &dyn Db, font_file: StaticFile) -> Option<Vec<u8>> {
         return Some(cached);
     }
 
-    // Decompress the font via plugin
-    match decompress_font_plugin(font_data) {
+    // Decompress the font via plugin (block in tracked query)
+    let handle = Handle::current();
+    match handle.block_on(decompress_font_plugin(font_data)) {
         Some(decompressed) => {
             // Cache the result
             put_cached_decompressed_font(&content_hash, &decompressed);
@@ -692,9 +695,10 @@ pub fn subset_font<'db>(
     let decompressed = decompress_font(db, font_file)?;
 
     let char_vec: Vec<char> = chars.chars(db).to_vec();
+    let handle = Handle::current();
 
     // Subset the decompressed TTF via plugin
-    let subsetted = match subset_font_plugin(&decompressed, &char_vec) {
+    let subsetted = match handle.block_on(subset_font_plugin(&decompressed, &char_vec)) {
         Some(data) => data,
         None => {
             tracing::warn!("Failed to subset font {}", font_file.path(db).as_str());
@@ -703,7 +707,7 @@ pub fn subset_font<'db>(
     };
 
     // Compress back to WOFF2 via plugin
-    match compress_to_woff2_plugin(&subsetted) {
+    match handle.block_on(compress_to_woff2_plugin(&subsetted)) {
         Some(woff2) => {
             tracing::debug!(
                 "Subsetted font {} ({} chars, {} -> {} bytes)",
@@ -993,6 +997,22 @@ pub fn all_rendered_html<'db>(
     AllRenderedHtml { pages }
 }
 
+/// Local font-face representation for Salsa tracking
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalFontFace {
+    pub family: String,
+    pub src: String,
+    pub weight: Option<String>,
+    pub style: Option<String>,
+}
+
+/// Local font analysis result for Salsa tracking
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalFontAnalysis {
+    pub chars_per_font: std::collections::HashMap<String, Vec<char>>,
+    pub font_faces: Vec<LocalFontFace>,
+}
+
 /// Analyze all rendered HTML for font character usage
 /// Returns the FontAnalysis needed for font subsetting
 #[salsa::tracked]
@@ -1003,7 +1023,7 @@ pub fn font_char_analysis<'db>(
     sass: SassRegistry,
     static_files: StaticRegistry,
     data: DataRegistry,
-) -> crate::plugins::FontAnalysis {
+) -> LocalFontAnalysis {
     let all_html = all_rendered_html(db, sources, templates, data);
     let sass_css = compile_sass(db, sass);
     let sass_str = sass_css.as_ref().map(|c| c.0.as_str()).unwrap_or("");
@@ -1028,10 +1048,30 @@ pub fn font_char_analysis<'db>(
         .cloned()
         .collect::<Vec<_>>()
         .join("\n");
-    let inline_css = crate::plugins::extract_css_from_html_plugin(&combined_html);
+    let handle = Handle::current();
+    let inline_css = handle.block_on(crate::plugins::extract_css_from_html_plugin(&combined_html));
     let all_css = format!("{sass_str}\n{static_css}\n{inline_css}");
 
-    crate::plugins::analyze_fonts_plugin(&combined_html, &all_css)
+    let analysis = handle.block_on(crate::plugins::analyze_fonts_plugin(
+        &combined_html,
+        &all_css,
+    ));
+
+    let font_faces = analysis
+        .font_faces
+        .into_iter()
+        .map(|face| LocalFontFace {
+            family: face.family,
+            src: face.src,
+            weight: face.weight,
+            style: face.style,
+        })
+        .collect();
+
+    LocalFontAnalysis {
+        chars_per_font: analysis.chars_per_font,
+        font_faces,
+    }
 }
 
 /// Process a single static file and return its cache-busted output
@@ -1317,7 +1357,7 @@ fn is_font_file(path: &str) -> bool {
 /// Find the character set needed for a font file based on @font-face analysis
 fn find_chars_for_font_file(
     path: &str,
-    analysis: &crate::plugins::FontAnalysis,
+    analysis: &LocalFontAnalysis,
 ) -> Option<std::collections::HashSet<char>> {
     // Normalize path: remove leading slash and 'static/' prefix
     // File paths are like "static/fonts/Foo.woff2"
@@ -1657,6 +1697,7 @@ pub fn execute_all_code_samples(db: &dyn Db, sources: SourceRegistry) -> Vec<Cod
 
     // Create default configuration for code execution
     let config = dodeca_code_execution_types::CodeExecutionConfig::default();
+    let handle = Handle::current();
 
     // Extract and execute code samples from all source files
     for source in sources.sources(db) {
@@ -1664,13 +1705,16 @@ pub fn execute_all_code_samples(db: &dyn Db, sources: SourceRegistry) -> Vec<Cod
         let source_path = source.path(db).as_str();
 
         // Extract code samples from this source file
-        if let Some(samples) = extract_code_samples_plugin(content.as_str(), source_path)
+        if let Some(samples) =
+            handle.block_on(extract_code_samples_plugin(content.as_str(), source_path))
             && !samples.is_empty()
         {
             tracing::info!("Found {} code samples in {}", samples.len(), source_path);
 
             // Execute the code samples
-            if let Some(execution_results) = execute_code_samples_plugin(samples, config.clone()) {
+            if let Some(execution_results) =
+                handle.block_on(execute_code_samples_plugin(samples, config.clone()))
+            {
                 // Convert plugin results to our internal format
                 for (sample, result) in execution_results {
                     // Convert metadata if present

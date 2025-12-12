@@ -146,6 +146,7 @@ regex = "1"  # For test assertions
 tempfile = "3"  # For isolated test fixtures
 futures = "0.3"        # For StreamExt in browser tests
 async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
+reqwest = { version = "0.11", features = ["blocking"] }
 
 [[bench]]
 name = "link_checker"

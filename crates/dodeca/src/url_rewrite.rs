@@ -5,6 +5,7 @@
 //! - JS: Uses OXC parser to find string literals and rewrite asset paths (via plugin)
 
 use std::collections::{HashMap, HashSet};
+use tokio::runtime::Handle;
 
 use crate::plugins::{rewrite_string_literals_in_js_plugin, rewrite_urls_in_css_plugin};
 
@@ -13,7 +14,8 @@ use crate::plugins::{rewrite_string_literals_in_js_plugin, rewrite_urls_in_css_p
 /// Only rewrites actual `url()` values in CSS, not text that happens to look like URLs.
 /// Also minifies the CSS output.
 pub fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) -> String {
-    match rewrite_urls_in_css_plugin(css, path_map) {
+    let handle = Handle::current();
+    match handle.block_on(rewrite_urls_in_css_plugin(css, path_map)) {
         Ok(result) => result,
         Err(e) => {
             tracing::warn!("CSS rewriting failed: {}", e);
@@ -221,7 +223,8 @@ fn rewrite_script_tags(html: &str, path_map: &HashMap<String, String>) -> String
 /// Uses OXC parser (via plugin) to properly parse JavaScript and find string literals,
 /// then replaces paths with cache-busted versions.
 fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, String>) -> String {
-    match rewrite_string_literals_in_js_plugin(js, path_map) {
+    let handle = Handle::current();
+    match handle.block_on(rewrite_string_literals_in_js_plugin(js, path_map)) {
         Ok(result) => result,
         Err(e) => {
             tracing::warn!("JS rewriting failed: {}", e);

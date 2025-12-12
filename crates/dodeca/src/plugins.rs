@@ -4,7 +4,7 @@
 //! Currently supports image encoding/decoding plugins (WebP, JXL).
 
 use crate::plugin_server::ForwardingTracingSink;
-use facet::Facet;
+
 use mod_arborium_proto::{HighlightResult, SyntaxHighlightServiceClient};
 use mod_code_execution_proto::{
     CodeExecutionResult, CodeExecutorClient, ExecuteSamplesInput, ExtractSamplesInput,
@@ -15,11 +15,11 @@ use mod_html_diff_proto::{DiffInput, DiffResult, HtmlDiffResult, HtmlDifferClien
 use mod_image_proto::{ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput};
 use mod_js_proto::{JsProcessorClient, JsResult, JsRewriteInput};
 use mod_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
-use mod_linkcheck_proto::{
-    LinkCheckInput, LinkCheckOutput, LinkCheckResult, LinkCheckerClient, LinkStatus,
-};
+use mod_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, LinkStatus};
 use mod_minify_proto::{MinifierClient, MinifyResult};
-use mod_pagefind_proto::{SearchIndexInput, SearchIndexResult, SearchIndexerClient};
+use mod_pagefind_proto::{
+    SearchFile, SearchIndexInput, SearchIndexResult, SearchIndexerClient, SearchPage,
+};
 use mod_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use mod_svgo_proto::{SvgoOptimizerClient, SvgoResult};
 use mod_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
@@ -42,13 +42,7 @@ const PLUGIN_SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
 };
 
 /// Decoded image data returned by plugins
-#[derive(Facet)]
-pub struct DecodedImage {
-    pub pixels: Vec<u8>,
-    pub width: u32,
-    pub height: u32,
-    pub channels: u8,
-}
+pub type DecodedImage = mod_image_proto::DecodedImage;
 
 /// Global plugin registry, initialized once.
 static PLUGINS: OnceLock<PluginRegistry> = OnceLock::new();
@@ -482,32 +476,6 @@ pub async fn rewrite_string_literals_in_js_plugin(
     }
 }
 
-/// A page to be indexed for search
-#[derive(Facet)]
-pub struct SearchPage {
-    pub url: String,
-    pub html: String,
-}
-
-/// Output file from search indexing
-#[derive(Facet)]
-pub struct SearchFile {
-    pub path: String,
-    pub contents: Vec<u8>,
-}
-
-/// Input for building search index
-#[derive(Facet)]
-struct SearchIndexInput {
-    pages: Vec<SearchPage>,
-}
-
-/// Output from building search index
-#[derive(Facet)]
-struct SearchIndexOutput {
-    files: Vec<SearchFile>,
-}
-
 /// Build a search index from HTML pages using the plugin.
 ///
 /// # Panics
@@ -521,7 +489,7 @@ pub async fn build_search_index_plugin(pages: Vec<SearchPage>) -> Result<Vec<Sea
     let input = SearchIndexInput { pages };
 
     match plugin.build_search_index(input).await {
-        Ok(SearchIndexResult::Success { files }) => Ok(files),
+        Ok(SearchIndexResult::Success { output }) => Ok(output.files),
         Ok(SearchIndexResult::Error { message }) => Err(message),
         Err(e) => Err(format!("plugin call failed: {:?}", e)),
     }
@@ -536,16 +504,11 @@ pub async fn decode_png_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().image.as_ref()?;
 
     match plugin.decode_png(data.to_vec()).await {
-        Ok(ImageResult::DecodeSuccess {
-            pixels,
-            width,
-            height,
-            channels,
-        }) => Some(DecodedImage {
-            pixels,
-            width,
-            height,
-            channels,
+        Ok(ImageResult::Success { image }) => Some(DecodedImage {
+            pixels: image.pixels,
+            width: image.width,
+            height: image.height,
+            channels: image.channels,
         }),
         Ok(ImageResult::Error { message }) => {
             warn!("png decode plugin error: {}", message);
@@ -567,16 +530,11 @@ pub async fn decode_jpeg_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().image.as_ref()?;
 
     match plugin.decode_jpeg(data.to_vec()).await {
-        Ok(ImageResult::DecodeSuccess {
-            pixels,
-            width,
-            height,
-            channels,
-        }) => Some(DecodedImage {
-            pixels,
-            width,
-            height,
-            channels,
+        Ok(ImageResult::Success { image }) => Some(DecodedImage {
+            pixels: image.pixels,
+            width: image.width,
+            height: image.height,
+            channels: image.channels,
         }),
         Ok(ImageResult::Error { message }) => {
             warn!("jpeg decode plugin error: {}", message);
@@ -598,16 +556,11 @@ pub async fn decode_gif_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().image.as_ref()?;
 
     match plugin.decode_gif(data.to_vec()).await {
-        Ok(ImageResult::DecodeSuccess {
-            pixels,
-            width,
-            height,
-            channels,
-        }) => Some(DecodedImage {
-            pixels,
-            width,
-            height,
-            channels,
+        Ok(ImageResult::Success { image }) => Some(DecodedImage {
+            pixels: image.pixels,
+            width: image.width,
+            height: image.height,
+            channels: image.channels,
         }),
         Ok(ImageResult::Error { message }) => {
             warn!("gif decode plugin error: {}", message);
@@ -643,7 +596,12 @@ pub async fn resize_image_plugin(
     };
 
     match plugin.resize_image(input).await {
-        Ok(ImageResult::Success { image }) => Some(image),
+        Ok(ImageResult::Success { image }) => Some(DecodedImage {
+            pixels: image.pixels,
+            width: image.width,
+            height: image.height,
+            channels: image.channels,
+        }),
         Ok(ImageResult::Error { message }) => {
             warn!("resize plugin error: {}", message);
             None
@@ -689,24 +647,6 @@ pub async fn generate_thumbhash_plugin(pixels: &[u8], width: u32, height: u32) -
 // ============================================================================
 // Font processing plugin functions
 // ============================================================================
-
-/// A parsed @font-face rule
-#[derive(Facet, Debug, Clone, PartialEq, Eq)]
-pub struct FontFace {
-    pub family: String,
-    pub src: String,
-    pub weight: Option<String>,
-    pub style: Option<String>,
-}
-
-/// Result of analyzing CSS for font information
-#[derive(Facet, Debug, Clone, PartialEq, Eq)]
-pub struct FontAnalysis {
-    /// Map of font-family name -> characters used
-    pub chars_per_font: std::collections::HashMap<String, Vec<char>>,
-    /// Parsed @font-face rules
-    pub font_faces: Vec<FontFace>,
-}
 
 /// Analyze HTML and CSS to collect font usage information.
 ///
@@ -820,7 +760,6 @@ pub async fn compress_to_woff2_plugin(data: &[u8]) -> Option<Vec<u8>> {
 // ============================================================================
 
 /// Status of an external link check (from plugin)
-#[derive(Facet, Debug, Clone, PartialEq, Eq)]
 /// Options for link checking
 #[derive(Debug, Clone)]
 pub struct CheckOptions {

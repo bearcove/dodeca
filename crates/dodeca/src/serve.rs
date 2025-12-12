@@ -500,7 +500,8 @@ impl SiteServer {
                     }
 
                     // Try to diff using the plugin
-                    match diff_html_plugin(&old, &new) {
+                    let handle = tokio::runtime::Handle::current();
+                    match handle.block_on(diff_html_plugin(&old, &new)) {
                         Some(diff_result) => {
                             if diff_result.patches.is_empty() {
                                 // DOM structure identical but HTML differs (whitespace/comments?)
