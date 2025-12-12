@@ -6,6 +6,21 @@
 use crate::plugin_server::ForwardingTracingSink;
 use facet::Facet;
 use mod_arborium_proto::{HighlightResult, SyntaxHighlightServiceClient};
+use mod_code_execution_proto::{
+    CodeExecutionResult, CodeExecutorClient, ExecuteSamplesInput, ExtractSamplesInput,
+};
+use mod_css_proto::{CssProcessorClient, CssResult};
+use mod_fonts_proto::{FontProcessorClient, FontResult};
+use mod_html_diff_proto::{DiffInput, HtmlDiffResult, HtmlDifferClient};
+use mod_image_proto::{ImageProcessorClient, ImageResult};
+use mod_js_proto::{JsProcessorClient, JsResult, JsRewriteInput};
+use mod_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
+use mod_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient};
+use mod_minify_proto::{MinifierClient, MinifyResult};
+use mod_pagefind_proto::{SearchIndexInput, SearchIndexResult, SearchIndexerClient};
+use mod_sass_proto::{SassCompilerClient, SassInput, SassResult};
+use mod_svgo_proto::{SvgoOptimizerClient, SvgoResult};
+use mod_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use rapace::RpcSession;
 use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
 use rapace_tracing::{TracingConfigClient, TracingSinkServer};
@@ -64,31 +79,31 @@ static PLUGINS: OnceLock<PluginRegistry> = OnceLock::new();
 #[derive(Default)]
 pub struct PluginRegistry {
     /// WebP encoder plugin
-    pub webp: Option<Plugin>,
+    pub webp: Option<Arc<WebPProcessorClient<ShmTransport>>>,
     /// JPEG XL encoder plugin
-    pub jxl: Option<Plugin>,
+    pub jxl: Option<Arc<JXLProcessorClient<ShmTransport>>>,
     /// HTML minification plugin
-    pub minify: Option<Plugin>,
+    pub minify: Option<Arc<MinifierClient<ShmTransport>>>,
     /// SVG optimization plugin
-    pub svgo: Option<Plugin>,
+    pub svgo: Option<Arc<SvgoOptimizerClient<ShmTransport>>>,
     /// SASS/SCSS compilation plugin
-    pub sass: Option<Plugin>,
+    pub sass: Option<Arc<SassCompilerClient<ShmTransport>>>,
     /// CSS URL rewriting plugin
-    pub css: Option<Plugin>,
+    pub css: Option<Arc<CssProcessorClient<ShmTransport>>>,
     /// JS string literal rewriting plugin
-    pub js: Option<Plugin>,
+    pub js: Option<Arc<JsProcessorClient<ShmTransport>>>,
     /// Search indexing plugin
-    pub pagefind: Option<Plugin>,
+    pub pagefind: Option<Arc<SearchIndexerClient<ShmTransport>>>,
     /// Image processing plugin (decode, resize, thumbhash)
-    pub image: Option<Plugin>,
+    pub image: Option<Arc<ImageProcessorClient<ShmTransport>>>,
     /// Font processing plugin (analysis, subsetting, compression)
-    pub fonts: Option<Plugin>,
+    pub fonts: Option<Arc<FontProcessorClient<ShmTransport>>>,
     /// External link checking plugin
-    pub linkcheck: Option<Plugin>,
+    pub linkcheck: Option<Arc<LinkCheckerClient<ShmTransport>>>,
     /// Code sample execution plugin
-    pub code_execution: Option<Plugin>,
+    pub code_execution: Option<Arc<CodeExecutorClient<ShmTransport>>>,
     /// HTML diff plugin for livereload
-    pub html_diff: Option<Plugin>,
+    pub html_diff: Option<Arc<HtmlDifferClient<ShmTransport>>>,
     /// Syntax highlighting plugin (rapace)
     pub syntax_highlight: Option<Arc<SyntaxHighlightServiceClient<ShmTransport>>>,
 }
@@ -96,19 +111,19 @@ pub struct PluginRegistry {
 impl PluginRegistry {
     /// Load plugins from a directory.
     fn load_from_dir(dir: &Path) -> Self {
-        let webp = Self::try_load_plugin(dir, "dodeca_webp");
-        let jxl = Self::try_load_plugin(dir, "dodeca_jxl");
-        let minify = Self::try_load_plugin(dir, "dodeca_minify");
-        let svgo = Self::try_load_plugin(dir, "dodeca_svgo");
-        let sass = Self::try_load_plugin(dir, "dodeca_sass");
-        let css = Self::try_load_plugin(dir, "dodeca_css");
-        let js = Self::try_load_plugin(dir, "dodeca_js");
-        let pagefind = Self::try_load_plugin(dir, "dodeca_pagefind");
-        let image = Self::try_load_plugin(dir, "dodeca_image");
-        let fonts = Self::try_load_plugin(dir, "dodeca_fonts");
-        let linkcheck = Self::try_load_plugin(dir, "dodeca_linkcheck");
-        let code_execution = Self::try_load_plugin(dir, "dodeca_code_execution");
-        let html_diff = Self::try_load_plugin(dir, "dodeca_html_diff");
+        let webp = Self::try_load_mod(dir, "dodeca-mod-webp");
+        let jxl = Self::try_load_mod(dir, "dodeca-mod-jxl");
+        let minify = Self::try_load_mod(dir, "dodeca-mod-minify");
+        let svgo = Self::try_load_mod(dir, "dodeca-mod-svgo");
+        let sass = Self::try_load_mod(dir, "dodeca-mod-sass");
+        let css = Self::try_load_mod(dir, "dodeca-mod-css");
+        let js = Self::try_load_mod(dir, "dodeca-mod-js");
+        let pagefind = Self::try_load_mod(dir, "dodeca-mod-pagefind");
+        let image = Self::try_load_mod(dir, "dodeca-mod-image");
+        let fonts = Self::try_load_mod(dir, "dodeca-mod-fonts");
+        let linkcheck = Self::try_load_mod(dir, "dodeca-mod-linkcheck");
+        let code_execution = Self::try_load_mod(dir, "dodeca-mod-code-execution");
+        let html_diff = Self::try_load_mod(dir, "dodeca-mod-html-diff");
         let syntax_highlight = Self::try_load_mod(dir, "dodeca-mod-arborium");
 
         PluginRegistry {
@@ -145,10 +160,7 @@ impl PluginRegistry {
             return None;
         }
 
-        let shm_path = env::temp_dir().join(format!(
-            "dodeca-syntax-highlight-{}.shm",
-            std::process::id()
-        ));
+        let shm_path = env::temp_dir().join(format!("{name}-{}.shm", std::process::id()));
         let _ = std::fs::remove_file(&shm_path);
 
         let session = match ShmSession::create_file(&shm_path, SYNTAX_HIGHLIGHT_SHM_CONFIG) {
@@ -285,117 +297,128 @@ pub fn plugins() -> &'static PluginRegistry {
 }
 
 /// Encode RGBA pixels to WebP using the plugin if available, otherwise return None.
-pub fn encode_webp_plugin(pixels: &[u8], width: u32, height: u32, quality: u8) -> Option<Vec<u8>> {
+pub async fn encode_webp_plugin(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+) -> Option<Vec<u8>> {
     let plugin = plugins().webp.as_ref()?;
 
-    // The plugin expects (Vec<u8>, u32, u32, u8) and returns PlugResult<Vec<u8>>
-    #[derive(Facet)]
-    struct Input {
-        pixels: Vec<u8>,
-        width: u32,
-        height: u32,
-        quality: u8,
-    }
-
-    let input = Input {
+    let input = WebPEncodeInput {
         pixels: pixels.to_vec(),
         width,
         height,
         quality,
     };
 
-    match plugin.call::<Input, PlugResult<Vec<u8>>>("encode_webp", &input) {
-        Ok(PlugResult::Ok(data)) => Some(data),
-        Ok(PlugResult::Err(e)) => {
-            warn!("webp plugin error: {}", e);
+    match plugin.encode_webp(input).await {
+        Ok(WebPResult::EncodeSuccess { data }) => Some(data),
+        Ok(WebPResult::Error { message }) => {
+            warn!("webp plugin error: {}", message);
+            None
+        }
+        Ok(WebPResult::DecodeSuccess { .. }) => {
+            warn!("webp plugin returned decode result for encode operation");
             None
         }
         Err(e) => {
-            warn!("webp plugin call failed: {}", e);
+            warn!("webp plugin call failed: {:?}", e);
             None
         }
     }
 }
 
 /// Encode RGBA pixels to JXL using the plugin if available, otherwise return None.
-pub fn encode_jxl_plugin(pixels: &[u8], width: u32, height: u32, quality: u8) -> Option<Vec<u8>> {
+pub async fn encode_jxl_plugin(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+) -> Option<Vec<u8>> {
     let plugin = plugins().jxl.as_ref()?;
 
-    #[derive(Facet)]
-    struct Input {
-        pixels: Vec<u8>,
-        width: u32,
-        height: u32,
-        quality: u8,
-    }
-
-    let input = Input {
+    let input = JXLEncodeInput {
         pixels: pixels.to_vec(),
         width,
         height,
         quality,
     };
 
-    match plugin.call::<Input, PlugResult<Vec<u8>>>("encode_jxl", &input) {
-        Ok(PlugResult::Ok(data)) => Some(data),
-        Ok(PlugResult::Err(e)) => {
-            warn!("jxl plugin error: {}", e);
+    match plugin.encode_jxl(input).await {
+        Ok(JXLResult::EncodeSuccess { data }) => Some(data),
+        Ok(JXLResult::Error { message }) => {
+            warn!("jxl plugin error: {}", message);
+            None
+        }
+        Ok(JXLResult::DecodeSuccess { .. }) => {
+            warn!("jxl plugin returned decode result for encode operation");
             None
         }
         Err(e) => {
-            warn!("jxl plugin call failed: {}", e);
+            warn!("jxl plugin call failed: {:?}", e);
             None
         }
     }
 }
 
 /// Decode WebP to pixels using the plugin.
-pub fn decode_webp_plugin(data: &[u8]) -> Option<DecodedImage> {
+pub async fn decode_webp_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().webp.as_ref()?;
 
-    #[derive(Facet)]
-    struct Input {
-        data: Vec<u8>,
-    }
-
-    let input = Input {
-        data: data.to_vec(),
-    };
-
-    match plugin.call::<Input, PlugResult<DecodedImage>>("decode_webp", &input) {
-        Ok(PlugResult::Ok(decoded)) => Some(decoded),
-        Ok(PlugResult::Err(e)) => {
-            warn!("webp decode plugin error: {}", e);
+    match plugin.decode_webp(data.to_vec()).await {
+        Ok(WebPResult::DecodeSuccess {
+            pixels,
+            width,
+            height,
+            channels,
+        }) => Some(DecodedImage {
+            pixels,
+            width,
+            height,
+            channels,
+        }),
+        Ok(WebPResult::Error { message }) => {
+            warn!("webp decode plugin error: {}", message);
+            None
+        }
+        Ok(WebPResult::EncodeSuccess { .. }) => {
+            warn!("webp plugin returned encode result for decode operation");
             None
         }
         Err(e) => {
-            warn!("webp decode plugin call failed: {}", e);
+            warn!("webp decode plugin call failed: {:?}", e);
             None
         }
     }
 }
 
 /// Decode JXL to pixels using the plugin.
-pub fn decode_jxl_plugin(data: &[u8]) -> Option<DecodedImage> {
+pub async fn decode_jxl_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().jxl.as_ref()?;
 
-    #[derive(Facet)]
-    struct Input {
-        data: Vec<u8>,
-    }
-
-    let input = Input {
-        data: data.to_vec(),
-    };
-
-    match plugin.call::<Input, PlugResult<DecodedImage>>("decode_jxl", &input) {
-        Ok(PlugResult::Ok(decoded)) => Some(decoded),
-        Ok(PlugResult::Err(e)) => {
-            warn!("jxl decode plugin error: {}", e);
+    match plugin.decode_jxl(data.to_vec()).await {
+        Ok(JXLResult::DecodeSuccess {
+            pixels,
+            width,
+            height,
+            channels,
+        }) => Some(DecodedImage {
+            pixels,
+            width,
+            height,
+            channels,
+        }),
+        Ok(JXLResult::Error { message }) => {
+            warn!("jxl decode plugin error: {}", message);
+            None
+        }
+        Ok(JXLResult::EncodeSuccess { .. }) => {
+            warn!("jxl plugin returned encode result for decode operation");
             None
         }
         Err(e) => {
-            warn!("jxl decode plugin call failed: {}", e);
+            warn!("jxl decode plugin call failed: {:?}", e);
             None
         }
     }
@@ -405,16 +428,16 @@ pub fn decode_jxl_plugin(data: &[u8]) -> Option<DecodedImage> {
 ///
 /// # Panics
 /// Panics if the minify plugin is not loaded.
-pub fn minify_html_plugin(html: &str) -> Result<String, String> {
+pub async fn minify_html_plugin(html: &str) -> Result<String, String> {
     let plugin = plugins()
         .minify
         .as_ref()
         .expect("dodeca-minify plugin not loaded");
 
-    match plugin.call::<String, PlugResult<String>>("minify_html", &html.to_string()) {
-        Ok(PlugResult::Ok(minified)) => Ok(minified),
-        Ok(PlugResult::Err(e)) => Err(e),
-        Err(e) => Err(format!("plugin call failed: {}", e)),
+    match plugin.minify_html(html.to_string()).await {
+        Ok(MinifyResult::Success { content }) => Ok(content),
+        Ok(MinifyResult::Error { message }) => Err(message),
+        Err(e) => Err(format!("plugin call failed: {:?}", e)),
     }
 }
 
@@ -422,16 +445,16 @@ pub fn minify_html_plugin(html: &str) -> Result<String, String> {
 ///
 /// # Panics
 /// Panics if the svgo plugin is not loaded.
-pub fn optimize_svg_plugin(svg: &str) -> Result<String, String> {
+pub async fn optimize_svg_plugin(svg: &str) -> Result<String, String> {
     let plugin = plugins()
         .svgo
         .as_ref()
         .expect("dodeca-svgo plugin not loaded");
 
-    match plugin.call::<String, PlugResult<String>>("optimize_svg", &svg.to_string()) {
-        Ok(PlugResult::Ok(optimized)) => Ok(optimized),
-        Ok(PlugResult::Err(e)) => Err(e),
-        Err(e) => Err(format!("plugin call failed: {}", e)),
+    match plugin.optimize_svg(svg.to_string()).await {
+        Ok(SvgoResult::Success { svg }) => Ok(svg),
+        Ok(SvgoResult::Error { message }) => Err(message),
+        Err(e) => Err(format!("plugin call failed: {:?}", e)),
     }
 }
 
