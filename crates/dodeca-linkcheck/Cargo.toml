@@ -14,14 +14,13 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [lib]
-crate-type = ["cdylib", "rlib"]
-
-[dependencies]
-plugcard = { path = "../plugcard" }
-facet = "0.32.2"
+crate-type = ["rlib"]
 
 # HTTP client (blocking mode - no async runtime needed)
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 
 # URL parsing for domain extraction
 url = "2"
+
+# Facet for serialization
+facet = "0.32.2"

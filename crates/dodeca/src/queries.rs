@@ -1482,10 +1482,10 @@ fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
 
 /// Highlight a code block using the syntax highlighting plugin
 fn highlight_code_block(code: &str, language: &str) -> String {
-    use crate::plugins::highlight_code_rapace;
+    use crate::plugins::highlight_code;
 
     // Try to use the syntax highlighting plugin
-    if let Some(result) = highlight_code_rapace(code, language) {
+    if let Some(result) = highlight_code(code, language) {
         // Wrap in pre/code tags with language class
         let lang_class = if language.is_empty() {
             String::new()

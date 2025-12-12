@@ -199,7 +199,7 @@ fn parse_args() -> Result<Command> {
             })?;
             Ok(Command::Clean(clean_args))
         }
-  
+
         "--help" | "-h" | "help" => {
             print_usage();
             std::process::exit(0);

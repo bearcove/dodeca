@@ -6,9 +6,6 @@
 use crate::plugin_server::ForwardingTracingSink;
 use facet::Facet;
 use mod_arborium_proto::{HighlightResult, SyntaxHighlightServiceClient};
-use plugcard::{
-    HostCallData, HostCallResult, LoadError, LogLevel, PlugResult, Plugin, host_services,
-};
 use rapace::RpcSession;
 use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
 use rapace_tracing::{TracingConfigClient, TracingSinkServer};
@@ -17,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, OnceLock};
 use tokio::process::Command;
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, info, warn};
 
 /// SHM configuration used for syntax highlight RPC.
 const SYNTAX_HIGHLIGHT_SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
@@ -26,77 +23,11 @@ const SYNTAX_HIGHLIGHT_SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
     slot_count: 128,
 };
 
-/// Log callback that routes plugin logs to tracing
-extern "C" fn plugin_log_callback(level: LogLevel, ptr: *const u8, len: usize) {
-    // Safety: the plugin guarantees ptr/len are valid UTF-8 for the duration of this call
-    let message = unsafe {
-        let slice = std::slice::from_raw_parts(ptr, len);
-        std::str::from_utf8_unchecked(slice)
-    };
-
-    match level {
-        LogLevel::Trace => trace!(target: "plugin", "{}", message),
-        LogLevel::Debug => debug!(target: "plugin", "{}", message),
-        LogLevel::Info => info!(target: "plugin", "{}", message),
-        LogLevel::Warn => warn!(target: "plugin", "{}", message),
-        LogLevel::Error => error!(target: "plugin", "{}", message),
-    }
-}
-
 /// Request for syntax highlighting (must match what plugins send)
 #[derive(Facet)]
 struct HighlightRequest {
     code: String,
     language: String,
-}
-
-/// Host callback that provides services to plugins
-extern "C" fn host_service_callback(data: *mut HostCallData) {
-    // Safety: caller guarantees data is valid
-    let data = unsafe { &mut *data };
-
-    match data.service_id {
-        host_services::HIGHLIGHT_CODE => {
-            handle_highlight_code(data);
-        }
-        _ => {
-            data.result = HostCallResult::UnknownService;
-        }
-    }
-}
-
-/// Handle the HIGHLIGHT_CODE service request
-fn handle_highlight_code(data: &mut HostCallData) {
-    // Deserialize input
-    let input_slice = unsafe { std::slice::from_raw_parts(data.input_ptr, data.input_len) };
-    let request: HighlightRequest = match plugcard::facet_postcard::from_slice(input_slice) {
-        Ok(r) => r,
-        Err(_) => {
-            data.result = HostCallResult::DeserializeError;
-            return;
-        }
-    };
-
-    // Call the syntax highlighting plugin
-    let result = match highlight_code_rapace(&request.code, &request.language) {
-        Some(r) => r,
-        None => HighlightResult {
-            html: html_escape(&request.code),
-            highlighted: false,
-        },
-    };
-
-    // Serialize output
-    let output_slice = unsafe { std::slice::from_raw_parts_mut(data.output_ptr, data.output_cap) };
-    match plugcard::facet_postcard::to_slice(&result, output_slice) {
-        Ok(written) => {
-            data.output_len = written;
-            data.result = HostCallResult::Success;
-        }
-        Err(_) => {
-            data.result = HostCallResult::BufferTooSmall;
-        }
-    }
 }
 
 // Legacy plugcard highlight code handler - removed in favor of rapace
@@ -130,6 +61,7 @@ pub struct DecodedImage {
 static PLUGINS: OnceLock<PluginRegistry> = OnceLock::new();
 
 /// Registry of loaded plugins.
+#[derive(Default)]
 pub struct PluginRegistry {
     /// WebP encoder plugin
     pub webp: Option<Plugin>,
@@ -177,7 +109,7 @@ impl PluginRegistry {
         let linkcheck = Self::try_load_plugin(dir, "dodeca_linkcheck");
         let code_execution = Self::try_load_plugin(dir, "dodeca_code_execution");
         let html_diff = Self::try_load_plugin(dir, "dodeca_html_diff");
-        let syntax_highlight = Self::try_load_rapace_service(dir, "dodeca-syntax-highlight-rapace");
+        let syntax_highlight = Self::try_load_mod(dir, "dodeca-mod-arborium");
 
         PluginRegistry {
             webp,
@@ -198,7 +130,7 @@ impl PluginRegistry {
     }
 
     /// Try to load a rapace service from the given directory.
-    fn try_load_rapace_service(
+    fn try_load_mod(
         dir: &Path,
         name: &str,
     ) -> Option<Arc<SyntaxHighlightServiceClient<ShmTransport>>> {
@@ -309,48 +241,6 @@ impl PluginRegistry {
             || self.html_diff.is_some()
             || self.syntax_highlight.is_some()
     }
-
-    fn try_load_plugin(dir: &Path, name: &str) -> Option<Plugin> {
-        #[cfg(target_os = "macos")]
-        let lib_name = format!("lib{name}.dylib");
-        #[cfg(target_os = "linux")]
-        let lib_name = format!("lib{name}.so");
-        #[cfg(target_os = "windows")]
-        let lib_name = format!("{name}.dll");
-
-        let path = dir.join(&lib_name);
-
-        if !path.exists() {
-            debug!("plugin not found: {}", path.display());
-            return None;
-        }
-
-        match unsafe { Plugin::load(&path) } {
-            Ok(plugin) => {
-                let methods: Vec<_> = plugin.methods().map(|m| m.name).collect();
-                info!("loaded plugin {} with methods: {:?}", lib_name, methods);
-                Some(plugin)
-            }
-            Err(LoadError::AbiMismatch { expected, found }) => {
-                warn!(
-                    "plugin {} has incompatible ABI version (expected 0x{:08x}, found 0x{:08x}) - rebuild the plugin",
-                    lib_name, expected, found
-                );
-                None
-            }
-            Err(LoadError::NoAbiVersion) => {
-                warn!(
-                    "plugin {} was built with an old plugcard version - rebuild the plugin",
-                    lib_name
-                );
-                None
-            }
-            Err(e) => {
-                warn!("failed to load plugin {}: {}", lib_name, e);
-                None
-            }
-        }
-    }
 }
 
 /// Get the global plugin registry, initializing it if needed.
@@ -390,22 +280,7 @@ pub fn plugins() -> &'static PluginRegistry {
         }
 
         debug!("no plugins found in search paths: {:?}", search_paths);
-        PluginRegistry {
-            webp: None,
-            jxl: None,
-            minify: None,
-            svgo: None,
-            sass: None,
-            css: None,
-            js: None,
-            pagefind: None,
-            image: None,
-            fonts: None,
-            linkcheck: None,
-            code_execution: None,
-            html_diff: None,
-            syntax_highlight: None,
-        }
+        Default::default()
     })
 }
 
@@ -1199,7 +1074,7 @@ pub fn diff_html_plugin(old_html: &str, new_html: &str) -> Option<HtmlDiffResult
 /// Highlight source code using the rapace syntax highlight service.
 ///
 /// Returns the code with syntax highlighting applied as HTML, or None if no service is available.
-pub fn highlight_code_rapace(code: &str, language: &str) -> Option<HighlightResult> {
+pub fn highlight_code(code: &str, language: &str) -> Option<HighlightResult> {
     // Get the syntax highlight service client
     let client = syntax_highlight_client()?;
 

@@ -3,7 +3,6 @@
 //! Defines services for HTML DOM diffing.
 
 use facet::Facet;
-use std::collections::HashMap;
 
 // Re-export patch types from protocol
 pub use dodeca_protocol::{NodePath, Patch};
