@@ -76,4 +76,4 @@ If you need cache size limits or custom corruption handling, use:
 ## Notes
 
 - Tokio-only: query execution uses Tokio task-local context.
-- Global invalidation v1: updating any input bumps a single global `Revision`.
+- Global invalidation v1: changing any input bumps a single global `Revision`.
