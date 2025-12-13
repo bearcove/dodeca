@@ -2435,6 +2435,7 @@ dependencies = [
  "mod-js-proto",
  "mod-jxl-proto",
  "mod-linkcheck-proto",
+ "mod-markdown-proto",
  "mod-minify-proto",
  "mod-pagefind-proto",
  "mod-sass-proto",
@@ -2446,7 +2447,6 @@ dependencies = [
  "owo-colors",
  "picante",
  "postcard",
- "pulldown-cmark",
  "rapace",
  "rapace-tracing",
  "rapidhash",
@@ -5331,6 +5331,32 @@ dependencies = [
 
 [[package]]
 name = "mod-linkcheck-proto"
+version = "0.1.0"
+dependencies = [
+ "facet",
+ "rapace",
+]
+
+[[package]]
+name = "mod-markdown"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "dodeca-plugin-runtime",
+ "facet",
+ "facet-json",
+ "facet-toml",
+ "facet-value",
+ "mod-markdown-proto",
+ "pulldown-cmark",
+ "rapace",
+ "rapace-plugin",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "mod-markdown-proto"
 version = "0.1.0"
 dependencies = [
  "facet",

@@ -13,6 +13,7 @@ use mod_css_proto::{CssProcessorClient, CssResult};
 use mod_fonts_proto::{FontAnalysis, FontProcessorClient, FontResult, SubsetFontInput};
 use mod_html_diff_proto::{DiffInput, DiffResult, HtmlDiffResult, HtmlDifferClient};
 use mod_html_proto::HtmlProcessorClient;
+use mod_markdown_proto::{MarkdownProcessorClient, MarkdownResult, ParseResult, FrontmatterResult};
 use mod_image_proto::{ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput};
 use mod_js_proto::{JsProcessorClient, JsResult, JsRewriteInput};
 use mod_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
@@ -93,6 +94,7 @@ define_plugins! {
     code_execution  => CodeExecutorClient,
     html_diff       => HtmlDifferClient,
     html            => HtmlProcessorClient,
+    markdown        => MarkdownProcessorClient,
     syntax_highlight=> SyntaxHighlightServiceClient,
 }
 
@@ -238,6 +240,7 @@ pub fn plugins() -> &'static PluginRegistry {
                     code_execution: None,
                     html_diff: None,
                     html: None,
+                    markdown: None,
                     syntax_highlight: None,
                 }
             ) {
@@ -1070,4 +1073,88 @@ pub async fn highlight_code(code: &str, language: &str) -> Option<HighlightResul
 /// Get the syntax highlight service client, if available
 fn syntax_highlight_client() -> Option<Arc<SyntaxHighlightServiceClient<ShmTransport>>> {
     plugins().syntax_highlight.clone()
+}
+
+// ============================================================================
+// Markdown processing plugin functions
+// ============================================================================
+
+/// Parsed markdown result with code blocks that need highlighting
+pub struct ParsedMarkdown {
+    /// The frontmatter parsed from the content
+    pub frontmatter: mod_markdown_proto::Frontmatter,
+    /// HTML output (with code block placeholders)
+    pub html: String,
+    /// Extracted headings
+    pub headings: Vec<mod_markdown_proto::Heading>,
+    /// Code blocks that need syntax highlighting
+    pub code_blocks: Vec<mod_markdown_proto::CodeBlock>,
+}
+
+/// Parse and render markdown content using the plugin.
+///
+/// Returns frontmatter, HTML (with placeholders), headings, and code blocks.
+/// The caller is responsible for highlighting code blocks and replacing placeholders.
+#[tracing::instrument(level = "debug", skip(content), fields(content_len = content.len()))]
+pub async fn parse_and_render_markdown_plugin(content: &str) -> Option<ParsedMarkdown> {
+    let plugin = plugins().markdown.as_ref()?;
+
+    match plugin.parse_and_render(content.to_string()).await {
+        Ok(ParseResult::Success { frontmatter, html, headings, code_blocks }) => {
+            Some(ParsedMarkdown {
+                frontmatter,
+                html,
+                headings,
+                code_blocks,
+            })
+        }
+        Ok(ParseResult::Error { message }) => {
+            warn!("markdown parse_and_render plugin error: {}", message);
+            None
+        }
+        Err(e) => {
+            warn!("markdown parse_and_render plugin call failed: {:?}", e);
+            None
+        }
+    }
+}
+
+/// Render markdown to HTML using the plugin (without frontmatter parsing).
+#[tracing::instrument(level = "debug", skip(markdown), fields(markdown_len = markdown.len()))]
+pub async fn render_markdown_plugin(markdown: &str) -> Option<(String, Vec<mod_markdown_proto::Heading>, Vec<mod_markdown_proto::CodeBlock>)> {
+    let plugin = plugins().markdown.as_ref()?;
+
+    match plugin.render_markdown(markdown.to_string()).await {
+        Ok(MarkdownResult::Success { html, headings, code_blocks }) => {
+            Some((html, headings, code_blocks))
+        }
+        Ok(MarkdownResult::Error { message }) => {
+            warn!("markdown render plugin error: {}", message);
+            None
+        }
+        Err(e) => {
+            warn!("markdown render plugin call failed: {:?}", e);
+            None
+        }
+    }
+}
+
+/// Parse frontmatter from content using the plugin.
+#[tracing::instrument(level = "debug", skip(content), fields(content_len = content.len()))]
+pub async fn parse_frontmatter_plugin(content: &str) -> Option<(mod_markdown_proto::Frontmatter, String)> {
+    let plugin = plugins().markdown.as_ref()?;
+
+    match plugin.parse_frontmatter(content.to_string()).await {
+        Ok(FrontmatterResult::Success { frontmatter, body }) => {
+            Some((frontmatter, body))
+        }
+        Ok(FrontmatterResult::Error { message }) => {
+            warn!("markdown parse_frontmatter plugin error: {}", message);
+            None
+        }
+        Err(e) => {
+            warn!("markdown parse_frontmatter plugin call failed: {:?}", e);
+            None
+        }
+    }
 }

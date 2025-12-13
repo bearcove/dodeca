@@ -39,8 +39,7 @@ facet-postcard = "0.32.2"
 # YAML parsing (for data files - facet-yaml doesn't support dynamic values)
 serde_yaml = "0.9"
 
-# Markdown parsing
-pulldown-cmark = "0.13"
+# Markdown parsing is now handled via the mod-markdown plugin
 
 # File system
 ignore = "0.4"
@@ -103,6 +102,7 @@ mod-sass-proto = { path = "../../mods/mod-sass-proto" }
 mod-svgo-proto = { path = "../../mods/mod-svgo-proto" }
 mod-webp-proto = { path = "../../mods/mod-webp-proto" }
 mod-html-proto = { path = "../../mods/mod-html-proto" }
+mod-markdown-proto = { path = "../../mods/mod-markdown-proto" }
 
 # RPC framework for plugin communication
 rapace = { git = "https://github.com/bearcove/rapace", features = ["stream"] }

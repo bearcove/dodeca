@@ -1,0 +1,324 @@
+//! Dodeca markdown processing plugin (dodeca-mod-markdown)
+//!
+//! This plugin handles:
+//! - Markdown to HTML conversion (pulldown-cmark)
+//! - Frontmatter parsing (TOML)
+//! - Heading extraction
+//! - Code block extraction (for syntax highlighting by host)
+
+use pulldown_cmark::{html, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag};
+
+use mod_markdown_proto::{
+    CodeBlock, Frontmatter, FrontmatterResult, Heading, MarkdownProcessor,
+    MarkdownProcessorServer, MarkdownResult, ParseResult,
+};
+
+// Create the ServiceDispatch wrapper
+dodeca_plugin_runtime::plugin_service!(
+    MarkdownProcessorServer<MarkdownProcessorImpl>,
+    MarkdownProcessorImpl
+);
+
+// Create main function
+dodeca_plugin_runtime::run_plugin!(MarkdownProcessorImpl);
+
+/// Markdown processor implementation
+#[derive(Clone)]
+pub struct MarkdownProcessorImpl;
+
+impl MarkdownProcessor for MarkdownProcessorImpl {
+    async fn parse_frontmatter(&self, content: String) -> FrontmatterResult {
+        let (frontmatter_str, body) = split_frontmatter(&content);
+
+        if frontmatter_str.is_empty() {
+            return FrontmatterResult::Success {
+                frontmatter: Frontmatter::default(),
+                body,
+            };
+        }
+
+        match parse_frontmatter_toml(&frontmatter_str) {
+            Ok(fm) => FrontmatterResult::Success {
+                frontmatter: fm,
+                body,
+            },
+            Err(e) => FrontmatterResult::Error { message: e },
+        }
+    }
+
+    async fn render_markdown(&self, markdown: String) -> MarkdownResult {
+        match render_markdown_impl(&markdown) {
+            Ok((html, headings, code_blocks)) => MarkdownResult::Success {
+                html,
+                headings,
+                code_blocks,
+            },
+            Err(e) => MarkdownResult::Error { message: e },
+        }
+    }
+
+    async fn parse_and_render(&self, content: String) -> ParseResult {
+        let (frontmatter_str, body) = split_frontmatter(&content);
+
+        let frontmatter = if frontmatter_str.is_empty() {
+            Frontmatter::default()
+        } else {
+            match parse_frontmatter_toml(&frontmatter_str) {
+                Ok(fm) => fm,
+                Err(e) => {
+                    return ParseResult::Error { message: e };
+                }
+            }
+        };
+
+        match render_markdown_impl(&body) {
+            Ok((html, headings, code_blocks)) => ParseResult::Success {
+                frontmatter,
+                html,
+                headings,
+                code_blocks,
+            },
+            Err(e) => ParseResult::Error { message: e },
+        }
+    }
+}
+
+// ============================================================================
+// Implementation helpers
+// ============================================================================
+
+/// Split frontmatter from content.
+/// Supports +++ delimiters (TOML frontmatter).
+fn split_frontmatter(content: &str) -> (String, String) {
+    let content = content.trim_start();
+
+    // Check for +++ delimiters (TOML frontmatter)
+    if let Some(rest) = content.strip_prefix("+++") {
+        if let Some(end) = rest.find("+++") {
+            let frontmatter = rest[..end].trim().to_string();
+            let body = rest[end + 3..].trim_start().to_string();
+            return (frontmatter, body);
+        }
+    }
+
+    // No frontmatter found
+    (String::new(), content.to_string())
+}
+
+/// Internal struct for TOML parsing with optional fields
+#[derive(Debug, Default, facet::Facet)]
+struct FrontmatterToml {
+    #[facet(default)]
+    title: String,
+    #[facet(default)]
+    weight: i32,
+    description: Option<String>,
+    template: Option<String>,
+    #[facet(default)]
+    extra: facet_value::Value,
+}
+
+/// Parse TOML frontmatter into Frontmatter struct
+fn parse_frontmatter_toml(toml_str: &str) -> Result<Frontmatter, String> {
+    // Parse directly into our struct with defaults
+    let parsed: FrontmatterToml =
+        facet_toml::from_str(toml_str).map_err(|e| format!("TOML parse error: {}", e))?;
+
+    // Convert extra Value to JSON string
+    let extra_json = facet_json::to_string(&parsed.extra);
+
+    Ok(Frontmatter {
+        title: parsed.title,
+        weight: parsed.weight,
+        description: parsed.description,
+        template: parsed.template,
+        extra_json,
+    })
+}
+
+/// Render markdown to HTML with heading and code block extraction
+fn render_markdown_impl(markdown: &str) -> Result<(String, Vec<Heading>, Vec<CodeBlock>), String> {
+    let options = Options::ENABLE_TABLES
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_HEADING_ATTRIBUTES;
+
+    let parser = Parser::new_ext(markdown, options);
+
+    let mut headings = Vec::new();
+    let mut current_heading: Option<(u8, String, String)> = None; // (level, id, text)
+
+    // Track code block state
+    let mut in_code_block = false;
+    let mut code_block_lang = String::new();
+    let mut code_block_content = String::new();
+
+    // Collect code blocks for later highlighting by host
+    let mut code_blocks: Vec<CodeBlock> = Vec::new();
+
+    let mut output_events: Vec<Event> = Vec::new();
+
+    for event in parser {
+        match event {
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(ref lang))) => {
+                in_code_block = true;
+                code_block_lang = lang.to_string();
+                code_block_content.clear();
+            }
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Indented)) => {
+                in_code_block = true;
+                code_block_lang.clear();
+                code_block_content.clear();
+            }
+            Event::End(pulldown_cmark::TagEnd::CodeBlock) => {
+                if in_code_block {
+                    let idx = code_blocks.len();
+                    let placeholder = format!("<!--CODE_BLOCK_PLACEHOLDER_{}-->", idx);
+                    code_blocks.push(CodeBlock {
+                        code: std::mem::take(&mut code_block_content),
+                        language: std::mem::take(&mut code_block_lang),
+                        placeholder: placeholder.clone(),
+                    });
+                    output_events.push(Event::Html(placeholder.into()));
+                    in_code_block = false;
+                }
+            }
+            Event::Text(ref text) if in_code_block => {
+                code_block_content.push_str(text);
+            }
+            Event::Start(Tag::Heading { level, ref id, .. }) => {
+                let level_num = match level {
+                    HeadingLevel::H1 => 1,
+                    HeadingLevel::H2 => 2,
+                    HeadingLevel::H3 => 3,
+                    HeadingLevel::H4 => 4,
+                    HeadingLevel::H5 => 5,
+                    HeadingLevel::H6 => 6,
+                };
+                current_heading = Some((
+                    level_num,
+                    id.as_ref().map(|s| s.to_string()).unwrap_or_default(),
+                    String::new(),
+                ));
+                output_events.push(event);
+            }
+            Event::End(pulldown_cmark::TagEnd::Heading(_)) => {
+                if let Some((level, id, text)) = current_heading.take() {
+                    let id = if id.is_empty() { slugify(&text) } else { id };
+                    headings.push(Heading {
+                        title: text,
+                        id,
+                        level,
+                    });
+                }
+                output_events.push(event);
+            }
+            Event::Text(ref text) | Event::Code(ref text) => {
+                if let Some((_, _, ref mut heading_text)) = current_heading {
+                    heading_text.push_str(text);
+                }
+                output_events.push(event);
+            }
+            Event::Start(Tag::Link {
+                link_type,
+                dest_url,
+                title,
+                id,
+            }) => {
+                // Resolve internal @/ links
+                let resolved = resolve_internal_link(&dest_url);
+                output_events.push(Event::Start(Tag::Link {
+                    link_type,
+                    dest_url: resolved.into(),
+                    title,
+                    id,
+                }));
+            }
+            other => {
+                output_events.push(other);
+            }
+        }
+    }
+
+    // Generate HTML
+    let mut html_output = String::new();
+    html::push_html(&mut html_output, output_events.into_iter());
+
+    // Inject id attributes into headings
+    let html_output = inject_heading_ids(&html_output, &headings);
+
+    Ok((html_output, headings, code_blocks))
+}
+
+/// Convert text to a URL-safe slug for heading IDs
+fn slugify(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Resolve internal @/ links to absolute paths
+fn resolve_internal_link(link: &str) -> String {
+    if let Some(path) = link.strip_prefix("@/") {
+        // Split off fragment
+        let (path_part, fragment) = match path.find('#') {
+            Some(idx) => (&path[..idx], Some(&path[idx..])),
+            None => (path, None),
+        };
+
+        let mut path = path_part.to_string();
+
+        // Remove .md extension
+        if path.ends_with(".md") {
+            path = path[..path.len() - 3].to_string();
+        }
+
+        // Handle _index -> parent directory
+        if path.ends_with("/_index") {
+            path = path[..path.len() - 7].to_string();
+        } else if path == "_index" {
+            path = String::new();
+        }
+
+        // Ensure leading slash
+        let result = if path.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}/", path)
+        };
+
+        // Append fragment if present
+        match fragment {
+            Some(f) => format!("{}{}", result, f),
+            None => result,
+        }
+    } else {
+        link.to_string()
+    }
+}
+
+/// Inject id attributes into heading tags that don't have them
+fn inject_heading_ids(html: &str, headings: &[Heading]) -> String {
+    let mut result = html.to_string();
+
+    for heading in headings {
+        // Look for heading tags without id attribute
+        for level in 1..=6 {
+            let tag_without_id = format!("<h{}>", level);
+            let tag_with_id = format!("<h{} id=\"{}\">", level, heading.id);
+
+            // Only replace the first occurrence that matches the heading text
+            if result.contains(&tag_without_id) {
+                result = result.replacen(&tag_without_id, &tag_with_id, 1);
+                break;
+            }
+        }
+    }
+
+    result
+}

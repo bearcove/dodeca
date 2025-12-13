@@ -8,11 +8,11 @@ use crate::db::{
 use picante::PicanteResult;
 
 use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
+use crate::plugins::{highlight_code, parse_and_render_markdown_plugin};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
 use crate::url_rewrite::rewrite_urls_in_css;
 use facet::Facet;
 use facet_value::Value;
-use pulldown_cmark::{Options, Parser, html};
 use std::collections::{BTreeMap, HashMap};
 
 /// Load a template file's content - tracked for dependency tracking
@@ -387,27 +387,46 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     let path = source.path(db)?;
     let last_modified = source.last_modified(db)?;
 
-    // Split frontmatter and body
-    let (frontmatter_str, markdown) = split_frontmatter(content.as_str());
+    // Use the markdown plugin to parse frontmatter and render markdown
+    let parsed = parse_and_render_markdown_plugin(content.as_str())
+        .await
+        .expect("markdown plugin not loaded");
 
-    // Parse frontmatter as Value first, then convert to Frontmatter
-    // This allows unknown fields to be silently ignored
-    let frontmatter: Frontmatter = if frontmatter_str.is_empty() {
-        Frontmatter::default()
+    // Convert frontmatter from plugin type
+    let extra: Value = if parsed.frontmatter.extra_json.is_empty() {
+        Value::NULL
     } else {
-        match facet_toml::from_str::<Value>(&frontmatter_str) {
-            Ok(value) => facet_value::from_value(value).unwrap_or_default(),
-            Err(e) => {
-                eprintln!("Failed to parse frontmatter for {path:?}: {e:?}");
-                eprintln!("Frontmatter was:\n{frontmatter_str}");
-                Frontmatter::default()
-            }
-        }
+        facet_json::from_str(&parsed.frontmatter.extra_json).unwrap_or(Value::NULL)
     };
 
-    // Convert markdown to HTML and extract headings
-    let (html, headings) = render_markdown(&markdown).await;
-    let body_html = HtmlBody::new(html);
+    // Highlight code blocks in parallel using the arborium plugin
+    let mut html_output = parsed.html;
+    if !parsed.code_blocks.is_empty() {
+        let highlight_futures: Vec<_> = parsed
+            .code_blocks
+            .iter()
+            .map(|cb| highlight_code_block_for_plugin(&cb.code, &cb.language))
+            .collect();
+        let highlighted_blocks = futures::future::join_all(highlight_futures).await;
+
+        // Replace placeholders with highlighted code
+        for (cb, highlighted_html) in parsed.code_blocks.iter().zip(highlighted_blocks) {
+            html_output = html_output.replace(&cb.placeholder, &highlighted_html);
+        }
+    }
+
+    // Convert headings from plugin type to internal type
+    let headings: Vec<Heading> = parsed
+        .headings
+        .into_iter()
+        .map(|h| Heading {
+            title: h.title,
+            id: h.id,
+            level: h.level,
+        })
+        .collect();
+
+    let body_html = HtmlBody::new(html_output);
 
     // Determine if this is a section (_index.md)
     let is_section = path.is_section_index();
@@ -418,15 +437,40 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     Ok(ParsedData {
         source_path: (*path).clone(),
         route,
-        title: Title::new(frontmatter.title),
-        description: frontmatter.description,
-        weight: frontmatter.weight,
+        title: Title::new(parsed.frontmatter.title),
+        description: parsed.frontmatter.description,
+        weight: parsed.frontmatter.weight,
         body_html,
         is_section,
         headings,
         last_updated: last_modified,
-        extra: frontmatter.extra,
+        extra,
     })
+}
+
+/// Highlight a code block using the syntax highlighting plugin
+async fn highlight_code_block_for_plugin(code: &str, language: &str) -> String {
+    if let Some(result) = highlight_code(code, language).await {
+        // Wrap in pre/code tags with language class
+        let lang_class = if language.is_empty() {
+            String::new()
+        } else {
+            format!(" class=\"language-{}\"", html_escape_attr(language))
+        };
+        format!("<pre><code{}>{}</code></pre>", lang_class, result.html)
+    } else {
+        // Fallback: escape HTML and wrap in pre/code
+        let lang_class = if language.is_empty() {
+            String::new()
+        } else {
+            format!(" class=\"language-{}\"", html_escape_attr(language))
+        };
+        format!(
+            "<pre><code{}>{}</code></pre>",
+            lang_class,
+            html_escape_content(code)
+        )
+    }
 }
 
 /// Build the site tree from all source files
@@ -1315,209 +1359,6 @@ fn find_chars_for_font_file(
     None
 }
 
-/// Split content into frontmatter and body
-fn split_frontmatter(content: &str) -> (String, String) {
-    let content = content.trim_start();
-
-    // Check for +++ delimiters (TOML frontmatter)
-    if let Some(rest) = content.strip_prefix("+++")
-        && let Some(end) = rest.find("+++")
-    {
-        let frontmatter = rest[..end].trim().to_string();
-        let body = rest[end + 3..].trim_start().to_string();
-        return (frontmatter, body);
-    }
-
-    // No frontmatter found
-    (String::new(), content.to_string())
-}
-
-/// Render markdown to HTML, resolving internal links and extracting headings
-async fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
-    use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag};
-
-    let options = Options::ENABLE_TABLES
-        | Options::ENABLE_FOOTNOTES
-        | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_HEADING_ATTRIBUTES;
-
-    let parser = Parser::new_ext(markdown, options);
-
-    // Collect headings while processing
-    let mut headings = Vec::new();
-    let mut current_heading: Option<(u8, String, String)> = None; // (level, id, text)
-
-    // Track code block state for syntax highlighting
-    let mut in_code_block = false;
-    let mut code_block_lang = String::new();
-    let mut code_block_content = String::new();
-
-    // Collect code blocks for batch highlighting
-    let mut code_blocks: Vec<(String, String)> = Vec::new(); // (code, language)
-
-    // Transform events to resolve @/ links, extract headings, and handle code blocks
-    // Code blocks get a placeholder that we'll replace after async highlighting
-    let mut output_events: Vec<Event> = Vec::new();
-
-    for event in parser {
-        match event {
-            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(ref lang))) => {
-                in_code_block = true;
-                code_block_lang = lang.to_string();
-                code_block_content.clear();
-                // Don't emit start event - we'll emit raw HTML instead
-            }
-            Event::Start(Tag::CodeBlock(CodeBlockKind::Indented)) => {
-                in_code_block = true;
-                code_block_lang.clear();
-                code_block_content.clear();
-            }
-            Event::End(pulldown_cmark::TagEnd::CodeBlock) => {
-                if in_code_block {
-                    // Store code block for later async highlighting
-                    let idx = code_blocks.len();
-                    code_blocks.push((
-                        std::mem::take(&mut code_block_content),
-                        std::mem::take(&mut code_block_lang),
-                    ));
-                    // Insert placeholder that we'll replace after highlighting
-                    output_events.push(Event::Html(
-                        format!("<!--CODE_BLOCK_PLACEHOLDER_{idx}-->").into(),
-                    ));
-                    in_code_block = false;
-                }
-            }
-            Event::Text(ref text) if in_code_block => {
-                code_block_content.push_str(text);
-            }
-            Event::Start(Tag::Heading { level, ref id, .. }) => {
-                let level_num = match level {
-                    HeadingLevel::H1 => 1,
-                    HeadingLevel::H2 => 2,
-                    HeadingLevel::H3 => 3,
-                    HeadingLevel::H4 => 4,
-                    HeadingLevel::H5 => 5,
-                    HeadingLevel::H6 => 6,
-                };
-                current_heading = Some((
-                    level_num,
-                    id.as_ref().map(|s| s.to_string()).unwrap_or_default(),
-                    String::new(),
-                ));
-                output_events.push(event);
-            }
-            Event::End(pulldown_cmark::TagEnd::Heading(_)) => {
-                if let Some((level, id, text)) = current_heading.take() {
-                    // Generate ID from text if not provided
-                    let id = if id.is_empty() { slugify(&text) } else { id };
-                    headings.push(Heading {
-                        title: text,
-                        id,
-                        level,
-                    });
-                }
-                output_events.push(event);
-            }
-            Event::Text(ref text) | Event::Code(ref text) => {
-                if let Some((_, _, ref mut heading_text)) = current_heading {
-                    heading_text.push_str(text);
-                }
-                output_events.push(event);
-            }
-            Event::Start(Tag::Link {
-                link_type,
-                dest_url,
-                title,
-                id,
-            }) => {
-                let resolved = resolve_internal_link(&dest_url);
-                output_events.push(Event::Start(Tag::Link {
-                    link_type,
-                    dest_url: resolved.into(),
-                    title,
-                    id,
-                }));
-            }
-            other => {
-                output_events.push(other);
-            }
-        }
-    }
-
-    // Highlight all code blocks in parallel
-    let num_code_blocks = code_blocks.len();
-    if num_code_blocks > 0 {
-        tracing::debug!(
-            num_code_blocks = num_code_blocks,
-            "render_markdown: highlighting code blocks in parallel"
-        );
-    }
-    let highlight_futures: Vec<_> = code_blocks
-        .iter()
-        .map(|(code, lang)| highlight_code_block_async(code, lang))
-        .collect();
-    let highlighted_blocks = futures::future::join_all(highlight_futures).await;
-    if num_code_blocks > 0 {
-        tracing::debug!(
-            num_code_blocks = num_code_blocks,
-            "render_markdown: all code blocks highlighted"
-        );
-    }
-
-    // Generate HTML with placeholders
-    let mut html_output = String::new();
-    html::push_html(&mut html_output, output_events.into_iter());
-
-    // Replace placeholders with highlighted code
-    for (idx, highlighted_html) in highlighted_blocks.into_iter().enumerate() {
-        let placeholder = format!("<!--CODE_BLOCK_PLACEHOLDER_{idx}-->");
-        html_output = html_output.replace(&placeholder, &highlighted_html);
-    }
-
-    // Also extract headings from any inline HTML in the output
-    let html_headings = extract_html_headings(&html_output);
-
-    // Merge: add HTML headings that aren't duplicates (by id)
-    for h in html_headings {
-        if !headings.iter().any(|existing| existing.id == h.id) {
-            headings.push(h);
-        }
-    }
-
-    // Inject id attributes into headings that don't have them
-    let html_output = inject_heading_ids(&html_output, &headings);
-
-    (html_output, headings)
-}
-
-/// Highlight a code block using the syntax highlighting plugin (async version)
-async fn highlight_code_block_async(code: &str, language: &str) -> String {
-    use crate::plugins::highlight_code;
-
-    // Try to use the syntax highlighting plugin
-    if let Some(result) = highlight_code(code, language).await {
-        // Wrap in pre/code tags with language class
-        let lang_class = if language.is_empty() {
-            String::new()
-        } else {
-            format!(" class=\"language-{}\"", html_escape_attr(language))
-        };
-        format!("<pre><code{}>{}</code></pre>", lang_class, result.html)
-    } else {
-        // Fallback: escape HTML and wrap in pre/code
-        let lang_class = if language.is_empty() {
-            String::new()
-        } else {
-            format!(" class=\"language-{}\"", html_escape_attr(language))
-        };
-        format!(
-            "<pre><code{}>{}</code></pre>",
-            lang_class,
-            html_escape_content(code)
-        )
-    }
-}
-
 /// Escape HTML attribute value
 fn html_escape_attr(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -1531,127 +1372,6 @@ fn html_escape_content(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
-}
-
-/// Convert text to a URL-safe slug for heading IDs
-fn slugify(text: &str) -> String {
-    text.to_lowercase()
-        .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .split('-')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-")
-}
-
-/// Extract headings from HTML content (for inline HTML headings)
-fn extract_html_headings(html: &str) -> Vec<Heading> {
-    use regex::Regex;
-
-    let mut headings = Vec::new();
-
-    // Match <h1> through <h6> tags with optional id attribute
-    // Pattern: <h[1-6](?:\s+id="([^"]*)")?>([^<]*)</h[1-6]>
-    let re = Regex::new(r#"<h([1-6])(?:\s[^>]*?id="([^"]*)"[^>]*)?>([^<]*)</h[1-6]>"#).unwrap();
-
-    for cap in re.captures_iter(html) {
-        let level: u8 = cap[1].parse().unwrap_or(1);
-        let id = cap
-            .get(2)
-            .map(|m| m.as_str().to_string())
-            .unwrap_or_default();
-        let title = cap[3].trim().to_string();
-
-        if !title.is_empty() {
-            let id = if id.is_empty() { slugify(&title) } else { id };
-            headings.push(Heading { title, id, level });
-        }
-    }
-
-    headings
-}
-
-/// Inject id attributes into HTML headings that don't have them
-fn inject_heading_ids(html: &str, headings: &[Heading]) -> String {
-    use regex::Regex;
-
-    let strip_tags = Regex::new(r"<[^>]+>").unwrap();
-    let mut result = html.to_string();
-
-    // Process each heading level separately (h1 through h6)
-    for level in 1..=6 {
-        let pattern = format!(r#"<h{level}(\s[^>]*)?>(.*?)</h{level}>"#);
-        let re = Regex::new(&pattern).unwrap();
-
-        result = re
-            .replace_all(&result, |caps: &regex::Captures| {
-                let attrs = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-                let content = &caps[2];
-
-                // Skip if already has an id attribute
-                if attrs.contains("id=") {
-                    return caps[0].to_string();
-                }
-
-                // Strip HTML tags from content to get plain text
-                let plain_text = strip_tags.replace_all(content, "").to_string();
-
-                // Look up the ID from our headings list by matching the plain text
-                let id = headings
-                    .iter()
-                    .find(|h| h.title == plain_text.trim())
-                    .map(|h| h.id.clone())
-                    .unwrap_or_else(|| slugify(plain_text.trim()));
-
-                format!(r#"<h{level} id="{id}"{attrs}>{content}</h{level}>"#)
-            })
-            .to_string();
-    }
-
-    result
-}
-
-/// Resolve Zola-style @/ internal links to URL paths
-fn resolve_internal_link(link: &str) -> String {
-    if let Some(path) = link.strip_prefix("@/") {
-        // Split off fragment (e.g., #anchor) before processing
-        let (path_part, fragment) = match path.find('#') {
-            Some(idx) => (&path[..idx], Some(&path[idx..])),
-            None => (path, None),
-        };
-
-        // Convert @/learn/_index.md -> /learn
-        // Convert @/learn/page.md -> /learn/page
-        let mut path = path_part.to_string();
-
-        // Remove .md extension
-        if path.ends_with(".md") {
-            path = path[..path.len() - 3].to_string();
-        }
-
-        // Handle _index -> parent directory
-        if path.ends_with("/_index") {
-            path = path[..path.len() - 7].to_string();
-        } else if path == "_index" {
-            path = String::new();
-        }
-
-        // Ensure leading slash, no trailing slash (except for root)
-        let base = if path.is_empty() {
-            "/".to_string()
-        } else {
-            format!("/{path}")
-        };
-
-        // Re-append fragment if present
-        match fragment {
-            Some(frag) => format!("{base}{frag}"),
-            None => base,
-        }
-    } else {
-        link.to_string()
-    }
 }
 
 // ============================================================================
