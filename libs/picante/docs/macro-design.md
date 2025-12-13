@@ -15,7 +15,9 @@ Provide `#[picante::input]` and `#[picante::tracked]` macros that generate the b
 
 ## `#[picante::input]` - Input Structs
 
-### User writes:
+### Keyed Inputs
+
+Inputs with a `#[key]` field create multiple instances indexed by that key:
 
 ```rust
 #[picante::input]
@@ -27,6 +29,22 @@ pub struct SourceFile {
     pub last_modified: i64,
 }
 ```
+
+### Singleton Inputs
+
+Inputs without a `#[key]` field are singletons — only one instance exists:
+
+```rust
+#[picante::input]
+pub struct Config {
+    pub debug: bool,
+    pub timeout: u64,
+}
+```
+
+Singletons generate a different API:
+- `Config::set(&db, debug, timeout)` — set the singleton
+- `Config::get(&db)` — returns `Option<Config>` (None if not set)
 
 ### Macro generates:
 
@@ -156,6 +174,7 @@ async fn parse_source_impl<DB: Db>(db: &DB, file: SourceFile) -> picante::Picant
     inputs(SourceFile, TemplateFile),
     interned(CharSet),
     tracked(parse_source, render_template),
+    db_trait(Db),
 )]
 pub struct Database {
     // Custom fields are forwarded to `Database::new(...)`
@@ -163,7 +182,11 @@ pub struct Database {
 }
 ```
 
-`inputs(...)` can also be written as `input(...)`.
+**Options:**
+- `inputs(...)` / `input(...)` — register input ingredients
+- `interned(...)` — register interned ingredients
+- `tracked(...)` — register tracked queries
+- `db_trait(Name)` — generate a combined trait with all `Has*` bounds (defaults to `{StructName}Trait`)
 
 ### Macro generates:
 
@@ -230,6 +253,20 @@ impl Database {
         }
     }
 }
+
+/// Combined trait for all ingredients (from db_trait(Db))
+pub trait Db:
+    HasSourceFileIngredient
+    + HasTemplateFileIngredient
+    + HasCharSetIngredient
+    + HasParseSourceQuery
+    + HasRenderTemplateQuery
+    + picante::HasRuntime
+    + picante::IngredientLookup
+{
+}
+
+impl Db for Database {}
 ```
 
 ---
@@ -273,10 +310,12 @@ pub type CharSetIngredient = picante::InternedIngredient<Vec<char>>;
 ## Key Design Decisions
 
 1. **Trait-per-ingredient**: Each ingredient gets a `Has*` trait, enabling modular composition
-2. **Async by default**: All tracked queries are async (can use `.await` inside)
-3. **Explicit registration**: QueryKindIds are assigned at compile time via macro
-4. **Facet for persistence**: Data types derive `facet::Facet` for snapshot serialization
-5. **Key field annotation**: `#[key]` marks which field is the lookup key for inputs
+2. **Combined trait**: `db_trait(Name)` generates a single trait with all bounds for ergonomic use
+3. **Async by default**: All tracked queries are async (can use `.await` inside)
+4. **Explicit registration**: QueryKindIds are assigned at compile time via macro
+5. **Facet for persistence**: Data types derive `facet::Facet` for snapshot serialization
+6. **Key field annotation**: `#[key]` marks which field is the lookup key for keyed inputs
+7. **Singleton inputs**: Inputs without `#[key]` are singletons with `set`/`get` API
 
 ---
 
