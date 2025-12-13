@@ -76,10 +76,23 @@ pub fn highlight_code_rapace(code: &str, language: &str) -> Option<HighlightResu
 - But we need single-threaded runtime for plugins (confirmed in commit a464ad6)
 - **block_on is FORBIDDEN**
 
-**Why It Exists**: This function is called from synchronous context (likely from facet queries) but needs to make async RPC calls to the plugin.
+**Why It Exists**:
+- Called from `queries.rs:1460` → `highlight_code_block()`
+- Which is called from markdown processing loop at `queries.rs:1375`
+- This runs inside facet queries (synchronous context)
+- But needs to make async RPC call to arborium plugin
+
+**Call Chain**:
+```
+facet query (sync)
+  → markdown_to_html() (sync)
+    → Event::End(CodeBlock) handler
+      → highlight_code_block() (sync)
+        → plugins::highlight_code() (sync - SHOULD BE ASYNC)
+          → client.highlight_code() (async RPC call)
+```
 
 **TODO**:
-1. Investigate WHERE `highlight_code_rapace` is called from
 2. Determine if the caller can be made async
 3. If not, consider alternative architectures:
    - Pre-compute all syntax highlighting before entering sync context
