@@ -35,11 +35,8 @@ use tokio::process::Command;
 use tracing::{debug, info, warn};
 
 /// SHM configuration used for rapace plugins.
-const PLUGIN_SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
-    ring_capacity: 256,
-    slot_size: 65536,
-    slot_count: 128,
-};
+/// Must match dodeca_plugin_runtime::SHM_CONFIG
+const PLUGIN_SHM_CONFIG: ShmSessionConfig = dodeca_plugin_runtime::SHM_CONFIG;
 
 /// Decoded image data returned by plugins
 pub type DecodedImage = mod_image_proto::DecodedImage;

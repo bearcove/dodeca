@@ -84,9 +84,9 @@ pub fn add_tracing_service(
 
 /// SHM configuration - must match host's config
 pub const SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
-    ring_capacity: 256, // 256 descriptors in flight
-    slot_size: 65536,   // 64KB per slot
-    slot_count: 128,    // 128 slots = 8MB total
+    ring_capacity: 1024, // 1024 descriptors in flight
+    slot_size: 65536,    // 64KB per slot
+    slot_count: 512,     // 512 slots = 32MB total (increased from 128/8MB)
 };
 
 /// Run a plugin service with minimal boilerplate

@@ -261,12 +261,8 @@ pub fn convert_server_command(cmd: ServerCommand) -> crate::tui::ServerCommand {
 type TuiTransport = ShmTransport;
 
 /// SHM configuration for TUI communication
-/// Using same config as HTTP plugin for consistency
-const SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
-    ring_capacity: 256,
-    slot_size: 65536,
-    slot_count: 128,
-};
+/// Must match dodeca_plugin_runtime::SHM_CONFIG
+const SHM_CONFIG: ShmSessionConfig = dodeca_plugin_runtime::SHM_CONFIG;
 
 /// Find the TUI plugin binary path (next to the main executable)
 pub fn find_tui_plugin_path() -> Result<PathBuf> {

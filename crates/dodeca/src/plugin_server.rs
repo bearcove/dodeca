@@ -34,13 +34,8 @@ use crate::serve::SiteServer;
 type HostTransport = ShmTransport;
 
 /// SHM configuration for plugin communication
-/// Using larger slots (64KB) and more of them (128) for content serving
-/// Total: 8MB shared memory segment
-const SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
-    ring_capacity: 256, // 256 descriptors in flight
-    slot_size: 65536,   // 64KB per slot (fits most HTML pages)
-    slot_count: 128,    // 128 slots = 8MB total
-};
+/// Must match dodeca_plugin_runtime::SHM_CONFIG
+const SHM_CONFIG: ShmSessionConfig = dodeca_plugin_runtime::SHM_CONFIG;
 
 /// Buffer size for TCP reads
 const CHUNK_SIZE: usize = 4096;
