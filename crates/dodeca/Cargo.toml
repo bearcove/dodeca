@@ -82,7 +82,6 @@ postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary seria
 
 # Devtools protocol (shared types between server and WASM client)
 dodeca-protocol = { path = "../dodeca-protocol" }
-dodeca-plugin-runtime = { path = "../dodeca-plugin-runtime" }
 
 # RPC protocol for dev server plugin
 mod-http-proto = { path = "../../mods/mod-http-proto" }
@@ -122,11 +121,13 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 
 # Misc
 camino = "1"  # UTF-8 paths
-aliri_braid = { path = "../../vendor/aliri_braid/aliri_braid" }  # Strongly-typed string wrappers (vendored with Facet support)
+strid = "2.1"  # Strongly-typed string wrappers (like aliri_braid but without syn)
 regex = "1"  # For HTML heading extraction
 
-# URL rewriting (HTML only - CSS/JS via plugins)
-lol_html = "2.7"        # Streaming HTML rewriter
+# HTML parsing and rewriting
+html5ever = "0.36"
+markup5ever_rcdom = "0.36.0+unofficial"
+lol_html = "2.7"  # Still needed for render.rs
 
 # Font subsetting is now handled via the dodeca-fonts plugin
 

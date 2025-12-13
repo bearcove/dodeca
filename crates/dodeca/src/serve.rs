@@ -434,10 +434,11 @@ impl SiteServer {
 
             // Get new HTML (re-render) - this creates a fresh snapshot
             tracing::debug!("trigger_reload: re-rendering {}", route);
-            let new_html = self.find_content(&route).and_then(|c| match c {
-                ServeContent::Html(html) => Some(html),
-                _ => None,
-            });
+            let new_html =
+                futures::executor::block_on(self.find_content(&route)).and_then(|c| match c {
+                    ServeContent::Html(html) => Some(html),
+                    _ => None,
+                });
 
             // Handle case where route was deleted (old exists, new doesn't)
             if old_html.is_some() && new_html.is_none() {
@@ -481,8 +482,7 @@ impl SiteServer {
                     }
 
                     // Try to diff using the plugin
-                    let handle = tokio::runtime::Handle::current();
-                    match handle.block_on(diff_html_plugin(&old, &new)) {
+                    match futures::executor::block_on(diff_html_plugin(&old, &new)) {
                         Some(diff_result) => {
                             if diff_result.patches.is_empty() {
                                 // DOM structure identical but HTML differs (whitespace/comments?)
@@ -540,12 +540,11 @@ impl SiteServer {
 
     /// Get current CSS path from database
     fn get_current_css_path(&self) -> Option<String> {
-        let handle = tokio::runtime::Handle::current();
         let snapshot = {
             let db = self.db.lock().ok()?;
-            handle.block_on(DatabaseSnapshot::from_database(&*db))
+            futures::executor::block_on(DatabaseSnapshot::from_database(&*db))
         };
-        let css = handle.block_on(css_output(&snapshot)).ok().flatten()?;
+        let css = futures::executor::block_on(css_output(&snapshot)).ok().flatten()?;
         Some(format!("/{}", css.cache_busted_path))
     }
 
@@ -594,17 +593,17 @@ impl SiteServer {
     }
 
     /// Find content for a given path using lazy picante queries
-    fn find_content(&self, path: &str) -> Option<ServeContent> {
-        // Snapshot pattern: lock, snapshot, release, then query
-        let handle = tokio::runtime::Handle::current();
+    async fn find_content(&self, path: &str) -> Option<ServeContent> {
+        // Snapshot pattern: create snapshot while holding lock (sync), then release
+        // Note: from_database is async but doesn't await internally, so we use block_on
         let snapshot = {
             let db = self.db.lock().ok()?;
-            handle.block_on(DatabaseSnapshot::from_database(&*db))
+            futures::executor::block_on(DatabaseSnapshot::from_database(&*db))
         };
 
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
-            let site_tree = handle.block_on(build_tree(&snapshot)).ok()?;
+            let site_tree = build_tree(&snapshot).await.ok()?;
             let routes: HashSet<String> = site_tree
                 .sections
                 .keys()
@@ -624,7 +623,7 @@ impl SiteServer {
         };
 
         let route = Route::new(route_path.clone());
-        if let Some(html) = handle.block_on(serve_html(&snapshot, route)).ok().flatten() {
+        if let Some(html) = serve_html(&snapshot, route).await.ok().flatten() {
             // Check if this is an error page and notify devtools
             if html.contains(crate::render::RENDER_ERROR_MARKER) {
                 // Extract error message HTML from between <pre> tags
@@ -698,7 +697,7 @@ impl SiteServer {
         }
 
         // 2. Try to serve CSS (check if path matches cache-busted CSS path)
-        if let Some(css) = handle.block_on(css_output(&snapshot)).ok().flatten() {
+        if let Some(css) = css_output(&snapshot).await.ok().flatten() {
             let css_url = format!("/{}", css.cache_busted_path);
             if path == css_url {
                 return Some(ServeContent::Css(css.content));
@@ -717,14 +716,10 @@ impl SiteServer {
                 use crate::queries::{image_input_hash, image_metadata};
 
                 // Get metadata and input hash (fast - no encoding)
-                let Some(metadata) = handle
-                    .block_on(image_metadata(&snapshot, *file))
-                    .ok()
-                    .flatten()
-                else {
+                let Some(metadata) = image_metadata(&snapshot, *file).await.ok().flatten() else {
                     continue;
                 };
-                let input_hash = handle.block_on(image_input_hash(&snapshot, *file)).ok()?;
+                let input_hash = image_input_hash(&snapshot, *file).await.ok()?;
 
                 // Check each possible variant URL
                 for &width in &metadata.variant_widths {
@@ -750,10 +745,7 @@ impl SiteServer {
                     );
                     if path == format!("/{jxl_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) = handle
-                            .block_on(process_image(&snapshot, *file))
-                            .ok()
-                            .flatten()
+                        if let Some(processed) = process_image(&snapshot, *file).await.ok().flatten()
                             && let Some(variant) =
                                 processed.jxl_variants.iter().find(|v| v.width == width)
                         {
@@ -783,10 +775,7 @@ impl SiteServer {
                     );
                     if path == format!("/{webp_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) = handle
-                            .block_on(process_image(&snapshot, *file))
-                            .ok()
-                            .flatten()
+                        if let Some(processed) = process_image(&snapshot, *file).await.ok().flatten()
                             && let Some(variant) =
                                 processed.webp_variants.iter().find(|v| v.width == width)
                         {
@@ -796,7 +785,7 @@ impl SiteServer {
                 }
             } else {
                 // Non-image static file
-                let output = handle.block_on(static_file_output(&snapshot, *file)).ok()?;
+                let output = static_file_output(&snapshot, *file).await.ok()?;
                 let static_url = format!("/{}", output.cache_busted_path);
                 if path == static_url {
                     let mime = mime_from_extension(path);
@@ -821,17 +810,21 @@ impl SiteServer {
     ///
     /// Returns a list of top-level scope entries that can be expanded.
     /// The `path` parameter is used to drill into nested values.
-    pub fn get_scope_for_route(&self, route_path: &str, path: &[String]) -> Vec<ScopeEntry> {
+    pub async fn get_scope_for_route(&self, route_path: &str, path: &[String]) -> Vec<ScopeEntry> {
         use facet_value::{VObject, VString};
 
-        // Snapshot pattern: lock, snapshot, release, then query
-        let handle = tokio::runtime::Handle::current();
-        let snapshot = match self.db.lock() {
-            Ok(db) => handle.block_on(DatabaseSnapshot::from_database(&*db)),
-            Err(_) => return vec![],
+        // Snapshot pattern: create snapshot while holding lock (sync), then release
+        // Note: from_database is async but doesn't await internally, so we use block_on
+        let snapshot = {
+            let db = match self.db.lock() {
+                Ok(db) => db,
+                Err(_) => return vec![],
+            };
+            // from_database is async but sync internally - use block_on to avoid Send issues
+            futures::executor::block_on(DatabaseSnapshot::from_database(&*db))
         };
 
-        let site_tree = match handle.block_on(build_tree(&snapshot)) {
+        let site_tree = match build_tree(&snapshot).await {
             Ok(tree) => tree,
             Err(_) => return vec![],
         };
@@ -987,8 +980,8 @@ impl SiteServer {
         }
 
         // Load actual data files
-        let raw_data = handle
-            .block_on(crate::queries::load_all_data_raw(&snapshot))
+        let raw_data = crate::queries::load_all_data_raw(&snapshot)
+            .await
             .unwrap_or_default();
         let data_value = crate::data::parse_raw_data_files(&raw_data);
         scope.insert(VString::from("data"), data_value);
@@ -999,22 +992,22 @@ impl SiteServer {
     }
 
     /// Evaluate an expression against the scope for a route (for REPL)
-    pub fn eval_expression_for_route(
+    pub async fn eval_expression_for_route(
         &self,
         route_path: &str,
         expression: &str,
     ) -> Result<ScopeValue, String> {
         use facet_value::{VObject, VString};
 
-        // Snapshot pattern: lock, snapshot, release, then query
-        let handle = tokio::runtime::Handle::current();
+        // Snapshot pattern: create snapshot while holding lock (sync), then release
+        // Note: from_database is async but doesn't await internally, so we use block_on
         let snapshot = match self.db.lock() {
-            Ok(db) => handle.block_on(DatabaseSnapshot::from_database(&*db)),
+            Ok(db) => futures::executor::block_on(DatabaseSnapshot::from_database(&*db)),
             Err(_) => return Err("Failed to acquire database lock".to_string()),
         };
 
-        let site_tree = handle
-            .block_on(build_tree(&snapshot))
+        let site_tree = build_tree(&snapshot)
+            .await
             .map_err(|e| format!("Failed to build tree: {:?}", e))?;
 
         // Normalize route
@@ -1082,8 +1075,8 @@ impl SiteServer {
         }
 
         // Load data files
-        let raw_data = handle
-            .block_on(crate::queries::load_all_data_raw(&snapshot))
+        let raw_data = crate::queries::load_all_data_raw(&snapshot)
+            .await
             .unwrap_or_default();
         let data_value = crate::data::parse_raw_data_files(&raw_data);
         ctx.set("data", data_value);
@@ -1102,10 +1095,10 @@ impl SiteServer {
     /// Find content for RPC serving (returns protocol ServeContent type)
     ///
     /// This wraps find_content and converts the result to the protocol's ServeContent.
-    pub fn find_content_for_rpc(&self, path: &str) -> mod_http_proto::ServeContent {
+    pub async fn find_content_for_rpc(&self, path: &str) -> mod_http_proto::ServeContent {
         use mod_http_proto::ServeContent as RpcServeContent;
 
-        match self.find_content(path) {
+        match self.find_content(path).await {
             Some(ServeContent::Html(html)) => {
                 // Cache HTML for smart reload patching
                 self.cache_html(path, &html);
@@ -1143,14 +1136,13 @@ impl SiteServer {
 
     /// Find routes similar to the requested path (for 404 suggestions)
     pub fn find_similar_routes(&self, path: &str) -> Vec<(String, String)> {
-        // Snapshot pattern: lock, snapshot, release, then query
-        let handle = tokio::runtime::Handle::current();
+        // Snapshot pattern: create snapshot while holding lock (sync), then release
         let snapshot = match self.db.lock() {
-            Ok(db) => handle.block_on(DatabaseSnapshot::from_database(&*db)),
+            Ok(db) => futures::executor::block_on(DatabaseSnapshot::from_database(&*db)),
             Err(_) => return Vec::new(),
         };
 
-        let site_tree = match handle.block_on(build_tree(&snapshot)) {
+        let site_tree = match futures::executor::block_on(build_tree(&snapshot)) {
             Ok(tree) => tree,
             Err(_) => return Vec::new(),
         };

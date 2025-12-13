@@ -43,15 +43,15 @@ impl ContentService for HostContentService {
         }
 
         // Try finding content through the main find_content path
-        self.server.find_content_for_rpc(&path)
+        self.server.find_content_for_rpc(&path).await
     }
 
     async fn get_scope(&self, route: String, path: Vec<String>) -> Vec<ScopeEntry> {
-        self.server.get_scope_for_route(&route, &path)
+        self.server.get_scope_for_route(&route, &path).await
     }
 
     async fn eval_expression(&self, route: String, expression: String) -> EvalResult {
-        match self.server.eval_expression_for_route(&route, &expression) {
+        match self.server.eval_expression_for_route(&route, &expression).await {
             Ok(value) => EvalResult::Ok(value),
             Err(msg) => EvalResult::Err(msg),
         }

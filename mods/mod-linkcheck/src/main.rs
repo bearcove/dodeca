@@ -141,7 +141,7 @@ impl LinkChecker for LinkCheckerImpl {
 
 dodeca_plugin_runtime::plugin_service!(
     LinkCheckerServer<LinkCheckerImpl>,
-    LinkCheckerImpl::new()
+    LinkCheckerImpl
 );
 
 dodeca_plugin_runtime::run_plugin!(LinkCheckerImpl::new());

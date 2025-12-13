@@ -1,8 +1,0 @@
-[workspace]
-members = [
-    "aliri_braid",
-    "aliri_braid_examples",
-]
-
-# Generate README
-# cargo readme -r aliri_braid/ -o ../README.md --no-license

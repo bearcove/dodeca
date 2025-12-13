@@ -406,7 +406,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     };
 
     // Convert markdown to HTML and extract headings
-    let (html, headings) = render_markdown(&markdown);
+    let (html, headings) = render_markdown(&markdown).await;
     let body_html = HtmlBody::new(html);
 
     // Determine if this is a section (_index.md)
@@ -593,7 +593,7 @@ pub async fn optimize_svg<DB: Db>(db: &DB, file: StaticFile) -> PicanteResult<Ve
     };
 
     // Process SVG (currently passthrough)
-    match crate::svg::optimize_svg(svg_str) {
+    match crate::svg::optimize_svg(svg_str).await {
         Some(optimized) => Ok(optimized.into_bytes()),
         None => Ok(content.to_vec()),
     }
@@ -719,7 +719,7 @@ pub async fn image_metadata<DB: Db>(
         return Ok(None);
     };
     let data = image_file.content(db)?;
-    Ok(image::get_image_metadata(&data, input_format))
+    Ok(image::get_image_metadata(&data, input_format).await)
 }
 
 /// Get the input hash for an image file (for cache-busted URLs)
@@ -763,7 +763,7 @@ pub async fn process_image<DB: Db>(
 
     tracing::debug!("Image cache miss for {}", path.as_str());
 
-    let Some(processed) = image::process_image(&data, input_format) else {
+    let Some(processed) = image::process_image(&data, input_format).await else {
         return Ok(None);
     };
 
@@ -1090,7 +1090,7 @@ pub async fn static_file_output<DB: Db>(
         }
 
         // Rewrite URLs in CSS
-        let rewritten = rewrite_urls_in_css(&css_str, &path_map);
+        let rewritten = rewrite_urls_in_css(&css_str, &path_map).await;
         rewritten.into_bytes()
     } else {
         // Other static files - just load
@@ -1133,7 +1133,7 @@ pub async fn css_output<DB: Db>(db: &DB) -> PicanteResult<Option<CssOutput>> {
     }
 
     // Rewrite URLs in CSS
-    let rewritten_css = rewrite_urls_in_css(&css_content.0, &static_path_map);
+    let rewritten_css = rewrite_urls_in_css(&css_content.0, &static_path_map).await;
 
     // Hash and create cache-busted path
     let hash = content_hash(rewritten_css.as_bytes());
@@ -1265,7 +1265,7 @@ pub async fn serve_html<DB: Db>(db: &DB, route: Route) -> PicanteResult<Option<S
     }
 
     // Rewrite URLs in HTML
-    let rewritten_html = rewrite_urls_in_html(&raw_html, &path_map);
+    let rewritten_html = rewrite_urls_in_html(&raw_html, &path_map).await;
 
     // Transform <img> to <picture> for responsive images
     let transformed_html = transform_images_to_picture(&rewritten_html, &image_variants);
@@ -1274,7 +1274,7 @@ pub async fn serve_html<DB: Db>(db: &DB, route: Route) -> PicanteResult<Option<S
     let final_html = if raw_html.contains(crate::render::RENDER_ERROR_MARKER) {
         transformed_html
     } else {
-        crate::svg::minify_html(&transformed_html)
+        crate::svg::minify_html(&transformed_html).await
     };
 
     Ok(Some(final_html))
@@ -1333,7 +1333,7 @@ fn split_frontmatter(content: &str) -> (String, String) {
 }
 
 /// Render markdown to HTML, resolving internal links and extracting headings
-fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
+async fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
     use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag};
 
     let options = Options::ENABLE_TABLES
@@ -1352,7 +1352,11 @@ fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
     let mut code_block_lang = String::new();
     let mut code_block_content = String::new();
 
+    // Collect code blocks for batch highlighting
+    let mut code_blocks: Vec<(String, String)> = Vec::new(); // (code, language)
+
     // Transform events to resolve @/ links, extract headings, and handle code blocks
+    // Code blocks get a placeholder that we'll replace after async highlighting
     let mut output_events: Vec<Event> = Vec::new();
 
     for event in parser {
@@ -1370,13 +1374,17 @@ fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
             }
             Event::End(pulldown_cmark::TagEnd::CodeBlock) => {
                 if in_code_block {
-                    // Apply syntax highlighting
-                    let highlighted_html =
-                        highlight_code_block(&code_block_content, &code_block_lang);
-                    output_events.push(Event::Html(highlighted_html.into()));
+                    // Store code block for later async highlighting
+                    let idx = code_blocks.len();
+                    code_blocks.push((
+                        std::mem::take(&mut code_block_content),
+                        std::mem::take(&mut code_block_lang),
+                    ));
+                    // Insert placeholder that we'll replace after highlighting
+                    output_events.push(Event::Html(
+                        format!("<!--CODE_BLOCK_PLACEHOLDER_{idx}-->").into(),
+                    ));
                     in_code_block = false;
-                    code_block_lang.clear();
-                    code_block_content.clear();
                 }
             }
             Event::Text(ref text) if in_code_block => {
@@ -1436,8 +1444,35 @@ fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
         }
     }
 
+    // Highlight all code blocks in parallel
+    let num_code_blocks = code_blocks.len();
+    if num_code_blocks > 0 {
+        tracing::debug!(
+            num_code_blocks = num_code_blocks,
+            "render_markdown: highlighting code blocks in parallel"
+        );
+    }
+    let highlight_futures: Vec<_> = code_blocks
+        .iter()
+        .map(|(code, lang)| highlight_code_block_async(code, lang))
+        .collect();
+    let highlighted_blocks = futures::future::join_all(highlight_futures).await;
+    if num_code_blocks > 0 {
+        tracing::debug!(
+            num_code_blocks = num_code_blocks,
+            "render_markdown: all code blocks highlighted"
+        );
+    }
+
+    // Generate HTML with placeholders
     let mut html_output = String::new();
     html::push_html(&mut html_output, output_events.into_iter());
+
+    // Replace placeholders with highlighted code
+    for (idx, highlighted_html) in highlighted_blocks.into_iter().enumerate() {
+        let placeholder = format!("<!--CODE_BLOCK_PLACEHOLDER_{idx}-->");
+        html_output = html_output.replace(&placeholder, &highlighted_html);
+    }
 
     // Also extract headings from any inline HTML in the output
     let html_headings = extract_html_headings(&html_output);
@@ -1455,12 +1490,12 @@ fn render_markdown(markdown: &str) -> (String, Vec<Heading>) {
     (html_output, headings)
 }
 
-/// Highlight a code block using the syntax highlighting plugin
-fn highlight_code_block(code: &str, language: &str) -> String {
+/// Highlight a code block using the syntax highlighting plugin (async version)
+async fn highlight_code_block_async(code: &str, language: &str) -> String {
     use crate::plugins::highlight_code;
 
     // Try to use the syntax highlighting plugin
-    if let Some(result) = highlight_code(code, language) {
+    if let Some(result) = highlight_code(code, language).await {
         // Wrap in pre/code tags with language class
         let lang_class = if language.is_empty() {
             String::new()

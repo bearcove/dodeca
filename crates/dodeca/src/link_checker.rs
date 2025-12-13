@@ -14,7 +14,6 @@ use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Duration;
-use tokio::runtime::Handle;
 use tracing::warn;
 
 /// A broken link found during checking
@@ -249,9 +248,8 @@ pub async fn check_external_links(
             timeout_secs: 10,
         };
 
-        // Block on the plugin call within the current runtime
-        let handle = Handle::current();
-        let plugin_result = handle.block_on(check_urls_plugin(urls_to_check, plugin_options));
+        // Call the plugin
+        let plugin_result = check_urls_plugin(urls_to_check, plugin_options).await;
 
         if let Some(result) = plugin_result {
             // Map results back to URLs and update cache

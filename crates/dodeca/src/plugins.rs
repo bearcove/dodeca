@@ -35,8 +35,12 @@ use tokio::process::Command;
 use tracing::{debug, info, warn};
 
 /// SHM configuration used for rapace plugins.
-/// Must match dodeca_plugin_runtime::SHM_CONFIG
-const PLUGIN_SHM_CONFIG: ShmSessionConfig = dodeca_plugin_runtime::SHM_CONFIG;
+/// This must match the SHM_CONFIG in dodeca-plugin-runtime for plugins to connect.
+const PLUGIN_SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
+    ring_capacity: 1024, // 1024 descriptors in flight
+    slot_size: 65536,    // 64KB per slot
+    slot_count: 512,     // 512 slots = 32MB total
+};
 
 /// Decoded image data returned by plugins
 pub type DecodedImage = mod_image_proto::DecodedImage;
@@ -935,20 +939,34 @@ pub async fn diff_html_plugin(old_html: &str, new_html: &str) -> Option<DiffResu
 /// Highlight source code using the rapace syntax highlight service.
 ///
 /// Returns the code with syntax highlighting applied as HTML, or None if no service is available.
-pub fn highlight_code(code: &str, language: &str) -> Option<HighlightResult> {
-    // Get the syntax highlight service client
+pub async fn highlight_code(code: &str, language: &str) -> Option<HighlightResult> {
     let client = syntax_highlight_client()?;
-
-    // Use block_in_place to allow blocking inside tokio runtime
-    // This moves the blocking operation to a blocking thread pool
-    let code = code.to_string();
-    let language = language.to_string();
-    match tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(client.highlight_code(code, language))
-    }) {
-        Ok(result) => Some(result),
+    let code_len = code.len();
+    tracing::debug!(
+        language = language,
+        code_len = code_len,
+        "highlight_code: sending RPC request"
+    );
+    match client
+        .highlight_code(code.to_string(), language.to_string())
+        .await
+    {
+        Ok(result) => {
+            tracing::debug!(
+                language = language,
+                code_len = code_len,
+                html_len = result.html.len(),
+                "highlight_code: RPC success"
+            );
+            Some(result)
+        }
         Err(e) => {
-            warn!("syntax highlight service call failed: {}", e);
+            warn!(
+                language = language,
+                code_len = code_len,
+                error = %e,
+                "highlight_code: RPC failed"
+            );
             None
         }
     }

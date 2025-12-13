@@ -47,59 +47,55 @@ Investigation into memory exhaustion issues with dodeca. Found and fixed multipl
 
 **Permanent Fix**: Needs implementation in facet-rs/facet (add memory limits, validate sizes against buffer length, incremental allocation).
 
-## Issues Remaining ❌
+## Issues Partially Fixed ⚠️
 
-### 1. CRITICAL: `block_in_place` and `block_on` Forbidden
+### 1. `block_in_place` and `block_on` Removal (Ongoing)
 
-**Location**: `crates/dodeca/src/plugins.rs:946`
+**Status**: Major progress made. Core RPC-intensive functions now properly async.
 
-**Current Code**:
-```rust
-pub fn highlight_code_rapace(code: &str, language: &str) -> Option<HighlightResult> {
-    let client = syntax_highlight_client()?;
-    let code = code.to_string();
-    let language = language.to_string();
-    match tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(client.highlight_code(code, language))
-    }) {
-        Ok(result) => Some(result),
-        Err(e) => {
-            warn!("syntax highlight service call failed: {}", e);
-            None
-        }
-    }
-}
-```
+#### Fixed ✅
 
-**Problem**:
-- `block_in_place` requires multi-threaded runtime
-- But we need single-threaded runtime for plugins (confirmed in commit a464ad6)
-- **block_on is FORBIDDEN**
+1. **`highlight_code` in plugins.rs** - Made fully async
+   - Removed `block_in_place` / `block_on` wrapper
+   - Updated `render_markdown` in queries.rs to use two-pass approach:
+     - First pass: collect code blocks synchronously during markdown parsing
+     - Second pass: highlight all code blocks in parallel using async
+   - Avoids Send issues with markdown parser state
 
-**Why It Exists**:
-- Called from `queries.rs:1460` → `highlight_code_block()`
-- Which is called from markdown processing loop at `queries.rs:1375`
-- This runs inside facet queries (synchronous context)
-- But needs to make async RPC call to arborium plugin
+2. **URL rewriting in url_rewrite.rs** - Replaced lol_html with html5ever
+   - lol_html uses sync callbacks that couldn't await
+   - html5ever allows full DOM manipulation then serialization
+   - `rewrite_urls_in_html`, `rewrite_urls_in_css`, `rewrite_string_literals_in_js` now async
+   - Two-pass approach: parse/collect sync (drops !Send RcDom), then process async
 
-**Call Chain**:
-```
-facet query (sync)
-  → markdown_to_html() (sync)
-    → Event::End(CodeBlock) handler
-      → highlight_code_block() (sync)
-        → plugins::highlight_code() (sync - SHOULD BE ASYNC)
-          → client.highlight_code() (async RPC call)
-```
+3. **Minification in svg.rs** - Made fully async
+   - `minify_html` and `optimize_svg` now async
+   - Updated callers in queries.rs
 
-**TODO**:
-2. Determine if the caller can be made async
-3. If not, consider alternative architectures:
-   - Pre-compute all syntax highlighting before entering sync context
-   - Use message passing / channels instead of direct async calls
-   - Restructure query system to support async operations
+4. **Clippy lint added** - See `clippy.toml`
+   ```toml
+   { path = "tokio::runtime::Handle::block_on", reason = "Avoid blocking on async - make function async instead" },
+   { path = "tokio::runtime::Runtime::block_on", reason = "Avoid blocking on async (except at entry point) - make function async instead" },
+   { path = "tokio::task::block_in_place", reason = "Avoid block_in_place - make function async instead" },
+   ```
 
-**Action**: Add clippy lint to forbid `block_on` usage.
+5. **`link_checker.rs`** - Made fully async
+   - `check_external_links` was already async but used `block_on` internally
+   - Simply replaced `block_on` with `.await`
+
+#### Remaining ❌
+
+Clippy now warns on remaining violations (23 total):
+
+| File | Count | Notes |
+|------|-------|-------|
+| serve.rs | 20 | RPC responders for mod-http (sync methods calling async queries) |
+| main.rs | 2 | Entry points (acceptable) |
+| search.rs | 1 | CPU-intensive, runs in separate thread (intentional) |
+
+**serve.rs** contains methods that respond to RPC requests from mod-http (which uses axum). These methods are sync but need to call async database queries, hence the `block_on`. Making these async would require changes to how the RPC server handles requests.
+
+**search.rs** is intentional - pagefind index building is CPU-intensive and runs in a dedicated thread via `std::thread::spawn`. The `block_on` is needed to access the tokio runtime from that thread.
 
 ### 2. Pending RPC Call Queue Exhaustion
 
@@ -197,14 +193,18 @@ systemd-run --user --scope -p MemoryMax=2G \
 
 ## Next Steps (Priority Order)
 
-1. **CRITICAL**: Remove `block_in_place` / `block_on` usage in `highlight_code_rapace`
-   - Investigate call sites
-   - Make caller async if possible
-   - Add clippy lint to prevent future usage
+1. ✅ **DONE**: Remove `block_in_place` / `block_on` from core query functions
+   - `highlight_code` - DONE
+   - `rewrite_urls_in_html/css/js` - DONE (replaced lol_html with html5ever)
+   - `minify_html` / `optimize_svg` - DONE
+   - `image.rs` functions - DONE (9 calls removed)
+   - `link_checker.rs` - DONE (1 call removed)
+   - Clippy lint added to prevent future usage
 
-2. **HIGH**: Fix pending RPC call queue exhaustion
-   - Likely caused by #1
-   - Add backpressure if needed
+2. **MEDIUM**: Fix remaining `block_on` calls in serve.rs (20 calls)
+   - These are actix-web handlers - would require architectural changes
+   - Options: migrate to async web framework, or use `spawn_blocking`
+   - Lower priority since dev server is less critical than build path
 
 3. **MEDIUM**: Monitor facet-rs/facet#1285 for memory limit implementation
    - Once available, add deserialization limits to cache loading
@@ -225,6 +225,11 @@ systemd-run --user --scope -p MemoryMax=2G \
 All changes are on branch: `memory-mystery`
 
 Latest commits:
+- (pending) - Make svg.rs functions async, add clippy lint
+- (pending) - Replace lol_html with html5ever for async URL rewriting
+- (pending) - Make highlight_code async with two-pass approach
+- `88ebb09` - Add call chain analysis for block_in_place usage
+- `6e5ccf7` - Add memory investigation handoff
 - `7a83150` - Add dodeca-plugin-runtime dependency
 - `ac62ee1` - Increase SHM capacity
 - `5fe392e` - Migrate mod-tui

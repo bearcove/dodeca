@@ -11,7 +11,6 @@
 //! - Thumbhash placeholders for instant loading
 
 use crate::plugins::{self, DecodedImage};
-use tokio::runtime::Handle;
 
 /// Standard responsive breakpoints (in pixels)
 /// Only widths smaller than the original will be generated
@@ -99,56 +98,48 @@ pub struct ProcessedImageSet {
 
 /// Get dimensions of an image without fully decoding it
 #[allow(dead_code)]
-pub fn get_dimensions(data: &[u8], format: InputFormat) -> Option<(u32, u32)> {
-    let decoded = decode_image(data, format)?;
+pub async fn get_dimensions(data: &[u8], format: InputFormat) -> Option<(u32, u32)> {
+    let decoded = decode_image(data, format).await?;
     Some((decoded.width, decoded.height))
 }
 
 /// Decode an image from bytes using the appropriate plugin
-fn decode_image(data: &[u8], format: InputFormat) -> Option<DecodedImage> {
-    let handle = Handle::current();
+async fn decode_image(data: &[u8], format: InputFormat) -> Option<DecodedImage> {
     match format {
-        InputFormat::Png => handle.block_on(plugins::decode_png_plugin(data)),
-        InputFormat::Jpg => handle.block_on(plugins::decode_jpeg_plugin(data)),
-        InputFormat::Gif => handle.block_on(plugins::decode_gif_plugin(data)),
-        InputFormat::WebP => handle.block_on(plugins::decode_webp_plugin(data)),
-        InputFormat::Jxl => handle.block_on(plugins::decode_jxl_plugin(data)),
+        InputFormat::Png => plugins::decode_png_plugin(data).await,
+        InputFormat::Jpg => plugins::decode_jpeg_plugin(data).await,
+        InputFormat::Gif => plugins::decode_gif_plugin(data).await,
+        InputFormat::WebP => plugins::decode_webp_plugin(data).await,
+        InputFormat::Jxl => plugins::decode_jxl_plugin(data).await,
     }
 }
 
 /// Resize an image to a target width, maintaining aspect ratio
-fn resize_image(decoded: &DecodedImage, target_width: u32) -> Option<DecodedImage> {
-    let handle = Handle::current();
-    handle.block_on(plugins::resize_image_plugin(
+async fn resize_image(decoded: &DecodedImage, target_width: u32) -> Option<DecodedImage> {
+    plugins::resize_image_plugin(
         &decoded.pixels,
         decoded.width,
         decoded.height,
         decoded.channels,
         target_width,
-    ))
+    )
+    .await
 }
 
 /// Generate a thumbhash and encode it as a data URL
-fn generate_thumbhash_data_url(decoded: &DecodedImage) -> Option<String> {
-    let handle = Handle::current();
-    handle.block_on(plugins::generate_thumbhash_plugin(
-        &decoded.pixels,
-        decoded.width,
-        decoded.height,
-    ))
+async fn generate_thumbhash_data_url(decoded: &DecodedImage) -> Option<String> {
+    plugins::generate_thumbhash_plugin(&decoded.pixels, decoded.width, decoded.height).await
 }
 
 /// Encode pixels to WebP format (via plugin)
-fn encode_webp(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
-    let handle = Handle::current();
-    handle.block_on(plugins::encode_webp_plugin(pixels, width, height, 82))
+async fn encode_webp(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
+    plugins::encode_webp_plugin(pixels, width, height, 82).await
 }
 
 /// Encode pixels to JPEG-XL format (via plugin)
-fn encode_jxl(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
+async fn encode_jxl(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     // Quality 80 maps to distance ~3 in the plugin (high quality)
-    let handle = Handle::current();
-    handle.block_on(plugins::encode_jxl_plugin(pixels, width, height, 80))
+    plugins::encode_jxl_plugin(pixels, width, height, 80).await
 }
 
 /// Image metadata without the processed bytes
@@ -166,10 +157,10 @@ pub struct ImageMetadata {
 }
 
 /// Get image metadata without processing (fast - decode only, no encode)
-pub fn get_image_metadata(data: &[u8], input_format: InputFormat) -> Option<ImageMetadata> {
-    let decoded = decode_image(data, input_format)?;
+pub async fn get_image_metadata(data: &[u8], input_format: InputFormat) -> Option<ImageMetadata> {
+    let decoded = decode_image(data, input_format).await?;
     let (width, height) = (decoded.width, decoded.height);
-    let thumbhash_data_url = generate_thumbhash_data_url(&decoded)?;
+    let thumbhash_data_url = generate_thumbhash_data_url(&decoded).await?;
 
     // Compute which widths we'll generate (same logic as process_image)
     let mut variant_widths: Vec<u32> = RESPONSIVE_WIDTHS
@@ -191,12 +182,12 @@ pub fn get_image_metadata(data: &[u8], input_format: InputFormat) -> Option<Imag
 /// Process an image and generate all variants
 ///
 /// Returns None if the image cannot be processed (unsupported format, decode error, etc.)
-pub fn process_image(data: &[u8], input_format: InputFormat) -> Option<ProcessedImageSet> {
-    let decoded = decode_image(data, input_format)?;
+pub async fn process_image(data: &[u8], input_format: InputFormat) -> Option<ProcessedImageSet> {
+    let decoded = decode_image(data, input_format).await?;
     let (original_width, original_height) = (decoded.width, decoded.height);
 
     // Generate thumbhash placeholder
-    let thumbhash_data_url = generate_thumbhash_data_url(&decoded)?;
+    let thumbhash_data_url = generate_thumbhash_data_url(&decoded).await?;
 
     // Determine which widths to generate (only those smaller than original, plus original)
     let mut widths: Vec<u32> = RESPONSIVE_WIDTHS
@@ -222,13 +213,13 @@ pub fn process_image(data: &[u8], input_format: InputFormat) -> Option<Processed
                 channels: decoded.channels,
             }
         } else {
-            resize_image(&decoded, width)?
+            resize_image(&decoded, width).await?
         };
 
         let height = resized.height;
 
         // Encode to both formats
-        if let Some(jxl_data) = encode_jxl(&resized.pixels, resized.width, resized.height) {
+        if let Some(jxl_data) = encode_jxl(&resized.pixels, resized.width, resized.height).await {
             jxl_variants.push(ImageVariant {
                 data: jxl_data,
                 width,
@@ -236,7 +227,7 @@ pub fn process_image(data: &[u8], input_format: InputFormat) -> Option<Processed
             });
         }
 
-        if let Some(webp_data) = encode_webp(&resized.pixels, resized.width, resized.height) {
+        if let Some(webp_data) = encode_webp(&resized.pixels, resized.width, resized.height).await {
             webp_variants.push(ImageVariant {
                 data: webp_data,
                 width,
