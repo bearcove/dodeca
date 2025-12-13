@@ -82,6 +82,7 @@ postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary seria
 
 # Devtools protocol (shared types between server and WASM client)
 dodeca-protocol = { path = "../dodeca-protocol" }
+dodeca-plugin-runtime = { path = "../dodeca-plugin-runtime" }
 
 # RPC protocol for dev server plugin
 mod-http-proto = { path = "../../mods/mod-http-proto" }

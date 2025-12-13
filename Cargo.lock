@@ -2512,6 +2512,7 @@ dependencies = [
  "crossterm 0.29.0",
  "divan",
  "dodeca-code-execution-types",
+ "dodeca-plugin-runtime",
  "dodeca-protocol",
  "facet",
  "facet-args",
