@@ -153,7 +153,7 @@ fn encode_jxl(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
 
 /// Image metadata without the processed bytes
 /// This is fast to compute (decode only, no encode)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 pub struct ImageMetadata {
     /// Original width
     pub width: u32,

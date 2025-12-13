@@ -66,7 +66,11 @@ impl ContentStore {
 
     /// Write content to a file if it has changed since last build.
     /// Returns true if the file was written, false if skipped (unchanged).
-    pub fn write_if_changed(&mut self, path: &Utf8Path, content: &[u8]) -> color_eyre::Result<bool> {
+    pub fn write_if_changed(
+        &mut self,
+        path: &Utf8Path,
+        content: &[u8],
+    ) -> color_eyre::Result<bool> {
         let hash = Self::hash(content);
         let path_key = path.as_str().to_string();
 
@@ -234,7 +238,7 @@ fn blob_path(hash: &InputHash, extension: &str) -> Option<PathBuf> {
 pub const IMAGE_PIPELINE_VERSION: u64 = 1;
 
 /// Hash of input image content (includes pipeline version)
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, facet::Facet)]
 pub struct InputHash(pub [u8; 32]);
 
 /// Key for a specific image variant (format + size)

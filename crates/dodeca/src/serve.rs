@@ -267,20 +267,10 @@ fn summarize_patches(patches: &[dodeca_protocol::Patch]) -> String {
 
 /// Shared state for the dev server
 pub struct SiteServer {
-    /// The Salsa database - all queries go through here
+    /// The picante database - all queries go through here
     /// Uses Mutex because Database contains RefCell (not Sync).
     /// For queries, we use snapshot pattern: lock, clone, release, then query the clone.
     pub db: Mutex<Database>,
-    /// Source registry (Salsa input - update this to invalidate queries)
-    pub source_registry: SourceRegistry,
-    /// Template registry (Salsa input - update this to invalidate queries)
-    pub template_registry: TemplateRegistry,
-    /// SASS registry (Salsa input - update this to invalidate queries)
-    pub sass_registry: SassRegistry,
-    /// Static file registry (Salsa input - update this to invalidate queries)
-    pub static_registry: StaticRegistry,
-    /// Data file registry (Salsa input - update this to invalidate queries)
-    pub data_registry: DataRegistry,
     /// Search index files (pagefind): path -> content
     pub search_files: RwLock<HashMap<String, Vec<u8>>>,
     /// Live reload broadcast
@@ -304,20 +294,8 @@ impl SiteServer {
         let (livereload_tx, _) = broadcast::channel(16);
         let db = Database::new();
 
-        // Create empty registries as Salsa inputs
-        let source_registry = SourceRegistry::new(&db, Vec::new());
-        let template_registry = TemplateRegistry::new(&db, Vec::new());
-        let sass_registry = SassRegistry::new(&db, Vec::new());
-        let static_registry = StaticRegistry::new(&db, Vec::new());
-        let data_registry = DataRegistry::new(&db, Vec::new());
-
         Self {
             db: Mutex::new(db),
-            source_registry,
-            template_registry,
-            sass_registry,
-            static_registry,
-            data_registry,
             search_files: RwLock::new(HashMap::new()),
             livereload_tx,
             render_options,
@@ -340,63 +318,66 @@ impl SiteServer {
     }
 
     /// Update the source registry with a new list of sources
-    /// This invalidates all Salsa queries that depend on sources
+    /// This invalidates all queries that depend on sources
     pub fn set_sources(&self, sources: Vec<SourceFile>) {
-        use salsa::Setter;
         let mut db = self.db.lock().unwrap();
-        self.source_registry.set_sources(&mut *db).to(sources);
+        SourceRegistry::set(&mut *db, sources).expect("failed to set sources");
     }
 
     /// Update the template registry with a new list of templates
     pub fn set_templates(&self, templates: Vec<TemplateFile>) {
-        use salsa::Setter;
         let mut db = self.db.lock().unwrap();
-        self.template_registry.set_templates(&mut *db).to(templates);
+        TemplateRegistry::set(&mut *db, templates).expect("failed to set templates");
     }
 
     /// Update the sass registry with a new list of sass files
     pub fn set_sass_files(&self, files: Vec<SassFile>) {
-        use salsa::Setter;
         let mut db = self.db.lock().unwrap();
-        self.sass_registry.set_files(&mut *db).to(files);
+        SassRegistry::set(&mut *db, files).expect("failed to set sass files");
     }
 
     /// Update the static registry with a new list of static files
     pub fn set_static_files(&self, files: Vec<StaticFile>) {
-        use salsa::Setter;
         let mut db = self.db.lock().unwrap();
-        self.static_registry.set_files(&mut *db).to(files);
+        StaticRegistry::set(&mut *db, files).expect("failed to set static files");
     }
 
     /// Update the data registry with a new list of data files
     pub fn set_data_files(&self, files: Vec<DataFile>) {
-        use salsa::Setter;
         let mut db = self.db.lock().unwrap();
-        self.data_registry.set_files(&mut *db).to(files);
+        DataRegistry::set(&mut *db, files).expect("failed to set data files");
     }
 
     /// Get a clone of the current sources (for modification)
     pub fn get_sources(&self) -> Vec<SourceFile> {
         let db = self.db.lock().unwrap();
-        self.source_registry.sources(&*db).clone()
+        SourceRegistry::sources(&*db)
+            .expect("failed to get sources")
+            .unwrap_or_default()
     }
 
     /// Get a clone of the current templates (for modification)
     pub fn get_templates(&self) -> Vec<TemplateFile> {
         let db = self.db.lock().unwrap();
-        self.template_registry.templates(&*db).clone()
+        TemplateRegistry::templates(&*db)
+            .expect("failed to get templates")
+            .unwrap_or_default()
     }
 
     /// Get a clone of the current sass files (for modification)
     pub fn get_sass_files(&self) -> Vec<SassFile> {
         let db = self.db.lock().unwrap();
-        self.sass_registry.files(&*db).clone()
+        SassRegistry::files(&*db)
+            .expect("failed to get sass files")
+            .unwrap_or_default()
     }
 
     /// Get a clone of the current static files (for modification)
     pub fn get_static_files(&self) -> Vec<StaticFile> {
         let db = self.db.lock().unwrap();
-        self.static_registry.files(&*db).clone()
+        StaticRegistry::files(&*db)
+            .expect("failed to get static files")
+            .unwrap_or_default()
     }
 
     /// Notify all connected browsers to reload
@@ -559,18 +540,10 @@ impl SiteServer {
 
     /// Get current CSS path from database
     fn get_current_css_path(&self) -> Option<String> {
-        // Snapshot pattern: read lock, clone, release, then query
         let db = self.db.lock().ok()?.clone();
-
-        css_output(
-            &db,
-            self.source_registry,
-            self.template_registry,
-            self.sass_registry,
-            self.static_registry,
-            self.data_registry,
-        )
-        .map(|css| format!("/{}", css.cache_busted_path))
+        let handle = tokio::runtime::Handle::current();
+        let css = handle.block_on(css_output(&db)).ok().flatten()?;
+        Some(format!("/{}", css.cache_busted_path))
     }
 
     /// Load cached query results from disk
@@ -602,61 +575,30 @@ impl SiteServer {
             return Ok(());
         }
 
-        let data = std::fs::read(cache_path)?;
-
-        // Try to deserialize - if it fails (e.g., schema changed), delete the corrupt cache
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut db = self.db.lock().unwrap();
-            let mut deserializer = postcard::Deserializer::from_bytes(&data);
-            <dyn salsa::Database>::deserialize(&mut *db, &mut deserializer)
-        }));
-
-        match result {
-            Ok(Ok(())) => {
-                tracing::info!("Loaded cache ({})", format_bytes(data.len()));
-                Ok(())
-            }
-            Ok(Err(e)) => {
-                tracing::warn!("Cache corrupted, deleting: {e}");
-                let _ = std::fs::remove_file(cache_path);
-                let _ = std::fs::remove_file(&version_path);
-                Ok(())
-            }
-            Err(_) => {
-                tracing::warn!("Cache incompatible (schema changed), deleting");
-                let _ = std::fs::remove_file(cache_path);
-                let _ = std::fs::remove_file(&version_path);
-                Ok(())
-            }
-        }
+        // TODO: picante cache serialization not yet implemented
+        // For now, we always start fresh
+        tracing::debug!("Cache loading disabled (picante migration in progress)");
+        Ok(())
     }
 
     /// Save cached query results to disk
     pub fn save_cache(&self, cache_path: &std::path::Path) -> Result<()> {
-        let mut db = self.db.lock().unwrap();
-        let data = postcard::to_allocvec(&<dyn salsa::Database>::as_serialize(&mut *db))?;
-
-        // Write atomically via temp file
-        let temp_path = cache_path.with_extension("tmp");
-        std::fs::write(&temp_path, &data)?;
-        std::fs::rename(&temp_path, cache_path)?;
-
-        // Write version file
-        let version_path = cache_path.with_extension("version");
-        std::fs::write(&version_path, SALSA_CACHE_VERSION.to_string())?;
-
-        tracing::info!("Saved cache ({})", format_bytes(data.len()));
+        // TODO: picante cache serialization not yet implemented
+        // For now, skip saving
+        let _ = cache_path;
+        tracing::debug!("Cache saving disabled (picante migration in progress)");
         Ok(())
     }
 
-    /// Find content for a given path using lazy Salsa queries
+    /// Find content for a given path using lazy picante queries
     fn find_content(&self, path: &str) -> Option<ServeContent> {
         // Snapshot pattern: read lock, clone, release, then query
         let db = self.db.lock().ok()?.clone();
+        let handle = tokio::runtime::Handle::current();
 
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
-            let site_tree = build_tree(&db, self.source_registry);
+            let site_tree = handle.block_on(build_tree(&db)).ok()?;
             let routes: HashSet<String> = site_tree
                 .sections
                 .keys()
@@ -676,15 +618,7 @@ impl SiteServer {
         };
 
         let route = Route::new(route_path.clone());
-        if let Some(html) = serve_html(
-            &db,
-            route,
-            self.source_registry,
-            self.template_registry,
-            self.sass_registry,
-            self.static_registry,
-            self.data_registry,
-        ) {
+        if let Some(html) = handle.block_on(serve_html(&db, route)).ok().flatten() {
             // Check if this is an error page and notify devtools
             if html.contains(crate::render::RENDER_ERROR_MARKER) {
                 // Extract error message HTML from between <pre> tags
@@ -758,14 +692,7 @@ impl SiteServer {
         }
 
         // 2. Try to serve CSS (check if path matches cache-busted CSS path)
-        if let Some(css) = css_output(
-            &db,
-            self.source_registry,
-            self.template_registry,
-            self.sass_registry,
-            self.static_registry,
-            self.data_registry,
-        ) {
+        if let Some(css) = handle.block_on(css_output(&db)).ok().flatten() {
             let css_url = format!("/{}", css.cache_busted_path);
             if path == css_url {
                 return Some(ServeContent::Css(css.content));
@@ -773,8 +700,10 @@ impl SiteServer {
         }
 
         // 3. Try to serve static files (match cache-busted paths)
-        for file in self.static_registry.files(&db) {
-            let original_path = file.path(&db).as_str();
+        let static_files = StaticRegistry::files(&db).ok()?.unwrap_or_default();
+        for file in static_files.iter() {
+            let original_path = file.path(&db).ok()?.as_str().to_string();
+            let original_path = original_path.as_str();
 
             // Check if this is a processable image
             if InputFormat::is_processable(original_path) {
@@ -782,10 +711,11 @@ impl SiteServer {
                 use crate::queries::{image_input_hash, image_metadata};
 
                 // Get metadata and input hash (fast - no encoding)
-                let Some(metadata) = image_metadata(&db, *file) else {
+                let Some(metadata) = handle.block_on(image_metadata(&db, *file)).ok().flatten()
+                else {
                     continue;
                 };
-                let input_hash = image_input_hash(&db, *file);
+                let input_hash = handle.block_on(image_input_hash(&db, *file)).ok()?;
 
                 // Check each possible variant URL
                 for &width in &metadata.variant_widths {
@@ -811,7 +741,8 @@ impl SiteServer {
                     );
                     if path == format!("/{jxl_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) = process_image(&db, *file)
+                        if let Some(processed) =
+                            handle.block_on(process_image(&db, *file)).ok().flatten()
                             && let Some(variant) =
                                 processed.jxl_variants.iter().find(|v| v.width == width)
                         {
@@ -841,7 +772,8 @@ impl SiteServer {
                     );
                     if path == format!("/{webp_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) = process_image(&db, *file)
+                        if let Some(processed) =
+                            handle.block_on(process_image(&db, *file)).ok().flatten()
                             && let Some(variant) =
                                 processed.webp_variants.iter().find(|v| v.width == width)
                         {
@@ -851,15 +783,7 @@ impl SiteServer {
                 }
             } else {
                 // Non-image static file
-                let output = static_file_output(
-                    &db,
-                    *file,
-                    self.source_registry,
-                    self.template_registry,
-                    self.sass_registry,
-                    self.static_registry,
-                    self.data_registry,
-                );
+                let output = handle.block_on(static_file_output(&db, *file)).ok()?;
                 let static_url = format!("/{}", output.cache_busted_path);
                 if path == static_url {
                     let mime = mime_from_extension(path);
@@ -892,8 +816,12 @@ impl SiteServer {
             Ok(db) => db.clone(),
             Err(_) => return vec![],
         };
+        let handle = tokio::runtime::Handle::current();
 
-        let site_tree = build_tree(&db, self.source_registry);
+        let site_tree = match handle.block_on(build_tree(&db)) {
+            Ok(tree) => tree,
+            Err(_) => return vec![],
+        };
 
         // Normalize route
         let route_str = if route_path == "/" {
@@ -1046,7 +974,9 @@ impl SiteServer {
         }
 
         // Load actual data files
-        let raw_data = crate::queries::load_all_data_raw(&db, self.data_registry);
+        let raw_data = handle
+            .block_on(crate::queries::load_all_data_raw(&db))
+            .unwrap_or_default();
         let data_value = crate::data::parse_raw_data_files(&raw_data);
         scope.insert(VString::from("data"), data_value);
 
@@ -1068,8 +998,11 @@ impl SiteServer {
             Ok(db) => db.clone(),
             Err(_) => return Err("Failed to acquire database lock".to_string()),
         };
+        let handle = tokio::runtime::Handle::current();
 
-        let site_tree = build_tree(&db, self.source_registry);
+        let site_tree = handle
+            .block_on(build_tree(&db))
+            .map_err(|e| format!("Failed to build tree: {:?}", e))?;
 
         // Normalize route
         let route_str = if route_path == "/" {
@@ -1136,7 +1069,9 @@ impl SiteServer {
         }
 
         // Load data files
-        let raw_data = crate::queries::load_all_data_raw(&db, self.data_registry);
+        let raw_data = handle
+            .block_on(crate::queries::load_all_data_raw(&db))
+            .unwrap_or_default();
         let data_value = crate::data::parse_raw_data_files(&raw_data);
         ctx.set("data", data_value);
 
@@ -1200,8 +1135,12 @@ impl SiteServer {
             Ok(db) => db.clone(),
             Err(_) => return Vec::new(),
         };
+        let handle = tokio::runtime::Handle::current();
 
-        let site_tree = build_tree(&db, self.source_registry);
+        let site_tree = match handle.block_on(build_tree(&db)) {
+            Ok(tree) => tree,
+            Err(_) => return Vec::new(),
+        };
 
         let requested = path.trim_matches('/').to_lowercase();
         let requested_parts: Vec<&str> = requested.split('/').collect();

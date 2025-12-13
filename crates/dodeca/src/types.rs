@@ -161,6 +161,44 @@ impl RouteRef {
     }
 }
 
+/// Implement Facet for braid types (transparent String wrappers)
+///
+/// Braid types are newtypes around String, so we implement Facet by
+/// treating them as transparent wrappers. This allows picante to
+/// serialize/deserialize them correctly.
+macro_rules! impl_facet_for_braid {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            unsafe impl facet::Facet<'_> for $ty {
+                const SHAPE: &'static facet::Shape = &const {
+                    facet::ShapeBuilder::for_sized::<$ty>(stringify!($ty))
+                        .ty(facet::Type::User(facet::UserType::Opaque))
+                        .def(facet::Def::Scalar)
+                        .eq()
+                        .send()
+                        .sync()
+                        .build()
+                };
+            }
+        )*
+    };
+}
+
+impl_facet_for_braid!(
+    SourcePath,
+    Route,
+    Title,
+    HtmlBody,
+    SourceContent,
+    TemplatePath,
+    TemplateContent,
+    SassPath,
+    SassContent,
+    StaticPath,
+    DataPath,
+    DataContent,
+);
+
 impl SourcePath {
     /// Check if this is a section index file (_index.md)
     pub fn is_section_index(&self) -> bool {

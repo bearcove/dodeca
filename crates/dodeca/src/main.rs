@@ -710,19 +710,11 @@ impl BuildContext {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        // Check if we already have this source
-        if let Some(existing) = self.sources.get(relative_path) {
-            // Update the content and mtime - Salsa will detect if they changed
-            use salsa::Setter;
-            existing.set_content(&mut self.db).to(source_content);
-            existing.set_last_modified(&mut self.db).to(last_modified);
-        } else {
-            // New file
-            let source_path = SourcePath::new(relative_path.to_string());
-            let source =
-                SourceFile::new(&self.db, source_path.clone(), source_content, last_modified);
-            self.sources.insert(source_path, source);
-        }
+        // Check if we already have this source - for picante, recreate and replace
+        let source_path = SourcePath::new(relative_path.to_string());
+        let source = SourceFile::new(&self.db, source_path.clone(), source_content, last_modified)
+            .expect("failed to create source file");
+        self.sources.insert(source_path, source);
 
         Ok(true)
     }
@@ -740,17 +732,11 @@ impl BuildContext {
         let content = fs::read_to_string(&full_path)?;
         let template_content = TemplateContent::new(content);
 
-        // Check if we already have this template
-        if let Some(existing) = self.templates.get(relative_path) {
-            // Update the content - Salsa will detect if it changed
-            use salsa::Setter;
-            existing.set_content(&mut self.db).to(template_content);
-        } else {
-            // New file
-            let template_path = TemplatePath::new(relative_path.to_string());
-            let template = TemplateFile::new(&self.db, template_path.clone(), template_content);
-            self.templates.insert(template_path, template);
-        }
+        // For picante, recreate and replace
+        let template_path = TemplatePath::new(relative_path.to_string());
+        let template = TemplateFile::new(&self.db, template_path.clone(), template_content)
+            .expect("failed to create template file");
+        self.templates.insert(template_path, template);
 
         Ok(true)
     }
@@ -768,17 +754,11 @@ impl BuildContext {
         let content = fs::read_to_string(&full_path)?;
         let sass_content = SassContent::new(content);
 
-        // Check if we already have this sass file
-        if let Some(existing) = self.sass_files.get(relative_path) {
-            // Update the content - Salsa will detect if it changed
-            use salsa::Setter;
-            existing.set_content(&mut self.db).to(sass_content);
-        } else {
-            // New file
-            let sass_path = SassPath::new(relative_path.to_string());
-            let sass_file = SassFile::new(&self.db, sass_path.clone(), sass_content);
-            self.sass_files.insert(sass_path, sass_file);
-        }
+        // For picante, recreate and replace
+        let sass_path = SassPath::new(relative_path.to_string());
+        let sass_file = SassFile::new(&self.db, sass_path.clone(), sass_content)
+            .expect("failed to create sass file");
+        self.sass_files.insert(sass_path, sass_file);
 
         Ok(true)
     }
@@ -1560,7 +1540,7 @@ fn scan_directory_recursive(
     }
 }
 
-/// Handle a file change event by updating or adding it to Salsa
+/// Handle a file change event by updating or adding it to picante
 fn handle_file_changed(
     path: &Utf8PathBuf,
     config: &file_watcher::WatcherConfig,
@@ -1584,92 +1564,85 @@ fn handle_file_changed(
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
                 let mut db = server.db.lock().unwrap();
-                // Access registry directly (don't use get_sources() which would deadlock)
-                let mut sources = server.source_registry.sources(&*db).clone();
+                let mut sources = SourceRegistry::sources(&*db)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
                 let relative_str = relative.to_string();
-                let mut found = false;
-                for source in sources.iter() {
-                    if source.path(&*db).as_str() == relative_str {
-                        use salsa::Setter;
-                        source
-                            .set_content(&mut *db)
-                            .to(SourceContent::new(content.clone()));
-                        source.set_last_modified(&mut *db).to(last_modified);
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    let source_path = SourcePath::new(relative_str);
-                    let source = SourceFile::new(
-                        &*db,
-                        source_path,
-                        SourceContent::new(content),
-                        last_modified,
-                    );
+                let source_path = SourcePath::new(relative_str.clone());
+                let source_content = SourceContent::new(content);
+
+                // Find and replace existing, or add new
+                if let Some(pos) = sources.iter().position(|s| {
+                    s.path(&*db)
+                        .ok()
+                        .map(|p| p.as_str() == relative_str)
+                        .unwrap_or(false)
+                }) {
+                    // Replace with new version (picante inputs are immutable after creation)
+                    sources[pos] =
+                        SourceFile::new(&*db, source_path, source_content, last_modified)
+                            .expect("failed to create source file");
+                } else {
+                    let source = SourceFile::new(&*db, source_path, source_content, last_modified)
+                        .expect("failed to create source file");
                     sources.push(source);
-                    use salsa::Setter;
-                    server.source_registry.set_sources(&mut *db).to(sources);
                     println!("  {} Added new source: {}", "+".green(), relative);
                 }
+                SourceRegistry::set(&mut *db, sources).expect("failed to set sources");
             }
         }
         PathCategory::Template => {
             if let Ok(content) = fs::read_to_string(path) {
                 let mut db = server.db.lock().unwrap();
-                // Access registry directly (don't use get_templates() which would deadlock)
-                let mut templates = server.template_registry.templates(&*db).clone();
+                let mut templates = TemplateRegistry::templates(&*db)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
                 let relative_str = relative.to_string();
-                let mut found = false;
-                for template in templates.iter() {
-                    if template.path(&*db).as_str() == relative_str {
-                        use salsa::Setter;
-                        template
-                            .set_content(&mut *db)
-                            .to(TemplateContent::new(content.clone()));
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    let template_path = TemplatePath::new(relative_str);
-                    let template =
-                        TemplateFile::new(&*db, template_path, TemplateContent::new(content));
+                let template_path = TemplatePath::new(relative_str.clone());
+                let template_content = TemplateContent::new(content);
+
+                if let Some(pos) = templates.iter().position(|t| {
+                    t.path(&*db)
+                        .ok()
+                        .map(|p| p.as_str() == relative_str)
+                        .unwrap_or(false)
+                }) {
+                    templates[pos] = TemplateFile::new(&*db, template_path, template_content)
+                        .expect("failed to create template file");
+                } else {
+                    let template = TemplateFile::new(&*db, template_path, template_content)
+                        .expect("failed to create template file");
                     templates.push(template);
-                    use salsa::Setter;
-                    server
-                        .template_registry
-                        .set_templates(&mut *db)
-                        .to(templates);
                     println!("  {} Added new template: {}", "+".green(), relative);
                 }
+                TemplateRegistry::set(&mut *db, templates).expect("failed to set templates");
             }
         }
         PathCategory::Sass => {
             if let Ok(content) = fs::read_to_string(path) {
                 let mut db = server.db.lock().unwrap();
-                // Access registry directly (don't use get_sass_files() which would deadlock)
-                let mut sass_files = server.sass_registry.files(&*db).clone();
+                let mut sass_files = SassRegistry::files(&*db).ok().flatten().unwrap_or_default();
                 let relative_str = relative.to_string();
-                let mut found = false;
-                for sass_file in sass_files.iter() {
-                    if sass_file.path(&*db).as_str() == relative_str {
-                        use salsa::Setter;
-                        sass_file
-                            .set_content(&mut *db)
-                            .to(SassContent::new(content.clone()));
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    let sass_path = SassPath::new(relative_str);
-                    let sass = SassFile::new(&*db, sass_path, SassContent::new(content));
+                let sass_path = SassPath::new(relative_str.clone());
+                let sass_content = SassContent::new(content);
+
+                if let Some(pos) = sass_files.iter().position(|s| {
+                    s.path(&*db)
+                        .ok()
+                        .map(|p| p.as_str() == relative_str)
+                        .unwrap_or(false)
+                }) {
+                    sass_files[pos] = SassFile::new(&*db, sass_path, sass_content)
+                        .expect("failed to create sass file");
+                } else {
+                    let sass = SassFile::new(&*db, sass_path, sass_content)
+                        .expect("failed to create sass file");
                     sass_files.push(sass);
-                    use salsa::Setter;
-                    server.sass_registry.set_files(&mut *db).to(sass_files);
                     println!("  {} Added new sass: {}", "+".green(), relative);
                 }
+                SassRegistry::set(&mut *db, sass_files).expect("failed to set sass files");
             }
         }
         PathCategory::Static => {
@@ -1679,73 +1652,68 @@ fn handle_file_changed(
                     return;
                 }
                 let mut db = server.db.lock().unwrap();
-                // Access registry directly (don't use get_static_files() which would deadlock)
-                let mut static_files = server.static_registry.files(&*db).clone();
+                let mut static_files = StaticRegistry::files(&*db)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
                 let relative_str = relative.to_string();
+                let static_path = StaticPath::new(relative_str.clone());
 
-                // Find existing StaticFile and update via set_content() to trigger Salsa invalidation
-                let mut found = false;
-                for static_file in static_files.iter() {
-                    if static_file.path(&*db).as_str() == relative_str {
-                        use salsa::Setter;
-                        tracing::debug!(path = %relative_str, size = content.len(), "Calling set_content() for static file");
-                        static_file.set_content(&mut *db).to(content.clone());
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    // New file - create a fresh StaticFile
-                    let static_path = StaticPath::new(relative_str);
-                    let static_file = StaticFile::new(&*db, static_path, content);
+                if let Some(pos) = static_files.iter().position(|s| {
+                    s.path(&*db)
+                        .ok()
+                        .map(|p| p.as_str() == relative_str)
+                        .unwrap_or(false)
+                }) {
+                    tracing::debug!(path = %relative_str, size = content.len(), "Replacing static file");
+                    static_files[pos] = StaticFile::new(&*db, static_path, content)
+                        .expect("failed to create static file");
+                } else {
+                    let static_file = StaticFile::new(&*db, static_path, content)
+                        .expect("failed to create static file");
                     static_files.push(static_file);
-                    use salsa::Setter;
-                    server.static_registry.set_files(&mut *db).to(static_files);
                     println!("  {} Added new static file: {}", "+".green(), relative);
                 }
+                StaticRegistry::set(&mut *db, static_files).expect("failed to set static files");
             }
         }
         PathCategory::Data => {
             if let Ok(content) = fs::read_to_string(path) {
                 let mut db = server.db.lock().unwrap();
-                // Access registry directly (don't use get_data_files() which would deadlock)
-                let mut data_files = server.data_registry.files(&*db).clone();
+                let mut data_files = DataRegistry::files(&*db).ok().flatten().unwrap_or_default();
                 let relative_str = relative.to_string();
-                let mut found = false;
-                for data_file in data_files.iter() {
-                    if data_file.path(&*db).as_str() == relative_str {
-                        use salsa::Setter;
-                        data_file
-                            .set_content(&mut *db)
-                            .to(DataContent::new(content.clone()));
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    let data_path = DataPath::new(relative_str);
-                    let data_file = DataFile::new(&*db, data_path, DataContent::new(content));
+                let data_path = DataPath::new(relative_str.clone());
+                let data_content = DataContent::new(content);
+
+                if let Some(pos) = data_files.iter().position(|d| {
+                    d.path(&*db)
+                        .ok()
+                        .map(|p| p.as_str() == relative_str)
+                        .unwrap_or(false)
+                }) {
+                    data_files[pos] = DataFile::new(&*db, data_path, data_content)
+                        .expect("failed to create data file");
+                } else {
+                    let data_file = DataFile::new(&*db, data_path, data_content)
+                        .expect("failed to create data file");
                     data_files.push(data_file);
-                    use salsa::Setter;
-                    server.data_registry.set_files(&mut *db).to(data_files);
                     println!("  {} Added new data file: {}", "+".green(), relative);
                 }
+                DataRegistry::set(&mut *db, data_files).expect("failed to set data files");
             }
         }
-        PathCategory::Unknown => (), // Unknown files don't need Salsa updates
+        PathCategory::Unknown => (), // Unknown files don't need picante updates
     }
-    // Note: For all file types (Content, Template, Sass, Static, Data), the Salsa input
-    // set_content() call triggers proper invalidation of dependent queries.
+    // Note: For all file types, picante tracks changes when the registry is updated.
 }
 
-/// Handle a file removal event by removing it from Salsa
+/// Handle a file removal event by removing it from picante
 fn handle_file_removed(
     path: &Utf8PathBuf,
     config: &file_watcher::WatcherConfig,
     server: &serve::SiteServer,
 ) {
     use file_watcher::PathCategory;
-    use salsa::Setter;
 
     let category = config.categorize(path);
     let relative = match config.relative_path(path) {
@@ -1757,65 +1725,76 @@ fn handle_file_removed(
     match category {
         PathCategory::Content => {
             let mut db = server.db.lock().unwrap();
-            // Access registry directly (don't use get_sources() which would deadlock)
-            let mut sources = server.source_registry.sources(&*db).clone();
-            if let Some(pos) = sources
-                .iter()
-                .position(|s| s.path(&*db).as_str() == relative_str)
-            {
+            let mut sources = SourceRegistry::sources(&*db)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            if let Some(pos) = sources.iter().position(|s| {
+                s.path(&*db)
+                    .ok()
+                    .map(|p| p.as_str() == relative_str)
+                    .unwrap_or(false)
+            }) {
                 sources.remove(pos);
-                server.source_registry.set_sources(&mut *db).to(sources);
+                SourceRegistry::set(&mut *db, sources).expect("failed to set sources");
             }
         }
         PathCategory::Template => {
             let mut db = server.db.lock().unwrap();
-            // Access registry directly (don't use get_templates() which would deadlock)
-            let mut templates = server.template_registry.templates(&*db).clone();
-            if let Some(pos) = templates
-                .iter()
-                .position(|t| t.path(&*db).as_str() == relative_str)
-            {
+            let mut templates = TemplateRegistry::templates(&*db)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            if let Some(pos) = templates.iter().position(|t| {
+                t.path(&*db)
+                    .ok()
+                    .map(|p| p.as_str() == relative_str)
+                    .unwrap_or(false)
+            }) {
                 templates.remove(pos);
-                server
-                    .template_registry
-                    .set_templates(&mut *db)
-                    .to(templates);
+                TemplateRegistry::set(&mut *db, templates).expect("failed to set templates");
             }
         }
         PathCategory::Sass => {
             let mut db = server.db.lock().unwrap();
-            // Access registry directly (don't use get_sass_files() which would deadlock)
-            let mut sass_files = server.sass_registry.files(&*db).clone();
-            if let Some(pos) = sass_files
-                .iter()
-                .position(|s| s.path(&*db).as_str() == relative_str)
-            {
+            let mut sass_files = SassRegistry::files(&*db).ok().flatten().unwrap_or_default();
+            if let Some(pos) = sass_files.iter().position(|s| {
+                s.path(&*db)
+                    .ok()
+                    .map(|p| p.as_str() == relative_str)
+                    .unwrap_or(false)
+            }) {
                 sass_files.remove(pos);
-                server.sass_registry.set_files(&mut *db).to(sass_files);
+                SassRegistry::set(&mut *db, sass_files).expect("failed to set sass files");
             }
         }
         PathCategory::Static => {
             let mut db = server.db.lock().unwrap();
-            // Access registry directly (don't use get_static_files() which would deadlock)
-            let mut static_files = server.static_registry.files(&*db).clone();
-            if let Some(pos) = static_files
-                .iter()
-                .position(|s| s.path(&*db).as_str() == relative_str)
-            {
+            let mut static_files = StaticRegistry::files(&*db)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            if let Some(pos) = static_files.iter().position(|s| {
+                s.path(&*db)
+                    .ok()
+                    .map(|p| p.as_str() == relative_str)
+                    .unwrap_or(false)
+            }) {
                 static_files.remove(pos);
-                server.static_registry.set_files(&mut *db).to(static_files);
+                StaticRegistry::set(&mut *db, static_files).expect("failed to set static files");
             }
         }
         PathCategory::Data => {
             let mut db = server.db.lock().unwrap();
-            // Access registry directly (don't use get_data_files() which would deadlock)
-            let mut data_files = server.data_registry.files(&*db).clone();
-            if let Some(pos) = data_files
-                .iter()
-                .position(|d| d.path(&*db).as_str() == relative_str)
-            {
+            let mut data_files = DataRegistry::files(&*db).ok().flatten().unwrap_or_default();
+            if let Some(pos) = data_files.iter().position(|d| {
+                d.path(&*db)
+                    .ok()
+                    .map(|p| p.as_str() == relative_str)
+                    .unwrap_or(false)
+            }) {
                 data_files.remove(pos);
-                server.data_registry.set_files(&mut *db).to(data_files);
+                DataRegistry::set(&mut *db, data_files).expect("failed to set data files");
             }
         }
         PathCategory::Unknown => {}
@@ -2796,28 +2775,55 @@ async fn serve_with_tui(
                                     file_type, filename
                                 )));
 
-                                // Update the file in the server's Salsa database
-                                // Access registry directly (don't use get_*() helpers which would deadlock)
+                                // Update the file in the server's picante database
                                 if ext == Some("md") {
                                     if let Ok(relative) = path.strip_prefix(&content_for_watcher) {
                                         if let Ok(content) = fs::read_to_string(path) {
+                                            let last_modified = fs::metadata(path.as_std_path())
+                                                .and_then(|m| m.modified())
+                                                .ok()
+                                                .and_then(|t| {
+                                                    t.duration_since(std::time::UNIX_EPOCH).ok()
+                                                })
+                                                .map(|d| d.as_secs() as i64)
+                                                .unwrap_or(0);
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let sources = server_for_watcher
-                                                .source_registry
-                                                .sources(&*db)
-                                                .clone();
+                                            let mut sources = SourceRegistry::sources(&*db)
+                                                .ok()
+                                                .flatten()
+                                                .unwrap_or_default();
 
-                                            // Find existing source and update it
                                             let relative_str = relative.to_string();
-                                            for source in sources.iter() {
-                                                if source.path(&*db).as_str() == relative_str {
-                                                    use salsa::Setter;
-                                                    source
-                                                        .set_content(&mut *db)
-                                                        .to(SourceContent::new(content.clone()));
-                                                    break;
-                                                }
+                                            let source_path = SourcePath::new(relative_str.clone());
+                                            let source_content = SourceContent::new(content);
+
+                                            // Find and replace, or add new
+                                            if let Some(pos) = sources.iter().position(|s| {
+                                                s.path(&*db)
+                                                    .ok()
+                                                    .map(|p| p.as_str() == relative_str)
+                                                    .unwrap_or(false)
+                                            }) {
+                                                sources[pos] = SourceFile::new(
+                                                    &*db,
+                                                    source_path,
+                                                    source_content,
+                                                    last_modified,
+                                                )
+                                                .expect("failed to create source file");
+                                            } else {
+                                                sources.push(
+                                                    SourceFile::new(
+                                                        &*db,
+                                                        source_path,
+                                                        source_content,
+                                                        last_modified,
+                                                    )
+                                                    .expect("failed to create source file"),
+                                                );
                                             }
+                                            SourceRegistry::set(&mut *db, sources)
+                                                .expect("failed to set sources");
                                         }
                                     }
                                 } else if ext == Some("html") {
@@ -2826,56 +2832,88 @@ async fn serve_with_tui(
                                     {
                                         if let Ok(content) = fs::read_to_string(path) {
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let templates = server_for_watcher
-                                                .template_registry
-                                                .templates(&*db)
-                                                .clone();
+                                            let mut templates = TemplateRegistry::templates(&*db)
+                                                .ok()
+                                                .flatten()
+                                                .unwrap_or_default();
 
-                                            // Find existing template and update it
                                             let relative_str = relative.to_string();
-                                            for template in templates.iter() {
-                                                if template.path(&*db).as_str() == relative_str {
-                                                    use salsa::Setter;
-                                                    let content_hash = {
-                                                        use std::hash::{Hash, Hasher};
-                                                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                                                        content.hash(&mut hasher);
-                                                        hasher.finish()
-                                                    };
-                                                    tracing::info!(
-                                                        "📝 template changed: {} (content hash: {:016x}, {} bytes)",
-                                                        relative_str,
-                                                        content_hash,
-                                                        content.len()
+                                            let template_path =
+                                                TemplatePath::new(relative_str.clone());
+                                            let template_content =
+                                                TemplateContent::new(content.clone());
+
+                                            let content_hash = {
+                                                use std::hash::{Hash, Hasher};
+                                                let mut hasher =
+                                                    std::collections::hash_map::DefaultHasher::new(
                                                     );
-                                                    template
-                                                        .set_content(&mut *db)
-                                                        .to(TemplateContent::new(content.clone()));
-                                                    break;
-                                                }
+                                                content.hash(&mut hasher);
+                                                hasher.finish()
+                                            };
+                                            tracing::info!(
+                                                "📝 template changed: {} (content hash: {:016x}, {} bytes)",
+                                                relative_str,
+                                                content_hash,
+                                                content.len()
+                                            );
+
+                                            if let Some(pos) = templates.iter().position(|t| {
+                                                t.path(&*db)
+                                                    .ok()
+                                                    .map(|p| p.as_str() == relative_str)
+                                                    .unwrap_or(false)
+                                            }) {
+                                                templates[pos] = TemplateFile::new(
+                                                    &*db,
+                                                    template_path,
+                                                    template_content,
+                                                )
+                                                .expect("failed to create template file");
+                                            } else {
+                                                templates.push(
+                                                    TemplateFile::new(
+                                                        &*db,
+                                                        template_path,
+                                                        template_content,
+                                                    )
+                                                    .expect("failed to create template file"),
+                                                );
                                             }
+                                            TemplateRegistry::set(&mut *db, templates)
+                                                .expect("failed to set templates");
                                         }
                                     }
                                 } else if ext == Some("scss") || ext == Some("sass") {
                                     if let Ok(relative) = path.strip_prefix(&sass_dir_for_watcher) {
                                         if let Ok(content) = fs::read_to_string(path) {
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let sass_files = server_for_watcher
-                                                .sass_registry
-                                                .files(&*db)
-                                                .clone();
+                                            let mut sass_files = SassRegistry::files(&*db)
+                                                .ok()
+                                                .flatten()
+                                                .unwrap_or_default();
 
-                                            // Find existing sass file and update it
                                             let relative_str = relative.to_string();
-                                            for sass_file in sass_files.iter() {
-                                                if sass_file.path(&*db).as_str() == relative_str {
-                                                    use salsa::Setter;
-                                                    sass_file
-                                                        .set_content(&mut *db)
-                                                        .to(SassContent::new(content.clone()));
-                                                    break;
-                                                }
+                                            let sass_path = SassPath::new(relative_str.clone());
+                                            let sass_content = SassContent::new(content);
+
+                                            if let Some(pos) = sass_files.iter().position(|s| {
+                                                s.path(&*db)
+                                                    .ok()
+                                                    .map(|p| p.as_str() == relative_str)
+                                                    .unwrap_or(false)
+                                            }) {
+                                                sass_files[pos] =
+                                                    SassFile::new(&*db, sass_path, sass_content)
+                                                        .expect("failed to create sass file");
+                                            } else {
+                                                sass_files.push(
+                                                    SassFile::new(&*db, sass_path, sass_content)
+                                                        .expect("failed to create sass file"),
+                                                );
                                             }
+                                            SassRegistry::set(&mut *db, sass_files)
+                                                .expect("failed to set sass files");
                                         }
                                     }
                                 } else if path.starts_with(&static_dir_for_watcher) {
@@ -2888,30 +2926,38 @@ async fn serve_with_tui(
                                                 continue;
                                             }
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let static_files = server_for_watcher
-                                                .static_registry
-                                                .files(&*db)
-                                                .clone();
+                                            let mut static_files = StaticRegistry::files(&*db)
+                                                .ok()
+                                                .flatten()
+                                                .unwrap_or_default();
 
-                                            // Find existing static file and update it
                                             let relative_str = relative.to_string();
+                                            let static_path = StaticPath::new(relative_str.clone());
+
                                             tracing::debug!(
                                                 "Looking for static file: {relative_str}"
                                             );
-                                            for static_file in static_files.iter() {
-                                                let stored_path =
-                                                    static_file.path(&*db).as_str().to_string();
-                                                if stored_path == relative_str {
-                                                    tracing::info!(
-                                                        "Updating static file: {relative_str}"
-                                                    );
-                                                    use salsa::Setter;
-                                                    static_file
-                                                        .set_content(&mut *db)
-                                                        .to(content.clone());
-                                                    break;
-                                                }
+
+                                            if let Some(pos) = static_files.iter().position(|s| {
+                                                s.path(&*db)
+                                                    .ok()
+                                                    .map(|p| p.as_str() == relative_str)
+                                                    .unwrap_or(false)
+                                            }) {
+                                                tracing::info!(
+                                                    "Updating static file: {relative_str}"
+                                                );
+                                                static_files[pos] =
+                                                    StaticFile::new(&*db, static_path, content)
+                                                        .expect("failed to create static file");
+                                            } else {
+                                                static_files.push(
+                                                    StaticFile::new(&*db, static_path, content)
+                                                        .expect("failed to create static file"),
+                                                );
                                             }
+                                            StaticRegistry::set(&mut *db, static_files)
+                                                .expect("failed to set static files");
                                         }
                                     }
                                 }
