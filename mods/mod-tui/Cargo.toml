@@ -7,6 +7,11 @@ description = "TUI plugin for dodeca serve mode"
 license = "MIT OR Apache-2.0"
 publish = false
 
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
 [[bin]]
 name = "dodeca-mod-tui"
 path = "src/main.rs"

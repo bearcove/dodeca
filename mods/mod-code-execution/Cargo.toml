@@ -3,6 +3,11 @@ name = "mod-code-execution"
 version = "0.1.0"
 edition = "2024"
 
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
 [[bin]]
 name = "dodeca-mod-code-execution"
 path = "src/main.rs"

@@ -3,6 +3,11 @@ name = "mod-html-diff"
 version = "0.1.0"
 edition = "2024"
 
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
 [[bin]]
 name = "dodeca-mod-html-diff"
 path = "src/main.rs"

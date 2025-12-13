@@ -5,10 +5,6 @@ use crate::types::{
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// The Salsa database trait for dodeca
-#[salsa::db]
-pub trait Db: salsa::Database {}
-
 /// Statistics about query execution
 #[derive(Debug, Default)]
 pub struct QueryStats {
@@ -36,68 +32,14 @@ impl QueryStats {
     }
 }
 
-/// The concrete database implementation
-#[salsa::db]
-#[derive(Clone)]
-pub struct Database {
-    storage: salsa::Storage<Self>,
-}
-
-#[salsa::db]
-impl salsa::Database for Database {}
-
-#[salsa::db]
-impl Db for Database {}
-
-impl Default for Database {
-    fn default() -> Self {
-        Self::new_without_stats()
-    }
-}
-
-impl Database {
-    /// Create a new database without stats tracking
-    pub fn new_without_stats() -> Self {
-        Self {
-            storage: salsa::Storage::new(None),
-        }
-    }
-
-    /// Create a new database with stats tracking
-    pub fn new_with_stats(stats: Arc<QueryStats>) -> Self {
-        let callback = Box::new(move |event: salsa::Event| {
-            use salsa::EventKind;
-            match event.kind {
-                EventKind::WillExecute { .. } => {
-                    stats.executed.fetch_add(1, Ordering::Relaxed);
-                }
-                EventKind::DidValidateMemoizedValue { .. } => {
-                    stats.reused.fetch_add(1, Ordering::Relaxed);
-                }
-                _ => {}
-            }
-        });
-
-        Self {
-            storage: salsa::Storage::new(Some(callback)),
-        }
-    }
-
-    /// Create a new database (alias for default)
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
 /// Input: A source file with its content
-#[salsa::input]
+#[picante::input]
 pub struct SourceFile {
     /// The path to this file (relative to content dir)
-    #[returns(ref)]
+    #[key]
     pub path: SourcePath,
 
     /// The raw content of the file
-    #[returns(ref)]
     pub content: SourceContent,
 
     /// Last modification time as Unix timestamp (seconds since epoch)
@@ -105,98 +47,113 @@ pub struct SourceFile {
 }
 
 /// Input: A template file with its content
-#[salsa::input]
+#[picante::input]
 pub struct TemplateFile {
     /// The path to this file (relative to templates dir)
-    #[returns(ref)]
+    #[key]
     pub path: TemplatePath,
 
     /// The raw content of the template
-    #[returns(ref)]
     pub content: TemplateContent,
 }
 
 /// Input: A Sass/SCSS file with its content
-#[salsa::input]
+#[picante::input]
 pub struct SassFile {
     /// The path to this file (relative to sass dir)
-    #[returns(ref)]
+    #[key]
     pub path: SassPath,
 
     /// The raw content of the Sass file
-    #[returns(ref)]
     pub content: SassContent,
 }
 
-/// Input template registry - allows Salsa to track template set as a whole
-/// This is an INPUT (not interned) so that updating it invalidates dependent queries
-#[salsa::input]
+/// Input template registry - tracks template set as a whole
+/// This is an INPUT so that updating it invalidates dependent queries
+#[picante::input]
 pub struct TemplateRegistry {
-    #[returns(ref)]
+    /// Singleton key - only one registry per database
+    #[key]
+    pub key: (),
+
+    /// All template files
     pub templates: Vec<TemplateFile>,
 }
 
-/// Input sass registry - allows Salsa to track sass file set as a whole
-/// This is an INPUT (not interned) so that updating it invalidates dependent queries
-#[salsa::input]
+/// Input sass registry - tracks sass file set as a whole
+/// This is an INPUT so that updating it invalidates dependent queries
+#[picante::input]
 pub struct SassRegistry {
-    #[returns(ref)]
+    /// Singleton key - only one registry per database
+    #[key]
+    pub key: (),
+
+    /// All sass files
     pub files: Vec<SassFile>,
 }
 
 /// Input: A static file with its binary content
-#[salsa::input(persist)]
+#[picante::input]
 pub struct StaticFile {
     /// The path to this file (relative to static dir)
-    #[returns(ref)]
+    #[key]
     pub path: StaticPath,
 
     /// The binary content of the file
-    #[returns(ref)]
     pub content: Vec<u8>,
 }
 
-/// Input static file registry - allows Salsa to track static files as a whole
-/// This is an INPUT (not interned) so that updating it invalidates dependent queries
-#[salsa::input]
+/// Input static file registry - tracks static files as a whole
+/// This is an INPUT so that updating it invalidates dependent queries
+#[picante::input]
 pub struct StaticRegistry {
-    #[returns(ref)]
+    /// Singleton key - only one registry per database
+    #[key]
+    pub key: (),
+
+    /// All static files
     pub files: Vec<StaticFile>,
 }
 
 /// Input: A data file (KDL, JSON, TOML, YAML) with its content
-#[salsa::input]
+#[picante::input]
 pub struct DataFile {
     /// The path to this file (relative to data dir, e.g., "versions.toml")
-    #[returns(ref)]
+    #[key]
     pub path: DataPath,
 
     /// The raw content of the file
-    #[returns(ref)]
     pub content: DataContent,
 }
 
-/// Input data file registry - allows Salsa to track data files as a whole
-/// This is an INPUT (not interned) so that updating it invalidates dependent queries
-#[salsa::input]
+/// Input data file registry - tracks data files as a whole
+/// This is an INPUT so that updating it invalidates dependent queries
+#[picante::input]
 pub struct DataRegistry {
-    #[returns(ref)]
+    /// Singleton key - only one registry per database
+    #[key]
+    pub key: (),
+
+    /// All data files
     pub files: Vec<DataFile>,
 }
 
-/// Input source registry - allows Salsa to track all source files as a whole
-/// This is an INPUT (not interned) so that updating it invalidates dependent queries
-#[salsa::input]
+/// Input source registry - tracks all source files as a whole
+/// This is an INPUT so that updating it invalidates dependent queries
+#[picante::input]
 pub struct SourceRegistry {
-    #[returns(ref)]
+    /// Singleton key - only one registry per database
+    #[key]
+    pub key: (),
+
+    /// All source files
     pub sources: Vec<SourceFile>,
 }
 
 /// Interned character set for font subsetting
 /// Using a sorted Vec<char> for deterministic hashing
-#[salsa::interned]
-pub struct CharSet<'db> {
-    #[returns(ref)]
+#[picante::interned]
+pub struct CharSet {
     pub chars: Vec<char>,
 }
 

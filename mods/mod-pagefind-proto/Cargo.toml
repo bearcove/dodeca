@@ -3,6 +3,11 @@ name = "mod-pagefind-proto"
 version = "0.1.0"
 edition = "2024"
 
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
 [dependencies]
 facet = { version = "0.32.2" }
 rapace = { git = "https://github.com/bearcove/rapace" }

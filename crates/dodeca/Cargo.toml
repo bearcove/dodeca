@@ -74,7 +74,7 @@ open = "5"
 if-addrs = "0.14"
 
 # Incremental computation
-salsa = { version = "0.24", features = ["persistence"] }
+picante = { path = "../../../picante/crates/picante" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
