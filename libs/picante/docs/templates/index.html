@@ -1,41 +1,94 @@
 {% extends "base.html" %}
 
-{% block title %}picante documentation{% endblock title %}
+{% block title %}picante · async incremental queries for Rust{% endblock title %}
 {% block body_class %}home{% endblock body_class %}
 
 {% block body %}
 <div class="hero">
+    <div class="hero-flames">
+        <div class="flame flame-1"></div>
+        <div class="flame flame-2"></div>
+        <div class="flame flame-3"></div>
+    </div>
     <div class="hero-content">
+        <div class="hero-logo">
+            <svg viewBox="0 0 32 32" width="64" height="64">
+                <defs>
+                    <linearGradient id="hero-flame" x1="0%" y1="100%" x2="0%" y2="0%">
+                        <stop offset="0%" stop-color="#e53935"/>
+                        <stop offset="50%" stop-color="#ff6d00"/>
+                        <stop offset="100%" stop-color="#ffab00"/>
+                    </linearGradient>
+                </defs>
+                <path fill="url(#hero-flame)" d="M16 2c0 4-3 6-3 10s2 6 3 8c1-2 3-4 3-8s-3-6-3-10z"/>
+                <path fill="#e53935" d="M16 8c0 3-2 4.5-2 7.5s1.5 4.5 2 6c.5-1.5 2-3 2-6s-2-4.5-2-7.5z"/>
+                <ellipse cx="16" cy="26" rx="6" ry="4" fill="#bf360c"/>
+                <ellipse cx="16" cy="25.5" rx="5" ry="3" fill="#e53935"/>
+            </svg>
+        </div>
         <h1 class="hero-title">picante</h1>
-        <p class="hero-tagline">async incremental queries.</p>
-        <p class="hero-sub">Salsa-style query graphs, but Tokio-first.</p>
+        <p class="hero-tagline">async incremental queries</p>
+        <p class="hero-sub"><a href="https://salsa-rs.netlify.app/">salsa</a>-style memoization and dependency tracking,<br>built for <a href="https://tokio.rs">tokio</a> from the ground up.</p>
         <div class="hero-actions">
-            <a href="/guide/architecture" class="btn btn-primary">Read the architecture</a>
-            <a href="https://github.com/bearcove/picante" class="btn btn-secondary">View on GitHub</a>
+            <a href="/guide/" class="btn btn-primary">Get Started</a>
+            <a href="https://docs.rs/picante" class="btn btn-secondary">API Docs</a>
+            <a href="https://github.com/bearcove/picante" class="btn btn-ghost">GitHub</a>
         </div>
     </div>
 </div>
 
-<div class="layout">
-    <aside class="sidebar">
-        <nav class="sidebar-nav">
-            {% for sub in root.subsections %}
-            <div class="sidebar-section">
-                <h3><a href="{{ sub.permalink }}">{{ sub.title }}</a></h3>
-                <ul>
-                    {% for page in sub.pages %}
-                    <li><a href="{{ page.permalink }}">{{ page.title }}</a></li>
-                    {% endfor %}
-                </ul>
-            </div>
-            {% endfor %}
-        </nav>
-    </aside>
-    <main class="content">
+<section class="features">
+    <div class="features-grid">
+        <div class="feature">
+            <div class="feature-icon">🔥</div>
+            <h3>Async-First</h3>
+            <p>Derived queries are natively <code>async</code>. No fighting the runtime — picante was built for tokio from day one.</p>
+        </div>
+        <div class="feature">
+            <div class="feature-icon">📊</div>
+            <h3>Incremental</h3>
+            <p>Only recompute what changed. Fine-grained dependency tracking means minimal work on each revision.</p>
+        </div>
+        <div class="feature">
+            <div class="feature-icon">💾</div>
+            <h3>Persistent</h3>
+            <p>Snapshot your query graph to disk with <a href="https://facets.rs">facet</a>. Resume where you left off — no serde required.</p>
+        </div>
+        <div class="feature">
+            <div class="feature-icon">🎯</div>
+            <h3>Single-Flight</h3>
+            <p>Concurrent requests for the same query share one computation. No duplicate work, no wasted cycles.</p>
+        </div>
+        <div class="feature">
+            <div class="feature-icon">🔄</div>
+            <h3>Live Reload</h3>
+            <p>Subscribe to revision changes and invalidation events. Build reactive pipelines with ease.</p>
+        </div>
+        <div class="feature">
+            <div class="feature-icon">🛡️</div>
+            <h3>Panic-Safe</h3>
+            <p>Query panics are caught and converted to errors. Your runtime keeps running.</p>
+        </div>
+    </div>
+</section>
+
+<section class="quickstart">
+    <div class="quickstart-inner">
+        <h2>Quick Start</h2>
         <article>
             {{ section.content | safe }}
         </article>
-    </main>
-</div>
-{% endblock body %}
+    </div>
+</section>
 
+<section class="cta">
+    <div class="cta-inner">
+        <h2>Ready to spice up your query graph?</h2>
+        <p>Check out the guide or dive into the API docs.</p>
+        <div class="cta-actions">
+            <a href="/guide/architecture/" class="btn btn-primary">Read the Architecture</a>
+            <a href="/guide/motivation/" class="btn btn-secondary">Why picante?</a>
+        </div>
+    </div>
+</section>
+{% endblock body %}

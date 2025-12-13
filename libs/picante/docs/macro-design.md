@@ -4,6 +4,13 @@
 
 Provide `#[picante::input]` and `#[picante::tracked]` macros that generate the boilerplate for picante's ingredient system, similar to Salsa's ergonomics but async-first.
 
+## Current status (implemented subset)
+
+- `#[picante::tracked]`: implemented (requires `fn name<DB: ...>(db: &DB, ...) -> T | PicanteResult<T>`)
+- `#[picante::input]`: implemented as `InternedIngredient<Key> + InputIngredient<InternId, Arc<Data>>`
+- `#[picante::interned]`: implemented as `InternedIngredient<Data>`
+- `#[picante::db]`: design only (not implemented yet)
+
 ---
 
 ## `#[picante::input]` - Input Structs
@@ -93,11 +100,11 @@ impl SourceFile {
 
 ```rust
 #[picante::tracked]
-pub async fn parse_source(db: &dyn Db, file: SourceFile) -> ParsedData {
+pub async fn parse_source<DB: Db>(db: &DB, file: SourceFile) -> picante::PicanteResult<ParsedData> {
     let path = file.path(db);
     let content = file.content(db);
     // ... parsing logic ...
-    ParsedData { /* ... */ }
+    Ok(ParsedData { /* ... */ })
 }
 ```
 
@@ -130,7 +137,7 @@ pub fn register_parse_source(registry: &mut picante::IngredientRegistry<impl Db>
 }
 
 /// The actual implementation (what the user wrote)
-async fn parse_source_impl(db: &dyn Db, file: SourceFile) -> picante::PicanteResult<ParsedData> {
+async fn parse_source_impl<DB: Db>(db: &DB, file: SourceFile) -> picante::PicanteResult<ParsedData> {
     let path = file.path(db);
     let content = file.content(db);
     // ... parsing logic ...

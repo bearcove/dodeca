@@ -1,3 +1,7 @@
+/* ============================================
+   Picante Documentation - Spicy Theme
+   ============================================ */
+
 /* Fonts */
 @font-face {
     font-family: 'Public Sans';
@@ -32,14 +36,19 @@
 }
 
 :root {
-    --bg: #0a0a0a;
-    --bg-raised: #111;
-    --fg: #d4d4d4;
-    --fg-muted: #737373;
-    --accent: #7aba7a;
-    --accent-dim: #5d8a5d;
-    --code-bg: #161616;
-    --border: #262626;
+    /* Spicy warm color palette */
+    --bg: #0d0907;
+    --bg-raised: #151110;
+    --bg-ember: #1a0f0a;
+    --fg: #e8e0dc;
+    --fg-muted: #8a7a72;
+    --accent: #ff6d00;
+    --accent-bright: #ffab00;
+    --accent-dim: #cc5500;
+    --accent-deep: #e53935;
+    --code-bg: #1a1412;
+    --border: #2d2320;
+    --border-warm: #3d2a20;
     --font-sans: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: 'Iosevka', 'SF Mono', Consolas, monospace;
     --sidebar-width: 220px;
@@ -90,6 +99,11 @@ body {
     font-weight: 700;
     color: var(--fg);
     text-decoration: none;
+    transition: color 0.2s;
+}
+
+.site-nav-brand:hover {
+    color: var(--accent);
 }
 
 .site-nav-logo {
@@ -98,6 +112,18 @@ body {
 
 .site-nav-spacer {
     flex: 1;
+}
+
+.site-nav-link {
+    color: var(--fg-muted);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: color 0.2s;
+}
+
+.site-nav-link:hover {
+    color: var(--accent);
 }
 
 .site-nav-search {
@@ -112,22 +138,103 @@ body {
 }
 
 .site-nav-github:hover {
-    color: var(--fg);
+    color: var(--accent);
 }
 
 /* ============================================
    Hero Section (homepage only)
    ============================================ */
 .hero {
-    padding: 4rem 2rem;
+    position: relative;
+    padding: 5rem 2rem 4rem;
     text-align: center;
     border-bottom: 1px solid var(--border);
-    background: linear-gradient(180deg, var(--bg) 0%, var(--bg-raised) 100%);
+    background:
+        radial-gradient(ellipse 80% 50% at 50% 100%, rgba(229, 57, 53, 0.15) 0%, transparent 60%),
+        linear-gradient(180deg, var(--bg) 0%, var(--bg-ember) 100%);
+    overflow: hidden;
+}
+
+/* Animated flame background */
+.hero-flames {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 100%;
+    max-width: 600px;
+    height: 200px;
+    pointer-events: none;
+    opacity: 0.4;
+}
+
+.flame {
+    position: absolute;
+    bottom: 0;
+    border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+    filter: blur(20px);
+    animation: flicker 3s ease-in-out infinite;
+}
+
+.flame-1 {
+    left: 50%;
+    transform: translateX(-50%);
+    width: 120px;
+    height: 160px;
+    background: linear-gradient(to top, #e53935 0%, #ff6d00 50%, #ffab00 100%);
+    animation-delay: 0s;
+}
+
+.flame-2 {
+    left: 35%;
+    transform: translateX(-50%);
+    width: 80px;
+    height: 120px;
+    background: linear-gradient(to top, #bf360c 0%, #e53935 50%, #ff6d00 100%);
+    animation-delay: 0.5s;
+}
+
+.flame-3 {
+    left: 65%;
+    transform: translateX(-50%);
+    width: 80px;
+    height: 120px;
+    background: linear-gradient(to top, #bf360c 0%, #e53935 50%, #ff6d00 100%);
+    animation-delay: 1s;
+}
+
+@keyframes flicker {
+    0%, 100% {
+        transform: translateX(-50%) scaleY(1) scaleX(1);
+        opacity: 0.4;
+    }
+    25% {
+        transform: translateX(-50%) scaleY(1.1) scaleX(0.95);
+        opacity: 0.5;
+    }
+    50% {
+        transform: translateX(-50%) scaleY(0.95) scaleX(1.05);
+        opacity: 0.35;
+    }
+    75% {
+        transform: translateX(-50%) scaleY(1.05) scaleX(0.98);
+        opacity: 0.45;
+    }
 }
 
 .hero-content {
+    position: relative;
+    z-index: 1;
     max-width: 600px;
     margin: 0 auto;
+}
+
+.hero-logo {
+    margin-bottom: 1rem;
+}
+
+.hero-logo svg {
+    filter: drop-shadow(0 0 20px rgba(255, 109, 0, 0.5));
 }
 
 .hero-title {
@@ -140,15 +247,31 @@ body {
 
 .hero-tagline {
     font-size: 1.5rem;
-    color: var(--accent);
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-bright) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
     margin-bottom: 0.5rem;
-    font-weight: 500;
+    font-weight: 600;
 }
 
 .hero-sub {
     font-size: 1rem;
     color: var(--fg-muted);
     margin-bottom: 2rem;
+}
+
+.hero-sub a {
+    color: var(--fg);
+    text-decoration: underline;
+    text-decoration-color: var(--accent-dim);
+    text-underline-offset: 2px;
+    transition: color 0.15s, text-decoration-color 0.15s;
+}
+
+.hero-sub a:hover {
+    color: var(--accent);
+    text-decoration-color: var(--accent);
 }
 
 .hero-actions {
@@ -168,26 +291,169 @@ body {
 }
 
 .btn-primary {
-    background: var(--accent);
-    color: #000;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dim) 100%);
+    color: #fff;
+    box-shadow: 0 4px 16px rgba(255, 109, 0, 0.3);
 }
 
 .btn-primary:visited {
-    color: #000;
+    color: #fff;
 }
 
 .btn-primary:hover {
-    background: var(--accent-dim);
+    background: linear-gradient(135deg, var(--accent-bright) 0%, var(--accent) 100%);
+    box-shadow: 0 6px 24px rgba(255, 109, 0, 0.4);
+    transform: translateY(-1px);
 }
 
 .btn-secondary {
     background: transparent;
     color: var(--fg);
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-warm);
 }
 
 .btn-secondary:hover {
-    border-color: var(--fg-muted);
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.btn-ghost {
+    background: transparent;
+    color: var(--fg-muted);
+    border: 1px solid transparent;
+}
+
+.btn-ghost:hover {
+    color: var(--fg);
+    border-color: var(--border);
+}
+
+/* ============================================
+   Features Grid (homepage)
+   ============================================ */
+.features {
+    padding: 4rem 2rem;
+    background: var(--bg);
+}
+
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 2rem;
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+.feature {
+    padding: 1.5rem;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    transition: all 0.3s ease;
+}
+
+.feature:hover {
+    border-color: var(--border-warm);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.feature-icon {
+    font-size: 2rem;
+    margin-bottom: 0.75rem;
+}
+
+.feature h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--fg);
+    margin-bottom: 0.5rem;
+}
+
+.feature p {
+    font-size: 0.9rem;
+    color: var(--fg-muted);
+    line-height: 1.5;
+}
+
+.feature code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: var(--code-bg);
+    padding: 0.15em 0.35em;
+    border-radius: 4px;
+    color: var(--accent);
+}
+
+.feature a {
+    color: var(--accent);
+    text-decoration: none;
+}
+
+.feature a:hover {
+    text-decoration: underline;
+}
+
+/* ============================================
+   Quick Start Section (homepage)
+   ============================================ */
+.quickstart {
+    padding: 4rem 2rem;
+    background: var(--bg-ember);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
+.quickstart-inner {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.quickstart h2 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: var(--fg);
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.quickstart article {
+    /* Inherits regular article styles */
+}
+
+/* ============================================
+   CTA Section (homepage)
+   ============================================ */
+.cta {
+    padding: 4rem 2rem;
+    text-align: center;
+    background:
+        radial-gradient(ellipse 60% 40% at 50% 0%, rgba(255, 109, 0, 0.08) 0%, transparent 60%),
+        var(--bg);
+}
+
+.cta-inner {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.cta h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--fg);
+    margin-bottom: 0.5rem;
+}
+
+.cta p {
+    color: var(--fg-muted);
+    margin-bottom: 1.5rem;
+}
+
+.cta-actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    flex-wrap: wrap;
 }
 
 /* ============================================
@@ -236,7 +502,7 @@ body {
 }
 
 .sidebar-section h3 a:hover {
-    color: var(--fg);
+    color: var(--accent);
 }
 
 .sidebar-section ul {
@@ -264,7 +530,14 @@ body {
 
 .sidebar-section a.active {
     color: var(--accent);
-    background: rgba(122, 186, 122, 0.1);
+    background: rgba(255, 109, 0, 0.1);
+    border-left: 2px solid var(--accent);
+    margin-left: -2px;
+}
+
+/* Override visited link colors in sidebar */
+.sidebar a:visited, .sidebar-nav a:visited, .sidebar-section a:visited {
+    color: inherit;
 }
 
 /* ============================================
@@ -324,7 +597,7 @@ body {
 }
 
 .page-toc a:hover {
-    color: var(--fg);
+    color: var(--accent);
     text-decoration: underline;
 }
 
@@ -333,6 +606,9 @@ body {
     padding-left: 0.75rem;
 }
 
+/* ============================================
+   Article Content
+   ============================================ */
 article h1 {
     font-size: 2rem;
     margin-bottom: 1.5rem;
@@ -381,9 +657,11 @@ article li {
 article a {
     color: var(--accent);
     text-decoration: none;
+    transition: color 0.15s;
 }
 
 article a:hover {
+    color: var(--accent-bright);
     text-decoration: underline;
 }
 
@@ -400,6 +678,7 @@ article code {
     background: var(--code-bg);
     padding: 0.2em 0.4em;
     border-radius: 4px;
+    color: var(--accent-bright);
 }
 
 article pre {
@@ -416,6 +695,7 @@ article pre code {
     padding: 0;
     font-size: 0.85rem;
     line-height: 1.5;
+    color: var(--fg);
 }
 
 article strong {
@@ -447,7 +727,19 @@ article th {
 }
 
 article tr:hover td {
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(255, 109, 0, 0.03);
+}
+
+article blockquote {
+    margin: 1.5rem 0;
+    padding: 1rem 1.5rem;
+    border-left: 3px solid var(--accent);
+    background: var(--bg-raised);
+    border-radius: 0 6px 6px 0;
+}
+
+article blockquote p:last-child {
+    margin-bottom: 0;
 }
 
 /* ============================================
@@ -459,6 +751,21 @@ footer {
     text-align: center;
     color: var(--fg-muted);
     font-size: 0.8rem;
+}
+
+.footer-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.footer-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--fg);
+    font-weight: 600;
 }
 
 footer a {
@@ -484,16 +791,28 @@ footer a:hover {
     --pagefind-ui-border-width: 1px;
     --pagefind-ui-border-radius: 6px;
     --pagefind-ui-font: inherit;
-    height: 36px;
+    height: 32px;
 }
 
 .pagefind-ui__form {
-    height: 36px !important;
+    height: 32px !important;
+}
+
+.pagefind-ui__form::before {
+    width: 14px !important;
+    height: 14px !important;
+    top: 9px !important;
+    left: 10px !important;
 }
 
 .pagefind-ui__search-input {
     background: var(--code-bg) !important;
     color: var(--fg) !important;
+    height: 32px !important;
+    box-sizing: border-box !important;
+    line-height: 32px !important;
+    font-size: 0.9rem !important;
+    font-weight: 400 !important;
 }
 
 .pagefind-ui__search-input::placeholder {
@@ -593,6 +912,20 @@ footer a:hover {
         font-size: 1.25rem;
     }
 
+    .hero-flames {
+        height: 150px;
+    }
+
+    .flame-1 {
+        width: 80px;
+        height: 120px;
+    }
+
+    .flame-2, .flame-3 {
+        width: 60px;
+        height: 90px;
+    }
+
     .site-nav {
         padding: 0.75rem 1rem;
     }
@@ -603,6 +936,18 @@ footer a:hover {
 
     article h1 {
         font-size: 1.75rem;
+    }
+
+    .features {
+        padding: 3rem 1.5rem;
+    }
+
+    .features-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .quickstart, .cta {
+        padding: 3rem 1.5rem;
     }
 }
 
@@ -619,11 +964,6 @@ footer a:hover {
 @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 
-/* Override visited link colors in sidebar */
-.sidebar a:visited, .sidebar-nav a:visited, .sidebar-section a:visited {
-    color: inherit;
-}
-
 /* ============================================
    Copy Button for Code Blocks
    ============================================ */
@@ -634,14 +974,32 @@ pre .copy-btn {
     right: 0.5rem;
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
-    background: rgba(60,60,70,0.9);
-    border: 1px solid rgba(255,255,255,0.3);
+    background: rgba(60, 50, 45, 0.9);
+    border: 1px solid var(--border-warm);
     border-radius: 0.25rem;
-    color: #c0caf5;
+    color: var(--fg-muted);
     cursor: pointer;
     opacity: 0;
-    transition: opacity 0.15s;
+    transition: opacity 0.15s, background 0.15s;
 }
 pre:hover .copy-btn { opacity: 1; }
-pre .copy-btn:hover { background: rgba(80,80,95,0.95); }
-pre .copy-btn.copied { background: rgba(50,160,50,0.9); }
+pre .copy-btn:hover {
+    background: rgba(80, 60, 50, 0.95);
+    color: var(--fg);
+}
+pre .copy-btn.copied {
+    background: rgba(255, 109, 0, 0.9);
+    color: #fff;
+}
+
+/* ============================================
+   Syntax Highlighting Overrides (warm tones)
+   ============================================ */
+.highlight .k, .highlight .kd, .highlight .kn, .highlight .kp,
+.highlight .kr, .highlight .kt { color: #ff8a65; } /* keywords */
+.highlight .s, .highlight .s1, .highlight .s2 { color: #ffcc80; } /* strings */
+.highlight .c, .highlight .c1, .highlight .cm { color: #8a7a72; } /* comments */
+.highlight .n, .highlight .na, .highlight .nb { color: #e8e0dc; } /* names */
+.highlight .nf, .highlight .nc { color: #ffab00; } /* functions/classes */
+.highlight .mi, .highlight .mf { color: #ff6d00; } /* numbers */
+.highlight .o { color: #e8e0dc; } /* operators */

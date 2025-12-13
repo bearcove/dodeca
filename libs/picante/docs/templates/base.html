@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Picante{% endblock title %}</title>
+    <title>{% block title %}picante{% endblock title %}</title>
     <meta name="description" content="{% block description %}An async incremental query runtime for Rust{% endblock description %}">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="stylesheet" href="/css/style.css">
@@ -12,14 +12,25 @@
 <body class="{% block body_class %}{% endblock body_class %}">
     <nav class="site-nav">
         <a href="/" class="site-nav-brand">
-            <svg viewBox="0 0 64 64" width="28" height="28" class="site-nav-logo">
-                <path fill="#ff6b35" d="m32 8 16 8v16l-16 8-16-8V16z"/>
-                <path fill="#cc5429" d="m16 24v8l16 8V32z"/>
-                <path fill="#ff8c5a" d="m32 16 16 8v8l-16-8z"/>
+            <!-- Chili pepper / flame logo -->
+            <svg viewBox="0 0 32 32" width="28" height="28" class="site-nav-logo">
+                <defs>
+                    <linearGradient id="flame-grad" x1="0%" y1="100%" x2="0%" y2="0%">
+                        <stop offset="0%" stop-color="#e53935"/>
+                        <stop offset="50%" stop-color="#ff6d00"/>
+                        <stop offset="100%" stop-color="#ffab00"/>
+                    </linearGradient>
+                </defs>
+                <path fill="url(#flame-grad)" d="M16 2c0 4-3 6-3 10s2 6 3 8c1-2 3-4 3-8s-3-6-3-10z"/>
+                <path fill="#e53935" d="M16 8c0 3-2 4.5-2 7.5s1.5 4.5 2 6c.5-1.5 2-3 2-6s-2-4.5-2-7.5z"/>
+                <ellipse cx="16" cy="26" rx="6" ry="4" fill="#bf360c"/>
+                <ellipse cx="16" cy="25.5" rx="5" ry="3" fill="#e53935"/>
             </svg>
-            <span>Picante</span>
+            <span>picante</span>
         </a>
         <div class="site-nav-spacer"></div>
+        <a href="/guide/" class="site-nav-link">Guide</a>
+        <a href="https://docs.rs/picante" class="site-nav-link">API Docs</a>
         <div id="search" class="site-nav-search"></div>
         <a href="https://github.com/bearcove/picante" class="site-nav-github" title="GitHub">
             <svg viewBox="0 0 16 16" width="24" height="24" fill="currentColor">
@@ -37,7 +48,7 @@
                     <h3><a href="{{ sub.permalink }}">{{ sub.title }}</a></h3>
                     <ul>
                         {% for page in sub.pages %}
-                        <li><a href="{{ page.permalink }}">{{ page.title }}</a></li>
+                        <li><a href="{{ page.permalink }}"{% if page.permalink == current_path %} class="active"{% endif %}>{{ page.title }}</a></li>
                         {% endfor %}
                     </ul>
                 </div>
@@ -51,11 +62,29 @@
     {% endblock body %}
 
     <footer>
-        <p>
-            Made by <a href="https://fasterthanli.me">fasterthanlime</a>
-            · <a href="https://github.com/bearcove/picante">GitHub</a>
-            · Typeset in <a href="https://fonts.google.com/specimen/Public+Sans">Public Sans</a> & <a href="https://typeof.net/Iosevka/">Iosevka</a>
-        </p>
+        <div class="footer-inner">
+            <div class="footer-brand">
+                <svg viewBox="0 0 32 32" width="20" height="20">
+                    <defs>
+                        <linearGradient id="flame-grad-footer" x1="0%" y1="100%" x2="0%" y2="0%">
+                            <stop offset="0%" stop-color="#e53935"/>
+                            <stop offset="50%" stop-color="#ff6d00"/>
+                            <stop offset="100%" stop-color="#ffab00"/>
+                        </linearGradient>
+                    </defs>
+                    <path fill="url(#flame-grad-footer)" d="M16 2c0 4-3 6-3 10s2 6 3 8c1-2 3-4 3-8s-3-6-3-10z"/>
+                    <path fill="#e53935" d="M16 8c0 3-2 4.5-2 7.5s1.5 4.5 2 6c.5-1.5 2-3 2-6s-2-4.5-2-7.5z"/>
+                    <ellipse cx="16" cy="26" rx="6" ry="4" fill="#bf360c"/>
+                    <ellipse cx="16" cy="25.5" rx="5" ry="3" fill="#e53935"/>
+                </svg>
+                <span>picante</span>
+            </div>
+            <p>
+                Made by <a href="https://fasterthanli.me">fasterthanlime</a>
+                · <a href="https://github.com/bearcove/picante">GitHub</a>
+                · Part of the <a href="https://bearcove.eu">bearcove</a> ecosystem
+            </p>
+        </div>
     </footer>
 
     <script src="/pagefind/pagefind-ui.js"></script>
@@ -67,7 +96,7 @@
             showSubResults: true,
             showImages: false,
             translations: {
-                placeholder: "Search..."
+                placeholder: "Search... (⌘K)"
             }
         });
 
@@ -89,4 +118,3 @@
     </script>
 </body>
 </html>
-
