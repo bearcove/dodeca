@@ -1,11 +1,10 @@
 //! Dodeca TUI plugin (dodeca-mod-tui)
 //!
-//! This is a "reverse plugin" - it connects to dodeca and subscribes to
-//! event streams, rendering them in a terminal UI.
+//! This plugin connects to dodeca and subscribes to event streams,
+//! rendering them in a terminal UI.
 
 use std::collections::VecDeque;
 use std::io::stdout;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -24,7 +23,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use rapace::RpcSession;
-use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
+use rapace::transport::shm::ShmTransport;
 use tokio::sync::mpsc;
 
 use mod_tui_proto::{
@@ -39,32 +38,6 @@ type PluginTransport = ShmTransport;
 
 /// Maximum number of events to keep in buffer
 const MAX_EVENTS: usize = 100;
-
-/// SHM configuration - must match host's config
-const SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
-    ring_capacity: 256,
-    slot_size: 65536,
-    slot_count: 128,
-};
-
-/// CLI arguments
-struct Args {
-    shm_path: PathBuf,
-}
-
-fn parse_args() -> Result<Args> {
-    let mut shm_path = None;
-
-    for arg in std::env::args().skip(1) {
-        if let Some(value) = arg.strip_prefix("--shm-path=") {
-            shm_path = Some(PathBuf::from(value));
-        }
-    }
-
-    Ok(Args {
-        shm_path: shm_path.ok_or_else(|| color_eyre::eyre::eyre!("--shm-path required"))?,
-    })
-}
 
 /// Format bytes as compact human-readable size
 fn format_size(bytes: u64) -> String {
@@ -405,27 +378,9 @@ fn restore_terminal() -> Result<()> {
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let args = parse_args()?;
-
-    // Wait for SHM file
-    for i in 0..50 {
-        if args.shm_path.exists() {
-            break;
-        }
-        if i == 49 {
-            return Err(color_eyre::eyre::eyre!(
-                "SHM file not created by host: {}",
-                args.shm_path.display()
-            ));
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-
-    // Open SHM session
-    let shm_session = ShmSession::open_file(&args.shm_path, SHM_CONFIG)
-        .map_err(|e| color_eyre::eyre::eyre!("Failed to open SHM: {:?}", e))?;
-
-    let transport: Arc<PluginTransport> = Arc::new(ShmTransport::new(shm_session));
+    // Use standardized argument parsing and transport creation
+    let args = dodeca_plugin_runtime::parse_args()?;
+    let transport = dodeca_plugin_runtime::create_shm_transport(&args).await?;
 
     // Plugin uses even channel IDs
     let session = Arc::new(RpcSession::with_channel_start(transport, 2));
