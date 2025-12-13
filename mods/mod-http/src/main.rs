@@ -18,13 +18,11 @@
 //! - Opens WebSocketTunnel to host for devtools (just pipes bytes)
 //! - Uses SHM transport for zero-copy content transfer
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use color_eyre::Result;
 use dodeca_plugin_runtime::{PluginTracing, add_tracing_service};
 use rapace::RpcSession;
-use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
 use rapace_plugin::{DispatcherBuilder, ServiceDispatch};
 
 use mod_http_proto::{ContentServiceClient, TcpTunnelServer, WebSocketTunnelClient};
@@ -33,7 +31,7 @@ mod devtools;
 mod tunnel;
 
 /// Type alias for our transport (SHM-based for zero-copy)
-type PluginTransport = ShmTransport;
+type PluginTransport = rapace::transport::shm::ShmTransport;
 
 /// Plugin context shared across HTTP handlers
 pub struct PluginContext {
@@ -74,60 +72,13 @@ impl ServiceDispatch for TcpTunnelService {
     }
 }
 
-/// SHM configuration - must match host's config
-const SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
-    ring_capacity: 256, // 256 descriptors in flight
-    slot_size: 65536,   // 64KB per slot (fits most HTML pages)
-    slot_count: 128,    // 128 slots = 8MB total
-};
-
-/// CLI arguments
-struct Args {
-    /// SHM file path for zero-copy communication with host
-    shm_path: PathBuf,
-}
-
-fn parse_args() -> Result<Args> {
-    let mut shm_path = None;
-
-    for arg in std::env::args().skip(1) {
-        if let Some(value) = arg.strip_prefix("--shm-path=") {
-            shm_path = Some(PathBuf::from(value));
-        }
-        // Note: --bind is no longer used - host does the TCP binding
-    }
-
-    Ok(Args {
-        shm_path: shm_path.ok_or_else(|| color_eyre::eyre::eyre!("--shm-path required"))?,
-    })
-}
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let args = parse_args()?;
-
-    // Wait for the host to create the SHM file
-    for i in 0..50 {
-        if args.shm_path.exists() {
-            break;
-        }
-        if i == 49 {
-            return Err(color_eyre::eyre::eyre!(
-                "SHM file not created by host: {}",
-                args.shm_path.display()
-            ));
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-
-    // Open the SHM session (plugin side)
-    let shm_session = ShmSession::open_file(&args.shm_path, SHM_CONFIG)
-        .map_err(|e| color_eyre::eyre::eyre!("Failed to open SHM: {:?}", e))?;
-
-    // Create SHM transport
-    let transport: Arc<PluginTransport> = Arc::new(ShmTransport::new(shm_session));
+    // Use standardized argument parsing and transport creation
+    let args = dodeca_plugin_runtime::parse_args()?;
+    let transport = dodeca_plugin_runtime::create_shm_transport(&args).await?;
 
     // Plugin uses even channel IDs (2, 4, 6, ...)
     // Host uses odd channel IDs (1, 3, 5, ...)

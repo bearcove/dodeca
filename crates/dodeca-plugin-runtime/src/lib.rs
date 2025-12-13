@@ -5,6 +5,11 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+// Re-export dependencies for macro use
+pub use color_eyre;
+pub use rapace;
+pub use rapace_plugin;
+
 use color_eyre::Result;
 use rapace::RpcSession;
 use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
@@ -117,7 +122,7 @@ pub struct Args {
     pub shm_path: PathBuf,
 }
 
-fn parse_args() -> Result<Args> {
+pub fn parse_args() -> Result<Args> {
     let mut shm_path = None;
 
     for arg in std::env::args().skip(1) {
@@ -131,7 +136,7 @@ fn parse_args() -> Result<Args> {
     })
 }
 
-async fn create_shm_transport(args: &Args) -> Result<Arc<ShmTransport>> {
+pub async fn create_shm_transport(args: &Args) -> Result<Arc<ShmTransport>> {
     // Wait for the host to create the SHM file
     for i in 0..50 {
         if args.shm_path.exists() {
@@ -166,7 +171,7 @@ macro_rules! plugin_service {
                 payload: &[u8],
             ) -> std::pin::Pin<
                 Box<
-                    dyn std::future::Future<Output = Result<$crate::rapace::Frame, $crate::rapace::RpcError>>
+                    dyn std::future::Future<Output = std::result::Result<$crate::rapace::Frame, $crate::rapace::RpcError>>
                         + Send
                         + 'static,
                 >,
@@ -192,7 +197,7 @@ macro_rules! run_plugin {
         #[tokio::main(flavor = "current_thread")]
         async fn main() -> $crate::color_eyre::Result<()> {
             $crate::color_eyre::install()?;
-            $crate::run_plugin_service($service_impl.into()).await
+            $crate::run_plugin_service(PluginService::from($service_impl)).await
         }
     };
 }
