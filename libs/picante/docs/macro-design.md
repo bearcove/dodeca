@@ -9,7 +9,7 @@ Provide `#[picante::input]` and `#[picante::tracked]` macros that generate the b
 - `#[picante::tracked]`: implemented (requires `fn name<DB: ...>(db: &DB, ...) -> T | PicanteResult<T>`)
 - `#[picante::input]`: implemented as `InternedIngredient<Key> + InputIngredient<InternId, Arc<Data>>`
 - `#[picante::interned]`: implemented as `InternedIngredient<Data>`
-- `#[picante::db]`: design only (not implemented yet)
+- `#[picante::db]`: implemented (generates `Runtime`, `IngredientRegistry`, and all `Has*` trait impls)
 
 ---
 
@@ -152,35 +152,34 @@ async fn parse_source_impl<DB: Db>(db: &DB, file: SourceFile) -> picante::Picant
 ### User writes:
 
 ```rust
-#[picante::db]
+#[picante::db(
+    inputs(SourceFile, TemplateFile),
+    interned(CharSet),
+    tracked(parse_source, render_template),
+)]
 pub struct Database {
-    // Custom fields allowed
+    // Custom fields are forwarded to `Database::new(...)`
     pub config: Config,
 }
-
-#[picante::db]
-impl Database {
-    // Declares which ingredients this DB has
-    ingredients: [
-        SourceFileIngredient,
-        TemplateFileIngredient,
-        ParseSourceQuery,
-        // ...
-    ]
-}
 ```
+
+`inputs(...)` can also be written as `input(...)`.
 
 ### Macro generates:
 
 ```rust
 pub struct Database {
     runtime: picante::Runtime,
-    ingredients: picante::IngredientRegistry<Self>,
+    ingredients: picante::IngredientRegistry<Database>,
 
     // Generated ingredient fields
-    source_file: Arc<SourceFileIngredient>,
-    template_file: Arc<TemplateFileIngredient>,
-    parse_source: Arc<ParseSourceQuery>,
+    source_file_keys: Arc<SourceFileKeysIngredient>,
+    source_file_data: Arc<SourceFileDataIngredient>,
+    template_file_keys: Arc<TemplateFileKeysIngredient>,
+    template_file_data: Arc<TemplateFileDataIngredient>,
+    char_set: Arc<CharSetIngredient>,
+    parse_source: Arc<ParseSourceQuery<Database>>,
+    render_template: Arc<RenderTemplateQuery<Database>>,
 
     // User's custom fields
     pub config: Config,
@@ -215,18 +214,18 @@ impl Database {
     pub fn new(config: Config) -> Self {
         let mut ingredients = picante::IngredientRegistry::new();
 
-        let source_file = Arc::new(SourceFileIngredient::new(
-            picante::QueryKindId(1), "SourceFile"
-        ));
-        ingredients.register(picante::QueryKindId(1), source_file.clone());
-
-        // ... register all ingredients ...
+        // ... construct and register all ingredients ...
 
         Self {
             runtime: picante::Runtime::new(),
             ingredients,
-            source_file,
-            // ...
+            source_file_keys,
+            source_file_data,
+            template_file_keys,
+            template_file_data,
+            char_set,
+            parse_source,
+            render_template,
             config,
         }
     }
