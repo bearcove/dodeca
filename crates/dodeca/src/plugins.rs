@@ -12,6 +12,7 @@ use mod_code_execution_proto::{
 use mod_css_proto::{CssProcessorClient, CssResult};
 use mod_fonts_proto::{FontAnalysis, FontProcessorClient, FontResult, SubsetFontInput};
 use mod_html_diff_proto::{DiffInput, DiffResult, HtmlDiffResult, HtmlDifferClient};
+use mod_html_proto::HtmlProcessorClient;
 use mod_image_proto::{ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput};
 use mod_js_proto::{JsProcessorClient, JsResult, JsRewriteInput};
 use mod_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
@@ -31,7 +32,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, OnceLock};
-use tokio::process::Command;
+use std::process::Command;
 use tracing::{debug, info, warn};
 
 /// SHM configuration used for rapace plugins.
@@ -91,6 +92,7 @@ define_plugins! {
     linkcheck       => LinkCheckerClient,
     code_execution  => CodeExecutorClient,
     html_diff       => HtmlDifferClient,
+    html            => HtmlProcessorClient,
     syntax_highlight=> SyntaxHighlightServiceClient,
 }
 
@@ -119,13 +121,13 @@ impl PluginRegistry {
             }
         };
 
-        let mut child = match Command::new(&path)
-            .arg(format!("--shm-path={}", shm_path.display()))
+        let mut cmd = Command::new(&path);
+        cmd.arg(format!("--shm-path={}", shm_path.display()))
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()
-        {
+            .stderr(Stdio::inherit());
+
+        let mut child = match ur_taking_me_with_you::spawn_dying_with_parent(cmd) {
             Ok(child) => child,
             Err(e) => {
                 warn!("failed to spawn {}: {}", executable, e);
@@ -174,8 +176,9 @@ impl PluginRegistry {
 
         let shm_cleanup = shm_path.clone();
         let plugin_label = binary_name.to_string();
-        tokio::spawn(async move {
-            if let Err(e) = child.wait().await {
+        // Wait on the child in a blocking task (std::process::Child::wait is blocking)
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = child.wait() {
                 warn!("{} plugin exited with error: {}", plugin_label, e);
             }
             let _ = std::fs::remove_file(&shm_cleanup);
@@ -234,6 +237,7 @@ pub fn plugins() -> &'static PluginRegistry {
                     linkcheck: None,
                     code_execution: None,
                     html_diff: None,
+                    html: None,
                     syntax_highlight: None,
                 }
             ) {
@@ -248,6 +252,7 @@ pub fn plugins() -> &'static PluginRegistry {
 }
 
 /// Encode RGBA pixels to WebP using the plugin if available, otherwise return None.
+#[tracing::instrument(level = "debug", skip(pixels), fields(pixels_len = pixels.len()))]
 pub async fn encode_webp_plugin(
     pixels: &[u8],
     width: u32,
@@ -281,6 +286,7 @@ pub async fn encode_webp_plugin(
 }
 
 /// Encode RGBA pixels to JXL using the plugin if available, otherwise return None.
+#[tracing::instrument(level = "debug", skip(pixels), fields(pixels_len = pixels.len()))]
 pub async fn encode_jxl_plugin(
     pixels: &[u8],
     width: u32,
@@ -314,6 +320,7 @@ pub async fn encode_jxl_plugin(
 }
 
 /// Decode WebP to pixels using the plugin.
+#[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_webp_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().webp.as_ref()?;
 
@@ -345,6 +352,7 @@ pub async fn decode_webp_plugin(data: &[u8]) -> Option<DecodedImage> {
 }
 
 /// Decode JXL to pixels using the plugin.
+#[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_jxl_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().jxl.as_ref()?;
 
@@ -379,6 +387,7 @@ pub async fn decode_jxl_plugin(data: &[u8]) -> Option<DecodedImage> {
 ///
 /// # Panics
 /// Panics if the minify plugin is not loaded.
+#[tracing::instrument(level = "debug", skip(html), fields(html_len = html.len()))]
 pub async fn minify_html_plugin(html: &str) -> Result<String, String> {
     let plugin = plugins()
         .minify
@@ -396,6 +405,7 @@ pub async fn minify_html_plugin(html: &str) -> Result<String, String> {
 ///
 /// # Panics
 /// Panics if the svgo plugin is not loaded.
+#[tracing::instrument(level = "debug", skip(svg), fields(svg_len = svg.len()))]
 pub async fn optimize_svg_plugin(svg: &str) -> Result<String, String> {
     let plugin = plugins()
         .svgo
@@ -413,6 +423,7 @@ pub async fn optimize_svg_plugin(svg: &str) -> Result<String, String> {
 ///
 /// # Panics
 /// Panics if the sass plugin is not loaded.
+#[tracing::instrument(level = "debug", skip(files), fields(num_files = files.len()))]
 pub async fn compile_sass_plugin(
     files: &std::collections::HashMap<String, String>,
 ) -> Result<String, String> {
@@ -436,6 +447,7 @@ pub async fn compile_sass_plugin(
 ///
 /// # Panics
 /// Panics if the css plugin is not loaded.
+#[tracing::instrument(level = "debug", skip(css, path_map), fields(css_len = css.len(), path_map_len = path_map.len()))]
 pub async fn rewrite_urls_in_css_plugin(
     css: &str,
     path_map: &HashMap<String, String>,
@@ -459,6 +471,7 @@ pub async fn rewrite_urls_in_css_plugin(
 ///
 /// # Panics
 /// Panics if the js plugin is not loaded.
+#[tracing::instrument(level = "debug", skip(js, path_map), fields(js_len = js.len(), path_map_len = path_map.len()))]
 pub async fn rewrite_string_literals_in_js_plugin(
     js: &str,
     path_map: &HashMap<String, String>,
@@ -481,6 +494,7 @@ pub async fn rewrite_string_literals_in_js_plugin(
 ///
 /// # Panics
 /// Panics if the pagefind plugin is not loaded.
+#[tracing::instrument(level = "debug", skip(pages), fields(num_pages = pages.len()))]
 pub async fn build_search_index_plugin(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, String> {
     let plugin = plugins()
         .pagefind
@@ -501,6 +515,7 @@ pub async fn build_search_index_plugin(pages: Vec<SearchPage>) -> Result<Vec<Sea
 // ============================================================================
 
 /// Decode a PNG image using the plugin.
+#[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_png_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().image.as_ref()?;
 
@@ -527,6 +542,7 @@ pub async fn decode_png_plugin(data: &[u8]) -> Option<DecodedImage> {
 }
 
 /// Decode a JPEG image using the plugin.
+#[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_jpeg_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().image.as_ref()?;
 
@@ -553,6 +569,7 @@ pub async fn decode_jpeg_plugin(data: &[u8]) -> Option<DecodedImage> {
 }
 
 /// Decode a GIF image using the plugin.
+#[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_gif_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().image.as_ref()?;
 
@@ -579,6 +596,7 @@ pub async fn decode_gif_plugin(data: &[u8]) -> Option<DecodedImage> {
 }
 
 /// Resize an image using the plugin.
+#[tracing::instrument(level = "debug", skip(pixels), fields(pixels_len = pixels.len()))]
 pub async fn resize_image_plugin(
     pixels: &[u8],
     width: u32,
@@ -619,6 +637,7 @@ pub async fn resize_image_plugin(
 }
 
 /// Generate a thumbhash data URL using the plugin.
+#[tracing::instrument(level = "debug", skip(pixels), fields(pixels_len = pixels.len()))]
 pub async fn generate_thumbhash_plugin(pixels: &[u8], width: u32, height: u32) -> Option<String> {
     let plugin = plugins().image.as_ref()?;
 
@@ -927,6 +946,82 @@ pub async fn diff_html_plugin(old_html: &str, new_html: &str) -> Option<DiffResu
         }
         Err(e) => {
             warn!("html diff plugin call failed: {:?}", e);
+            None
+        }
+    }
+}
+
+// ============================================================================
+// HTML processing plugin functions
+// ============================================================================
+
+/// Rewrite URLs in HTML attributes (href, src, srcset) using the plugin.
+///
+/// Returns None if the html plugin is not loaded.
+#[tracing::instrument(level = "debug", skip(html, path_map), fields(html_len = html.len(), path_map_len = path_map.len()))]
+pub async fn rewrite_urls_in_html_plugin(
+    html: &str,
+    path_map: &HashMap<String, String>,
+) -> Option<String> {
+    let plugin = plugins().html.as_ref()?;
+
+    match plugin.rewrite_urls(html.to_string(), path_map.clone()).await {
+        Ok(mod_html_proto::HtmlResult::Success { html }) => Some(html),
+        Ok(mod_html_proto::HtmlResult::SuccessWithFlag { html, .. }) => Some(html),
+        Ok(mod_html_proto::HtmlResult::Error { message }) => {
+            warn!("html rewrite_urls plugin error: {}", message);
+            None
+        }
+        Err(e) => {
+            warn!("html rewrite_urls plugin call failed: {:?}", e);
+            None
+        }
+    }
+}
+
+/// Mark dead internal links in HTML using the plugin.
+///
+/// Returns (modified_html, had_dead_links) or None if plugin not loaded.
+#[tracing::instrument(level = "debug", skip(html, known_routes), fields(html_len = html.len(), routes_count = known_routes.len()))]
+pub async fn mark_dead_links_plugin(
+    html: &str,
+    known_routes: &std::collections::HashSet<String>,
+) -> Option<(String, bool)> {
+    let plugin = plugins().html.as_ref()?;
+
+    match plugin.mark_dead_links(html.to_string(), known_routes.clone()).await {
+        Ok(mod_html_proto::HtmlResult::SuccessWithFlag { html, flag }) => Some((html, flag)),
+        Ok(mod_html_proto::HtmlResult::Success { html }) => Some((html, false)),
+        Ok(mod_html_proto::HtmlResult::Error { message }) => {
+            warn!("html mark_dead_links plugin error: {}", message);
+            None
+        }
+        Err(e) => {
+            warn!("html mark_dead_links plugin call failed: {:?}", e);
+            None
+        }
+    }
+}
+
+/// Inject build info buttons into code blocks using the plugin.
+///
+/// Returns (modified_html, had_buttons) or None if plugin not loaded.
+#[tracing::instrument(level = "debug", skip(html, code_metadata), fields(html_len = html.len(), metadata_count = code_metadata.len()))]
+pub async fn inject_build_info_plugin(
+    html: &str,
+    code_metadata: &HashMap<String, mod_html_proto::CodeExecutionMetadata>,
+) -> Option<(String, bool)> {
+    let plugin = plugins().html.as_ref()?;
+
+    match plugin.inject_build_info(html.to_string(), code_metadata.clone()).await {
+        Ok(mod_html_proto::HtmlResult::SuccessWithFlag { html, flag }) => Some((html, flag)),
+        Ok(mod_html_proto::HtmlResult::Success { html }) => Some((html, false)),
+        Ok(mod_html_proto::HtmlResult::Error { message }) => {
+            warn!("html inject_build_info plugin error: {}", message);
+            None
+        }
+        Err(e) => {
+            warn!("html inject_build_info plugin call failed: {:?}", e);
             None
         }
     }

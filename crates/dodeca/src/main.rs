@@ -19,7 +19,6 @@ mod search;
 mod serve;
 mod svg;
 mod template;
-mod theme;
 mod tui;
 mod tui_host;
 mod types;
@@ -37,7 +36,7 @@ use crate::types::{
     SourcePathRef, StaticPath, TemplateContent, TemplatePath, TemplatePathRef,
 };
 use camino::{Utf8Path, Utf8PathBuf};
-use color_eyre::{Result, eyre::eyre};
+use eyre::{Result, eyre};
 use facet::Facet;
 use facet_args as args;
 use ignore::WalkBuilder;
@@ -286,7 +285,6 @@ fn resolve_dirs(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    color_eyre::install()?;
     miette::set_hook(Box::new(
         |_| Box::new(miette::GraphicalReportHandler::new()),
     ))?;
@@ -946,7 +944,8 @@ pub async fn build(
                     render_options,
                     None,
                     &site_output.code_execution_results,
-                );
+                )
+                .await;
                 let path = route_to_path(output_dir, route);
 
                 if store.write_if_changed(&path, final_html.as_bytes())? {
@@ -1094,24 +1093,19 @@ pub async fn build(
     Ok(ctx)
 }
 
-/// Build with mini inline TUI - shows progress without taking over screen
+/// Build with progress output
 async fn build_with_mini_tui(
     content_dir: &Utf8PathBuf,
     output_dir: &Utf8PathBuf,
     skip_domains: &[String],
     rate_limit_ms: Option<u64>,
 ) -> Result<()> {
-    use crossterm::cursor;
-    use ratatui::prelude::*;
-    use ratatui::widgets::Paragraph;
-    use std::io::{self, IsTerminal};
     use std::time::Instant;
 
     // Initialize tracing (respects RUST_LOG)
     logging::init_standard_tracing();
 
     let start = Instant::now();
-    let is_terminal = io::stdout().is_terminal();
 
     // Open CAS
     let base_dir = content_dir.parent().unwrap_or(content_dir);
@@ -1142,58 +1136,7 @@ async fn build_with_mini_tui(
         + ctx.static_files.len()
         + ctx.data_files.len();
 
-    // Set up inline terminal (3 lines) - only if we have a TTY
-    let mut terminal = if is_terminal {
-        let mut stdout = io::stdout();
-        crossterm::execute!(stdout, cursor::Hide)?;
-
-        let backend = ratatui::backend::CrosstermBackend::new(stdout);
-        let options = ratatui::TerminalOptions {
-            viewport: ratatui::Viewport::Inline(3),
-        };
-        Some(ratatui::Terminal::with_options(backend, options)?)
-    } else {
-        None
-    };
-
-    // Draw progress (only when we have a terminal)
-    let draw_progress = |terminal: &mut Option<ratatui::Terminal<_>>,
-                         phase: &str,
-                         stats: &QueryStats,
-                         written: usize,
-                         skipped: usize| {
-        if let Some(term) = terminal {
-            term.draw(|frame| {
-                let area = frame.area();
-
-                let text = vec![
-                    Line::from(vec![
-                        Span::styled("Phase: ", Style::default().fg(Color::Cyan)),
-                        Span::raw(phase),
-                    ]),
-                    Line::from(vec![
-                        Span::styled("Queries: ", Style::default().fg(Color::Cyan)),
-                        Span::raw(format!(
-                            "{} executed, {} reused",
-                            stats.executed(),
-                            stats.reused()
-                        )),
-                    ]),
-                    Line::from(vec![
-                        Span::styled("Output: ", Style::default().fg(Color::Cyan)),
-                        Span::raw(format!("{written} written, {skipped} up-to-date")),
-                    ]),
-                ];
-
-                let paragraph = Paragraph::new(text);
-                frame.render_widget(paragraph, area);
-            })
-            .ok();
-        }
-    };
-
-    // Initial draw
-    draw_progress(&mut terminal, "Loading...", &stats_for_display, 0, 0);
+    println!("{} Loading {} files...", "→".cyan(), input_count);
 
     // Create registries
     let source_vec: Vec<_> = ctx.sources.values().copied().collect();
@@ -1208,7 +1151,7 @@ async fn build_with_mini_tui(
     StaticRegistry::set(&mut ctx.db, static_vec)?;
     DataRegistry::set(&mut ctx.db, data_vec)?;
 
-    draw_progress(&mut terminal, "Building...", &stats_for_display, 0, 0);
+    println!("{} Building...", "→".cyan());
 
     // Run the build query
     let site_output = build_site(&ctx.db).await?;
@@ -1221,12 +1164,6 @@ async fn build_with_mini_tui(
         .collect();
 
     if !failed_executions.is_empty() {
-        // Clean up terminal before showing errors
-        if terminal.is_some() {
-            drop(terminal);
-            crossterm::execute!(io::stdout(), cursor::Show)?;
-        }
-
         for failure in &failed_executions {
             eprintln!(
                 "{}Code execution failed in {}:{} ({}): {}",
@@ -1274,7 +1211,7 @@ async fn build_with_mini_tui(
         }
     }
 
-    draw_progress(&mut terminal, "Writing...", &stats_for_display, 0, 0);
+    println!("{} Writing outputs...", "→".cyan());
 
     // Write outputs
     let mut written = 0usize;
@@ -1289,12 +1226,6 @@ async fn build_with_mini_tui(
         match output {
             OutputFile::Html { route, content } => {
                 if !render_options.dev_mode && content.contains(render::RENDER_ERROR_MARKER) {
-                    // Clean up terminal before error
-                    if terminal.is_some() {
-                        drop(terminal);
-                        crossterm::execute!(io::stdout(), cursor::Show)?;
-                    }
-
                     let error_start = content.find("<pre>").map(|i| i + 5).unwrap_or(0);
                     let error_end = content.find("</pre>").unwrap_or(content.len());
                     let error_msg = &content[error_start..error_end];
@@ -1310,7 +1241,8 @@ async fn build_with_mini_tui(
                     render_options,
                     None,
                     &site_output.code_execution_results,
-                );
+                )
+                .await;
                 let path = route_to_path(output_dir, route);
 
                 if store.write_if_changed(&path, final_html.as_bytes())? {
@@ -1337,24 +1269,10 @@ async fn build_with_mini_tui(
             }
         }
 
-        // Update display periodically
-        draw_progress(
-            &mut terminal,
-            "Writing...",
-            &stats_for_display,
-            written,
-            skipped,
-        );
     }
 
     // Check links
-    draw_progress(
-        &mut terminal,
-        "Checking links...",
-        &stats_for_display,
-        written,
-        skipped,
-    );
+    println!("{} Checking links...", "→".cyan());
 
     let pages = site_output.files.iter().filter_map(|f| match f {
         OutputFile::Html { route, content } => Some(link_checker::Page {
@@ -1403,12 +1321,6 @@ async fn build_with_mini_tui(
     link_result.broken_links.extend(external_broken);
 
     if !link_result.is_ok() {
-        // Clean up terminal before error
-        if terminal.is_some() {
-            drop(terminal);
-            crossterm::execute!(io::stdout(), cursor::Show)?;
-        }
-
         for broken in &link_result.broken_links {
             let prefix = if broken.is_external { "[ext]" } else { "[int]" };
             eprintln!(
@@ -1428,13 +1340,7 @@ async fn build_with_mini_tui(
     }
 
     // Build search index
-    draw_progress(
-        &mut terminal,
-        "Indexing...",
-        &stats_for_display,
-        written,
-        skipped,
-    );
+    println!("{} Building search index...", "→".cyan());
 
     // Build search index (plugin blocks internally)
     let search_files = {
@@ -1448,15 +1354,6 @@ async fn build_with_mini_tui(
     for (path, content) in &search_files {
         let dest = output_dir.join(path.trim_start_matches('/'));
         store.write_if_changed(&dest, content)?;
-    }
-
-    // Final state
-    draw_progress(&mut terminal, "Done!", &stats_for_display, written, skipped);
-
-    // Clean up terminal
-    if terminal.is_some() {
-        drop(terminal);
-        crossterm::execute!(io::stdout(), cursor::Show)?;
     }
 
     // Calculate output directory size
@@ -3042,36 +2939,14 @@ async fn serve_with_tui(
         }
     });
 
-    // Run TUI plugin (replaces inline TUI)
+    // Run TUI plugin
     // Find the TUI plugin binary
     let tui_plugin_path = match tui_host::find_tui_plugin_path() {
         Ok(p) => p,
         Err(e) => {
-            // Fall back to inline TUI if plugin not found
-            tracing::warn!("TUI plugin not found ({e}), falling back to inline TUI");
-            let mut terminal = tui::init_terminal()?;
-            let mut app =
-                tui::ServeApp::new(progress_rx, server_rx, event_rx, cmd_tx, filter_handle);
-            let _ = app.run(&mut terminal);
-            tui::restore_terminal()?;
-
-            // Signal server to shutdown
-            {
-                let shutdown = current_shutdown.lock().unwrap();
-                let _ = shutdown.send(true);
-            }
-
-            // Save cache before exit
-            if let Err(e) = std::fs::create_dir_all(cache_path.parent().unwrap()) {
-                eprintln!("Failed to create cache dir: {e}");
-            }
-            let cache_start = std::time::Instant::now();
-            match server.save_cache(cache_path.as_std_path()) {
-                Ok(()) => eprintln!("Cache saved in {:.2?}", cache_start.elapsed()),
-                Err(e) => eprintln!("Failed to save cache: {e}"),
-            }
-
-            return Ok(());
+            return Err(eyre!(
+                "TUI plugin not found: {e}. Make sure dodeca-mod-tui is built and in the plugin path."
+            ));
         }
     };
 

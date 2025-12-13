@@ -276,7 +276,7 @@ pub fn process_notify_event(
 /// Create and configure the file watcher
 pub fn create_watcher(
     config: &WatcherConfig,
-) -> color_eyre::Result<(WatcherHandle, WatcherReceiver)> {
+) -> eyre::Result<(WatcherHandle, WatcherReceiver)> {
     let (tx, rx) = std::sync::mpsc::channel();
     let watcher = notify::recommended_watcher(move |res| {
         let _ = tx.send(res);

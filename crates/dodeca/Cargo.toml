@@ -51,16 +51,14 @@ tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 futures = "0.3"
 
-# TUI
-ratatui = "0.30.0-beta.0"
-crossterm = "0.29"
+# TUI is now in the mod-tui plugin
 
 # CLI (using facet-args instead of clap)
 facet-args = "0.32.2"
 
 # Error handling & diagnostics
-color-eyre = "0.6"
-miette = { version = "7", features = ["fancy"] }
+eyre = "0.6"
+miette = { version = "7", features = ["fancy-no-backtrace"] }
 owo-colors = "4"
 
 # Logging
@@ -104,10 +102,12 @@ mod-pagefind-proto = { path = "../../mods/mod-pagefind-proto" }
 mod-sass-proto = { path = "../../mods/mod-sass-proto" }
 mod-svgo-proto = { path = "../../mods/mod-svgo-proto" }
 mod-webp-proto = { path = "../../mods/mod-webp-proto" }
+mod-html-proto = { path = "../../mods/mod-html-proto" }
 
 # RPC framework for plugin communication
 rapace = { git = "https://github.com/bearcove/rapace", features = ["stream"] }
 rapace-tracing = { git = "https://github.com/bearcove/rapace" }
+ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace" }
 async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
 
 # Code execution plugin types (lightweight - no plugin implementation)
@@ -122,12 +122,9 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 # Misc
 camino = "1"  # UTF-8 paths
 strid = "2.1"  # Strongly-typed string wrappers (like aliri_braid but without syn)
-regex = "1"  # For HTML heading extraction
+regex = "1"  # For HTML heading extraction and inline CSS/JS extraction
 
-# HTML parsing and rewriting
-html5ever = "0.36"
-markup5ever_rcdom = "0.36.0+unofficial"
-lol_html = "2.7"  # Still needed for render.rs
+# HTML parsing and rewriting is now handled via the mod-html plugin
 
 # Font subsetting is now handled via the dodeca-fonts plugin
 
@@ -150,14 +147,6 @@ tempfile = "3"  # For isolated test fixtures
 futures = "0.3"        # For StreamExt in browser tests
 async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
 reqwest = { version = "0.12", features = ["blocking"] }
-
-[[bench]]
-name = "link_checker"
-harness = false
-
-[[bench]]
-name = "ansi_to_html"
-harness = false
 
 [[bench]]
 name = "template"

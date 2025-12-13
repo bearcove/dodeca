@@ -8,7 +8,7 @@ use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::Arc;
 
-use color_eyre::Result;
+use eyre::Result;
 use futures::StreamExt;
 use mod_tui_proto::{
     BindMode, BuildProgress, CommandResult, EventKind, LogEvent, LogLevel, ServerCommand,
@@ -273,11 +273,11 @@ pub fn find_tui_plugin_path() -> Result<PathBuf> {
     let exe_path = std::env::current_exe()?;
     let plugin_path = exe_path
         .parent()
-        .ok_or_else(|| color_eyre::eyre::eyre!("Cannot find parent directory of executable"))?
+        .ok_or_else(|| eyre::eyre!("Cannot find parent directory of executable"))?
         .join("dodeca-mod-tui");
 
     if !plugin_path.exists() {
-        return Err(color_eyre::eyre::eyre!(
+        return Err(eyre::eyre!(
             "TUI plugin binary not found at {}. Build it with: cargo build -p mod-tui --bin dodeca-mod-tui",
             plugin_path.display()
         ));
@@ -356,7 +356,7 @@ pub async fn start_tui_plugin(
 
     // Create the SHM session (host side)
     let session = ShmSession::create_file(&shm_path, SHM_CONFIG)
-        .map_err(|e| color_eyre::eyre::eyre!("Failed to create SHM for TUI: {:?}", e))?;
+        .map_err(|e| eyre::eyre!("Failed to create SHM for TUI: {:?}", e))?;
     tracing::debug!(
         "TUI SHM segment: {} ({}KB)",
         shm_path,

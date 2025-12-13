@@ -1,0 +1,36 @@
+[package]
+name = "mod-html"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "dodeca-mod-html"
+path = "src/main.rs"
+
+[dependencies]
+# HTML parsing
+html5ever = "0.36"
+markup5ever_rcdom = "0.36.0+unofficial"
+lol_html = "2.7"
+
+# Error handling
+color-eyre = "0.6"
+
+# Async runtime
+tokio = { version = "1", features = ["rt", "time"] }
+
+# Logging
+tracing = "0.1"
+
+# Plugin runtime
+dodeca-plugin-runtime = { path = "../../crates/dodeca-plugin-runtime" }
+
+# RPC framework
+rapace = { git = "https://github.com/bearcove/rapace", features = ["stream"] }
+rapace-plugin = { git = "https://github.com/bearcove/rapace" }
+
+# Local protocol definitions
+mod-html-proto = { path = "../mod-html-proto" }
+
+# Facet for serialization
+facet = { version = "0.32.2" }

@@ -6,7 +6,7 @@
 /// Salsa cache version - bump this when making incompatible changes to Salsa inputs/queries
 pub const SALSA_CACHE_VERSION: u32 = 4;
 
-use color_eyre::Result;
+use eyre::Result;
 use std::collections::HashMap;
 use std::sync::{Mutex, RwLock};
 use tokio::sync::broadcast;
@@ -23,23 +23,6 @@ use std::collections::HashSet;
 
 use dodeca_protocol::{ScopeEntry, ScopeValue};
 use facet_value::DestructuredRef;
-
-/// Format bytes as human-readable size (KB, MB, GB)
-fn format_bytes(bytes: usize) -> String {
-    const KB: usize = 1024;
-    const MB: usize = KB * 1024;
-    const GB: usize = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} bytes", bytes)
-    }
-}
 
 // ============================================================================
 // Scope conversion for devtools
@@ -686,13 +669,14 @@ impl SiteServer {
                 });
             }
 
-            let code_results = self.code_execution_results.read().unwrap();
+            let code_results: Vec<_> = self.code_execution_results.read().unwrap().clone();
             let html = inject_livereload_with_build_info(
                 &html,
                 self.render_options,
                 known_routes.as_ref(),
                 &code_results,
-            );
+            )
+            .await;
             return Some(ServeContent::Html(html));
         }
 

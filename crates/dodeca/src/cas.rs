@@ -36,7 +36,7 @@ pub struct ContentStore {
 
 impl ContentStore {
     /// Open or create a content store at the given path
-    pub fn open(path: &Utf8Path) -> color_eyre::Result<Self> {
+    pub fn open(path: &Utf8Path) -> eyre::Result<Self> {
         let path = path.as_std_path().to_path_buf();
         let store = if path.exists() {
             let data = fs::read(&path)?;
@@ -48,7 +48,7 @@ impl ContentStore {
     }
 
     /// Save the store to disk
-    pub fn save(&self) -> color_eyre::Result<()> {
+    pub fn save(&self) -> eyre::Result<()> {
         let data = facet_postcard::to_vec(&self.store)?;
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
@@ -70,7 +70,7 @@ impl ContentStore {
         &mut self,
         path: &Utf8Path,
         content: &[u8],
-    ) -> color_eyre::Result<bool> {
+    ) -> eyre::Result<bool> {
         let hash = Self::hash(content);
         let path_key = path.as_str().to_string();
 
@@ -174,7 +174,7 @@ fn ensure_gitignore_has_cache(cache_dir: &Path) {
 }
 
 /// Initialize the global asset cache (blob storage for images, fonts)
-pub fn init_asset_cache(cache_dir: &Path) -> color_eyre::Result<()> {
+pub fn init_asset_cache(cache_dir: &Path) -> eyre::Result<()> {
     tracing::debug!(cache_dir = %cache_dir.display(), "init_asset_cache called");
 
     // Ensure .cache is gitignored before creating directories

@@ -12,7 +12,7 @@ use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::Arc;
 
-use color_eyre::Result;
+use eyre::Result;
 use futures::stream::{self, StreamExt};
 use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
 use rapace::{Frame, RpcError, RpcSession};
@@ -175,11 +175,11 @@ pub fn find_plugin_path() -> Result<PathBuf> {
     let exe_path = std::env::current_exe()?;
     let plugin_path = exe_path
         .parent()
-        .ok_or_else(|| color_eyre::eyre::eyre!("Cannot find parent directory of executable"))?
+        .ok_or_else(|| eyre::eyre!("Cannot find parent directory of executable"))?
         .join("dodeca-mod-http");
 
     if !plugin_path.exists() {
-        return Err(color_eyre::eyre::eyre!(
+        return Err(eyre::eyre!(
             "Plugin binary not found at {}. Build it with: cargo build -p mod-http --bin dodeca-mod-http",
             plugin_path.display()
         ));
@@ -217,7 +217,7 @@ pub async fn start_plugin_server_with_shutdown(
 
     // Create the SHM session (host side)
     let session = ShmSession::create_file(&shm_path, SHM_CONFIG)
-        .map_err(|e| color_eyre::eyre::eyre!("Failed to create SHM: {:?}", e))?;
+        .map_err(|e| eyre::eyre!("Failed to create SHM: {:?}", e))?;
     tracing::info!(
         "SHM segment: {} ({}KB)",
         shm_path,
@@ -276,7 +276,7 @@ pub async fn start_plugin_server_with_shutdown(
         let bound_port = listener
             .local_addr()
             .map_err(|e| {
-                color_eyre::eyre::eyre!("Failed to get pre-bound listener address: {}", e)
+                eyre::eyre!("Failed to get pre-bound listener address: {}", e)
             })?
             .port();
         tracing::info!("Using pre-bound listener on port {}", bound_port);
@@ -313,11 +313,11 @@ pub async fn start_plugin_server_with_shutdown(
         }
 
         if listeners.is_empty() {
-            return Err(color_eyre::eyre::eyre!("Failed to bind to any addresses"));
+            return Err(eyre::eyre!("Failed to bind to any addresses"));
         }
 
         let bound_port =
-            actual_port.ok_or_else(|| color_eyre::eyre::eyre!("Could not determine bound port"))?;
+            actual_port.ok_or_else(|| eyre::eyre!("Could not determine bound port"))?;
 
         // Print the actual bound port for the test harness to discover
         eprintln!("DEBUG: About to print LISTENING_PORT={}", bound_port);
@@ -421,7 +421,7 @@ async fn handle_browser_connection(
     let handle = tunnel_client
         .open()
         .await
-        .map_err(|e| color_eyre::eyre::eyre!("Failed to open tunnel: {:?}", e))?;
+        .map_err(|e| eyre::eyre!("Failed to open tunnel: {:?}", e))?;
 
     let channel_id = handle.channel_id;
     tracing::debug!(channel_id, "Tunnel opened for browser connection");

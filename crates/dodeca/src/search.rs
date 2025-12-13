@@ -5,7 +5,7 @@
 
 use crate::db::{OutputFile, SiteOutput};
 use crate::plugins::build_search_index_plugin;
-use color_eyre::eyre::eyre;
+use eyre::eyre;
 use mod_pagefind_proto::SearchPage;
 use std::collections::HashMap;
 use tokio::runtime::Handle;
@@ -16,7 +16,7 @@ pub type SearchFiles = HashMap<String, Vec<u8>>;
 /// Build a search index from site output (one-shot, for build mode)
 ///
 /// Note: This is now synchronous since it uses the plugin which blocks internally.
-pub fn build_search_index(output: &SiteOutput) -> color_eyre::Result<SearchFiles> {
+pub fn build_search_index(output: &SiteOutput) -> eyre::Result<SearchFiles> {
     // Collect HTML pages
     let pages: Vec<SearchPage> = output
         .files
