@@ -302,7 +302,8 @@ async fn main() -> Result<()> {
                 &cfg.output_dir,
                 &cfg.skip_domains,
                 cfg.rate_limit_ms,
-            )?;
+            )
+            .await?;
         }
         Command::Serve(args) => {
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
@@ -471,10 +472,7 @@ impl BuildContext {
         output_dir: &Utf8Path,
         stats: Option<Arc<QueryStats>>,
     ) -> Self {
-        let db = match &stats {
-            Some(s) => Database::new_with_stats(Arc::clone(s)),
-            None => Database::new(),
-        };
+        let db = Database::new(stats.clone());
         Self {
             db,
             content_dir: content_dir.to_owned(),
@@ -545,7 +543,7 @@ impl BuildContext {
             let source_path = SourcePath::new(relative);
             let source_content = SourceContent::new(content);
             let source =
-                SourceFile::new(&self.db, source_path.clone(), source_content, last_modified);
+                SourceFile::new(&self.db, source_path.clone(), source_content, last_modified)?;
             self.sources.insert(source_path, source);
         }
 
@@ -581,7 +579,7 @@ impl BuildContext {
 
             let template_path = TemplatePath::new(relative);
             let template_content = TemplateContent::new(content);
-            let template = TemplateFile::new(&self.db, template_path.clone(), template_content);
+            let template = TemplateFile::new(&self.db, template_path.clone(), template_content)?;
             self.templates.insert(template_path, template);
         }
 
@@ -617,7 +615,7 @@ impl BuildContext {
 
             let sass_path = SassPath::new(relative);
             let sass_content = SassContent::new(content);
-            let sass_file = SassFile::new(&self.db, sass_path.clone(), sass_content);
+            let sass_file = SassFile::new(&self.db, sass_path.clone(), sass_content)?;
             self.sass_files.insert(sass_path, sass_file);
         }
 
@@ -646,7 +644,7 @@ impl BuildContext {
                 .unwrap_or_else(|_| path.to_string());
 
             let static_path = StaticPath::new(relative);
-            let static_file = StaticFile::new(&self.db, static_path.clone(), content);
+            let static_file = StaticFile::new(&self.db, static_path.clone(), content)?;
             self.static_files.insert(static_path, static_file);
         }
 
@@ -686,7 +684,7 @@ impl BuildContext {
 
             let data_path = DataPath::new(relative);
             let data_content = DataContent::new(content);
-            let data_file = DataFile::new(&self.db, data_path.clone(), data_content);
+            let data_file = DataFile::new(&self.db, data_path.clone(), data_content)?;
             self.data_files.insert(data_path, data_file);
         }
 
@@ -788,7 +786,7 @@ pub struct BuildStats {
     pub static_skipped: usize,
 }
 
-pub fn build(
+pub async fn build(
     content_dir: &Utf8PathBuf,
     output_dir: &Utf8PathBuf,
     mode: BuildMode,
@@ -831,18 +829,18 @@ pub fn build(
         );
     }
 
-    // Create registries for the query
+    // Set registries as singletons in the database
     let source_vec: Vec<_> = ctx.sources.values().copied().collect();
     let template_vec: Vec<_> = ctx.templates.values().copied().collect();
     let sass_vec: Vec<_> = ctx.sass_files.values().copied().collect();
     let static_vec: Vec<_> = ctx.static_files.values().copied().collect();
     let data_vec: Vec<_> = ctx.data_files.values().copied().collect();
 
-    let source_registry = SourceRegistry::new(&ctx.db, source_vec);
-    let template_registry = TemplateRegistry::new(&ctx.db, template_vec);
-    let sass_registry = SassRegistry::new(&ctx.db, sass_vec);
-    let static_registry = StaticRegistry::new(&ctx.db, static_vec);
-    let data_registry = DataRegistry::new(&ctx.db, data_vec);
+    SourceRegistry::set(&mut ctx.db, source_vec)?;
+    TemplateRegistry::set(&mut ctx.db, template_vec)?;
+    SassRegistry::set(&mut ctx.db, sass_vec)?;
+    StaticRegistry::set(&mut ctx.db, static_vec)?;
+    DataRegistry::set(&mut ctx.db, data_vec)?;
 
     // Update progress: parsing phase
     if let Some(ref p) = progress {
@@ -850,14 +848,7 @@ pub fn build(
     }
 
     // THE query - produces all outputs (fonts are automatically subsetted)
-    let site_output = build_site(
-        &ctx.db,
-        source_registry,
-        template_registry,
-        sass_registry,
-        static_registry,
-        data_registry,
-    );
+    let site_output = build_site(&ctx.db).await?;
 
     // Code execution validation
     let failed_executions: Vec<_> = site_output
@@ -972,7 +963,7 @@ pub fn build(
             }
             OutputFile::Static { path, content } => {
                 let dest = output_dir.join(path.as_str());
-                if store.write_if_changed(&dest, content)? {
+                if store.write_if_changed(&dest, &content)? {
                     stats.static_written += 1;
                 } else {
                     stats.static_skipped += 1;
@@ -1104,7 +1095,7 @@ pub fn build(
 }
 
 /// Build with mini inline TUI - shows progress without taking over screen
-fn build_with_mini_tui(
+async fn build_with_mini_tui(
     content_dir: &Utf8PathBuf,
     output_dir: &Utf8PathBuf,
     skip_domains: &[String],
@@ -1211,23 +1202,16 @@ fn build_with_mini_tui(
     let static_vec: Vec<_> = ctx.static_files.values().copied().collect();
     let data_vec: Vec<_> = ctx.data_files.values().copied().collect();
 
-    let source_registry = SourceRegistry::new(&ctx.db, source_vec);
-    let template_registry = TemplateRegistry::new(&ctx.db, template_vec);
-    let sass_registry = SassRegistry::new(&ctx.db, sass_vec);
-    let static_registry = StaticRegistry::new(&ctx.db, static_vec);
-    let data_registry = DataRegistry::new(&ctx.db, data_vec);
+    SourceRegistry::set(&mut ctx.db, source_vec)?;
+    TemplateRegistry::set(&mut ctx.db, template_vec)?;
+    SassRegistry::set(&mut ctx.db, sass_vec)?;
+    StaticRegistry::set(&mut ctx.db, static_vec)?;
+    DataRegistry::set(&mut ctx.db, data_vec)?;
 
     draw_progress(&mut terminal, "Building...", &stats_for_display, 0, 0);
 
     // Run the build query
-    let site_output = build_site(
-        &ctx.db,
-        source_registry,
-        template_registry,
-        sass_registry,
-        static_registry,
-        data_registry,
-    );
+    let site_output = build_site(&ctx.db).await?;
 
     // Code execution validation
     let failed_executions: Vec<_> = site_output
@@ -1345,7 +1329,7 @@ fn build_with_mini_tui(
             }
             OutputFile::Static { path, content } => {
                 let dest = output_dir.join(path.as_str());
-                if store.write_if_changed(&dest, content)? {
+                if store.write_if_changed(&dest, &content)? {
                     written += 1;
                 } else {
                     skipped += 1;
@@ -1374,8 +1358,8 @@ fn build_with_mini_tui(
 
     let pages = site_output.files.iter().filter_map(|f| match f {
         OutputFile::Html { route, content } => Some(link_checker::Page {
-            route,
-            html: content,
+            route: &route,
+            html: &content,
         }),
         _ => None,
     });
@@ -1858,7 +1842,7 @@ async fn serve_plain(
 
             let source_path = SourcePath::new(relative);
             let source_content = SourceContent::new(content);
-            let source = SourceFile::new(&*db, source_path, source_content, last_modified);
+            let source = SourceFile::new(&*db, source_path, source_content, last_modified)?;
             sources.push(source);
         }
         drop(db);
@@ -1896,7 +1880,7 @@ async fn serve_plain(
 
             let template_path = TemplatePath::new(relative);
             let template_content = TemplateContent::new(content);
-            let template = TemplateFile::new(&*db, template_path, template_content);
+            let template = TemplateFile::new(&*db, template_path, template_content)?;
             templates.push(template);
         }
         let count = templates.len();
@@ -1922,7 +1906,7 @@ async fn serve_plain(
                 let content = fs::read(path)?;
 
                 let static_path = StaticPath::new(relative.to_string());
-                let static_file = StaticFile::new(&*db, static_path, content);
+                let static_file = StaticFile::new(&*db, static_path, content)?;
                 static_files.push(static_file);
             }
         }
@@ -1952,7 +1936,7 @@ async fn serve_plain(
                     let content = fs::read_to_string(path)?;
 
                     let data_path = DataPath::new(relative.to_string());
-                    let data_file = DataFile::new(&*db, data_path, DataContent::new(content));
+                    let data_file = DataFile::new(&*db, data_path, DataContent::new(content))?;
                     data_files.push(data_file);
                 }
             }
@@ -1991,7 +1975,7 @@ async fn serve_plain(
 
             let sass_path = SassPath::new(relative);
             let sass_content = SassContent::new(content);
-            let sass_file = SassFile::new(&*db, sass_path, sass_content);
+            let sass_file = SassFile::new(&*db, sass_path, sass_content)?;
             sass_files.push(sass_file);
         }
         let count = sass_files.len();
@@ -2219,34 +2203,37 @@ async fn serve_plain(
 
 /// Rebuild search index for serve mode
 ///
-/// Takes a snapshot of the server's current state, builds all HTML via Salsa,
-/// and updates the search index. Salsa memoization makes this fast for unchanged pages.
+/// Takes a snapshot of the server's current state, builds all HTML via picante,
+/// and updates the search index. Memoization makes this fast for unchanged pages.
+///
+/// NOTE: This function creates its own tokio runtime because it's called from
+/// std::thread::spawn (the search indexer has !Send types that can't cross tokio task boundaries).
 fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::SearchFiles> {
-    // Snapshot pattern: lock, clone, release, then query the clone
-    let db = server
-        .db
-        .lock()
-        .map_err(|_| eyre!("db lock poisoned"))?
-        .clone();
+    // Create a new runtime for this thread (we're called from std::thread::spawn)
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| eyre!("failed to create runtime: {e}"))?;
 
-    // Build the site (Salsa will cache/reuse unchanged computations)
-    let site_output = queries::build_site(
-        &db,
-        server.source_registry,
-        server.template_registry,
-        server.sass_registry,
-        server.static_registry,
-        server.data_registry,
-    );
+    rt.block_on(async {
+        // Snapshot pattern: lock, snapshot, release, then query the snapshot
+        let snapshot = {
+            let db = server.db.lock().map_err(|_| eyre!("db lock poisoned"))?;
+            db::DatabaseSnapshot::from_database(&*db).await
+        };
 
-    // Cache code execution results for build info display in serve mode
-    server.set_code_execution_results(site_output.code_execution_results.clone());
+        // Build the site (picante will cache/reuse unchanged computations)
+        let site_output = queries::build_site(&snapshot).await?;
 
-    // Build search index (plugin blocks internally)
-    let output = site_output.clone();
-    std::thread::spawn(move || search::build_search_index(&output))
-        .join()
-        .map_err(|_| eyre!("search thread panicked"))?
+        // Cache code execution results for build info display in serve mode
+        server.set_code_execution_results(site_output.code_execution_results.clone());
+
+        // Build search index (plugin blocks internally)
+        let output = site_output.clone();
+        std::thread::spawn(move || search::build_search_index(&output))
+            .join()
+            .map_err(|_| eyre!("search thread panicked"))?
+    })
 }
 
 /// Serve with TUI progress display and file watching
@@ -2380,7 +2367,7 @@ async fn serve_with_tui(
 
             let source_path = SourcePath::new(relative);
             let source_content = SourceContent::new(content);
-            let source = SourceFile::new(&*db, source_path, source_content, last_modified);
+            let source = SourceFile::new(&*db, source_path, source_content, last_modified)?;
             sources.push(source);
         }
         drop(db);
@@ -2424,7 +2411,7 @@ async fn serve_with_tui(
 
             let template_path = TemplatePath::new(relative);
             let template_content = TemplateContent::new(content);
-            let template = TemplateFile::new(&*db, template_path, template_content);
+            let template = TemplateFile::new(&*db, template_path, template_content)?;
             templates.push(template);
         }
 
@@ -2454,7 +2441,7 @@ async fn serve_with_tui(
                 let content = fs::read(path)?;
 
                 let static_path = StaticPath::new(relative.to_string());
-                let static_file = StaticFile::new(&*db, static_path, content);
+                let static_file = StaticFile::new(&*db, static_path, content)?;
                 static_files.push(static_file);
                 count += 1;
             }
@@ -2494,7 +2481,7 @@ async fn serve_with_tui(
 
             let sass_path = SassPath::new(relative);
             let sass_content = SassContent::new(content);
-            let sass_file = SassFile::new(&*db, sass_path, sass_content);
+            let sass_file = SassFile::new(&*db, sass_path, sass_content)?;
             sass_files.push(sass_file);
         }
 

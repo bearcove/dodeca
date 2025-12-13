@@ -12,8 +12,8 @@ use std::sync::{Mutex, RwLock};
 use tokio::sync::broadcast;
 
 use crate::db::{
-    DataFile, DataRegistry, Database, SassFile, SassRegistry, SourceFile, SourceRegistry,
-    StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
+    DataFile, DataRegistry, Database, DatabaseSnapshot, SassFile, SassRegistry, SourceFile,
+    SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
 };
 use crate::image::{InputFormat, OutputFormat, add_width_suffix};
 use crate::queries::{build_tree, css_output, process_image, serve_html, static_file_output};
@@ -292,7 +292,7 @@ pub struct SiteServer {
 impl SiteServer {
     pub fn new(render_options: RenderOptions, stable_assets: Vec<String>) -> Self {
         let (livereload_tx, _) = broadcast::channel(16);
-        let db = Database::new();
+        let db = Database::new(None);
 
         Self {
             db: Mutex::new(db),
@@ -540,9 +540,12 @@ impl SiteServer {
 
     /// Get current CSS path from database
     fn get_current_css_path(&self) -> Option<String> {
-        let db = self.db.lock().ok()?.clone();
         let handle = tokio::runtime::Handle::current();
-        let css = handle.block_on(css_output(&db)).ok().flatten()?;
+        let snapshot = {
+            let db = self.db.lock().ok()?;
+            handle.block_on(DatabaseSnapshot::from_database(&*db))
+        };
+        let css = handle.block_on(css_output(&snapshot)).ok().flatten()?;
         Some(format!("/{}", css.cache_busted_path))
     }
 
@@ -592,13 +595,16 @@ impl SiteServer {
 
     /// Find content for a given path using lazy picante queries
     fn find_content(&self, path: &str) -> Option<ServeContent> {
-        // Snapshot pattern: read lock, clone, release, then query
-        let db = self.db.lock().ok()?.clone();
+        // Snapshot pattern: lock, snapshot, release, then query
         let handle = tokio::runtime::Handle::current();
+        let snapshot = {
+            let db = self.db.lock().ok()?;
+            handle.block_on(DatabaseSnapshot::from_database(&*db))
+        };
 
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
-            let site_tree = handle.block_on(build_tree(&db)).ok()?;
+            let site_tree = handle.block_on(build_tree(&snapshot)).ok()?;
             let routes: HashSet<String> = site_tree
                 .sections
                 .keys()
@@ -618,7 +624,7 @@ impl SiteServer {
         };
 
         let route = Route::new(route_path.clone());
-        if let Some(html) = handle.block_on(serve_html(&db, route)).ok().flatten() {
+        if let Some(html) = handle.block_on(serve_html(&snapshot, route)).ok().flatten() {
             // Check if this is an error page and notify devtools
             if html.contains(crate::render::RENDER_ERROR_MARKER) {
                 // Extract error message HTML from between <pre> tags
@@ -692,7 +698,7 @@ impl SiteServer {
         }
 
         // 2. Try to serve CSS (check if path matches cache-busted CSS path)
-        if let Some(css) = handle.block_on(css_output(&db)).ok().flatten() {
+        if let Some(css) = handle.block_on(css_output(&snapshot)).ok().flatten() {
             let css_url = format!("/{}", css.cache_busted_path);
             if path == css_url {
                 return Some(ServeContent::Css(css.content));
@@ -700,9 +706,9 @@ impl SiteServer {
         }
 
         // 3. Try to serve static files (match cache-busted paths)
-        let static_files = StaticRegistry::files(&db).ok()?.unwrap_or_default();
+        let static_files = StaticRegistry::files(&snapshot).ok()?.unwrap_or_default();
         for file in static_files.iter() {
-            let original_path = file.path(&db).ok()?.as_str().to_string();
+            let original_path = file.path(&snapshot).ok()?.as_str().to_string();
             let original_path = original_path.as_str();
 
             // Check if this is a processable image
@@ -711,11 +717,14 @@ impl SiteServer {
                 use crate::queries::{image_input_hash, image_metadata};
 
                 // Get metadata and input hash (fast - no encoding)
-                let Some(metadata) = handle.block_on(image_metadata(&db, *file)).ok().flatten()
+                let Some(metadata) = handle
+                    .block_on(image_metadata(&snapshot, *file))
+                    .ok()
+                    .flatten()
                 else {
                     continue;
                 };
-                let input_hash = handle.block_on(image_input_hash(&db, *file)).ok()?;
+                let input_hash = handle.block_on(image_input_hash(&snapshot, *file)).ok()?;
 
                 // Check each possible variant URL
                 for &width in &metadata.variant_widths {
@@ -741,8 +750,10 @@ impl SiteServer {
                     );
                     if path == format!("/{jxl_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) =
-                            handle.block_on(process_image(&db, *file)).ok().flatten()
+                        if let Some(processed) = handle
+                            .block_on(process_image(&snapshot, *file))
+                            .ok()
+                            .flatten()
                             && let Some(variant) =
                                 processed.jxl_variants.iter().find(|v| v.width == width)
                         {
@@ -772,8 +783,10 @@ impl SiteServer {
                     );
                     if path == format!("/{webp_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) =
-                            handle.block_on(process_image(&db, *file)).ok().flatten()
+                        if let Some(processed) = handle
+                            .block_on(process_image(&snapshot, *file))
+                            .ok()
+                            .flatten()
                             && let Some(variant) =
                                 processed.webp_variants.iter().find(|v| v.width == width)
                         {
@@ -783,7 +796,7 @@ impl SiteServer {
                 }
             } else {
                 // Non-image static file
-                let output = handle.block_on(static_file_output(&db, *file)).ok()?;
+                let output = handle.block_on(static_file_output(&snapshot, *file)).ok()?;
                 let static_url = format!("/{}", output.cache_busted_path);
                 if path == static_url {
                     let mime = mime_from_extension(path);
@@ -811,14 +824,14 @@ impl SiteServer {
     pub fn get_scope_for_route(&self, route_path: &str, path: &[String]) -> Vec<ScopeEntry> {
         use facet_value::{VObject, VString};
 
-        // Snapshot pattern: lock, clone, release, then query the clone
-        let db = match self.db.lock() {
-            Ok(db) => db.clone(),
+        // Snapshot pattern: lock, snapshot, release, then query
+        let handle = tokio::runtime::Handle::current();
+        let snapshot = match self.db.lock() {
+            Ok(db) => handle.block_on(DatabaseSnapshot::from_database(&*db)),
             Err(_) => return vec![],
         };
-        let handle = tokio::runtime::Handle::current();
 
-        let site_tree = match handle.block_on(build_tree(&db)) {
+        let site_tree = match handle.block_on(build_tree(&snapshot)) {
             Ok(tree) => tree,
             Err(_) => return vec![],
         };
@@ -975,7 +988,7 @@ impl SiteServer {
 
         // Load actual data files
         let raw_data = handle
-            .block_on(crate::queries::load_all_data_raw(&db))
+            .block_on(crate::queries::load_all_data_raw(&snapshot))
             .unwrap_or_default();
         let data_value = crate::data::parse_raw_data_files(&raw_data);
         scope.insert(VString::from("data"), data_value);
@@ -993,15 +1006,15 @@ impl SiteServer {
     ) -> Result<ScopeValue, String> {
         use facet_value::{VObject, VString};
 
-        // Snapshot pattern: lock, clone, release, then query the clone
-        let db = match self.db.lock() {
-            Ok(db) => db.clone(),
+        // Snapshot pattern: lock, snapshot, release, then query
+        let handle = tokio::runtime::Handle::current();
+        let snapshot = match self.db.lock() {
+            Ok(db) => handle.block_on(DatabaseSnapshot::from_database(&*db)),
             Err(_) => return Err("Failed to acquire database lock".to_string()),
         };
-        let handle = tokio::runtime::Handle::current();
 
         let site_tree = handle
-            .block_on(build_tree(&db))
+            .block_on(build_tree(&snapshot))
             .map_err(|e| format!("Failed to build tree: {:?}", e))?;
 
         // Normalize route
@@ -1070,7 +1083,7 @@ impl SiteServer {
 
         // Load data files
         let raw_data = handle
-            .block_on(crate::queries::load_all_data_raw(&db))
+            .block_on(crate::queries::load_all_data_raw(&snapshot))
             .unwrap_or_default();
         let data_value = crate::data::parse_raw_data_files(&raw_data);
         ctx.set("data", data_value);
@@ -1130,14 +1143,14 @@ impl SiteServer {
 
     /// Find routes similar to the requested path (for 404 suggestions)
     pub fn find_similar_routes(&self, path: &str) -> Vec<(String, String)> {
-        // Snapshot pattern: lock, clone, release, then query the clone
-        let db = match self.db.lock() {
-            Ok(db) => db.clone(),
+        // Snapshot pattern: lock, snapshot, release, then query
+        let handle = tokio::runtime::Handle::current();
+        let snapshot = match self.db.lock() {
+            Ok(db) => handle.block_on(DatabaseSnapshot::from_database(&*db)),
             Err(_) => return Vec::new(),
         };
-        let handle = tokio::runtime::Handle::current();
 
-        let site_tree = match handle.block_on(build_tree(&db)) {
+        let site_tree = match handle.block_on(build_tree(&snapshot)) {
             Ok(tree) => tree,
             Err(_) => return Vec::new(),
         };

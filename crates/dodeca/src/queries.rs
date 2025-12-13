@@ -416,7 +416,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     let route = path.to_route();
 
     Ok(ParsedData {
-        source_path: path.clone(),
+        source_path: (*path).clone(),
         route,
         title: Title::new(frontmatter.title),
         description: frontmatter.description,
@@ -588,14 +588,14 @@ pub async fn optimize_svg<DB: Db>(db: &DB, file: StaticFile) -> PicanteResult<Ve
     let content = file.content(db)?;
 
     // Try to parse as UTF-8 string
-    let Ok(svg_str) = std::str::from_utf8(content) else {
-        return Ok(content.clone());
+    let Ok(svg_str) = std::str::from_utf8(&content) else {
+        return Ok(content.to_vec());
     };
 
     // Process SVG (currently passthrough)
     match crate::svg::optimize_svg(svg_str) {
         Some(optimized) => Ok(optimized.into_bytes()),
-        None => Ok(content.clone()),
+        None => Ok(content.to_vec()),
     }
 }
 
@@ -626,7 +626,7 @@ pub async fn decompress_font<DB: Db>(
     use crate::plugins::decompress_font_plugin;
 
     let font_data = font_file.content(db)?;
-    let content_hash = font_content_hash(font_data);
+    let content_hash = font_content_hash(&font_data);
 
     // Check CAS cache first
     if let Some(cached) = get_cached_decompressed_font(&content_hash) {
@@ -638,7 +638,7 @@ pub async fn decompress_font<DB: Db>(
     }
 
     // Decompress the font via plugin
-    match decompress_font_plugin(font_data).await {
+    match decompress_font_plugin(&font_data).await {
         Some(decompressed) => {
             // Cache the result
             put_cached_decompressed_font(&content_hash, &decompressed);
@@ -719,7 +719,7 @@ pub async fn image_metadata<DB: Db>(
         return Ok(None);
     };
     let data = image_file.content(db)?;
-    Ok(image::get_image_metadata(data, input_format))
+    Ok(image::get_image_metadata(&data, input_format))
 }
 
 /// Get the input hash for an image file (for cache-busted URLs)
@@ -730,7 +730,7 @@ pub async fn image_input_hash<DB: Db>(
 ) -> PicanteResult<crate::cas::InputHash> {
     use crate::cas::content_hash_32;
     let data = image_file.content(db)?;
-    Ok(content_hash_32(data))
+    Ok(content_hash_32(&data))
 }
 
 /// Process an image file into responsive formats (JXL + WebP) with multiple widths
@@ -753,7 +753,7 @@ pub async fn process_image<DB: Db>(
     let data = image_file.content(db)?;
 
     // Compute content hash for cache lookup
-    let content_hash = content_hash_32(data);
+    let content_hash = content_hash_32(&data);
 
     // Check CAS cache first
     if let Some(cached) = get_cached_image(&content_hash) {
@@ -763,7 +763,7 @@ pub async fn process_image<DB: Db>(
 
     tracing::debug!("Image cache miss for {}", path.as_str());
 
-    let Some(processed) = image::process_image(data, input_format) else {
+    let Some(processed) = image::process_image(&data, input_format) else {
         return Ok(None);
     };
 
