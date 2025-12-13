@@ -32,18 +32,32 @@ esac
 
 ARCHIVE_NAME="dodeca-${TARGET}.${ARCHIVE_EXT}"
 
-# Auto-discover plugins (crates with cdylib in Cargo.toml)
-PLUGINS=()
+# Auto-discover cdylib plugins (crates with cdylib in Cargo.toml)
+CDYLIB_PLUGINS=()
 for dir in crates/dodeca-*/; do
     if [[ -f "$dir/Cargo.toml" ]] && grep -q 'cdylib' "$dir/Cargo.toml"; then
         plugin=$(basename "$dir")
         # Convert crate name to lib name (dodeca-foo -> dodeca_foo)
         lib_name="${plugin//-/_}"
-        PLUGINS+=("$lib_name")
+        CDYLIB_PLUGINS+=("$lib_name")
     fi
 done
 
-echo "Discovered plugins: ${PLUGINS[*]}"
+# Auto-discover rapace plugins (mods with [[bin]] in Cargo.toml, excluding -proto)
+RAPACE_PLUGINS=()
+for dir in mods/mod-*/; do
+    dirname=$(basename "$dir")
+    # Skip proto crates
+    if [[ "$dirname" == *-proto ]]; then
+        continue
+    fi
+    if [[ -f "$dir/Cargo.toml" ]] && grep -q '\[\[bin\]\]' "$dir/Cargo.toml"; then
+        RAPACE_PLUGINS+=("$dirname")
+    fi
+done
+
+echo "Discovered cdylib plugins: ${CDYLIB_PLUGINS[*]:-none}"
+echo "Discovered rapace plugins: ${RAPACE_PLUGINS[*]:-none}"
 
 # Create staging directory
 rm -rf staging
@@ -52,27 +66,31 @@ mkdir -p staging/plugins
 # Copy binary
 cp "target/${TARGET}/release/${BINARY_NAME}" staging/
 
-# Copy dodeca-mod-http (rapace plugin binary)
-if [[ "$TARGET" == *windows* ]]; then
-    MOD_HTTP_NAME="dodeca-mod-http.exe"
-else
-    MOD_HTTP_NAME="dodeca-mod-http"
-fi
-if [[ -f "target/${TARGET}/release/${MOD_HTTP_NAME}" ]]; then
-    cp "target/${TARGET}/release/${MOD_HTTP_NAME}" staging/
-    echo "Copied rapace plugin: ${MOD_HTTP_NAME}"
-else
-    echo "Warning: dodeca-mod-http not found: target/${TARGET}/release/${MOD_HTTP_NAME}"
-fi
+# Copy rapace plugin binaries
+for plugin in "${RAPACE_PLUGINS[@]}"; do
+    if [[ "$TARGET" == *windows* ]]; then
+        BIN_NAME="dodeca-${plugin}.exe"
+    else
+        BIN_NAME="dodeca-${plugin}"
+    fi
+    SRC="target/${TARGET}/release/${BIN_NAME}"
+    if [[ -f "$SRC" ]]; then
+        cp "$SRC" staging/
+        echo "Copied rapace plugin: ${BIN_NAME}"
+    else
+        echo "Warning: Rapace plugin not found: $SRC"
+    fi
+done
 
-# Copy plugins
-for plugin in "${PLUGINS[@]}"; do
+# Copy cdylib plugins
+for plugin in "${CDYLIB_PLUGINS[@]}"; do
     PLUGIN_FILE="${LIB_PREFIX}${plugin}.${LIB_EXT}"
     SRC="target/${TARGET}/release/${PLUGIN_FILE}"
     if [[ -f "$SRC" ]]; then
         cp "$SRC" staging/plugins/
+        echo "Copied cdylib plugin: ${PLUGIN_FILE}"
     else
-        echo "Warning: Plugin not found: $SRC"
+        echo "Warning: cdylib plugin not found: $SRC"
     fi
 done
 

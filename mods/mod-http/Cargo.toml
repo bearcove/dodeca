@@ -18,33 +18,23 @@ path = "src/main.rs"
 # HTTP server (internal only - not exposed to network)
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+tokio-util = { version = "0.7", features = ["io"] }
+bytes = "1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
 
 # WebSocket
 futures-util = "0.3"
 
 # RPC framework - using SHM for zero-copy communication
-rapace = "0.1.1"
-rapace-core = "0.1.1"
-rapace-testkit = "0.1.1"
-rapace-registry = "0.1.1"
-rapace-transport-shm = "0.1.1"
+rapace = { git = "https://github.com/bearcove/rapace" }
+rapace-plugin = { git = "https://github.com/bearcove/rapace" }
 mod-http-proto = { path = "../mod-http-proto" }
-
-# Devtools protocol (for WebSocket messages)
-dodeca-protocol = { path = "../../crates/dodeca-protocol" }
-
-# Serialization
-facet = "0.32.2"
-facet-core = "0.32.2"
-facet-postcard = "0.32.2"
 
 # Error handling
 color-eyre = "0.6"
 
 # Logging (via rapace-tracing to forward to host)
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
-rapace-tracing = "0.1.1"
-
-# Concurrency
-parking_lot = "0.12"
+dodeca-plugin-runtime = { path = "../../crates/dodeca-plugin-runtime" }

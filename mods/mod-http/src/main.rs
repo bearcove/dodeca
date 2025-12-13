@@ -18,66 +18,20 @@
 //! - Opens WebSocketTunnel to host for devtools (just pipes bytes)
 //! - Uses SHM transport for zero-copy content transfer
 
-use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use color_eyre::Result;
-use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
-use rapace::{Frame, RpcError, RpcSession};
-use rapace_tracing::{RapaceTracingLayer, TracingConfigImpl, TracingConfigServer};
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
+use dodeca_plugin_runtime::{PluginTracing, add_tracing_service};
+use rapace::RpcSession;
+use rapace_plugin::{DispatcherBuilder, ServiceDispatch};
 
 use mod_http_proto::{ContentServiceClient, TcpTunnelServer, WebSocketTunnelClient};
 
 mod devtools;
 mod tunnel;
 
-/// Create a combined dispatcher for both TcpTunnel and TracingConfig services.
-///
-/// Method IDs are globally unique hashes, so we try each service in turn.
-/// The correct one will succeed, the others will return "unknown method_id".
-#[allow(clippy::type_complexity)]
-fn create_plugin_dispatcher(
-    tunnel_service: Arc<tunnel::TcpTunnelImpl<PluginTransport>>,
-    tracing_config: TracingConfigImpl,
-) -> impl Fn(
-    u32,
-    u32,
-    Vec<u8>,
-) -> Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
-+ Send
-+ Sync
-+ 'static {
-    move |_channel_id, method_id, payload| {
-        let tunnel_service = tunnel_service.clone();
-        let tracing_config = tracing_config.clone();
-        Box::pin(async move {
-            // Try TracingConfig first
-            let config_server = TracingConfigServer::new(tracing_config);
-            let result = config_server.dispatch(method_id, &payload).await;
-
-            // If not "unknown method_id", return the result
-            if !matches!(
-                &result,
-                Err(RpcError::Status {
-                    code: rapace::ErrorCode::Unimplemented,
-                    ..
-                })
-            ) {
-                return result;
-            }
-
-            // Otherwise try TcpTunnel
-            let tunnel_server = TcpTunnelServer::new(tunnel_service.as_ref().clone());
-            tunnel_server.dispatch(method_id, &payload).await
-        })
-    }
-}
-
 /// Type alias for our transport (SHM-based for zero-copy)
-type PluginTransport = ShmTransport;
+type PluginTransport = rapace::transport::shm::ShmTransport;
 
 /// Plugin context shared across HTTP handlers
 pub struct PluginContext {
@@ -97,107 +51,72 @@ impl PluginContext {
     }
 }
 
-/// SHM configuration - must match host's config
-const SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
-    ring_capacity: 256, // 256 descriptors in flight
-    slot_size: 65536,   // 64KB per slot (fits most HTML pages)
-    slot_count: 128,    // 128 slots = 8MB total
-};
+/// Service wrapper for TcpTunnel to satisfy ServiceDispatch
+struct TcpTunnelService(Arc<TcpTunnelServer<tunnel::TcpTunnelImpl<PluginTransport>>>);
 
-/// CLI arguments
-struct Args {
-    /// SHM file path for zero-copy communication with host
-    shm_path: PathBuf,
-}
-
-fn parse_args() -> Result<Args> {
-    let mut shm_path = None;
-
-    for arg in std::env::args().skip(1) {
-        if let Some(value) = arg.strip_prefix("--shm-path=") {
-            shm_path = Some(PathBuf::from(value));
-        }
-        // Note: --bind is no longer used - host does the TCP binding
+impl ServiceDispatch for TcpTunnelService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let server = self.0.clone();
+        let bytes = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &bytes).await })
     }
-
-    Ok(Args {
-        shm_path: shm_path.ok_or_else(|| color_eyre::eyre::eyre!("--shm-path required"))?,
-    })
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let args = parse_args()?;
-
-    // Wait for the host to create the SHM file
-    for i in 0..50 {
-        if args.shm_path.exists() {
-            break;
-        }
-        if i == 49 {
-            return Err(color_eyre::eyre::eyre!(
-                "SHM file not created by host: {}",
-                args.shm_path.display()
-            ));
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-
-    // Open the SHM session (plugin side)
-    let shm_session = ShmSession::open_file(&args.shm_path, SHM_CONFIG)
-        .map_err(|e| color_eyre::eyre::eyre!("Failed to open SHM: {:?}", e))?;
-
-    // Create SHM transport
-    let transport: Arc<PluginTransport> = Arc::new(ShmTransport::new(shm_session));
+    // Use standardized argument parsing and transport creation
+    let args = dodeca_plugin_runtime::parse_args()?;
+    let transport = dodeca_plugin_runtime::create_shm_transport(&args).await?;
 
     // Plugin uses even channel IDs (2, 4, 6, ...)
     // Host uses odd channel IDs (1, 3, 5, ...)
     let session = Arc::new(RpcSession::with_channel_start(transport, 2));
 
-    // Initialize tracing with RapaceTracingLayer to forward logs to host
+    // Initialize tracing to forward logs to host via RapaceTracingLayer
     // The host controls the filter level via TracingConfig RPC
-    let rt = tokio::runtime::Handle::current();
-    let (tracing_layer, shared_filter) = RapaceTracingLayer::new(session.clone(), rt);
-
-    // Create TracingConfig implementation for host to push filter updates
-    let tracing_config = TracingConfigImpl::new(shared_filter);
-
-    tracing_subscriber::registry().with(tracing_layer).init();
+    let PluginTracing { tracing_config, .. } = dodeca_plugin_runtime::init_tracing(session.clone());
 
     tracing::info!("Connected to host via SHM");
-
-    // Start internal HTTP server on localhost (OS-assigned port)
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let internal_port = listener.local_addr()?.port();
-    tracing::info!("Internal HTTP server on 127.0.0.1:{}", internal_port);
 
     // Build plugin context
     let ctx = Arc::new(PluginContext {
         session: session.clone(),
     });
 
-    // Create the tunnel service (host calls this to open HTTP tunnels)
-    let tunnel_service = Arc::new(tunnel::TcpTunnelImpl::new(session.clone(), internal_port));
-
-    // Set combined dispatcher for both TcpTunnel and TracingConfig services
-    session.set_dispatcher(create_plugin_dispatcher(tunnel_service, tracing_config));
-
-    // Spawn the RPC session demux loop
-    let session_clone = session.clone();
-    tokio::spawn(async move {
-        if let Err(e) = session_clone.run().await {
-            tracing::error!(error = ?e, "RPC session error - host connection lost");
-        }
-    });
-
-    // Build axum router
+    // Build axum router (service)
     let app = build_router(ctx);
 
-    // Run internal HTTP server
+    // Create the tunnel implementation (host calls this to open HTTP tunnels)
+    // Pass the app so we can serve it directly on tunnel streams
+    let tunnel_impl = tunnel::TcpTunnelImpl::new(session.clone(), app);
+
+    // Wrap services with rapace-plugin multi-service dispatcher
+    let dispatcher = DispatcherBuilder::new();
+    let dispatcher = add_tracing_service(dispatcher, tracing_config);
+    let dispatcher = dispatcher.add_service(TcpTunnelService(Arc::new(TcpTunnelServer::new(
+        tunnel_impl,
+    ))));
+    let dispatcher = dispatcher.build();
+
+    session.set_dispatcher(dispatcher);
+
+    // Run the RPC session demux loop (this is the main event loop now)
     tracing::info!("Plugin ready, waiting for tunnel connections");
-    axum::serve(listener, app).await?;
+    if let Err(e) = session.run().await {
+        tracing::error!(error = ?e, "RPC session error - host connection lost");
+    }
 
     Ok(())
 }

@@ -3,3 +3,7 @@
 /docs/public/
 .cache/
 bloaty_report*
+
+perf-*.data
+*.zst
+*.log

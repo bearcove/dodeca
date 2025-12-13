@@ -1,0 +1,43 @@
+# Nextest configuration for dodeca
+# See: https://nexte.st/docs/configuration/
+
+experimental = ["wrapper-scripts"]
+
+[scripts.wrapper.heaptrack]
+# Run tests under heaptrack for memory profiling
+command = 'heaptrack'
+
+# Heaptrack profile - runs tests under heaptrack
+[profile.heaptrack]
+
+[[profile.heaptrack.scripts]]
+# Apply heaptrack wrapper to all tests on Linux
+platform = 'cfg(target_os = "linux")'
+filter = 'all()'
+run-wrapper = 'heaptrack'
+
+[scripts.wrapper.strace]
+# Run tests under strace for syscall tracing
+command = '/home/amos/bearcove/dodeca/.config/strace-wrapper.sh'
+
+# Strace profile - runs tests under strace
+[profile.strace]
+
+[[profile.strace.scripts]]
+# Apply strace wrapper to all tests on Linux
+platform = 'cfg(target_os = "linux")'
+filter = 'all()'
+run-wrapper = 'strace'
+
+[scripts.wrapper.perf]
+# Run tests under perf for memory profiling
+command = '/home/amos/bearcove/dodeca/.config/perf-wrapper.sh'
+
+# Perf profile - runs tests under perf
+[profile.perf]
+
+[[profile.perf.scripts]]
+# Apply perf wrapper to all tests on Linux
+platform = 'cfg(target_os = "linux")'
+filter = 'all()'
+run-wrapper = 'perf'

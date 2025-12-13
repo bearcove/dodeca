@@ -1,0 +1,29 @@
+[package]
+name = "aliri_braid_impl"
+description = "Implementation macros for the `aliri_braid` crate"
+version = "0.4.0"
+authors = ["Marcus Griep <marcus@griep.us>"]
+edition = "2024"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/neoeinstein/aliri_braid"
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0.56"
+quote = "1.0.26"
+syn = { version = "2.0.15", features = ["full"] }
+
+[dev-dependencies]
+pretty_assertions = "1.4.0"
+serde = { version = "1", features = [ "derive" ] }
+serde_json = "1"

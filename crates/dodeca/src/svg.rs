@@ -3,15 +3,19 @@
 //! Provides HTML and SVG minification via plugins.
 
 use crate::plugins::{minify_html_plugin, optimize_svg_plugin};
+use tokio::runtime::Handle;
 
 /// Minify HTML content
 ///
 /// Returns minified HTML, or original content if minification fails
 pub fn minify_html(html: &str) -> String {
-    minify_html_plugin(html).unwrap_or_else(|e| {
-        tracing::warn!("HTML minification failed: {}", e);
-        html.to_string()
-    })
+    let handle = Handle::current();
+    handle
+        .block_on(minify_html_plugin(html))
+        .unwrap_or_else(|e| {
+            tracing::warn!("HTML minification failed: {}", e);
+            html.to_string()
+        })
 }
 
 /// Optimize SVG content
@@ -19,7 +23,8 @@ pub fn minify_html(html: &str) -> String {
 /// Removes unnecessary metadata, collapses groups, optimizes paths, etc.
 /// Preserves case sensitivity of SVG attributes.
 pub fn optimize_svg(svg_content: &str) -> Option<String> {
-    optimize_svg_plugin(svg_content).ok()
+    let handle = Handle::current();
+    handle.block_on(optimize_svg_plugin(svg_content)).ok()
 }
 
 #[cfg(test)]

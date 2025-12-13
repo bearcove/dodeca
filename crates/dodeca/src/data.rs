@@ -141,12 +141,16 @@ pub fn parse_raw_data_files(files: &[(String, String)]) -> Value {
 /// Load all data files and merge them into a single Value object
 /// Each file becomes a key in the object (filename without extension)
 #[allow(dead_code)]
-pub fn load_data_files(db: &dyn crate::db::Db, data_files: &[DataFile]) -> Value {
+pub fn load_data_files(db: &crate::db::Database, data_files: &[DataFile]) -> Value {
     let mut data_map = VObject::new();
 
     for file in data_files {
-        let path = file.path(db).as_str();
-        let content = file.content(db).as_str();
+        let Ok(path) = file.path(db) else { continue };
+        let Ok(content) = file.content(db) else {
+            continue;
+        };
+        let path = path.as_str();
+        let content = content.as_str();
 
         // Get filename without extension as the key
         let key = if let Some(dot_pos) = path.rsplit('/').next().unwrap_or(path).rfind('.') {

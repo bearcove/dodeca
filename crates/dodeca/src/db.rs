@@ -5,10 +5,6 @@ use crate::types::{
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-/// The Salsa database trait for dodeca
-#[salsa::db]
-pub trait Db: salsa::Database {}
-
 /// Statistics about query execution
 #[derive(Debug, Default)]
 pub struct QueryStats {
@@ -36,68 +32,14 @@ impl QueryStats {
     }
 }
 
-/// The concrete database implementation
-#[salsa::db]
-#[derive(Clone)]
-pub struct Database {
-    storage: salsa::Storage<Self>,
-}
-
-#[salsa::db]
-impl salsa::Database for Database {}
-
-#[salsa::db]
-impl Db for Database {}
-
-impl Default for Database {
-    fn default() -> Self {
-        Self::new_without_stats()
-    }
-}
-
-impl Database {
-    /// Create a new database without stats tracking
-    pub fn new_without_stats() -> Self {
-        Self {
-            storage: salsa::Storage::new(None),
-        }
-    }
-
-    /// Create a new database with stats tracking
-    pub fn new_with_stats(stats: Arc<QueryStats>) -> Self {
-        let callback = Box::new(move |event: salsa::Event| {
-            use salsa::EventKind;
-            match event.kind {
-                EventKind::WillExecute { .. } => {
-                    stats.executed.fetch_add(1, Ordering::Relaxed);
-                }
-                EventKind::DidValidateMemoizedValue { .. } => {
-                    stats.reused.fetch_add(1, Ordering::Relaxed);
-                }
-                _ => {}
-            }
-        });
-
-        Self {
-            storage: salsa::Storage::new(Some(callback)),
-        }
-    }
-
-    /// Create a new database (alias for default)
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
 /// Input: A source file with its content
-#[salsa::input]
+#[picante::input]
 pub struct SourceFile {
     /// The path to this file (relative to content dir)
-    #[returns(ref)]
+    #[key]
     pub path: SourcePath,
 
     /// The raw content of the file
-    #[returns(ref)]
     pub content: SourceContent,
 
     /// Last modification time as Unix timestamp (seconds since epoch)
@@ -105,103 +47,88 @@ pub struct SourceFile {
 }
 
 /// Input: A template file with its content
-#[salsa::input]
+#[picante::input]
 pub struct TemplateFile {
     /// The path to this file (relative to templates dir)
-    #[returns(ref)]
+    #[key]
     pub path: TemplatePath,
 
     /// The raw content of the template
-    #[returns(ref)]
     pub content: TemplateContent,
 }
 
 /// Input: A Sass/SCSS file with its content
-#[salsa::input]
+#[picante::input]
 pub struct SassFile {
     /// The path to this file (relative to sass dir)
-    #[returns(ref)]
+    #[key]
     pub path: SassPath,
 
     /// The raw content of the Sass file
-    #[returns(ref)]
     pub content: SassContent,
 }
 
-/// Input template registry - allows Salsa to track template set as a whole
-/// This is an INPUT (not interned) so that updating it invalidates dependent queries
-#[salsa::input]
+/// Input template registry - tracks template set as a whole (singleton)
+#[picante::input]
 pub struct TemplateRegistry {
-    #[returns(ref)]
     pub templates: Vec<TemplateFile>,
 }
 
-/// Input sass registry - allows Salsa to track sass file set as a whole
-/// This is an INPUT (not interned) so that updating it invalidates dependent queries
-#[salsa::input]
+/// Input sass registry - tracks sass file set as a whole (singleton)
+#[picante::input]
 pub struct SassRegistry {
-    #[returns(ref)]
     pub files: Vec<SassFile>,
 }
 
 /// Input: A static file with its binary content
-#[salsa::input(persist)]
+#[picante::input]
 pub struct StaticFile {
     /// The path to this file (relative to static dir)
-    #[returns(ref)]
+    #[key]
     pub path: StaticPath,
 
     /// The binary content of the file
-    #[returns(ref)]
     pub content: Vec<u8>,
 }
 
-/// Input static file registry - allows Salsa to track static files as a whole
-/// This is an INPUT (not interned) so that updating it invalidates dependent queries
-#[salsa::input]
+/// Input static file registry - tracks static files as a whole (singleton)
+#[picante::input]
 pub struct StaticRegistry {
-    #[returns(ref)]
     pub files: Vec<StaticFile>,
 }
 
 /// Input: A data file (KDL, JSON, TOML, YAML) with its content
-#[salsa::input]
+#[picante::input]
 pub struct DataFile {
     /// The path to this file (relative to data dir, e.g., "versions.toml")
-    #[returns(ref)]
+    #[key]
     pub path: DataPath,
 
     /// The raw content of the file
-    #[returns(ref)]
     pub content: DataContent,
 }
 
-/// Input data file registry - allows Salsa to track data files as a whole
-/// This is an INPUT (not interned) so that updating it invalidates dependent queries
-#[salsa::input]
+/// Input data file registry - tracks data files as a whole (singleton)
+#[picante::input]
 pub struct DataRegistry {
-    #[returns(ref)]
     pub files: Vec<DataFile>,
 }
 
-/// Input source registry - allows Salsa to track all source files as a whole
-/// This is an INPUT (not interned) so that updating it invalidates dependent queries
-#[salsa::input]
+/// Input source registry - tracks all source files as a whole (singleton)
+#[picante::input]
 pub struct SourceRegistry {
-    #[returns(ref)]
     pub sources: Vec<SourceFile>,
 }
 
 /// Interned character set for font subsetting
 /// Using a sorted Vec<char> for deterministic hashing
-#[salsa::interned]
-pub struct CharSet<'db> {
-    #[returns(ref)]
+#[picante::interned]
+pub struct CharSet {
     pub chars: Vec<char>,
 }
 
 /// A heading extracted from page/section content
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 pub struct Heading {
     /// The heading text
     pub title: String,
@@ -212,7 +139,7 @@ pub struct Heading {
 }
 
 /// A section in the site tree (corresponds to _index.md files)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 pub struct Section {
     pub route: Route,
     pub title: Title,
@@ -224,11 +151,12 @@ pub struct Section {
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
+    #[facet(transparent)]
     pub extra: facet_value::Value,
 }
 
 /// A page in the site tree (non-index .md files)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 pub struct Page {
     pub route: Route,
     pub title: Title,
@@ -240,22 +168,23 @@ pub struct Page {
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
+    #[facet(transparent)]
     pub extra: facet_value::Value,
 }
 
 /// The complete site tree - sections and pages
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct SiteTree {
     pub sections: std::collections::BTreeMap<Route, Section>,
     pub pages: std::collections::BTreeMap<Route, Page>,
 }
 
 /// Rendered HTML output for a page or section
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 pub struct RenderedHtml(pub String);
 
 /// Output of parsing: contains all the data needed for tree building
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct ParsedData {
     /// Source path relative to content dir
     pub source_path: SourcePath,
@@ -276,11 +205,13 @@ pub struct ParsedData {
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
+    #[facet(transparent)]
     pub extra: facet_value::Value,
 }
 
 /// A single output file to be written to disk
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
+#[repr(C)]
 pub enum OutputFile {
     /// HTML page output: route -> html content
     Html { route: Route, content: String },
@@ -291,7 +222,7 @@ pub enum OutputFile {
 }
 
 /// Complete site output - all files that need to be written
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct SiteOutput {
     pub files: Vec<OutputFile>,
     /// Code execution results for validation
@@ -299,7 +230,7 @@ pub struct SiteOutput {
 }
 
 /// Result of executing a code sample during build
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct CodeExecutionResult {
     /// Source file where the code sample was found
     pub source_path: String,
@@ -328,7 +259,7 @@ pub struct CodeExecutionResult {
 }
 
 /// Build metadata captured during code execution for reproducibility
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct CodeExecutionMetadata {
     /// Rust compiler version (from `rustc --version --verbose`)
     pub rustc_version: String,
@@ -349,7 +280,7 @@ pub struct CodeExecutionMetadata {
 }
 
 /// A resolved dependency with exact version info
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct ResolvedDependencyInfo {
     /// Crate name
     pub name: String,
@@ -360,7 +291,8 @@ pub struct ResolvedDependencyInfo {
 }
 
 /// Source information for a resolved dependency
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
+#[repr(C)]
 pub enum DependencySourceInfo {
     /// crates.io registry
     CratesIo,
@@ -382,7 +314,7 @@ pub enum ExternalLinkStatus {
 }
 
 /// A single image variant (one format, one size)
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, facet::Facet)]
 pub struct ImageVariant {
     /// The encoded image data
     pub data: Vec<u8>,
@@ -393,7 +325,7 @@ pub struct ImageVariant {
 }
 
 /// Result of processing an image into responsive formats (JXL + WebP)
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, facet::Facet)]
 pub struct ProcessedImages {
     /// Original image width
     pub original_width: u32,
@@ -408,7 +340,7 @@ pub struct ProcessedImages {
 }
 
 /// Output of processing a static file: cache-busted path and content
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 pub struct StaticFileOutput {
     /// Cache-busted path (e.g., "fonts/Inter.a1b2c3d4.woff2")
     pub cache_busted_path: String,
@@ -417,7 +349,7 @@ pub struct StaticFileOutput {
 }
 
 /// Output of compiling CSS: cache-busted path and rewritten content
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 pub struct CssOutput {
     /// Cache-busted path (e.g., "main.a1b2c3d4.css")
     pub cache_busted_path: String,
@@ -427,8 +359,62 @@ pub struct CssOutput {
 
 /// All rendered HTML content (for font analysis)
 /// This is a global cache - rendering all pages once for font char extraction
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct AllRenderedHtml {
     /// Map of route -> rendered HTML (before URL rewriting)
     pub pages: std::collections::HashMap<Route, String>,
+}
+
+/// The picante database for dodeca
+#[picante::db(
+    inputs(
+        SourceFile,
+        TemplateFile,
+        SassFile,
+        StaticFile,
+        DataFile,
+        TemplateRegistry,
+        SassRegistry,
+        StaticRegistry,
+        DataRegistry,
+        SourceRegistry,
+    ),
+    interned(CharSet, crate::queries::DataValuePath,),
+    tracked(
+        crate::queries::load_template,
+        crate::queries::load_all_templates,
+        crate::queries::build_template_lookup,
+        crate::queries::load_sass,
+        crate::queries::load_all_sass,
+        crate::queries::load_all_data_raw,
+        crate::queries::data_file_lookup,
+        crate::queries::list_data_file_keys,
+        crate::queries::load_and_parse_data_file,
+        crate::queries::resolve_data_value,
+        crate::queries::data_keys_at_path,
+        crate::queries::compile_sass,
+        crate::queries::parse_file,
+        crate::queries::build_tree,
+        crate::queries::render_page,
+        crate::queries::render_section,
+        crate::queries::load_static,
+        crate::queries::optimize_svg,
+        crate::queries::load_all_static,
+        crate::queries::decompress_font,
+        crate::queries::subset_font,
+        crate::queries::image_metadata,
+        crate::queries::image_input_hash,
+        crate::queries::process_image,
+        crate::queries::build_site,
+        crate::queries::all_rendered_html,
+        crate::queries::font_char_analysis,
+        crate::queries::static_file_output,
+        crate::queries::css_output,
+        crate::queries::serve_html,
+    ),
+    db_trait(Db)
+)]
+pub struct Database {
+    /// Optional stats tracking
+    pub stats: Option<Arc<QueryStats>>,
 }

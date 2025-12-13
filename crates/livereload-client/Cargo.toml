@@ -30,4 +30,3 @@ web-sys = { version = "0.3", features = [
 dodeca-protocol = { path = "../dodeca-protocol" }
 
 [dev-dependencies]
-wasm-bindgen-test = "0.3"

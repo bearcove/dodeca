@@ -19,12 +19,10 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 path = "src/lib.rs"
 
 [dependencies]
-color-eyre = "0.6"
 regex = "1"
 reqwest = { version = "0.12", features = ["blocking"] }
 tempfile = "3"
-test-log = { version = "0.2", features = ["trace"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
+test-log = { version = "0.2", features = ["trace"] }
