@@ -9,6 +9,7 @@ license = "Apache-2.0 OR MIT"
 
 [workspace.dependencies]
 dashmap = "5.5.3"
+im = "15.1.0"
 divan = "0.1"
 facet = "0.32.2"
 facet-assert = "0.32.2"
