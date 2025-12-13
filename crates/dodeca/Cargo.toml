@@ -121,7 +121,7 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 
 # Misc
 camino = "1"  # UTF-8 paths
-aliri_braid = "0.4"  # Strongly-typed string wrappers
+aliri_braid = { path = "../../vendor/aliri_braid/aliri_braid" }  # Strongly-typed string wrappers (vendored with Facet support)
 regex = "1"  # For HTML heading extraction
 
 # URL rewriting (HTML only - CSS/JS via plugins)

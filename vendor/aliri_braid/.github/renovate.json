@@ -1,0 +1,9 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "github>neoeinstein/renovate-config",
+    "github>neoeinstein/renovate-config//rust/library",
+    "github>neoeinstein/renovate-config:approve-breaking",
+    ":automergeDigest"
+  ]
+}
