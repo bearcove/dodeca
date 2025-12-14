@@ -69,26 +69,23 @@ pub type DecodedImage = cell_image_proto::DecodedImage;
 /// Global plugin registry, initialized once.
 static PLUGINS: OnceLock<PluginRegistry> = OnceLock::new();
 
-/// Tracks whether we've done the initial warmup yield.
-static PLUGINS_WARMED_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 /// Ensure plugins are loaded and warmed up (sessions have processed initial messages).
 ///
 /// On current_thread tokio runtime, cells send tracing events during startup that
 /// allocate slots. The host's session.run() tasks need to process these before
 /// we can make RPC calls. This function yields to allow that processing.
+///
+/// NOTE: We always yield because serve mode uses multiple runtimes (main + background
+/// thread for search index). Each runtime needs its own warmup.
 pub async fn ensure_plugins_ready() {
     // Trigger plugin loading (sync)
     let _ = plugins();
 
-    // If this is the first call, yield multiple times to let spawned tasks process
-    // all the queued messages from cell startup
-    if !PLUGINS_WARMED_UP.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        // Yield several times to ensure all spawned session.run() tasks get a chance
-        // to process the backlog of tracing events from cell startup
-        for _ in 0..10 {
-            tokio::task::yield_now().await;
-        }
+    // Yield several times to ensure all spawned session.run() tasks get a chance
+    // to process the backlog of tracing events from cell startup.
+    // We do this every call because different threads may have different runtimes.
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
     }
 }
 

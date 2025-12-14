@@ -42,4 +42,3 @@ inherits = "release"
 opt-level = 1
 debug = true
 strip = false
-
