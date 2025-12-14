@@ -476,218 +476,119 @@ const CI_MACOS: CiRunner = CiRunner {
     wasm_install: "brew install wasm-pack",
 };
 
-/// Build the CI workflow (runs on PRs and main branch pushes).
+/// Build the unified CI workflow (runs on PRs, main branch, and tags).
 ///
 /// Strategy:
-/// - Windows: Build + check (no integration tests)
-/// - Linux/macOS: Fan-out parallel builds, fan-in for integration tests
-///   - build-ddc: Builds ddc binary + WASM, runs clippy
-///   - plugins-N: Builds plugin group N (3 plugins each, alphabetically sorted)
-///   - integration: Downloads all artifacts, runs integration tests
+/// - Fan-out: Build ddc + plugins for each target platform
+/// - Fan-in: Run integration tests (linux/macos only)
+/// - Release: On tags, strip binaries and publish GitHub release
 pub fn build_ci_workflow() -> Workflow {
     use common::*;
 
     let mut jobs = IndexMap::new();
-    let groups = plugin_groups(3); // 3 plugins per group
 
-    // Windows check job
-    jobs.insert(
-        "check-windows".into(),
-        Job::new("depot-windows-2022-16")
-            .name("Check (Windows)")
-            .steps([
-                checkout(),
-                install_rust_with_target("wasm32-unknown-unknown"),
-                rust_cache(),
-                Step::run("Install wasm-pack", "cargo install wasm-pack").shell("bash"),
-                Step::run("Build", "cargo xtask build").shell("bash"),
-                Step::run("Check", "cargo check --all-features").shell("bash"),
-            ]),
-    );
+    // Track all build jobs for the release job dependency
+    let mut all_build_jobs: Vec<String> = Vec::new();
 
-    // Linux and macOS: fan-out/fan-in pattern
-    for runner in [&CI_LINUX, &CI_MACOS] {
-        let os = runner.os;
-
-        // Job: Build ddc binary + WASM
-        let build_ddc_id = format!("build-ddc-{os}");
-        jobs.insert(
-            build_ddc_id.clone(),
-            Job::new(runner.runner)
-                .name(format!("Build ddc ({os})"))
-                .steps([
-                    checkout(),
-                    Step::uses("Install Rust (stable)", "dtolnay/rust-toolchain@stable")
-                        .with_inputs([
-                            ("components", "clippy"),
-                            ("targets", "wasm32-unknown-unknown"),
-                        ]),
-                    Step::uses("Install Rust (nightly)", "dtolnay/rust-toolchain@nightly"),
-                    rust_cache(),
-                    Step::run("Install wasm-pack", runner.wasm_install),
-                    Step::run("Build WASM", "cargo xtask wasm"),
-                    Step::run("Build ddc", "cargo build --release -p dodeca"),
-                    Step::run("Test ddc", "cargo test --release -p dodeca"),
-                    Step::run(
-                        "Clippy",
-                        "cargo clippy --all-features --all-targets -- -D warnings",
-                    ),
-                    upload_artifact(format!("ddc-{os}"), "target/release/ddc"),
-                ]),
-        );
-
-        // Jobs: Build plugin groups in parallel (fan-out)
-        let mut all_build_job_ids = vec![build_ddc_id];
-
-        for (group_name, plugins) in &groups {
-            let job_id = format!("plugins-{group_name}-{os}");
-
-            // Build args: -p package --bin binary for each plugin
-            let build_args: String = plugins
-                .iter()
-                .map(|(pkg, bin)| format!("-p {pkg} --bin {bin}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-
-            // Test args: just the package names
-            let test_args: String = plugins
-                .iter()
-                .map(|(pkg, _)| format!("-p {pkg}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-
-            // Upload paths: binary executables
-            let upload_paths: String = plugins
-                .iter()
-                .map(|(_, bin)| format!("target/release/{bin}"))
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            // Plugin names for display
-            let plugin_names: String = plugins
-                .iter()
-                .map(|(pkg, _)| pkg.strip_prefix("mod-").unwrap_or(pkg))
-                .collect::<Vec<_>>()
-                .join(", ");
-
-            jobs.insert(
-                job_id.clone(),
-                Job::new(runner.runner)
-                    .name(format!("Plugins {group_name} ({os}): {plugin_names}"))
-                    .steps([
-                        checkout(),
-                        install_rust(),
-                        rust_cache(),
-                        Step::run("Build", format!("cargo build --release {build_args}")),
-                        Step::run("Test", format!("cargo test --release {test_args}")),
-                        Step::uses("Upload artifacts", "actions/upload-artifact@v4").with_inputs([
-                            ("name", format!("plugins-{group_name}-{os}")),
-                            ("path", upload_paths),
-                            ("retention-days", "1".into()),
-                        ]),
-                    ]),
-            );
-
-            all_build_job_ids.push(job_id);
-        }
-
-        // Job: Integration tests - download all artifacts and run (fan-in)
-        jobs.insert(
-            format!("integration-{os}"),
-            Job::new(runner.runner)
-                .name(format!("Integration ({os})"))
-                .needs(all_build_job_ids)
-                .steps([
-                    checkout(),
-                    install_rust(),
-                    rust_cache(),
-                    // Download ddc binary
-                    Step::uses("Download ddc", "actions/download-artifact@v4").with_inputs([
-                        ("name", format!("ddc-{os}")),
-                        ("path", "artifacts/bin".into()),
-                    ]),
-                    // Download all plugin artifacts
-                    Step::uses("Download plugins", "actions/download-artifact@v4").with_inputs([
-                        ("pattern", format!("plugins-*-{os}")),
-                        ("path", "artifacts/plugins".into()),
-                        ("merge-multiple", "true".into()),
-                    ]),
-                    Step::run("List artifacts", "ls -laR artifacts/"),
-                    Step::run("Make executables", "chmod +x artifacts/bin/* artifacts/plugins/*"),
-                    Step::run(
-                        "Run integration tests",
-                        "cargo test --release -p dodeca-integration --test '*'",
-                    )
-                    .with_env([
-                        ("DODECA_BIN", "${{ github.workspace }}/artifacts/bin/ddc"),
-                        (
-                            "DODECA_PLUGINS",
-                            "${{ github.workspace }}/artifacts/plugins",
-                        ),
-                    ]),
-                ]),
-        );
-    }
-
-    Workflow {
-        name: "CI".into(),
-        on: On {
-            push: Some(PushTrigger {
-                tags: None,
-                branches: Some(vec!["main".into()]),
-            }),
-            pull_request: Some(PullRequestTrigger {
-                branches: Some(vec!["main".into()]),
-            }),
-            workflow_dispatch: None,
-        },
-        permissions: None,
-        env: None,
-        jobs,
-    }
-}
-
-// =============================================================================
-// Release workflow builder
-// =============================================================================
-
-/// Build the release workflow.
-pub fn build_release_workflow() -> Workflow {
-    use common::*;
-
-    let mut jobs = IndexMap::new();
-
-    // Build jobs for each target
+    // Build jobs for each target platform
     for target in TARGETS {
-        let job_id = format!("build-{}", target.short_name());
-        let archive_name = format!("dodeca-{}.{}", target.triple, target.archive_ext);
+        let short = target.short_name();
+        let is_windows = target.triple.contains("windows");
+        let is_linux_arm = target.triple == "aarch64-unknown-linux-gnu";
+
+        // Build all plugin binaries
+        let all_plugin_build_args: String = ALL_PLUGINS
+            .iter()
+            .map(|(pkg, bin)| format!("-p {pkg} --bin {bin}"))
+            .collect::<Vec<_>>()
+            .join(" ");
 
         let mut steps = vec![checkout()];
 
-        // Linux ARM needs cross-compilation tools
-        if target.triple == "aarch64-unknown-linux-gnu" {
+        // Rust installation
+        if is_linux_arm {
             steps.push(install_rust_with_target(target.triple));
             steps.push(Step::run(
                 "Install cross-compilation tools",
                 "sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu",
             ));
-            steps.push(rust_cache());
+        } else if is_windows {
+            steps.push(install_rust_with_target("wasm32-unknown-unknown"));
         } else {
-            steps.push(install_rust_with_target(target.triple));
-            steps.push(rust_cache());
+            steps.push(
+                Step::uses("Install Rust", "dtolnay/rust-toolchain@stable").with_inputs([
+                    ("components", "clippy"),
+                    ("targets", "wasm32-unknown-unknown"),
+                ]),
+            );
+            steps.push(Step::uses(
+                "Install Rust (nightly)",
+                "dtolnay/rust-toolchain@nightly",
+            ));
         }
 
-        // Build WASM (uses external script)
-        steps.push(Step::run("Build WASM crates", "bash scripts/build-wasm.sh").shell("bash"));
+        steps.push(rust_cache());
 
-        // Build target (uses external script)
-        steps.push(
-            Step::run(
-                "Build ddc and plugins",
-                format!("bash scripts/build-target.sh {}", target.triple),
+        // WASM build (not for cross-compiled targets)
+        if !is_linux_arm {
+            let wasm_install = if is_windows {
+                "cargo install wasm-pack"
+            } else if target.triple.contains("apple") {
+                "brew install wasm-pack"
+            } else {
+                "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
+            };
+            steps.push(Step::run("Install wasm-pack", wasm_install).shell("bash"));
+            steps.push(Step::run("Build WASM", "cargo xtask wasm").shell("bash"));
+        }
+
+        // Build ddc
+        let build_cmd = if is_linux_arm {
+            format!(
+                "cargo build --release -p dodeca --target {}",
+                target.triple
             )
-            .shell("bash"),
-        );
+        } else {
+            "cargo build --release -p dodeca".to_string()
+        };
+        steps.push(Step::run("Build ddc", &build_cmd).shell("bash"));
+
+        // Build plugins
+        let plugin_build_cmd = if is_linux_arm {
+            format!(
+                "cargo build --release --target {} {}",
+                target.triple, all_plugin_build_args
+            )
+        } else {
+            format!("cargo build --release {}", all_plugin_build_args)
+        };
+        steps.push(Step::run("Build plugins", &plugin_build_cmd).shell("bash"));
+
+        // Tests (only for native builds, not cross-compiled)
+        if !is_linux_arm {
+            steps.push(Step::run("Test ddc", "cargo test --release -p dodeca").shell("bash"));
+
+            let all_plugin_test_args: String = ALL_PLUGINS
+                .iter()
+                .map(|(pkg, _)| format!("-p {pkg}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            steps.push(
+                Step::run("Test plugins", format!("cargo test --release {all_plugin_test_args}"))
+                    .shell("bash"),
+            );
+
+            // Clippy (only linux/macos)
+            if !is_windows {
+                steps.push(
+                    Step::run(
+                        "Clippy",
+                        "cargo clippy --all-features --all-targets -- -D warnings",
+                    )
+                    .shell("bash"),
+                );
+            }
+        }
 
         // Assemble archive (uses external script)
         steps.push(
@@ -698,35 +599,65 @@ pub fn build_release_workflow() -> Workflow {
             .shell("bash"),
         );
 
-        // Upload
-        steps.push(upload_artifact(
-            format!("build-{}", target.short_name()),
-            archive_name,
-        ));
+        // Upload archive
+        let archive_name = format!("dodeca-{}.{}", target.triple, target.archive_ext);
+        steps.push(upload_artifact(format!("build-{short}"), &archive_name));
 
-        let mut job = Job::new(target.runner)
-            .name(format!("Build ({})", target.short_name()))
-            .steps(steps);
+        let mut job = Job::new(target.runner).name(format!("Build ({short})")).steps(steps);
 
         // Windows needs special environment
-        if target.triple.contains("windows") {
+        if is_windows {
             job = job.env([("RUSTFLAGS", "-Ctarget-feature=+crt-static")]);
         }
 
+        let job_id = format!("build-{short}");
+        all_build_jobs.push(job_id.clone());
         jobs.insert(job_id, job);
     }
 
-    // Release job - creates GitHub release with all artifacts
-    let build_job_ids: Vec<String> = TARGETS
+    // Integration tests (linux and macos only)
+    for target in TARGETS
         .iter()
-        .map(|t| format!("build-{}", t.short_name()))
-        .collect();
+        .filter(|t| !t.triple.contains("windows") && t.triple != "aarch64-unknown-linux-gnu")
+    {
+        let short = target.short_name();
+        let build_job = format!("build-{short}");
 
+        jobs.insert(
+            format!("integration-{short}"),
+            Job::new(target.runner)
+                .name(format!("Integration ({short})"))
+                .needs([build_job.clone()])
+                .steps([
+                    checkout(),
+                    install_rust(),
+                    rust_cache(),
+                    Step::uses("Download build", "actions/download-artifact@v4").with_inputs([
+                        ("name", format!("build-{short}")),
+                        ("path", "dist".into()),
+                    ]),
+                    Step::run("Extract archive", format!(
+                        "tar -xf dist/dodeca-{}.tar.xz -C dist && ls -la dist/",
+                        target.triple
+                    )),
+                    Step::run(
+                        "Run integration tests",
+                        "cargo test --release -p dodeca-integration --test '*'",
+                    )
+                    .with_env([
+                        ("DODECA_BIN", "${{ github.workspace }}/dist/ddc"),
+                        ("DODECA_PLUGINS", "${{ github.workspace }}/dist"),
+                    ]),
+                ]),
+        );
+    }
+
+    // Release job (only on tags)
     jobs.insert(
         "release".into(),
         Job::new("ubuntu-latest")
-            .name("Create Release")
-            .needs(build_job_ids)
+            .name("Release")
+            .needs(all_build_jobs)
             .if_condition("startsWith(github.ref, 'refs/tags/')")
             .env([
                 ("GH_TOKEN", "${{ secrets.GITHUB_TOKEN }}"),
@@ -735,14 +666,14 @@ pub fn build_release_workflow() -> Workflow {
             .steps([
                 checkout(),
                 download_all_artifacts("dist"),
-                Step::run("Prepare release", "bash scripts/release.sh").shell("bash"),
+                Step::run("List artifacts", "ls -laR dist/"),
                 Step::run(
                     "Create GitHub Release",
                     r#"
 gh release create "${{ github.ref_name }}" \
   --title "dodeca ${{ github.ref_name }}" \
   --generate-notes \
-  dist/*
+  dist/**/*.tar.xz dist/**/*.zip
 "#
                     .trim(),
                 )
@@ -756,14 +687,15 @@ gh release create "${{ github.ref_name }}" \
     );
 
     Workflow {
-        name: "Release".into(),
+        name: "CI".into(),
         on: On {
             push: Some(PushTrigger {
                 tags: Some(vec!["v*".into()]),
-                branches: None,
+                branches: Some(vec!["main".into()]),
             }),
-            // Only run on tags, not PRs - CI workflow handles PR builds
-            pull_request: None,
+            pull_request: Some(PullRequestTrigger {
+                branches: Some(vec!["main".into()]),
+            }),
             workflow_dispatch: Some(WorkflowDispatchTrigger {}),
         },
         permissions: Some(
@@ -1046,19 +978,14 @@ fn check_or_write(path: &Utf8Path, content: &str, check: bool) -> Result<()> {
     Ok(())
 }
 
-/// Generate CI workflow files and installer script.
+/// Generate CI workflow and installer script.
 pub fn generate(repo_root: &Utf8Path, check: bool) -> Result<()> {
     let workflows_dir = repo_root.join(".github/workflows");
 
-    // Generate CI workflow
+    // Generate unified CI workflow (includes release on tags)
     let ci_workflow = build_ci_workflow();
     let ci_yaml = workflow_to_yaml(&ci_workflow)?;
     check_or_write(&workflows_dir.join("ci.yml"), &ci_yaml, check)?;
-
-    // Generate release workflow
-    let release_workflow = build_release_workflow();
-    let release_yaml = workflow_to_yaml(&release_workflow)?;
-    check_or_write(&workflows_dir.join("release.yml"), &release_yaml, check)?;
 
     // Generate installer script
     let installer_content = generate_installer_script();

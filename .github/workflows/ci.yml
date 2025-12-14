@@ -5,6 +5,9 @@
 name: CI
 "on": 
   push: 
+    tags: 
+      - v*
+
     branches: 
       - main
 
@@ -12,10 +15,188 @@ name: CI
     branches: 
       - main
 
+  workflow_dispatch: 
+permissions: 
+  contents: write
+
+env: 
+  CARGO_TERM_COLOR: always
+
 jobs: 
-  check-windows: 
-    name: Check (Windows)
+  build-linux-x64: 
+    name: Build (linux-x64)
+    runs-on: depot-ubuntu-24.04-32
+    steps: 
+      - 
+        name: Checkout
+        uses: actions/checkout@v4
+      - 
+        name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with: 
+          components: clippy
+          targets: wasm32-unknown-unknown
+
+      - 
+        name: Install Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+      - 
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with: 
+          cache-on-failure: "true"
+
+      - 
+        name: Install wasm-pack
+        run: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
+        shell: bash
+      - 
+        name: Build WASM
+        run: cargo xtask wasm
+        shell: bash
+      - 
+        name: Build ddc
+        run: cargo build --release -p dodeca
+        shell: bash
+      - 
+        name: Build plugins
+        run: cargo build --release -p mod-arborium --bin dodeca-mod-arborium -p mod-code-execution --bin dodeca-mod-code-execution -p mod-css --bin dodeca-mod-css -p mod-fonts --bin dodeca-mod-fonts -p mod-html-diff --bin dodeca-mod-html-diff -p mod-http --bin dodeca-mod-http -p mod-image --bin dodeca-mod-image -p mod-js --bin dodeca-mod-js -p mod-jxl --bin dodeca-mod-jxl -p mod-linkcheck --bin dodeca-mod-linkcheck -p mod-minify --bin dodeca-mod-minify -p mod-pagefind --bin dodeca-mod-pagefind -p mod-sass --bin dodeca-mod-sass -p mod-svgo --bin dodeca-mod-svgo -p mod-webp --bin dodeca-mod-webp
+        shell: bash
+      - 
+        name: Test ddc
+        run: cargo test --release -p dodeca
+        shell: bash
+      - 
+        name: Test plugins
+        run: cargo test --release -p mod-arborium -p mod-code-execution -p mod-css -p mod-fonts -p mod-html-diff -p mod-http -p mod-image -p mod-js -p mod-jxl -p mod-linkcheck -p mod-minify -p mod-pagefind -p mod-sass -p mod-svgo -p mod-webp
+        shell: bash
+      - 
+        name: Clippy
+        run: cargo clippy --all-features --all-targets -- -D warnings
+        shell: bash
+      - 
+        name: Assemble archive
+        run: bash scripts/assemble-archive.sh x86_64-unknown-linux-gnu
+        shell: bash
+      - 
+        name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with: 
+          name: build-linux-x64
+          path: dodeca-x86_64-unknown-linux-gnu.tar.xz
+
+
+  build-linux-arm64: 
+    name: Build (linux-arm64)
+    runs-on: depot-ubuntu-24.04-arm-32
+    steps: 
+      - 
+        name: Checkout
+        uses: actions/checkout@v4
+      - 
+        name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with: 
+          targets: aarch64-unknown-linux-gnu
+
+      - 
+        name: Install cross-compilation tools
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - 
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with: 
+          cache-on-failure: "true"
+
+      - 
+        name: Build ddc
+        run: cargo build --release -p dodeca --target aarch64-unknown-linux-gnu
+        shell: bash
+      - 
+        name: Build plugins
+        run: cargo build --release --target aarch64-unknown-linux-gnu -p mod-arborium --bin dodeca-mod-arborium -p mod-code-execution --bin dodeca-mod-code-execution -p mod-css --bin dodeca-mod-css -p mod-fonts --bin dodeca-mod-fonts -p mod-html-diff --bin dodeca-mod-html-diff -p mod-http --bin dodeca-mod-http -p mod-image --bin dodeca-mod-image -p mod-js --bin dodeca-mod-js -p mod-jxl --bin dodeca-mod-jxl -p mod-linkcheck --bin dodeca-mod-linkcheck -p mod-minify --bin dodeca-mod-minify -p mod-pagefind --bin dodeca-mod-pagefind -p mod-sass --bin dodeca-mod-sass -p mod-svgo --bin dodeca-mod-svgo -p mod-webp --bin dodeca-mod-webp
+        shell: bash
+      - 
+        name: Assemble archive
+        run: bash scripts/assemble-archive.sh aarch64-unknown-linux-gnu
+        shell: bash
+      - 
+        name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with: 
+          name: build-linux-arm64
+          path: dodeca-aarch64-unknown-linux-gnu.tar.xz
+
+
+  build-macos-arm64: 
+    name: Build (macos-arm64)
+    runs-on: depot-macos-latest
+    steps: 
+      - 
+        name: Checkout
+        uses: actions/checkout@v4
+      - 
+        name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with: 
+          components: clippy
+          targets: wasm32-unknown-unknown
+
+      - 
+        name: Install Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+      - 
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with: 
+          cache-on-failure: "true"
+
+      - 
+        name: Install wasm-pack
+        run: brew install wasm-pack
+        shell: bash
+      - 
+        name: Build WASM
+        run: cargo xtask wasm
+        shell: bash
+      - 
+        name: Build ddc
+        run: cargo build --release -p dodeca
+        shell: bash
+      - 
+        name: Build plugins
+        run: cargo build --release -p mod-arborium --bin dodeca-mod-arborium -p mod-code-execution --bin dodeca-mod-code-execution -p mod-css --bin dodeca-mod-css -p mod-fonts --bin dodeca-mod-fonts -p mod-html-diff --bin dodeca-mod-html-diff -p mod-http --bin dodeca-mod-http -p mod-image --bin dodeca-mod-image -p mod-js --bin dodeca-mod-js -p mod-jxl --bin dodeca-mod-jxl -p mod-linkcheck --bin dodeca-mod-linkcheck -p mod-minify --bin dodeca-mod-minify -p mod-pagefind --bin dodeca-mod-pagefind -p mod-sass --bin dodeca-mod-sass -p mod-svgo --bin dodeca-mod-svgo -p mod-webp --bin dodeca-mod-webp
+        shell: bash
+      - 
+        name: Test ddc
+        run: cargo test --release -p dodeca
+        shell: bash
+      - 
+        name: Test plugins
+        run: cargo test --release -p mod-arborium -p mod-code-execution -p mod-css -p mod-fonts -p mod-html-diff -p mod-http -p mod-image -p mod-js -p mod-jxl -p mod-linkcheck -p mod-minify -p mod-pagefind -p mod-sass -p mod-svgo -p mod-webp
+        shell: bash
+      - 
+        name: Clippy
+        run: cargo clippy --all-features --all-targets -- -D warnings
+        shell: bash
+      - 
+        name: Assemble archive
+        run: bash scripts/assemble-archive.sh aarch64-apple-darwin
+        shell: bash
+      - 
+        name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with: 
+          name: build-macos-arm64
+          path: dodeca-aarch64-apple-darwin.tar.xz
+
+
+  build-windows-x64: 
+    name: Build (windows-x64)
     runs-on: depot-windows-2022-16
+    env: 
+      RUSTFLAGS: "-Ctarget-feature=+crt-static"
+
     steps: 
       - 
         name: Checkout
@@ -37,225 +218,42 @@ jobs:
         run: cargo install wasm-pack
         shell: bash
       - 
-        name: Build
-        run: cargo xtask build
-        shell: bash
-      - 
-        name: Check
-        run: cargo check --all-features
-        shell: bash
-
-  build-ddc-linux: 
-    name: Build ddc (linux)
-    runs-on: depot-ubuntu-24.04-32
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-        with: 
-          components: clippy
-          targets: wasm32-unknown-unknown
-
-      - 
-        name: Install Rust (nightly)
-        uses: dtolnay/rust-toolchain@nightly
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-
-      - 
-        name: Install wasm-pack
-        run: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
-      - 
         name: Build WASM
         run: cargo xtask wasm
+        shell: bash
       - 
         name: Build ddc
         run: cargo build --release -p dodeca
+        shell: bash
+      - 
+        name: Build plugins
+        run: cargo build --release -p mod-arborium --bin dodeca-mod-arborium -p mod-code-execution --bin dodeca-mod-code-execution -p mod-css --bin dodeca-mod-css -p mod-fonts --bin dodeca-mod-fonts -p mod-html-diff --bin dodeca-mod-html-diff -p mod-http --bin dodeca-mod-http -p mod-image --bin dodeca-mod-image -p mod-js --bin dodeca-mod-js -p mod-jxl --bin dodeca-mod-jxl -p mod-linkcheck --bin dodeca-mod-linkcheck -p mod-minify --bin dodeca-mod-minify -p mod-pagefind --bin dodeca-mod-pagefind -p mod-sass --bin dodeca-mod-sass -p mod-svgo --bin dodeca-mod-svgo -p mod-webp --bin dodeca-mod-webp
+        shell: bash
       - 
         name: Test ddc
         run: cargo test --release -p dodeca
+        shell: bash
       - 
-        name: Clippy
-        run: cargo clippy --all-features --all-targets -- -D warnings
+        name: Test plugins
+        run: cargo test --release -p mod-arborium -p mod-code-execution -p mod-css -p mod-fonts -p mod-html-diff -p mod-http -p mod-image -p mod-js -p mod-jxl -p mod-linkcheck -p mod-minify -p mod-pagefind -p mod-sass -p mod-svgo -p mod-webp
+        shell: bash
+      - 
+        name: Assemble archive
+        run: bash scripts/assemble-archive.sh x86_64-pc-windows-msvc
+        shell: bash
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
-          name: ddc-linux
-          path: target/release/ddc
+          name: build-windows-x64
+          path: dodeca-x86_64-pc-windows-msvc.zip
 
 
-  plugins-1-linux: 
-    name: "Plugins 1 (linux): arborium, code-execution, css"
-    runs-on: depot-ubuntu-24.04-32
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-
-      - 
-        name: Build
-        run: cargo build --release -p mod-arborium --bin dodeca-mod-arborium -p mod-code-execution --bin dodeca-mod-code-execution -p mod-css --bin dodeca-mod-css
-      - 
-        name: Test
-        run: cargo test --release -p mod-arborium -p mod-code-execution -p mod-css
-      - 
-        name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with: 
-          name: plugins-1-linux
-          path: "target/release/dodeca-mod-arborium\ntarget/release/dodeca-mod-code-execution\ntarget/release/dodeca-mod-css"
-          retention-days: "1"
-
-
-  plugins-2-linux: 
-    name: "Plugins 2 (linux): fonts, html-diff, http"
-    runs-on: depot-ubuntu-24.04-32
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-
-      - 
-        name: Build
-        run: cargo build --release -p mod-fonts --bin dodeca-mod-fonts -p mod-html-diff --bin dodeca-mod-html-diff -p mod-http --bin dodeca-mod-http
-      - 
-        name: Test
-        run: cargo test --release -p mod-fonts -p mod-html-diff -p mod-http
-      - 
-        name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with: 
-          name: plugins-2-linux
-          path: "target/release/dodeca-mod-fonts\ntarget/release/dodeca-mod-html-diff\ntarget/release/dodeca-mod-http"
-          retention-days: "1"
-
-
-  plugins-3-linux: 
-    name: "Plugins 3 (linux): image, js, jxl"
-    runs-on: depot-ubuntu-24.04-32
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-
-      - 
-        name: Build
-        run: cargo build --release -p mod-image --bin dodeca-mod-image -p mod-js --bin dodeca-mod-js -p mod-jxl --bin dodeca-mod-jxl
-      - 
-        name: Test
-        run: cargo test --release -p mod-image -p mod-js -p mod-jxl
-      - 
-        name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with: 
-          name: plugins-3-linux
-          path: "target/release/dodeca-mod-image\ntarget/release/dodeca-mod-js\ntarget/release/dodeca-mod-jxl"
-          retention-days: "1"
-
-
-  plugins-4-linux: 
-    name: "Plugins 4 (linux): linkcheck, minify, pagefind"
-    runs-on: depot-ubuntu-24.04-32
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-
-      - 
-        name: Build
-        run: cargo build --release -p mod-linkcheck --bin dodeca-mod-linkcheck -p mod-minify --bin dodeca-mod-minify -p mod-pagefind --bin dodeca-mod-pagefind
-      - 
-        name: Test
-        run: cargo test --release -p mod-linkcheck -p mod-minify -p mod-pagefind
-      - 
-        name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with: 
-          name: plugins-4-linux
-          path: "target/release/dodeca-mod-linkcheck\ntarget/release/dodeca-mod-minify\ntarget/release/dodeca-mod-pagefind"
-          retention-days: "1"
-
-
-  plugins-5-linux: 
-    name: "Plugins 5 (linux): sass, svgo, webp"
-    runs-on: depot-ubuntu-24.04-32
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-
-      - 
-        name: Build
-        run: cargo build --release -p mod-sass --bin dodeca-mod-sass -p mod-svgo --bin dodeca-mod-svgo -p mod-webp --bin dodeca-mod-webp
-      - 
-        name: Test
-        run: cargo test --release -p mod-sass -p mod-svgo -p mod-webp
-      - 
-        name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with: 
-          name: plugins-5-linux
-          path: "target/release/dodeca-mod-sass\ntarget/release/dodeca-mod-svgo\ntarget/release/dodeca-mod-webp"
-          retention-days: "1"
-
-
-  integration-linux: 
-    name: Integration (linux)
+  integration-linux-x64: 
+    name: Integration (linux-x64)
     runs-on: depot-ubuntu-24.04-32
     needs: 
-      - build-ddc-linux
-      - plugins-1-linux
-      - plugins-2-linux
-      - plugins-3-linux
-      - plugins-4-linux
-      - plugins-5-linux
+      - build-linux-x64
 
     steps: 
       - 
@@ -271,245 +269,28 @@ jobs:
           cache-on-failure: "true"
 
       - 
-        name: Download ddc
+        name: Download build
         uses: actions/download-artifact@v4
         with: 
-          name: ddc-linux
-          path: artifacts/bin
+          name: build-linux-x64
+          path: dist
 
       - 
-        name: Download plugins
-        uses: actions/download-artifact@v4
-        with: 
-          pattern: plugins-*-linux
-          path: artifacts/plugins
-          merge-multiple: "true"
-
-      - 
-        name: List artifacts
-        run: ls -laR artifacts/
-      - 
-        name: Make executables
-        run: chmod +x artifacts/bin/* artifacts/plugins/*
+        name: Extract archive
+        run: tar -xf dist/dodeca-x86_64-unknown-linux-gnu.tar.xz -C dist && ls -la dist/
       - 
         name: Run integration tests
         run: "cargo test --release -p dodeca-integration --test '*'"
         env: 
-          DODECA_BIN: ${{ github.workspace }}/artifacts/bin/ddc
-          DODECA_PLUGINS: ${{ github.workspace }}/artifacts/plugins
+          DODECA_BIN: ${{ github.workspace }}/dist/ddc
+          DODECA_PLUGINS: ${{ github.workspace }}/dist
 
 
-  build-ddc-macos: 
-    name: Build ddc (macos)
-    runs-on: depot-macos-15
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-        with: 
-          components: clippy
-          targets: wasm32-unknown-unknown
-
-      - 
-        name: Install Rust (nightly)
-        uses: dtolnay/rust-toolchain@nightly
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-
-      - 
-        name: Install wasm-pack
-        run: brew install wasm-pack
-      - 
-        name: Build WASM
-        run: cargo xtask wasm
-      - 
-        name: Build ddc
-        run: cargo build --release -p dodeca
-      - 
-        name: Test ddc
-        run: cargo test --release -p dodeca
-      - 
-        name: Clippy
-        run: cargo clippy --all-features --all-targets -- -D warnings
-      - 
-        name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with: 
-          name: ddc-macos
-          path: target/release/ddc
-
-
-  plugins-1-macos: 
-    name: "Plugins 1 (macos): arborium, code-execution, css"
-    runs-on: depot-macos-15
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-
-      - 
-        name: Build
-        run: cargo build --release -p mod-arborium --bin dodeca-mod-arborium -p mod-code-execution --bin dodeca-mod-code-execution -p mod-css --bin dodeca-mod-css
-      - 
-        name: Test
-        run: cargo test --release -p mod-arborium -p mod-code-execution -p mod-css
-      - 
-        name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with: 
-          name: plugins-1-macos
-          path: "target/release/dodeca-mod-arborium\ntarget/release/dodeca-mod-code-execution\ntarget/release/dodeca-mod-css"
-          retention-days: "1"
-
-
-  plugins-2-macos: 
-    name: "Plugins 2 (macos): fonts, html-diff, http"
-    runs-on: depot-macos-15
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-
-      - 
-        name: Build
-        run: cargo build --release -p mod-fonts --bin dodeca-mod-fonts -p mod-html-diff --bin dodeca-mod-html-diff -p mod-http --bin dodeca-mod-http
-      - 
-        name: Test
-        run: cargo test --release -p mod-fonts -p mod-html-diff -p mod-http
-      - 
-        name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with: 
-          name: plugins-2-macos
-          path: "target/release/dodeca-mod-fonts\ntarget/release/dodeca-mod-html-diff\ntarget/release/dodeca-mod-http"
-          retention-days: "1"
-
-
-  plugins-3-macos: 
-    name: "Plugins 3 (macos): image, js, jxl"
-    runs-on: depot-macos-15
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-
-      - 
-        name: Build
-        run: cargo build --release -p mod-image --bin dodeca-mod-image -p mod-js --bin dodeca-mod-js -p mod-jxl --bin dodeca-mod-jxl
-      - 
-        name: Test
-        run: cargo test --release -p mod-image -p mod-js -p mod-jxl
-      - 
-        name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with: 
-          name: plugins-3-macos
-          path: "target/release/dodeca-mod-image\ntarget/release/dodeca-mod-js\ntarget/release/dodeca-mod-jxl"
-          retention-days: "1"
-
-
-  plugins-4-macos: 
-    name: "Plugins 4 (macos): linkcheck, minify, pagefind"
-    runs-on: depot-macos-15
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-
-      - 
-        name: Build
-        run: cargo build --release -p mod-linkcheck --bin dodeca-mod-linkcheck -p mod-minify --bin dodeca-mod-minify -p mod-pagefind --bin dodeca-mod-pagefind
-      - 
-        name: Test
-        run: cargo test --release -p mod-linkcheck -p mod-minify -p mod-pagefind
-      - 
-        name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with: 
-          name: plugins-4-macos
-          path: "target/release/dodeca-mod-linkcheck\ntarget/release/dodeca-mod-minify\ntarget/release/dodeca-mod-pagefind"
-          retention-days: "1"
-
-
-  plugins-5-macos: 
-    name: "Plugins 5 (macos): sass, svgo, webp"
-    runs-on: depot-macos-15
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-
-      - 
-        name: Build
-        run: cargo build --release -p mod-sass --bin dodeca-mod-sass -p mod-svgo --bin dodeca-mod-svgo -p mod-webp --bin dodeca-mod-webp
-      - 
-        name: Test
-        run: cargo test --release -p mod-sass -p mod-svgo -p mod-webp
-      - 
-        name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with: 
-          name: plugins-5-macos
-          path: "target/release/dodeca-mod-sass\ntarget/release/dodeca-mod-svgo\ntarget/release/dodeca-mod-webp"
-          retention-days: "1"
-
-
-  integration-macos: 
-    name: Integration (macos)
-    runs-on: depot-macos-15
+  integration-macos-arm64: 
+    name: Integration (macos-arm64)
+    runs-on: depot-macos-latest
     needs: 
-      - build-ddc-macos
-      - plugins-1-macos
-      - plugins-2-macos
-      - plugins-3-macos
-      - plugins-4-macos
-      - plugins-5-macos
+      - build-macos-arm64
 
     steps: 
       - 
@@ -525,31 +306,58 @@ jobs:
           cache-on-failure: "true"
 
       - 
-        name: Download ddc
+        name: Download build
         uses: actions/download-artifact@v4
         with: 
-          name: ddc-macos
-          path: artifacts/bin
+          name: build-macos-arm64
+          path: dist
 
       - 
-        name: Download plugins
-        uses: actions/download-artifact@v4
-        with: 
-          pattern: plugins-*-macos
-          path: artifacts/plugins
-          merge-multiple: "true"
-
-      - 
-        name: List artifacts
-        run: ls -laR artifacts/
-      - 
-        name: Make executables
-        run: chmod +x artifacts/bin/* artifacts/plugins/*
+        name: Extract archive
+        run: tar -xf dist/dodeca-aarch64-apple-darwin.tar.xz -C dist && ls -la dist/
       - 
         name: Run integration tests
         run: "cargo test --release -p dodeca-integration --test '*'"
         env: 
-          DODECA_BIN: ${{ github.workspace }}/artifacts/bin/ddc
-          DODECA_PLUGINS: ${{ github.workspace }}/artifacts/plugins
+          DODECA_BIN: ${{ github.workspace }}/dist/ddc
+          DODECA_PLUGINS: ${{ github.workspace }}/dist
 
+
+  release: 
+    name: Release
+    runs-on: ubuntu-latest
+    needs: 
+      - build-linux-x64
+      - build-linux-arm64
+      - build-macos-arm64
+      - build-windows-x64
+
+    if: "startsWith(github.ref, 'refs/tags/')"
+    env: 
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+    steps: 
+      - 
+        name: Checkout
+        uses: actions/checkout@v4
+      - 
+        name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with: 
+          path: dist
+          pattern: build-*
+          merge-multiple: "true"
+
+      - 
+        name: List artifacts
+        run: ls -laR dist/
+      - 
+        name: Create GitHub Release
+        run: "gh release create \"${{ github.ref_name }}\" \\\n  --title \"dodeca ${{ github.ref_name }}\" \\\n  --generate-notes \\\n  dist/**/*.tar.xz dist/**/*.zip"
+        shell: bash
+      - 
+        name: Update Homebrew tap
+        run: "bash scripts/update-homebrew.sh \"${{ github.ref_name }}\""
+        shell: bash
 
