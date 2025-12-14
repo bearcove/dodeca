@@ -7,7 +7,7 @@
 //! per-domain rate limiting internally.
 
 use crate::db::ExternalLinkStatus;
-use crate::plugins::{CheckOptions, check_urls_plugin, has_linkcheck_plugin};
+use crate::cells::{CheckOptions, check_urls_plugin, has_linkcheck_plugin};
 use crate::types::Route;
 use chrono::NaiveDate;
 use regex::Regex;
@@ -248,12 +248,8 @@ pub async fn check_external_links(
             timeout_secs: 10,
         };
 
-        // The plugin uses blocking HTTP, so wrap in spawn_blocking
-        let plugin_result =
-            tokio::task::spawn_blocking(move || check_urls_plugin(urls_to_check, plugin_options))
-                .await
-                .ok()
-                .flatten();
+        // Call the plugin
+        let plugin_result = check_urls_plugin(urls_to_check, plugin_options).await;
 
         if let Some(result) = plugin_result {
             // Map results back to URLs and update cache

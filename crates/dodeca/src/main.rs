@@ -11,17 +11,16 @@ mod file_watcher;
 mod image;
 mod link_checker;
 mod logging;
-mod plugin_server;
-mod plugins;
+mod cell_server;
+mod cells;
 mod queries;
 mod render;
 mod search;
-mod self_update;
 mod serve;
 mod svg;
 mod template;
-mod theme;
 mod tui;
+mod tui_host;
 mod types;
 mod url_rewrite;
 
@@ -37,7 +36,7 @@ use crate::types::{
     SourcePathRef, StaticPath, TemplateContent, TemplatePath, TemplatePathRef,
 };
 use camino::{Utf8Path, Utf8PathBuf};
-use color_eyre::{Result, eyre::eyre};
+use eyre::{Result, eyre};
 use facet::Facet;
 use facet_args as args;
 use ignore::WalkBuilder;
@@ -104,6 +103,10 @@ struct ServeArgs {
     /// Start with public access enabled (listen on all interfaces)
     #[facet(args::named, args::short = 'P', rename = "public")]
     public_access: bool,
+
+    /// Unix socket path to receive listening FD (for testing)
+    #[facet(args::named, default)]
+    fd_socket: Option<String>,
 }
 
 /// Clean command arguments
@@ -119,7 +122,6 @@ enum Command {
     Build(BuildArgs),
     Serve(ServeArgs),
     Clean(CleanArgs),
-    SelfUpdate,
 }
 
 fn print_usage() {
@@ -133,10 +135,6 @@ fn print_usage() {
         "serve".green()
     );
     eprintln!("    {}      Clear all caches", "clean".green());
-    eprintln!(
-        "    {}  Update ddc to the latest version",
-        "self-update".green()
-    );
     eprintln!("\n{}", "BUILD OPTIONS:".yellow());
     eprintln!("    [path]           Project directory");
     eprintln!("    -c, --content    Content directory");
@@ -201,7 +199,7 @@ fn parse_args() -> Result<Command> {
             })?;
             Ok(Command::Clean(clean_args))
         }
-        "self-update" => Ok(Command::SelfUpdate),
+
         "--help" | "-h" | "help" => {
             print_usage();
             std::process::exit(0);
@@ -287,7 +285,9 @@ fn resolve_dirs(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    color_eyre::install()?;
+    // Install SIGUSR1 handler for debugging (dumps stack traces)
+    dodeca_debug::install_sigusr1_handler("ddc");
+
     miette::set_hook(Box::new(
         |_| Box::new(miette::GraphicalReportHandler::new()),
     ))?;
@@ -303,7 +303,8 @@ async fn main() -> Result<()> {
                 &cfg.output_dir,
                 &cfg.skip_domains,
                 cfg.rate_limit_ms,
-            )?;
+            )
+            .await?;
         }
         Command::Serve(args) => {
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
@@ -332,6 +333,7 @@ async fn main() -> Result<()> {
                     args.port,
                     args.open,
                     cfg.stable_assets,
+                    args.fd_socket,
                 )
                 .await?;
             }
@@ -373,9 +375,6 @@ async fn main() -> Result<()> {
             } else {
                 println!("{} {}", "Cleared:".green(), cleared.join(", "));
             }
-        }
-        Command::SelfUpdate => {
-            self_update::self_update().await?;
         }
     }
 
@@ -474,10 +473,7 @@ impl BuildContext {
         output_dir: &Utf8Path,
         stats: Option<Arc<QueryStats>>,
     ) -> Self {
-        let db = match &stats {
-            Some(s) => Database::new_with_stats(Arc::clone(s)),
-            None => Database::new(),
-        };
+        let db = Database::new(stats.clone());
         Self {
             db,
             content_dir: content_dir.to_owned(),
@@ -548,7 +544,7 @@ impl BuildContext {
             let source_path = SourcePath::new(relative);
             let source_content = SourceContent::new(content);
             let source =
-                SourceFile::new(&self.db, source_path.clone(), source_content, last_modified);
+                SourceFile::new(&self.db, source_path.clone(), source_content, last_modified)?;
             self.sources.insert(source_path, source);
         }
 
@@ -584,7 +580,7 @@ impl BuildContext {
 
             let template_path = TemplatePath::new(relative);
             let template_content = TemplateContent::new(content);
-            let template = TemplateFile::new(&self.db, template_path.clone(), template_content);
+            let template = TemplateFile::new(&self.db, template_path.clone(), template_content)?;
             self.templates.insert(template_path, template);
         }
 
@@ -620,7 +616,7 @@ impl BuildContext {
 
             let sass_path = SassPath::new(relative);
             let sass_content = SassContent::new(content);
-            let sass_file = SassFile::new(&self.db, sass_path.clone(), sass_content);
+            let sass_file = SassFile::new(&self.db, sass_path.clone(), sass_content)?;
             self.sass_files.insert(sass_path, sass_file);
         }
 
@@ -649,7 +645,7 @@ impl BuildContext {
                 .unwrap_or_else(|_| path.to_string());
 
             let static_path = StaticPath::new(relative);
-            let static_file = StaticFile::new(&self.db, static_path.clone(), content);
+            let static_file = StaticFile::new(&self.db, static_path.clone(), content)?;
             self.static_files.insert(static_path, static_file);
         }
 
@@ -689,7 +685,7 @@ impl BuildContext {
 
             let data_path = DataPath::new(relative);
             let data_content = DataContent::new(content);
-            let data_file = DataFile::new(&self.db, data_path.clone(), data_content);
+            let data_file = DataFile::new(&self.db, data_path.clone(), data_content)?;
             self.data_files.insert(data_path, data_file);
         }
 
@@ -713,19 +709,11 @@ impl BuildContext {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
 
-        // Check if we already have this source
-        if let Some(existing) = self.sources.get(relative_path) {
-            // Update the content and mtime - Salsa will detect if they changed
-            use salsa::Setter;
-            existing.set_content(&mut self.db).to(source_content);
-            existing.set_last_modified(&mut self.db).to(last_modified);
-        } else {
-            // New file
-            let source_path = SourcePath::new(relative_path.to_string());
-            let source =
-                SourceFile::new(&self.db, source_path.clone(), source_content, last_modified);
-            self.sources.insert(source_path, source);
-        }
+        // Check if we already have this source - for picante, recreate and replace
+        let source_path = SourcePath::new(relative_path.to_string());
+        let source = SourceFile::new(&self.db, source_path.clone(), source_content, last_modified)
+            .expect("failed to create source file");
+        self.sources.insert(source_path, source);
 
         Ok(true)
     }
@@ -743,17 +731,11 @@ impl BuildContext {
         let content = fs::read_to_string(&full_path)?;
         let template_content = TemplateContent::new(content);
 
-        // Check if we already have this template
-        if let Some(existing) = self.templates.get(relative_path) {
-            // Update the content - Salsa will detect if it changed
-            use salsa::Setter;
-            existing.set_content(&mut self.db).to(template_content);
-        } else {
-            // New file
-            let template_path = TemplatePath::new(relative_path.to_string());
-            let template = TemplateFile::new(&self.db, template_path.clone(), template_content);
-            self.templates.insert(template_path, template);
-        }
+        // For picante, recreate and replace
+        let template_path = TemplatePath::new(relative_path.to_string());
+        let template = TemplateFile::new(&self.db, template_path.clone(), template_content)
+            .expect("failed to create template file");
+        self.templates.insert(template_path, template);
 
         Ok(true)
     }
@@ -771,17 +753,11 @@ impl BuildContext {
         let content = fs::read_to_string(&full_path)?;
         let sass_content = SassContent::new(content);
 
-        // Check if we already have this sass file
-        if let Some(existing) = self.sass_files.get(relative_path) {
-            // Update the content - Salsa will detect if it changed
-            use salsa::Setter;
-            existing.set_content(&mut self.db).to(sass_content);
-        } else {
-            // New file
-            let sass_path = SassPath::new(relative_path.to_string());
-            let sass_file = SassFile::new(&self.db, sass_path.clone(), sass_content);
-            self.sass_files.insert(sass_path, sass_file);
-        }
+        // For picante, recreate and replace
+        let sass_path = SassPath::new(relative_path.to_string());
+        let sass_file = SassFile::new(&self.db, sass_path.clone(), sass_content)
+            .expect("failed to create sass file");
+        self.sass_files.insert(sass_path, sass_file);
 
         Ok(true)
     }
@@ -811,7 +787,7 @@ pub struct BuildStats {
     pub static_skipped: usize,
 }
 
-pub fn build(
+pub async fn build(
     content_dir: &Utf8PathBuf,
     output_dir: &Utf8PathBuf,
     mode: BuildMode,
@@ -820,13 +796,17 @@ pub fn build(
 ) -> Result<BuildContext> {
     use std::time::Instant;
 
+    // Set reentrancy guard so code execution plugin knows we're in a build
+    // SAFETY: We're single-threaded at this point (before spawning plugins)
+    unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
+
     let start = Instant::now();
     let verbose = progress.is_none(); // Print to stdout when no TUI progress
 
     // Open content-addressed storage at base dir
     let base_dir = content_dir.parent().unwrap_or(content_dir);
     let cas_path = base_dir.join(".dodeca.db");
-    let store = cas::ContentStore::open(&cas_path)?;
+    let mut store = cas::ContentStore::open(&cas_path)?;
 
     // Initialize asset cache (processed images, OG images, etc.)
     let cache_dir = base_dir.join(".cache");
@@ -854,18 +834,18 @@ pub fn build(
         );
     }
 
-    // Create registries for the query
+    // Set registries as singletons in the database
     let source_vec: Vec<_> = ctx.sources.values().copied().collect();
     let template_vec: Vec<_> = ctx.templates.values().copied().collect();
     let sass_vec: Vec<_> = ctx.sass_files.values().copied().collect();
     let static_vec: Vec<_> = ctx.static_files.values().copied().collect();
     let data_vec: Vec<_> = ctx.data_files.values().copied().collect();
 
-    let source_registry = SourceRegistry::new(&ctx.db, source_vec);
-    let template_registry = TemplateRegistry::new(&ctx.db, template_vec);
-    let sass_registry = SassRegistry::new(&ctx.db, sass_vec);
-    let static_registry = StaticRegistry::new(&ctx.db, static_vec);
-    let data_registry = DataRegistry::new(&ctx.db, data_vec);
+    SourceRegistry::set(&mut ctx.db, source_vec)?;
+    TemplateRegistry::set(&mut ctx.db, template_vec)?;
+    SassRegistry::set(&mut ctx.db, sass_vec)?;
+    StaticRegistry::set(&mut ctx.db, static_vec)?;
+    DataRegistry::set(&mut ctx.db, data_vec)?;
 
     // Update progress: parsing phase
     if let Some(ref p) = progress {
@@ -873,14 +853,7 @@ pub fn build(
     }
 
     // THE query - produces all outputs (fonts are automatically subsetted)
-    let site_output = build_site(
-        &ctx.db,
-        source_registry,
-        template_registry,
-        sass_registry,
-        static_registry,
-        data_registry,
-    );
+    let site_output = build_site(&ctx.db).await?;
 
     // Code execution validation
     let failed_executions: Vec<_> = site_output
@@ -978,7 +951,8 @@ pub fn build(
                     render_options,
                     None,
                     &site_output.code_execution_results,
-                );
+                )
+                .await;
                 let path = route_to_path(output_dir, route);
 
                 if store.write_if_changed(&path, final_html.as_bytes())? {
@@ -995,7 +969,7 @@ pub fn build(
             }
             OutputFile::Static { path, content } => {
                 let dest = output_dir.join(path.as_str());
-                if store.write_if_changed(&dest, content)? {
+                if store.write_if_changed(&dest, &content)? {
                     stats.static_written += 1;
                 } else {
                     stats.static_skipped += 1;
@@ -1080,7 +1054,7 @@ pub fn build(
             );
         }
 
-        // Build search index in a separate thread (pagefind is async)
+        // Build search index in a separate thread (pagefind uses actix, needs its own runtime)
         let output_for_search = site_output.clone();
         let search_files =
             std::thread::spawn(move || search::build_search_index(&output_for_search))
@@ -1120,32 +1094,30 @@ pub fn build(
         );
     }
 
+    // Save content store hashes
+    store.save()?;
+
     Ok(ctx)
 }
 
-/// Build with mini inline TUI - shows progress without taking over screen
-fn build_with_mini_tui(
+/// Build with progress output
+async fn build_with_mini_tui(
     content_dir: &Utf8PathBuf,
     output_dir: &Utf8PathBuf,
     skip_domains: &[String],
     rate_limit_ms: Option<u64>,
 ) -> Result<()> {
-    use crossterm::cursor;
-    use ratatui::prelude::*;
-    use ratatui::widgets::Paragraph;
-    use std::io::{self, IsTerminal};
     use std::time::Instant;
 
     // Initialize tracing (respects RUST_LOG)
     logging::init_standard_tracing();
 
     let start = Instant::now();
-    let is_terminal = io::stdout().is_terminal();
 
     // Open CAS
     let base_dir = content_dir.parent().unwrap_or(content_dir);
     let cas_path = base_dir.join(".dodeca.db");
-    let store = cas::ContentStore::open(&cas_path)?;
+    let mut store = cas::ContentStore::open(&cas_path)?;
 
     // Initialize asset cache (processed images, OG images, etc.)
     let cache_dir = base_dir.join(".cache");
@@ -1171,58 +1143,7 @@ fn build_with_mini_tui(
         + ctx.static_files.len()
         + ctx.data_files.len();
 
-    // Set up inline terminal (3 lines) - only if we have a TTY
-    let mut terminal = if is_terminal {
-        let mut stdout = io::stdout();
-        crossterm::execute!(stdout, cursor::Hide)?;
-
-        let backend = ratatui::backend::CrosstermBackend::new(stdout);
-        let options = ratatui::TerminalOptions {
-            viewport: ratatui::Viewport::Inline(3),
-        };
-        Some(ratatui::Terminal::with_options(backend, options)?)
-    } else {
-        None
-    };
-
-    // Draw progress (only when we have a terminal)
-    let draw_progress = |terminal: &mut Option<ratatui::Terminal<_>>,
-                         phase: &str,
-                         stats: &QueryStats,
-                         written: usize,
-                         skipped: usize| {
-        if let Some(term) = terminal {
-            term.draw(|frame| {
-                let area = frame.area();
-
-                let text = vec![
-                    Line::from(vec![
-                        Span::styled("Phase: ", Style::default().fg(Color::Cyan)),
-                        Span::raw(phase),
-                    ]),
-                    Line::from(vec![
-                        Span::styled("Queries: ", Style::default().fg(Color::Cyan)),
-                        Span::raw(format!(
-                            "{} executed, {} reused",
-                            stats.executed(),
-                            stats.reused()
-                        )),
-                    ]),
-                    Line::from(vec![
-                        Span::styled("Output: ", Style::default().fg(Color::Cyan)),
-                        Span::raw(format!("{written} written, {skipped} up-to-date")),
-                    ]),
-                ];
-
-                let paragraph = Paragraph::new(text);
-                frame.render_widget(paragraph, area);
-            })
-            .ok();
-        }
-    };
-
-    // Initial draw
-    draw_progress(&mut terminal, "Loading...", &stats_for_display, 0, 0);
+    println!("{} Loading {} files...", "→".cyan(), input_count);
 
     // Create registries
     let source_vec: Vec<_> = ctx.sources.values().copied().collect();
@@ -1231,23 +1152,16 @@ fn build_with_mini_tui(
     let static_vec: Vec<_> = ctx.static_files.values().copied().collect();
     let data_vec: Vec<_> = ctx.data_files.values().copied().collect();
 
-    let source_registry = SourceRegistry::new(&ctx.db, source_vec);
-    let template_registry = TemplateRegistry::new(&ctx.db, template_vec);
-    let sass_registry = SassRegistry::new(&ctx.db, sass_vec);
-    let static_registry = StaticRegistry::new(&ctx.db, static_vec);
-    let data_registry = DataRegistry::new(&ctx.db, data_vec);
+    SourceRegistry::set(&mut ctx.db, source_vec)?;
+    TemplateRegistry::set(&mut ctx.db, template_vec)?;
+    SassRegistry::set(&mut ctx.db, sass_vec)?;
+    StaticRegistry::set(&mut ctx.db, static_vec)?;
+    DataRegistry::set(&mut ctx.db, data_vec)?;
 
-    draw_progress(&mut terminal, "Building...", &stats_for_display, 0, 0);
+    println!("{} Building...", "→".cyan());
 
     // Run the build query
-    let site_output = build_site(
-        &ctx.db,
-        source_registry,
-        template_registry,
-        sass_registry,
-        static_registry,
-        data_registry,
-    );
+    let site_output = build_site(&ctx.db).await?;
 
     // Code execution validation
     let failed_executions: Vec<_> = site_output
@@ -1257,12 +1171,6 @@ fn build_with_mini_tui(
         .collect();
 
     if !failed_executions.is_empty() {
-        // Clean up terminal before showing errors
-        if terminal.is_some() {
-            drop(terminal);
-            crossterm::execute!(io::stdout(), cursor::Show)?;
-        }
-
         for failure in &failed_executions {
             eprintln!(
                 "{}Code execution failed in {}:{} ({}): {}",
@@ -1310,7 +1218,7 @@ fn build_with_mini_tui(
         }
     }
 
-    draw_progress(&mut terminal, "Writing...", &stats_for_display, 0, 0);
+    println!("{} Writing outputs...", "→".cyan());
 
     // Write outputs
     let mut written = 0usize;
@@ -1325,12 +1233,6 @@ fn build_with_mini_tui(
         match output {
             OutputFile::Html { route, content } => {
                 if !render_options.dev_mode && content.contains(render::RENDER_ERROR_MARKER) {
-                    // Clean up terminal before error
-                    if terminal.is_some() {
-                        drop(terminal);
-                        crossterm::execute!(io::stdout(), cursor::Show)?;
-                    }
-
                     let error_start = content.find("<pre>").map(|i| i + 5).unwrap_or(0);
                     let error_end = content.find("</pre>").unwrap_or(content.len());
                     let error_msg = &content[error_start..error_end];
@@ -1346,7 +1248,8 @@ fn build_with_mini_tui(
                     render_options,
                     None,
                     &site_output.code_execution_results,
-                );
+                )
+                .await;
                 let path = route_to_path(output_dir, route);
 
                 if store.write_if_changed(&path, final_html.as_bytes())? {
@@ -1365,7 +1268,7 @@ fn build_with_mini_tui(
             }
             OutputFile::Static { path, content } => {
                 let dest = output_dir.join(path.as_str());
-                if store.write_if_changed(&dest, content)? {
+                if store.write_if_changed(&dest, &content)? {
                     written += 1;
                 } else {
                     skipped += 1;
@@ -1373,29 +1276,15 @@ fn build_with_mini_tui(
             }
         }
 
-        // Update display periodically
-        draw_progress(
-            &mut terminal,
-            "Writing...",
-            &stats_for_display,
-            written,
-            skipped,
-        );
     }
 
     // Check links
-    draw_progress(
-        &mut terminal,
-        "Checking links...",
-        &stats_for_display,
-        written,
-        skipped,
-    );
+    println!("{} Checking links...", "→".cyan());
 
     let pages = site_output.files.iter().filter_map(|f| match f {
         OutputFile::Html { route, content } => Some(link_checker::Page {
-            route,
-            html: content,
+            route: &route,
+            html: &content,
         }),
         _ => None,
     });
@@ -1439,12 +1328,6 @@ fn build_with_mini_tui(
     link_result.broken_links.extend(external_broken);
 
     if !link_result.is_ok() {
-        // Clean up terminal before error
-        if terminal.is_some() {
-            drop(terminal);
-            crossterm::execute!(io::stdout(), cursor::Show)?;
-        }
-
         for broken in &link_result.broken_links {
             let prefix = if broken.is_external { "[ext]" } else { "[int]" };
             eprintln!(
@@ -1464,15 +1347,9 @@ fn build_with_mini_tui(
     }
 
     // Build search index
-    draw_progress(
-        &mut terminal,
-        "Indexing...",
-        &stats_for_display,
-        written,
-        skipped,
-    );
+    println!("{} Building search index...", "→".cyan());
 
-    // Build search index (plugin blocks internally)
+    // Build search index in a separate thread (pagefind uses actix, needs its own runtime)
     let search_files = {
         let output = site_output.clone();
         std::thread::spawn(move || search::build_search_index(&output))
@@ -1484,15 +1361,6 @@ fn build_with_mini_tui(
     for (path, content) in &search_files {
         let dest = output_dir.join(path.trim_start_matches('/'));
         store.write_if_changed(&dest, content)?;
-    }
-
-    // Final state
-    draw_progress(&mut terminal, "Done!", &stats_for_display, written, skipped);
-
-    // Clean up terminal
-    if terminal.is_some() {
-        drop(terminal);
-        crossterm::execute!(io::stdout(), cursor::Show)?;
     }
 
     // Calculate output directory size
@@ -1523,6 +1391,9 @@ fn build_with_mini_tui(
         output_dir.cyan(),
         format_bytes(output_size)
     );
+
+    // Save content store hashes
+    store.save()?;
 
     Ok(())
 }
@@ -1557,7 +1428,7 @@ fn scan_directory_recursive(
     }
 }
 
-/// Handle a file change event by updating or adding it to Salsa
+/// Handle a file change event by updating or adding it to picante
 fn handle_file_changed(
     path: &Utf8PathBuf,
     config: &file_watcher::WatcherConfig,
@@ -1581,92 +1452,85 @@ fn handle_file_changed(
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
                 let mut db = server.db.lock().unwrap();
-                // Access registry directly (don't use get_sources() which would deadlock)
-                let mut sources = server.source_registry.sources(&*db).clone();
+                let mut sources = SourceRegistry::sources(&*db)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
                 let relative_str = relative.to_string();
-                let mut found = false;
-                for source in sources.iter() {
-                    if source.path(&*db).as_str() == relative_str {
-                        use salsa::Setter;
-                        source
-                            .set_content(&mut *db)
-                            .to(SourceContent::new(content.clone()));
-                        source.set_last_modified(&mut *db).to(last_modified);
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    let source_path = SourcePath::new(relative_str);
-                    let source = SourceFile::new(
-                        &*db,
-                        source_path,
-                        SourceContent::new(content),
-                        last_modified,
-                    );
+                let source_path = SourcePath::new(relative_str.clone());
+                let source_content = SourceContent::new(content);
+
+                // Find and replace existing, or add new
+                if let Some(pos) = sources.iter().position(|s| {
+                    s.path(&*db)
+                        .ok()
+                        .map(|p| p.as_str() == relative_str)
+                        .unwrap_or(false)
+                }) {
+                    // Replace with new version (picante inputs are immutable after creation)
+                    sources[pos] =
+                        SourceFile::new(&*db, source_path, source_content, last_modified)
+                            .expect("failed to create source file");
+                } else {
+                    let source = SourceFile::new(&*db, source_path, source_content, last_modified)
+                        .expect("failed to create source file");
                     sources.push(source);
-                    use salsa::Setter;
-                    server.source_registry.set_sources(&mut *db).to(sources);
                     println!("  {} Added new source: {}", "+".green(), relative);
                 }
+                SourceRegistry::set(&mut *db, sources).expect("failed to set sources");
             }
         }
         PathCategory::Template => {
             if let Ok(content) = fs::read_to_string(path) {
                 let mut db = server.db.lock().unwrap();
-                // Access registry directly (don't use get_templates() which would deadlock)
-                let mut templates = server.template_registry.templates(&*db).clone();
+                let mut templates = TemplateRegistry::templates(&*db)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
                 let relative_str = relative.to_string();
-                let mut found = false;
-                for template in templates.iter() {
-                    if template.path(&*db).as_str() == relative_str {
-                        use salsa::Setter;
-                        template
-                            .set_content(&mut *db)
-                            .to(TemplateContent::new(content.clone()));
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    let template_path = TemplatePath::new(relative_str);
-                    let template =
-                        TemplateFile::new(&*db, template_path, TemplateContent::new(content));
+                let template_path = TemplatePath::new(relative_str.clone());
+                let template_content = TemplateContent::new(content);
+
+                if let Some(pos) = templates.iter().position(|t| {
+                    t.path(&*db)
+                        .ok()
+                        .map(|p| p.as_str() == relative_str)
+                        .unwrap_or(false)
+                }) {
+                    templates[pos] = TemplateFile::new(&*db, template_path, template_content)
+                        .expect("failed to create template file");
+                } else {
+                    let template = TemplateFile::new(&*db, template_path, template_content)
+                        .expect("failed to create template file");
                     templates.push(template);
-                    use salsa::Setter;
-                    server
-                        .template_registry
-                        .set_templates(&mut *db)
-                        .to(templates);
                     println!("  {} Added new template: {}", "+".green(), relative);
                 }
+                TemplateRegistry::set(&mut *db, templates).expect("failed to set templates");
             }
         }
         PathCategory::Sass => {
             if let Ok(content) = fs::read_to_string(path) {
                 let mut db = server.db.lock().unwrap();
-                // Access registry directly (don't use get_sass_files() which would deadlock)
-                let mut sass_files = server.sass_registry.files(&*db).clone();
+                let mut sass_files = SassRegistry::files(&*db).ok().flatten().unwrap_or_default();
                 let relative_str = relative.to_string();
-                let mut found = false;
-                for sass_file in sass_files.iter() {
-                    if sass_file.path(&*db).as_str() == relative_str {
-                        use salsa::Setter;
-                        sass_file
-                            .set_content(&mut *db)
-                            .to(SassContent::new(content.clone()));
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    let sass_path = SassPath::new(relative_str);
-                    let sass = SassFile::new(&*db, sass_path, SassContent::new(content));
+                let sass_path = SassPath::new(relative_str.clone());
+                let sass_content = SassContent::new(content);
+
+                if let Some(pos) = sass_files.iter().position(|s| {
+                    s.path(&*db)
+                        .ok()
+                        .map(|p| p.as_str() == relative_str)
+                        .unwrap_or(false)
+                }) {
+                    sass_files[pos] = SassFile::new(&*db, sass_path, sass_content)
+                        .expect("failed to create sass file");
+                } else {
+                    let sass = SassFile::new(&*db, sass_path, sass_content)
+                        .expect("failed to create sass file");
                     sass_files.push(sass);
-                    use salsa::Setter;
-                    server.sass_registry.set_files(&mut *db).to(sass_files);
                     println!("  {} Added new sass: {}", "+".green(), relative);
                 }
+                SassRegistry::set(&mut *db, sass_files).expect("failed to set sass files");
             }
         }
         PathCategory::Static => {
@@ -1676,73 +1540,68 @@ fn handle_file_changed(
                     return;
                 }
                 let mut db = server.db.lock().unwrap();
-                // Access registry directly (don't use get_static_files() which would deadlock)
-                let mut static_files = server.static_registry.files(&*db).clone();
+                let mut static_files = StaticRegistry::files(&*db)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
                 let relative_str = relative.to_string();
+                let static_path = StaticPath::new(relative_str.clone());
 
-                // Find existing StaticFile and update via set_content() to trigger Salsa invalidation
-                let mut found = false;
-                for static_file in static_files.iter() {
-                    if static_file.path(&*db).as_str() == relative_str {
-                        use salsa::Setter;
-                        tracing::debug!(path = %relative_str, size = content.len(), "Calling set_content() for static file");
-                        static_file.set_content(&mut *db).to(content.clone());
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    // New file - create a fresh StaticFile
-                    let static_path = StaticPath::new(relative_str);
-                    let static_file = StaticFile::new(&*db, static_path, content);
+                if let Some(pos) = static_files.iter().position(|s| {
+                    s.path(&*db)
+                        .ok()
+                        .map(|p| p.as_str() == relative_str)
+                        .unwrap_or(false)
+                }) {
+                    tracing::debug!(path = %relative_str, size = content.len(), "Replacing static file");
+                    static_files[pos] = StaticFile::new(&*db, static_path, content)
+                        .expect("failed to create static file");
+                } else {
+                    let static_file = StaticFile::new(&*db, static_path, content)
+                        .expect("failed to create static file");
                     static_files.push(static_file);
-                    use salsa::Setter;
-                    server.static_registry.set_files(&mut *db).to(static_files);
                     println!("  {} Added new static file: {}", "+".green(), relative);
                 }
+                StaticRegistry::set(&mut *db, static_files).expect("failed to set static files");
             }
         }
         PathCategory::Data => {
             if let Ok(content) = fs::read_to_string(path) {
                 let mut db = server.db.lock().unwrap();
-                // Access registry directly (don't use get_data_files() which would deadlock)
-                let mut data_files = server.data_registry.files(&*db).clone();
+                let mut data_files = DataRegistry::files(&*db).ok().flatten().unwrap_or_default();
                 let relative_str = relative.to_string();
-                let mut found = false;
-                for data_file in data_files.iter() {
-                    if data_file.path(&*db).as_str() == relative_str {
-                        use salsa::Setter;
-                        data_file
-                            .set_content(&mut *db)
-                            .to(DataContent::new(content.clone()));
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    let data_path = DataPath::new(relative_str);
-                    let data_file = DataFile::new(&*db, data_path, DataContent::new(content));
+                let data_path = DataPath::new(relative_str.clone());
+                let data_content = DataContent::new(content);
+
+                if let Some(pos) = data_files.iter().position(|d| {
+                    d.path(&*db)
+                        .ok()
+                        .map(|p| p.as_str() == relative_str)
+                        .unwrap_or(false)
+                }) {
+                    data_files[pos] = DataFile::new(&*db, data_path, data_content)
+                        .expect("failed to create data file");
+                } else {
+                    let data_file = DataFile::new(&*db, data_path, data_content)
+                        .expect("failed to create data file");
                     data_files.push(data_file);
-                    use salsa::Setter;
-                    server.data_registry.set_files(&mut *db).to(data_files);
                     println!("  {} Added new data file: {}", "+".green(), relative);
                 }
+                DataRegistry::set(&mut *db, data_files).expect("failed to set data files");
             }
         }
-        PathCategory::Unknown => (), // Unknown files don't need Salsa updates
+        PathCategory::Unknown => (), // Unknown files don't need picante updates
     }
-    // Note: For all file types (Content, Template, Sass, Static, Data), the Salsa input
-    // set_content() call triggers proper invalidation of dependent queries.
+    // Note: For all file types, picante tracks changes when the registry is updated.
 }
 
-/// Handle a file removal event by removing it from Salsa
+/// Handle a file removal event by removing it from picante
 fn handle_file_removed(
     path: &Utf8PathBuf,
     config: &file_watcher::WatcherConfig,
     server: &serve::SiteServer,
 ) {
     use file_watcher::PathCategory;
-    use salsa::Setter;
 
     let category = config.categorize(path);
     let relative = match config.relative_path(path) {
@@ -1754,65 +1613,76 @@ fn handle_file_removed(
     match category {
         PathCategory::Content => {
             let mut db = server.db.lock().unwrap();
-            // Access registry directly (don't use get_sources() which would deadlock)
-            let mut sources = server.source_registry.sources(&*db).clone();
-            if let Some(pos) = sources
-                .iter()
-                .position(|s| s.path(&*db).as_str() == relative_str)
-            {
+            let mut sources = SourceRegistry::sources(&*db)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            if let Some(pos) = sources.iter().position(|s| {
+                s.path(&*db)
+                    .ok()
+                    .map(|p| p.as_str() == relative_str)
+                    .unwrap_or(false)
+            }) {
                 sources.remove(pos);
-                server.source_registry.set_sources(&mut *db).to(sources);
+                SourceRegistry::set(&mut *db, sources).expect("failed to set sources");
             }
         }
         PathCategory::Template => {
             let mut db = server.db.lock().unwrap();
-            // Access registry directly (don't use get_templates() which would deadlock)
-            let mut templates = server.template_registry.templates(&*db).clone();
-            if let Some(pos) = templates
-                .iter()
-                .position(|t| t.path(&*db).as_str() == relative_str)
-            {
+            let mut templates = TemplateRegistry::templates(&*db)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            if let Some(pos) = templates.iter().position(|t| {
+                t.path(&*db)
+                    .ok()
+                    .map(|p| p.as_str() == relative_str)
+                    .unwrap_or(false)
+            }) {
                 templates.remove(pos);
-                server
-                    .template_registry
-                    .set_templates(&mut *db)
-                    .to(templates);
+                TemplateRegistry::set(&mut *db, templates).expect("failed to set templates");
             }
         }
         PathCategory::Sass => {
             let mut db = server.db.lock().unwrap();
-            // Access registry directly (don't use get_sass_files() which would deadlock)
-            let mut sass_files = server.sass_registry.files(&*db).clone();
-            if let Some(pos) = sass_files
-                .iter()
-                .position(|s| s.path(&*db).as_str() == relative_str)
-            {
+            let mut sass_files = SassRegistry::files(&*db).ok().flatten().unwrap_or_default();
+            if let Some(pos) = sass_files.iter().position(|s| {
+                s.path(&*db)
+                    .ok()
+                    .map(|p| p.as_str() == relative_str)
+                    .unwrap_or(false)
+            }) {
                 sass_files.remove(pos);
-                server.sass_registry.set_files(&mut *db).to(sass_files);
+                SassRegistry::set(&mut *db, sass_files).expect("failed to set sass files");
             }
         }
         PathCategory::Static => {
             let mut db = server.db.lock().unwrap();
-            // Access registry directly (don't use get_static_files() which would deadlock)
-            let mut static_files = server.static_registry.files(&*db).clone();
-            if let Some(pos) = static_files
-                .iter()
-                .position(|s| s.path(&*db).as_str() == relative_str)
-            {
+            let mut static_files = StaticRegistry::files(&*db)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            if let Some(pos) = static_files.iter().position(|s| {
+                s.path(&*db)
+                    .ok()
+                    .map(|p| p.as_str() == relative_str)
+                    .unwrap_or(false)
+            }) {
                 static_files.remove(pos);
-                server.static_registry.set_files(&mut *db).to(static_files);
+                StaticRegistry::set(&mut *db, static_files).expect("failed to set static files");
             }
         }
         PathCategory::Data => {
             let mut db = server.db.lock().unwrap();
-            // Access registry directly (don't use get_data_files() which would deadlock)
-            let mut data_files = server.data_registry.files(&*db).clone();
-            if let Some(pos) = data_files
-                .iter()
-                .position(|d| d.path(&*db).as_str() == relative_str)
-            {
+            let mut data_files = DataRegistry::files(&*db).ok().flatten().unwrap_or_default();
+            if let Some(pos) = data_files.iter().position(|d| {
+                d.path(&*db)
+                    .ok()
+                    .map(|p| p.as_str() == relative_str)
+                    .unwrap_or(false)
+            }) {
                 data_files.remove(pos);
-                server.data_registry.set_files(&mut *db).to(data_files);
+                DataRegistry::set(&mut *db, data_files).expect("failed to set data files");
             }
         }
         PathCategory::Unknown => {}
@@ -1826,8 +1696,13 @@ async fn serve_plain(
     port: Option<u16>,
     open: bool,
     stable_assets: Vec<String>,
+    fd_socket: Option<String>,
 ) -> Result<()> {
     use std::sync::Arc;
+
+    // Set reentrancy guard so code execution plugin knows we're in a build
+    // SAFETY: We're single-threaded at this point (before spawning plugins)
+    unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
 
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
@@ -1875,7 +1750,7 @@ async fn serve_plain(
 
             let source_path = SourcePath::new(relative);
             let source_content = SourceContent::new(content);
-            let source = SourceFile::new(&*db, source_path, source_content, last_modified);
+            let source = SourceFile::new(&*db, source_path, source_content, last_modified)?;
             sources.push(source);
         }
         drop(db);
@@ -1913,7 +1788,7 @@ async fn serve_plain(
 
             let template_path = TemplatePath::new(relative);
             let template_content = TemplateContent::new(content);
-            let template = TemplateFile::new(&*db, template_path, template_content);
+            let template = TemplateFile::new(&*db, template_path, template_content)?;
             templates.push(template);
         }
         let count = templates.len();
@@ -1939,7 +1814,7 @@ async fn serve_plain(
                 let content = fs::read(path)?;
 
                 let static_path = StaticPath::new(relative.to_string());
-                let static_file = StaticFile::new(&*db, static_path, content);
+                let static_file = StaticFile::new(&*db, static_path, content)?;
                 static_files.push(static_file);
             }
         }
@@ -1969,7 +1844,7 @@ async fn serve_plain(
                     let content = fs::read_to_string(path)?;
 
                     let data_path = DataPath::new(relative.to_string());
-                    let data_file = DataFile::new(&*db, data_path, DataContent::new(content));
+                    let data_file = DataFile::new(&*db, data_path, DataContent::new(content))?;
                     data_files.push(data_file);
                 }
             }
@@ -2008,7 +1883,7 @@ async fn serve_plain(
 
             let sass_path = SassPath::new(relative);
             let sass_content = SassContent::new(content);
-            let sass_file = SassFile::new(&*db, sass_path, sass_content);
+            let sass_file = SassFile::new(&*db, sass_path, sass_content)?;
             sass_files.push(sass_file);
         }
         let count = sass_files.len();
@@ -2145,10 +2020,80 @@ async fn serve_plain(
     });
 
     // Use the requested port (or default to 4000)
-    let actual_port: u16 = port.unwrap_or(4000);
+    let requested_port: u16 = port.unwrap_or(4000);
 
-    // Print port info
-    println!("LISTENING_PORT={actual_port}");
+    // Find the plugin path
+    let plugin_path = cell_server::find_plugin_path()?;
+
+    // Parse the address to get the IP to bind to
+    let bind_ip: std::net::Ipv4Addr = match address.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => ip,
+        Ok(std::net::IpAddr::V6(_)) => std::net::Ipv4Addr::LOCALHOST, // Fallback for IPv6
+        Err(_) => std::net::Ipv4Addr::LOCALHOST,
+    };
+
+    // Create channel to receive actual bound port
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+
+    // Receive listening FD if --fd-socket was provided (for testing)
+    let pre_bound_listener = if let Some(socket_path) = fd_socket {
+        use async_send_fd::AsyncRecvFd;
+        use std::os::unix::io::FromRawFd;
+        use tokio::net::UnixStream;
+
+        tracing::info!("Connecting to Unix socket for FD passing: {}", socket_path);
+        let unix_stream = UnixStream::connect(&socket_path)
+            .await
+            .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", socket_path, e))?;
+
+        tracing::info!("Receiving TCP listener FD from test harness");
+        let fd = unix_stream
+            .recv_fd()
+            .await
+            .map_err(|e| eyre!("Failed to receive FD: {}", e))?;
+
+        // SAFETY: We just received this FD from the test harness, which created a valid TcpListener
+        // and sent us its file descriptor. We're the only owner now.
+        let std_listener = unsafe { std::net::TcpListener::from_raw_fd(fd) };
+
+        // IMPORTANT: tokio requires the listener to be in non-blocking mode
+        std_listener
+            .set_nonblocking(true)
+            .map_err(|e| eyre!("Failed to set listener to non-blocking: {}", e))?;
+
+        let listener = tokio::net::TcpListener::from_std(std_listener)
+            .map_err(|e| eyre!("Failed to convert std TcpListener to tokio: {}", e))?;
+
+        tracing::info!("Successfully received TCP listener FD");
+        Some(listener)
+    } else {
+        None
+    };
+
+    // Start the plugin server in background
+    let server_clone = server.clone();
+    tokio::spawn(async move {
+        if let Err(e) = cell_server::start_plugin_server_with_shutdown(
+            server_clone,
+            plugin_path,
+            vec![bind_ip],
+            requested_port,
+            None,
+            Some(port_tx),
+            pre_bound_listener,
+        )
+        .await
+        {
+            eprintln!("Server error: {e}");
+        }
+    });
+
+    // Wait for the actual bound port
+    let actual_port = port_rx
+        .await
+        .map_err(|_| eyre!("Failed to get bound port"))?;
+
+    // Print server URLs (LISTENING_PORT already printed by start_plugin_server)
     print_server_urls(address, actual_port);
 
     if open {
@@ -2158,49 +2103,53 @@ async fn serve_plain(
         }
     }
 
-    // Find and start the plugin server
-    let plugin_path = plugin_server::find_plugin_path()?;
-    // Parse the address to get the IP to bind to
-    let bind_ip: std::net::Ipv4Addr = match address.parse::<std::net::IpAddr>() {
-        Ok(std::net::IpAddr::V4(ip)) => ip,
-        Ok(std::net::IpAddr::V6(_)) => std::net::Ipv4Addr::LOCALHOST, // Fallback for IPv6
-        Err(_) => std::net::Ipv4Addr::LOCALHOST,
-    };
-    plugin_server::start_plugin_server(server, plugin_path, vec![bind_ip], actual_port).await?;
+    // Block forever (server is running in background)
+    std::future::pending::<()>().await;
 
     Ok(())
 }
 
 /// Rebuild search index for serve mode
 ///
-/// Takes a snapshot of the server's current state, builds all HTML via Salsa,
-/// and updates the search index. Salsa memoization makes this fast for unchanged pages.
+/// Takes a snapshot of the server's current state, builds all HTML via picante,
+/// and updates the search index. Memoization makes this fast for unchanged pages.
+///
+/// NOTE: This function creates its own tokio runtime because it's called from
+/// std::thread::spawn (the search indexer has !Send types that can't cross tokio task boundaries).
 fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::SearchFiles> {
-    // Snapshot pattern: lock, clone, release, then query the clone
-    let db = server
-        .db
-        .lock()
-        .map_err(|_| eyre!("db lock poisoned"))?
-        .clone();
+    // Create a new runtime for this thread (we're called from std::thread::spawn)
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| eyre!("failed to create runtime: {e}"))?;
 
-    // Build the site (Salsa will cache/reuse unchanged computations)
-    let site_output = queries::build_site(
-        &db,
-        server.source_registry,
-        server.template_registry,
-        server.sass_registry,
-        server.static_registry,
-        server.data_registry,
-    );
+    rt.block_on(async {
+        // Snapshot pattern: lock, snapshot, release, then query the snapshot
+        let snapshot = {
+            let db = server.db.lock().map_err(|_| eyre!("db lock poisoned"))?;
+            db::DatabaseSnapshot::from_database(&*db).await
+        };
 
-    // Cache code execution results for build info display in serve mode
-    server.set_code_execution_results(site_output.code_execution_results.clone());
+        // Build the site (picante will cache/reuse unchanged computations)
+        let site_output = queries::build_site(&snapshot).await?;
 
-    // Build search index (plugin blocks internally)
-    let output = site_output.clone();
-    std::thread::spawn(move || search::build_search_index(&output))
-        .join()
-        .map_err(|_| eyre!("search thread panicked"))?
+        // Cache code execution results for build info display in serve mode
+        server.set_code_execution_results(site_output.code_execution_results.clone());
+
+        // Build search index - call the plugin directly since we're already in an async context.
+        // Don't go through search::build_search_index which creates another runtime.
+        let pages = search::collect_search_pages(&site_output);
+        let files = cells::build_search_index_plugin(pages)
+            .await
+            .map_err(|e| eyre!("pagefind: {}", e))?;
+
+        let search_files: search::SearchFiles = files
+            .into_iter()
+            .map(|f| (f.path, f.contents))
+            .collect();
+
+        Ok(search_files)
+    })
 }
 
 /// Serve with TUI progress display and file watching
@@ -2221,14 +2170,21 @@ async fn serve_with_tui(
     use std::sync::mpsc;
     use tokio::sync::watch;
 
+    // Set reentrancy guard so code execution plugin knows we're in a build
+    // SAFETY: We're single-threaded at this point (before spawning plugins)
+    unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
+
+    // Enable quiet mode for cells so they don't print startup messages that corrupt TUI
+    cells::set_quiet_mode(true);
+
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
     let cache_dir = parent_dir.join(".cache");
     cas::init_asset_cache(cache_dir.as_std_path())?;
 
     // Create channels
-    let (progress_tx, progress_rx) = tui::progress_channel();
-    let (server_tx, server_rx) = tui::server_status_channel();
+    let (progress_tx, mut progress_rx) = tui::progress_channel();
+    let (server_tx, mut server_rx) = tui::server_status_channel();
     let (event_tx, event_rx) = tui::event_channel();
 
     // Initialize tracing with TUI layer - routes log events to Activity panel
@@ -2334,7 +2290,7 @@ async fn serve_with_tui(
 
             let source_path = SourcePath::new(relative);
             let source_content = SourceContent::new(content);
-            let source = SourceFile::new(&*db, source_path, source_content, last_modified);
+            let source = SourceFile::new(&*db, source_path, source_content, last_modified)?;
             sources.push(source);
         }
         drop(db);
@@ -2378,7 +2334,7 @@ async fn serve_with_tui(
 
             let template_path = TemplatePath::new(relative);
             let template_content = TemplateContent::new(content);
-            let template = TemplateFile::new(&*db, template_path, template_content);
+            let template = TemplateFile::new(&*db, template_path, template_content)?;
             templates.push(template);
         }
 
@@ -2408,7 +2364,7 @@ async fn serve_with_tui(
                 let content = fs::read(path)?;
 
                 let static_path = StaticPath::new(relative.to_string());
-                let static_file = StaticFile::new(&*db, static_path, content);
+                let static_file = StaticFile::new(&*db, static_path, content)?;
                 static_files.push(static_file);
                 count += 1;
             }
@@ -2448,7 +2404,7 @@ async fn serve_with_tui(
 
             let sass_path = SassPath::new(relative);
             let sass_content = SassContent::new(content);
-            let sass_file = SassFile::new(&*db, sass_path, sass_content);
+            let sass_file = SassFile::new(&*db, sass_path, sass_content)?;
             sass_files.push(sass_file);
         }
 
@@ -2531,7 +2487,7 @@ async fn serve_with_tui(
     let cas_cache_dir_clone = cas_cache_dir.clone();
 
     // Find the plugin path once upfront
-    let plugin_path = match plugin_server::find_plugin_path() {
+    let plugin_path = match cell_server::find_plugin_path() {
         Ok(p) => p,
         Err(e) => {
             return Err(eyre!("Failed to find plugin: {e}"));
@@ -2549,7 +2505,42 @@ async fn serve_with_tui(
                         plugin_path: std::path::PathBuf| {
         tokio::spawn(async move {
             let ips = get_bind_ips(mode);
-            let actual_port = preferred_port.unwrap_or(4000);
+            let requested_port = preferred_port.unwrap_or(4000);
+
+            // Create channel to receive actual bound port
+            let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+
+            // Start the server (this spawns the accept loop and sends back the port)
+            let server_clone = server.clone();
+            let ips_clone = ips.clone();
+            let shutdown_rx_clone = shutdown_rx.clone();
+            let plugin_path_clone = plugin_path.clone();
+            let event_tx_clone = event_tx.clone();
+
+            tokio::spawn(async move {
+                if let Err(e) = cell_server::start_plugin_server_with_shutdown(
+                    server_clone,
+                    plugin_path_clone,
+                    ips_clone,
+                    requested_port,
+                    Some(shutdown_rx_clone),
+                    Some(port_tx),
+                    None, // No pre-bound listener for TUI mode
+                )
+                .await
+                {
+                    let _ = event_tx_clone.send(LogEvent::error(format!("Server error: {e}")));
+                }
+            });
+
+            // Wait for actual bound port
+            let actual_port = match port_rx.await {
+                Ok(port) => port,
+                Err(_) => {
+                    let _ = event_tx.send(LogEvent::error("Failed to get bound port".to_string()));
+                    return;
+                }
+            };
 
             // Get current cache sizes
             let salsa_size = salsa_path.metadata().map(|m| m.len() as usize).unwrap_or(0);
@@ -2584,19 +2575,6 @@ async fn serve_with_tui(
             )));
             for ip in &ips {
                 let _ = event_tx.send(LogEvent::server(format!("  → {ip}:{actual_port}")));
-            }
-
-            // Pass the specific IPs to bind to - no more 0.0.0.0!
-            if let Err(e) = plugin_server::start_plugin_server_with_shutdown(
-                server,
-                plugin_path,
-                ips,
-                actual_port,
-                Some(shutdown_rx),
-            )
-            .await
-            {
-                let _ = event_tx.send(LogEvent::error(format!("Server error: {e}")));
             }
         })
     };
@@ -2707,28 +2685,55 @@ async fn serve_with_tui(
                                     file_type, filename
                                 )));
 
-                                // Update the file in the server's Salsa database
-                                // Access registry directly (don't use get_*() helpers which would deadlock)
+                                // Update the file in the server's picante database
                                 if ext == Some("md") {
                                     if let Ok(relative) = path.strip_prefix(&content_for_watcher) {
                                         if let Ok(content) = fs::read_to_string(path) {
+                                            let last_modified = fs::metadata(path.as_std_path())
+                                                .and_then(|m| m.modified())
+                                                .ok()
+                                                .and_then(|t| {
+                                                    t.duration_since(std::time::UNIX_EPOCH).ok()
+                                                })
+                                                .map(|d| d.as_secs() as i64)
+                                                .unwrap_or(0);
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let sources = server_for_watcher
-                                                .source_registry
-                                                .sources(&*db)
-                                                .clone();
+                                            let mut sources = SourceRegistry::sources(&*db)
+                                                .ok()
+                                                .flatten()
+                                                .unwrap_or_default();
 
-                                            // Find existing source and update it
                                             let relative_str = relative.to_string();
-                                            for source in sources.iter() {
-                                                if source.path(&*db).as_str() == relative_str {
-                                                    use salsa::Setter;
-                                                    source
-                                                        .set_content(&mut *db)
-                                                        .to(SourceContent::new(content.clone()));
-                                                    break;
-                                                }
+                                            let source_path = SourcePath::new(relative_str.clone());
+                                            let source_content = SourceContent::new(content);
+
+                                            // Find and replace, or add new
+                                            if let Some(pos) = sources.iter().position(|s| {
+                                                s.path(&*db)
+                                                    .ok()
+                                                    .map(|p| p.as_str() == relative_str)
+                                                    .unwrap_or(false)
+                                            }) {
+                                                sources[pos] = SourceFile::new(
+                                                    &*db,
+                                                    source_path,
+                                                    source_content,
+                                                    last_modified,
+                                                )
+                                                .expect("failed to create source file");
+                                            } else {
+                                                sources.push(
+                                                    SourceFile::new(
+                                                        &*db,
+                                                        source_path,
+                                                        source_content,
+                                                        last_modified,
+                                                    )
+                                                    .expect("failed to create source file"),
+                                                );
                                             }
+                                            SourceRegistry::set(&mut *db, sources)
+                                                .expect("failed to set sources");
                                         }
                                     }
                                 } else if ext == Some("html") {
@@ -2737,56 +2742,88 @@ async fn serve_with_tui(
                                     {
                                         if let Ok(content) = fs::read_to_string(path) {
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let templates = server_for_watcher
-                                                .template_registry
-                                                .templates(&*db)
-                                                .clone();
+                                            let mut templates = TemplateRegistry::templates(&*db)
+                                                .ok()
+                                                .flatten()
+                                                .unwrap_or_default();
 
-                                            // Find existing template and update it
                                             let relative_str = relative.to_string();
-                                            for template in templates.iter() {
-                                                if template.path(&*db).as_str() == relative_str {
-                                                    use salsa::Setter;
-                                                    let content_hash = {
-                                                        use std::hash::{Hash, Hasher};
-                                                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                                                        content.hash(&mut hasher);
-                                                        hasher.finish()
-                                                    };
-                                                    tracing::info!(
-                                                        "📝 template changed: {} (content hash: {:016x}, {} bytes)",
-                                                        relative_str,
-                                                        content_hash,
-                                                        content.len()
+                                            let template_path =
+                                                TemplatePath::new(relative_str.clone());
+                                            let template_content =
+                                                TemplateContent::new(content.clone());
+
+                                            let content_hash = {
+                                                use std::hash::{Hash, Hasher};
+                                                let mut hasher =
+                                                    std::collections::hash_map::DefaultHasher::new(
                                                     );
-                                                    template
-                                                        .set_content(&mut *db)
-                                                        .to(TemplateContent::new(content.clone()));
-                                                    break;
-                                                }
+                                                content.hash(&mut hasher);
+                                                hasher.finish()
+                                            };
+                                            tracing::info!(
+                                                "📝 template changed: {} (content hash: {:016x}, {} bytes)",
+                                                relative_str,
+                                                content_hash,
+                                                content.len()
+                                            );
+
+                                            if let Some(pos) = templates.iter().position(|t| {
+                                                t.path(&*db)
+                                                    .ok()
+                                                    .map(|p| p.as_str() == relative_str)
+                                                    .unwrap_or(false)
+                                            }) {
+                                                templates[pos] = TemplateFile::new(
+                                                    &*db,
+                                                    template_path,
+                                                    template_content,
+                                                )
+                                                .expect("failed to create template file");
+                                            } else {
+                                                templates.push(
+                                                    TemplateFile::new(
+                                                        &*db,
+                                                        template_path,
+                                                        template_content,
+                                                    )
+                                                    .expect("failed to create template file"),
+                                                );
                                             }
+                                            TemplateRegistry::set(&mut *db, templates)
+                                                .expect("failed to set templates");
                                         }
                                     }
                                 } else if ext == Some("scss") || ext == Some("sass") {
                                     if let Ok(relative) = path.strip_prefix(&sass_dir_for_watcher) {
                                         if let Ok(content) = fs::read_to_string(path) {
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let sass_files = server_for_watcher
-                                                .sass_registry
-                                                .files(&*db)
-                                                .clone();
+                                            let mut sass_files = SassRegistry::files(&*db)
+                                                .ok()
+                                                .flatten()
+                                                .unwrap_or_default();
 
-                                            // Find existing sass file and update it
                                             let relative_str = relative.to_string();
-                                            for sass_file in sass_files.iter() {
-                                                if sass_file.path(&*db).as_str() == relative_str {
-                                                    use salsa::Setter;
-                                                    sass_file
-                                                        .set_content(&mut *db)
-                                                        .to(SassContent::new(content.clone()));
-                                                    break;
-                                                }
+                                            let sass_path = SassPath::new(relative_str.clone());
+                                            let sass_content = SassContent::new(content);
+
+                                            if let Some(pos) = sass_files.iter().position(|s| {
+                                                s.path(&*db)
+                                                    .ok()
+                                                    .map(|p| p.as_str() == relative_str)
+                                                    .unwrap_or(false)
+                                            }) {
+                                                sass_files[pos] =
+                                                    SassFile::new(&*db, sass_path, sass_content)
+                                                        .expect("failed to create sass file");
+                                            } else {
+                                                sass_files.push(
+                                                    SassFile::new(&*db, sass_path, sass_content)
+                                                        .expect("failed to create sass file"),
+                                                );
                                             }
+                                            SassRegistry::set(&mut *db, sass_files)
+                                                .expect("failed to set sass files");
                                         }
                                     }
                                 } else if path.starts_with(&static_dir_for_watcher) {
@@ -2799,30 +2836,38 @@ async fn serve_with_tui(
                                                 continue;
                                             }
                                             let mut db = server_for_watcher.db.lock().unwrap();
-                                            let static_files = server_for_watcher
-                                                .static_registry
-                                                .files(&*db)
-                                                .clone();
+                                            let mut static_files = StaticRegistry::files(&*db)
+                                                .ok()
+                                                .flatten()
+                                                .unwrap_or_default();
 
-                                            // Find existing static file and update it
                                             let relative_str = relative.to_string();
+                                            let static_path = StaticPath::new(relative_str.clone());
+
                                             tracing::debug!(
                                                 "Looking for static file: {relative_str}"
                                             );
-                                            for static_file in static_files.iter() {
-                                                let stored_path =
-                                                    static_file.path(&*db).as_str().to_string();
-                                                if stored_path == relative_str {
-                                                    tracing::info!(
-                                                        "Updating static file: {relative_str}"
-                                                    );
-                                                    use salsa::Setter;
-                                                    static_file
-                                                        .set_content(&mut *db)
-                                                        .to(content.clone());
-                                                    break;
-                                                }
+
+                                            if let Some(pos) = static_files.iter().position(|s| {
+                                                s.path(&*db)
+                                                    .ok()
+                                                    .map(|p| p.as_str() == relative_str)
+                                                    .unwrap_or(false)
+                                            }) {
+                                                tracing::info!(
+                                                    "Updating static file: {relative_str}"
+                                                );
+                                                static_files[pos] =
+                                                    StaticFile::new(&*db, static_path, content)
+                                                        .expect("failed to create static file");
+                                            } else {
+                                                static_files.push(
+                                                    StaticFile::new(&*db, static_path, content)
+                                                        .expect("failed to create static file"),
+                                                );
                                             }
+                                            StaticRegistry::set(&mut *db, static_files)
+                                                .expect("failed to set static files");
                                         }
                                     }
                                 }
@@ -2920,11 +2965,87 @@ async fn serve_with_tui(
         }
     });
 
-    // Run TUI on main thread
-    let mut terminal = tui::init_terminal()?;
-    let mut app = tui::ServeApp::new(progress_rx, server_rx, event_rx, cmd_tx, filter_handle);
-    let _ = app.run(&mut terminal);
-    tui::restore_terminal()?;
+    // Run TUI cell
+    // Create a proto command channel for TuiHost, with a bridge to the old channel
+    let (proto_cmd_tx, mut proto_cmd_rx) =
+        tokio::sync::mpsc::unbounded_channel::<cell_tui_proto::ServerCommand>();
+
+    // Bridge proto commands to old tui commands (or handle directly)
+    let filter_handle_for_bridge = filter_handle.clone();
+    let event_tx_for_bridge = event_tx.clone();
+    tokio::spawn(async move {
+        while let Some(proto_cmd) = proto_cmd_rx.recv().await {
+            match proto_cmd {
+                cell_tui_proto::ServerCommand::CycleLogLevel => {
+                    // Handle directly - cycle the log level
+                    let new_level = filter_handle_for_bridge.cycle_log_level();
+                    let _ = event_tx_for_bridge.send(tui::LogEvent::info(format!(
+                        "Log level: {}",
+                        new_level.as_str()
+                    )));
+                }
+                cell_tui_proto::ServerCommand::ToggleSalsaDebug => {
+                    // Legacy command - toggle salsa debug (now mostly obsolete with picante)
+                    let enabled = filter_handle_for_bridge.toggle_salsa_debug();
+                    let _ = event_tx_for_bridge.send(tui::LogEvent::info(format!(
+                        "Salsa debug: {}",
+                        if enabled { "ON" } else { "OFF" }
+                    )));
+                }
+                other => {
+                    // Route to old command system for bind mode changes
+                    let old_cmd = tui_host::convert_server_command(other);
+                    let _ = cmd_tx.send(old_cmd);
+                }
+            }
+        }
+    });
+
+    // Create TuiHost service with the proto command channel
+    let tui_host = tui_host::TuiHostImpl::new(proto_cmd_tx);
+    let tui_handle = tui_host.handle();
+
+    // Spawn forwarders to bridge old channels to TuiHost
+    // Forward progress updates
+    let tui_handle_progress = tui_handle.clone();
+    tokio::spawn(async move {
+        loop {
+            if progress_rx.has_changed().unwrap_or(false) {
+                let progress = progress_rx.borrow_and_update().clone();
+                tui_handle_progress.send_progress(tui_host::convert_build_progress(&progress));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+        }
+    });
+
+    // Forward server status updates
+    let tui_handle_status = tui_handle.clone();
+    tokio::spawn(async move {
+        loop {
+            if server_rx.has_changed().unwrap_or(false) {
+                let status = server_rx.borrow_and_update().clone();
+                tui_handle_status.send_status(tui_host::convert_server_status(&status));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+        }
+    });
+
+    // Forward log events
+    let tui_handle_events = tui_handle.clone();
+    tokio::spawn(async move {
+        while let Ok(event) = event_rx.recv() {
+            tui_handle_events.send_event(tui_host::convert_log_event(&event));
+        }
+    });
+
+    // Create shutdown channel for TUI plugin
+    let (tui_shutdown_tx, tui_shutdown_rx) = watch::channel(false);
+
+    // Run the TUI cell (blocks until TUI exits)
+    let _ = tui_host::start_tui_cell(tui_host, Some(tui_shutdown_rx)).await;
+
+    // Ignore unused variables
+    let _ = tui_shutdown_tx;
 
     // Signal server to shutdown (use current_shutdown in case it was swapped)
     {

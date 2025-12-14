@@ -12,7 +12,7 @@ use indexmap::IndexMap;
 // Configuration
 // =============================================================================
 
-/// Target platforms for releases.
+/// Target platforms for CI and releases.
 pub const TARGETS: &[Target] = &[
     Target {
         triple: "x86_64-unknown-linux-gnu",
@@ -23,94 +23,99 @@ pub const TARGETS: &[Target] = &[
         archive_ext: "tar.xz",
     },
     Target {
-        triple: "aarch64-unknown-linux-gnu",
-        os: "ubuntu-24.04",
-        runner: "depot-ubuntu-24.04-arm-32",
-        lib_ext: "so",
-        lib_prefix: "lib",
-        archive_ext: "tar.xz",
-    },
-    Target {
         triple: "aarch64-apple-darwin",
-        os: "macos-latest",
-        runner: "depot-macos-latest",
+        os: "macos-15",
+        runner: "depot-macos-15",
         lib_ext: "dylib",
         lib_prefix: "lib",
         archive_ext: "tar.xz",
     },
-    Target {
-        triple: "x86_64-pc-windows-msvc",
-        os: "windows-latest",
-        runner: "depot-windows-2022-16",
-        lib_ext: "dll",
-        lib_prefix: "",
-        archive_ext: "zip",
-    },
 ];
 
-/// Plugin crates to build.
-pub const PLUGINS: &[&str] = &[
-    "dodeca-baseline",
-    "dodeca-css",
-    "dodeca-fonts",
-    "dodeca-html-diff",
-    "dodeca-image",
-    "dodeca-js",
-    "dodeca-jxl",
-    "dodeca-linkcheck",
-    "dodeca-minify",
-    "dodeca-pagefind",
-    "dodeca-sass",
-    "dodeca-svgo",
-    "dodeca-webp",
-];
+/// Discover cdylib plugins by scanning crates/dodeca-*/Cargo.toml for cdylib crate-type.
+pub fn discover_cdylib_cells(repo_root: &Utf8Path) -> Vec<String> {
+    let mut cells = Vec::new();
+    let crates_dir = repo_root.join("crates");
 
-/// Plugin groups for parallel CI builds.
-/// Groups are designed to balance build times and minimize dependency overlap.
-pub struct PluginGroup {
-    pub name: &'static str,
-    pub plugins: &'static [&'static str],
+    if let Ok(entries) = std::fs::read_dir(&crates_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                && name.starts_with("dodeca-")
+            {
+                let cargo_toml = path.join("Cargo.toml");
+                if let Ok(content) = std::fs::read_to_string(&cargo_toml)
+                    && content.contains("cdylib")
+                {
+                    cells.push(name.to_string());
+                }
+            }
+        }
+    }
+
+    cells.sort();
+    cells
 }
 
-/// Plugin groups:
-/// - group1 (image processing): webp, jxl, image - share image codec dependencies
-/// - group2 (web assets): minify, css, sass, html-diff - lightweight web processing
-/// - group3 (misc): fonts, pagefind, linkcheck, svgo, baseline
-/// - group4 (js): js - isolated because OXC is a heavy dependency
-/// - group5 (code): code-execution - isolated due to pulldown-cmark
-pub const PLUGIN_GROUPS: &[PluginGroup] = &[
-    PluginGroup {
-        name: "image",
-        plugins: &["dodeca-webp", "dodeca-jxl", "dodeca-image"],
-    },
-    PluginGroup {
-        name: "web",
-        plugins: &[
-            "dodeca-minify",
-            "dodeca-css",
-            "dodeca-sass",
-            "dodeca-html-diff",
-        ],
-    },
-    PluginGroup {
-        name: "misc",
-        plugins: &[
-            "dodeca-fonts",
-            "dodeca-pagefind",
-            "dodeca-linkcheck",
-            "dodeca-svgo",
-            "dodeca-baseline",
-        ],
-    },
-    PluginGroup {
-        name: "js",
-        plugins: &["dodeca-js"],
-    },
-    PluginGroup {
-        name: "code",
-        plugins: &["dodeca-code-execution"],
-    },
+/// Discover rapace plugins by scanning cells/cell-*/Cargo.toml for [[bin]] sections.
+/// Returns (package_name, binary_name) pairs.
+pub fn discover_rapace_cells(repo_root: &Utf8Path) -> Vec<(String, String)> {
+    let mut cells = Vec::new();
+    let cells_dir = repo_root.join("mods");
+
+    if let Ok(entries) = std::fs::read_dir(&cells_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                // Skip proto crates
+                && name.starts_with("cell-")
+                && !name.ends_with("-proto")
+            {
+                let cargo_toml = path.join("Cargo.toml");
+                if let Ok(content) = std::fs::read_to_string(&cargo_toml)
+                    && content.contains("[[bin]]")
+                {
+                    let bin_name = format!("dodeca-{}", name);
+                    cells.push((name.to_string(), bin_name));
+                }
+            }
+        }
+    }
+
+    cells.sort();
+    cells
+}
+
+/// All plugins sorted alphabetically (package_name, binary_name).
+pub const ALL_CELLS: &[(&str, &str)] = &[
+    ("cell-arborium", "ddc-cell-arborium"),
+    ("cell-code-execution", "ddc-cell-code-execution"),
+    ("cell-css", "ddc-cell-css"),
+    ("cell-fonts", "ddc-cell-fonts"),
+    ("cell-html", "ddc-cell-html"),
+    ("cell-html-diff", "ddc-cell-html-diff"),
+    ("cell-http", "ddc-cell-http"),
+    ("cell-image", "ddc-cell-image"),
+    ("cell-js", "ddc-cell-js"),
+    ("cell-jxl", "ddc-cell-jxl"),
+    ("cell-linkcheck", "ddc-cell-linkcheck"),
+    ("cell-markdown", "ddc-cell-markdown"),
+    ("cell-minify", "ddc-cell-minify"),
+    ("cell-pagefind", "ddc-cell-pagefind"),
+    ("cell-sass", "ddc-cell-sass"),
+    ("cell-svgo", "ddc-cell-svgo"),
+    ("cell-tui", "ddc-cell-tui"),
+    ("cell-webp", "ddc-cell-webp"),
 ];
+
+/// Group plugins into chunks of N for parallel CI builds.
+pub fn cell_groups(chunk_size: usize) -> Vec<(String, Vec<(&'static str, &'static str)>)> {
+    ALL_CELLS
+        .chunks(chunk_size)
+        .enumerate()
+        .map(|(i, chunk)| (format!("{}", i + 1), chunk.to_vec()))
+        .collect()
+}
 
 /// A target platform configuration.
 pub struct Target {
@@ -204,6 +209,10 @@ structstruck::strike! {
 
         /// The runner to use.
         pub runs_on: String,
+
+        /// Maximum time in minutes for the job to run.
+        #[facet(default, skip_serializing_if = Option::is_none)]
+        pub timeout_minutes: Option<u32>,
 
         /// Jobs that must complete before this one.
         #[facet(default, skip_serializing_if = Option::is_none)]
@@ -335,12 +344,19 @@ impl Job {
         Self {
             name: None,
             runs_on: runs_on.into(),
+            timeout_minutes: None,
             needs: None,
             if_condition: None,
             outputs: None,
             env: None,
             steps: Vec::new(),
         }
+    }
+
+    /// Set the timeout in minutes.
+    pub fn timeout(mut self, minutes: u32) -> Self {
+        self.timeout_minutes = Some(minutes);
+        self
     }
 
     /// Set the display name for this job.
@@ -413,6 +429,7 @@ pub mod common {
 
     pub fn rust_cache() -> Step {
         Step::uses("Rust cache", "Swatinem/rust-cache@v2")
+            .with_inputs([("cache-on-failure", "true")])
     }
 
     pub fn upload_artifact(name: impl Into<String>, path: impl Into<String>) -> Step {
@@ -442,282 +459,205 @@ pub mod common {
 struct CiRunner {
     os: &'static str,
     runner: &'static str,
-    lib_ext: &'static str,
-    lib_prefix: &'static str,
     wasm_install: &'static str,
 }
 
 const CI_LINUX: CiRunner = CiRunner {
     os: "linux",
-    runner: "depot-ubuntu-24.04-16",
-    lib_ext: "so",
-    lib_prefix: "lib",
+    runner: "depot-ubuntu-24.04-32",
     wasm_install: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh",
 };
 
 const CI_MACOS: CiRunner = CiRunner {
     os: "macos",
     runner: "depot-macos-15",
-    lib_ext: "dylib",
-    lib_prefix: "lib",
     wasm_install: "brew install wasm-pack",
 };
 
-/// Build the CI workflow (runs on PRs and main branch pushes).
+/// Build the unified CI workflow (runs on PRs, main branch, and tags).
 ///
 /// Strategy:
-/// - Windows: Simple sequential build + check (no parallelization needed)
-/// - Linux/macOS: Parallel build jobs, each with unit tests, uploading artifacts
-///   - build-ddc: Builds ddc binary + WASM, runs unit tests, uploads binary
-///   - build-plugins-{group}: Builds plugin group, runs unit tests, uploads .so/.dylib
-///   - integration: Downloads all artifacts, runs integration tests
+/// - Fan-out: Build ddc + cell groups (3 cells per job) for each target platform
+/// - Fan-in: Assemble archives after all cell groups complete
+/// - Integration: Run integration tests
+/// - Release: On tags, publish GitHub release
 pub fn build_ci_workflow() -> Workflow {
     use common::*;
 
     let mut jobs = IndexMap::new();
+    let groups = cell_groups(3); // 3 cells per group
 
-    // Windows check job (simple, no parallelization needed)
-    jobs.insert(
-        "check-windows".into(),
-        Job::new("depot-windows-2022-16")
-            .name("Check (Windows)")
-            .steps([
-                checkout(),
-                install_rust_with_target("wasm32-unknown-unknown"),
-                rust_cache(),
-                Step::run("Install wasm-pack", "cargo install wasm-pack").shell("bash"),
-                Step::run("Build", "cargo xtask build").shell("bash"),
-                Step::run("Check", "cargo check --all-features").shell("bash"),
-            ]),
-    );
+    // Track all integration jobs (release depends on these passing)
+    let mut all_integration_jobs: Vec<String> = Vec::new();
 
-    // For Linux and macOS, we use parallel builds with artifact passing
-    for runner in [&CI_LINUX, &CI_MACOS] {
-        let os = runner.os;
-        let lib_ext = runner.lib_ext;
-        let lib_prefix = runner.lib_prefix;
+    for target in TARGETS {
+        let short = target.short_name();
+        let is_macos = target.triple.contains("apple");
 
-        // Job: Build ddc binary + WASM
-        let build_ddc_id = format!("build-ddc-{os}");
+        let wasm_install = if is_macos {
+            "brew install wasm-pack"
+        } else {
+            "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
+        };
+
+        // Job 1: Build ddc (main binary) + WASM + clippy
+        let ddc_job_id = format!("build-ddc-{short}");
         jobs.insert(
-            build_ddc_id.clone(),
-            Job::new(runner.runner)
-                .name(format!("Build ddc ({os})"))
+            ddc_job_id.clone(),
+            Job::new(target.runner)
+                .name(format!("Build ddc ({short})"))
+                .timeout(30)
                 .steps([
                     checkout(),
-                    Step::uses("Install Rust (stable)", "dtolnay/rust-toolchain@stable")
-                        .with_inputs([
-                            ("components", "clippy"),
-                            ("targets", "wasm32-unknown-unknown"),
-                        ]),
+                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable").with_inputs([
+                        ("components", "clippy"),
+                        ("targets", "wasm32-unknown-unknown"),
+                    ]),
                     Step::uses("Install Rust (nightly)", "dtolnay/rust-toolchain@nightly"),
                     rust_cache(),
-                    Step::run("Install wasm-pack", runner.wasm_install),
+                    Step::run("Install wasm-pack", wasm_install),
                     Step::run("Build WASM", "cargo xtask wasm"),
                     Step::run("Build ddc", "cargo build --release -p dodeca"),
-                    Step::run("Verify ddc binary exists", "ls -la target/release/ddc"),
-                    Step::run("Run ddc unit tests", "cargo test --release -p dodeca --lib"),
+                    Step::run("Test ddc", "cargo test --release -p dodeca"),
                     Step::run(
                         "Clippy",
                         "cargo clippy --all-features --all-targets -- -D warnings",
                     ),
-                    upload_artifact(format!("ddc-{os}"), "target/release/ddc"),
+                    upload_artifact(format!("ddc-{short}"), "target/release/ddc"),
                 ]),
         );
 
-        // Jobs: Build plugin groups in parallel
-        let mut all_build_job_ids = vec![build_ddc_id];
+        // Jobs 2-N: Build cell groups in parallel
+        let mut cell_group_jobs: Vec<String> = Vec::new();
+        for (group_num, cells) in &groups {
+            let group_job_id = format!("build-cells-{short}-{group_num}");
 
-        for group in PLUGIN_GROUPS {
-            let job_id = format!("build-plugins-{}-{os}", group.name);
-            let plugins_arg: String = group
-                .plugins
+            let build_args: String = cells
                 .iter()
-                .map(|p| format!("-p {p}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-            let test_arg: String = group
-                .plugins
-                .iter()
-                .map(|p| format!("-p {p}"))
+                .map(|(pkg, bin)| format!("-p {pkg} --bin {bin}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
-            // Build the glob pattern for uploading plugin .so/.dylib files
-            let upload_paths: String = group
-                .plugins
+            let test_args: String = cells
                 .iter()
-                .map(|p| {
-                    let lib_name = p.replace('-', "_");
-                    format!("target/release/{lib_prefix}{lib_name}.{lib_ext}")
-                })
+                .map(|(pkg, _)| format!("-p {pkg}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            let cell_names: String = cells
+                .iter()
+                .map(|(pkg, _)| *pkg)
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            // Collect binary paths for upload
+            let binary_paths: String = cells
+                .iter()
+                .map(|(_, bin)| format!("target/release/{bin}"))
                 .collect::<Vec<_>>()
                 .join("\n");
 
             jobs.insert(
-                job_id.clone(),
-                Job::new(runner.runner)
-                    .name(format!("Build plugins/{} ({os})", group.name))
+                group_job_id.clone(),
+                Job::new(target.runner)
+                    .name(format!("Build cells ({short}) [{cell_names}]"))
+                    .timeout(30)
                     .steps([
                         checkout(),
-                        Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
+                        install_rust(),
                         rust_cache(),
-                        Step::run(
-                            format!("Build {} plugins", group.name),
-                            format!("cargo build --release {plugins_arg}"),
+                        Step::run("Build cells", format!("cargo build --release {build_args}")),
+                        Step::run("Test cells", format!("cargo test --release {test_args}")),
+                        upload_artifact(
+                            format!("cells-{short}-{group_num}"),
+                            binary_paths,
                         ),
-                        Step::run(
-                            format!("Test {} plugins", group.name),
-                            format!("cargo test --release {test_arg}"),
-                        ),
-                        Step::uses("Upload plugin artifacts", "actions/upload-artifact@v4")
-                            .with_inputs([
-                                ("name", format!("plugins-{}-{os}", group.name)),
-                                ("path", upload_paths),
-                                ("retention-days", "1".into()),
-                            ]),
                     ]),
             );
 
-            all_build_job_ids.push(job_id);
+            cell_group_jobs.push(group_job_id);
         }
 
-        // Job: Integration tests - download all artifacts and run integration tests
+        // Assembly job: download all artifacts and create archive
+        let assemble_job_id = format!("assemble-{short}");
+        let mut assemble_needs = vec![ddc_job_id];
+        assemble_needs.extend(cell_group_jobs);
+
         jobs.insert(
-            format!("integration-{os}"),
-            Job::new(runner.runner)
-                .name(format!("Integration ({os})"))
-                .needs(all_build_job_ids)
+            assemble_job_id.clone(),
+            Job::new(target.runner)
+                .name(format!("Assemble ({short})"))
+                .timeout(30)
+                .needs(assemble_needs)
                 .steps([
                     checkout(),
-                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
-                    rust_cache(),
                     // Download ddc binary
                     Step::uses("Download ddc", "actions/download-artifact@v4").with_inputs([
-                        ("name", format!("ddc-{os}")),
-                        ("path", "artifacts/bin".into()),
+                        ("name", format!("ddc-{short}")),
+                        ("path", "target/release".into()),
                     ]),
-                    // Download all plugin artifacts
-                    Step::uses("Download plugins", "actions/download-artifact@v4").with_inputs([
-                        ("pattern", format!("plugins-*-{os}")),
-                        ("path", "artifacts/plugins".into()),
+                    // Download all cell group artifacts
+                    Step::uses("Download cells", "actions/download-artifact@v4").with_inputs([
+                        ("pattern", format!("cells-{short}-*")),
+                        ("path", "target/release".into()),
                         ("merge-multiple", "true".into()),
                     ]),
-                    Step::run("List artifacts", "ls -laR artifacts/"),
-                    Step::run("Make ddc executable", "chmod +x artifacts/bin/ddc"),
+                    Step::run("List binaries", "ls -la target/release/"),
+                    Step::run(
+                        "Assemble archive",
+                        format!("bash scripts/assemble-archive.sh {}", target.triple),
+                    ),
+                    upload_artifact(
+                        format!("build-{short}"),
+                        format!("dodeca-{}.{}", target.triple, target.archive_ext),
+                    ),
+                ]),
+        );
+
+        // Integration tests
+        let integration_job_id = format!("integration-{short}");
+        jobs.insert(
+            integration_job_id.clone(),
+            Job::new(target.runner)
+                .name(format!("Integration ({short})"))
+                .timeout(30)
+                .needs([assemble_job_id])
+                .steps([
+                    checkout(),
+                    install_rust(),
+                    rust_cache(),
+                    Step::uses("Download build", "actions/download-artifact@v4").with_inputs([
+                        ("name", format!("build-{short}")),
+                        ("path", "dist".into()),
+                    ]),
+                    Step::run(
+                        "Extract archive",
+                        format!(
+                            "tar -xf dist/dodeca-{}.tar.xz -C dist && ls -la dist/",
+                            target.triple
+                        ),
+                    ),
                     Step::run(
                         "Run integration tests",
                         "cargo test --release -p dodeca-integration --test '*'",
                     )
                     .with_env([
-                        ("DODECA_BIN", "${{ github.workspace }}/artifacts/bin/ddc"),
-                        (
-                            "DODECA_PLUGINS",
-                            "${{ github.workspace }}/artifacts/plugins",
-                        ),
+                        ("DODECA_BIN", "${{ github.workspace }}/dist/ddc"),
+                        ("DODECA_CELLS", "${{ github.workspace }}/dist"),
                     ]),
                 ]),
         );
+
+        all_integration_jobs.push(integration_job_id);
     }
 
-    Workflow {
-        name: "CI".into(),
-        on: On {
-            push: Some(PushTrigger {
-                tags: None,
-                branches: Some(vec!["main".into()]),
-            }),
-            pull_request: Some(PullRequestTrigger {
-                branches: Some(vec!["main".into()]),
-            }),
-            workflow_dispatch: None,
-        },
-        permissions: None,
-        env: None,
-        jobs,
-    }
-}
-
-// =============================================================================
-// Release workflow builder
-// =============================================================================
-
-/// Build the release workflow.
-pub fn build_release_workflow() -> Workflow {
-    use common::*;
-
-    let mut jobs = IndexMap::new();
-
-    // Build jobs for each target
-    for target in TARGETS {
-        let job_id = format!("build-{}", target.short_name());
-        let archive_name = format!("dodeca-{}.{}", target.triple, target.archive_ext);
-
-        let mut steps = vec![checkout()];
-
-        // Linux ARM needs cross-compilation tools
-        if target.triple == "aarch64-unknown-linux-gnu" {
-            steps.push(install_rust_with_target(target.triple));
-            steps.push(Step::run(
-                "Install cross-compilation tools",
-                "sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu",
-            ));
-            steps.push(rust_cache());
-        } else {
-            steps.push(install_rust_with_target(target.triple));
-            steps.push(rust_cache());
-        }
-
-        // Build WASM (uses external script)
-        steps.push(Step::run("Build WASM crates", "bash scripts/build-wasm.sh").shell("bash"));
-
-        // Build target (uses external script)
-        steps.push(
-            Step::run(
-                "Build ddc and plugins",
-                format!("bash scripts/build-target.sh {}", target.triple),
-            )
-            .shell("bash"),
-        );
-
-        // Assemble archive (uses external script)
-        steps.push(
-            Step::run(
-                "Assemble archive",
-                format!("bash scripts/assemble-archive.sh {}", target.triple),
-            )
-            .shell("bash"),
-        );
-
-        // Upload
-        steps.push(upload_artifact(
-            format!("build-{}", target.short_name()),
-            archive_name,
-        ));
-
-        let mut job = Job::new(target.runner)
-            .name(format!("Build ({})", target.short_name()))
-            .steps(steps);
-
-        // Windows needs special environment
-        if target.triple.contains("windows") {
-            job = job.env([("RUSTFLAGS", "-Ctarget-feature=+crt-static")]);
-        }
-
-        jobs.insert(job_id, job);
-    }
-
-    // Release job - creates GitHub release with all artifacts
-    let build_job_ids: Vec<String> = TARGETS
-        .iter()
-        .map(|t| format!("build-{}", t.short_name()))
-        .collect();
-
+    // Release job (only on tags, after integration tests pass)
     jobs.insert(
         "release".into(),
         Job::new("ubuntu-latest")
-            .name("Create Release")
-            .needs(build_job_ids)
+            .name("Release")
+            .timeout(30)
+            .needs(all_integration_jobs)
             .if_condition("startsWith(github.ref, 'refs/tags/')")
             .env([
                 ("GH_TOKEN", "${{ secrets.GITHUB_TOKEN }}"),
@@ -726,14 +666,14 @@ pub fn build_release_workflow() -> Workflow {
             .steps([
                 checkout(),
                 download_all_artifacts("dist"),
-                Step::run("Prepare release", "bash scripts/release.sh").shell("bash"),
+                Step::run("List artifacts", "ls -laR dist/"),
                 Step::run(
                     "Create GitHub Release",
                     r#"
 gh release create "${{ github.ref_name }}" \
   --title "dodeca ${{ github.ref_name }}" \
   --generate-notes \
-  dist/*
+  dist/**/*.tar.xz dist/**/*.zip
 "#
                     .trim(),
                 )
@@ -747,14 +687,15 @@ gh release create "${{ github.ref_name }}" \
     );
 
     Workflow {
-        name: "Release".into(),
+        name: "CI".into(),
         on: On {
             push: Some(PushTrigger {
                 tags: Some(vec!["v*".into()]),
-                branches: None,
+                branches: Some(vec!["main".into()]),
             }),
-            // Only run on tags, not PRs - CI workflow handles PR builds
-            pull_request: None,
+            pull_request: Some(PullRequestTrigger {
+                branches: Some(vec!["main".into()]),
+            }),
             workflow_dispatch: Some(WorkflowDispatchTrigger {}),
         },
         permissions: Some(
@@ -800,7 +741,7 @@ set -eu
 
 REPO="{repo}"
 
-# Detect platform
+# Detect platform (only linux-x64 and macos-arm64 are supported)
 detect_platform() {{
     local os arch
 
@@ -811,15 +752,13 @@ detect_platform() {{
         Linux)
             case "$arch" in
                 x86_64) echo "x86_64-unknown-linux-gnu" ;;
-                aarch64) echo "aarch64-unknown-linux-gnu" ;;
-                *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+                *) echo "Unsupported Linux architecture: $arch (only x86_64 supported)" >&2; exit 1 ;;
             esac
             ;;
         Darwin)
             case "$arch" in
-                x86_64) echo "x86_64-apple-darwin" ;;
                 arm64) echo "aarch64-apple-darwin" ;;
-                *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+                *) echo "Unsupported macOS architecture: $arch (only arm64 supported)" >&2; exit 1 ;;
             esac
             ;;
         *)
@@ -851,7 +790,6 @@ main() {{
 
     # Create install directory
     mkdir -p "$install_dir"
-    mkdir -p "$install_dir/plugins"
 
     # Download and extract
     local tmpdir
@@ -865,12 +803,17 @@ main() {{
     tar -xJf "$tmpdir/archive.tar.xz" -C "$tmpdir"
 
     echo "Installing..."
+    # Copy main binary
     cp "$tmpdir/ddc" "$install_dir/"
     chmod +x "$install_dir/ddc"
 
-    if [ -d "$tmpdir/plugins" ]; then
-        cp "$tmpdir/plugins/"* "$install_dir/plugins/"
-    fi
+    # Copy cell binaries (ddc-cell-*)
+    for plugin in "$tmpdir"/ddc-cell-*; do
+        if [ -f "$plugin" ]; then
+            cp "$plugin" "$install_dir/"
+            chmod +x "$install_dir/$(basename "$plugin")"
+        fi
+    done
 
     echo ""
     echo "Successfully installed dodeca to $install_dir/ddc"
@@ -1037,19 +980,14 @@ fn check_or_write(path: &Utf8Path, content: &str, check: bool) -> Result<()> {
     Ok(())
 }
 
-/// Generate CI workflow files and installer script.
+/// Generate CI workflow and installer script.
 pub fn generate(repo_root: &Utf8Path, check: bool) -> Result<()> {
     let workflows_dir = repo_root.join(".github/workflows");
 
-    // Generate CI workflow
+    // Generate unified CI workflow (includes release on tags)
     let ci_workflow = build_ci_workflow();
     let ci_yaml = workflow_to_yaml(&ci_workflow)?;
     check_or_write(&workflows_dir.join("ci.yml"), &ci_yaml, check)?;
-
-    // Generate release workflow
-    let release_workflow = build_release_workflow();
-    let release_yaml = workflow_to_yaml(&release_workflow)?;
-    check_or_write(&workflows_dir.join("release.yml"), &release_yaml, check)?;
 
     // Generate installer script
     let installer_content = generate_installer_script();

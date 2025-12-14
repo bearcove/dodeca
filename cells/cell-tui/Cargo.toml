@@ -1,0 +1,46 @@
+[package]
+name = "cell-tui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+description = "TUI plugin for dodeca serve mode"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[[bin]]
+name = "ddc-cell-tui"
+path = "src/main.rs"
+
+[dependencies]
+# TUI framework
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Error handling
+color-eyre = "0.6"
+
+# Async runtime
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
+tokio-stream = "0.1"
+futures = "0.3"
+
+# Logging
+tracing = "0.1"
+
+# Plugin runtime
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+
+# RPC framework
+rapace = { workspace = true, features = ["stream"] }
+rapace-cell.workspace = true
+
+# Protocol definitions
+cell-tui-proto = { path = "../cell-tui-proto" }
+
+# Facet for serialization
+facet = "0.32.2"

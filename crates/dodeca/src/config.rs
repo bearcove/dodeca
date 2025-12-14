@@ -4,7 +4,7 @@
 //! The project root is the parent of `.config/`.
 
 use camino::{Utf8Path, Utf8PathBuf};
-use color_eyre::{Result, eyre::eyre};
+use eyre::{Result, eyre};
 use facet::Facet;
 use facet_kdl as kdl;
 use std::env;

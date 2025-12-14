@@ -243,7 +243,7 @@ pub struct ExtractSamplesInput {
 }
 
 /// Output from extracting code samples
-#[derive(Facet)]
+#[derive(Facet, Debug, Clone)]
 pub struct ExtractSamplesOutput {
     /// Extracted code samples
     pub samples: Vec<CodeSample>,
@@ -259,7 +259,7 @@ pub struct ExecuteSamplesInput {
 }
 
 /// Output from executing code samples
-#[derive(Facet)]
+#[derive(Facet, Debug, Clone)]
 pub struct ExecuteSamplesOutput {
     /// Execution results
     pub results: Vec<(CodeSample, ExecutionResult)>,

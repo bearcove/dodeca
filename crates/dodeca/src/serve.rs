@@ -6,14 +6,14 @@
 /// Salsa cache version - bump this when making incompatible changes to Salsa inputs/queries
 pub const SALSA_CACHE_VERSION: u32 = 4;
 
-use color_eyre::Result;
+use eyre::Result;
 use std::collections::HashMap;
 use std::sync::{Mutex, RwLock};
 use tokio::sync::broadcast;
 
 use crate::db::{
-    DataFile, DataRegistry, Database, SassFile, SassRegistry, SourceFile, SourceRegistry,
-    StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
+    DataFile, DataRegistry, Database, DatabaseSnapshot, SassFile, SassRegistry, SourceFile,
+    SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
 };
 use crate::image::{InputFormat, OutputFormat, add_width_suffix};
 use crate::queries::{build_tree, css_output, process_image, serve_html, static_file_output};
@@ -23,23 +23,6 @@ use std::collections::HashSet;
 
 use dodeca_protocol::{ScopeEntry, ScopeValue};
 use facet_value::DestructuredRef;
-
-/// Format bytes as human-readable size (KB, MB, GB)
-fn format_bytes(bytes: usize) -> String {
-    const KB: usize = 1024;
-    const MB: usize = KB * 1024;
-    const GB: usize = MB * 1024;
-
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.1} KB", bytes as f64 / KB as f64)
-    } else {
-        format!("{} bytes", bytes)
-    }
-}
 
 // ============================================================================
 // Scope conversion for devtools
@@ -267,20 +250,10 @@ fn summarize_patches(patches: &[dodeca_protocol::Patch]) -> String {
 
 /// Shared state for the dev server
 pub struct SiteServer {
-    /// The Salsa database - all queries go through here
+    /// The picante database - all queries go through here
     /// Uses Mutex because Database contains RefCell (not Sync).
     /// For queries, we use snapshot pattern: lock, clone, release, then query the clone.
     pub db: Mutex<Database>,
-    /// Source registry (Salsa input - update this to invalidate queries)
-    pub source_registry: SourceRegistry,
-    /// Template registry (Salsa input - update this to invalidate queries)
-    pub template_registry: TemplateRegistry,
-    /// SASS registry (Salsa input - update this to invalidate queries)
-    pub sass_registry: SassRegistry,
-    /// Static file registry (Salsa input - update this to invalidate queries)
-    pub static_registry: StaticRegistry,
-    /// Data file registry (Salsa input - update this to invalidate queries)
-    pub data_registry: DataRegistry,
     /// Search index files (pagefind): path -> content
     pub search_files: RwLock<HashMap<String, Vec<u8>>>,
     /// Live reload broadcast
@@ -302,22 +275,10 @@ pub struct SiteServer {
 impl SiteServer {
     pub fn new(render_options: RenderOptions, stable_assets: Vec<String>) -> Self {
         let (livereload_tx, _) = broadcast::channel(16);
-        let db = Database::new();
-
-        // Create empty registries as Salsa inputs
-        let source_registry = SourceRegistry::new(&db, Vec::new());
-        let template_registry = TemplateRegistry::new(&db, Vec::new());
-        let sass_registry = SassRegistry::new(&db, Vec::new());
-        let static_registry = StaticRegistry::new(&db, Vec::new());
-        let data_registry = DataRegistry::new(&db, Vec::new());
+        let db = Database::new(None);
 
         Self {
             db: Mutex::new(db),
-            source_registry,
-            template_registry,
-            sass_registry,
-            static_registry,
-            data_registry,
             search_files: RwLock::new(HashMap::new()),
             livereload_tx,
             render_options,
@@ -340,69 +301,72 @@ impl SiteServer {
     }
 
     /// Update the source registry with a new list of sources
-    /// This invalidates all Salsa queries that depend on sources
+    /// This invalidates all queries that depend on sources
     pub fn set_sources(&self, sources: Vec<SourceFile>) {
-        use salsa::Setter;
         let mut db = self.db.lock().unwrap();
-        self.source_registry.set_sources(&mut *db).to(sources);
+        SourceRegistry::set(&mut *db, sources).expect("failed to set sources");
     }
 
     /// Update the template registry with a new list of templates
     pub fn set_templates(&self, templates: Vec<TemplateFile>) {
-        use salsa::Setter;
         let mut db = self.db.lock().unwrap();
-        self.template_registry.set_templates(&mut *db).to(templates);
+        TemplateRegistry::set(&mut *db, templates).expect("failed to set templates");
     }
 
     /// Update the sass registry with a new list of sass files
     pub fn set_sass_files(&self, files: Vec<SassFile>) {
-        use salsa::Setter;
         let mut db = self.db.lock().unwrap();
-        self.sass_registry.set_files(&mut *db).to(files);
+        SassRegistry::set(&mut *db, files).expect("failed to set sass files");
     }
 
     /// Update the static registry with a new list of static files
     pub fn set_static_files(&self, files: Vec<StaticFile>) {
-        use salsa::Setter;
         let mut db = self.db.lock().unwrap();
-        self.static_registry.set_files(&mut *db).to(files);
+        StaticRegistry::set(&mut *db, files).expect("failed to set static files");
     }
 
     /// Update the data registry with a new list of data files
     pub fn set_data_files(&self, files: Vec<DataFile>) {
-        use salsa::Setter;
         let mut db = self.db.lock().unwrap();
-        self.data_registry.set_files(&mut *db).to(files);
+        DataRegistry::set(&mut *db, files).expect("failed to set data files");
     }
 
     /// Get a clone of the current sources (for modification)
     pub fn get_sources(&self) -> Vec<SourceFile> {
         let db = self.db.lock().unwrap();
-        self.source_registry.sources(&*db).clone()
+        SourceRegistry::sources(&*db)
+            .expect("failed to get sources")
+            .unwrap_or_default()
     }
 
     /// Get a clone of the current templates (for modification)
     pub fn get_templates(&self) -> Vec<TemplateFile> {
         let db = self.db.lock().unwrap();
-        self.template_registry.templates(&*db).clone()
+        TemplateRegistry::templates(&*db)
+            .expect("failed to get templates")
+            .unwrap_or_default()
     }
 
     /// Get a clone of the current sass files (for modification)
     pub fn get_sass_files(&self) -> Vec<SassFile> {
         let db = self.db.lock().unwrap();
-        self.sass_registry.files(&*db).clone()
+        SassRegistry::files(&*db)
+            .expect("failed to get sass files")
+            .unwrap_or_default()
     }
 
     /// Get a clone of the current static files (for modification)
     pub fn get_static_files(&self) -> Vec<StaticFile> {
         let db = self.db.lock().unwrap();
-        self.static_registry.files(&*db).clone()
+        StaticRegistry::files(&*db)
+            .expect("failed to get static files")
+            .unwrap_or_default()
     }
 
     /// Notify all connected browsers to reload
     /// Computes patches for all cached routes and sends them
     pub fn trigger_reload(&self) {
-        use crate::plugins::diff_html_plugin;
+        use crate::cells::diff_html_plugin;
 
         // Check for CSS changes first
         let old_css_path = {
@@ -453,10 +417,11 @@ impl SiteServer {
 
             // Get new HTML (re-render) - this creates a fresh snapshot
             tracing::debug!("trigger_reload: re-rendering {}", route);
-            let new_html = self.find_content(&route).and_then(|c| match c {
-                ServeContent::Html(html) => Some(html),
-                _ => None,
-            });
+            let new_html =
+                futures::executor::block_on(self.find_content(&route)).and_then(|c| match c {
+                    ServeContent::Html(html) => Some(html),
+                    _ => None,
+                });
 
             // Handle case where route was deleted (old exists, new doesn't)
             if old_html.is_some() && new_html.is_none() {
@@ -500,7 +465,7 @@ impl SiteServer {
                     }
 
                     // Try to diff using the plugin
-                    match diff_html_plugin(&old, &new) {
+                    match futures::executor::block_on(diff_html_plugin(&old, &new)) {
                         Some(diff_result) => {
                             if diff_result.patches.is_empty() {
                                 // DOM structure identical but HTML differs (whitespace/comments?)
@@ -558,18 +523,12 @@ impl SiteServer {
 
     /// Get current CSS path from database
     fn get_current_css_path(&self) -> Option<String> {
-        // Snapshot pattern: read lock, clone, release, then query
-        let db = self.db.lock().ok()?.clone();
-
-        css_output(
-            &db,
-            self.source_registry,
-            self.template_registry,
-            self.sass_registry,
-            self.static_registry,
-            self.data_registry,
-        )
-        .map(|css| format!("/{}", css.cache_busted_path))
+        let snapshot = {
+            let db = self.db.lock().ok()?;
+            futures::executor::block_on(DatabaseSnapshot::from_database(&*db))
+        };
+        let css = futures::executor::block_on(css_output(&snapshot)).ok().flatten()?;
+        Some(format!("/{}", css.cache_busted_path))
     }
 
     /// Load cached query results from disk
@@ -601,61 +560,33 @@ impl SiteServer {
             return Ok(());
         }
 
-        let data = std::fs::read(cache_path)?;
-
-        // Try to deserialize - if it fails (e.g., schema changed), delete the corrupt cache
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut db = self.db.lock().unwrap();
-            let mut deserializer = postcard::Deserializer::from_bytes(&data);
-            <dyn salsa::Database>::deserialize(&mut *db, &mut deserializer)
-        }));
-
-        match result {
-            Ok(Ok(())) => {
-                tracing::info!("Loaded cache ({})", format_bytes(data.len()));
-                Ok(())
-            }
-            Ok(Err(e)) => {
-                tracing::warn!("Cache corrupted, deleting: {e}");
-                let _ = std::fs::remove_file(cache_path);
-                let _ = std::fs::remove_file(&version_path);
-                Ok(())
-            }
-            Err(_) => {
-                tracing::warn!("Cache incompatible (schema changed), deleting");
-                let _ = std::fs::remove_file(cache_path);
-                let _ = std::fs::remove_file(&version_path);
-                Ok(())
-            }
-        }
+        // TODO: picante cache serialization not yet implemented
+        // For now, we always start fresh
+        tracing::debug!("Cache loading disabled (picante migration in progress)");
+        Ok(())
     }
 
     /// Save cached query results to disk
     pub fn save_cache(&self, cache_path: &std::path::Path) -> Result<()> {
-        let mut db = self.db.lock().unwrap();
-        let data = postcard::to_allocvec(&<dyn salsa::Database>::as_serialize(&mut *db))?;
-
-        // Write atomically via temp file
-        let temp_path = cache_path.with_extension("tmp");
-        std::fs::write(&temp_path, &data)?;
-        std::fs::rename(&temp_path, cache_path)?;
-
-        // Write version file
-        let version_path = cache_path.with_extension("version");
-        std::fs::write(&version_path, SALSA_CACHE_VERSION.to_string())?;
-
-        tracing::info!("Saved cache ({})", format_bytes(data.len()));
+        // TODO: picante cache serialization not yet implemented
+        // For now, skip saving
+        let _ = cache_path;
+        tracing::debug!("Cache saving disabled (picante migration in progress)");
         Ok(())
     }
 
-    /// Find content for a given path using lazy Salsa queries
-    fn find_content(&self, path: &str) -> Option<ServeContent> {
-        // Snapshot pattern: read lock, clone, release, then query
-        let db = self.db.lock().ok()?.clone();
+    /// Find content for a given path using lazy picante queries
+    async fn find_content(&self, path: &str) -> Option<ServeContent> {
+        // Snapshot pattern: create snapshot while holding lock (sync), then release
+        // Note: from_database is async but doesn't await internally, so we use block_on
+        let snapshot = {
+            let db = self.db.lock().ok()?;
+            futures::executor::block_on(DatabaseSnapshot::from_database(&*db))
+        };
 
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
-            let site_tree = build_tree(&db, self.source_registry);
+            let site_tree = build_tree(&snapshot).await.ok()?;
             let routes: HashSet<String> = site_tree
                 .sections
                 .keys()
@@ -675,15 +606,7 @@ impl SiteServer {
         };
 
         let route = Route::new(route_path.clone());
-        if let Some(html) = serve_html(
-            &db,
-            route,
-            self.source_registry,
-            self.template_registry,
-            self.sass_registry,
-            self.static_registry,
-            self.data_registry,
-        ) {
+        if let Some(html) = serve_html(&snapshot, route).await.ok().flatten() {
             // Check if this is an error page and notify devtools
             if html.contains(crate::render::RENDER_ERROR_MARKER) {
                 // Extract error message HTML from between <pre> tags
@@ -746,25 +669,19 @@ impl SiteServer {
                 });
             }
 
-            let code_results = self.code_execution_results.read().unwrap();
+            let code_results: Vec<_> = self.code_execution_results.read().unwrap().clone();
             let html = inject_livereload_with_build_info(
                 &html,
                 self.render_options,
                 known_routes.as_ref(),
                 &code_results,
-            );
+            )
+            .await;
             return Some(ServeContent::Html(html));
         }
 
         // 2. Try to serve CSS (check if path matches cache-busted CSS path)
-        if let Some(css) = css_output(
-            &db,
-            self.source_registry,
-            self.template_registry,
-            self.sass_registry,
-            self.static_registry,
-            self.data_registry,
-        ) {
+        if let Some(css) = css_output(&snapshot).await.ok().flatten() {
             let css_url = format!("/{}", css.cache_busted_path);
             if path == css_url {
                 return Some(ServeContent::Css(css.content));
@@ -772,8 +689,10 @@ impl SiteServer {
         }
 
         // 3. Try to serve static files (match cache-busted paths)
-        for file in self.static_registry.files(&db) {
-            let original_path = file.path(&db).as_str();
+        let static_files = StaticRegistry::files(&snapshot).ok()?.unwrap_or_default();
+        for file in static_files.iter() {
+            let original_path = file.path(&snapshot).ok()?.as_str().to_string();
+            let original_path = original_path.as_str();
 
             // Check if this is a processable image
             if InputFormat::is_processable(original_path) {
@@ -781,10 +700,10 @@ impl SiteServer {
                 use crate::queries::{image_input_hash, image_metadata};
 
                 // Get metadata and input hash (fast - no encoding)
-                let Some(metadata) = image_metadata(&db, *file) else {
+                let Some(metadata) = image_metadata(&snapshot, *file).await.ok().flatten() else {
                     continue;
                 };
-                let input_hash = image_input_hash(&db, *file);
+                let input_hash = image_input_hash(&snapshot, *file).await.ok()?;
 
                 // Check each possible variant URL
                 for &width in &metadata.variant_widths {
@@ -810,7 +729,7 @@ impl SiteServer {
                     );
                     if path == format!("/{jxl_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) = process_image(&db, *file)
+                        if let Some(processed) = process_image(&snapshot, *file).await.ok().flatten()
                             && let Some(variant) =
                                 processed.jxl_variants.iter().find(|v| v.width == width)
                         {
@@ -840,7 +759,7 @@ impl SiteServer {
                     );
                     if path == format!("/{webp_cache_busted}") {
                         // NOW process the image (lazy!)
-                        if let Some(processed) = process_image(&db, *file)
+                        if let Some(processed) = process_image(&snapshot, *file).await.ok().flatten()
                             && let Some(variant) =
                                 processed.webp_variants.iter().find(|v| v.width == width)
                         {
@@ -850,15 +769,7 @@ impl SiteServer {
                 }
             } else {
                 // Non-image static file
-                let output = static_file_output(
-                    &db,
-                    *file,
-                    self.source_registry,
-                    self.template_registry,
-                    self.sass_registry,
-                    self.static_registry,
-                    self.data_registry,
-                );
+                let output = static_file_output(&snapshot, *file).await.ok()?;
                 let static_url = format!("/{}", output.cache_busted_path);
                 if path == static_url {
                     let mime = mime_from_extension(path);
@@ -883,16 +794,24 @@ impl SiteServer {
     ///
     /// Returns a list of top-level scope entries that can be expanded.
     /// The `path` parameter is used to drill into nested values.
-    pub fn get_scope_for_route(&self, route_path: &str, path: &[String]) -> Vec<ScopeEntry> {
+    pub async fn get_scope_for_route(&self, route_path: &str, path: &[String]) -> Vec<ScopeEntry> {
         use facet_value::{VObject, VString};
 
-        // Snapshot pattern: lock, clone, release, then query the clone
-        let db = match self.db.lock() {
-            Ok(db) => db.clone(),
-            Err(_) => return vec![],
+        // Snapshot pattern: create snapshot while holding lock (sync), then release
+        // Note: from_database is async but doesn't await internally, so we use block_on
+        let snapshot = {
+            let db = match self.db.lock() {
+                Ok(db) => db,
+                Err(_) => return vec![],
+            };
+            // from_database is async but sync internally - use block_on to avoid Send issues
+            futures::executor::block_on(DatabaseSnapshot::from_database(&*db))
         };
 
-        let site_tree = build_tree(&db, self.source_registry);
+        let site_tree = match build_tree(&snapshot).await {
+            Ok(tree) => tree,
+            Err(_) => return vec![],
+        };
 
         // Normalize route
         let route_str = if route_path == "/" {
@@ -1045,7 +964,9 @@ impl SiteServer {
         }
 
         // Load actual data files
-        let raw_data = crate::queries::load_all_data_raw(&db, self.data_registry);
+        let raw_data = crate::queries::load_all_data_raw(&snapshot)
+            .await
+            .unwrap_or_default();
         let data_value = crate::data::parse_raw_data_files(&raw_data);
         scope.insert(VString::from("data"), data_value);
 
@@ -1055,20 +976,23 @@ impl SiteServer {
     }
 
     /// Evaluate an expression against the scope for a route (for REPL)
-    pub fn eval_expression_for_route(
+    pub async fn eval_expression_for_route(
         &self,
         route_path: &str,
         expression: &str,
     ) -> Result<ScopeValue, String> {
         use facet_value::{VObject, VString};
 
-        // Snapshot pattern: lock, clone, release, then query the clone
-        let db = match self.db.lock() {
-            Ok(db) => db.clone(),
+        // Snapshot pattern: create snapshot while holding lock (sync), then release
+        // Note: from_database is async but doesn't await internally, so we use block_on
+        let snapshot = match self.db.lock() {
+            Ok(db) => futures::executor::block_on(DatabaseSnapshot::from_database(&*db)),
             Err(_) => return Err("Failed to acquire database lock".to_string()),
         };
 
-        let site_tree = build_tree(&db, self.source_registry);
+        let site_tree = build_tree(&snapshot)
+            .await
+            .map_err(|e| format!("Failed to build tree: {:?}", e))?;
 
         // Normalize route
         let route_str = if route_path == "/" {
@@ -1135,7 +1059,9 @@ impl SiteServer {
         }
 
         // Load data files
-        let raw_data = crate::queries::load_all_data_raw(&db, self.data_registry);
+        let raw_data = crate::queries::load_all_data_raw(&snapshot)
+            .await
+            .unwrap_or_default();
         let data_value = crate::data::parse_raw_data_files(&raw_data);
         ctx.set("data", data_value);
 
@@ -1153,10 +1079,10 @@ impl SiteServer {
     /// Find content for RPC serving (returns protocol ServeContent type)
     ///
     /// This wraps find_content and converts the result to the protocol's ServeContent.
-    pub fn find_content_for_rpc(&self, path: &str) -> mod_http_proto::ServeContent {
-        use mod_http_proto::ServeContent as RpcServeContent;
+    pub async fn find_content_for_rpc(&self, path: &str) -> cell_http_proto::ServeContent {
+        use cell_http_proto::ServeContent as RpcServeContent;
 
-        match self.find_content(path) {
+        match self.find_content(path).await {
             Some(ServeContent::Html(html)) => {
                 // Cache HTML for smart reload patching
                 self.cache_html(path, &html);
@@ -1194,13 +1120,16 @@ impl SiteServer {
 
     /// Find routes similar to the requested path (for 404 suggestions)
     pub fn find_similar_routes(&self, path: &str) -> Vec<(String, String)> {
-        // Snapshot pattern: lock, clone, release, then query the clone
-        let db = match self.db.lock() {
-            Ok(db) => db.clone(),
+        // Snapshot pattern: create snapshot while holding lock (sync), then release
+        let snapshot = match self.db.lock() {
+            Ok(db) => futures::executor::block_on(DatabaseSnapshot::from_database(&*db)),
             Err(_) => return Vec::new(),
         };
 
-        let site_tree = build_tree(&db, self.source_registry);
+        let site_tree = match futures::executor::block_on(build_tree(&snapshot)) {
+            Ok(tree) => tree,
+            Err(_) => return Vec::new(),
+        };
 
         let requested = path.trim_matches('/').to_lowercase();
         let requested_parts: Vec<&str> = requested.split('/').collect();
@@ -1319,48 +1248,48 @@ pub fn devtools_urls() -> (String, String) {
 
 /// Embedded JS snippets required by Dioxus WASM
 const SNIPPETS: &[(&str, &str)] = &[
-    (
-        "snippets/dioxus-cli-config-e5fab7f8a0eb9fbb/inline0.js",
-        include_str!(
-            "../../../crates/dodeca-devtools/pkg/snippets/dioxus-cli-config-e5fab7f8a0eb9fbb/inline0.js"
-        ),
-    ),
-    (
-        "snippets/dioxus-interpreter-js-267e64abc8a52eaa/inline0.js",
-        include_str!(
-            "../../../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/inline0.js"
-        ),
-    ),
-    (
-        "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/patch_console.js",
-        include_str!(
-            "../../../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/patch_console.js"
-        ),
-    ),
-    (
-        "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/hydrate.js",
-        include_str!(
-            "../../../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/hydrate.js"
-        ),
-    ),
-    (
-        "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/set_attribute.js",
-        include_str!(
-            "../../../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/set_attribute.js"
-        ),
-    ),
-    (
-        "snippets/dioxus-web-807c31b5ece9dd6a/inline0.js",
-        include_str!(
-            "../../../crates/dodeca-devtools/pkg/snippets/dioxus-web-807c31b5ece9dd6a/inline0.js"
-        ),
-    ),
-    (
-        "snippets/dioxus-web-807c31b5ece9dd6a/src/js/eval.js",
-        include_str!(
-            "../../../crates/dodeca-devtools/pkg/snippets/dioxus-web-807c31b5ece9dd6a/src/js/eval.js"
-        ),
-    ),
+    // (
+    //     "snippets/dioxus-cli-config-e5fab7f8a0eb9fbb/inline0.js",
+    //     include_str!(
+    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-cli-config-e5fab7f8a0eb9fbb/inline0.js"
+    //     ),
+    // ),
+    // (
+    //     "snippets/dioxus-interpreter-js-267e64abc8a52eaa/inline0.js",
+    //     include_str!(
+    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/inline0.js"
+    //     ),
+    // ),
+    // (
+    //     "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/patch_console.js",
+    //     include_str!(
+    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/patch_console.js"
+    //     ),
+    // ),
+    // (
+    //     "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/hydrate.js",
+    //     include_str!(
+    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/hydrate.js"
+    //     ),
+    // ),
+    // (
+    //     "snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/set_attribute.js",
+    //     include_str!(
+    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-interpreter-js-267e64abc8a52eaa/src/js/set_attribute.js"
+    //     ),
+    // ),
+    // (
+    //     "snippets/dioxus-web-807c31b5ece9dd6a/inline0.js",
+    //     include_str!(
+    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-web-807c31b5ece9dd6a/inline0.js"
+    //     ),
+    // ),
+    // (
+    //     "snippets/dioxus-web-807c31b5ece9dd6a/src/js/eval.js",
+    //     include_str!(
+    //         "../../../crates/dodeca-devtools/pkg/snippets/dioxus-web-807c31b5ece9dd6a/src/js/eval.js"
+    //     ),
+    // ),
 ];
 
 /// Get devtools asset content by path (for RPC serving)

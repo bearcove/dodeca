@@ -105,10 +105,10 @@ fn build_all(release: bool) -> bool {
     if !build_wasm() {
         return false;
     }
-    if !build_plugins(release) {
+    if !build_cdylib_plugins(release) {
         return false;
     }
-    if !build_dodeca(release) {
+    if !build_dodeca_and_rapace_plugins(release) {
         return false;
     }
     true
@@ -138,8 +138,8 @@ fn build_wasm() -> bool {
     }
 }
 
-/// Discover plugin crates by looking for dodeca-* directories with cdylib crate type
-fn discover_plugins() -> Vec<String> {
+/// Discover cdylib plugin crates by looking for dodeca-* directories with cdylib crate type
+fn discover_cdylib_plugins() -> Vec<String> {
     let crates_dir = PathBuf::from("crates");
     let mut plugins = Vec::new();
 
@@ -169,15 +169,49 @@ fn discover_plugins() -> Vec<String> {
     plugins
 }
 
-fn build_plugins(release: bool) -> bool {
-    let plugins = discover_plugins();
+/// Discover rapace plugins by looking for mod-* directories with [[bin]] in Cargo.toml
+/// Returns (package_name, binary_name) pairs
+fn discover_rapace_plugins() -> Vec<(String, String)> {
+    let cells_dir = PathBuf::from("cells");
+    let mut plugins = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(&cells_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            // Skip proto crates
+            if !name.starts_with("mod-") || name.ends_with("-proto") {
+                continue;
+            }
+
+            // Check if it has a [[bin]] section
+            let cargo_toml = path.join("Cargo.toml");
+            if let Ok(content) = fs::read_to_string(&cargo_toml)
+                && content.contains("[[bin]]")
+            {
+                let bin_name = format!("dodeca-{}", name);
+                plugins.push((name.to_string(), bin_name));
+            }
+        }
+    }
+
+    plugins.sort();
+    plugins
+}
+
+fn build_cdylib_plugins(release: bool) -> bool {
+    let plugins = discover_cdylib_plugins();
     if plugins.is_empty() {
-        eprintln!("No plugins found to build");
+        eprintln!("No cdylib plugins found to build");
         return true;
     }
 
     eprintln!(
-        "Building {} plugins{}...",
+        "Building {} cdylib plugins{}...",
         plugins.len(),
         if release { " (release)" } else { "" }
     );
@@ -193,11 +227,11 @@ fn build_plugins(release: bool) -> bool {
 
     match cmd.status() {
         Ok(s) if s.success() => {
-            eprintln!("Plugins built: {}", plugins.join(", "));
+            eprintln!("cdylib plugins built: {}", plugins.join(", "));
             true
         }
         Ok(s) => {
-            eprintln!("Plugin build failed with status: {s}");
+            eprintln!("cdylib plugin build failed with status: {s}");
             false
         }
         Err(e) => {
@@ -207,27 +241,31 @@ fn build_plugins(release: bool) -> bool {
     }
 }
 
-fn build_dodeca(release: bool) -> bool {
+fn build_dodeca_and_rapace_plugins(release: bool) -> bool {
+    let rapace_plugins = discover_rapace_plugins();
+
     eprintln!(
-        "Building dodeca + dodeca-mod-http{}...",
+        "Building dodeca + {} rapace plugins{}...",
+        rapace_plugins.len(),
         if release { " (release)" } else { "" }
     );
 
     let mut cmd = Command::new("cargo");
-    cmd.args([
-        "build",
-        "--package",
-        "dodeca",
-        "--package",
-        "dodeca-mod-http",
-    ]);
+    cmd.args(["build", "--package", "dodeca"]);
+
+    // Add all rapace plugins
+    for (pkg, bin) in &rapace_plugins {
+        cmd.args(["--package", pkg, "--bin", bin]);
+    }
+
     if release {
         cmd.arg("--release");
     }
 
     match cmd.status() {
         Ok(s) if s.success() => {
-            eprintln!("Build complete");
+            let bins: Vec<_> = rapace_plugins.iter().map(|(_, b)| b.as_str()).collect();
+            eprintln!("Built: ddc, {}", bins.join(", "));
             true
         }
         Ok(s) => {
@@ -305,17 +343,24 @@ fn install_dev() -> bool {
     }
     eprintln!("  Installed ddc");
 
-    // Copy dodeca-mod-http binary
-    let mod_http_src = PathBuf::from("target/release/dodeca-mod-http");
-    let mod_http_dst = cargo_bin.join("dodeca-mod-http");
-    let _ = fs::remove_file(&mod_http_dst);
-    if let Err(e) = fs::copy(&mod_http_src, &mod_http_dst) {
-        eprintln!("Failed to copy dodeca-mod-http: {e}");
-        return false;
+    // Copy all rapace plugin binaries
+    let rapace_plugins = discover_rapace_plugins();
+    for (_, bin_name) in &rapace_plugins {
+        let src = PathBuf::from(format!("target/release/{bin_name}"));
+        let dst = cargo_bin.join(bin_name);
+        if src.exists() {
+            let _ = fs::remove_file(&dst);
+            if let Err(e) = fs::copy(&src, &dst) {
+                eprintln!("Failed to copy {bin_name}: {e}");
+                return false;
+            }
+            eprintln!("  Installed {bin_name}");
+        } else {
+            eprintln!("  Warning: {bin_name} not found, skipping");
+        }
     }
-    eprintln!("  Installed dodeca-mod-http");
 
-    // Copy plugins
+    // Copy cdylib plugins
     let plugin_ext = if cfg!(target_os = "macos") {
         "dylib"
     } else if cfg!(target_os = "windows") {
@@ -324,9 +369,8 @@ fn install_dev() -> bool {
         "so"
     };
 
-    // Discover and install all plugins
-    let plugins = discover_plugins();
-    for plugin in &plugins {
+    let cdylib_plugins = discover_cdylib_plugins();
+    for plugin in &cdylib_plugins {
         // Convert crate name (dodeca-webp) to lib name (libdodeca_webp)
         let lib_name = format!("lib{}", plugin.replace('-', "_"));
         let src = PathBuf::from(format!("target/release/{lib_name}.{plugin_ext}"));

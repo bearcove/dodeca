@@ -10,6 +10,7 @@ repository = "https://github.com/bearcove/dodeca"
 homepage = "https://dodeca.bearcove.eu/"
 keywords = ["static-site", "ssg", "incremental"]
 categories = ["command-line-utilities", "web-programming"]
+default-run = "ddc"
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
@@ -33,17 +34,13 @@ facet = "0.32.2"
 facet-kdl = "0.32.2"
 facet-toml = "0.32.2"
 facet-json = "0.32.2"
-facet-yaml = "0.32.2"
 facet-value = "0.32.2"
+facet-postcard = "0.32.2"
 
 # YAML parsing (for data files - facet-yaml doesn't support dynamic values)
 serde_yaml = "0.9"
 
-# Markdown parsing
-pulldown-cmark = "0.13"
-
-# HTML generation
-maud = "0.27"
+# Markdown parsing is now handled via the mod-markdown plugin
 
 # File system
 ignore = "0.4"
@@ -51,23 +48,17 @@ notify = "8"
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
-tokio-stream = { version = "0.1", features = ["net"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
 futures = "0.3"
 
-# TUI
-ratatui = "0.30.0-beta.0"
-crossterm = "0.29"
-
-# Parallel processing
-rayon = "1"
+# TUI is now in the mod-tui plugin
 
 # CLI (using facet-args instead of clap)
 facet-args = "0.32.2"
 
 # Error handling & diagnostics
-color-eyre = "0.6"
-miette = { version = "7", features = ["fancy"] }
-thiserror = "2"
+eyre = "0.6"
+miette = { version = "7", features = ["fancy-no-backtrace"] }
 owo-colors = "4"
 
 # Logging
@@ -79,51 +70,62 @@ open = "5"
 
 # Network interfaces
 if-addrs = "0.14"
-cidr = "0.3"
 
 # Incremental computation
-salsa = { version = "0.24", features = ["persistence"] }
+picante = { git = "https://github.com/bearcove/picante" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary serialization with serde
 
 # Devtools protocol (shared types between server and WASM client)
 dodeca-protocol = { path = "../dodeca-protocol" }
 
 # RPC protocol for dev server plugin
-mod-http-proto = { path = "../../mods/mod-http-proto" }
+cell-http-proto = { path = "../../cells/cell-http-proto" }
 
 # Syntax highlight service protocol
-mod-arborium-proto = { path = "../../mods/mod-arborium-proto" }
+cell-arborium-proto = { path = "../../cells/cell-arborium-proto" }
+
+# All plugin protocol definitions
+cell-code-execution-proto = { path = "../../cells/cell-code-execution-proto" }
+cell-css-proto = { path = "../../cells/cell-css-proto" }
+cell-fonts-proto = { path = "../../cells/cell-fonts-proto" }
+cell-html-diff-proto = { path = "../../cells/cell-html-diff-proto" }
+cell-image-proto = { path = "../../cells/cell-image-proto" }
+cell-js-proto = { path = "../../cells/cell-js-proto" }
+cell-jxl-proto = { path = "../../cells/cell-jxl-proto" }
+cell-linkcheck-proto = { path = "../../cells/cell-linkcheck-proto" }
+cell-minify-proto = { path = "../../cells/cell-minify-proto" }
+cell-tui-proto = { path = "../../cells/cell-tui-proto" }
+cell-pagefind-proto = { path = "../../cells/cell-pagefind-proto" }
+cell-sass-proto = { path = "../../cells/cell-sass-proto" }
+cell-svgo-proto = { path = "../../cells/cell-svgo-proto" }
+cell-webp-proto = { path = "../../cells/cell-webp-proto" }
+cell-html-proto = { path = "../../cells/cell-html-proto" }
+cell-markdown-proto = { path = "../../cells/cell-markdown-proto" }
 
 # RPC framework for plugin communication
-rapace = { version = "0.1.1", features = ["stream"] }
-rapace-tracing = "0.1.1"
+rapace = { workspace = true, features = ["stream"] }
+rapace-tracing.workspace = true
+ur-taking-me-with-you.workspace = true
+async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
 
 # Code execution plugin types (lightweight - no plugin implementation)
 dodeca-code-execution-types = { path = "../dodeca-code-execution-types" }
 
 # Content-addressed storage
 rapidhash = "4"
-canopydb = "0.2.5"
 
 # Date handling
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 
 # Misc
 camino = "1"  # UTF-8 paths
-base64 = "0.22"  # For encoding thumbhash data URLs
-aliri_braid = "0.4"  # Strongly-typed string wrappers
-regex = "1"  # For HTML heading extraction
-url = "2"  # URL parsing for domain extraction
+strid = "2.1"  # Strongly-typed string wrappers (like aliri_braid but without syn)
+regex = "1"  # For HTML heading extraction and inline CSS/JS extraction
 
-# Self-update (HTTP client)
-reqwest = { version = "0.12", features = ["json"] }
-
-# URL rewriting (HTML only - CSS/JS via plugins)
-lol_html = "2.7"        # Streaming HTML rewriter
+# HTML parsing and rewriting is now handled via the mod-html plugin
 
 # Font subsetting is now handled via the dodeca-fonts plugin
 
@@ -131,37 +133,24 @@ lol_html = "2.7"        # Streaming HTML rewriter
 
 # Code execution is handled via the dodeca-code-execution plugin
 
-# Plugin system for image encoding/decoding, minification, etc.
-plugcard = { path = "../plugcard" }
+# Plugin system has been replaced with Rapace
+# All plugins are now in the mods/ directory
 
 # Template engine
 gingembre = { path = "../gingembre" }
 
-# HTML diffing is handled via the dodeca-html-diff plugin
-
-# Minimal-versions workarounds: these transitive deps have ancient minimum
-# version specs that don't build on modern Rust
-phf = "0.11"  # 0.11+ drops proc-macro-hack (which needs syn 0.15)
-nom = "7"     # 7+ drops lexical-core 0.7 (broken usize/u32 ops)
+# Debug utilities (SIGUSR1 stack trace handler)
+dodeca-debug = { path = "../dodeca-debug" }
 
 [dev-dependencies]
-reqwest = { version = "0.12", features = ["blocking"] }
 divan = "0.1"
 minijinja = "2"  # For template engine benchmarks
 test-log = { version = "0.2", features = ["trace"] }
 regex = "1"  # For test assertions
 tempfile = "3"  # For isolated test fixtures
-livereload-client = { path = "../livereload-client" }  # For patch types in tests
-chromiumoxide = "0.8"  # Headless Chrome for E2E tests
 futures = "0.3"        # For StreamExt in browser tests
-
-[[bench]]
-name = "link_checker"
-harness = false
-
-[[bench]]
-name = "ansi_to_html"
-harness = false
+async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
+reqwest = { version = "0.12", features = ["blocking"] }
 
 [[bench]]
 name = "template"

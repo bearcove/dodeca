@@ -1,0 +1,49 @@
+[package]
+name = "cell-code-execution"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[[bin]]
+name = "ddc-cell-code-execution"
+path = "src/main.rs"
+
+[dependencies]
+# Code execution types
+dodeca-code-execution-types = { path = "../../crates/dodeca-code-execution-types" }
+dodeca-code-execution-config = { path = "../../crates/dodeca-code-execution-config" }
+
+# Markdown parsing
+pulldown-cmark = "0.13"
+
+# Error handling
+color-eyre = "0.6"
+
+# Async runtime
+tokio = { version = "1", features = ["rt", "time", "rt-multi-thread"] }
+
+# Temp file management
+tempfile = "3"
+
+
+
+# Logging
+tracing = "0.1"
+
+# Plugin runtime
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+
+# RPC framework
+rapace = { workspace = true, features = ["stream"] }
+rapace-cell.workspace = true
+
+# Local protocol definitions
+cell-code-execution-proto = { path = "../cell-code-execution-proto" }
+
+# Facet for serialization  
+facet = { version = "0.32.2" }
+facet-kdl = { version = "0.32.2" }

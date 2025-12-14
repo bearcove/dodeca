@@ -1,5 +1,9 @@
 /target
-.dodeca.db/
+.dodeca.db
 /docs/public/
 .cache/
 bloaty_report*
+
+perf-*.data
+*.zst
+*.log

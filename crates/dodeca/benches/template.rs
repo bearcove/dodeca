@@ -9,9 +9,9 @@
 //! - Comparison with minijinja
 
 use divan::{Bencher, black_box};
-use dodeca::template::lexer::Lexer;
-use dodeca::template::parser::Parser;
-use dodeca::template::{Context, Engine, InMemoryLoader, VArray, VObject, VString, Value};
+use gingembre::lexer::Lexer;
+use gingembre::parser::Parser;
+use gingembre::{Context, Engine, InMemoryLoader, VArray, VObject, VString, Value};
 use facet_value::DestructuredRef;
 use std::sync::Arc;
 

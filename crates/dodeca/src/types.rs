@@ -1,6 +1,4 @@
-//! Strongly-typed string wrappers using aliri_braid
-//!
-//! # Why aliri_braid?
+//! Strongly-typed string wrappers using strid
 //!
 //! Instead of passing `String` and `&str` everywhere (stringly-typed code),
 //! we use distinct types that make the code self-documenting and prevent
@@ -13,109 +11,87 @@
 //! - [`Title`] / [`TitleRef`] - page/section title
 //! - [`HtmlBody`] / [`HtmlBodyRef`] - rendered HTML content
 //! - [`SourceContent`] / [`SourceContentRef`] - raw markdown file content
-//!
-//! # How aliri_braid works
-//!
-//! The `#[braid]` macro generates two types from each definition:
-//!
-//! - **Owned type** (e.g., `Route`) - owns a `String`, like `String` itself
-//! - **Borrowed type** (e.g., `RouteRef`) - a newtype over `str`, like `&str`
-//!
-//! ## Creating instances
-//!
-//! ```ignore
-//! // From a String (owned)
-//! let route = Route::new(some_string);
-//!
-//! // From a &'static str literal
-//! let route = Route::from_static("/learn/");
-//!
-//! // Borrowed reference from a &str
-//! let route_ref = RouteRef::from_str("/learn/");
-//! ```
-//!
-//! ## Accessing the underlying string
-//!
-//! ```ignore
-//! let route = Route::from_static("/learn/");
-//!
-//! // Get &str
-//! let s: &str = route.as_str();
-//!
-//! // Get &RouteRef (borrowed version of the type)
-//! let r: &RouteRef = route.as_ref();
-//! ```
-//!
-//! ## In function signatures
-//!
-//! ```ignore
-//! // Accept owned Route
-//! fn takes_route(route: Route) { ... }
-//!
-//! // Accept borrowed &RouteRef (like &str but type-safe)
-//! fn takes_route_ref(route: &RouteRef) { ... }
-//!
-//! // You can pass &Route where &RouteRef is expected (via Deref)
-//! let route = Route::from_static("/learn/");
-//! takes_route_ref(&route);  // works!
-//! ```
 
-use aliri_braid::braid;
+use strid::braid;
 
 /// Relative path to a source file from the content directory.
 /// Example: "learn/_index.md", "learn/showcases/json.md"
 #[braid]
-pub struct SourcePath;
+pub struct SourcePath {
+    inner: String,
+}
 
 /// URL route path for a page or section.
 /// Always starts with `/`, no trailing slash (except for root "/").
 /// Example: "/learn", "/learn/showcases/json"
 #[braid]
-pub struct Route;
+pub struct Route {
+    inner: String,
+}
 
 /// Title of a page or section from frontmatter.
 #[braid]
-pub struct Title;
+pub struct Title {
+    inner: String,
+}
 
 /// Rendered HTML body content.
 #[braid]
-pub struct HtmlBody;
+pub struct HtmlBody {
+    inner: String,
+}
 
 /// Raw source file content (markdown with frontmatter).
 #[braid]
-pub struct SourceContent;
+pub struct SourceContent {
+    inner: String,
+}
 
 /// Relative path to a template file from the templates directory.
 /// Example: "base.html", "page.html"
 #[braid]
-pub struct TemplatePath;
+pub struct TemplatePath {
+    inner: String,
+}
 
 /// Raw template file content.
 #[braid]
-pub struct TemplateContent;
+pub struct TemplateContent {
+    inner: String,
+}
 
 /// Relative path to a Sass/SCSS file from the sass directory.
 /// Example: "main.scss", "_variables.scss"
 #[braid]
-pub struct SassPath;
+pub struct SassPath {
+    inner: String,
+}
 
 /// Raw Sass/SCSS file content.
 #[braid]
-pub struct SassContent;
+pub struct SassContent {
+    inner: String,
+}
 
 /// Relative path to a static file from the static directory.
 /// Example: "favicon.ico", "images/logo.png"
 #[braid(serde)]
-pub struct StaticPath;
+pub struct StaticPath {
+    inner: String,
+}
 
 /// Relative path to a data file from the data directory.
 /// Example: "versions.toml", "config.json", "meta.kdl"
 #[braid]
-pub struct DataPath;
+pub struct DataPath {
+    inner: String,
+}
 
 /// Raw data file content.
 #[braid]
-pub struct DataContent;
+pub struct DataContent {
+    inner: String,
+}
 
 impl Route {
     /// Create the root route "/"

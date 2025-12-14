@@ -1,10 +1,17 @@
 [workspace]
 members = [
     "crates/*",
-    "mods/*",
+    "cells/*",
     "xtask",
 ]
 resolver = "3"
+
+[workspace.dependencies]
+rapace = { git = "https://github.com/bearcove/rapace", default-features = false }
+rapace-core = { git = "https://github.com/bearcove/rapace" }
+rapace-cell = { git = "https://github.com/bearcove/rapace" }
+rapace-tracing = { git = "https://github.com/bearcove/rapace" }
+ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", features = ["tokio"] }
 
 # Optimize dependencies in dev mode for faster tests
 # (keeps main crate unoptimized for fast incremental builds)
@@ -17,7 +24,21 @@ opt-level = 2
 debug = "line-tables-only"
 opt-level = 1
 
+
+# Test profile with full debug symbols for profiling
+[profile.test]
+inherits = "dev"
+debug = true
+
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+# Debug-friendly profile for investigating mysteries (hangs, crashes, etc.)
+# Usage: cargo build --profile mystery
+[profile.mystery]
+inherits = "release"
+opt-level = 1
+debug = true
+strip = false

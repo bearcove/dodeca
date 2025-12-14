@@ -6,7 +6,7 @@ set -eu
 
 REPO="bearcove/dodeca"
 
-# Detect platform
+# Detect platform (only linux-x64 and macos-arm64 are supported)
 detect_platform() {
     local os arch
 
@@ -17,15 +17,13 @@ detect_platform() {
         Linux)
             case "$arch" in
                 x86_64) echo "x86_64-unknown-linux-gnu" ;;
-                aarch64) echo "aarch64-unknown-linux-gnu" ;;
-                *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+                *) echo "Unsupported Linux architecture: $arch (only x86_64 supported)" >&2; exit 1 ;;
             esac
             ;;
         Darwin)
             case "$arch" in
-                x86_64) echo "x86_64-apple-darwin" ;;
                 arm64) echo "aarch64-apple-darwin" ;;
-                *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+                *) echo "Unsupported macOS architecture: $arch (only arm64 supported)" >&2; exit 1 ;;
             esac
             ;;
         *)
@@ -57,7 +55,6 @@ main() {
 
     # Create install directory
     mkdir -p "$install_dir"
-    mkdir -p "$install_dir/plugins"
 
     # Download and extract
     local tmpdir
@@ -71,12 +68,17 @@ main() {
     tar -xJf "$tmpdir/archive.tar.xz" -C "$tmpdir"
 
     echo "Installing..."
+    # Copy main binary
     cp "$tmpdir/ddc" "$install_dir/"
     chmod +x "$install_dir/ddc"
 
-    if [ -d "$tmpdir/plugins" ]; then
-        cp "$tmpdir/plugins/"* "$install_dir/plugins/"
-    fi
+    # Copy cell binaries (ddc-cell-*)
+    for plugin in "$tmpdir"/ddc-cell-*; do
+        if [ -f "$plugin" ]; then
+            cp "$plugin" "$install_dir/"
+            chmod +x "$install_dir/$(basename "$plugin")"
+        fi
+    done
 
     echo ""
     echo "Successfully installed dodeca to $install_dir/ddc"
