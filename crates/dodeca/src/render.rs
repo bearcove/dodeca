@@ -3,7 +3,7 @@ use crate::db::{
     SiteTree,
 };
 use crate::error_pages::render_error_page;
-use crate::plugins::inject_build_info_plugin;
+use crate::cells::inject_build_info_plugin;
 use crate::template::{
     Context, DataResolver, Engine, InMemoryLoader, TemplateLoader, VArray, VObject, VString, Value,
     ValueExt,
@@ -322,8 +322,8 @@ const BUILD_INFO_POPUP_SCRIPT: &str = r##"<script>
 </script>"##;
 
 /// Convert internal CodeExecutionMetadata to plugin protocol type
-fn convert_metadata_to_proto(meta: &CodeExecutionMetadata) -> mod_html_proto::CodeExecutionMetadata {
-    mod_html_proto::CodeExecutionMetadata {
+fn convert_metadata_to_proto(meta: &CodeExecutionMetadata) -> cell_html_proto::CodeExecutionMetadata {
+    cell_html_proto::CodeExecutionMetadata {
         rustc_version: meta.rustc_version.clone(),
         cargo_version: meta.cargo_version.clone(),
         target: meta.target.clone(),
@@ -334,18 +334,18 @@ fn convert_metadata_to_proto(meta: &CodeExecutionMetadata) -> mod_html_proto::Co
         dependencies: meta
             .dependencies
             .iter()
-            .map(|d| mod_html_proto::ResolvedDependency {
+            .map(|d| cell_html_proto::ResolvedDependency {
                 name: d.name.clone(),
                 version: d.version.clone(),
                 source: match &d.source {
-                    DependencySourceInfo::CratesIo => mod_html_proto::DependencySource::CratesIo,
+                    DependencySourceInfo::CratesIo => cell_html_proto::DependencySource::CratesIo,
                     DependencySourceInfo::Git { url, commit } => {
-                        mod_html_proto::DependencySource::Git {
+                        cell_html_proto::DependencySource::Git {
                             url: url.clone(),
                             commit: commit.clone(),
                         }
                     }
-                    DependencySourceInfo::Path { path } => mod_html_proto::DependencySource::Path {
+                    DependencySourceInfo::Path { path } => cell_html_proto::DependencySource::Path {
                         path: path.clone(),
                     },
                 },
@@ -357,7 +357,7 @@ fn convert_metadata_to_proto(meta: &CodeExecutionMetadata) -> mod_html_proto::Co
 /// Build a map from normalized code text to metadata for code blocks with execution results
 fn build_code_metadata_map(
     results: &[CodeExecutionResult],
-) -> HashMap<String, mod_html_proto::CodeExecutionMetadata> {
+) -> HashMap<String, cell_html_proto::CodeExecutionMetadata> {
     let mut map = HashMap::new();
     for result in results {
         if let Some(ref metadata) = result.metadata {
@@ -371,7 +371,7 @@ fn build_code_metadata_map(
 /// Inject build info buttons into code blocks using the html plugin
 async fn inject_build_info_buttons(
     html: &str,
-    code_metadata: &HashMap<String, mod_html_proto::CodeExecutionMetadata>,
+    code_metadata: &HashMap<String, cell_html_proto::CodeExecutionMetadata>,
 ) -> (String, bool) {
     if code_metadata.is_empty() {
         return (html.to_string(), false);
@@ -1191,7 +1191,7 @@ mod tests {
     async fn test_inject_build_info_buttons_empty_metadata() {
         let html = r#"<html><body><pre><code>fn main() {}</code></pre></body></html>"#;
 
-        let code_metadata: HashMap<String, mod_html_proto::CodeExecutionMetadata> = HashMap::new();
+        let code_metadata: HashMap<String, cell_html_proto::CodeExecutionMetadata> = HashMap::new();
         let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata).await;
 
         assert!(

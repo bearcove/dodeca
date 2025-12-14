@@ -56,14 +56,14 @@ jobs:
         name: Build ddc
         run: cargo build --release -p dodeca
       - 
-        name: Build plugins
-        run: cargo build --release -p mod-arborium --bin ddc-mod-arborium -p mod-code-execution --bin ddc-mod-code-execution -p mod-css --bin ddc-mod-css -p mod-fonts --bin ddc-mod-fonts -p mod-html --bin ddc-mod-html -p mod-html-diff --bin ddc-mod-html-diff -p mod-http --bin ddc-mod-http -p mod-image --bin ddc-mod-image -p mod-js --bin ddc-mod-js -p mod-jxl --bin ddc-mod-jxl -p mod-linkcheck --bin ddc-mod-linkcheck -p mod-markdown --bin ddc-mod-markdown -p mod-minify --bin ddc-mod-minify -p mod-pagefind --bin ddc-mod-pagefind -p mod-sass --bin ddc-mod-sass -p mod-svgo --bin ddc-mod-svgo -p mod-tui --bin ddc-mod-tui -p mod-webp --bin ddc-mod-webp
+        name: Build cells
+        run: cargo build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp
       - 
         name: Test ddc
         run: cargo test --release -p dodeca
       - 
-        name: Test plugins
-        run: cargo test --release -p mod-arborium -p mod-code-execution -p mod-css -p mod-fonts -p mod-html -p mod-html-diff -p mod-http -p mod-image -p mod-js -p mod-jxl -p mod-linkcheck -p mod-markdown -p mod-minify -p mod-pagefind -p mod-sass -p mod-svgo -p mod-tui -p mod-webp
+        name: Test cells
+        run: cargo test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
       - 
         name: Clippy
         run: cargo clippy --all-features --all-targets -- -D warnings
@@ -111,14 +111,14 @@ jobs:
         name: Build ddc
         run: cargo build --release -p dodeca
       - 
-        name: Build plugins
-        run: cargo build --release -p mod-arborium --bin ddc-mod-arborium -p mod-code-execution --bin ddc-mod-code-execution -p mod-css --bin ddc-mod-css -p mod-fonts --bin ddc-mod-fonts -p mod-html --bin ddc-mod-html -p mod-html-diff --bin ddc-mod-html-diff -p mod-http --bin ddc-mod-http -p mod-image --bin ddc-mod-image -p mod-js --bin ddc-mod-js -p mod-jxl --bin ddc-mod-jxl -p mod-linkcheck --bin ddc-mod-linkcheck -p mod-markdown --bin ddc-mod-markdown -p mod-minify --bin ddc-mod-minify -p mod-pagefind --bin ddc-mod-pagefind -p mod-sass --bin ddc-mod-sass -p mod-svgo --bin ddc-mod-svgo -p mod-tui --bin ddc-mod-tui -p mod-webp --bin ddc-mod-webp
+        name: Build cells
+        run: cargo build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp
       - 
         name: Test ddc
         run: cargo test --release -p dodeca
       - 
-        name: Test plugins
-        run: cargo test --release -p mod-arborium -p mod-code-execution -p mod-css -p mod-fonts -p mod-html -p mod-html-diff -p mod-http -p mod-image -p mod-js -p mod-jxl -p mod-linkcheck -p mod-markdown -p mod-minify -p mod-pagefind -p mod-sass -p mod-svgo -p mod-tui -p mod-webp
+        name: Test cells
+        run: cargo test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
       - 
         name: Clippy
         run: cargo clippy --all-features --all-targets -- -D warnings
@@ -167,7 +167,7 @@ jobs:
         run: "cargo test --release -p dodeca-integration --test '*'"
         env: 
           DODECA_BIN: ${{ github.workspace }}/dist/ddc
-          DODECA_PLUGINS: ${{ github.workspace }}/dist
+          DODECA_CELLS: ${{ github.workspace }}/dist
 
 
   integration-macos-arm64: 
@@ -204,7 +204,7 @@ jobs:
         run: "cargo test --release -p dodeca-integration --test '*'"
         env: 
           DODECA_BIN: ${{ github.workspace }}/dist/ddc
-          DODECA_PLUGINS: ${{ github.workspace }}/dist
+          DODECA_CELLS: ${{ github.workspace }}/dist
 
 
   release: 

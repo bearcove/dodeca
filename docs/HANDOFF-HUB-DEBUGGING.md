@@ -63,7 +63,7 @@ The doorbell signal isn't reaching the plugin, OR the plugin isn't responding to
 | `rapace/crates/rapace-transport-shm/src/hub_transport.rs` | Host and peer transport, send_frame/recv_frame |
 | `rapace/crates/rapace-transport-shm/src/doorbell.rs` | Socketpair doorbell for cross-process wakeup |
 | `rapace/crates/rapace-transport-shm/src/hub_session.rs` | HubHost::add_peer creates doorbells |
-| `dodeca/crates/dodeca-plugin-runtime/src/lib.rs` | Plugin side creates HubPeerTransport |
+| `dodeca/crates/dodeca-cell-runtime/src/lib.rs` | Plugin side creates HubPeerTransport |
 
 ## Debugging Commands
 
@@ -105,4 +105,4 @@ systemd-run --user --scope -p MemoryMax=4G ./target/debug/ddc build docs/
 
 - `cargo clean` fixed a wild linker issue with mod-sass (stale artifacts)
 - Use `cargo xtask build` to build everything
-- mod-http and mod-tui were updated to use `create_hub_transport` instead of old `create_shm_transport`
+- cell-http and cell-tui were updated to use `create_hub_transport` instead of old `create_shm_transport`

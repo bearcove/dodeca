@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "crates/*",
-    "mods/*",
+    "cells/*",
     "xtask",
 ]
 resolver = "3"
@@ -9,7 +9,7 @@ resolver = "3"
 [workspace.dependencies]
 rapace = { git = "https://github.com/bearcove/rapace", default-features = false }
 rapace-core = { git = "https://github.com/bearcove/rapace" }
-rapace-plugin = { git = "https://github.com/bearcove/rapace" }
+rapace-cell = { git = "https://github.com/bearcove/rapace" }
 rapace-tracing = { git = "https://github.com/bearcove/rapace" }
 ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", features = ["tokio"] }
 

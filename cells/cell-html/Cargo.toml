@@ -1,0 +1,36 @@
+[package]
+name = "cell-html"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "ddc-cell-html"
+path = "src/main.rs"
+
+[dependencies]
+# HTML parsing
+html5ever = "0.36"
+markup5ever_rcdom = "0.36.0+unofficial"
+lol_html = "2.7"
+
+# Error handling
+color-eyre = "0.6"
+
+# Async runtime
+tokio = { version = "1", features = ["rt", "time"] }
+
+# Logging
+tracing = "0.1"
+
+# Plugin runtime
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+
+# RPC framework
+rapace = { workspace = true, features = ["stream"] }
+rapace-cell.workspace = true
+
+# Local protocol definitions
+cell-html-proto = { path = "../cell-html-proto" }
+
+# Facet for serialization
+facet = { version = "0.32.2" }

@@ -1,0 +1,40 @@
+[package]
+name = "cell-pagefind"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[[bin]]
+name = "ddc-cell-pagefind"
+path = "src/main.rs"
+
+[dependencies]
+# Search indexing
+pagefind = "1.4"
+
+# Error handling
+color-eyre = "0.6"
+
+# Async runtime
+tokio = { version = "1", features = ["rt", "time", "rt-multi-thread"] }
+
+# Logging
+tracing = "0.1"
+
+# Plugin runtime (with utilities)
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+
+# RPC framework
+rapace = { workspace = true, features = ["stream"] }
+rapace-cell.workspace = true
+
+# Local protocol definitions
+cell-pagefind-proto = { path = "../cell-pagefind-proto" }
+
+# Facet for serialization  
+facet = { version = "0.32.2" }
+facet-kdl = { version = "0.32.2" }

@@ -16,7 +16,7 @@ The SHM hub transport hangs after ~6 successful RPC calls. Multiple fixes have b
 
 ## Fixes Applied (in dodeca)
 
-1. **Code-execution async** (`mods/mod-code-execution/src/impl.rs`): Changed `std::process::Command` to `tokio::process::Command` with `.await` to avoid blocking.
+1. **Code-execution async** (`cells/mod-code-execution/src/impl.rs`): Changed `std::process::Command` to `tokio::process::Command` with `.await` to avoid blocking.
 
 2. **CAS migration** (`crates/dodeca/src/cas.rs:42-45`): Handle old canopydb directory by deleting it if found.
 
@@ -49,7 +49,7 @@ Hangs here. All plugins idle in `epoll_wait`. Host waiting in tokio condvar.
 | `rapace/crates/rapace-transport-shm/src/doorbell.rs` | Doorbell with try_io fix |
 | `rapace/crates/rapace-transport-shm/src/layout.rs` | DescRing::enqueue() - single-producer |
 | `dodeca/crates/dodeca/src/plugins.rs` | Plugin spawn, FD passing |
-| `dodeca/mods/mod-code-execution/src/impl.rs` | Async Command fix |
+| `dodeca/cells/mod-code-execution/src/impl.rs` | Async Command fix |
 
 ## Repro
 

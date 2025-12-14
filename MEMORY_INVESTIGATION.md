@@ -11,15 +11,15 @@ Investigation into memory exhaustion issues with dodeca. Found and fixed multipl
 **Problem**: All 16 plugin modules had duplicate boilerplate code for SHM setup, argument parsing, and error handling.
 
 **Solution**:
-- Created standardized `dodeca_plugin_runtime` crate
+- Created standardized `dodeca_cell_runtime` crate
 - All plugins now use `plugin_service!` and `run_plugin!` macros
 - Removed ~1,650+ lines of duplicate code
 - All plugins now fail fast with clear errors when SHM files don't exist
 
 **Files Changed**:
 - All 16 plugin `main.rs` files drastically simplified
-- `crates/dodeca-plugin-runtime/src/lib.rs` created with macros
-- Corrected misconception: mod-tui is NOT a "reverse plugin" - it's a regular plugin
+- `crates/dodeca-cell-runtime/src/lib.rs` created with macros
+- Corrected misconception: cell-tui is NOT a "reverse plugin" - it's a regular plugin
 
 ### 2. SHM Slot Exhaustion (Commits: ac62ee1, 7a83150)
 
@@ -30,7 +30,7 @@ Investigation into memory exhaustion issues with dodeca. Found and fixed multipl
 **Solution**:
 - Increased `slot_count`: 128 → 512 (4x, now 32MB total)
 - Increased `ring_capacity`: 256 → 1024 (4x)
-- Unified all SHM configs to reference `dodeca_plugin_runtime::SHM_CONFIG`
+- Unified all SHM configs to reference `dodeca_cell_runtime::SHM_CONFIG`
 - Previously duplicated across `plugins.rs`, `tui_host.rs`, `plugin_server.rs`
 
 **Result**: Zero slot allocation failures in testing.
@@ -89,11 +89,11 @@ Clippy now warns on remaining violations (23 total):
 
 | File | Count | Notes |
 |------|-------|-------|
-| serve.rs | 20 | RPC responders for mod-http (sync methods calling async queries) |
+| serve.rs | 20 | RPC responders for cell-http (sync methods calling async queries) |
 | main.rs | 2 | Entry points (acceptable) |
 | search.rs | 1 | CPU-intensive, runs in separate thread (intentional) |
 
-**serve.rs** contains methods that respond to RPC requests from mod-http (which uses axum). These methods are sync but need to call async database queries, hence the `block_on`. Making these async would require changes to how the RPC server handles requests.
+**serve.rs** contains methods that respond to RPC requests from cell-http (which uses axum). These methods are sync but need to call async database queries, hence the `block_on`. Making these async would require changes to how the RPC server handles requests.
 
 **search.rs** is intentional - pagefind index building is CPU-intensive and runs in a dedicated thread via `std::thread::spawn`. The `block_on` is needed to access the tokio runtime from that thread.
 
@@ -135,7 +135,7 @@ too many pending RPC calls; refusing new call pending_len=8192 max_pending=8192
 ### SHM Configuration (All plugins must match)
 
 ```rust
-// crates/dodeca-plugin-runtime/src/lib.rs
+// crates/dodeca-cell-runtime/src/lib.rs
 pub const SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
     ring_capacity: 1024, // 1024 descriptors in flight
     slot_size: 65536,    // 64KB per slot
@@ -153,12 +153,12 @@ All host-side code now references this constant:
 Plugins use standardized macros:
 
 ```rust
-dodeca_plugin_runtime::plugin_service!(
+dodeca_cell_runtime::plugin_service!(
     ServerType<ImplType>,
     ImplType
 );
 
-dodeca_plugin_runtime::run_plugin!(ImplType);
+dodeca_cell_runtime::run_plugin!(ImplType);
 ```
 
 This handles:
@@ -230,7 +230,7 @@ Latest commits:
 - (pending) - Make highlight_code async with two-pass approach
 - `88ebb09` - Add call chain analysis for block_in_place usage
 - `6e5ccf7` - Add memory investigation handoff
-- `7a83150` - Add dodeca-plugin-runtime dependency
+- `7a83150` - Add dodeca-cell-runtime dependency
 - `ac62ee1` - Increase SHM capacity
-- `5fe392e` - Migrate mod-tui
+- `5fe392e` - Migrate cell-tui
 - `456da42` - Standardize all plugins

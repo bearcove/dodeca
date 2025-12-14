@@ -72,8 +72,8 @@ main() {
     cp "$tmpdir/ddc" "$install_dir/"
     chmod +x "$install_dir/ddc"
 
-    # Copy plugin binaries (ddc-mod-*)
-    for plugin in "$tmpdir"/ddc-mod-*; do
+    # Copy cell binaries (ddc-cell-*)
+    for plugin in "$tmpdir"/ddc-cell-*; do
         if [ -f "$plugin" ]; then
             cp "$plugin" "$install_dir/"
             chmod +x "$install_dir/$(basename "$plugin")"

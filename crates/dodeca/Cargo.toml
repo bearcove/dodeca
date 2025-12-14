@@ -81,28 +81,28 @@ postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary seria
 dodeca-protocol = { path = "../dodeca-protocol" }
 
 # RPC protocol for dev server plugin
-mod-http-proto = { path = "../../mods/mod-http-proto" }
+cell-http-proto = { path = "../../cells/cell-http-proto" }
 
 # Syntax highlight service protocol
-mod-arborium-proto = { path = "../../mods/mod-arborium-proto" }
+cell-arborium-proto = { path = "../../cells/cell-arborium-proto" }
 
 # All plugin protocol definitions
-mod-code-execution-proto = { path = "../../mods/mod-code-execution-proto" }
-mod-css-proto = { path = "../../mods/mod-css-proto" }
-mod-fonts-proto = { path = "../../mods/mod-fonts-proto" }
-mod-html-diff-proto = { path = "../../mods/mod-html-diff-proto" }
-mod-image-proto = { path = "../../mods/mod-image-proto" }
-mod-js-proto = { path = "../../mods/mod-js-proto" }
-mod-jxl-proto = { path = "../../mods/mod-jxl-proto" }
-mod-linkcheck-proto = { path = "../../mods/mod-linkcheck-proto" }
-mod-minify-proto = { path = "../../mods/mod-minify-proto" }
-mod-tui-proto = { path = "../../mods/mod-tui-proto" }
-mod-pagefind-proto = { path = "../../mods/mod-pagefind-proto" }
-mod-sass-proto = { path = "../../mods/mod-sass-proto" }
-mod-svgo-proto = { path = "../../mods/mod-svgo-proto" }
-mod-webp-proto = { path = "../../mods/mod-webp-proto" }
-mod-html-proto = { path = "../../mods/mod-html-proto" }
-mod-markdown-proto = { path = "../../mods/mod-markdown-proto" }
+cell-code-execution-proto = { path = "../../cells/cell-code-execution-proto" }
+cell-css-proto = { path = "../../cells/cell-css-proto" }
+cell-fonts-proto = { path = "../../cells/cell-fonts-proto" }
+cell-html-diff-proto = { path = "../../cells/cell-html-diff-proto" }
+cell-image-proto = { path = "../../cells/cell-image-proto" }
+cell-js-proto = { path = "../../cells/cell-js-proto" }
+cell-jxl-proto = { path = "../../cells/cell-jxl-proto" }
+cell-linkcheck-proto = { path = "../../cells/cell-linkcheck-proto" }
+cell-minify-proto = { path = "../../cells/cell-minify-proto" }
+cell-tui-proto = { path = "../../cells/cell-tui-proto" }
+cell-pagefind-proto = { path = "../../cells/cell-pagefind-proto" }
+cell-sass-proto = { path = "../../cells/cell-sass-proto" }
+cell-svgo-proto = { path = "../../cells/cell-svgo-proto" }
+cell-webp-proto = { path = "../../cells/cell-webp-proto" }
+cell-html-proto = { path = "../../cells/cell-html-proto" }
+cell-markdown-proto = { path = "../../cells/cell-markdown-proto" }
 
 # RPC framework for plugin communication
 rapace = { workspace = true, features = ["stream"] }

@@ -4,9 +4,9 @@
 //! Works entirely in memory - no files need to be written to disk.
 
 use crate::db::{OutputFile, SiteOutput};
-use crate::plugins::build_search_index_plugin;
+use crate::cells::build_search_index_plugin;
 use eyre::eyre;
-use mod_pagefind_proto::SearchPage;
+use cell_pagefind_proto::SearchPage;
 use std::collections::HashMap;
 
 /// Search index files (path -> content)

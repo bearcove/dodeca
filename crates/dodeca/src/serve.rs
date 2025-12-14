@@ -366,7 +366,7 @@ impl SiteServer {
     /// Notify all connected browsers to reload
     /// Computes patches for all cached routes and sends them
     pub fn trigger_reload(&self) {
-        use crate::plugins::diff_html_plugin;
+        use crate::cells::diff_html_plugin;
 
         // Check for CSS changes first
         let old_css_path = {
@@ -1079,8 +1079,8 @@ impl SiteServer {
     /// Find content for RPC serving (returns protocol ServeContent type)
     ///
     /// This wraps find_content and converts the result to the protocol's ServeContent.
-    pub async fn find_content_for_rpc(&self, path: &str) -> mod_http_proto::ServeContent {
-        use mod_http_proto::ServeContent as RpcServeContent;
+    pub async fn find_content_for_rpc(&self, path: &str) -> cell_http_proto::ServeContent {
+        use cell_http_proto::ServeContent as RpcServeContent;
 
         match self.find_content(path).await {
             Some(ServeContent::Html(html)) => {

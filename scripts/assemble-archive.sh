@@ -40,32 +40,32 @@ esac
 
 ARCHIVE_NAME="dodeca-${TARGET}.${ARCHIVE_EXT}"
 
-# Auto-discover cdylib plugins (crates with cdylib in Cargo.toml)
-CDYLIB_PLUGINS=()
+# Auto-discover cdylib cells (crates with cdylib in Cargo.toml)
+CDYLIB_CELLS=()
 for dir in crates/dodeca-*/; do
     if [[ -f "$dir/Cargo.toml" ]] && grep -q 'cdylib' "$dir/Cargo.toml"; then
-        plugin=$(basename "$dir")
+        cell=$(basename "$dir")
         # Convert crate name to lib name (dodeca-foo -> dodeca_foo)
-        lib_name="${plugin//-/_}"
-        CDYLIB_PLUGINS+=("$lib_name")
+        lib_name="${cell//-/_}"
+        CDYLIB_CELLS+=("$lib_name")
     fi
 done
 
-# Auto-discover rapace plugins (mods with [[bin]] in Cargo.toml, excluding -proto)
-RAPACE_PLUGINS=()
-for dir in mods/mod-*/; do
+# Auto-discover rapace cells (cells with [[bin]] in Cargo.toml, excluding -proto)
+RAPACE_CELLS=()
+for dir in cells/cell-*/; do
     dirname=$(basename "$dir")
     # Skip proto crates
     if [[ "$dirname" == *-proto ]]; then
         continue
     fi
     if [[ -f "$dir/Cargo.toml" ]] && grep -q '\[\[bin\]\]' "$dir/Cargo.toml"; then
-        RAPACE_PLUGINS+=("$dirname")
+        RAPACE_CELLS+=("$dirname")
     fi
 done
 
-echo "Discovered cdylib plugins: ${CDYLIB_PLUGINS[*]:-none}"
-echo "Discovered rapace plugins: ${RAPACE_PLUGINS[*]:-none}"
+echo "Discovered cdylib cells: ${CDYLIB_CELLS[*]:-none}"
+echo "Discovered rapace cells: ${RAPACE_CELLS[*]:-none}"
 
 # Create staging directory
 rm -rf staging
@@ -93,12 +93,12 @@ if [[ -n "$STRIP_CMD" ]]; then
     $STRIP_CMD "staging/${BINARY_NAME}"
 fi
 
-# Copy and strip rapace plugin binaries
-for plugin in "${RAPACE_PLUGINS[@]}"; do
+# Copy and strip rapace cell binaries
+for cell in "${RAPACE_CELLS[@]}"; do
     if [[ "$TARGET" == *windows* ]]; then
-        BIN_NAME="ddc-${plugin}.exe"
+        BIN_NAME="ddc-${cell}.exe"
     else
-        BIN_NAME="ddc-${plugin}"
+        BIN_NAME="ddc-${cell}"
     fi
     SRC="${RELEASE_DIR}/${BIN_NAME}"
     if [[ -f "$SRC" ]]; then
@@ -107,27 +107,27 @@ for plugin in "${RAPACE_PLUGINS[@]}"; do
             echo "Stripping: ${BIN_NAME}"
             $STRIP_CMD "staging/${BIN_NAME}"
         fi
-        echo "Copied rapace plugin: ${BIN_NAME}"
+        echo "Copied rapace cell: ${BIN_NAME}"
     else
-        echo "Warning: Rapace plugin not found: $SRC"
+        echo "Warning: Rapace cell not found: $SRC"
     fi
 done
 
-# Copy and strip cdylib plugins (if any)
-if [[ ${#CDYLIB_PLUGINS[@]} -gt 0 ]]; then
-    mkdir -p staging/plugins
-    for plugin in "${CDYLIB_PLUGINS[@]}"; do
-        PLUGIN_FILE="${LIB_PREFIX}${plugin}.${LIB_EXT}"
-        SRC="${RELEASE_DIR}/${PLUGIN_FILE}"
+# Copy and strip cdylib cells (if any)
+if [[ ${#CDYLIB_CELLS[@]} -gt 0 ]]; then
+    mkdir -p staging/cells
+    for cell in "${CDYLIB_CELLS[@]}"; do
+        CELL_FILE="${LIB_PREFIX}${cell}.${LIB_EXT}"
+        SRC="${RELEASE_DIR}/${CELL_FILE}"
         if [[ -f "$SRC" ]]; then
-            cp "$SRC" staging/plugins/
+            cp "$SRC" staging/cells/
             if [[ -n "$STRIP_CMD" ]]; then
-                echo "Stripping: plugins/${PLUGIN_FILE}"
-                $STRIP_CMD "staging/plugins/${PLUGIN_FILE}"
+                echo "Stripping: cells/${CELL_FILE}"
+                $STRIP_CMD "staging/cells/${CELL_FILE}"
             fi
-            echo "Copied cdylib plugin: ${PLUGIN_FILE}"
+            echo "Copied cdylib cell: ${CELL_FILE}"
         else
-            echo "Warning: cdylib plugin not found: $SRC"
+            echo "Warning: cdylib cell not found: $SRC"
         fi
     done
 fi

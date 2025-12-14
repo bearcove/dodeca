@@ -2,7 +2,7 @@
 //!
 //! Provides HTML and SVG minification via plugins.
 
-use crate::plugins::{minify_html_plugin, optimize_svg_plugin};
+use crate::cells::{minify_html_plugin, optimize_svg_plugin};
 
 /// Minify HTML content
 ///

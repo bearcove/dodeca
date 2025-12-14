@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::plugins::{
+use crate::cells::{
     mark_dead_links_plugin, rewrite_string_literals_in_js_plugin, rewrite_urls_in_css_plugin,
     rewrite_urls_in_html_plugin,
 };
@@ -18,7 +18,7 @@ use crate::plugins::{
 /// Returns original CSS if plugin is not available.
 pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) -> String {
     // Check if CSS plugin is available
-    if crate::plugins::plugins().css.is_none() {
+    if crate::cells::plugins().css.is_none() {
         return css.to_string();
     }
 
@@ -35,7 +35,7 @@ pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) 
 /// Returns original JS if plugin is not available.
 async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, String>) -> String {
     // Check if JS plugin is available
-    if crate::plugins::plugins().js.is_none() {
+    if crate::cells::plugins().js.is_none() {
         return js.to_string();
     }
 

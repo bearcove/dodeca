@@ -22,7 +22,7 @@ The SHM hub architecture has been implemented but not yet tested end-to-end with
 | File | Description |
 |------|-------------|
 | `crates/dodeca/src/plugins.rs` | Creates single HubHost, passes `--hub-path`, `--peer-id`, `--doorbell-fd` to plugins |
-| `crates/dodeca-plugin-runtime/src/lib.rs` | Accepts hub args, creates HubPeerTransport |
+| `crates/dodeca-cell-runtime/src/lib.rs` | Accepts hub args, creates HubPeerTransport |
 
 ### Documentation
 
@@ -36,11 +36,11 @@ The SHM hub architecture has been implemented but not yet tested end-to-end with
 
 ### 1. Build plugins with new runtime
 
-The plugins in `mods/` need to be rebuilt. They use `dodeca-plugin-runtime` which now expects hub arguments:
+The plugins in `cells/` need to be rebuilt. They use `dodeca-cell-runtime` which now expects hub arguments:
 
 ```bash
-# Build a plugin (from mods/ directory)
-cd mods/mod-minify && cargo build
+# Build a plugin (from cells/ directory)
+cd cells/mod-minify && cargo build
 ```
 
 ### 2. Test with dodeca
@@ -107,12 +107,12 @@ cd /home/amos/bearcove/dodeca
 cargo build -p dodeca
 
 # 3. Build one plugin
-cd mods/mod-minify
+cd cells/mod-minify
 cargo build
 
 # 4. Run with a simple site
 cd /home/amos/bearcove/dodeca
-DODECA_PLUGIN_PATH=./mods/mod-minify/target/debug \
+DODECA_PLUGIN_PATH=./cells/mod-minify/target/debug \
 systemd-run --user --scope -p MemoryMax=4G \
   ./target/debug/ddc build docs/
 ```

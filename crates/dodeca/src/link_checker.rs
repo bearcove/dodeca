@@ -7,7 +7,7 @@
 //! per-domain rate limiting internally.
 
 use crate::db::ExternalLinkStatus;
-use crate::plugins::{CheckOptions, check_urls_plugin, has_linkcheck_plugin};
+use crate::cells::{CheckOptions, check_urls_plugin, has_linkcheck_plugin};
 use crate::types::Route;
 use chrono::NaiveDate;
 use regex::Regex;

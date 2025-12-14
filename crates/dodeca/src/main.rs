@@ -11,8 +11,8 @@ mod file_watcher;
 mod image;
 mod link_checker;
 mod logging;
-mod plugin_server;
-mod plugins;
+mod cell_server;
+mod cells;
 mod queries;
 mod render;
 mod search;
@@ -2023,7 +2023,7 @@ async fn serve_plain(
     let requested_port: u16 = port.unwrap_or(4000);
 
     // Find the plugin path
-    let plugin_path = plugin_server::find_plugin_path()?;
+    let plugin_path = cell_server::find_plugin_path()?;
 
     // Parse the address to get the IP to bind to
     let bind_ip: std::net::Ipv4Addr = match address.parse::<std::net::IpAddr>() {
@@ -2073,7 +2073,7 @@ async fn serve_plain(
     // Start the plugin server in background
     let server_clone = server.clone();
     tokio::spawn(async move {
-        if let Err(e) = plugin_server::start_plugin_server_with_shutdown(
+        if let Err(e) = cell_server::start_plugin_server_with_shutdown(
             server_clone,
             plugin_path,
             vec![bind_ip],
@@ -2139,7 +2139,7 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
         // Build search index - call the plugin directly since we're already in an async context.
         // Don't go through search::build_search_index which creates another runtime.
         let pages = search::collect_search_pages(&site_output);
-        let files = plugins::build_search_index_plugin(pages)
+        let files = cells::build_search_index_plugin(pages)
             .await
             .map_err(|e| eyre!("pagefind: {}", e))?;
 
@@ -2484,7 +2484,7 @@ async fn serve_with_tui(
     let cas_cache_dir_clone = cas_cache_dir.clone();
 
     // Find the plugin path once upfront
-    let plugin_path = match plugin_server::find_plugin_path() {
+    let plugin_path = match cell_server::find_plugin_path() {
         Ok(p) => p,
         Err(e) => {
             return Err(eyre!("Failed to find plugin: {e}"));
@@ -2515,7 +2515,7 @@ async fn serve_with_tui(
             let event_tx_clone = event_tx.clone();
 
             tokio::spawn(async move {
-                if let Err(e) = plugin_server::start_plugin_server_with_shutdown(
+                if let Err(e) = cell_server::start_plugin_server_with_shutdown(
                     server_clone,
                     plugin_path_clone,
                     ips_clone,
@@ -2975,7 +2975,7 @@ async fn serve_with_tui(
 
     // Create a proto command channel for TuiHost, with a bridge to the old channel
     let (proto_cmd_tx, mut proto_cmd_rx) =
-        tokio::sync::mpsc::unbounded_channel::<mod_tui_proto::ServerCommand>();
+        tokio::sync::mpsc::unbounded_channel::<cell_tui_proto::ServerCommand>();
 
     // Bridge proto commands to old tui commands
     tokio::spawn(async move {

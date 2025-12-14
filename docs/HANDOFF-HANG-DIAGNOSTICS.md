@@ -28,7 +28,7 @@ Added methods to inspect transport state:
   - Dumps per-peer ring status (recv_ring, send_ring)
   - Dumps doorbell pending bytes for each peer
 
-- **Plugin-side diagnostics** (`dodeca-plugin-runtime`):
+- **Plugin-side diagnostics** (`dodeca-cell-runtime`):
   - Dumps recv/send ring status
   - Dumps doorbell pending bytes
 
@@ -85,7 +85,7 @@ HubAllocator slots: N total, N free, N allocated, N in_flight
 
 ### dodeca (branch: `memory-mystery`)
 - `crates/dodeca-debug/src/lib.rs` - SIGUSR1 handler infrastructure
-- `crates/dodeca-plugin-runtime/src/lib.rs` - Plugin diagnostic registration
+- `crates/dodeca-cell-runtime/src/lib.rs` - Plugin diagnostic registration
 - `crates/dodeca/src/plugins.rs` - Host diagnostic registration
 
 ## Verified

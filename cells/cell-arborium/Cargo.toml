@@ -1,0 +1,67 @@
+[package]
+name = "cell-arborium"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+description = "Syntax highlighting plugin for dodeca using rapace"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[[bin]]
+name = "ddc-cell-arborium"
+path = "src/main.rs"
+
+[dependencies]
+# RPC framework
+rapace = { workspace = true, features = ["stream"] }
+rapace-cell.workspace = true
+
+# Syntax highlighting with tree-sitter
+arborium = { version = "1.2", features = [
+    "lang-bash",
+    "lang-c",
+    "lang-cpp",
+    "lang-css",
+    "lang-dockerfile",
+    "lang-go",
+    "lang-haskell",
+    "lang-html",
+    "lang-java",
+    "lang-javascript",
+    "lang-json",
+    "lang-kdl",
+    "lang-kotlin",
+    "lang-lua",
+    "lang-markdown",
+    "lang-python",
+    "lang-ruby",
+    "lang-rust",
+    "lang-scala",
+    "lang-sql",
+    "lang-swift",
+    "lang-toml",
+    "lang-typescript",
+    "lang-yaml",
+    "lang-zig",
+] }
+
+# Protocol definition
+cell-arborium-proto = { path = "../cell-arborium-proto" }
+
+# Error handling
+color-eyre = "0.6"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Logging
+tracing = "0.1"
+
+# Shared plugin runtime (Rapace tracing, dispatcher helpers)
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }

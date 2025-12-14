@@ -172,10 +172,10 @@ fn discover_cdylib_plugins() -> Vec<String> {
 /// Discover rapace plugins by looking for mod-* directories with [[bin]] in Cargo.toml
 /// Returns (package_name, binary_name) pairs
 fn discover_rapace_plugins() -> Vec<(String, String)> {
-    let mods_dir = PathBuf::from("mods");
+    let cells_dir = PathBuf::from("cells");
     let mut plugins = Vec::new();
 
-    if let Ok(entries) = fs::read_dir(&mods_dir) {
+    if let Ok(entries) = fs::read_dir(&cells_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if !path.is_dir() {

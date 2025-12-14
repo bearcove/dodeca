@@ -59,7 +59,7 @@ Idle, no work pending. Doorbell AsyncFd not triggering.
 | `rapace/crates/rapace-transport-shm/src/hub_transport.rs` | Ring buffer send/recv, futex wait |
 | `rapace/crates/rapace-transport-shm/src/doorbell.rs` | Socketpair doorbell, AsyncFd wrap |
 | `rapace/crates/rapace-transport-shm/src/hub_session.rs` | HubHost::add_peer creates doorbells |
-| `dodeca/crates/dodeca-plugin-runtime/src/lib.rs` | Plugin creates HubPeerTransport |
+| `dodeca/crates/dodeca-cell-runtime/src/lib.rs` | Plugin creates HubPeerTransport |
 | `dodeca/crates/dodeca/src/plugins.rs` | Host spawns plugins, passes doorbell FDs |
 
 ## Reproduction

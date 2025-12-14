@@ -70,7 +70,7 @@ Could use:
 
 **Dodeca (plugin host)**:
 - `/home/amos/bearcove/dodeca/crates/dodeca/src/plugins.rs` - Plugin launching, SHM config
-- `/home/amos/bearcove/dodeca/crates/dodeca-plugin-runtime/src/lib.rs` - Plugin side
+- `/home/amos/bearcove/dodeca/crates/dodeca-cell-runtime/src/lib.rs` - Plugin side
 
 ### Test Command
 
@@ -82,7 +82,7 @@ rm -f /tmp/dodeca-*.shm
 systemd-run --user --scope -p MemoryMax=4G ./target/debug/ddc build docs
 ```
 
-The font decompression test (in `mods/mod-fonts/src/main.rs`) shows fontcull works fine:
+The font decompression test (in `cells/mod-fonts/src/main.rs`) shows fontcull works fine:
 ```
 Font size: 1506136 bytes
 Decompress took: 56.005474ms

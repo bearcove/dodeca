@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use dodeca_protocol::{EvalResult, ScopeEntry};
-use mod_http_proto::{ContentService, ServeContent};
+use cell_http_proto::{ContentService, ServeContent};
 
 use crate::serve::{SiteServer, get_devtools_asset, get_search_file_content};
 

@@ -33,8 +33,8 @@ pub const TARGETS: &[Target] = &[
 ];
 
 /// Discover cdylib plugins by scanning crates/dodeca-*/Cargo.toml for cdylib crate-type.
-pub fn discover_cdylib_plugins(repo_root: &Utf8Path) -> Vec<String> {
-    let mut plugins = Vec::new();
+pub fn discover_cdylib_cells(repo_root: &Utf8Path) -> Vec<String> {
+    let mut cells = Vec::new();
     let crates_dir = repo_root.join("crates");
 
     if let Ok(entries) = std::fs::read_dir(&crates_dir) {
@@ -47,28 +47,28 @@ pub fn discover_cdylib_plugins(repo_root: &Utf8Path) -> Vec<String> {
                 if let Ok(content) = std::fs::read_to_string(&cargo_toml)
                     && content.contains("cdylib")
                 {
-                    plugins.push(name.to_string());
+                    cells.push(name.to_string());
                 }
             }
         }
     }
 
-    plugins.sort();
-    plugins
+    cells.sort();
+    cells
 }
 
-/// Discover rapace plugins by scanning mods/mod-*/Cargo.toml for [[bin]] sections.
+/// Discover rapace plugins by scanning cells/cell-*/Cargo.toml for [[bin]] sections.
 /// Returns (package_name, binary_name) pairs.
-pub fn discover_rapace_plugins(repo_root: &Utf8Path) -> Vec<(String, String)> {
-    let mut plugins = Vec::new();
-    let mods_dir = repo_root.join("mods");
+pub fn discover_rapace_cells(repo_root: &Utf8Path) -> Vec<(String, String)> {
+    let mut cells = Vec::new();
+    let cells_dir = repo_root.join("mods");
 
-    if let Ok(entries) = std::fs::read_dir(&mods_dir) {
+    if let Ok(entries) = std::fs::read_dir(&cells_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if let Some(name) = path.file_name().and_then(|n| n.to_str())
                 // Skip proto crates
-                && name.starts_with("mod-")
+                && name.starts_with("cell-")
                 && !name.ends_with("-proto")
             {
                 let cargo_toml = path.join("Cargo.toml");
@@ -76,41 +76,41 @@ pub fn discover_rapace_plugins(repo_root: &Utf8Path) -> Vec<(String, String)> {
                     && content.contains("[[bin]]")
                 {
                     let bin_name = format!("dodeca-{}", name);
-                    plugins.push((name.to_string(), bin_name));
+                    cells.push((name.to_string(), bin_name));
                 }
             }
         }
     }
 
-    plugins.sort();
-    plugins
+    cells.sort();
+    cells
 }
 
 /// All plugins sorted alphabetically (package_name, binary_name).
-pub const ALL_PLUGINS: &[(&str, &str)] = &[
-    ("mod-arborium", "ddc-mod-arborium"),
-    ("mod-code-execution", "ddc-mod-code-execution"),
-    ("mod-css", "ddc-mod-css"),
-    ("mod-fonts", "ddc-mod-fonts"),
-    ("mod-html", "ddc-mod-html"),
-    ("mod-html-diff", "ddc-mod-html-diff"),
-    ("mod-http", "ddc-mod-http"),
-    ("mod-image", "ddc-mod-image"),
-    ("mod-js", "ddc-mod-js"),
-    ("mod-jxl", "ddc-mod-jxl"),
-    ("mod-linkcheck", "ddc-mod-linkcheck"),
-    ("mod-markdown", "ddc-mod-markdown"),
-    ("mod-minify", "ddc-mod-minify"),
-    ("mod-pagefind", "ddc-mod-pagefind"),
-    ("mod-sass", "ddc-mod-sass"),
-    ("mod-svgo", "ddc-mod-svgo"),
-    ("mod-tui", "ddc-mod-tui"),
-    ("mod-webp", "ddc-mod-webp"),
+pub const ALL_CELLS: &[(&str, &str)] = &[
+    ("cell-arborium", "ddc-cell-arborium"),
+    ("cell-code-execution", "ddc-cell-code-execution"),
+    ("cell-css", "ddc-cell-css"),
+    ("cell-fonts", "ddc-cell-fonts"),
+    ("cell-html", "ddc-cell-html"),
+    ("cell-html-diff", "ddc-cell-html-diff"),
+    ("cell-http", "ddc-cell-http"),
+    ("cell-image", "ddc-cell-image"),
+    ("cell-js", "ddc-cell-js"),
+    ("cell-jxl", "ddc-cell-jxl"),
+    ("cell-linkcheck", "ddc-cell-linkcheck"),
+    ("cell-markdown", "ddc-cell-markdown"),
+    ("cell-minify", "ddc-cell-minify"),
+    ("cell-pagefind", "ddc-cell-pagefind"),
+    ("cell-sass", "ddc-cell-sass"),
+    ("cell-svgo", "ddc-cell-svgo"),
+    ("cell-tui", "ddc-cell-tui"),
+    ("cell-webp", "ddc-cell-webp"),
 ];
 
 /// Group plugins into chunks of N for parallel CI builds.
-pub fn plugin_groups(chunk_size: usize) -> Vec<(String, Vec<(&'static str, &'static str)>)> {
-    ALL_PLUGINS
+pub fn cell_groups(chunk_size: usize) -> Vec<(String, Vec<(&'static str, &'static str)>)> {
+    ALL_CELLS
         .chunks(chunk_size)
         .enumerate()
         .map(|(i, chunk)| (format!("{}", i + 1), chunk.to_vec()))
@@ -482,14 +482,14 @@ pub fn build_ci_workflow() -> Workflow {
         let short = target.short_name();
         let is_macos = target.triple.contains("apple");
 
-        // Build all plugin binaries
-        let all_plugin_build_args: String = ALL_PLUGINS
+        // Build all cell binaries
+        let all_cell_build_args: String = ALL_CELLS
             .iter()
             .map(|(pkg, bin)| format!("-p {pkg} --bin {bin}"))
             .collect::<Vec<_>>()
             .join(" ");
 
-        let all_plugin_test_args: String = ALL_PLUGINS
+        let all_cell_test_args: String = ALL_CELLS
             .iter()
             .map(|(pkg, _)| format!("-p {pkg}"))
             .collect::<Vec<_>>()
@@ -513,13 +513,13 @@ pub fn build_ci_workflow() -> Workflow {
             Step::run("Build WASM", "cargo xtask wasm"),
             Step::run("Build ddc", "cargo build --release -p dodeca"),
             Step::run(
-                "Build plugins",
-                format!("cargo build --release {all_plugin_build_args}"),
+                "Build cells",
+                format!("cargo build --release {all_cell_build_args}"),
             ),
             Step::run("Test ddc", "cargo test --release -p dodeca"),
             Step::run(
-                "Test plugins",
-                format!("cargo test --release {all_plugin_test_args}"),
+                "Test cells",
+                format!("cargo test --release {all_cell_test_args}"),
             ),
             Step::run(
                 "Clippy",
@@ -572,7 +572,7 @@ pub fn build_ci_workflow() -> Workflow {
                     )
                     .with_env([
                         ("DODECA_BIN", "${{ github.workspace }}/dist/ddc"),
-                        ("DODECA_PLUGINS", "${{ github.workspace }}/dist"),
+                        ("DODECA_CELLS", "${{ github.workspace }}/dist"),
                     ]),
                 ]),
         );
@@ -733,8 +733,8 @@ main() {{
     cp "$tmpdir/ddc" "$install_dir/"
     chmod +x "$install_dir/ddc"
 
-    # Copy plugin binaries (ddc-mod-*)
-    for plugin in "$tmpdir"/ddc-mod-*; do
+    # Copy cell binaries (ddc-cell-*)
+    for plugin in "$tmpdir"/ddc-cell-*; do
         if [ -f "$plugin" ]; then
             cp "$plugin" "$install_dir/"
             chmod +x "$install_dir/$(basename "$plugin")"

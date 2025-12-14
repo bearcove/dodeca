@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use eyre::Result;
 use futures::StreamExt;
-use mod_tui_proto::{
+use cell_tui_proto::{
     BindMode, BuildProgress, CommandResult, EventKind, LogEvent, LogLevel, ServerCommand,
     ServerStatus, TaskProgress, TaskStatus, TuiHost, TuiHostServer,
 };
@@ -261,7 +261,7 @@ pub fn convert_server_command(cmd: ServerCommand) -> crate::tui::ServerCommand {
 type TuiTransport = ShmTransport;
 
 /// SHM configuration for TUI communication
-/// This must match the SHM_CONFIG in dodeca-plugin-runtime for plugins to connect.
+/// This must match the SHM_CONFIG in dodeca-cell-runtime for plugins to connect.
 const SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
     ring_capacity: 1024, // 1024 descriptors in flight
     slot_size: 65536,    // 64KB per slot

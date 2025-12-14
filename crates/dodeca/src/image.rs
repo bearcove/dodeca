@@ -10,7 +10,7 @@
 //! - Multiple width variants for srcset
 //! - Thumbhash placeholders for instant loading
 
-use crate::plugins::{self, DecodedImage};
+use crate::cells::{self, DecodedImage};
 
 /// Standard responsive breakpoints (in pixels)
 /// Only widths smaller than the original will be generated
@@ -106,17 +106,17 @@ pub async fn get_dimensions(data: &[u8], format: InputFormat) -> Option<(u32, u3
 /// Decode an image from bytes using the appropriate plugin
 async fn decode_image(data: &[u8], format: InputFormat) -> Option<DecodedImage> {
     match format {
-        InputFormat::Png => plugins::decode_png_plugin(data).await,
-        InputFormat::Jpg => plugins::decode_jpeg_plugin(data).await,
-        InputFormat::Gif => plugins::decode_gif_plugin(data).await,
-        InputFormat::WebP => plugins::decode_webp_plugin(data).await,
-        InputFormat::Jxl => plugins::decode_jxl_plugin(data).await,
+        InputFormat::Png => cells::decode_png_plugin(data).await,
+        InputFormat::Jpg => cells::decode_jpeg_plugin(data).await,
+        InputFormat::Gif => cells::decode_gif_plugin(data).await,
+        InputFormat::WebP => cells::decode_webp_plugin(data).await,
+        InputFormat::Jxl => cells::decode_jxl_plugin(data).await,
     }
 }
 
 /// Resize an image to a target width, maintaining aspect ratio
 async fn resize_image(decoded: &DecodedImage, target_width: u32) -> Option<DecodedImage> {
-    plugins::resize_image_plugin(
+    cells::resize_image_plugin(
         &decoded.pixels,
         decoded.width,
         decoded.height,
@@ -128,18 +128,18 @@ async fn resize_image(decoded: &DecodedImage, target_width: u32) -> Option<Decod
 
 /// Generate a thumbhash and encode it as a data URL
 async fn generate_thumbhash_data_url(decoded: &DecodedImage) -> Option<String> {
-    plugins::generate_thumbhash_plugin(&decoded.pixels, decoded.width, decoded.height).await
+    cells::generate_thumbhash_plugin(&decoded.pixels, decoded.width, decoded.height).await
 }
 
 /// Encode pixels to WebP format (via plugin)
 async fn encode_webp(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
-    plugins::encode_webp_plugin(pixels, width, height, 82).await
+    cells::encode_webp_plugin(pixels, width, height, 82).await
 }
 
 /// Encode pixels to JPEG-XL format (via plugin)
 async fn encode_jxl(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     // Quality 80 maps to distance ~3 in the plugin (high quality)
-    plugins::encode_jxl_plugin(pixels, width, height, 80).await
+    cells::encode_jxl_plugin(pixels, width, height, 80).await
 }
 
 /// Image metadata without the processed bytes
