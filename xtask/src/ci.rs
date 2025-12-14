@@ -493,7 +493,7 @@ struct CiRunner {
 
 const CI_LINUX: CiRunner = CiRunner {
     os: "linux",
-    runner: "depot-ubuntu-24.04-16",
+    runner: "depot-ubuntu-24.04-32",
     wasm_install: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh",
 };
 

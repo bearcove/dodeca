@@ -44,7 +44,7 @@ jobs:
 
   build-linux: 
     name: Build (linux)
-    runs-on: depot-ubuntu-24.04-16
+    runs-on: depot-ubuntu-24.04-32
     steps: 
       - 
         name: Checkout
