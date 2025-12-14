@@ -69,6 +69,29 @@ pub type DecodedImage = cell_image_proto::DecodedImage;
 /// Global plugin registry, initialized once.
 static PLUGINS: OnceLock<PluginRegistry> = OnceLock::new();
 
+/// Tracks whether we've done the initial warmup yield.
+static PLUGINS_WARMED_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Ensure plugins are loaded and warmed up (sessions have processed initial messages).
+///
+/// On current_thread tokio runtime, cells send tracing events during startup that
+/// allocate slots. The host's session.run() tasks need to process these before
+/// we can make RPC calls. This function yields to allow that processing.
+pub async fn ensure_plugins_ready() {
+    // Trigger plugin loading (sync)
+    let _ = plugins();
+
+    // If this is the first call, yield multiple times to let spawned tasks process
+    // all the queued messages from cell startup
+    if !PLUGINS_WARMED_UP.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        // Yield several times to ensure all spawned session.run() tasks get a chance
+        // to process the backlog of tracing events from cell startup
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+    }
+}
+
 /// Peer info for diagnostics: (peer_id, name, transport, rpc_session)
 struct PeerDiagInfo {
     peer_id: u16,
@@ -504,10 +527,9 @@ impl PluginRegistry {
 
     /// Wait for all spawned peers to register.
     ///
-    /// Note: This uses std::thread::sleep which blocks the current_thread runtime.
-    /// However, since session.run() is spawned immediately in spawn_plugin(), the
-    /// spawned tasks will process incoming messages as soon as we return from
-    /// plugins() and yield to the async runtime.
+    /// Uses spin-polling without blocking to allow tokio tasks to run on
+    /// current_thread runtime. The spawned session.run() tasks need to process
+    /// incoming messages from cells.
     fn wait_for_peers(hub: &Arc<HubHost>, peer_ids: &[u16]) {
         if peer_ids.is_empty() {
             return;
@@ -515,25 +537,30 @@ impl PluginRegistry {
 
         info!("waiting for {} peers to register: {:?}", peer_ids.len(), peer_ids);
 
-        // Wait up to 2s for all peers to register (checking every 10ms)
-        for i in 0..200 {
+        // Spin-poll for peer registration without blocking
+        // On current_thread runtime, std::thread::sleep would block ALL tasks
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_secs(2);
+
+        loop {
             let all_active = peer_ids.iter().all(|&id| hub.is_peer_active(id));
             if all_active {
-                info!("all {} peers registered after {}ms", peer_ids.len(), i * 10);
-                // Give cells a bit more time to be fully ready for RPCs.
-                // The PEER_FLAG_ACTIVE is set before the cell's session.run() starts,
-                // so this brief delay helps ensure cells are ready to handle requests.
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                info!("all {} peers registered after {:?}", peer_ids.len(), start.elapsed());
                 return;
             }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
 
-        // Log which peers failed to register
-        for &peer_id in peer_ids {
-            if !hub.is_peer_active(peer_id) {
-                warn!("peer {} failed to register within timeout", peer_id);
+            if start.elapsed() > timeout {
+                // Log which peers failed to register
+                for &peer_id in peer_ids {
+                    if !hub.is_peer_active(peer_id) {
+                        warn!("peer {} failed to register within timeout", peer_id);
+                    }
+                }
+                return;
             }
+
+            // Yield CPU to other threads (but doesn't help tokio tasks on current_thread)
+            std::hint::spin_loop();
         }
     }
 }
@@ -1487,6 +1514,7 @@ pub struct ParsedMarkdown {
 /// The caller is responsible for highlighting code blocks and replacing placeholders.
 #[tracing::instrument(level = "debug", skip(content), fields(content_len = content.len()))]
 pub async fn parse_and_render_markdown_cell(content: &str) -> Option<ParsedMarkdown> {
+    ensure_plugins_ready().await;
     let plugin = plugins().markdown.as_ref()?;
 
     match plugin.parse_and_render(content.to_string()).await {
