@@ -29,6 +29,9 @@ jobs:
       - 
         name: Rust cache
         uses: Swatinem/rust-cache@v2
+        with: 
+          cache-on-failure: "true"
+
       - 
         name: Install wasm-pack
         run: cargo install wasm-pack
@@ -62,6 +65,9 @@ jobs:
       - 
         name: Rust cache
         uses: Swatinem/rust-cache@v2
+        with: 
+          cache-on-failure: "true"
+
       - 
         name: Install wasm-pack
         run: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
@@ -76,7 +82,7 @@ jobs:
         run: cargo build --release -p mod-webp --bin dodeca-mod-webp -p mod-jxl --bin dodeca-mod-jxl -p mod-image --bin dodeca-mod-image -p mod-minify --bin dodeca-mod-minify -p mod-css --bin dodeca-mod-css -p mod-sass --bin dodeca-mod-sass -p mod-html-diff --bin dodeca-mod-html-diff -p mod-fonts --bin dodeca-mod-fonts -p mod-pagefind --bin dodeca-mod-pagefind -p mod-linkcheck --bin dodeca-mod-linkcheck -p mod-svgo --bin dodeca-mod-svgo -p mod-arborium --bin dodeca-mod-arborium -p mod-js --bin dodeca-mod-js -p mod-code-execution --bin dodeca-mod-code-execution -p mod-http --bin dodeca-mod-http
       - 
         name: Test ddc
-        run: cargo test --release -p dodeca --lib
+        run: cargo test --release -p dodeca
       - 
         name: Test plugins
         run: cargo test --release -p mod-webp -p mod-jxl -p mod-image -p mod-minify -p mod-css -p mod-sass -p mod-html-diff -p mod-fonts -p mod-pagefind -p mod-linkcheck -p mod-svgo -p mod-arborium -p mod-js -p mod-code-execution -p mod-http
@@ -111,6 +117,9 @@ jobs:
       - 
         name: Rust cache
         uses: Swatinem/rust-cache@v2
+        with: 
+          cache-on-failure: "true"
+
       - 
         name: Install wasm-pack
         run: brew install wasm-pack
@@ -125,7 +134,7 @@ jobs:
         run: cargo build --release -p mod-webp --bin dodeca-mod-webp -p mod-jxl --bin dodeca-mod-jxl -p mod-image --bin dodeca-mod-image -p mod-minify --bin dodeca-mod-minify -p mod-css --bin dodeca-mod-css -p mod-sass --bin dodeca-mod-sass -p mod-html-diff --bin dodeca-mod-html-diff -p mod-fonts --bin dodeca-mod-fonts -p mod-pagefind --bin dodeca-mod-pagefind -p mod-linkcheck --bin dodeca-mod-linkcheck -p mod-svgo --bin dodeca-mod-svgo -p mod-arborium --bin dodeca-mod-arborium -p mod-js --bin dodeca-mod-js -p mod-code-execution --bin dodeca-mod-code-execution -p mod-http --bin dodeca-mod-http
       - 
         name: Test ddc
-        run: cargo test --release -p dodeca --lib
+        run: cargo test --release -p dodeca
       - 
         name: Test plugins
         run: cargo test --release -p mod-webp -p mod-jxl -p mod-image -p mod-minify -p mod-css -p mod-sass -p mod-html-diff -p mod-fonts -p mod-pagefind -p mod-linkcheck -p mod-svgo -p mod-arborium -p mod-js -p mod-code-execution -p mod-http

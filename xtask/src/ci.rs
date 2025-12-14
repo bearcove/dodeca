@@ -459,6 +459,7 @@ pub mod common {
 
     pub fn rust_cache() -> Step {
         Step::uses("Rust cache", "Swatinem/rust-cache@v2")
+            .with_inputs([("cache-on-failure", "true")])
     }
 
     pub fn upload_artifact(name: impl Into<String>, path: impl Into<String>) -> Step {
@@ -568,7 +569,7 @@ pub fn build_ci_workflow() -> Workflow {
                         "Build plugins",
                         format!("cargo build --release {all_plugin_build_args}"),
                     ),
-                    Step::run("Test ddc", "cargo test --release -p dodeca --lib"),
+                    Step::run("Test ddc", "cargo test --release -p dodeca"),
                     Step::run(
                         "Test plugins",
                         format!("cargo test --release {all_plugin_test_args}"),
