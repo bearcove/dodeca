@@ -8,6 +8,14 @@ TARGET="${1:?Usage: $0 <target-triple>}"
 
 echo "Assembling archive for: $TARGET"
 
+# Determine release directory (cross-compiled vs native)
+if [[ -d "target/${TARGET}/release" ]]; then
+    RELEASE_DIR="target/${TARGET}/release"
+else
+    RELEASE_DIR="target/release"
+fi
+echo "Using release directory: $RELEASE_DIR"
+
 # Determine binary name and archive format
 case "$TARGET" in
     *windows*)
@@ -79,7 +87,7 @@ case "$TARGET" in
 esac
 
 # Copy and strip binary
-cp "target/${TARGET}/release/${BINARY_NAME}" staging/
+cp "${RELEASE_DIR}/${BINARY_NAME}" staging/
 if [[ -n "$STRIP_CMD" ]]; then
     echo "Stripping: ${BINARY_NAME}"
     $STRIP_CMD "staging/${BINARY_NAME}"
@@ -88,11 +96,11 @@ fi
 # Copy and strip rapace plugin binaries
 for plugin in "${RAPACE_PLUGINS[@]}"; do
     if [[ "$TARGET" == *windows* ]]; then
-        BIN_NAME="dodeca-${plugin}.exe"
+        BIN_NAME="ddc-${plugin}.exe"
     else
-        BIN_NAME="dodeca-${plugin}"
+        BIN_NAME="ddc-${plugin}"
     fi
-    SRC="target/${TARGET}/release/${BIN_NAME}"
+    SRC="${RELEASE_DIR}/${BIN_NAME}"
     if [[ -f "$SRC" ]]; then
         cp "$SRC" staging/
         if [[ -n "$STRIP_CMD" ]]; then
@@ -110,7 +118,7 @@ if [[ ${#CDYLIB_PLUGINS[@]} -gt 0 ]]; then
     mkdir -p staging/plugins
     for plugin in "${CDYLIB_PLUGINS[@]}"; do
         PLUGIN_FILE="${LIB_PREFIX}${plugin}.${LIB_EXT}"
-        SRC="target/${TARGET}/release/${PLUGIN_FILE}"
+        SRC="${RELEASE_DIR}/${PLUGIN_FILE}"
         if [[ -f "$SRC" ]]; then
             cp "$SRC" staging/plugins/
             if [[ -n "$STRIP_CMD" ]]; then

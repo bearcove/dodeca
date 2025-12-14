@@ -14,7 +14,7 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [[bin]]
-name = "dodeca-mod-arborium"
+name = "ddc-mod-arborium"
 path = "src/main.rs"
 
 [dependencies]

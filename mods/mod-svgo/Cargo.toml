@@ -9,7 +9,7 @@ edition = "2024"
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [[bin]]
-name = "dodeca-mod-svgo"
+name = "ddc-mod-svgo"
 path = "src/main.rs"
 
 [dependencies]

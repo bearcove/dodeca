@@ -6,7 +6,7 @@ set -eu
 
 REPO="bearcove/dodeca"
 
-# Detect platform
+# Detect platform (only linux-x64 and macos-arm64 are supported)
 detect_platform() {
     local os arch
 
@@ -17,15 +17,13 @@ detect_platform() {
         Linux)
             case "$arch" in
                 x86_64) echo "x86_64-unknown-linux-gnu" ;;
-                aarch64) echo "aarch64-unknown-linux-gnu" ;;
-                *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+                *) echo "Unsupported Linux architecture: $arch (only x86_64 supported)" >&2; exit 1 ;;
             esac
             ;;
         Darwin)
             case "$arch" in
-                x86_64) echo "Intel Macs (x86_64) are not supported. Use an ARM Mac or build from source." >&2; exit 1 ;;
                 arm64) echo "aarch64-apple-darwin" ;;
-                *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+                *) echo "Unsupported macOS architecture: $arch (only arm64 supported)" >&2; exit 1 ;;
             esac
             ;;
         *)
@@ -74,18 +72,13 @@ main() {
     cp "$tmpdir/ddc" "$install_dir/"
     chmod +x "$install_dir/ddc"
 
-    # Copy rapace plugin binaries (dodeca-mod-*)
-    for plugin in "$tmpdir"/dodeca-mod-*; do
+    # Copy plugin binaries (ddc-mod-*)
+    for plugin in "$tmpdir"/ddc-mod-*; do
         if [ -f "$plugin" ]; then
             cp "$plugin" "$install_dir/"
             chmod +x "$install_dir/$(basename "$plugin")"
         fi
     done
-
-    # Copy cdylib plugins if present (legacy)
-    if [ -d "$tmpdir/plugins" ]; then
-        cp "$tmpdir/plugins/"* "$install_dir/plugins/" 2>/dev/null || true
-    fi
 
     echo ""
     echo "Successfully installed dodeca to $install_dir/ddc"

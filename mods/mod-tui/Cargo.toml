@@ -13,7 +13,7 @@ publish = false
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [[bin]]
-name = "dodeca-mod-tui"
+name = "ddc-mod-tui"
 path = "src/main.rs"
 
 [dependencies]

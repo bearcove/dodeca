@@ -12,7 +12,7 @@ use indexmap::IndexMap;
 // Configuration
 // =============================================================================
 
-/// Target platforms for releases.
+/// Target platforms for CI and releases.
 pub const TARGETS: &[Target] = &[
     Target {
         triple: "x86_64-unknown-linux-gnu",
@@ -23,28 +23,12 @@ pub const TARGETS: &[Target] = &[
         archive_ext: "tar.xz",
     },
     Target {
-        triple: "aarch64-unknown-linux-gnu",
-        os: "ubuntu-24.04",
-        runner: "depot-ubuntu-24.04-arm-32",
-        lib_ext: "so",
-        lib_prefix: "lib",
-        archive_ext: "tar.xz",
-    },
-    Target {
         triple: "aarch64-apple-darwin",
-        os: "macos-latest",
-        runner: "depot-macos-latest",
+        os: "macos-15",
+        runner: "depot-macos-15",
         lib_ext: "dylib",
         lib_prefix: "lib",
         archive_ext: "tar.xz",
-    },
-    Target {
-        triple: "x86_64-pc-windows-msvc",
-        os: "windows-latest",
-        runner: "depot-windows-2022-16",
-        lib_ext: "dll",
-        lib_prefix: "",
-        archive_ext: "zip",
     },
 ];
 
@@ -104,21 +88,24 @@ pub fn discover_rapace_plugins(repo_root: &Utf8Path) -> Vec<(String, String)> {
 
 /// All plugins sorted alphabetically (package_name, binary_name).
 pub const ALL_PLUGINS: &[(&str, &str)] = &[
-    ("mod-arborium", "dodeca-mod-arborium"),
-    ("mod-code-execution", "dodeca-mod-code-execution"),
-    ("mod-css", "dodeca-mod-css"),
-    ("mod-fonts", "dodeca-mod-fonts"),
-    ("mod-html-diff", "dodeca-mod-html-diff"),
-    ("mod-http", "dodeca-mod-http"),
-    ("mod-image", "dodeca-mod-image"),
-    ("mod-js", "dodeca-mod-js"),
-    ("mod-jxl", "dodeca-mod-jxl"),
-    ("mod-linkcheck", "dodeca-mod-linkcheck"),
-    ("mod-minify", "dodeca-mod-minify"),
-    ("mod-pagefind", "dodeca-mod-pagefind"),
-    ("mod-sass", "dodeca-mod-sass"),
-    ("mod-svgo", "dodeca-mod-svgo"),
-    ("mod-webp", "dodeca-mod-webp"),
+    ("mod-arborium", "ddc-mod-arborium"),
+    ("mod-code-execution", "ddc-mod-code-execution"),
+    ("mod-css", "ddc-mod-css"),
+    ("mod-fonts", "ddc-mod-fonts"),
+    ("mod-html", "ddc-mod-html"),
+    ("mod-html-diff", "ddc-mod-html-diff"),
+    ("mod-http", "ddc-mod-http"),
+    ("mod-image", "ddc-mod-image"),
+    ("mod-js", "ddc-mod-js"),
+    ("mod-jxl", "ddc-mod-jxl"),
+    ("mod-linkcheck", "ddc-mod-linkcheck"),
+    ("mod-markdown", "ddc-mod-markdown"),
+    ("mod-minify", "ddc-mod-minify"),
+    ("mod-pagefind", "ddc-mod-pagefind"),
+    ("mod-sass", "ddc-mod-sass"),
+    ("mod-svgo", "ddc-mod-svgo"),
+    ("mod-tui", "ddc-mod-tui"),
+    ("mod-webp", "ddc-mod-webp"),
 ];
 
 /// Group plugins into chunks of N for parallel CI builds.
@@ -490,11 +477,10 @@ pub fn build_ci_workflow() -> Workflow {
     // Track all build jobs for the release job dependency
     let mut all_build_jobs: Vec<String> = Vec::new();
 
-    // Build jobs for each target platform
+    // Build jobs for each target platform (linux-x64, macos-arm64)
     for target in TARGETS {
         let short = target.short_name();
-        let is_windows = target.triple.contains("windows");
-        let is_linux_arm = target.triple == "aarch64-unknown-linux-gnu";
+        let is_macos = target.triple.contains("apple");
 
         // Build all plugin binaries
         let all_plugin_build_args: String = ALL_PLUGINS
@@ -503,123 +489,63 @@ pub fn build_ci_workflow() -> Workflow {
             .collect::<Vec<_>>()
             .join(" ");
 
-        let mut steps = vec![checkout()];
+        let all_plugin_test_args: String = ALL_PLUGINS
+            .iter()
+            .map(|(pkg, _)| format!("-p {pkg}"))
+            .collect::<Vec<_>>()
+            .join(" ");
 
-        // Rust installation
-        if is_linux_arm {
-            steps.push(install_rust_with_target(target.triple));
-            steps.push(Step::run(
-                "Install cross-compilation tools",
-                "sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu",
-            ));
-        } else if is_windows {
-            steps.push(install_rust_with_target("wasm32-unknown-unknown"));
+        let wasm_install = if is_macos {
+            "brew install wasm-pack"
         } else {
-            steps.push(
-                Step::uses("Install Rust", "dtolnay/rust-toolchain@stable").with_inputs([
-                    ("components", "clippy"),
-                    ("targets", "wasm32-unknown-unknown"),
-                ]),
-            );
-            steps.push(Step::uses(
-                "Install Rust (nightly)",
-                "dtolnay/rust-toolchain@nightly",
-            ));
-        }
-
-        steps.push(rust_cache());
-
-        // WASM build (not for cross-compiled targets)
-        if !is_linux_arm {
-            let wasm_install = if is_windows {
-                "cargo install wasm-pack"
-            } else if target.triple.contains("apple") {
-                "brew install wasm-pack"
-            } else {
-                "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
-            };
-            steps.push(Step::run("Install wasm-pack", wasm_install).shell("bash"));
-            steps.push(Step::run("Build WASM", "cargo xtask wasm").shell("bash"));
-        }
-
-        // Build ddc
-        let build_cmd = if is_linux_arm {
-            format!(
-                "cargo build --release -p dodeca --target {}",
-                target.triple
-            )
-        } else {
-            "cargo build --release -p dodeca".to_string()
+            "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
         };
-        steps.push(Step::run("Build ddc", &build_cmd).shell("bash"));
 
-        // Build plugins
-        let plugin_build_cmd = if is_linux_arm {
-            format!(
-                "cargo build --release --target {} {}",
-                target.triple, all_plugin_build_args
-            )
-        } else {
-            format!("cargo build --release {}", all_plugin_build_args)
-        };
-        steps.push(Step::run("Build plugins", &plugin_build_cmd).shell("bash"));
-
-        // Tests (only for native builds, not cross-compiled)
-        if !is_linux_arm {
-            steps.push(Step::run("Test ddc", "cargo test --release -p dodeca").shell("bash"));
-
-            let all_plugin_test_args: String = ALL_PLUGINS
-                .iter()
-                .map(|(pkg, _)| format!("-p {pkg}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-            steps.push(
-                Step::run("Test plugins", format!("cargo test --release {all_plugin_test_args}"))
-                    .shell("bash"),
-            );
-
-            // Clippy (only linux/macos)
-            if !is_windows {
-                steps.push(
-                    Step::run(
-                        "Clippy",
-                        "cargo clippy --all-features --all-targets -- -D warnings",
-                    )
-                    .shell("bash"),
-                );
-            }
-        }
-
-        // Assemble archive (uses external script)
-        steps.push(
+        let steps = vec![
+            checkout(),
+            Step::uses("Install Rust", "dtolnay/rust-toolchain@stable").with_inputs([
+                ("components", "clippy"),
+                ("targets", "wasm32-unknown-unknown"),
+            ]),
+            Step::uses("Install Rust (nightly)", "dtolnay/rust-toolchain@nightly"),
+            rust_cache(),
+            Step::run("Install wasm-pack", wasm_install),
+            Step::run("Build WASM", "cargo xtask wasm"),
+            Step::run("Build ddc", "cargo build --release -p dodeca"),
+            Step::run(
+                "Build plugins",
+                format!("cargo build --release {all_plugin_build_args}"),
+            ),
+            Step::run("Test ddc", "cargo test --release -p dodeca"),
+            Step::run(
+                "Test plugins",
+                format!("cargo test --release {all_plugin_test_args}"),
+            ),
+            Step::run(
+                "Clippy",
+                "cargo clippy --all-features --all-targets -- -D warnings",
+            ),
             Step::run(
                 "Assemble archive",
                 format!("bash scripts/assemble-archive.sh {}", target.triple),
-            )
-            .shell("bash"),
-        );
+            ),
+            upload_artifact(
+                format!("build-{short}"),
+                format!("dodeca-{}.{}", target.triple, target.archive_ext),
+            ),
+        ];
 
-        // Upload archive
-        let archive_name = format!("dodeca-{}.{}", target.triple, target.archive_ext);
-        steps.push(upload_artifact(format!("build-{short}"), &archive_name));
-
-        let mut job = Job::new(target.runner).name(format!("Build ({short})")).steps(steps);
-
-        // Windows needs special environment
-        if is_windows {
-            job = job.env([("RUSTFLAGS", "-Ctarget-feature=+crt-static")]);
-        }
+        let job = Job::new(target.runner)
+            .name(format!("Build ({short})"))
+            .steps(steps);
 
         let job_id = format!("build-{short}");
         all_build_jobs.push(job_id.clone());
         jobs.insert(job_id, job);
     }
 
-    // Integration tests (linux and macos only)
-    for target in TARGETS
-        .iter()
-        .filter(|t| !t.triple.contains("windows") && t.triple != "aarch64-unknown-linux-gnu")
-    {
+    // Integration tests for each target
+    for target in TARGETS {
         let short = target.short_name();
         let build_job = format!("build-{short}");
 
@@ -741,7 +667,7 @@ set -eu
 
 REPO="{repo}"
 
-# Detect platform
+# Detect platform (only linux-x64 and macos-arm64 are supported)
 detect_platform() {{
     local os arch
 
@@ -752,15 +678,13 @@ detect_platform() {{
         Linux)
             case "$arch" in
                 x86_64) echo "x86_64-unknown-linux-gnu" ;;
-                aarch64) echo "aarch64-unknown-linux-gnu" ;;
-                *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+                *) echo "Unsupported Linux architecture: $arch (only x86_64 supported)" >&2; exit 1 ;;
             esac
             ;;
         Darwin)
             case "$arch" in
-                x86_64) echo "x86_64-apple-darwin" ;;
                 arm64) echo "aarch64-apple-darwin" ;;
-                *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
+                *) echo "Unsupported macOS architecture: $arch (only arm64 supported)" >&2; exit 1 ;;
             esac
             ;;
         *)
@@ -792,7 +716,6 @@ main() {{
 
     # Create install directory
     mkdir -p "$install_dir"
-    mkdir -p "$install_dir/plugins"
 
     # Download and extract
     local tmpdir
@@ -806,12 +729,17 @@ main() {{
     tar -xJf "$tmpdir/archive.tar.xz" -C "$tmpdir"
 
     echo "Installing..."
+    # Copy main binary
     cp "$tmpdir/ddc" "$install_dir/"
     chmod +x "$install_dir/ddc"
 
-    if [ -d "$tmpdir/plugins" ]; then
-        cp "$tmpdir/plugins/"* "$install_dir/plugins/"
-    fi
+    # Copy plugin binaries (ddc-mod-*)
+    for plugin in "$tmpdir"/ddc-mod-*; do
+        if [ -f "$plugin" ]; then
+            cp "$plugin" "$install_dir/"
+            chmod +x "$install_dir/$(basename "$plugin")"
+        fi
+    done
 
     echo ""
     echo "Successfully installed dodeca to $install_dir/ddc"

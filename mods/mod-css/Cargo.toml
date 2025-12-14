@@ -9,7 +9,7 @@ edition = "2024"
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [[bin]]
-name = "dodeca-mod-css"
+name = "ddc-mod-css"
 path = "src/main.rs"
 
 [dependencies]
