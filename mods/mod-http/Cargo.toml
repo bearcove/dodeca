@@ -28,8 +28,8 @@ hyper-util = { version = "0.1", features = ["tokio"] }
 futures-util = "0.3"
 
 # RPC framework - using SHM for zero-copy communication
-rapace = { git = "https://github.com/bearcove/rapace" }
-rapace-plugin = { git = "https://github.com/bearcove/rapace" }
+rapace = { workspace = true, features = ["stream"] }
+rapace-plugin.workspace = true
 mod-http-proto = { path = "../mod-http-proto" }
 
 # Error handling

@@ -19,8 +19,8 @@ path = "src/main.rs"
 
 [dependencies]
 # RPC framework
-rapace = { git = "https://github.com/bearcove/rapace" }
-rapace-plugin = { git = "https://github.com/bearcove/rapace" }
+rapace = { workspace = true, features = ["stream"] }
+rapace-plugin.workspace = true
 
 # Syntax highlighting with tree-sitter
 arborium = { version = "1.2", features = [

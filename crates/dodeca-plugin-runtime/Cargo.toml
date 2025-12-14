@@ -10,9 +10,9 @@ rust-version = "1.91"
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-rapace = { git = "https://github.com/bearcove/rapace" }
-rapace-plugin = { git = "https://github.com/bearcove/rapace" }
-rapace-tracing = { git = "https://github.com/bearcove/rapace" }
+rapace.workspace = true
+rapace-plugin.workspace = true
+rapace-tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["registry"] }
 tokio = { version = "1", features = ["full"] }
 color-eyre = "0.6"

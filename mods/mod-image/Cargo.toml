@@ -33,8 +33,8 @@ tracing = "0.1"
 dodeca-plugin-runtime = { path = "../../crates/dodeca-plugin-runtime" }
 
 # RPC framework
-rapace = { git = "https://github.com/bearcove/rapace", features = ["stream"] }
-rapace-plugin = { git = "https://github.com/bearcove/rapace" }
+rapace = { workspace = true, features = ["stream"] }
+rapace-plugin.workspace = true
 
 # Local protocol definitions
 mod-image-proto = { path = "../mod-image-proto" }

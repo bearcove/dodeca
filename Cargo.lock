@@ -7189,8 +7189,7 @@ dependencies = [
 
 [[package]]
 name = "rapace"
-version = "0.2.0"
-source = "git+https://github.com/bearcove/rapace#2db80ea523d1489102d5ee9ff53914b7ef1170a7"
+version = "0.3.0"
 dependencies = [
  "facet",
  "facet-core",
@@ -7209,8 +7208,7 @@ dependencies = [
 
 [[package]]
 name = "rapace-core"
-version = "0.2.0"
-source = "git+https://github.com/bearcove/rapace#2db80ea523d1489102d5ee9ff53914b7ef1170a7"
+version = "0.3.0"
 dependencies = [
  "async-stream",
  "bitflags 2.10.0",
@@ -7223,8 +7221,7 @@ dependencies = [
 
 [[package]]
 name = "rapace-macros"
-version = "0.2.0"
-source = "git+https://github.com/bearcove/rapace#2db80ea523d1489102d5ee9ff53914b7ef1170a7"
+version = "0.3.0"
 dependencies = [
  "heck 0.4.1",
  "proc-macro-crate",
@@ -7235,8 +7232,7 @@ dependencies = [
 
 [[package]]
 name = "rapace-plugin"
-version = "0.2.0"
-source = "git+https://github.com/bearcove/rapace#2db80ea523d1489102d5ee9ff53914b7ef1170a7"
+version = "0.3.0"
 dependencies = [
  "rapace",
  "tokio",
@@ -7245,16 +7241,14 @@ dependencies = [
 
 [[package]]
 name = "rapace-registry"
-version = "0.2.0"
-source = "git+https://github.com/bearcove/rapace#2db80ea523d1489102d5ee9ff53914b7ef1170a7"
+version = "0.3.0"
 dependencies = [
  "facet-core",
 ]
 
 [[package]]
 name = "rapace-tracing"
-version = "0.2.0"
-source = "git+https://github.com/bearcove/rapace#2db80ea523d1489102d5ee9ff53914b7ef1170a7"
+version = "0.3.0"
 dependencies = [
  "facet",
  "parking_lot",
@@ -7266,8 +7260,7 @@ dependencies = [
 
 [[package]]
 name = "rapace-transport-mem"
-version = "0.2.0"
-source = "git+https://github.com/bearcove/rapace#2db80ea523d1489102d5ee9ff53914b7ef1170a7"
+version = "0.3.0"
 dependencies = [
  "parking_lot",
  "rapace-core",
@@ -7276,8 +7269,7 @@ dependencies = [
 
 [[package]]
 name = "rapace-transport-shm"
-version = "0.2.0"
-source = "git+https://github.com/bearcove/rapace#2db80ea523d1489102d5ee9ff53914b7ef1170a7"
+version = "0.3.0"
 dependencies = [
  "allocator-api2",
  "libc",
@@ -7289,8 +7281,7 @@ dependencies = [
 
 [[package]]
 name = "rapace-transport-stream"
-version = "0.2.0"
-source = "git+https://github.com/bearcove/rapace#2db80ea523d1489102d5ee9ff53914b7ef1170a7"
+version = "0.3.0"
 dependencies = [
  "parking_lot",
  "rapace-core",
@@ -9203,10 +9194,10 @@ checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 
 [[package]]
 name = "ur-taking-me-with-you"
-version = "0.2.0"
-source = "git+https://github.com/bearcove/rapace#2db80ea523d1489102d5ee9ff53914b7ef1170a7"
+version = "0.3.0"
 dependencies = [
  "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

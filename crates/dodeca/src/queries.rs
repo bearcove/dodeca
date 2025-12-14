@@ -669,6 +669,12 @@ pub async fn decompress_font<DB: Db>(
     };
     use crate::plugins::decompress_font_plugin;
 
+    let path = font_file.path(db)?.as_str().to_string();
+    tracing::warn!(
+        font_path = %path,
+        "🟡 QUERY: decompress_font COMPUTING (picante cache miss)"
+    );
+
     let font_data = font_file.content(db)?;
     let content_hash = font_content_hash(&font_data);
 
@@ -711,6 +717,14 @@ pub async fn subset_font<DB: Db>(
     chars: CharSet,
 ) -> PicanteResult<Option<Vec<u8>>> {
     use crate::plugins::{compress_to_woff2_plugin, subset_font_plugin};
+
+    let path = font_file.path(db)?.as_str().to_string();
+    let num_chars = chars.chars(db).map(|c| c.len()).unwrap_or(0);
+    tracing::warn!(
+        font_path = %path,
+        num_chars,
+        "🟡 QUERY: subset_font COMPUTING (picante cache miss)"
+    );
 
     // First, decompress the font (handles WOFF2/WOFF1 -> TTF)
     let Some(decompressed) = decompress_font(db, font_file).await? else {
@@ -1086,9 +1100,17 @@ pub async fn static_file_output<DB: Db>(
     use crate::cache_bust::{cache_busted_path, content_hash};
 
     let path = file.path(db)?.as_str().to_string();
+    tracing::warn!(
+        file_path = %path,
+        "🔵 QUERY: static_file_output COMPUTING (picante cache miss)"
+    );
     // Get processed content based on file type
     let content = if is_font_file(&path) {
         // Font file - need to subset based on char analysis
+        tracing::warn!(
+            font_path = %path,
+            "🟢 static_file_output: processing FONT file"
+        );
         let analysis = font_char_analysis(db).await?;
         if let Some(chars) = find_chars_for_font_file(&path, &analysis) {
             if !chars.is_empty() {

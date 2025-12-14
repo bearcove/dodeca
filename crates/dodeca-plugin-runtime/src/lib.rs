@@ -12,7 +12,7 @@ pub use rapace_plugin;
 
 use color_eyre::Result;
 use rapace::RpcSession;
-use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
+use rapace::transport::shm::{ShmSession, ShmTransport};
 use rapace_plugin::{DispatcherBuilder, ServiceDispatch};
 use rapace_tracing::{RapaceTracingLayer, TracingConfigImpl, TracingConfigServer};
 use tracing_subscriber::layer::SubscriberExt;
@@ -82,12 +82,8 @@ pub fn add_tracing_service(
     builder.add_service(TracingService(server))
 }
 
-/// SHM configuration - must match host's config
-pub const SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
-    ring_capacity: 1024, // 1024 descriptors in flight
-    slot_size: 65536,    // 64KB per slot
-    slot_count: 512,     // 512 slots = 32MB total (increased from 128/8MB)
-};
+// SHM configuration is now read from the file header automatically.
+// No need for plugins to specify config - they just use open_file_auto().
 
 /// Run a plugin service with minimal boilerplate
 pub async fn run_plugin_service<S>(service: S) -> Result<()>
@@ -95,11 +91,12 @@ where
     S: ServiceDispatch + Send + Sync + 'static,
 {
     let args = parse_args()?;
+    let plugin_name = plugin_name_from_shm_path(&args.shm_path);
     let transport = create_shm_transport(&args).await?;
     let session = Arc::new(RpcSession::with_channel_start(transport, 2));
 
     let PluginTracing { tracing_config, .. } = init_tracing(session.clone());
-    tracing::info!("Connected to host via SHM");
+    tracing::info!(plugin = %plugin_name, "Connected to host via SHM");
 
     let dispatcher = DispatcherBuilder::new();
     let dispatcher = add_tracing_service(dispatcher, tracing_config);
@@ -108,12 +105,28 @@ where
 
     session.set_dispatcher(dispatcher);
 
-    tracing::info!("Plugin ready, waiting for requests");
+    tracing::info!(plugin = %plugin_name, "Plugin ready, waiting for requests");
     if let Err(e) = session.run().await {
-        tracing::error!(error = ?e, "RPC session error - host connection lost");
+        tracing::error!(plugin = %plugin_name, error = ?e, "RPC session error - host connection lost");
     }
 
     Ok(())
+}
+
+/// Extract plugin name from SHM path (e.g., "/tmp/dodeca-mod-sass-12345.shm" -> "dodeca-mod-sass")
+fn plugin_name_from_shm_path(path: &std::path::Path) -> String {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| {
+            // Remove the PID suffix (e.g., "dodeca-mod-sass-12345" -> "dodeca-mod-sass")
+            if let Some(idx) = s.rfind('-') {
+                if s[idx + 1..].chars().all(|c| c.is_ascii_digit()) {
+                    return s[..idx].to_string();
+                }
+            }
+            s.to_string()
+        })
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
 /// CLI arguments for plugins
@@ -137,6 +150,8 @@ pub fn parse_args() -> Result<Args> {
 }
 
 pub async fn create_shm_transport(args: &Args) -> Result<Arc<ShmTransport>> {
+    let plugin_name = plugin_name_from_shm_path(&args.shm_path);
+
     // Wait for the host to create the SHM file
     for i in 0..50 {
         if args.shm_path.exists() {
@@ -151,11 +166,11 @@ pub async fn create_shm_transport(args: &Args) -> Result<Arc<ShmTransport>> {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
-    // Open the SHM session (plugin side)
-    let shm_session = ShmSession::open_file(&args.shm_path, SHM_CONFIG)
+    // Open the SHM session (plugin side) - config is read from the file header
+    let shm_session = ShmSession::open_file_auto(&args.shm_path)
         .map_err(|e| color_eyre::eyre::eyre!("Failed to open SHM: {:?}", e))?;
 
-    Ok(Arc::new(ShmTransport::new(shm_session)))
+    Ok(Arc::new(ShmTransport::with_name(shm_session, plugin_name)))
 }
 
 /// Macro to create a plugin service wrapper

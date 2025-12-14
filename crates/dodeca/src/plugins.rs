@@ -38,10 +38,12 @@ use tracing::{debug, info, warn};
 
 /// SHM configuration used for rapace plugins.
 /// This must match the SHM_CONFIG in dodeca-plugin-runtime for plugins to connect.
+///
+/// Memory budget: 17 plugins × 16MB = 272MB total for SHM mappings.
 const PLUGIN_SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
-    ring_capacity: 1024, // 1024 descriptors in flight
-    slot_size: 65536,    // 64KB per slot
-    slot_count: 512,     // 512 slots = 32MB total
+    ring_capacity: 256,        // 256 descriptors in flight
+    slot_size: 512 * 1024,     // 512KB per slot
+    slot_count: 32,            // 32 slots = 16MB total per plugin
 };
 
 /// Decoded image data returned by plugins

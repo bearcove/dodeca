@@ -105,9 +105,9 @@ mod-html-proto = { path = "../../mods/mod-html-proto" }
 mod-markdown-proto = { path = "../../mods/mod-markdown-proto" }
 
 # RPC framework for plugin communication
-rapace = { git = "https://github.com/bearcove/rapace", features = ["stream"] }
-rapace-tracing = { git = "https://github.com/bearcove/rapace" }
-ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace" }
+rapace = { workspace = true, features = ["stream"] }
+rapace-tracing.workspace = true
+ur-taking-me-with-you.workspace = true
 async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
 
 # Code execution plugin types (lightweight - no plugin implementation)

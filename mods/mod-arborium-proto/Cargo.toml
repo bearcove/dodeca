@@ -16,4 +16,4 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 [dependencies]
 facet = "0.32.2"
 # RPC framework
-rapace = { git = "https://github.com/bearcove/rapace" }
+rapace.workspace = true
