@@ -1,45 +1,40 @@
-//! Plugin server for rapace RPC communication
+//! HTTP cell server for rapace RPC communication
 //!
 //! This module handles:
-//! - Creating a shared memory segment for zero-copy RPC
-//! - Spawning the plugin process
-//! - Serving ContentService RPCs from the plugin
+//! - Setting up ContentService on the http cell's session (via hub)
 //! - Handling TCP connections from browsers via TcpTunnel
-//! - Forwarding tracing events from plugin to host
+//!
+//! The http cell is loaded through the hub like all other cells.
 
-use std::path::PathBuf;
 use std::pin::Pin;
-use std::process::Stdio;
 use std::sync::Arc;
 
 use eyre::Result;
 use futures::stream::{self, StreamExt};
-use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
+use rapace::transport::shm::HubHostPeerTransport;
 use rapace::{Frame, RpcError, RpcSession};
 use rapace_tracing::{
-    EventMeta, Field, SpanMeta, TracingConfigClient, TracingSink, TracingSinkServer,
+    EventMeta, Field, SpanMeta, TracingSink,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::process::Command;
 use tokio::sync::watch;
 use tokio_stream::wrappers::TcpListenerStream;
 
 use cell_http_proto::{ContentServiceServer, TcpTunnelClient};
 
+use crate::cells::{get_cell_session, plugins};
 use crate::content_service::HostContentService;
 use crate::serve::SiteServer;
 
-/// Type alias for our transport (now SHM-based for zero-copy)
-type HostTransport = ShmTransport;
-
-/// SHM configuration for plugin communication
-/// This must match the SHM_CONFIG in dodeca-cell-runtime for plugins to connect.
-const SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
-    ring_capacity: 1024, // 1024 descriptors in flight
-    slot_size: 65536,    // 64KB per slot
-    slot_count: 512,     // 512 slots = 32MB total
-};
+/// Find the plugin binary path (for backwards compatibility).
+///
+/// Note: The http cell is now loaded via the hub, so this just returns a dummy path.
+/// The actual cell location is determined by cells.rs.
+pub fn find_plugin_path() -> Result<std::path::PathBuf> {
+    // Return a dummy path - cells are loaded via hub now
+    Ok(std::path::PathBuf::from("ddc-cell-http"))
+}
 
 /// Buffer size for TCP reads
 const CHUNK_SIZE: usize = 4096;
@@ -106,12 +101,12 @@ impl TracingSink for ForwardingTracingSink {
         // Include the plugin's target in the log message
         // Use a static target for the host side
         match event.level.as_str() {
-            "ERROR" => tracing::error!(target: "plugin", "[{}] {}", event.target, msg),
-            "WARN" => tracing::warn!(target: "plugin", "[{}] {}", event.target, msg),
-            "INFO" => tracing::info!(target: "plugin", "[{}] {}", event.target, msg),
-            "DEBUG" => tracing::debug!(target: "plugin", "[{}] {}", event.target, msg),
-            "TRACE" => tracing::trace!(target: "plugin", "[{}] {}", event.target, msg),
-            _ => tracing::info!(target: "plugin", "[{}] {}", event.target, msg),
+            "ERROR" => tracing::error!(target: "cell", "[{}] {}", event.target, msg),
+            "WARN" => tracing::warn!(target: "cell", "[{}] {}", event.target, msg),
+            "INFO" => tracing::info!(target: "cell", "[{}] {}", event.target, msg),
+            "DEBUG" => tracing::debug!(target: "cell", "[{}] {}", event.target, msg),
+            "TRACE" => tracing::trace!(target: "cell", "[{}] {}", event.target, msg),
+            _ => tracing::info!(target: "cell", "[{}] {}", event.target, msg),
         }
     }
 
@@ -133,151 +128,71 @@ impl TracingSink for ForwardingTracingSink {
 /// Method IDs are now globally unique hashes, so we try each dispatcher in turn.
 /// The correct one will succeed, the others will return "unknown method_id".
 #[allow(clippy::type_complexity)]
-pub fn create_combined_dispatcher(
+fn create_content_dispatcher(
     content_service: Arc<HostContentService>,
-    tracing_sink: ForwardingTracingSink,
 ) -> impl Fn(
     u32,
     u32,
     Vec<u8>,
 ) -> Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
-+ Send
-+ Sync
-+ 'static {
+       + Send
+       + Sync
+       + 'static {
     move |_channel_id, method_id, payload| {
         let content_service = content_service.clone();
-        let tracing_sink = tracing_sink.clone();
         Box::pin(async move {
-            // Try TracingSink first
-            let tracing_server = TracingSinkServer::new(tracing_sink);
-            let result = tracing_server.dispatch(method_id, &payload).await;
-
-            // If not "unknown method_id", return the result
-            if !matches!(
-                &result,
-                Err(RpcError::Status {
-                    code: rapace::ErrorCode::Unimplemented,
-                    ..
-                })
-            ) {
-                return result;
-            }
-
-            // Otherwise try ContentService
             let content_server = ContentServiceServer::new((*content_service).clone());
             content_server.dispatch(method_id, &payload).await
         })
     }
 }
 
-/// Find the plugin binary path (next to the main executable)
-pub fn find_plugin_path() -> Result<PathBuf> {
-    let exe_path = std::env::current_exe()?;
-    let plugin_path = exe_path
-        .parent()
-        .ok_or_else(|| eyre::eyre!("Cannot find parent directory of executable"))?
-        .join("ddc-cell-http");
-
-    if !plugin_path.exists() {
-        return Err(eyre::eyre!(
-            "Plugin binary not found at {}. Build it with: cargo build -p cell-http --bin ddc-cell-http",
-            plugin_path.display()
-        ));
-    }
-
-    Ok(plugin_path)
-}
-
-/// Start the plugin server with optional shutdown signal
+/// Start the HTTP cell server with optional shutdown signal
 ///
 /// This:
-/// 1. Creates a shared memory segment
-/// 2. Spawns the plugin process with --shm-path arg
-/// 3. Serves ContentService RPCs via SHM transport (zero-copy)
-/// 4. Listens for browser TCP connections and tunnels them to the plugin
+/// 1. Ensures the http cell is loaded (via plugins())
+/// 2. Sets up ContentService on the http cell's session
+/// 3. Listens for browser TCP connections and tunnels them to the cell
 ///
 /// If `shutdown_rx` is provided, the server will stop when the signal is received.
 ///
-/// The `bind_ips` parameter specifies which IP addresses to bind to. This allows
-/// binding to specific LAN interfaces without exposing the server on WAN interfaces.
+/// The `bind_ips` parameter specifies which IP addresses to bind to.
 pub async fn start_plugin_server_with_shutdown(
     server: Arc<SiteServer>,
-    plugin_path: PathBuf,
+    _plugin_path: std::path::PathBuf, // No longer used - cells loaded via hub
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
     mut shutdown_rx: Option<watch::Receiver<bool>>,
     port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
     pre_bound_listener: Option<TcpListener>,
 ) -> Result<()> {
-    // Create SHM file path
-    let shm_path = format!("/tmp/dodeca-{}.shm", std::process::id());
+    // Ensure all cells are loaded (including http)
+    let registry = plugins();
 
-    // Clean up any stale SHM file
-    let _ = std::fs::remove_file(&shm_path);
-
-    // Create the SHM session (host side)
-    let session = ShmSession::create_file(&shm_path, SHM_CONFIG)
-        .map_err(|e| eyre::eyre!("Failed to create SHM: {:?}", e))?;
-    tracing::info!(
-        "SHM segment: {} ({}KB)",
-        shm_path,
-        SHM_CONFIG.slot_size * SHM_CONFIG.slot_count / 1024
-    );
-
-    // Spawn the plugin process
-    let mut child = Command::new(&plugin_path)
-        .arg(format!("--shm-path={}", shm_path))
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()?;
-
-    tracing::info!("Spawned plugin: {}", plugin_path.display());
-
-    // Give the plugin time to map the SHM
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-    // Create the SHM transport and wrap in RpcSession
-    let transport: Arc<HostTransport> = Arc::new(ShmTransport::new(session));
-
-    // Host uses odd channel IDs (1, 3, 5, ...)
-    // Plugin uses even channel IDs (2, 4, 6, ...)
-    let rpc_session = Arc::new(RpcSession::with_channel_start(transport, 1));
-    tracing::info!("Plugin connected via SHM");
-
-    // Create the ContentService and TracingSink implementations
-    let content_service = Arc::new(HostContentService::new(server));
-    let tracing_sink = ForwardingTracingSink::new();
-
-    // Set up combined dispatcher for both services
-    rpc_session.set_dispatcher(create_combined_dispatcher(content_service, tracing_sink));
-
-    // Spawn the RPC session demux loop
-    let session_runner = rpc_session.clone();
-    tokio::spawn(async move {
-        if let Err(e) = session_runner.run().await {
-            tracing::error!("RPC session error: {:?}", e);
-        }
-    });
-
-    // Push the current RUST_LOG filter to the plugin
-    // The host is the single source of truth for log filtering
-    let filter_str = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-    let tracing_config_client = TracingConfigClient::new(rpc_session.clone());
-    if let Err(e) = tracing_config_client.set_filter(filter_str.clone()).await {
-        tracing::warn!("Failed to push filter to plugin: {:?}", e);
-    } else {
-        tracing::debug!("Pushed filter to plugin: {}", filter_str);
+    // Check that the http cell is loaded
+    if registry.http.is_none() {
+        return Err(eyre::eyre!("HTTP cell not loaded. Build it with: cargo build -p cell-http --bin ddc-cell-http"));
     }
+
+    // Get the raw session to set up ContentService dispatcher
+    let session = get_cell_session("ddc-cell-http")
+        .ok_or_else(|| eyre::eyre!("HTTP cell session not found"))?;
+
+    tracing::info!("HTTP cell connected via hub");
+
+    // Create the ContentService implementation
+    let content_service = Arc::new(HostContentService::new(server));
+
+    // Set up ContentService dispatcher on the http cell's session
+    // Note: TracingSink is already set up by cells.rs, this adds ContentService
+    session.set_dispatcher(create_content_dispatcher(content_service));
 
     // Start TCP listeners for browser connections
     let (listeners, bound_port) = if let Some(listener) = pre_bound_listener {
         // Use the pre-bound listener from FD passing (for testing)
         let bound_port = listener
             .local_addr()
-            .map_err(|e| {
-                eyre::eyre!("Failed to get pre-bound listener address: {}", e)
-            })?
+            .map_err(|e| eyre::eyre!("Failed to get pre-bound listener address: {}", e))?
             .port();
         tracing::info!("Using pre-bound listener on port {}", bound_port);
 
@@ -289,14 +204,12 @@ pub async fn start_plugin_server_with_shutdown(
         (vec![listener], bound_port)
     } else {
         // Bind to requested IPs normally - one listener per IP
-        // This ensures we only bind to the specific interfaces requested
         let mut listeners = Vec::new();
         let mut actual_port: Option<u16> = None;
         for ip in &bind_ips {
             let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(*ip), port);
             match TcpListener::bind(addr).await {
                 Ok(listener) => {
-                    // Get the actual bound port (important when port=0)
                     if let Ok(bound_addr) = listener.local_addr() {
                         let bound_port = bound_addr.port();
                         if actual_port.is_none() {
@@ -319,10 +232,8 @@ pub async fn start_plugin_server_with_shutdown(
         let bound_port =
             actual_port.ok_or_else(|| eyre::eyre!("Could not determine bound port"))?;
 
-        // Print the actual bound port for the test harness to discover
         eprintln!("DEBUG: About to print LISTENING_PORT={}", bound_port);
         println!("LISTENING_PORT={}", bound_port);
-        // Flush stdout to ensure test harness sees it immediately
         use std::io::Write;
         let _ = std::io::stdout().flush();
         eprintln!("DEBUG: Flushed LISTENING_PORT");
@@ -335,10 +246,10 @@ pub async fn start_plugin_server_with_shutdown(
         let _ = tx.send(bound_port);
     }
 
-    // Merge all listeners into a single stream - when we drop it, ports are released
+    // Merge all listeners into a single stream
     let mut accept_stream = stream::select_all(listeners.into_iter().map(TcpListenerStream::new));
 
-    // Accept browser connections and tunnel them to the plugin
+    // Accept browser connections and tunnel them to the cell
     loop {
         tokio::select! {
             accept_result = accept_stream.next() => {
@@ -346,9 +257,9 @@ pub async fn start_plugin_server_with_shutdown(
                     Some(Ok(stream)) => {
                         let addr = stream.peer_addr().ok();
                         tracing::debug!("Accepted browser connection from {:?}", addr);
-                        let session = rpc_session.clone();
+                        let session = session.clone();
                         tokio::spawn(async move {
-                            // Create a new TcpTunnelClient for this connection
+                            // Create TcpTunnelClient per connection
                             let tunnel_client = TcpTunnelClient::new(session.clone());
                             if let Err(e) = handle_browser_connection(stream, tunnel_client, session).await {
                                 tracing::error!("Failed to handle browser connection: {:?}", e);
@@ -359,18 +270,10 @@ pub async fn start_plugin_server_with_shutdown(
                         tracing::error!("Accept error: {:?}", e);
                     }
                     None => {
-                        // All listeners closed
                         tracing::info!("All listeners closed");
                         break;
                     }
                 }
-            }
-            status = child.wait() => {
-                match status {
-                    Ok(s) => tracing::info!("Plugin exited with status: {}", s),
-                    Err(e) => tracing::error!("Plugin wait error: {:?}", e),
-                }
-                break;
             }
             _ = async {
                 if let Some(ref mut rx) = shutdown_rx {
@@ -379,45 +282,38 @@ pub async fn start_plugin_server_with_shutdown(
                         return;
                     }
                 }
-                // Never complete if no shutdown receiver
                 std::future::pending::<()>().await
             } => {
-                tracing::info!("Shutdown signal received, stopping plugin server");
-                // Kill the plugin process
-                let _ = child.kill().await;
+                tracing::info!("Shutdown signal received, stopping HTTP server");
                 break;
             }
         }
     }
 
-    // Cleanup: drop the stream to release listeners, then remove SHM file
+    // Cleanup: drop the stream to release listeners
     drop(accept_stream);
-    let _ = std::fs::remove_file(&shm_path);
 
     Ok(())
 }
 
 /// Start the plugin server (convenience wrapper without shutdown signal)
-///
-/// Note: This function never returns as it runs the server loop indefinitely.
-/// The actual bound port is printed via println!("LISTENING_PORT={}").
 #[allow(dead_code)]
 pub async fn start_plugin_server(
     server: Arc<SiteServer>,
-    plugin_path: PathBuf,
+    plugin_path: std::path::PathBuf,
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
 ) -> Result<()> {
     start_plugin_server_with_shutdown(server, plugin_path, bind_ips, port, None, None, None).await
 }
 
-/// Handle a browser TCP connection by tunneling it through the plugin
+/// Handle a browser TCP connection by tunneling it through the cell
 async fn handle_browser_connection(
     browser_stream: TcpStream,
-    tunnel_client: TcpTunnelClient<HostTransport>,
-    session: Arc<RpcSession<HostTransport>>,
+    tunnel_client: TcpTunnelClient<HubHostPeerTransport>,
+    session: Arc<RpcSession<HubHostPeerTransport>>,
 ) -> Result<()> {
-    // Open a tunnel to the plugin
+    // Open a tunnel to the cell
     let handle = tunnel_client
         .open()
         .await
@@ -426,7 +322,7 @@ async fn handle_browser_connection(
     let channel_id = handle.channel_id;
     tracing::debug!(channel_id, "Tunnel opened for browser connection");
 
-    // Register the tunnel to receive incoming chunks from plugin
+    // Register the tunnel to receive incoming chunks from cell
     let mut tunnel_rx = session.register_tunnel(channel_id);
 
     let (mut browser_read, mut browser_write) = browser_stream.into_split();
@@ -438,7 +334,6 @@ async fn handle_browser_connection(
         loop {
             match browser_read.read(&mut buf).await {
                 Ok(0) => {
-                    // Browser closed connection
                     tracing::debug!(channel_id, "Browser closed connection");
                     let _ = session_a.close_tunnel(channel_id).await;
                     break;
@@ -469,8 +364,7 @@ async fn handle_browser_connection(
                 break;
             }
             if chunk.is_eos {
-                tracing::debug!(channel_id, "Received EOS from plugin");
-                // Half-close the browser write side
+                tracing::debug!(channel_id, "Received EOS from cell");
                 let _ = browser_write.shutdown().await;
                 break;
             }

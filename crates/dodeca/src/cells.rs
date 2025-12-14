@@ -19,6 +19,7 @@ use cell_css_proto::{CssProcessorClient, CssResult};
 use cell_fonts_proto::{FontAnalysis, FontProcessorClient, FontResult, SubsetFontInput};
 use cell_html_diff_proto::{DiffInput, DiffResult, HtmlDiffResult, HtmlDifferClient};
 use cell_html_proto::HtmlProcessorClient;
+use cell_http_proto::TcpTunnelClient;
 use cell_markdown_proto::{MarkdownProcessorClient, MarkdownResult, ParseResult, FrontmatterResult};
 use cell_image_proto::{ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput};
 use cell_js_proto::{JsProcessorClient, JsResult, JsRewriteInput};
@@ -81,6 +82,15 @@ fn register_peer_diag(
             rpc_session,
         });
     }
+}
+
+/// Get a cell's RPC session by binary name (e.g., "ddc-cell-http").
+/// Returns None if the cell is not loaded.
+pub fn get_cell_session(name: &str) -> Option<Arc<RpcSession<HubHostPeerTransport>>> {
+    PEER_DIAG_INFO.read().ok()?
+        .iter()
+        .find(|info| info.name == name)
+        .map(|info| info.rpc_session.clone())
 }
 
 /// Dump hub transport diagnostics to stderr (called on SIGUSR1).
@@ -190,6 +200,7 @@ define_plugins! {
     html            => HtmlProcessorClient,
     markdown        => MarkdownProcessorClient,
     syntax_highlight=> SyntaxHighlightServiceClient,
+    http            => TcpTunnelClient,
 }
 
 impl PluginRegistry {
@@ -410,6 +421,7 @@ pub fn plugins() -> &'static PluginRegistry {
                     html: None,
                     markdown: None,
                     syntax_highlight: None,
+                    http: None,
                 }
             ) {
                 info!("loaded plugins from {}", dir.display());
