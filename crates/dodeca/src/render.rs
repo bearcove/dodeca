@@ -1111,8 +1111,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_inject_build_info_buttons() {
+    #[tokio::test]
+    async fn test_inject_build_info_buttons() {
         let html = r#"<html><body><pre><code>fn main() {}</code></pre></body></html>"#;
 
         let metadata = CodeExecutionMetadata {
@@ -1133,7 +1133,7 @@ mod tests {
         let results = vec![make_test_result("fn main() {}", Some(metadata))];
 
         let code_metadata = build_code_metadata_map(&results);
-        let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata);
+        let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata).await;
 
         assert!(had_buttons, "Should have injected buttons");
         assert!(
@@ -1150,8 +1150,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_inject_build_info_buttons_no_match() {
+    #[tokio::test]
+    async fn test_inject_build_info_buttons_no_match() {
         let html = r#"<html><body><pre><code>fn other() {}</code></pre></body></html>"#;
 
         let metadata = CodeExecutionMetadata {
@@ -1169,7 +1169,7 @@ mod tests {
         let results = vec![make_test_result("fn main() {}", Some(metadata))];
 
         let code_metadata = build_code_metadata_map(&results);
-        let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata);
+        let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata).await;
 
         assert!(!had_buttons, "Should not have injected buttons");
         assert!(
