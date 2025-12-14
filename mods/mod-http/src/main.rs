@@ -23,6 +23,7 @@ use std::sync::Arc;
 use color_eyre::Result;
 use dodeca_plugin_runtime::{PluginTracing, add_tracing_service};
 use rapace::RpcSession;
+use rapace::transport::shm::HubPeerTransport;
 use rapace_plugin::{DispatcherBuilder, ServiceDispatch};
 
 use mod_http_proto::{ContentServiceClient, TcpTunnelServer, WebSocketTunnelClient};
@@ -31,7 +32,7 @@ mod devtools;
 mod tunnel;
 
 /// Type alias for our transport (SHM-based for zero-copy)
-type PluginTransport = rapace::transport::shm::ShmTransport;
+type PluginTransport = HubPeerTransport;
 
 /// Plugin context shared across HTTP handlers
 pub struct PluginContext {
@@ -78,7 +79,7 @@ async fn main() -> Result<()> {
 
     // Use standardized argument parsing and transport creation
     let args = dodeca_plugin_runtime::parse_args()?;
-    let transport = dodeca_plugin_runtime::create_shm_transport(&args).await?;
+    let transport = dodeca_plugin_runtime::create_hub_transport(&args).await?;
 
     // Plugin uses even channel IDs (2, 4, 6, ...)
     // Host uses odd channel IDs (1, 3, 5, ...)

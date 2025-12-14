@@ -15,9 +15,6 @@ use html5ever::serialize::{SerializeOpts, serialize};
 use html5ever::tendril::TendrilSink;
 use html5ever::{parse_document, LocalName, QualName, local_name, ns};
 use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
-use rapace::RpcSession;
-use rapace::transport::shm::ShmTransport;
-use rapace_plugin::{DispatcherBuilder, ServiceDispatch};
 
 use mod_html_proto::{
     CodeExecutionMetadata, HtmlProcessor, HtmlProcessorServer, HtmlResult,

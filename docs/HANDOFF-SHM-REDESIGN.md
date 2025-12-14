@@ -1,6 +1,9 @@
 # SHM Redesign Handoff
 
-## Current State
+> **Status: IMPLEMENTED** - The hub architecture described below has been implemented.
+> See [SHM-HUB-ARCHITECTURE.md](./SHM-HUB-ARCHITECTURE.md) for the current documentation.
+
+## Current State (Historical)
 
 We've been debugging SHM deadlocks and memory issues in dodeca's plugin system.
 

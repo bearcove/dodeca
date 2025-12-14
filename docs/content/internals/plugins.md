@@ -172,6 +172,25 @@ This ensures type-safe dispatch: if schemas change, keys change.
 
 Rapace plugins are standalone executables that communicate with the host via shared memory (SHM) using the [rapace](https://github.com/bearcove/rapace) framework. The SHM transport enables zero-copy data transfer between the host and plugin processes.
 
+### Hub Architecture
+
+All plugins share a single SHM "hub" file with variable-size slot allocation:
+
+| Slot Size | Count | Purpose |
+|-----------|-------|---------|
+| 1KB | 1024 | Small RPC args |
+| 16KB | 256 | Typical payloads |
+| 256KB | 32 | Images, CSS |
+| 4MB | 8 | Compressed fonts |
+| 16MB | 4 | Decompressed fonts |
+
+Each plugin gets:
+- A unique `peer_id` assigned by the host
+- Its own ring pair (send/recv) within the shared SHM
+- A socketpair doorbell for cross-process wakeup
+
+For detailed architecture, see [SHM Hub Architecture](/docs/SHM-HUB-ARCHITECTURE.md).
+
 ### Benefits
 
 - **Zero-copy performance** - Content transfers directly through shared memory without copying
@@ -179,6 +198,8 @@ Rapace plugins are standalone executables that communicate with the host via sha
 - **Bidirectional RPC** - Both host and plugin can initiate calls (via `RpcSession`)
 - **TCP tunneling** - Browser connections are accepted by host and tunneled through to plugin
 - **Async support** - Full async/await with independent runtimes per plugin
+- **Variable-size slots** - Font decompression can use 16MB slots while small RPC uses 1KB
+- **Shared memory pool** - All plugins share a ~109MB pool instead of separate allocations
 
 ### Current Rapace Plugins
 

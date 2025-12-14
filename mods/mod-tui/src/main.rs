@@ -23,7 +23,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
 };
 use rapace::RpcSession;
-use rapace::transport::shm::ShmTransport;
+use rapace::transport::shm::HubPeerTransport;
 use tokio::sync::mpsc;
 
 use mod_tui_proto::{
@@ -34,7 +34,7 @@ use mod_tui_proto::{
 mod theme;
 
 /// Type alias for our transport
-type PluginTransport = ShmTransport;
+type PluginTransport = HubPeerTransport;
 
 /// Maximum number of events to keep in buffer
 const MAX_EVENTS: usize = 100;
@@ -380,7 +380,7 @@ async fn main() -> Result<()> {
 
     // Use standardized argument parsing and transport creation
     let args = dodeca_plugin_runtime::parse_args()?;
-    let transport = dodeca_plugin_runtime::create_shm_transport(&args).await?;
+    let transport = dodeca_plugin_runtime::create_hub_transport(&args).await?;
 
     // Plugin uses even channel IDs
     let session = Arc::new(RpcSession::with_channel_start(transport, 2));

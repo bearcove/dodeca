@@ -2,6 +2,12 @@
 //!
 //! Plugins are loaded from dynamic libraries (.so on Linux, .dylib on macOS).
 //! Currently supports image encoding/decoding plugins (WebP, JXL).
+//!
+//! # Hub Architecture
+//!
+//! All plugins share a single SHM "hub" file with variable-size slot allocation.
+//! Each plugin gets its own ring pair within the hub and communicates via
+//! socketpair doorbells.
 
 use crate::plugin_server::ForwardingTracingSink;
 
@@ -26,7 +32,9 @@ use mod_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use mod_svgo_proto::{SvgoOptimizerClient, SvgoResult};
 use mod_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use rapace::RpcSession;
-use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
+use rapace::transport::shm::{
+    close_peer_fd, HubConfig, HubHost, HubHostPeerTransport,
+};
 use rapace_tracing::{TracingConfigClient, TracingSinkServer};
 use std::collections::HashMap;
 use std::env;
@@ -36,15 +44,11 @@ use std::sync::{Arc, OnceLock};
 use std::process::Command;
 use tracing::{debug, info, warn};
 
-/// SHM configuration used for rapace plugins.
-/// Plugins auto-discover this config via open_file_auto() from the SHM header.
-///
-/// Memory budget: 17 plugins × 16MB = 272MB total for SHM mappings.
-const PLUGIN_SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
-    ring_capacity: 256,        // 256 descriptors in flight
-    slot_size: 512 * 1024,     // 512KB per slot
-    slot_count: 32,            // 32 slots = 16MB total per plugin
-};
+/// Global hub host for all plugins.
+static HUB: OnceLock<Arc<HubHost>> = OnceLock::new();
+
+/// Hub SHM path.
+static HUB_PATH: OnceLock<PathBuf> = OnceLock::new();
 
 /// Decoded image data returned by plugins
 pub type DecodedImage = mod_image_proto::DecodedImage;
@@ -57,20 +61,20 @@ macro_rules! define_plugins {
         #[derive(Default)]
         pub struct PluginRegistry {
             $(
-                pub $key: Option<Arc<$Client<ShmTransport>>>,
+                pub $key: Option<Arc<$Client<HubHostPeerTransport>>>,
             )*
         }
 
         impl PluginRegistry {
             /// Load plugins from a directory.
-            fn load_from_dir(dir: &Path) -> Self {
+            fn load_from_dir(dir: &Path, hub: &Arc<HubHost>, hub_path: &Path) -> Self {
                 $(
                     let plugin_name = match stringify!($key) {
                         "syntax_highlight" => "dodeca-mod-arborium".to_string(),
                         other => format!("dodeca-mod-{}", other.replace('_', "-")),
                     };
-                    let $key = Self::try_load_mod(dir, &plugin_name)
-                        .map(|s| Arc::new($Client::<ShmTransport>::new(s)));
+                    let $key = Self::try_load_mod(dir, &plugin_name, hub, hub_path)
+                        .map(|s| Arc::new($Client::<HubHostPeerTransport>::new(s)));
                 )*
 
                 PluginRegistry {
@@ -102,7 +106,17 @@ define_plugins! {
 
 impl PluginRegistry {
     /// Try to load a rapace service from the given directory.
-    fn try_load_mod(dir: &Path, binary_name: &str) -> Option<Arc<RpcSession<ShmTransport>>> {
+    ///
+    /// Uses the shared hub for all plugins:
+    /// - Allocates a peer ID from the hub
+    /// - Creates a socketpair doorbell
+    /// - Spawns the plugin with --hub-path, --peer-id, --doorbell-fd
+    fn try_load_mod(
+        dir: &Path,
+        binary_name: &str,
+        hub: &Arc<HubHost>,
+        hub_path: &Path,
+    ) -> Option<Arc<RpcSession<HubHostPeerTransport>>> {
         #[cfg(target_os = "windows")]
         let executable = format!("{binary_name}.exe");
         #[cfg(not(target_os = "windows"))]
@@ -114,19 +128,23 @@ impl PluginRegistry {
             return None;
         }
 
-        let shm_path = env::temp_dir().join(format!("{binary_name}-{}.shm", std::process::id()));
-        let _ = std::fs::remove_file(&shm_path);
-
-        let session = match ShmSession::create_file(&shm_path, PLUGIN_SHM_CONFIG) {
-            Ok(sess) => sess,
+        // Add peer to hub and get peer info (peer_id, doorbells)
+        let peer_info = match hub.add_peer() {
+            Ok(info) => info,
             Err(e) => {
-                warn!("failed to create SHM for {} plugin: {}", binary_name, e);
+                warn!("failed to add peer for {} plugin: {}", binary_name, e);
                 return None;
             }
         };
 
+        let peer_id = peer_info.peer_id;
+        let peer_doorbell_fd = peer_info.peer_doorbell_fd;
+
+        // Build command with hub args
         let mut cmd = Command::new(&path);
-        cmd.arg(format!("--shm-path={}", shm_path.display()))
+        cmd.arg(format!("--hub-path={}", hub_path.display()))
+            .arg(format!("--peer-id={}", peer_id))
+            .arg(format!("--doorbell-fd={}", peer_doorbell_fd))
             .stdin(Stdio::null())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
@@ -135,12 +153,21 @@ impl PluginRegistry {
             Ok(child) => child,
             Err(e) => {
                 warn!("failed to spawn {}: {}", executable, e);
-                let _ = std::fs::remove_file(&shm_path);
+                // TODO: Could reclaim the peer slot here
                 return None;
             }
         };
 
-        let transport = Arc::new(ShmTransport::new(session));
+        // Close our end of the peer's doorbell (plugin inherits it)
+        close_peer_fd(peer_doorbell_fd);
+
+        // Create transport using host's doorbell
+        let transport = Arc::new(HubHostPeerTransport::with_name(
+            hub.clone(),
+            peer_id,
+            peer_info.doorbell,
+            binary_name,
+        ));
         let rpc_session = Arc::new(RpcSession::with_channel_start(transport, 1));
 
         // Set up tracing sink so plugin logs are forwarded to host tracing
@@ -178,25 +205,58 @@ impl PluginRegistry {
             });
         }
 
-        let shm_cleanup = shm_path.clone();
         let plugin_label = binary_name.to_string();
+        let hub_for_cleanup = hub.clone();
         // Wait on the child in a blocking task (std::process::Child::wait is blocking)
         tokio::task::spawn_blocking(move || {
             if let Err(e) = child.wait() {
                 warn!("{} plugin exited with error: {}", plugin_label, e);
             }
-            let _ = std::fs::remove_file(&shm_cleanup);
+            // Reclaim peer slots when plugin dies
+            hub_for_cleanup.allocator().reclaim_peer_slots(peer_id as u32);
+            info!("{} plugin exited, reclaimed slots for peer {}", plugin_label, peer_id);
         });
 
-        info!("launched {} plugin from {}", binary_name, path.display());
+        info!("launched {} plugin from {} (peer_id={})", binary_name, path.display(), peer_id);
 
         Some(rpc_session)
+    }
+}
+
+/// Initialize the hub SHM file.
+fn init_hub() -> Option<(Arc<HubHost>, PathBuf)> {
+    let hub_path = env::temp_dir().join(format!("dodeca-hub-{}.shm", std::process::id()));
+    let _ = std::fs::remove_file(&hub_path);
+
+    match HubHost::create(&hub_path, HubConfig::default()) {
+        Ok(hub) => {
+            info!("created hub SHM at {}", hub_path.display());
+            Some((Arc::new(hub), hub_path))
+        }
+        Err(e) => {
+            warn!("failed to create hub SHM: {}", e);
+            None
+        }
     }
 }
 
 /// Get the global plugin registry, initializing it if needed.
 pub fn plugins() -> &'static PluginRegistry {
     PLUGINS.get_or_init(|| {
+        // Create hub first
+        let (hub, hub_path) = match init_hub() {
+            Some((h, p)) => {
+                // Store in global statics for later access/cleanup
+                let _ = HUB.set(h.clone());
+                let _ = HUB_PATH.set(p.clone());
+                (h, p)
+            }
+            None => {
+                warn!("hub creation failed, plugins will not be available");
+                return Default::default();
+            }
+        };
+
         // Look for plugins in several locations:
         // 1. DODECA_PLUGIN_PATH environment variable (highest priority)
         // 2. Next to the executable
@@ -223,7 +283,7 @@ pub fn plugins() -> &'static PluginRegistry {
             .collect();
 
         for dir in &search_paths {
-            let registry = PluginRegistry::load_from_dir(dir);
+            let registry = PluginRegistry::load_from_dir(dir, &hub, &hub_path);
             // Consider the directory "active" if at least one plugin binary exists and loaded.
             if !matches!(
                 registry,
@@ -1073,7 +1133,7 @@ pub async fn highlight_code(code: &str, language: &str) -> Option<HighlightResul
 }
 
 /// Get the syntax highlight service client, if available
-fn syntax_highlight_client() -> Option<Arc<SyntaxHighlightServiceClient<ShmTransport>>> {
+fn syntax_highlight_client() -> Option<Arc<SyntaxHighlightServiceClient<HubHostPeerTransport>>> {
     plugins().syntax_highlight.clone()
 }
 

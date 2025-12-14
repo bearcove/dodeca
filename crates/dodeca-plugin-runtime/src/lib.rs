@@ -1,7 +1,20 @@
 //! Dodeca plugin runtime utilities
 //!
 //! Provides macros and utilities to simplify plugin development.
+//!
+//! # Hub Architecture
+//!
+//! Plugins connect to the host via a shared SHM "hub" file. Each plugin gets:
+//! - A peer_id assigned by the host
+//! - A socketpair doorbell for cross-process wakeup
+//! - Its own ring pair within the shared SHM
+//!
+//! Command-line arguments:
+//! - `--hub-path=<path>` - Path to the hub SHM file
+//! - `--peer-id=<id>` - Peer ID assigned by the host
+//! - `--doorbell-fd=<fd>` - File descriptor for the doorbell socketpair
 
+use std::os::unix::io::RawFd;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -12,7 +25,7 @@ pub use rapace_plugin;
 
 use color_eyre::Result;
 use rapace::RpcSession;
-use rapace::transport::shm::{ShmSession, ShmTransport};
+use rapace::transport::shm::{Doorbell, HubPeer, HubPeerTransport};
 use rapace_plugin::{DispatcherBuilder, ServiceDispatch};
 use rapace_tracing::{RapaceTracingLayer, TracingConfigImpl, TracingConfigServer};
 use tracing_subscriber::layer::SubscriberExt;
@@ -82,21 +95,24 @@ pub fn add_tracing_service(
     builder.add_service(TracingService(server))
 }
 
-// SHM configuration is now read from the file header automatically.
-// No need for plugins to specify config - they just use open_file_auto().
-
-/// Run a plugin service with minimal boilerplate
+/// Run a plugin service with minimal boilerplate.
+///
+/// Connects to the host via the shared hub SHM and runs the RPC session.
 pub async fn run_plugin_service<S>(service: S) -> Result<()>
 where
     S: ServiceDispatch + Send + Sync + 'static,
 {
     let args = parse_args()?;
-    let plugin_name = plugin_name_from_shm_path(&args.shm_path);
-    let transport = create_shm_transport(&args).await?;
+    let plugin_name = plugin_name_from_hub_path(&args.hub_path);
+    let transport = create_hub_transport(&args).await?;
     let session = Arc::new(RpcSession::with_channel_start(transport, 2));
 
     let PluginTracing { tracing_config, .. } = init_tracing(session.clone());
-    tracing::info!(plugin = %plugin_name, "Connected to host via SHM");
+    tracing::info!(
+        plugin = %plugin_name,
+        peer_id = args.peer_id,
+        "Connected to host via hub SHM"
+    );
 
     let dispatcher = DispatcherBuilder::new();
     let dispatcher = add_tracing_service(dispatcher, tracing_config);
@@ -105,72 +121,91 @@ where
 
     session.set_dispatcher(dispatcher);
 
-    tracing::info!(plugin = %plugin_name, "Plugin ready, waiting for requests");
+    tracing::info!(plugin = %plugin_name, peer_id = args.peer_id, "Plugin ready, waiting for requests");
     if let Err(e) = session.run().await {
-        tracing::error!(plugin = %plugin_name, error = ?e, "RPC session error - host connection lost");
+        tracing::error!(plugin = %plugin_name, peer_id = args.peer_id, error = ?e, "RPC session error - host connection lost");
     }
 
     Ok(())
 }
 
-/// Extract plugin name from SHM path (e.g., "/tmp/dodeca-mod-sass-12345.shm" -> "dodeca-mod-sass")
-fn plugin_name_from_shm_path(path: &std::path::Path) -> String {
-    path.file_stem()
-        .and_then(|s| s.to_str())
-        .map(|s| {
-            // Remove the PID suffix (e.g., "dodeca-mod-sass-12345" -> "dodeca-mod-sass")
-            if let Some(idx) = s.rfind('-') {
-                if s[idx + 1..].chars().all(|c| c.is_ascii_digit()) {
-                    return s[..idx].to_string();
-                }
-            }
-            s.to_string()
-        })
+/// Extract plugin name from hub path (e.g., "/tmp/dodeca-hub-12345.shm" -> "plugin")
+fn plugin_name_from_hub_path(path: &std::path::Path) -> String {
+    // The hub path doesn't contain the plugin name, so we use the executable name
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().to_string()))
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-/// CLI arguments for plugins
+/// CLI arguments for plugins (hub architecture).
 #[derive(Debug)]
 pub struct Args {
-    pub shm_path: PathBuf,
+    /// Path to the hub SHM file.
+    pub hub_path: PathBuf,
+    /// Peer ID assigned by the host.
+    pub peer_id: u16,
+    /// File descriptor for the doorbell socketpair.
+    pub doorbell_fd: RawFd,
 }
 
+/// Parse command-line arguments for hub-based plugins.
 pub fn parse_args() -> Result<Args> {
-    let mut shm_path = None;
+    let mut hub_path = None;
+    let mut peer_id = None;
+    let mut doorbell_fd = None;
 
     for arg in std::env::args().skip(1) {
-        if let Some(value) = arg.strip_prefix("--shm-path=") {
-            shm_path = Some(PathBuf::from(value));
+        if let Some(value) = arg.strip_prefix("--hub-path=") {
+            hub_path = Some(PathBuf::from(value));
+        } else if let Some(value) = arg.strip_prefix("--peer-id=") {
+            peer_id = Some(value.parse::<u16>().map_err(|e| {
+                color_eyre::eyre::eyre!("invalid --peer-id: {}", e)
+            })?);
+        } else if let Some(value) = arg.strip_prefix("--doorbell-fd=") {
+            doorbell_fd = Some(value.parse::<RawFd>().map_err(|e| {
+                color_eyre::eyre::eyre!("invalid --doorbell-fd: {}", e)
+            })?);
         }
     }
 
     Ok(Args {
-        shm_path: shm_path.ok_or_else(|| color_eyre::eyre::eyre!("--shm-path required"))?,
+        hub_path: hub_path.ok_or_else(|| color_eyre::eyre::eyre!("--hub-path required"))?,
+        peer_id: peer_id.ok_or_else(|| color_eyre::eyre::eyre!("--peer-id required"))?,
+        doorbell_fd: doorbell_fd.ok_or_else(|| color_eyre::eyre::eyre!("--doorbell-fd required"))?,
     })
 }
 
-pub async fn create_shm_transport(args: &Args) -> Result<Arc<ShmTransport>> {
-    let plugin_name = plugin_name_from_shm_path(&args.shm_path);
+/// Create a hub transport for the plugin.
+pub async fn create_hub_transport(args: &Args) -> Result<Arc<HubPeerTransport>> {
+    let plugin_name = plugin_name_from_hub_path(&args.hub_path);
 
-    // Wait for the host to create the SHM file
+    // Wait for the hub SHM file to exist
     for i in 0..50 {
-        if args.shm_path.exists() {
+        if args.hub_path.exists() {
             break;
         }
         if i == 49 {
             return Err(color_eyre::eyre::eyre!(
-                "SHM file not created by host: {}",
-                args.shm_path.display()
+                "Hub SHM file not created by host: {}",
+                args.hub_path.display()
             ));
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
-    // Open the SHM session (plugin side) - config is read from the file header
-    let shm_session = ShmSession::open_file_auto(&args.shm_path)
-        .map_err(|e| color_eyre::eyre::eyre!("Failed to open SHM: {:?}", e))?;
+    // Open the hub as a peer
+    let peer = HubPeer::open(&args.hub_path, args.peer_id)
+        .map_err(|e| color_eyre::eyre::eyre!("Failed to open hub SHM: {:?}", e))?;
 
-    Ok(Arc::new(ShmTransport::with_name(shm_session, plugin_name)))
+    // Register this peer in the hub
+    peer.register();
+
+    // Create doorbell from inherited file descriptor
+    let doorbell = Doorbell::from_raw_fd(args.doorbell_fd)
+        .map_err(|e| color_eyre::eyre::eyre!("Failed to create doorbell: {:?}", e))?;
+
+    Ok(Arc::new(HubPeerTransport::new(Arc::new(peer), doorbell, plugin_name)))
 }
 
 /// Macro to create a plugin service wrapper
