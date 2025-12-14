@@ -1,10 +1,10 @@
 [alias]
 xtask = "run --package xtask --"
 
-# Unstable features (requires nightly or cargo +nightly)
-[unstable]
-profile-rustflags = true
+# # Unstable features (requires nightly or cargo +nightly)
+# [unstable]
+# profile-rustflags = true
 
-# Enable frame pointers for the mystery profile (better stack traces)
-[profile.mystery]
-rustflags = ["-C", "force-frame-pointers=yes"]
+# # Enable frame pointers for the mystery profile (better stack traces)
+# [profile.mystery]
+# rustflags = ["-C", "force-frame-pointers=yes"]

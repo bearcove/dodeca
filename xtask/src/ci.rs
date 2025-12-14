@@ -506,17 +506,14 @@ const CI_MACOS: CiRunner = CiRunner {
 /// Build the CI workflow (runs on PRs and main branch pushes).
 ///
 /// Strategy:
-/// - Windows: Simple sequential build + check (no parallelization needed)
-/// - Linux/macOS: Parallel build jobs, each with unit tests, uploading artifacts
-///   - build-ddc: Builds ddc binary + WASM, runs unit tests, uploads binary
-///   - build-plugins-{group}: Builds plugin group, runs unit tests, uploads .so/.dylib
-///   - integration: Downloads all artifacts, runs integration tests
+/// - Windows: Build + check (no integration tests)
+/// - Linux/macOS: Single build job that builds everything, then runs integration tests
 pub fn build_ci_workflow() -> Workflow {
     use common::*;
 
     let mut jobs = IndexMap::new();
 
-    // Windows check job (simple, no parallelization needed)
+    // Windows check job
     jobs.insert(
         "check-windows".into(),
         Job::new("depot-windows-2022-16")
@@ -531,16 +528,30 @@ pub fn build_ci_workflow() -> Workflow {
             ]),
     );
 
-    // For Linux and macOS, we use parallel builds with artifact passing
+    // Linux and macOS: single consolidated build + test job
     for runner in [&CI_LINUX, &CI_MACOS] {
         let os = runner.os;
 
-        // Job: Build ddc binary + WASM
-        let build_ddc_id = format!("build-ddc-{os}");
+        // Build all plugin binaries in one command
+        let all_plugin_build_args: String = PLUGIN_GROUPS
+            .iter()
+            .flat_map(|g| g.plugins.iter())
+            .map(|(pkg, bin)| format!("-p {pkg} --bin {bin}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        // Test all plugins
+        let all_plugin_test_args: String = PLUGIN_GROUPS
+            .iter()
+            .flat_map(|g| g.plugins.iter())
+            .map(|(pkg, _)| format!("-p {pkg}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+
         jobs.insert(
-            build_ddc_id.clone(),
+            format!("build-{os}"),
             Job::new(runner.runner)
-                .name(format!("Build ddc ({os})"))
+                .name(format!("Build ({os})"))
                 .steps([
                     checkout(),
                     Step::uses("Install Rust (stable)", "dtolnay/rust-toolchain@stable")
@@ -553,107 +564,26 @@ pub fn build_ci_workflow() -> Workflow {
                     Step::run("Install wasm-pack", runner.wasm_install),
                     Step::run("Build WASM", "cargo xtask wasm"),
                     Step::run("Build ddc", "cargo build --release -p dodeca"),
-                    Step::run("Verify ddc binary exists", "ls -la target/release/ddc"),
-                    Step::run("Run ddc unit tests", "cargo test --release -p dodeca --lib"),
+                    Step::run(
+                        "Build plugins",
+                        format!("cargo build --release {all_plugin_build_args}"),
+                    ),
+                    Step::run("Test ddc", "cargo test --release -p dodeca --lib"),
+                    Step::run(
+                        "Test plugins",
+                        format!("cargo test --release {all_plugin_test_args}"),
+                    ),
                     Step::run(
                         "Clippy",
                         "cargo clippy --all-features --all-targets -- -D warnings",
                     ),
-                    upload_artifact(format!("ddc-{os}"), "target/release/ddc"),
-                ]),
-        );
-
-        // Jobs: Build plugin groups in parallel
-        let mut all_build_job_ids = vec![build_ddc_id];
-
-        for group in PLUGIN_GROUPS {
-            let job_id = format!("build-plugins-{}-{os}", group.name);
-
-            // Build args: -p package --bin binary for each plugin
-            let build_arg: String = group
-                .plugins
-                .iter()
-                .map(|(pkg, bin)| format!("-p {pkg} --bin {bin}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-
-            // Test args: just the package names
-            let test_arg: String = group
-                .plugins
-                .iter()
-                .map(|(pkg, _)| format!("-p {pkg}"))
-                .collect::<Vec<_>>()
-                .join(" ");
-
-            // Upload paths: binary executables
-            let upload_paths: String = group
-                .plugins
-                .iter()
-                .map(|(_, bin)| format!("target/release/{bin}"))
-                .collect::<Vec<_>>()
-                .join("\n");
-
-            jobs.insert(
-                job_id.clone(),
-                Job::new(runner.runner)
-                    .name(format!("Build plugins/{} ({os})", group.name))
-                    .steps([
-                        checkout(),
-                        Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
-                        rust_cache(),
-                        Step::run(
-                            format!("Build {} plugins", group.name),
-                            format!("cargo build --release {build_arg}"),
-                        ),
-                        Step::run(
-                            format!("Test {} plugins", group.name),
-                            format!("cargo test --release {test_arg}"),
-                        ),
-                        Step::uses("Upload plugin artifacts", "actions/upload-artifact@v4")
-                            .with_inputs([
-                                ("name", format!("plugins-{}-{os}", group.name)),
-                                ("path", upload_paths),
-                                ("retention-days", "1".into()),
-                            ]),
-                    ]),
-            );
-
-            all_build_job_ids.push(job_id);
-        }
-
-        // Job: Integration tests - download all artifacts and run integration tests
-        jobs.insert(
-            format!("integration-{os}"),
-            Job::new(runner.runner)
-                .name(format!("Integration ({os})"))
-                .needs(all_build_job_ids)
-                .steps([
-                    checkout(),
-                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
-                    rust_cache(),
-                    // Download ddc binary
-                    Step::uses("Download ddc", "actions/download-artifact@v4").with_inputs([
-                        ("name", format!("ddc-{os}")),
-                        ("path", "artifacts/bin".into()),
-                    ]),
-                    // Download all plugin artifacts
-                    Step::uses("Download plugins", "actions/download-artifact@v4").with_inputs([
-                        ("pattern", format!("plugins-*-{os}")),
-                        ("path", "artifacts/plugins".into()),
-                        ("merge-multiple", "true".into()),
-                    ]),
-                    Step::run("List artifacts", "ls -laR artifacts/"),
-                    Step::run("Make ddc executable", "chmod +x artifacts/bin/ddc"),
                     Step::run(
                         "Run integration tests",
                         "cargo test --release -p dodeca-integration --test '*'",
                     )
                     .with_env([
-                        ("DODECA_BIN", "${{ github.workspace }}/artifacts/bin/ddc"),
-                        (
-                            "DODECA_PLUGINS",
-                            "${{ github.workspace }}/artifacts/plugins",
-                        ),
+                        ("DODECA_BIN", "${{ github.workspace }}/target/release/ddc"),
+                        ("DODECA_PLUGINS", "${{ github.workspace }}/target/release"),
                     ]),
                 ]),
         );

@@ -71,7 +71,7 @@ open = "5"
 if-addrs = "0.14"
 
 # Incremental computation
-picante = { path = "../../../picante/crates/picante" }
+picante = { git = "https://github.com/bearcove/picante" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
