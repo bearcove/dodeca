@@ -1178,12 +1178,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_inject_build_info_buttons_empty_metadata() {
+    #[tokio::test]
+    async fn test_inject_build_info_buttons_empty_metadata() {
         let html = r#"<html><body><pre><code>fn main() {}</code></pre></body></html>"#;
 
-        let code_metadata: HashMap<String, &CodeExecutionMetadata> = HashMap::new();
-        let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata);
+        let code_metadata: HashMap<String, mod_html_proto::CodeExecutionMetadata> = HashMap::new();
+        let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata).await;
 
         assert!(
             !had_buttons,

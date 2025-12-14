@@ -102,61 +102,33 @@ pub fn discover_rapace_plugins(repo_root: &Utf8Path) -> Vec<(String, String)> {
     plugins
 }
 
-/// Plugin groups for parallel CI builds.
-/// Groups are designed to balance build times and minimize dependency overlap.
-/// Each plugin is a (package_name, binary_name) pair.
-pub struct PluginGroup {
-    pub name: &'static str,
-    pub plugins: &'static [(&'static str, &'static str)],
-}
-
-/// Plugin groups (rapace binaries from mods/):
-/// - image: webp, jxl, image - share image codec dependencies
-/// - web: minify, css, sass, html-diff - lightweight web processing
-/// - misc: fonts, pagefind, linkcheck, svgo, arborium
-/// - js: js - isolated because OXC is a heavy dependency
-/// - code: code-execution - isolated due to pulldown-cmark
-pub const PLUGIN_GROUPS: &[PluginGroup] = &[
-    PluginGroup {
-        name: "image",
-        plugins: &[
-            ("mod-webp", "dodeca-mod-webp"),
-            ("mod-jxl", "dodeca-mod-jxl"),
-            ("mod-image", "dodeca-mod-image"),
-        ],
-    },
-    PluginGroup {
-        name: "web",
-        plugins: &[
-            ("mod-minify", "dodeca-mod-minify"),
-            ("mod-css", "dodeca-mod-css"),
-            ("mod-sass", "dodeca-mod-sass"),
-            ("mod-html-diff", "dodeca-mod-html-diff"),
-        ],
-    },
-    PluginGroup {
-        name: "misc",
-        plugins: &[
-            ("mod-fonts", "dodeca-mod-fonts"),
-            ("mod-pagefind", "dodeca-mod-pagefind"),
-            ("mod-linkcheck", "dodeca-mod-linkcheck"),
-            ("mod-svgo", "dodeca-mod-svgo"),
-            ("mod-arborium", "dodeca-mod-arborium"),
-        ],
-    },
-    PluginGroup {
-        name: "js",
-        plugins: &[("mod-js", "dodeca-mod-js")],
-    },
-    PluginGroup {
-        name: "code",
-        plugins: &[("mod-code-execution", "dodeca-mod-code-execution")],
-    },
-    PluginGroup {
-        name: "http",
-        plugins: &[("mod-http", "dodeca-mod-http")],
-    },
+/// All plugins sorted alphabetically (package_name, binary_name).
+pub const ALL_PLUGINS: &[(&str, &str)] = &[
+    ("mod-arborium", "dodeca-mod-arborium"),
+    ("mod-code-execution", "dodeca-mod-code-execution"),
+    ("mod-css", "dodeca-mod-css"),
+    ("mod-fonts", "dodeca-mod-fonts"),
+    ("mod-html-diff", "dodeca-mod-html-diff"),
+    ("mod-http", "dodeca-mod-http"),
+    ("mod-image", "dodeca-mod-image"),
+    ("mod-js", "dodeca-mod-js"),
+    ("mod-jxl", "dodeca-mod-jxl"),
+    ("mod-linkcheck", "dodeca-mod-linkcheck"),
+    ("mod-minify", "dodeca-mod-minify"),
+    ("mod-pagefind", "dodeca-mod-pagefind"),
+    ("mod-sass", "dodeca-mod-sass"),
+    ("mod-svgo", "dodeca-mod-svgo"),
+    ("mod-webp", "dodeca-mod-webp"),
 ];
+
+/// Group plugins into chunks of N for parallel CI builds.
+pub fn plugin_groups(chunk_size: usize) -> Vec<(String, Vec<(&'static str, &'static str)>)> {
+    ALL_PLUGINS
+        .chunks(chunk_size)
+        .enumerate()
+        .map(|(i, chunk)| (format!("{}", i + 1), chunk.to_vec()))
+        .collect()
+}
 
 /// A target platform configuration.
 pub struct Target {
@@ -508,11 +480,15 @@ const CI_MACOS: CiRunner = CiRunner {
 ///
 /// Strategy:
 /// - Windows: Build + check (no integration tests)
-/// - Linux/macOS: Single build job that builds everything, then runs integration tests
+/// - Linux/macOS: Fan-out parallel builds, fan-in for integration tests
+///   - build-ddc: Builds ddc binary + WASM, runs clippy
+///   - plugins-N: Builds plugin group N (3 plugins each, alphabetically sorted)
+///   - integration: Downloads all artifacts, runs integration tests
 pub fn build_ci_workflow() -> Workflow {
     use common::*;
 
     let mut jobs = IndexMap::new();
+    let groups = plugin_groups(3); // 3 plugins per group
 
     // Windows check job
     jobs.insert(
@@ -529,30 +505,16 @@ pub fn build_ci_workflow() -> Workflow {
             ]),
     );
 
-    // Linux and macOS: single consolidated build + test job
+    // Linux and macOS: fan-out/fan-in pattern
     for runner in [&CI_LINUX, &CI_MACOS] {
         let os = runner.os;
 
-        // Build all plugin binaries in one command
-        let all_plugin_build_args: String = PLUGIN_GROUPS
-            .iter()
-            .flat_map(|g| g.plugins.iter())
-            .map(|(pkg, bin)| format!("-p {pkg} --bin {bin}"))
-            .collect::<Vec<_>>()
-            .join(" ");
-
-        // Test all plugins
-        let all_plugin_test_args: String = PLUGIN_GROUPS
-            .iter()
-            .flat_map(|g| g.plugins.iter())
-            .map(|(pkg, _)| format!("-p {pkg}"))
-            .collect::<Vec<_>>()
-            .join(" ");
-
+        // Job: Build ddc binary + WASM
+        let build_ddc_id = format!("build-ddc-{os}");
         jobs.insert(
-            format!("build-{os}"),
+            build_ddc_id.clone(),
             Job::new(runner.runner)
-                .name(format!("Build ({os})"))
+                .name(format!("Build ddc ({os})"))
                 .steps([
                     checkout(),
                     Step::uses("Install Rust (stable)", "dtolnay/rust-toolchain@stable")
@@ -565,26 +527,103 @@ pub fn build_ci_workflow() -> Workflow {
                     Step::run("Install wasm-pack", runner.wasm_install),
                     Step::run("Build WASM", "cargo xtask wasm"),
                     Step::run("Build ddc", "cargo build --release -p dodeca"),
-                    Step::run(
-                        "Build plugins",
-                        format!("cargo build --release {all_plugin_build_args}"),
-                    ),
                     Step::run("Test ddc", "cargo test --release -p dodeca"),
-                    Step::run(
-                        "Test plugins",
-                        format!("cargo test --release {all_plugin_test_args}"),
-                    ),
                     Step::run(
                         "Clippy",
                         "cargo clippy --all-features --all-targets -- -D warnings",
                     ),
+                    upload_artifact(format!("ddc-{os}"), "target/release/ddc"),
+                ]),
+        );
+
+        // Jobs: Build plugin groups in parallel (fan-out)
+        let mut all_build_job_ids = vec![build_ddc_id];
+
+        for (group_name, plugins) in &groups {
+            let job_id = format!("plugins-{group_name}-{os}");
+
+            // Build args: -p package --bin binary for each plugin
+            let build_args: String = plugins
+                .iter()
+                .map(|(pkg, bin)| format!("-p {pkg} --bin {bin}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            // Test args: just the package names
+            let test_args: String = plugins
+                .iter()
+                .map(|(pkg, _)| format!("-p {pkg}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            // Upload paths: binary executables
+            let upload_paths: String = plugins
+                .iter()
+                .map(|(_, bin)| format!("target/release/{bin}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            // Plugin names for display
+            let plugin_names: String = plugins
+                .iter()
+                .map(|(pkg, _)| pkg.strip_prefix("mod-").unwrap_or(pkg))
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            jobs.insert(
+                job_id.clone(),
+                Job::new(runner.runner)
+                    .name(format!("Plugins {group_name} ({os}): {plugin_names}"))
+                    .steps([
+                        checkout(),
+                        install_rust(),
+                        rust_cache(),
+                        Step::run("Build", format!("cargo build --release {build_args}")),
+                        Step::run("Test", format!("cargo test --release {test_args}")),
+                        Step::uses("Upload artifacts", "actions/upload-artifact@v4").with_inputs([
+                            ("name", format!("plugins-{group_name}-{os}")),
+                            ("path", upload_paths),
+                            ("retention-days", "1".into()),
+                        ]),
+                    ]),
+            );
+
+            all_build_job_ids.push(job_id);
+        }
+
+        // Job: Integration tests - download all artifacts and run (fan-in)
+        jobs.insert(
+            format!("integration-{os}"),
+            Job::new(runner.runner)
+                .name(format!("Integration ({os})"))
+                .needs(all_build_job_ids)
+                .steps([
+                    checkout(),
+                    install_rust(),
+                    rust_cache(),
+                    // Download ddc binary
+                    Step::uses("Download ddc", "actions/download-artifact@v4").with_inputs([
+                        ("name", format!("ddc-{os}")),
+                        ("path", "artifacts/bin".into()),
+                    ]),
+                    // Download all plugin artifacts
+                    Step::uses("Download plugins", "actions/download-artifact@v4").with_inputs([
+                        ("pattern", format!("plugins-*-{os}")),
+                        ("path", "artifacts/plugins".into()),
+                        ("merge-multiple", "true".into()),
+                    ]),
+                    Step::run("List artifacts", "ls -laR artifacts/"),
+                    Step::run("Make executables", "chmod +x artifacts/bin/* artifacts/plugins/*"),
                     Step::run(
                         "Run integration tests",
                         "cargo test --release -p dodeca-integration --test '*'",
                     )
                     .with_env([
-                        ("DODECA_BIN", "${{ github.workspace }}/target/release/ddc"),
-                        ("DODECA_PLUGINS", "${{ github.workspace }}/target/release"),
+                        ("DODECA_BIN", "${{ github.workspace }}/artifacts/bin/ddc"),
+                        (
+                            "DODECA_PLUGINS",
+                            "${{ github.workspace }}/artifacts/plugins",
+                        ),
                     ]),
                 ]),
         );

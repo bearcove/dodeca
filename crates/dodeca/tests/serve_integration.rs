@@ -31,7 +31,7 @@ impl Drop for ServerHandle {
 }
 
 /// Recursively copy a directory (files only, preserves relative layout)
-fn copy_dir_recursive(src: &Path, dst: &Path) -> color_eyre::Result<()> {
+fn copy_dir_recursive(src: &Path, dst: &Path) -> eyre::Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;
@@ -47,7 +47,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> color_eyre::Result<()> {
 }
 
 /// Create an isolated copy of the fixture directory with its own .cache
-fn create_isolated_fixture(fixture_rel: &str) -> color_eyre::Result<(PathBuf, TempDirGuard)> {
+fn create_isolated_fixture(fixture_rel: &str) -> eyre::Result<(PathBuf, TempDirGuard)> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let src = manifest_dir.join("tests/fixtures").join(fixture_rel);
 
