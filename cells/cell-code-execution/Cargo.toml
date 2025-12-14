@@ -26,6 +26,9 @@ color-eyre = "0.6"
 # Async runtime
 tokio = { version = "1", features = ["rt", "time", "rt-multi-thread"] }
 
+# Temp file management
+tempfile = "3"
+
 
 
 # Logging

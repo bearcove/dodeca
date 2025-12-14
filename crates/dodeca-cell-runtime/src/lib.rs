@@ -32,6 +32,20 @@ use rapace_tracing::{RapaceTracingLayer, TracingConfigImpl, TracingConfigServer}
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+/// Check if running in quiet mode (TUI active, suppress startup messages).
+fn is_quiet_mode() -> bool {
+    std::env::var("DODECA_QUIET").is_ok()
+}
+
+/// Print a debug message if not in quiet mode.
+macro_rules! cell_debug {
+    ($($arg:tt)*) => {
+        if !$crate::is_quiet_mode() {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 /// Result of initializing Rapace tracing for a cell.
 pub struct CellTracing<T: rapace::Transport> {
     /// RPC session used for communication with the host.
@@ -208,7 +222,7 @@ pub fn parse_args() -> Result<Args> {
 pub async fn create_hub_transport(args: &Args) -> Result<Arc<HubPeerTransport>> {
     let cell_name = cell_name_from_hub_path(&args.hub_path);
 
-    eprintln!(
+    cell_debug!(
         "[{}] create_hub_transport: peer_id={}, doorbell_fd={}, hub_path={}",
         cell_name, args.peer_id, args.doorbell_fd, args.hub_path.display()
     );
@@ -242,7 +256,7 @@ pub async fn create_hub_transport(args: &Args) -> Result<Arc<HubPeerTransport>> 
                 err
             ));
         }
-        eprintln!(
+        cell_debug!(
             "[{}] doorbell_fd {} is valid (flags=0x{:x})",
             cell_name, args.doorbell_fd, flags
         );
@@ -252,17 +266,17 @@ pub async fn create_hub_transport(args: &Args) -> Result<Arc<HubPeerTransport>> 
     let peer = HubPeer::open(&args.hub_path, args.peer_id)
         .map_err(|e| color_eyre::eyre::eyre!("Failed to open hub SHM: {:?}", e))?;
 
-    eprintln!("[{}] opened hub SHM as peer {}", cell_name, args.peer_id);
+    cell_debug!("[{}] opened hub SHM as peer {}", cell_name, args.peer_id);
 
     // Register this peer in the hub
     peer.register();
-    eprintln!("[{}] registered as active peer", cell_name);
+    cell_debug!("[{}] registered as active peer", cell_name);
 
     // Create doorbell from inherited file descriptor
     let doorbell = Doorbell::from_raw_fd(args.doorbell_fd)
         .map_err(|e| color_eyre::eyre::eyre!("Failed to create doorbell: {:?}", e))?;
 
-    eprintln!(
+    cell_debug!(
         "[{}] created doorbell from fd {}, wrapped in AsyncFd",
         cell_name, args.doorbell_fd
     );

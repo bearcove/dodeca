@@ -10,6 +10,7 @@ repository = "https://github.com/bearcove/dodeca"
 homepage = "https://dodeca.bearcove.eu/"
 keywords = ["static-site", "ssg", "incremental"]
 categories = ["command-line-utilities", "web-programming"]
+default-run = "ddc"
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]

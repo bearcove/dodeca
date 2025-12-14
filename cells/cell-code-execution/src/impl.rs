@@ -133,7 +133,7 @@ async fn execute_code_sample(sample: &CodeSample, _config: &CodeExecutionConfig)
 
     // Reentrancy guard: refuse to execute if we're inside a ddc build
     if is_reentrant_build() {
-        eprintln!(
+        tracing::warn!(
             "[code-exec] BLOCKED: refusing to execute code inside ddc build (reentrancy guard) - {}:{}",
             sample.source_path, sample.line
         );
@@ -149,10 +149,12 @@ async fn execute_code_sample(sample: &CodeSample, _config: &CodeExecutionConfig)
         };
     }
 
-    // Simple execution for now - this would need the full language config logic
-    let (command, args): (String, Vec<&str>) = match sample.language.to_lowercase().as_str() {
-        "rust" | "rs" => ("cargo".to_string(), vec!["run", "--release", "--bin", "sample"]),
-        _ => return ExecutionResult {
+    let start_time = std::time::Instant::now();
+    let source_info = format!("{}:{}", sample.source_path, sample.line);
+
+    // Only Rust is supported for now
+    if !matches!(sample.language.to_lowercase().as_str(), "rust" | "rs") {
+        return ExecutionResult {
             success: false,
             exit_code: None,
             stdout: String::new(),
@@ -161,22 +163,101 @@ async fn execute_code_sample(sample: &CodeSample, _config: &CodeExecutionConfig)
             error: Some(format!("Unsupported language: {}", sample.language)),
             metadata: None,
             skipped: false,
-        },
+        };
+    }
+
+    // Create a temporary directory for the Rust project
+    let temp_dir = match tempfile::tempdir() {
+        Ok(dir) => dir,
+        Err(e) => {
+            return ExecutionResult {
+                success: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: format!("Failed to create temp directory: {}", e),
+                duration_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+                error: Some(format!("Failed to create temp directory: {}", e)),
+                metadata: None,
+                skipped: false,
+            };
+        }
     };
 
-    let start_time = std::time::Instant::now();
-    let source_info = format!("{}:{}", sample.source_path, sample.line);
+    let project_dir = temp_dir.path();
 
-    eprintln!(
+    // Write Cargo.toml
+    let cargo_toml = r#"[package]
+name = "code-sample"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+"#;
+
+    if let Err(e) = std::fs::write(project_dir.join("Cargo.toml"), cargo_toml) {
+        return ExecutionResult {
+            success: false,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: format!("Failed to write Cargo.toml: {}", e),
+            duration_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+            error: Some(format!("Failed to write Cargo.toml: {}", e)),
+            metadata: None,
+            skipped: false,
+        };
+    }
+
+    // Create src directory
+    let src_dir = project_dir.join("src");
+    if let Err(e) = std::fs::create_dir(&src_dir) {
+        return ExecutionResult {
+            success: false,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: format!("Failed to create src directory: {}", e),
+            duration_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+            error: Some(format!("Failed to create src directory: {}", e)),
+            metadata: None,
+            skipped: false,
+        };
+    }
+
+    // Determine if code needs to be wrapped in main()
+    let code = &sample.code;
+    let main_code = if code.contains("fn main()") {
+        code.clone()
+    } else {
+        format!("fn main() {{\n{}\n}}", code)
+    };
+
+    // Write main.rs
+    if let Err(e) = std::fs::write(src_dir.join("main.rs"), &main_code) {
+        return ExecutionResult {
+            success: false,
+            exit_code: None,
+            stdout: String::new(),
+            stderr: format!("Failed to write main.rs: {}", e),
+            duration_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+            error: Some(format!("Failed to write main.rs: {}", e)),
+            metadata: None,
+            skipped: false,
+        };
+    }
+
+    let command = "cargo";
+    let args = ["run", "--release"];
+
+    tracing::debug!(
         "[code-exec] Starting: {} {} ({})",
         command,
         args.join(" "),
         source_info
     );
 
-    // Spawn the process with piped stdout/stderr
-    let mut child = match Command::new(&command)
-        .args(&args)
+    // Spawn the process with piped stdout/stderr in the temp project directory
+    let mut child = match Command::new(command)
+        .args(args)
+        .current_dir(project_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -214,7 +295,7 @@ async fn execute_code_sample(sample: &CodeSample, _config: &CodeExecutionConfig)
         // Check timeout
         if elapsed > timeout {
             let _ = child.kill().await;
-            eprintln!(
+            tracing::warn!(
                 "[code-exec] TIMEOUT after {}s: {} ({})",
                 elapsed.as_secs(),
                 command,
@@ -235,7 +316,7 @@ async fn execute_code_sample(sample: &CodeSample, _config: &CodeExecutionConfig)
         // Progress report every PROGRESS_INTERVAL_SECS
         if last_progress_report.elapsed() >= progress_interval {
             let since_output = last_output_time.elapsed().as_secs();
-            eprintln!(
+            tracing::debug!(
                 "[code-exec] Running {}s, stdout={}B, stderr={}B, last_output={}s ago: {} ({})",
                 elapsed.as_secs(),
                 stdout_buf.len(),
@@ -250,7 +331,7 @@ async fn execute_code_sample(sample: &CodeSample, _config: &CodeExecutionConfig)
         // Check output size limits
         if stdout_buf.len() + stderr_buf.len() > MAX_OUTPUT_SIZE {
             let _ = child.kill().await;
-            eprintln!(
+            tracing::warn!(
                 "[code-exec] OUTPUT TOO LARGE ({}B): {} ({})",
                 stdout_buf.len() + stderr_buf.len(),
                 command,
@@ -302,7 +383,7 @@ async fn execute_code_sample(sample: &CodeSample, _config: &CodeExecutionConfig)
                 let exit_code = status.and_then(|s| s.code());
                 let success = status.map(|s| s.success()).unwrap_or(false);
 
-                eprintln!(
+                tracing::debug!(
                     "[code-exec] Finished in {}ms, exit={:?}, stdout={}B, stderr={}B: {} ({})",
                     duration_ms,
                     exit_code,

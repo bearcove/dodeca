@@ -1,11 +1,9 @@
 //! TuiHost service implementation for dodeca
 //!
-//! This module implements the TuiHost trait from mod-tui-proto, allowing
-//! the TUI plugin to connect and receive streaming updates.
+//! This module implements the TuiHost trait from cell-tui-proto, allowing
+//! the TUI cell to connect and receive streaming updates.
 
-use std::path::PathBuf;
 use std::pin::Pin;
-use std::process::Stdio;
 use std::sync::Arc;
 
 use eyre::Result;
@@ -14,10 +12,8 @@ use cell_tui_proto::{
     BindMode, BuildProgress, CommandResult, EventKind, LogEvent, LogLevel, ServerCommand,
     ServerStatus, TaskProgress, TaskStatus, TuiHost, TuiHostServer,
 };
-use rapace::transport::shm::{ShmSession, ShmSessionConfig, ShmTransport};
-use rapace::{Frame, RpcError, RpcSession};
+use rapace::{Frame, RpcError};
 use rapace::Streaming;
-use tokio::process::Command;
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
 
@@ -241,50 +237,21 @@ pub fn convert_server_status(status: &crate::tui::ServerStatus) -> ServerStatus 
 }
 
 /// Convert from proto ServerCommand to old tui::ServerCommand
+/// Note: CycleLogLevel and ToggleSalsaDebug are handled directly in main.rs bridge
 pub fn convert_server_command(cmd: ServerCommand) -> crate::tui::ServerCommand {
     match cmd {
         ServerCommand::GoPublic => crate::tui::ServerCommand::GoPublic,
         ServerCommand::GoLocal => crate::tui::ServerCommand::GoLocal,
-        // New commands - need to extend the old enum or handle differently
+        // These are handled directly in the bridge, should never reach here
         ServerCommand::ToggleSalsaDebug | ServerCommand::CycleLogLevel => {
-            // For now, just ignore these as the old TUI handled them internally
-            crate::tui::ServerCommand::GoLocal // placeholder
+            unreachable!("ToggleSalsaDebug and CycleLogLevel are handled directly in main.rs")
         }
     }
 }
 
 // ============================================================================
-// TUI Plugin Spawning
+// TUI Cell Spawning
 // ============================================================================
-
-/// Type alias for our transport (SHM-based for zero-copy)
-type TuiTransport = ShmTransport;
-
-/// SHM configuration for TUI communication
-/// This must match the SHM_CONFIG in dodeca-cell-runtime for plugins to connect.
-const SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
-    ring_capacity: 1024, // 1024 descriptors in flight
-    slot_size: 65536,    // 64KB per slot
-    slot_count: 512,     // 512 slots = 32MB total
-};
-
-/// Find the TUI plugin binary path (next to the main executable)
-pub fn find_tui_plugin_path() -> Result<PathBuf> {
-    let exe_path = std::env::current_exe()?;
-    let plugin_path = exe_path
-        .parent()
-        .ok_or_else(|| eyre::eyre!("Cannot find parent directory of executable"))?
-        .join("ddc-cell-tui");
-
-    if !plugin_path.exists() {
-        return Err(eyre::eyre!(
-            "TUI plugin binary not found at {}. Build it with: cargo build -p cell-tui --bin ddc-cell-tui",
-            plugin_path.display()
-        ));
-    }
-
-    Ok(plugin_path)
-}
 
 /// Wrapper struct that implements TuiHost by delegating to Arc<TuiHostImpl>
 struct TuiHostWrapper(Arc<TuiHostImpl>);
@@ -334,75 +301,34 @@ pub fn create_tui_dispatcher(
     }
 }
 
-/// Start the TUI plugin and run the host service
+/// Start the TUI cell and run the host service
 ///
-/// This:
-/// 1. Creates a shared memory segment
-/// 2. Spawns the TUI plugin process with --shm-path arg
-/// 3. Serves TuiHost RPCs via SHM transport
-/// 4. Returns the handle and waits for the TUI to exit
+/// This spawns the TUI cell through the hub (like all other cells) and sets up
+/// the TuiHost RPC dispatcher so the cell can subscribe to updates.
 ///
 /// The `shutdown_rx` allows external signaling to stop the TUI.
-pub async fn start_tui_plugin(
+pub async fn start_tui_cell(
     tui_host: TuiHostImpl,
-    plugin_path: PathBuf,
     mut shutdown_rx: Option<watch::Receiver<bool>>,
 ) -> Result<()> {
-    // Create SHM file path
-    let shm_path = format!("/tmp/dodeca-tui-{}.shm", std::process::id());
-
-    // Clean up any stale SHM file
-    let _ = std::fs::remove_file(&shm_path);
-
-    // Create the SHM session (host side)
-    let session = ShmSession::create_file(&shm_path, SHM_CONFIG)
-        .map_err(|e| eyre::eyre!("Failed to create SHM for TUI: {:?}", e))?;
-    tracing::debug!(
-        "TUI SHM segment: {} ({}KB)",
-        shm_path,
-        SHM_CONFIG.slot_size * SHM_CONFIG.slot_count / 1024
-    );
-
-    // Spawn the TUI plugin process
-    let mut child = Command::new(&plugin_path)
-        .arg(format!("--shm-path={}", shm_path))
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .spawn()?;
-
-    tracing::debug!("Spawned TUI plugin: {}", plugin_path.display());
-
-    // Give the plugin time to map the SHM
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-    // Create the SHM transport and wrap in RpcSession
-    let transport: Arc<TuiTransport> = Arc::new(ShmTransport::new(session));
-
-    // Host uses odd channel IDs (1, 3, 5, ...)
-    // Plugin uses even channel IDs (2, 4, 6, ...)
-    let rpc_session = Arc::new(RpcSession::with_channel_start(transport, 1));
-    tracing::debug!("TUI plugin connected via SHM");
-
-    // Set up dispatcher for TuiHost service
     let tui_host_arc = Arc::new(tui_host);
-    rpc_session.set_dispatcher(create_tui_dispatcher(tui_host_arc));
+    let dispatcher = create_tui_dispatcher(tui_host_arc);
 
-    // Spawn the RPC session demux loop
-    let session_runner = rpc_session.clone();
-    tokio::spawn(async move {
-        if let Err(e) = session_runner.run().await {
-            tracing::error!("TUI RPC session error: {:?}", e);
-        }
-    });
+    let (_rpc_session, mut child) = crate::cells::spawn_cell_with_dispatcher(
+        "ddc-cell-tui",
+        dispatcher,
+    )
+    .ok_or_else(|| eyre::eyre!(
+        "Failed to spawn TUI cell. Make sure ddc-cell-tui is built and in the cell path."
+    ))?;
 
     // Wait for TUI process to exit or shutdown signal
     loop {
         tokio::select! {
             status = child.wait() => {
                 match status {
-                    Ok(s) => tracing::debug!("TUI plugin exited with status: {}", s),
-                    Err(e) => tracing::error!("TUI plugin wait error: {:?}", e),
+                    Ok(s) => tracing::debug!("TUI cell exited with status: {}", s),
+                    Err(e) => tracing::error!("TUI cell wait error: {:?}", e),
                 }
                 break;
             }
@@ -416,15 +342,12 @@ pub async fn start_tui_plugin(
                 // Never complete if no shutdown receiver
                 std::future::pending::<()>().await
             } => {
-                tracing::info!("Shutdown signal received, stopping TUI plugin");
+                tracing::info!("Shutdown signal received, stopping TUI cell");
                 let _ = child.kill().await;
                 break;
             }
         }
     }
-
-    // Cleanup: remove SHM file
-    let _ = std::fs::remove_file(&shm_path);
 
     Ok(())
 }

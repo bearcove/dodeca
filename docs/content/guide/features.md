@@ -39,6 +39,8 @@ weight = 40
 Any fenced Rust code block is automatically compiled and executed:
 
 ```rust
+use std::collections::HashMap;
+
 fn main() {
     let mut scores = HashMap::new();
     scores.insert("Alice", 10);

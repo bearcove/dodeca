@@ -2174,6 +2174,9 @@ async fn serve_with_tui(
     // SAFETY: We're single-threaded at this point (before spawning plugins)
     unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
 
+    // Enable quiet mode for cells so they don't print startup messages that corrupt TUI
+    cells::set_quiet_mode(true);
+
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
     let cache_dir = parent_dir.join(".cache");
@@ -2962,26 +2965,39 @@ async fn serve_with_tui(
         }
     });
 
-    // Run TUI plugin
-    // Find the TUI plugin binary
-    let tui_plugin_path = match tui_host::find_tui_plugin_path() {
-        Ok(p) => p,
-        Err(e) => {
-            return Err(eyre!(
-                "TUI cell not found: {e}. Make sure ddc-cell-tui is built and in the cell path."
-            ));
-        }
-    };
-
+    // Run TUI cell
     // Create a proto command channel for TuiHost, with a bridge to the old channel
     let (proto_cmd_tx, mut proto_cmd_rx) =
         tokio::sync::mpsc::unbounded_channel::<cell_tui_proto::ServerCommand>();
 
-    // Bridge proto commands to old tui commands
+    // Bridge proto commands to old tui commands (or handle directly)
+    let filter_handle_for_bridge = filter_handle.clone();
+    let event_tx_for_bridge = event_tx.clone();
     tokio::spawn(async move {
         while let Some(proto_cmd) = proto_cmd_rx.recv().await {
-            let old_cmd = tui_host::convert_server_command(proto_cmd);
-            let _ = cmd_tx.send(old_cmd);
+            match proto_cmd {
+                cell_tui_proto::ServerCommand::CycleLogLevel => {
+                    // Handle directly - cycle the log level
+                    let new_level = filter_handle_for_bridge.cycle_log_level();
+                    let _ = event_tx_for_bridge.send(tui::LogEvent::info(format!(
+                        "Log level: {}",
+                        new_level.as_str()
+                    )));
+                }
+                cell_tui_proto::ServerCommand::ToggleSalsaDebug => {
+                    // Legacy command - toggle salsa debug (now mostly obsolete with picante)
+                    let enabled = filter_handle_for_bridge.toggle_salsa_debug();
+                    let _ = event_tx_for_bridge.send(tui::LogEvent::info(format!(
+                        "Salsa debug: {}",
+                        if enabled { "ON" } else { "OFF" }
+                    )));
+                }
+                other => {
+                    // Route to old command system for bind mode changes
+                    let old_cmd = tui_host::convert_server_command(other);
+                    let _ = cmd_tx.send(old_cmd);
+                }
+            }
         }
     });
 
@@ -3025,11 +3041,10 @@ async fn serve_with_tui(
     // Create shutdown channel for TUI plugin
     let (tui_shutdown_tx, tui_shutdown_rx) = watch::channel(false);
 
-    // Run the TUI plugin (blocks until TUI exits)
-    let _ = tui_host::start_tui_plugin(tui_host, tui_plugin_path, Some(tui_shutdown_rx)).await;
+    // Run the TUI cell (blocks until TUI exits)
+    let _ = tui_host::start_tui_cell(tui_host, Some(tui_shutdown_rx)).await;
 
-    // Ignore unused variables (filter_handle was used by inline TUI)
-    let _ = filter_handle;
+    // Ignore unused variables
     let _ = tui_shutdown_tx;
 
     // Signal server to shutdown (use current_shutdown in case it was swapped)

@@ -32,7 +32,7 @@ use cell_pagefind_proto::{
 use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
 use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
-use rapace::RpcSession;
+use rapace::{Frame, RpcSession};
 use rapace::transport::shm::{
     close_peer_fd, HubConfig, HubHost, HubHostPeerTransport,
 };
@@ -49,6 +49,19 @@ static HUB: OnceLock<Arc<HubHost>> = OnceLock::new();
 
 /// Hub SHM path.
 static HUB_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+/// Whether cells should suppress startup messages (set when TUI is active).
+static QUIET_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Enable quiet mode for spawned cells (call this when TUI is active).
+pub fn set_quiet_mode(quiet: bool) {
+    QUIET_MODE.store(quiet, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// Check if quiet mode is enabled.
+fn is_quiet_mode() -> bool {
+    QUIET_MODE.load(std::sync::atomic::Ordering::SeqCst)
+}
 
 /// Decoded image data returned by plugins
 pub type DecodedImage = cell_image_proto::DecodedImage;
@@ -91,6 +104,121 @@ pub fn get_cell_session(name: &str) -> Option<Arc<RpcSession<HubHostPeerTranspor
         .iter()
         .find(|info| info.name == name)
         .map(|info| info.rpc_session.clone())
+}
+
+/// Get the global hub and hub path (initializing if needed).
+/// Returns None if hub creation fails.
+pub fn get_hub() -> Option<(Arc<HubHost>, PathBuf)> {
+    // Ensure plugins() is called to initialize the hub
+    let _ = plugins();
+    let hub = HUB.get()?.clone();
+    let hub_path = HUB_PATH.get()?.clone();
+    Some((hub, hub_path))
+}
+
+/// Spawn a cell binary through the hub with a custom dispatcher.
+///
+/// This is used for cells like TUI that need a custom dispatcher rather than
+/// just being clients that we call methods on.
+pub fn spawn_cell_with_dispatcher<D>(
+    binary_name: &str,
+    dispatcher: D,
+) -> Option<(Arc<RpcSession<HubHostPeerTransport>>, tokio::process::Child)>
+where
+    D: Fn(u32, u32, Vec<u8>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Frame, rapace::RpcError>> + Send>>
+        + Send
+        + Sync
+        + 'static,
+{
+    let (hub, hub_path) = get_hub()?;
+
+    // Find the binary
+    let exe_path = std::env::current_exe().ok()?;
+    let dir = exe_path.parent()?;
+
+    #[cfg(target_os = "windows")]
+    let executable = format!("{binary_name}.exe");
+    #[cfg(not(target_os = "windows"))]
+    let executable = binary_name.to_string();
+
+    let path = dir.join(&executable);
+    if !path.exists() {
+        warn!("cell binary not found: {}", path.display());
+        return None;
+    }
+
+    // Add peer to hub
+    let peer_info = match hub.add_peer() {
+        Ok(info) => info,
+        Err(e) => {
+            warn!("failed to add peer for {}: {}", binary_name, e);
+            return None;
+        }
+    };
+
+    let peer_id = peer_info.peer_id;
+    let peer_doorbell_fd = peer_info.peer_doorbell_fd;
+
+    // Build command with hub args
+    let mut cmd = Command::new(&path);
+    cmd.arg(format!("--hub-path={}", hub_path.display()))
+        .arg(format!("--peer-id={}", peer_id))
+        .arg(format!("--doorbell-fd={}", peer_doorbell_fd))
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+
+    // Set quiet mode if TUI is active
+    if is_quiet_mode() {
+        cmd.env("DODECA_QUIET", "1");
+    }
+
+    let child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
+        Ok(child) => child,
+        Err(e) => {
+            warn!("failed to spawn {}: {}", executable, e);
+            return None;
+        }
+    };
+
+    // Register child PID for SIGUSR1 forwarding
+    if let Some(pid) = child.id() {
+        dodeca_debug::register_child_pid(pid);
+    }
+
+    // Close our end of the peer's doorbell
+    close_peer_fd(peer_doorbell_fd);
+
+    // Create transport
+    let transport = Arc::new(HubHostPeerTransport::with_name(
+        hub.clone(),
+        peer_id,
+        peer_info.doorbell,
+        binary_name,
+    ));
+
+    let rpc_session = Arc::new(RpcSession::with_channel_start(transport.clone(), 1));
+
+    // Register for diagnostics
+    register_peer_diag(peer_id, binary_name, transport, rpc_session.clone());
+
+    // Set up the custom dispatcher
+    rpc_session.set_dispatcher(dispatcher);
+
+    // Spawn the RPC session runner
+    {
+        let session_runner = rpc_session.clone();
+        let plugin_label = binary_name.to_string();
+        tokio::spawn(async move {
+            if let Err(e) = session_runner.run().await {
+                warn!("{} RPC session error: {}", plugin_label, e);
+            }
+        });
+    }
+
+    info!("launched {} from {} (peer_id={})", binary_name, path.display(), peer_id);
+
+    Some((rpc_session, child))
 }
 
 /// Dump hub transport diagnostics to stderr (called on SIGUSR1).
@@ -154,6 +282,12 @@ pub fn init_hub_diagnostics() {
     dodeca_debug::register_diagnostic(dump_hub_diagnostics);
 }
 
+/// Info about a spawned plugin with its RPC session already running.
+struct SpawnedPlugin {
+    peer_id: u16,
+    rpc_session: Arc<RpcSession<HubHostPeerTransport>>,
+}
+
 macro_rules! define_plugins {
     ( $( $key:ident => $Client:ident ),* $(,)? ) => {
         #[derive(Default)]
@@ -165,14 +299,34 @@ macro_rules! define_plugins {
 
         impl PluginRegistry {
             /// Load plugins from a directory.
+            ///
+            /// Spawns all plugins in parallel (with RPC sessions immediately running),
+            /// waits for them to register, then creates clients.
             fn load_from_dir(dir: &Path, hub: &Arc<HubHost>, hub_path: &Path) -> Self {
+                // Phase 1: Spawn all plugins with RPC sessions already running
+                let mut spawned: Vec<(&'static str, Option<SpawnedPlugin>)> = Vec::new();
                 $(
                     let plugin_name = match stringify!($key) {
                         "syntax_highlight" => "ddc-cell-arborium".to_string(),
                         other => format!("ddc-cell-{}", other.replace('_', "-")),
                     };
-                    let $key = Self::try_load_mod(dir, &plugin_name, hub, hub_path)
-                        .map(|s| Arc::new($Client::<HubHostPeerTransport>::new(s)));
+                    let spawn_result = Self::spawn_plugin(dir, &plugin_name, hub, hub_path);
+                    spawned.push((stringify!($key), spawn_result));
+                )*
+
+                // Phase 2: Wait for all spawned plugins to register
+                // (RPC sessions are already running, so messages can be processed)
+                let peer_ids: Vec<u16> = spawned.iter()
+                    .filter_map(|(_, s)| s.as_ref().map(|p| p.peer_id))
+                    .collect();
+                Self::wait_for_peers(hub, &peer_ids);
+
+                // Phase 3: Create clients from already-running sessions
+                let mut iter = spawned.into_iter();
+                $(
+                    let (_, spawn_result) = iter.next().unwrap();
+                    let $key = spawn_result
+                        .map(|s| Arc::new($Client::<HubHostPeerTransport>::new(s.rpc_session)));
                 )*
 
                 PluginRegistry {
@@ -204,18 +358,16 @@ define_plugins! {
 }
 
 impl PluginRegistry {
-    /// Try to load a rapace service from the given directory.
+    /// Spawn a plugin process and immediately start its RPC session.
     ///
-    /// Uses the shared hub for all plugins:
-    /// - Allocates a peer ID from the hub
-    /// - Creates a socketpair doorbell
-    /// - Spawns the plugin with --hub-path, --peer-id, --doorbell-fd
-    fn try_load_mod(
+    /// This ensures the host can process incoming messages (like tracing events)
+    /// from the cell immediately, preventing slot exhaustion.
+    fn spawn_plugin(
         dir: &Path,
         binary_name: &str,
         hub: &Arc<HubHost>,
         hub_path: &Path,
-    ) -> Option<Arc<RpcSession<HubHostPeerTransport>>> {
+    ) -> Option<SpawnedPlugin> {
         #[cfg(target_os = "windows")]
         let executable = format!("{binary_name}.exe");
         #[cfg(not(target_os = "windows"))]
@@ -248,11 +400,15 @@ impl PluginRegistry {
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
 
+        // Set quiet mode if TUI is active
+        if is_quiet_mode() {
+            cmd.env("DODECA_QUIET", "1");
+        }
+
         let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
             Ok(child) => child,
             Err(e) => {
                 warn!("failed to spawn {}: {}", executable, e);
-                // TODO: Could reclaim the peer slot here
                 return None;
             }
         };
@@ -265,7 +421,10 @@ impl PluginRegistry {
         // Close our end of the peer's doorbell (plugin inherits it)
         close_peer_fd(peer_doorbell_fd);
 
-        // Create transport using host's doorbell
+        // CRITICAL: Create transport and start RPC session IMMEDIATELY after spawn.
+        // This allows the host to process incoming messages (tracing events, etc.)
+        // from the cell right away, preventing slot exhaustion on the current_thread
+        // tokio runtime.
         let transport = Arc::new(HubHostPeerTransport::with_name(
             hub.clone(),
             peer_id,
@@ -275,7 +434,7 @@ impl PluginRegistry {
 
         let rpc_session = Arc::new(RpcSession::with_channel_start(transport.clone(), 1));
 
-        // Register for SIGUSR1 diagnostics (after rpc_session is created)
+        // Register for SIGUSR1 diagnostics
         register_peer_diag(peer_id, binary_name, transport, rpc_session.clone());
 
         // Set up tracing sink so plugin logs are forwarded to host tracing
@@ -288,7 +447,7 @@ impl PluginRegistry {
             })
         });
 
-        // Push the current RUST_LOG filter to the plugin
+        // Push the current RUST_LOG filter to the plugin (async, doesn't block)
         {
             let rpc_session = rpc_session.clone();
             let plugin_label = binary_name.to_string();
@@ -303,6 +462,7 @@ impl PluginRegistry {
             });
         }
 
+        // Start the RPC session runner (processes incoming messages)
         {
             let session_runner = rpc_session.clone();
             let plugin_label = binary_name.to_string();
@@ -313,28 +473,68 @@ impl PluginRegistry {
             });
         }
 
-        let plugin_label = binary_name.to_string();
-        let hub_for_cleanup = hub.clone();
-        // Wait on the child asynchronously
-        tokio::spawn(async move {
-            match child.wait().await {
-                Ok(status) => {
-                    if !status.success() {
-                        warn!("{} plugin exited with status: {}", plugin_label, status);
+        // Wait on the child asynchronously and reclaim slots when it dies
+        {
+            let plugin_label = binary_name.to_string();
+            let hub_for_cleanup = hub.clone();
+            tokio::spawn(async move {
+                match child.wait().await {
+                    Ok(status) => {
+                        if !status.success() {
+                            warn!("{} plugin exited with status: {}", plugin_label, status);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("{} plugin wait error: {}", plugin_label, e);
                     }
                 }
-                Err(e) => {
-                    warn!("{} plugin wait error: {}", plugin_label, e);
-                }
-            }
-            // Reclaim peer slots when plugin dies
-            hub_for_cleanup.allocator().reclaim_peer_slots(peer_id as u32);
-            info!("{} plugin exited, reclaimed slots for peer {}", plugin_label, peer_id);
-        });
+                // Reclaim peer slots when plugin dies
+                hub_for_cleanup.allocator().reclaim_peer_slots(peer_id as u32);
+                info!("{} plugin exited, reclaimed slots for peer {}", plugin_label, peer_id);
+            });
+        }
 
         info!("launched {} plugin from {} (peer_id={})", binary_name, path.display(), peer_id);
 
-        Some(rpc_session)
+        Some(SpawnedPlugin {
+            peer_id,
+            rpc_session,
+        })
+    }
+
+    /// Wait for all spawned peers to register.
+    ///
+    /// Note: This uses std::thread::sleep which blocks the current_thread runtime.
+    /// However, since session.run() is spawned immediately in spawn_plugin(), the
+    /// spawned tasks will process incoming messages as soon as we return from
+    /// plugins() and yield to the async runtime.
+    fn wait_for_peers(hub: &Arc<HubHost>, peer_ids: &[u16]) {
+        if peer_ids.is_empty() {
+            return;
+        }
+
+        info!("waiting for {} peers to register: {:?}", peer_ids.len(), peer_ids);
+
+        // Wait up to 2s for all peers to register (checking every 10ms)
+        for i in 0..200 {
+            let all_active = peer_ids.iter().all(|&id| hub.is_peer_active(id));
+            if all_active {
+                info!("all {} peers registered after {}ms", peer_ids.len(), i * 10);
+                // Give cells a bit more time to be fully ready for RPCs.
+                // The PEER_FLAG_ACTIVE is set before the cell's session.run() starts,
+                // so this brief delay helps ensure cells are ready to handle requests.
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        // Log which peers failed to register
+        for &peer_id in peer_ids {
+            if !hub.is_peer_active(peer_id) {
+                warn!("peer {} failed to register within timeout", peer_id);
+            }
+        }
     }
 }
 
@@ -877,16 +1077,16 @@ pub async fn analyze_fonts_plugin(html: &str, css: &str) -> FontAnalysis {
 /// # Panics
 /// Panics if the fonts plugin is not loaded.
 pub async fn extract_css_from_html_plugin(html: &str) -> String {
-    eprintln!("[HOST] extract_css_from_html_plugin: START (html_len={})", html.len());
+    tracing::debug!("[HOST] extract_css_from_html_plugin: START (html_len={})", html.len());
     let plugin = plugins()
         .fonts
         .as_ref()
         .expect("dodeca-fonts plugin not loaded");
 
-    eprintln!("[HOST] extract_css_from_html_plugin: calling RPC...");
+    tracing::debug!("[HOST] extract_css_from_html_plugin: calling RPC...");
     match plugin.extract_css_from_html(html.to_string()).await {
         Ok(FontResult::CssSuccess { css }) => {
-            eprintln!("[HOST] extract_css_from_html_plugin: SUCCESS (css_len={})", css.len());
+            tracing::debug!("[HOST] extract_css_from_html_plugin: SUCCESS (css_len={})", css.len());
             css
         }
         Ok(FontResult::Error { message }) => panic!("extract css plugin error: {}", message),
@@ -1097,13 +1297,13 @@ pub async fn execute_code_samples_plugin(
 > {
     let plugin = plugins().code_execution.as_ref()?;
 
-    eprintln!("[HOST] execute_code_samples_plugin: START (num_samples={})", samples.len());
+    tracing::debug!("[HOST] execute_code_samples_plugin: START (num_samples={})", samples.len());
     let input = ExecuteSamplesInput { samples, config };
 
-    eprintln!("[HOST] execute_code_samples_plugin: calling RPC...");
+    tracing::debug!("[HOST] execute_code_samples_plugin: calling RPC...");
     match plugin.execute_code_samples(input).await {
         Ok(CodeExecutionResult::ExecuteSuccess { output }) => {
-            eprintln!("[HOST] execute_code_samples_plugin: SUCCESS (num_results={})", output.results.len());
+            tracing::debug!("[HOST] execute_code_samples_plugin: SUCCESS (num_results={})", output.results.len());
             Some(output.results)
         }
         Ok(CodeExecutionResult::Error { message }) => {
