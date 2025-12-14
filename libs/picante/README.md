@@ -86,6 +86,7 @@ If you need cache size limits or custom corruption handling, use:
 
 - Tokio-only: query execution uses Tokio task-local context.
 - Global invalidation v1: changing any input bumps a single global `Revision`.
+- Compile-time optimized: derived query state machine uses trait objects to avoid monomorphization bloat (96% IR reduction, 36% faster builds). Small runtime cost (vtable dispatch + boxed futures) for large compile-time win. See [architecture docs](./docs/content/guide/architecture.md) for details.
 
 ## License
 
