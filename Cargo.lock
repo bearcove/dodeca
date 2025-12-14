@@ -2409,6 +2409,7 @@ dependencies = [
  "chrono",
  "divan",
  "dodeca-code-execution-types",
+ "dodeca-debug",
  "dodeca-protocol",
  "eyre",
  "facet",
@@ -2481,6 +2482,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "dodeca-debug"
+version = "0.1.0"
+dependencies = [
+ "backtrace",
+ "libc",
+]
+
+[[package]]
 name = "dodeca-devtools"
 version = "0.1.0"
 dependencies = [
@@ -2512,6 +2521,8 @@ name = "dodeca-plugin-runtime"
 version = "0.1.0"
 dependencies = [
  "color-eyre",
+ "dodeca-debug",
+ "libc",
  "rapace",
  "rapace-plugin",
  "rapace-tracing",
@@ -9197,6 +9208,7 @@ name = "ur-taking-me-with-you"
 version = "0.3.0"
 dependencies = [
  "libc",
+ "tokio",
  "windows-sys 0.61.2",
 ]
 

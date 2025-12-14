@@ -41,7 +41,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, OnceLock, RwLock};
-use std::process::Command;
+use tokio::process::Command;
 use tracing::{debug, info, warn};
 /// Global hub host for all plugins.
 static HUB: OnceLock<Arc<HubHost>> = OnceLock::new();
@@ -55,23 +55,30 @@ pub type DecodedImage = mod_image_proto::DecodedImage;
 /// Global plugin registry, initialized once.
 static PLUGINS: OnceLock<PluginRegistry> = OnceLock::new();
 
-/// Peer info for diagnostics: (peer_id, name, transport)
+/// Peer info for diagnostics: (peer_id, name, transport, rpc_session)
 struct PeerDiagInfo {
     peer_id: u16,
     name: String,
     transport: Arc<HubHostPeerTransport>,
+    rpc_session: Arc<RpcSession<HubHostPeerTransport>>,
 }
 
 /// Global peer diagnostic info.
 static PEER_DIAG_INFO: RwLock<Vec<PeerDiagInfo>> = RwLock::new(Vec::new());
 
-/// Register a peer's transport for diagnostics.
-fn register_peer_diag(peer_id: u16, name: &str, transport: Arc<HubHostPeerTransport>) {
+/// Register a peer's transport and RPC session for diagnostics.
+fn register_peer_diag(
+    peer_id: u16,
+    name: &str,
+    transport: Arc<HubHostPeerTransport>,
+    rpc_session: Arc<RpcSession<HubHostPeerTransport>>,
+) {
     if let Ok(mut info) = PEER_DIAG_INFO.write() {
         info.push(PeerDiagInfo {
             peer_id,
             name: name.to_string(),
             transport,
+            rpc_session,
         });
     }
 }
@@ -90,12 +97,14 @@ fn dump_hub_diagnostics() {
     let slot_status = hub.allocator().slot_status();
     eprintln!("{}", slot_status);
 
-    // Dump per-peer ring status
+    // Dump per-peer ring status and pending RPC waiters
     if let Ok(peers) = PEER_DIAG_INFO.read() {
         for peer in peers.iter() {
             let recv_ring = hub.peer_recv_ring(peer.peer_id);
             let send_ring = hub.peer_send_ring(peer.peer_id);
             let doorbell_bytes = peer.transport.doorbell_pending_bytes();
+            let pending_ids = peer.rpc_session.pending_channel_ids();
+            let tunnel_ids = peer.rpc_session.tunnel_channel_ids();
 
             eprintln!(
                 "  peer[{}] \"{}\": recv_ring({}) send_ring({}) doorbell_pending={}",
@@ -105,6 +114,24 @@ fn dump_hub_diagnostics() {
                 send_ring.ring_status(),
                 doorbell_bytes
             );
+
+            // Show pending RPC waiters if any
+            if !pending_ids.is_empty() {
+                eprintln!(
+                    "    pending_rpcs={} channel_ids={:?}",
+                    pending_ids.len(),
+                    pending_ids
+                );
+            }
+
+            // Show active tunnels if any
+            if !tunnel_ids.is_empty() {
+                eprintln!(
+                    "    active_tunnels={} channel_ids={:?}",
+                    tunnel_ids.len(),
+                    tunnel_ids
+                );
+            }
         }
     }
 
@@ -210,7 +237,7 @@ impl PluginRegistry {
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
 
-        let mut child = match ur_taking_me_with_you::spawn_dying_with_parent(cmd) {
+        let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
             Ok(child) => child,
             Err(e) => {
                 warn!("failed to spawn {}: {}", executable, e);
@@ -220,7 +247,9 @@ impl PluginRegistry {
         };
 
         // Register child PID for SIGUSR1 forwarding (debugging)
-        dodeca_debug::register_child_pid(child.id());
+        if let Some(pid) = child.id() {
+            dodeca_debug::register_child_pid(pid);
+        }
 
         // Close our end of the peer's doorbell (plugin inherits it)
         close_peer_fd(peer_doorbell_fd);
@@ -233,10 +262,10 @@ impl PluginRegistry {
             binary_name,
         ));
 
-        // Register for SIGUSR1 diagnostics
-        register_peer_diag(peer_id, binary_name, transport.clone());
+        let rpc_session = Arc::new(RpcSession::with_channel_start(transport.clone(), 1));
 
-        let rpc_session = Arc::new(RpcSession::with_channel_start(transport, 1));
+        // Register for SIGUSR1 diagnostics (after rpc_session is created)
+        register_peer_diag(peer_id, binary_name, transport, rpc_session.clone());
 
         // Set up tracing sink so plugin logs are forwarded to host tracing
         let tracing_sink = ForwardingTracingSink::new();
@@ -275,10 +304,17 @@ impl PluginRegistry {
 
         let plugin_label = binary_name.to_string();
         let hub_for_cleanup = hub.clone();
-        // Wait on the child in a blocking task (std::process::Child::wait is blocking)
-        tokio::task::spawn_blocking(move || {
-            if let Err(e) = child.wait() {
-                warn!("{} plugin exited with error: {}", plugin_label, e);
+        // Wait on the child asynchronously
+        tokio::spawn(async move {
+            match child.wait().await {
+                Ok(status) => {
+                    if !status.success() {
+                        warn!("{} plugin exited with status: {}", plugin_label, status);
+                    }
+                }
+                Err(e) => {
+                    warn!("{} plugin wait error: {}", plugin_label, e);
+                }
             }
             // Reclaim peer slots when plugin dies
             hub_for_cleanup.allocator().reclaim_peer_slots(peer_id as u32);

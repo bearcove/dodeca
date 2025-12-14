@@ -11,7 +11,7 @@ rapace = { path = "../rapace/crates/rapace", default-features = false }
 rapace-core = { path = "../rapace/crates/rapace-core" }
 rapace-plugin = { path = "../rapace/crates/rapace-plugin" }
 rapace-tracing = { path = "../rapace/crates/rapace-tracing" }
-ur-taking-me-with-you = { path = "../rapace/crates/ur-taking-me-with-you" }
+ur-taking-me-with-you = { path = "../rapace/crates/ur-taking-me-with-you", features = ["tokio"] }
 
 # Optimize dependencies in dev mode for faster tests
 # (keeps main crate unoptimized for fast incremental builds)
@@ -34,4 +34,12 @@ debug = true
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+# Debug-friendly profile for investigating mysteries (hangs, crashes, etc.)
+# Usage: cargo build --profile mystery
+[profile.mystery]
+inherits = "release"
+opt-level = 1
+debug = true
+strip = false
 

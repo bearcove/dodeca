@@ -1,8 +1,13 @@
 //! Dodeca Pagefind plugin (dodeca-mod-pagefind)
 //!
 //! This plugin handles search indexing using Pagefind.
+//!
+//! The pagefind crate uses html5ever's DomParser which is !Send, so the async
+//! futures cannot be sent across threads. Since the plugin runtime already runs
+//! in a tokio context, we spawn a separate OS thread with its own runtime to
+//! avoid "Cannot start a runtime from within a runtime" errors.
 
-use std::sync::OnceLock;
+use std::sync::mpsc;
 
 use pagefind::api::PagefindIndex;
 
@@ -13,30 +18,31 @@ pub struct SearchIndexerImpl;
 
 impl SearchIndexer for SearchIndexerImpl {
     async fn build_search_index(&self, input: SearchIndexInput) -> SearchIndexResult {
-        // Use blocking approach like the original plugin
-        build_search_index_blocking(input)
+        // Spawn a separate OS thread with its own runtime because:
+        // 1. We're already inside the plugin's tokio runtime
+        // 2. Pagefind futures are !Send (html5ever's DomParser)
+        // 3. We need block_on but can't nest runtimes
+        let (tx, rx) = mpsc::channel();
+
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("failed to build runtime for pagefind");
+
+            let result = rt.block_on(build_search_index_inner(input));
+            let _ = tx.send(result);
+        });
+
+        match rx.recv() {
+            Ok(Ok(output)) => SearchIndexResult::Success { output },
+            Ok(Err(e)) => SearchIndexResult::Error { message: e },
+            Err(_) => SearchIndexResult::Error { message: "pagefind thread panicked".to_string() },
+        }
     }
 }
 
-/// Global tokio runtime for blocking on async pagefind calls
-fn runtime() -> &'static tokio::runtime::Runtime {
-    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .expect("Failed to create tokio runtime")
-    })
-}
-
-fn build_search_index_blocking(input: SearchIndexInput) -> SearchIndexResult {
-    match runtime().block_on(async { build_search_index_async(input).await }) {
-        Ok(output) => SearchIndexResult::Success { output },
-        Err(e) => SearchIndexResult::Error { message: e },
-    }
-}
-
-async fn build_search_index_async(input: SearchIndexInput) -> Result<SearchIndexOutput, String> {
+async fn build_search_index_inner(input: SearchIndexInput) -> Result<SearchIndexOutput, String> {
     // Create pagefind index
     let mut index = match PagefindIndex::new(None) {
         Ok(idx) => idx,
