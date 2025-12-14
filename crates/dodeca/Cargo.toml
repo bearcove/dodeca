@@ -138,6 +138,9 @@ regex = "1"  # For HTML heading extraction and inline CSS/JS extraction
 # Template engine
 gingembre = { path = "../gingembre" }
 
+# Debug utilities (SIGUSR1 stack trace handler)
+dodeca-debug = { path = "../dodeca-debug" }
+
 [dev-dependencies]
 divan = "0.1"
 minijinja = "2"  # For template engine benchmarks

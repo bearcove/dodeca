@@ -39,8 +39,14 @@ impl ContentStore {
     pub fn open(path: &Utf8Path) -> eyre::Result<Self> {
         let path = path.as_std_path().to_path_buf();
         let store = if path.exists() {
-            let data = fs::read(&path)?;
-            facet_postcard::from_slice(&data).unwrap_or_default()
+            if path.is_dir() {
+                // Migration: old canopydb created a directory, new format is a single file
+                fs::remove_dir_all(&path)?;
+                HashStore::default()
+            } else {
+                let data = fs::read(&path)?;
+                facet_postcard::from_slice(&data).unwrap_or_default()
+            }
         } else {
             HashStore::default()
         };

@@ -153,8 +153,8 @@ extern "C" fn sigusr1_handler(_sig: libc::c_int) {
 
         eprintln!("[{process_name}] Thread IDs in this process: {tids:?}");
 
-        // Read kernel stack for each thread (limited info but better than nothing)
-        for tid in tids {
+        // Full kernel stacks first (for detailed analysis)
+        for tid in &tids {
             if let Ok(stack) = std::fs::read_to_string(format!("/proc/self/task/{tid}/stack")) {
                 eprintln!("[{process_name}] Thread {tid} kernel stack:\n{stack}");
             }
@@ -168,6 +168,43 @@ extern "C" fn sigusr1_handler(_sig: libc::c_int) {
                 }
             }
         }
+
+        // CONCISE SUMMARY at the end: Show top 3 kernel stack frames for each thread
+        eprintln!("\n[{process_name}] === THREAD SUMMARY (top 3 frames) ===");
+        for tid in &tids {
+            let name = std::fs::read_to_string(format!("/proc/self/task/{tid}/comm"))
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|_| "?".to_string());
+            let state = std::fs::read_to_string(format!("/proc/self/task/{tid}/status"))
+                .ok()
+                .and_then(|s| {
+                    s.lines()
+                        .find(|l| l.starts_with("State:"))
+                        .map(|l| l.trim_start_matches("State:").trim().to_string())
+                })
+                .unwrap_or_else(|| "?".to_string());
+
+            let top_frames: String = std::fs::read_to_string(format!("/proc/self/task/{tid}/stack"))
+                .map(|s| {
+                    s.lines()
+                        .take(3)
+                        .map(|l| {
+                            // Extract just the function name from kernel stack line
+                            // Format: "[<addr>] func_name+0x..."
+                            if let Some(start) = l.find(']') {
+                                l[start + 1..].trim().split('+').next().unwrap_or("?").trim()
+                            } else {
+                                l.trim()
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" → ")
+                })
+                .unwrap_or_else(|_| "?".to_string());
+
+            eprintln!("  [{tid}] {name} ({state}): {top_frames}");
+        }
+        eprintln!("[{process_name}] === END SUMMARY ===");
     }
 
     // Call registered diagnostic callbacks

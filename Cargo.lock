@@ -7201,7 +7201,7 @@ dependencies = [
 [[package]]
 name = "rapace"
 version = "0.3.0"
-source = "git+https://github.com/bearcove/rapace?branch=add-hang-diagnostics#13efba7d65180038dab39b923d84e3eb652551d5"
+source = "git+https://github.com/bearcove/rapace#6e62a1c4bc241430b85ad2c895b15cca88bb76b3"
 dependencies = [
  "facet",
  "facet-core",
@@ -7221,7 +7221,7 @@ dependencies = [
 [[package]]
 name = "rapace-core"
 version = "0.3.0"
-source = "git+https://github.com/bearcove/rapace?branch=add-hang-diagnostics#13efba7d65180038dab39b923d84e3eb652551d5"
+source = "git+https://github.com/bearcove/rapace#6e62a1c4bc241430b85ad2c895b15cca88bb76b3"
 dependencies = [
  "async-stream",
  "bitflags 2.10.0",
@@ -7235,7 +7235,7 @@ dependencies = [
 [[package]]
 name = "rapace-macros"
 version = "0.3.0"
-source = "git+https://github.com/bearcove/rapace?branch=add-hang-diagnostics#13efba7d65180038dab39b923d84e3eb652551d5"
+source = "git+https://github.com/bearcove/rapace#6e62a1c4bc241430b85ad2c895b15cca88bb76b3"
 dependencies = [
  "heck 0.4.1",
  "proc-macro-crate",
@@ -7247,7 +7247,7 @@ dependencies = [
 [[package]]
 name = "rapace-plugin"
 version = "0.3.0"
-source = "git+https://github.com/bearcove/rapace?branch=add-hang-diagnostics#13efba7d65180038dab39b923d84e3eb652551d5"
+source = "git+https://github.com/bearcove/rapace#6e62a1c4bc241430b85ad2c895b15cca88bb76b3"
 dependencies = [
  "rapace",
  "tokio",
@@ -7257,7 +7257,7 @@ dependencies = [
 [[package]]
 name = "rapace-registry"
 version = "0.3.0"
-source = "git+https://github.com/bearcove/rapace?branch=add-hang-diagnostics#13efba7d65180038dab39b923d84e3eb652551d5"
+source = "git+https://github.com/bearcove/rapace#6e62a1c4bc241430b85ad2c895b15cca88bb76b3"
 dependencies = [
  "facet-core",
 ]
@@ -7265,7 +7265,7 @@ dependencies = [
 [[package]]
 name = "rapace-tracing"
 version = "0.3.0"
-source = "git+https://github.com/bearcove/rapace?branch=add-hang-diagnostics#13efba7d65180038dab39b923d84e3eb652551d5"
+source = "git+https://github.com/bearcove/rapace#6e62a1c4bc241430b85ad2c895b15cca88bb76b3"
 dependencies = [
  "facet",
  "parking_lot",
@@ -7278,7 +7278,7 @@ dependencies = [
 [[package]]
 name = "rapace-transport-mem"
 version = "0.3.0"
-source = "git+https://github.com/bearcove/rapace?branch=add-hang-diagnostics#13efba7d65180038dab39b923d84e3eb652551d5"
+source = "git+https://github.com/bearcove/rapace#6e62a1c4bc241430b85ad2c895b15cca88bb76b3"
 dependencies = [
  "parking_lot",
  "rapace-core",
@@ -7288,7 +7288,7 @@ dependencies = [
 [[package]]
 name = "rapace-transport-shm"
 version = "0.3.0"
-source = "git+https://github.com/bearcove/rapace?branch=add-hang-diagnostics#13efba7d65180038dab39b923d84e3eb652551d5"
+source = "git+https://github.com/bearcove/rapace#6e62a1c4bc241430b85ad2c895b15cca88bb76b3"
 dependencies = [
  "allocator-api2",
  "libc",
@@ -7301,7 +7301,7 @@ dependencies = [
 [[package]]
 name = "rapace-transport-stream"
 version = "0.3.0"
-source = "git+https://github.com/bearcove/rapace?branch=add-hang-diagnostics#13efba7d65180038dab39b923d84e3eb652551d5"
+source = "git+https://github.com/bearcove/rapace#6e62a1c4bc241430b85ad2c895b15cca88bb76b3"
 dependencies = [
  "parking_lot",
  "rapace-core",
@@ -9215,7 +9215,7 @@ checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 [[package]]
 name = "ur-taking-me-with-you"
 version = "0.3.0"
-source = "git+https://github.com/bearcove/rapace?branch=add-hang-diagnostics#13efba7d65180038dab39b923d84e3eb652551d5"
+source = "git+https://github.com/bearcove/rapace#6e62a1c4bc241430b85ad2c895b15cca88bb76b3"
 dependencies = [
  "libc",
  "tokio",

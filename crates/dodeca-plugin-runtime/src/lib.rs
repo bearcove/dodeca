@@ -308,8 +308,23 @@ macro_rules! run_plugin {
     ($service_impl:expr) => {
         #[tokio::main(flavor = "current_thread")]
         async fn main() -> $crate::color_eyre::Result<()> {
+            // Install panic hook that clearly identifies the plugin
+            let plugin_name = env!("CARGO_BIN_NAME");
+            let default_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                eprintln!("\n[PLUGIN PANIC] {} panicked!", plugin_name);
+                eprintln!("[PLUGIN PANIC] Location: {:?}", info.location());
+                if let Some(msg) = info.payload().downcast_ref::<&str>() {
+                    eprintln!("[PLUGIN PANIC] Message: {}", msg);
+                } else if let Some(msg) = info.payload().downcast_ref::<String>() {
+                    eprintln!("[PLUGIN PANIC] Message: {}", msg);
+                }
+                // Also run the default hook for full backtrace
+                default_hook(info);
+            }));
+
             // Install SIGUSR1 handler for debugging (dumps stack traces)
-            $crate::dodeca_debug::install_sigusr1_handler(env!("CARGO_BIN_NAME"));
+            $crate::dodeca_debug::install_sigusr1_handler(plugin_name);
             $crate::color_eyre::install()?;
             $crate::run_plugin_service(PluginService::from($service_impl)).await
         }

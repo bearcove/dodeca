@@ -285,6 +285,9 @@ fn resolve_dirs(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Install SIGUSR1 handler for debugging (dumps stack traces)
+    dodeca_debug::install_sigusr1_handler("ddc");
+
     miette::set_hook(Box::new(
         |_| Box::new(miette::GraphicalReportHandler::new()),
     ))?;
@@ -793,6 +796,10 @@ pub async fn build(
 ) -> Result<BuildContext> {
     use std::time::Instant;
 
+    // Set reentrancy guard so code execution plugin knows we're in a build
+    // SAFETY: We're single-threaded at this point (before spawning plugins)
+    unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
+
     let start = Instant::now();
     let verbose = progress.is_none(); // Print to stdout when no TUI progress
 
@@ -1047,7 +1054,7 @@ pub async fn build(
             );
         }
 
-        // Build search index in a separate thread (pagefind is async)
+        // Build search index in a separate thread (pagefind uses actix, needs its own runtime)
         let output_for_search = site_output.clone();
         let search_files =
             std::thread::spawn(move || search::build_search_index(&output_for_search))
@@ -1342,7 +1349,7 @@ async fn build_with_mini_tui(
     // Build search index
     println!("{} Building search index...", "→".cyan());
 
-    // Build search index (plugin blocks internally)
+    // Build search index in a separate thread (pagefind uses actix, needs its own runtime)
     let search_files = {
         let output = site_output.clone();
         std::thread::spawn(move || search::build_search_index(&output))
@@ -1692,6 +1699,10 @@ async fn serve_plain(
     fd_socket: Option<String>,
 ) -> Result<()> {
     use std::sync::Arc;
+
+    // Set reentrancy guard so code execution plugin knows we're in a build
+    // SAFETY: We're single-threaded at this point (before spawning plugins)
+    unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
 
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
@@ -2125,11 +2136,19 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
         // Cache code execution results for build info display in serve mode
         server.set_code_execution_results(site_output.code_execution_results.clone());
 
-        // Build search index (plugin blocks internally)
-        let output = site_output.clone();
-        std::thread::spawn(move || search::build_search_index(&output))
-            .join()
-            .map_err(|_| eyre!("search thread panicked"))?
+        // Build search index - call the plugin directly since we're already in an async context.
+        // Don't go through search::build_search_index which creates another runtime.
+        let pages = search::collect_search_pages(&site_output);
+        let files = plugins::build_search_index_plugin(pages)
+            .await
+            .map_err(|e| eyre!("pagefind: {}", e))?;
+
+        let search_files: search::SearchFiles = files
+            .into_iter()
+            .map(|f| (f.path, f.contents))
+            .collect();
+
+        Ok(search_files)
     })
 }
 
@@ -2150,6 +2169,10 @@ async fn serve_with_tui(
     use std::sync::Arc;
     use std::sync::mpsc;
     use tokio::sync::watch;
+
+    // Set reentrancy guard so code execution plugin knows we're in a build
+    // SAFETY: We're single-threaded at this point (before spawning plugins)
+    unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
 
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
