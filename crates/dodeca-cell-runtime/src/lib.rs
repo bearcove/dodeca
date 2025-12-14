@@ -172,7 +172,7 @@ fn register_cell_diagnostics(name: String, transport: Arc<HubPeerTransport>) {
 }
 
 /// Extract cell name from hub path (e.g., "/tmp/dodeca-hub-12345.shm" -> "cell")
-fn cell_name_from_hub_path(path: &std::path::Path) -> String {
+fn cell_name_from_hub_path(_path: &std::path::Path) -> String {
     // The hub path doesn't contain the cell name, so we use the executable name
     std::env::current_exe()
         .ok()

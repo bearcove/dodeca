@@ -1,7 +1,7 @@
 # Nextest configuration for dodeca
 # See: https://nexte.st/docs/configuration/
 
-experimental = ["wrapper-scripts"]
+experimental = ["wrapper-scripts", "setup-scripts"]
 
 [scripts.wrapper.heaptrack]
 # Run tests under heaptrack for memory profiling

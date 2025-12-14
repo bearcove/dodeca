@@ -10,7 +10,7 @@ path = "src/main.rs"
 [dependencies]
 # HTML parsing
 html5ever = "0.36"
-markup5ever_rcdom = "0.36.0+unofficial"
+markup5ever_rcdom = "0.36.0"
 lol_html = "2.7"
 
 # Error handling

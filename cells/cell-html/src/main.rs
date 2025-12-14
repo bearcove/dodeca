@@ -8,7 +8,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::Arc;
 
 use color_eyre::Result;
 use html5ever::serialize::{SerializeOpts, serialize};

@@ -34,7 +34,7 @@ use cell_tui_proto::{
 mod theme;
 
 /// Type alias for our transport
-type PluginTransport = HubPeerTransport;
+type _PluginTransport = HubPeerTransport;
 
 /// Maximum number of events to keep in buffer
 const MAX_EVENTS: usize = 100;
