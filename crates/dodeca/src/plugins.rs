@@ -37,7 +37,7 @@ use std::process::Command;
 use tracing::{debug, info, warn};
 
 /// SHM configuration used for rapace plugins.
-/// This must match the SHM_CONFIG in dodeca-plugin-runtime for plugins to connect.
+/// Plugins auto-discover this config via open_file_auto() from the SHM header.
 ///
 /// Memory budget: 17 plugins × 16MB = 272MB total for SHM mappings.
 const PLUGIN_SHM_CONFIG: ShmSessionConfig = ShmSessionConfig {
