@@ -176,11 +176,11 @@ pub fn find_plugin_path() -> Result<PathBuf> {
     let plugin_path = exe_path
         .parent()
         .ok_or_else(|| eyre::eyre!("Cannot find parent directory of executable"))?
-        .join("dodeca-mod-http");
+        .join("ddc-cell-http");
 
     if !plugin_path.exists() {
         return Err(eyre::eyre!(
-            "Plugin binary not found at {}. Build it with: cargo build -p mod-http --bin dodeca-mod-http",
+            "Plugin binary not found at {}. Build it with: cargo build -p cell-http --bin ddc-cell-http",
             plugin_path.display()
         ));
     }

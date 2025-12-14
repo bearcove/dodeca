@@ -2968,7 +2968,7 @@ async fn serve_with_tui(
         Ok(p) => p,
         Err(e) => {
             return Err(eyre!(
-                "TUI plugin not found: {e}. Make sure dodeca-mod-tui is built and in the plugin path."
+                "TUI cell not found: {e}. Make sure ddc-cell-tui is built and in the cell path."
             ));
         }
     };

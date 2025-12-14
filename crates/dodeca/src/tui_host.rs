@@ -274,11 +274,11 @@ pub fn find_tui_plugin_path() -> Result<PathBuf> {
     let plugin_path = exe_path
         .parent()
         .ok_or_else(|| eyre::eyre!("Cannot find parent directory of executable"))?
-        .join("dodeca-mod-tui");
+        .join("ddc-cell-tui");
 
     if !plugin_path.exists() {
         return Err(eyre::eyre!(
-            "TUI plugin binary not found at {}. Build it with: cargo build -p mod-tui --bin dodeca-mod-tui",
+            "TUI plugin binary not found at {}. Build it with: cargo build -p cell-tui --bin ddc-cell-tui",
             plugin_path.display()
         ));
     }
