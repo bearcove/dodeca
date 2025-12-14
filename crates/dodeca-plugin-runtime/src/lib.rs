@@ -22,6 +22,7 @@ use std::sync::Arc;
 pub use color_eyre;
 pub use rapace;
 pub use rapace_plugin;
+pub use dodeca_debug;
 
 use color_eyre::Result;
 use rapace::RpcSession;
@@ -105,6 +106,10 @@ where
     let args = parse_args()?;
     let plugin_name = plugin_name_from_hub_path(&args.hub_path);
     let transport = create_hub_transport(&args).await?;
+
+    // Register SIGUSR1 diagnostic callback
+    register_plugin_diagnostics(plugin_name.clone(), transport.clone());
+
     let session = Arc::new(RpcSession::with_channel_start(transport, 2));
 
     let PluginTracing { tracing_config, .. } = init_tracing(session.clone());
@@ -127,6 +132,29 @@ where
     }
 
     Ok(())
+}
+
+/// Register plugin diagnostics for SIGUSR1.
+fn register_plugin_diagnostics(name: String, transport: Arc<HubPeerTransport>) {
+    dodeca_debug::register_diagnostic(move || {
+        let peer = transport.peer();
+        let recv_ring = peer.recv_ring();
+        let send_ring = peer.send_ring();
+        let doorbell_bytes = transport.doorbell_pending_bytes();
+
+        eprintln!(
+            "\n--- Plugin \"{}\" Transport Diagnostics ---",
+            name
+        );
+        eprintln!(
+            "  peer_id={}: recv_ring({}) send_ring({}) doorbell_pending={}",
+            peer.peer_id(),
+            recv_ring.ring_status(),
+            send_ring.ring_status(),
+            doorbell_bytes
+        );
+        eprintln!("--- End Plugin Diagnostics ---\n");
+    });
 }
 
 /// Extract plugin name from hub path (e.g., "/tmp/dodeca-hub-12345.shm" -> "plugin")
@@ -180,6 +208,11 @@ pub fn parse_args() -> Result<Args> {
 pub async fn create_hub_transport(args: &Args) -> Result<Arc<HubPeerTransport>> {
     let plugin_name = plugin_name_from_hub_path(&args.hub_path);
 
+    eprintln!(
+        "[{}] create_hub_transport: peer_id={}, doorbell_fd={}, hub_path={}",
+        plugin_name, args.peer_id, args.doorbell_fd, args.hub_path.display()
+    );
+
     // Wait for the hub SHM file to exist
     for i in 0..50 {
         if args.hub_path.exists() {
@@ -194,16 +227,45 @@ pub async fn create_hub_transport(args: &Args) -> Result<Arc<HubPeerTransport>> 
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 
+    // Check if the doorbell FD is valid before wrapping
+    {
+        let flags = unsafe { libc::fcntl(args.doorbell_fd, libc::F_GETFL) };
+        if flags < 0 {
+            let err = std::io::Error::last_os_error();
+            eprintln!(
+                "[{}] ERROR: doorbell_fd {} is invalid: {}",
+                plugin_name, args.doorbell_fd, err
+            );
+            return Err(color_eyre::eyre::eyre!(
+                "Doorbell FD {} is invalid: {}",
+                args.doorbell_fd,
+                err
+            ));
+        }
+        eprintln!(
+            "[{}] doorbell_fd {} is valid (flags=0x{:x})",
+            plugin_name, args.doorbell_fd, flags
+        );
+    }
+
     // Open the hub as a peer
     let peer = HubPeer::open(&args.hub_path, args.peer_id)
         .map_err(|e| color_eyre::eyre::eyre!("Failed to open hub SHM: {:?}", e))?;
 
+    eprintln!("[{}] opened hub SHM as peer {}", plugin_name, args.peer_id);
+
     // Register this peer in the hub
     peer.register();
+    eprintln!("[{}] registered as active peer", plugin_name);
 
     // Create doorbell from inherited file descriptor
     let doorbell = Doorbell::from_raw_fd(args.doorbell_fd)
         .map_err(|e| color_eyre::eyre::eyre!("Failed to create doorbell: {:?}", e))?;
+
+    eprintln!(
+        "[{}] created doorbell from fd {}, wrapped in AsyncFd",
+        plugin_name, args.doorbell_fd
+    );
 
     Ok(Arc::new(HubPeerTransport::new(Arc::new(peer), doorbell, plugin_name)))
 }
@@ -246,6 +308,8 @@ macro_rules! run_plugin {
     ($service_impl:expr) => {
         #[tokio::main(flavor = "current_thread")]
         async fn main() -> $crate::color_eyre::Result<()> {
+            // Install SIGUSR1 handler for debugging (dumps stack traces)
+            $crate::dodeca_debug::install_sigusr1_handler(env!("CARGO_BIN_NAME"));
             $crate::color_eyre::install()?;
             $crate::run_plugin_service(PluginService::from($service_impl)).await
         }

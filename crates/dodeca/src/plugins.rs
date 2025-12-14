@@ -40,10 +40,9 @@ use std::collections::HashMap;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::process::Command;
 use tracing::{debug, info, warn};
-
 /// Global hub host for all plugins.
 static HUB: OnceLock<Arc<HubHost>> = OnceLock::new();
 
@@ -55,6 +54,68 @@ pub type DecodedImage = mod_image_proto::DecodedImage;
 
 /// Global plugin registry, initialized once.
 static PLUGINS: OnceLock<PluginRegistry> = OnceLock::new();
+
+/// Peer info for diagnostics: (peer_id, name, transport)
+struct PeerDiagInfo {
+    peer_id: u16,
+    name: String,
+    transport: Arc<HubHostPeerTransport>,
+}
+
+/// Global peer diagnostic info.
+static PEER_DIAG_INFO: RwLock<Vec<PeerDiagInfo>> = RwLock::new(Vec::new());
+
+/// Register a peer's transport for diagnostics.
+fn register_peer_diag(peer_id: u16, name: &str, transport: Arc<HubHostPeerTransport>) {
+    if let Ok(mut info) = PEER_DIAG_INFO.write() {
+        info.push(PeerDiagInfo {
+            peer_id,
+            name: name.to_string(),
+            transport,
+        });
+    }
+}
+
+/// Dump hub transport diagnostics to stderr (called on SIGUSR1).
+fn dump_hub_diagnostics() {
+    eprintln!("\n--- Hub Transport Diagnostics ---");
+
+    // Get hub
+    let Some(hub) = HUB.get() else {
+        eprintln!("  Hub not initialized");
+        return;
+    };
+
+    // Dump allocator slot status
+    let slot_status = hub.allocator().slot_status();
+    eprintln!("{}", slot_status);
+
+    // Dump per-peer ring status
+    if let Ok(peers) = PEER_DIAG_INFO.read() {
+        for peer in peers.iter() {
+            let recv_ring = hub.peer_recv_ring(peer.peer_id);
+            let send_ring = hub.peer_send_ring(peer.peer_id);
+            let doorbell_bytes = peer.transport.doorbell_pending_bytes();
+
+            eprintln!(
+                "  peer[{}] \"{}\": recv_ring({}) send_ring({}) doorbell_pending={}",
+                peer.peer_id,
+                peer.name,
+                recv_ring.ring_status(),
+                send_ring.ring_status(),
+                doorbell_bytes
+            );
+        }
+    }
+
+    eprintln!("--- End Hub Diagnostics ---\n");
+}
+
+/// Initialize hub diagnostics (register SIGUSR1 callback).
+/// Call this after the hub is created.
+pub fn init_hub_diagnostics() {
+    dodeca_debug::register_diagnostic(dump_hub_diagnostics);
+}
 
 macro_rules! define_plugins {
     ( $( $key:ident => $Client:ident ),* $(,)? ) => {
@@ -158,6 +219,9 @@ impl PluginRegistry {
             }
         };
 
+        // Register child PID for SIGUSR1 forwarding (debugging)
+        dodeca_debug::register_child_pid(child.id());
+
         // Close our end of the peer's doorbell (plugin inherits it)
         close_peer_fd(peer_doorbell_fd);
 
@@ -168,6 +232,10 @@ impl PluginRegistry {
             peer_info.doorbell,
             binary_name,
         ));
+
+        // Register for SIGUSR1 diagnostics
+        register_peer_diag(peer_id, binary_name, transport.clone());
+
         let rpc_session = Arc::new(RpcSession::with_channel_start(transport, 1));
 
         // Set up tracing sink so plugin logs are forwarded to host tracing
@@ -249,6 +317,8 @@ pub fn plugins() -> &'static PluginRegistry {
                 // Store in global statics for later access/cleanup
                 let _ = HUB.set(h.clone());
                 let _ = HUB_PATH.set(p.clone());
+                // Register diagnostic callback for SIGUSR1
+                init_hub_diagnostics();
                 (h, p)
             }
             None => {
@@ -759,13 +829,18 @@ pub async fn analyze_fonts_plugin(html: &str, css: &str) -> FontAnalysis {
 /// # Panics
 /// Panics if the fonts plugin is not loaded.
 pub async fn extract_css_from_html_plugin(html: &str) -> String {
+    eprintln!("[HOST] extract_css_from_html_plugin: START (html_len={})", html.len());
     let plugin = plugins()
         .fonts
         .as_ref()
         .expect("dodeca-fonts plugin not loaded");
 
+    eprintln!("[HOST] extract_css_from_html_plugin: calling RPC...");
     match plugin.extract_css_from_html(html.to_string()).await {
-        Ok(FontResult::CssSuccess { css }) => css,
+        Ok(FontResult::CssSuccess { css }) => {
+            eprintln!("[HOST] extract_css_from_html_plugin: SUCCESS (css_len={})", css.len());
+            css
+        }
         Ok(FontResult::Error { message }) => panic!("extract css plugin error: {}", message),
         Ok(_) => panic!("extract css plugin returned unexpected result type"),
         Err(e) => panic!("extract css plugin call failed: {:?}", e),
@@ -974,10 +1049,15 @@ pub async fn execute_code_samples_plugin(
 > {
     let plugin = plugins().code_execution.as_ref()?;
 
+    eprintln!("[HOST] execute_code_samples_plugin: START (num_samples={})", samples.len());
     let input = ExecuteSamplesInput { samples, config };
 
+    eprintln!("[HOST] execute_code_samples_plugin: calling RPC...");
     match plugin.execute_code_samples(input).await {
-        Ok(CodeExecutionResult::ExecuteSuccess { output }) => Some(output.results),
+        Ok(CodeExecutionResult::ExecuteSuccess { output }) => {
+            eprintln!("[HOST] execute_code_samples_plugin: SUCCESS (num_results={})", output.results.len());
+            Some(output.results)
+        }
         Ok(CodeExecutionResult::Error { message }) => {
             warn!("code execution plugin error: {}", message);
             None
