@@ -158,8 +158,8 @@ macro_rules! define_plugins {
             fn load_from_dir(dir: &Path, hub: &Arc<HubHost>, hub_path: &Path) -> Self {
                 $(
                     let plugin_name = match stringify!($key) {
-                        "syntax_highlight" => "dodeca-mod-arborium".to_string(),
-                        other => format!("dodeca-mod-{}", other.replace('_', "-")),
+                        "syntax_highlight" => "ddc-cell-arborium".to_string(),
+                        other => format!("ddc-cell-{}", other.replace('_', "-")),
                     };
                     let $key = Self::try_load_mod(dir, &plugin_name, hub, hub_path)
                         .map(|s| Arc::new($Client::<HubHostPeerTransport>::new(s)));
@@ -363,27 +363,27 @@ pub fn plugins() -> &'static PluginRegistry {
             }
         };
 
-        // Look for plugins in several locations:
-        // 1. DODECA_PLUGIN_PATH environment variable (highest priority)
+        // Look for cells in several locations:
+        // 1. DODECA_CELL_PATH environment variable (highest priority)
         // 2. Next to the executable
-        // 3. In plugins/ subdirectory next to executable (for installed releases)
+        // 3. In cells/ subdirectory next to executable (for installed releases)
         // 4. In target/debug (for development)
         // 5. In target/release
 
-        let env_plugin_path = std::env::var("DODECA_PLUGIN_PATH").ok().map(PathBuf::from);
+        let env_cell_path = std::env::var("DODECA_CELL_PATH").ok().map(PathBuf::from);
 
         let exe_dir = std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|p| p.to_path_buf()));
 
-        let plugins_dir = exe_dir.as_ref().map(|p| p.join("plugins"));
+        let cells_dir = exe_dir.as_ref().map(|p| p.join("cells"));
 
         #[cfg(debug_assertions)]
         let profile_dir = PathBuf::from("target/debug");
         #[cfg(not(debug_assertions))]
         let profile_dir = PathBuf::from("target/release");
 
-        let search_paths: Vec<PathBuf> = [env_plugin_path, exe_dir, plugins_dir, Some(profile_dir)]
+        let search_paths: Vec<PathBuf> = [env_cell_path, exe_dir, cells_dir, Some(profile_dir)]
             .into_iter()
             .flatten()
             .collect();

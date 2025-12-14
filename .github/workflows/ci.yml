@@ -662,8 +662,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: 
-      - assemble-linux-x64
-      - assemble-macos-arm64
+      - integration-linux-x64
+      - integration-macos-arm64
 
     if: "startsWith(github.ref, 'refs/tags/')"
     env: 

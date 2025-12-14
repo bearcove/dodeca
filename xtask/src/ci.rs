@@ -487,8 +487,8 @@ pub fn build_ci_workflow() -> Workflow {
     let mut jobs = IndexMap::new();
     let groups = cell_groups(3); // 3 cells per group
 
-    // Track all jobs needed for assembly
-    let mut all_assemble_jobs: Vec<String> = Vec::new();
+    // Track all integration jobs (release depends on these passing)
+    let mut all_integration_jobs: Vec<String> = Vec::new();
 
     for target in TARGETS {
         let short = target.short_name();
@@ -614,11 +614,10 @@ pub fn build_ci_workflow() -> Workflow {
                 ]),
         );
 
-        all_assemble_jobs.push(assemble_job_id.clone());
-
         // Integration tests
+        let integration_job_id = format!("integration-{short}");
         jobs.insert(
-            format!("integration-{short}"),
+            integration_job_id.clone(),
             Job::new(target.runner)
                 .name(format!("Integration ({short})"))
                 .timeout(30)
@@ -648,15 +647,17 @@ pub fn build_ci_workflow() -> Workflow {
                     ]),
                 ]),
         );
+
+        all_integration_jobs.push(integration_job_id);
     }
 
-    // Release job (only on tags)
+    // Release job (only on tags, after integration tests pass)
     jobs.insert(
         "release".into(),
         Job::new("ubuntu-latest")
             .name("Release")
             .timeout(30)
-            .needs(all_assemble_jobs)
+            .needs(all_integration_jobs)
             .if_condition("startsWith(github.ref, 'refs/tags/')")
             .env([
                 ("GH_TOKEN", "${{ secrets.GITHUB_TOKEN }}"),
