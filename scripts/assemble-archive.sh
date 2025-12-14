@@ -61,12 +61,31 @@ echo "Discovered rapace plugins: ${RAPACE_PLUGINS[*]:-none}"
 
 # Create staging directory
 rm -rf staging
-mkdir -p staging/plugins
+mkdir -p staging
 
-# Copy binary
+# Determine strip command
+case "$TARGET" in
+    *windows*)
+        # Windows: skip stripping (could use llvm-strip if needed)
+        STRIP_CMD=""
+        ;;
+    aarch64-unknown-linux-gnu)
+        # Cross-compiled ARM: use aarch64 strip
+        STRIP_CMD="aarch64-linux-gnu-strip"
+        ;;
+    *)
+        STRIP_CMD="strip"
+        ;;
+esac
+
+# Copy and strip binary
 cp "target/${TARGET}/release/${BINARY_NAME}" staging/
+if [[ -n "$STRIP_CMD" ]]; then
+    echo "Stripping: ${BINARY_NAME}"
+    $STRIP_CMD "staging/${BINARY_NAME}"
+fi
 
-# Copy rapace plugin binaries
+# Copy and strip rapace plugin binaries
 for plugin in "${RAPACE_PLUGINS[@]}"; do
     if [[ "$TARGET" == *windows* ]]; then
         BIN_NAME="dodeca-${plugin}.exe"
@@ -76,23 +95,34 @@ for plugin in "${RAPACE_PLUGINS[@]}"; do
     SRC="target/${TARGET}/release/${BIN_NAME}"
     if [[ -f "$SRC" ]]; then
         cp "$SRC" staging/
+        if [[ -n "$STRIP_CMD" ]]; then
+            echo "Stripping: ${BIN_NAME}"
+            $STRIP_CMD "staging/${BIN_NAME}"
+        fi
         echo "Copied rapace plugin: ${BIN_NAME}"
     else
         echo "Warning: Rapace plugin not found: $SRC"
     fi
 done
 
-# Copy cdylib plugins
-for plugin in "${CDYLIB_PLUGINS[@]}"; do
-    PLUGIN_FILE="${LIB_PREFIX}${plugin}.${LIB_EXT}"
-    SRC="target/${TARGET}/release/${PLUGIN_FILE}"
-    if [[ -f "$SRC" ]]; then
-        cp "$SRC" staging/plugins/
-        echo "Copied cdylib plugin: ${PLUGIN_FILE}"
-    else
-        echo "Warning: cdylib plugin not found: $SRC"
-    fi
-done
+# Copy and strip cdylib plugins (if any)
+if [[ ${#CDYLIB_PLUGINS[@]} -gt 0 ]]; then
+    mkdir -p staging/plugins
+    for plugin in "${CDYLIB_PLUGINS[@]}"; do
+        PLUGIN_FILE="${LIB_PREFIX}${plugin}.${LIB_EXT}"
+        SRC="target/${TARGET}/release/${PLUGIN_FILE}"
+        if [[ -f "$SRC" ]]; then
+            cp "$SRC" staging/plugins/
+            if [[ -n "$STRIP_CMD" ]]; then
+                echo "Stripping: plugins/${PLUGIN_FILE}"
+                $STRIP_CMD "staging/plugins/${PLUGIN_FILE}"
+            fi
+            echo "Copied cdylib plugin: ${PLUGIN_FILE}"
+        else
+            echo "Warning: cdylib plugin not found: $SRC"
+        fi
+    done
+fi
 
 # Create archive
 echo "Creating archive: $ARCHIVE_NAME"

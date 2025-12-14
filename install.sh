@@ -23,7 +23,7 @@ detect_platform() {
             ;;
         Darwin)
             case "$arch" in
-                x86_64) echo "x86_64-apple-darwin" ;;
+                x86_64) echo "Intel Macs (x86_64) are not supported. Use an ARM Mac or build from source." >&2; exit 1 ;;
                 arm64) echo "aarch64-apple-darwin" ;;
                 *) echo "Unsupported architecture: $arch" >&2; exit 1 ;;
             esac
@@ -57,7 +57,6 @@ main() {
 
     # Create install directory
     mkdir -p "$install_dir"
-    mkdir -p "$install_dir/plugins"
 
     # Download and extract
     local tmpdir
@@ -71,11 +70,21 @@ main() {
     tar -xJf "$tmpdir/archive.tar.xz" -C "$tmpdir"
 
     echo "Installing..."
+    # Copy main binary
     cp "$tmpdir/ddc" "$install_dir/"
     chmod +x "$install_dir/ddc"
 
+    # Copy rapace plugin binaries (dodeca-mod-*)
+    for plugin in "$tmpdir"/dodeca-mod-*; do
+        if [ -f "$plugin" ]; then
+            cp "$plugin" "$install_dir/"
+            chmod +x "$install_dir/$(basename "$plugin")"
+        fi
+    done
+
+    # Copy cdylib plugins if present (legacy)
     if [ -d "$tmpdir/plugins" ]; then
-        cp "$tmpdir/plugins/"* "$install_dir/plugins/"
+        cp "$tmpdir/plugins/"* "$install_dir/plugins/" 2>/dev/null || true
     fi
 
     echo ""
