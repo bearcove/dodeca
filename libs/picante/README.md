@@ -15,6 +15,7 @@
 - Dependency tracking via Tokio task-locals
 - Per-task cycle detection (fast path)
 - Async single-flight memoization per `(kind, key)`
+- In-flight query deduplication across database snapshots (see below)
 - Cache persistence to disk (snapshot file) using `facet` + `facet-postcard` (**no serde**)
 - Runtime notifications for live reload (`Runtime::subscribe_revisions`, `Runtime::subscribe_events`)
 
@@ -82,11 +83,26 @@ If you need cache size limits or custom corruption handling, use:
 - `save_cache_with_options`
 - `load_cache_with_options`
 
+## In-flight query deduplication
+
+When multiple concurrent async tasks request the same tracked query with identical parameters, picante automatically coalesces these into a single computation:
+
+- **First caller becomes the leader** and starts computing the value
+- **Concurrent callers become followers** and await the leader's result
+- **All callers receive the same result** once computation completes
+- **Each caller still caches the result in its own memo table**, keeping snapshot caches independent
+
+This deduplication works across database snapshots from the same parent database. Coalescing is scoped to:
+- The same **database identity** (parent database and all its snapshots share an identity)
+- The same **revision** (different revisions compute independently)
+- The same **query kind and key**
+
+This is particularly useful for request-per-snapshot patterns where many concurrent requests may query the same data.
+
 ## Notes
 
 - Tokio-only: query execution uses Tokio task-local context.
 - Global invalidation v1: changing any input bumps a single global `Revision`.
-- Compile-time optimized: derived query state machine uses trait objects to avoid monomorphization bloat (96% IR reduction, 36% faster builds). Small runtime cost (vtable dispatch + boxed futures) for large compile-time win. See [architecture docs](./docs/content/guide/architecture.md) for details.
 
 ## License
 
