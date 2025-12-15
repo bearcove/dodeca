@@ -1,8 +1,8 @@
 //! Precise URL rewriting using proper parsers
 //!
-//! - CSS: Uses lightningcss visitor API to find and rewrite `url()` values (via plugin)
-//! - HTML: Uses html5ever to parse, mutate, and serialize HTML (via plugin)
-//! - JS: Uses OXC parser to find string literals and rewrite asset paths (via plugin)
+//! - CSS: Uses lightningcss visitor API to find and rewrite `url()` values (via cell)
+//! - HTML: Uses html5ever to parse, mutate, and serialize HTML (via cell)
+//! - JS: Uses OXC parser to find string literals and rewrite asset paths (via cell)
 
 use std::collections::{HashMap, HashSet};
 
@@ -11,13 +11,13 @@ use crate::cells::{
     rewrite_urls_in_html_plugin,
 };
 
-/// Rewrite URLs in CSS using lightningcss parser (via plugin)
+/// Rewrite URLs in CSS using lightningcss parser (via cell)
 ///
 /// Only rewrites actual `url()` values in CSS, not text that happens to look like URLs.
 /// Also minifies the CSS output.
-/// Returns original CSS if plugin is not available.
+/// Returns original CSS if cell is not available.
 pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) -> String {
-    // Check if CSS plugin is available
+    // Check if CSS cell is available
     if crate::cells::plugins().css.is_none() {
         return css.to_string();
     }
@@ -32,9 +32,9 @@ pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) 
 }
 
 /// Rewrite string literals in JavaScript that contain asset paths (async version)
-/// Returns original JS if plugin is not available.
+/// Returns original JS if cell is not available.
 async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, String>) -> String {
-    // Check if JS plugin is available
+    // Check if JS cell is available
     if crate::cells::plugins().js.is_none() {
         return js.to_string();
     }
@@ -48,17 +48,17 @@ async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, Stri
     }
 }
 
-/// Rewrite URLs in HTML using the html plugin
+/// Rewrite URLs in HTML using the html cell
 ///
 /// Rewrites:
 /// - `href` and `src` attributes
 /// - `srcset` attribute values
-/// - Inline `<style>` tag content (via lightningcss plugin)
-/// - String literals in `<script>` tags (via OXC plugin)
+/// - Inline `<style>` tag content (via lightningcss cell)
+/// - String literals in `<script>` tags (via OXC cell)
 ///
-/// Returns original HTML if the html plugin is not available.
+/// Returns original HTML if the html cell is not available.
 pub async fn rewrite_urls_in_html(html: &str, path_map: &HashMap<String, String>) -> String {
-    // First: rewrite HTML attributes using the plugin
+    // First: rewrite HTML attributes using the cell
     let html_with_attrs = match rewrite_urls_in_html_plugin(html, path_map).await {
         Some(result) => result,
         None => html.to_string(),
@@ -96,11 +96,11 @@ pub async fn rewrite_urls_in_html(html: &str, path_map: &HashMap<String, String>
     result
 }
 
-/// Mark dead internal links in HTML using the plugin
+/// Mark dead internal links in HTML using the cell
 ///
 /// Adds `data-dead` attribute to `<a>` tags with internal hrefs that don't exist in known_routes.
 /// Returns (modified_html, had_dead_links) tuple.
-/// Returns original HTML with no dead links if the plugin is not available.
+/// Returns original HTML with no dead links if the cell is not available.
 pub async fn mark_dead_links(html: &str, known_routes: &HashSet<String>) -> (String, bool) {
     match mark_dead_links_plugin(html, known_routes).await {
         Some((result, had_dead)) => (result, had_dead),
@@ -236,8 +236,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_html_attribute_rewriting() {
-        // Note: This test requires the html plugin to be running
-        // Without the plugin, the function returns the original HTML
+        // Note: This test requires the html cell to be running
+        // Without the cell, the function returns the original HTML
         let mut path_map = HashMap::new();
         path_map.insert("/style.css".to_string(), "/style.abc123.css".to_string());
         path_map.insert("/app.js".to_string(), "/app.def456.js".to_string());
@@ -245,13 +245,13 @@ mod tests {
         let html = r#"<html><head><link href="/style.css"></head><body><script src="/app.js"></script></body></html>"#;
         let result = rewrite_urls_in_html(html, &path_map).await;
 
-        // With plugin: URLs are rewritten
-        // Without plugin: returns original HTML
+        // With cell: URLs are rewritten
+        // Without cell: returns original HTML
         if result.contains("abc123") {
             assert!(result.contains(r#"href="/style.abc123.css""#));
             assert!(result.contains(r#"src="/app.def456.js""#));
         } else {
-            assert_eq!(result, html, "Without plugin, HTML should be unchanged");
+            assert_eq!(result, html, "Without cell, HTML should be unchanged");
         }
     }
 
@@ -265,8 +265,8 @@ mod tests {
             r#"<html><body><a href="/exists">Good</a><a href="/missing">Bad</a></body></html>"#;
         let (result, had_dead) = mark_dead_links(html, &routes).await;
 
-        // Note: These tests require the html plugin to be running
-        // Without the plugin, the function returns the original HTML with no dead links
+        // Note: These tests require the html cell to be running
+        // Without the cell, the function returns the original HTML with no dead links
         // The assertions here work for both cases
         if had_dead {
             assert!(result.contains(r#"data-dead="/missing""#));

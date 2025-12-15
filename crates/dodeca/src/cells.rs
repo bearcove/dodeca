@@ -1,12 +1,12 @@
-//! Plugin loading and management for dodeca.
+//! Cell loading and management for dodeca.
 //!
-//! Plugins are loaded from dynamic libraries (.so on Linux, .dylib on macOS).
-//! Currently supports image encoding/decoding plugins (WebP, JXL).
+//! Cells are loaded from dynamic libraries (.so on Linux, .dylib on macOS).
+//! Currently supports image encoding/decoding cells (WebP, JXL).
 //!
 //! # Hub Architecture
 //!
-//! All plugins share a single SHM "hub" file with variable-size slot allocation.
-//! Each plugin gets its own ring pair within the hub and communicates via
+//! All cells share a single SHM "hub" file with variable-size slot allocation.
+//! Each cell gets its own ring pair within the hub and communicates via
 //! socketpair doorbells.
 
 use crate::cell_server::ForwardingTracingSink;
@@ -48,7 +48,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, SystemTime};
 use tokio::process::Command;
 use tracing::{debug, info, warn};
-/// Global hub host for all plugins.
+/// Global hub host for all cells.
 static HUB: OnceLock<Arc<HubHost>> = OnceLock::new();
 
 /// Hub SHM path.
@@ -99,30 +99,6 @@ impl CellReadyRegistry {
         self.ready.contains_key(&peer_id)
     }
 
-    /// Get the ready message for a peer
-    pub fn get_ready(&self, peer_id: u16) -> Option<ReadyMsg> {
-        self.ready.get(&peer_id).map(|entry| entry.clone())
-    }
-
-    /// Wait for a peer to become ready with timeout
-    /// Uses polling with sleep to work across different tokio runtimes
-    pub async fn wait_for_ready(&self, peer_id: u16, timeout: Duration) -> eyre::Result<ReadyMsg> {
-        let start = std::time::Instant::now();
-        loop {
-            if let Some(msg) = self.get_ready(peer_id) {
-                return Ok(msg);
-            }
-            if start.elapsed() >= timeout {
-                return Err(eyre::eyre!(
-                    "Timeout waiting for peer {} to be ready",
-                    peer_id
-                ));
-            }
-            // Poll every 10ms - works across different runtimes
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    }
-
     /// Wait for multiple peers to become ready with timeout
     pub async fn wait_for_all_ready(
         &self,
@@ -136,8 +112,18 @@ impl CellReadyRegistry {
                     break;
                 }
                 if start.elapsed() >= timeout {
+                    let cell_name = PEER_DIAG_INFO
+                        .read()
+                        .ok()
+                        .and_then(|info| {
+                            info.iter()
+                                .find(|p| p.peer_id == peer_id)
+                                .map(|p| p.name.clone())
+                        })
+                        .unwrap_or_else(|| format!("peer_{}", peer_id));
                     return Err(eyre::eyre!(
-                        "Timeout waiting for peer {} to be ready",
+                        "Timeout waiting for {} (peer {}) to be ready",
+                        cell_name,
                         peer_id
                     ));
                 }
@@ -154,34 +140,6 @@ static CELL_READY_REGISTRY: OnceLock<CellReadyRegistry> = OnceLock::new();
 /// Get or initialize the cell readiness registry
 pub fn cell_ready_registry() -> &'static CellReadyRegistry {
     CELL_READY_REGISTRY.get_or_init(CellReadyRegistry::new)
-}
-
-/// Wait for a cell to become ready by name with timeout
-///
-/// Returns the ready message if successful, or an error if the cell is not found or timeout occurs.
-pub async fn wait_for_cell_ready(cell_name: &str, timeout: Duration) -> eyre::Result<ReadyMsg> {
-    // Poll for the peer_id to appear (cell might still be spawning)
-    let peer_id = {
-        let start = std::time::Instant::now();
-        loop {
-            if let Ok(info) = PEER_DIAG_INFO.read() {
-                if let Some(peer) = info.iter().find(|i| i.name == cell_name) {
-                    break peer.peer_id;
-                }
-            }
-            if start.elapsed() >= timeout {
-                return Err(eyre::eyre!(
-                    "Cell {} not found after {:?}",
-                    cell_name,
-                    timeout
-                ));
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-    };
-
-    // Wait for the cell to become ready
-    cell_ready_registry().wait_for_ready(peer_id, timeout).await
 }
 
 /// Wait for multiple cells to become ready by name with timeout
@@ -210,12 +168,12 @@ pub async fn wait_for_cells_ready(cell_names: &[&str], timeout: Duration) -> eyr
 
 /// Host implementation of CellLifecycle service
 #[derive(Clone)]
-struct HostCellLifecycle {
+pub struct HostCellLifecycle {
     registry: CellReadyRegistry,
 }
 
 impl HostCellLifecycle {
-    fn new(registry: CellReadyRegistry) -> Self {
+    pub fn new(registry: CellReadyRegistry) -> Self {
         Self { registry }
     }
 }
@@ -224,7 +182,7 @@ impl CellLifecycle for HostCellLifecycle {
     async fn ready(&self, msg: ReadyMsg) -> ReadyAck {
         let peer_id = msg.peer_id;
         let cell_name = msg.cell_name.clone();
-        info!("Cell {} (peer_id={}) is ready", cell_name, peer_id);
+        debug!("Cell {} (peer_id={}) is ready", cell_name, peer_id);
 
         self.registry.mark_ready(msg);
 
@@ -240,30 +198,44 @@ impl CellLifecycle for HostCellLifecycle {
     }
 }
 
-/// Decoded image data returned by plugins
+/// Decoded image data returned by cells
 pub type DecodedImage = cell_image_proto::DecodedImage;
 
-/// Global plugin registry, initialized once.
+/// Global cell registry, initialized once.
 static PLUGINS: OnceLock<PluginRegistry> = OnceLock::new();
 
-/// Ensure plugins are loaded and warmed up (sessions have processed initial messages).
+/// Initialize cells and wait for ALL of them to complete their readiness handshake.
 ///
-/// On current_thread tokio runtime, cells send tracing events during startup that
-/// allocate slots. The host's session.run() tasks need to process these before
-/// we can make RPC calls. This function yields to allow that processing.
-///
-/// NOTE: We always yield because serve mode uses multiple runtimes (main + background
-/// thread for search index). Each runtime needs its own warmup.
-pub async fn ensure_plugins_ready() {
-    // Trigger plugin loading (sync)
+/// This must be called ONCE at startup before any RPC calls are made.
+/// All cells will send a `CellLifecycle.ready()` RPC after starting their demux loop,
+/// proving they can handle requests. This function waits for all of them.
+pub async fn init_and_wait_for_cells() -> eyre::Result<()> {
+    use std::time::Duration;
+
+    // Trigger cell loading (sync) - this spawns all cells and their RPC sessions
     let _ = plugins();
 
-    // Yield several times to ensure all spawned session.run() tasks get a chance
-    // to process the backlog of tracing events from cell startup.
-    // We do this every call because different threads may have different runtimes.
-    for _ in 0..10 {
-        tokio::task::yield_now().await;
+    // Get all spawned peer IDs
+    let peer_ids: Vec<u16> = PEER_DIAG_INFO
+        .read()
+        .map_err(|_| eyre::eyre!("Failed to acquire peer info lock"))?
+        .iter()
+        .map(|info| info.peer_id)
+        .collect();
+
+    if peer_ids.is_empty() {
+        debug!("No cells loaded, skipping readiness wait");
+        return Ok(());
     }
+
+    // Wait for all cells to complete their readiness handshake
+    let timeout = Duration::from_secs(10);
+    cell_ready_registry()
+        .wait_for_all_ready(&peer_ids, timeout)
+        .await?;
+
+    debug!("All {} cells ready", peer_ids.len());
+    Ok(())
 }
 
 /// Peer info for diagnostics: (peer_id, name, transport, rpc_session)
@@ -491,7 +463,7 @@ pub fn init_hub_diagnostics() {
     dodeca_debug::register_diagnostic(dump_hub_diagnostics);
 }
 
-/// Info about a spawned plugin with its RPC session already running.
+/// Info about a spawned cell with its RPC session already running.
 struct SpawnedPlugin {
     peer_id: u16,
     rpc_session: Arc<RpcSession<HubHostPeerTransport>>,
@@ -507,12 +479,12 @@ macro_rules! define_plugins {
         }
 
         impl PluginRegistry {
-            /// Load plugins from a directory.
+            /// Load cells from a directory.
             ///
-            /// Spawns all plugins in parallel (with RPC sessions immediately running),
+            /// Spawns all cells in parallel (with RPC sessions immediately running),
             /// waits for them to register, then creates clients.
             fn load_from_dir(dir: &Path, hub: &Arc<HubHost>, hub_path: &Path) -> Self {
-                // Phase 1: Spawn all plugins with RPC sessions already running
+                // Phase 1: Spawn all cells with RPC sessions already running
                 let mut spawned: Vec<(&'static str, Option<SpawnedPlugin>)> = Vec::new();
                 $(
                     let plugin_name = match stringify!($key) {
@@ -523,7 +495,7 @@ macro_rules! define_plugins {
                     spawned.push((stringify!($key), spawn_result));
                 )*
 
-                // Phase 2: Wait for all spawned plugins to register
+                // Phase 2: Wait for all spawned cells to register
                 // (RPC sessions are already running, so messages can be processed)
                 let peer_ids: Vec<u16> = spawned.iter()
                     .filter_map(|(_, s)| s.as_ref().map(|p| p.peer_id))
@@ -567,7 +539,7 @@ define_plugins! {
 }
 
 impl PluginRegistry {
-    /// Spawn a plugin process and immediately start its RPC session.
+    /// Spawn a cell process and immediately start its RPC session.
     ///
     /// This ensures the host can process incoming messages (like tracing events)
     /// from the cell immediately, preventing slot exhaustion.
@@ -584,7 +556,7 @@ impl PluginRegistry {
 
         let path = dir.join(&executable);
         if !path.exists() {
-            debug!("rapace plugin not found: {}", path.display());
+            debug!("rapace cell not found: {}", path.display());
             return None;
         }
 
@@ -592,7 +564,7 @@ impl PluginRegistry {
         let peer_info = match hub.add_peer() {
             Ok(info) => info,
             Err(e) => {
-                warn!("failed to add peer for {} plugin: {}", binary_name, e);
+                warn!("failed to add peer for {} cell: {}", binary_name, e);
                 return None;
             }
         };
@@ -627,7 +599,7 @@ impl PluginRegistry {
             dodeca_debug::register_child_pid(pid);
         }
 
-        // Close our end of the peer's doorbell (plugin inherits it)
+        // Close our end of the peer's doorbell (cell inherits it)
         close_peer_fd(peer_doorbell_fd);
 
         // CRITICAL: Create transport and start RPC session IMMEDIATELY after spawn.
@@ -666,7 +638,7 @@ impl PluginRegistry {
             })
         });
 
-        // Push the current RUST_LOG filter to the plugin (async, doesn't block)
+        // Push the current RUST_LOG filter to the cell (async, doesn't block)
         {
             let rpc_session = rpc_session.clone();
             let plugin_label = binary_name.to_string();
@@ -674,9 +646,9 @@ impl PluginRegistry {
                 let tracing_config_client = TracingConfigClient::new(rpc_session.clone());
                 let filter_str = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
                 if let Err(e) = tracing_config_client.set_filter(filter_str.clone()).await {
-                    warn!("Failed to push filter to {} plugin: {:?}", plugin_label, e);
+                    warn!("Failed to push filter to {} cell: {:?}", plugin_label, e);
                 } else {
-                    debug!("Pushed filter to {} plugin: {}", plugin_label, filter_str);
+                    debug!("Pushed filter to {} cell: {}", plugin_label, filter_str);
                 }
             });
         }
@@ -687,7 +659,7 @@ impl PluginRegistry {
             let plugin_label = binary_name.to_string();
             tokio::spawn(async move {
                 if let Err(e) = session_runner.run().await {
-                    warn!("{} plugin RPC session error: {}", plugin_label, e);
+                    warn!("{} cell RPC session error: {}", plugin_label, e);
                 }
             });
         }
@@ -700,26 +672,26 @@ impl PluginRegistry {
                 match child.wait().await {
                     Ok(status) => {
                         if !status.success() {
-                            warn!("{} plugin exited with status: {}", plugin_label, status);
+                            warn!("{} cell exited with status: {}", plugin_label, status);
                         }
                     }
                     Err(e) => {
-                        warn!("{} plugin wait error: {}", plugin_label, e);
+                        warn!("{} cell wait error: {}", plugin_label, e);
                     }
                 }
-                // Reclaim peer slots when plugin dies
+                // Reclaim peer slots when cell dies
                 hub_for_cleanup
                     .allocator()
                     .reclaim_peer_slots(peer_id as u32);
                 info!(
-                    "{} plugin exited, reclaimed slots for peer {}",
+                    "{} cell exited, reclaimed slots for peer {}",
                     plugin_label, peer_id
                 );
             });
         }
 
-        info!(
-            "launched {} plugin from {} (peer_id={})",
+        debug!(
+            "launched {} cell from {} (peer_id={})",
             binary_name,
             path.display(),
             peer_id
@@ -741,7 +713,7 @@ impl PluginRegistry {
             return;
         }
 
-        info!(
+        debug!(
             "waiting for {} peers to register: {:?}",
             peer_ids.len(),
             peer_ids
@@ -756,7 +728,7 @@ impl PluginRegistry {
             let all_active = peer_ids.iter().all(|&id| hub.is_peer_active(id));
             if all_active {
                 info!(
-                    "all {} peers registered after {:?}",
+                    "Initialized {} cells in {:?}",
                     peer_ids.len(),
                     start.elapsed()
                 );
@@ -786,7 +758,7 @@ fn init_hub() -> Option<(Arc<HubHost>, PathBuf)> {
 
     match HubHost::create(&hub_path, HubConfig::default()) {
         Ok(hub) => {
-            info!("created hub SHM at {}", hub_path.display());
+            debug!("created hub SHM at {}", hub_path.display());
             Some((Arc::new(hub), hub_path))
         }
         Err(e) => {
@@ -796,7 +768,7 @@ fn init_hub() -> Option<(Arc<HubHost>, PathBuf)> {
     }
 }
 
-/// Get the global plugin registry, initializing it if needed.
+/// Get the global cell registry, initializing it if needed.
 pub fn plugins() -> &'static PluginRegistry {
     PLUGINS.get_or_init(|| {
         // Create hub first
@@ -810,7 +782,7 @@ pub fn plugins() -> &'static PluginRegistry {
                 (h, p)
             }
             None => {
-                warn!("hub creation failed, plugins will not be available");
+                warn!("hub creation failed, cells will not be available");
                 return Default::default();
             }
         };
@@ -842,7 +814,7 @@ pub fn plugins() -> &'static PluginRegistry {
 
         for dir in &search_paths {
             let registry = PluginRegistry::load_from_dir(dir, &hub, &hub_path);
-            // Consider the directory "active" if at least one plugin binary exists and loaded.
+            // Consider the directory "active" if at least one cell binary exists and loaded.
             if !matches!(
                 registry,
                 PluginRegistry {
@@ -865,17 +837,17 @@ pub fn plugins() -> &'static PluginRegistry {
                     http: None,
                 }
             ) {
-                info!("loaded plugins from {}", dir.display());
+                info!("loaded cells from {}", dir.display());
                 return registry;
             }
         }
 
-        debug!("no plugins found in search paths: {:?}", search_paths);
+        debug!("no cells found in search paths: {:?}", search_paths);
         Default::default()
     })
 }
 
-/// Encode RGBA pixels to WebP using the plugin if available, otherwise return None.
+/// Encode RGBA pixels to WebP using the cell if available, otherwise return None.
 #[tracing::instrument(level = "debug", skip(pixels), fields(pixels_len = pixels.len()))]
 pub async fn encode_webp_plugin(
     pixels: &[u8],
@@ -895,21 +867,21 @@ pub async fn encode_webp_plugin(
     match plugin.encode_webp(input).await {
         Ok(WebPResult::EncodeSuccess { data }) => Some(data),
         Ok(WebPResult::Error { message }) => {
-            warn!("webp plugin error: {}", message);
+            warn!("webp cell error: {}", message);
             None
         }
         Ok(WebPResult::DecodeSuccess { .. }) => {
-            warn!("webp plugin returned decode result for encode operation");
+            warn!("webp cell returned decode result for encode operation");
             None
         }
         Err(e) => {
-            warn!("webp plugin call failed: {:?}", e);
+            warn!("webp cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Encode RGBA pixels to JXL using the plugin if available, otherwise return None.
+/// Encode RGBA pixels to JXL using the cell if available, otherwise return None.
 #[tracing::instrument(level = "debug", skip(pixels), fields(pixels_len = pixels.len()))]
 pub async fn encode_jxl_plugin(
     pixels: &[u8],
@@ -929,21 +901,21 @@ pub async fn encode_jxl_plugin(
     match plugin.encode_jxl(input).await {
         Ok(JXLResult::EncodeSuccess { data }) => Some(data),
         Ok(JXLResult::Error { message }) => {
-            warn!("jxl plugin error: {}", message);
+            warn!("jxl cell error: {}", message);
             None
         }
         Ok(JXLResult::DecodeSuccess { .. }) => {
-            warn!("jxl plugin returned decode result for encode operation");
+            warn!("jxl cell returned decode result for encode operation");
             None
         }
         Err(e) => {
-            warn!("jxl plugin call failed: {:?}", e);
+            warn!("jxl cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Decode WebP to pixels using the plugin.
+/// Decode WebP to pixels using the cell.
 #[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_webp_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().webp.as_ref()?;
@@ -961,21 +933,21 @@ pub async fn decode_webp_plugin(data: &[u8]) -> Option<DecodedImage> {
             channels,
         }),
         Ok(WebPResult::Error { message }) => {
-            warn!("webp decode plugin error: {}", message);
+            warn!("webp decode cell error: {}", message);
             None
         }
         Ok(WebPResult::EncodeSuccess { .. }) => {
-            warn!("webp plugin returned encode result for decode operation");
+            warn!("webp cell returned encode result for decode operation");
             None
         }
         Err(e) => {
-            warn!("webp decode plugin call failed: {:?}", e);
+            warn!("webp decode cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Decode JXL to pixels using the plugin.
+/// Decode JXL to pixels using the cell.
 #[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_jxl_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().jxl.as_ref()?;
@@ -993,60 +965,60 @@ pub async fn decode_jxl_plugin(data: &[u8]) -> Option<DecodedImage> {
             channels,
         }),
         Ok(JXLResult::Error { message }) => {
-            warn!("jxl decode plugin error: {}", message);
+            warn!("jxl decode cell error: {}", message);
             None
         }
         Ok(JXLResult::EncodeSuccess { .. }) => {
-            warn!("jxl plugin returned encode result for decode operation");
+            warn!("jxl cell returned encode result for decode operation");
             None
         }
         Err(e) => {
-            warn!("jxl decode plugin call failed: {:?}", e);
+            warn!("jxl decode cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Minify HTML using the plugin.
+/// Minify HTML using the cell.
 ///
 /// # Panics
-/// Panics if the minify plugin is not loaded.
+/// Panics if the minify cell is not loaded.
 #[tracing::instrument(level = "debug", skip(html), fields(html_len = html.len()))]
 pub async fn minify_html_plugin(html: &str) -> Result<String, String> {
     let plugin = plugins()
         .minify
         .as_ref()
-        .expect("dodeca-minify plugin not loaded");
+        .expect("dodeca-minify cell not loaded");
 
     match plugin.minify_html(html.to_string()).await {
         Ok(MinifyResult::Success { content }) => Ok(content),
         Ok(MinifyResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("plugin call failed: {:?}", e)),
+        Err(e) => Err(format!("cell call failed: {:?}", e)),
     }
 }
 
-/// Optimize SVG using the plugin.
+/// Optimize SVG using the cell.
 ///
 /// # Panics
-/// Panics if the svgo plugin is not loaded.
+/// Panics if the svgo cell is not loaded.
 #[tracing::instrument(level = "debug", skip(svg), fields(svg_len = svg.len()))]
 pub async fn optimize_svg_plugin(svg: &str) -> Result<String, String> {
     let plugin = plugins()
         .svgo
         .as_ref()
-        .expect("dodeca-svgo plugin not loaded");
+        .expect("dodeca-svgo cell not loaded");
 
     match plugin.optimize_svg(svg.to_string()).await {
         Ok(SvgoResult::Success { svg }) => Ok(svg),
         Ok(SvgoResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("plugin call failed: {:?}", e)),
+        Err(e) => Err(format!("cell call failed: {:?}", e)),
     }
 }
 
-/// Compile SASS/SCSS using the plugin.
+/// Compile SASS/SCSS using the cell.
 ///
 /// # Panics
-/// Panics if the sass plugin is not loaded.
+/// Panics if the sass cell is not loaded.
 #[tracing::instrument(level = "debug", skip(files), fields(num_files = files.len()))]
 pub async fn compile_sass_plugin(
     files: &std::collections::HashMap<String, String>,
@@ -1054,7 +1026,7 @@ pub async fn compile_sass_plugin(
     let plugin = plugins()
         .sass
         .as_ref()
-        .expect("dodeca-sass plugin not loaded");
+        .expect("dodeca-sass cell not loaded");
 
     let input = SassInput {
         files: files.clone(),
@@ -1063,23 +1035,20 @@ pub async fn compile_sass_plugin(
     match plugin.compile_sass(input).await {
         Ok(SassResult::Success { css }) => Ok(css),
         Ok(SassResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("plugin call failed: {:?}", e)),
+        Err(e) => Err(format!("cell call failed: {:?}", e)),
     }
 }
 
-/// Rewrite URLs in CSS and minify using the plugin.
+/// Rewrite URLs in CSS and minify using the cell.
 ///
 /// # Panics
-/// Panics if the css plugin is not loaded.
+/// Panics if the css cell is not loaded.
 #[tracing::instrument(level = "debug", skip(css, path_map), fields(css_len = css.len(), path_map_len = path_map.len()))]
 pub async fn rewrite_urls_in_css_plugin(
     css: &str,
     path_map: &HashMap<String, String>,
 ) -> Result<String, String> {
-    let plugin = plugins()
-        .css
-        .as_ref()
-        .expect("dodeca-css plugin not loaded");
+    let plugin = plugins().css.as_ref().expect("dodeca-css cell not loaded");
 
     match plugin
         .rewrite_and_minify(css.to_string(), path_map.clone())
@@ -1087,20 +1056,20 @@ pub async fn rewrite_urls_in_css_plugin(
     {
         Ok(CssResult::Success { css }) => Ok(css),
         Ok(CssResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("plugin call failed: {:?}", e)),
+        Err(e) => Err(format!("cell call failed: {:?}", e)),
     }
 }
 
-/// Rewrite string literals in JS using the plugin.
+/// Rewrite string literals in JS using the cell.
 ///
 /// # Panics
-/// Panics if the js plugin is not loaded.
+/// Panics if the js cell is not loaded.
 #[tracing::instrument(level = "debug", skip(js, path_map), fields(js_len = js.len(), path_map_len = path_map.len()))]
 pub async fn rewrite_string_literals_in_js_plugin(
     js: &str,
     path_map: &HashMap<String, String>,
 ) -> Result<String, String> {
-    let plugin = plugins().js.as_ref().expect("dodeca-js plugin not loaded");
+    let plugin = plugins().js.as_ref().expect("dodeca-js cell not loaded");
 
     let input = JsRewriteInput {
         js: js.to_string(),
@@ -1110,35 +1079,35 @@ pub async fn rewrite_string_literals_in_js_plugin(
     match plugin.rewrite_string_literals(input).await {
         Ok(JsResult::Success { js }) => Ok(js),
         Ok(JsResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("plugin call failed: {:?}", e)),
+        Err(e) => Err(format!("cell call failed: {:?}", e)),
     }
 }
 
-/// Build a search index from HTML pages using the plugin.
+/// Build a search index from HTML pages using the cell.
 ///
 /// # Panics
-/// Panics if the pagefind plugin is not loaded.
+/// Panics if the pagefind cell is not loaded.
 #[tracing::instrument(level = "debug", skip(pages), fields(num_pages = pages.len()))]
 pub async fn build_search_index_plugin(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, String> {
     let plugin = plugins()
         .pagefind
         .as_ref()
-        .expect("dodeca-pagefind plugin not loaded");
+        .expect("dodeca-pagefind cell not loaded");
 
     let input = SearchIndexInput { pages };
 
     match plugin.build_search_index(input).await {
         Ok(SearchIndexResult::Success { output }) => Ok(output.files),
         Ok(SearchIndexResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("plugin call failed: {:?}", e)),
+        Err(e) => Err(format!("cell call failed: {:?}", e)),
     }
 }
 
 // ============================================================================
-// Image processing plugin functions
+// Image processing cell functions
 // ============================================================================
 
-/// Decode a PNG image using the plugin.
+/// Decode a PNG image using the cell.
 #[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_png_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().image.as_ref()?;
@@ -1151,21 +1120,21 @@ pub async fn decode_png_plugin(data: &[u8]) -> Option<DecodedImage> {
             channels: image.channels,
         }),
         Ok(ImageResult::Error { message }) => {
-            warn!("png decode plugin error: {}", message);
+            warn!("png decode cell error: {}", message);
             None
         }
         Ok(_) => {
-            warn!("png plugin returned unexpected result type");
+            warn!("png cell returned unexpected result type");
             None
         }
         Err(e) => {
-            warn!("png decode plugin call failed: {:?}", e);
+            warn!("png decode cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Decode a JPEG image using the plugin.
+/// Decode a JPEG image using the cell.
 #[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_jpeg_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().image.as_ref()?;
@@ -1178,21 +1147,21 @@ pub async fn decode_jpeg_plugin(data: &[u8]) -> Option<DecodedImage> {
             channels: image.channels,
         }),
         Ok(ImageResult::Error { message }) => {
-            warn!("jpeg decode plugin error: {}", message);
+            warn!("jpeg decode cell error: {}", message);
             None
         }
         Ok(_) => {
-            warn!("jpeg plugin returned unexpected result type");
+            warn!("jpeg cell returned unexpected result type");
             None
         }
         Err(e) => {
-            warn!("jpeg decode plugin call failed: {:?}", e);
+            warn!("jpeg decode cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Decode a GIF image using the plugin.
+/// Decode a GIF image using the cell.
 #[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_gif_plugin(data: &[u8]) -> Option<DecodedImage> {
     let plugin = plugins().image.as_ref()?;
@@ -1205,21 +1174,21 @@ pub async fn decode_gif_plugin(data: &[u8]) -> Option<DecodedImage> {
             channels: image.channels,
         }),
         Ok(ImageResult::Error { message }) => {
-            warn!("gif decode plugin error: {}", message);
+            warn!("gif decode cell error: {}", message);
             None
         }
         Ok(_) => {
-            warn!("gif plugin returned unexpected result type");
+            warn!("gif cell returned unexpected result type");
             None
         }
         Err(e) => {
-            warn!("gif decode plugin call failed: {:?}", e);
+            warn!("gif decode cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Resize an image using the plugin.
+/// Resize an image using the cell.
 #[tracing::instrument(level = "debug", skip(pixels), fields(pixels_len = pixels.len()))]
 pub async fn resize_image_plugin(
     pixels: &[u8],
@@ -1246,21 +1215,21 @@ pub async fn resize_image_plugin(
             channels: image.channels,
         }),
         Ok(ImageResult::Error { message }) => {
-            warn!("resize plugin error: {}", message);
+            warn!("resize cell error: {}", message);
             None
         }
         Ok(_) => {
-            warn!("resize plugin returned unexpected result type");
+            warn!("resize cell returned unexpected result type");
             None
         }
         Err(e) => {
-            warn!("resize plugin call failed: {:?}", e);
+            warn!("resize cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Generate a thumbhash data URL using the plugin.
+/// Generate a thumbhash data URL using the cell.
 #[tracing::instrument(level = "debug", skip(pixels), fields(pixels_len = pixels.len()))]
 pub async fn generate_thumbhash_plugin(pixels: &[u8], width: u32, height: u32) -> Option<String> {
     let plugin = plugins().image.as_ref()?;
@@ -1274,49 +1243,49 @@ pub async fn generate_thumbhash_plugin(pixels: &[u8], width: u32, height: u32) -
     match plugin.generate_thumbhash_data_url(input).await {
         Ok(ImageResult::ThumbhashSuccess { data_url }) => Some(data_url),
         Ok(ImageResult::Error { message }) => {
-            warn!("thumbhash plugin error: {}", message);
+            warn!("thumbhash cell error: {}", message);
             None
         }
         Ok(_) => {
-            warn!("thumbhash plugin returned unexpected result type");
+            warn!("thumbhash cell returned unexpected result type");
             None
         }
         Err(e) => {
-            warn!("thumbhash plugin call failed: {:?}", e);
+            warn!("thumbhash cell call failed: {:?}", e);
             None
         }
     }
 }
 
 // ============================================================================
-// Font processing plugin functions
+// Font processing cell functions
 // ============================================================================
 
 /// Analyze HTML and CSS to collect font usage information.
 ///
 /// # Panics
-/// Panics if the fonts plugin is not loaded.
+/// Panics if the fonts cell is not loaded.
 pub async fn analyze_fonts_plugin(html: &str, css: &str) -> FontAnalysis {
     let plugin = plugins()
         .fonts
         .as_ref()
-        .expect("dodeca-fonts plugin not loaded");
+        .expect("dodeca-fonts cell not loaded");
 
     match plugin
         .analyze_fonts(html.to_string(), css.to_string())
         .await
     {
         Ok(FontResult::AnalysisSuccess { analysis }) => analysis,
-        Ok(FontResult::Error { message }) => panic!("font analysis plugin error: {}", message),
-        Ok(_) => panic!("font analysis plugin returned unexpected result type"),
-        Err(e) => panic!("font analysis plugin call failed: {:?}", e),
+        Ok(FontResult::Error { message }) => panic!("font analysis cell error: {}", message),
+        Ok(_) => panic!("font analysis cell returned unexpected result type"),
+        Err(e) => panic!("font analysis cell call failed: {:?}", e),
     }
 }
 
 /// Extract inline CSS from HTML (from <style> tags).
 ///
 /// # Panics
-/// Panics if the fonts plugin is not loaded.
+/// Panics if the fonts cell is not loaded.
 pub async fn extract_css_from_html_plugin(html: &str) -> String {
     tracing::debug!(
         "[HOST] extract_css_from_html_plugin: START (html_len={})",
@@ -1325,7 +1294,7 @@ pub async fn extract_css_from_html_plugin(html: &str) -> String {
     let plugin = plugins()
         .fonts
         .as_ref()
-        .expect("dodeca-fonts plugin not loaded");
+        .expect("dodeca-fonts cell not loaded");
 
     tracing::debug!("[HOST] extract_css_from_html_plugin: calling RPC...");
     match plugin.extract_css_from_html(html.to_string()).await {
@@ -1336,9 +1305,9 @@ pub async fn extract_css_from_html_plugin(html: &str) -> String {
             );
             css
         }
-        Ok(FontResult::Error { message }) => panic!("extract css plugin error: {}", message),
-        Ok(_) => panic!("extract css plugin returned unexpected result type"),
-        Err(e) => panic!("extract css plugin call failed: {:?}", e),
+        Ok(FontResult::Error { message }) => panic!("extract css cell error: {}", message),
+        Ok(_) => panic!("extract css cell returned unexpected result type"),
+        Err(e) => panic!("extract css cell call failed: {:?}", e),
     }
 }
 
@@ -1349,15 +1318,15 @@ pub async fn decompress_font_plugin(data: &[u8]) -> Option<Vec<u8>> {
     match plugin.decompress_font(data.to_vec()).await {
         Ok(FontResult::DecompressSuccess { data }) => Some(data),
         Ok(FontResult::Error { message }) => {
-            warn!("decompress font plugin error: {}", message);
+            warn!("decompress font cell error: {}", message);
             None
         }
         Ok(_) => {
-            warn!("decompress font plugin returned unexpected result type");
+            warn!("decompress font cell returned unexpected result type");
             None
         }
         Err(e) => {
-            warn!("decompress font plugin call failed: {:?}", e);
+            warn!("decompress font cell call failed: {:?}", e);
             None
         }
     }
@@ -1375,15 +1344,15 @@ pub async fn subset_font_plugin(data: &[u8], chars: &[char]) -> Option<Vec<u8>> 
     match plugin.subset_font(input).await {
         Ok(FontResult::SubsetSuccess { data }) => Some(data),
         Ok(FontResult::Error { message }) => {
-            warn!("subset font plugin error: {}", message);
+            warn!("subset font cell error: {}", message);
             None
         }
         Ok(_) => {
-            warn!("subset font plugin returned unexpected result type");
+            warn!("subset font cell returned unexpected result type");
             None
         }
         Err(e) => {
-            warn!("subset font plugin call failed: {:?}", e);
+            warn!("subset font cell call failed: {:?}", e);
             None
         }
     }
@@ -1396,25 +1365,25 @@ pub async fn compress_to_woff2_plugin(data: &[u8]) -> Option<Vec<u8>> {
     match plugin.compress_to_woff2(data.to_vec()).await {
         Ok(FontResult::CompressSuccess { data }) => Some(data),
         Ok(FontResult::Error { message }) => {
-            warn!("compress to woff2 plugin error: {}", message);
+            warn!("compress to woff2 cell error: {}", message);
             None
         }
         Ok(_) => {
-            warn!("compress to woff2 plugin returned unexpected result type");
+            warn!("compress to woff2 cell returned unexpected result type");
             None
         }
         Err(e) => {
-            warn!("compress to woff2 plugin call failed: {:?}", e);
+            warn!("compress to woff2 cell call failed: {:?}", e);
             None
         }
     }
 }
 
 // ============================================================================
-// Link checking plugin functions
+// Link checking cell functions
 // ============================================================================
 
-/// Status of an external link check (from plugin)
+/// Status of an external link check (from cell)
 /// Options for link checking
 #[derive(Debug, Clone)]
 pub struct CheckOptions {
@@ -1446,9 +1415,9 @@ pub struct CheckResult {
     pub checked_count: u32,
 }
 
-/// Check external URLs using the linkcheck plugin.
+/// Check external URLs using the linkcheck cell.
 ///
-/// Returns None if the plugin is not loaded.
+/// Returns None if the cell is not loaded.
 pub async fn check_urls_plugin(urls: Vec<String>, options: CheckOptions) -> Option<CheckResult> {
     let plugin = plugins().linkcheck.as_ref()?;
 
@@ -1480,28 +1449,28 @@ pub async fn check_urls_plugin(urls: Vec<String>, options: CheckOptions) -> Opti
             })
         }
         Ok(LinkCheckResult::Error { message }) => {
-            warn!("linkcheck plugin error: {}", message);
+            warn!("linkcheck cell error: {}", message);
             None
         }
         Err(e) => {
-            warn!("linkcheck plugin call failed: {:?}", e);
+            warn!("linkcheck cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Check if the linkcheck plugin is available.
+/// Check if the linkcheck cell is available.
 pub fn has_linkcheck_plugin() -> bool {
     plugins().linkcheck.is_some()
 }
 
 // ============================================================================
-// Code execution plugin functions
+// Code execution cell functions
 // ============================================================================
 
-/// Extract code samples from markdown using plugin.
+/// Extract code samples from markdown using cell.
 ///
-/// Returns None if plugin is not loaded.
+/// Returns None if cell is not loaded.
 pub async fn extract_code_samples_plugin(
     content: &str,
     source_path: &str,
@@ -1516,23 +1485,23 @@ pub async fn extract_code_samples_plugin(
     match plugin.extract_code_samples(input).await {
         Ok(CodeExecutionResult::ExtractSuccess { output }) => Some(output.samples),
         Ok(CodeExecutionResult::Error { message }) => {
-            warn!("code execution plugin error: {}", message);
+            warn!("code execution cell error: {}", message);
             None
         }
         Ok(_) => {
-            warn!("code execution plugin returned unexpected result type");
+            warn!("code execution cell returned unexpected result type");
             None
         }
         Err(e) => {
-            warn!("code execution plugin call failed: {:?}", e);
+            warn!("code execution cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Execute code samples using plugin.
+/// Execute code samples using cell.
 ///
-/// Returns None if plugin is not loaded.
+/// Returns None if cell is not loaded.
 pub async fn execute_code_samples_plugin(
     samples: Vec<dodeca_code_execution_types::CodeSample>,
     config: dodeca_code_execution_types::CodeExecutionConfig,
@@ -1560,22 +1529,22 @@ pub async fn execute_code_samples_plugin(
             Some(output.results)
         }
         Ok(CodeExecutionResult::Error { message }) => {
-            warn!("code execution plugin error: {}", message);
+            warn!("code execution cell error: {}", message);
             None
         }
         Ok(_) => {
-            warn!("code execution plugin returned unexpected result type");
+            warn!("code execution cell returned unexpected result type");
             None
         }
         Err(e) => {
-            warn!("code execution plugin call failed: {:?}", e);
+            warn!("code execution cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Diff two HTML documents and produce patches using the plugin.
-/// Returns None if the plugin is not loaded.
+/// Diff two HTML documents and produce patches using the cell.
+/// Returns None if the cell is not loaded.
 pub async fn diff_html_plugin(old_html: &str, new_html: &str) -> Option<DiffResult> {
     let plugin = plugins().html_diff.as_ref()?;
 
@@ -1587,23 +1556,23 @@ pub async fn diff_html_plugin(old_html: &str, new_html: &str) -> Option<DiffResu
     match plugin.diff_html(input).await {
         Ok(HtmlDiffResult::Success { result }) => Some(result),
         Ok(HtmlDiffResult::Error { message }) => {
-            warn!("html diff plugin error: {}", message);
+            warn!("html diff cell error: {}", message);
             None
         }
         Err(e) => {
-            warn!("html diff plugin call failed: {:?}", e);
+            warn!("html diff cell call failed: {:?}", e);
             None
         }
     }
 }
 
 // ============================================================================
-// HTML processing plugin functions
+// HTML processing cell functions
 // ============================================================================
 
-/// Rewrite URLs in HTML attributes (href, src, srcset) using the plugin.
+/// Rewrite URLs in HTML attributes (href, src, srcset) using the cell.
 ///
-/// Returns None if the html plugin is not loaded.
+/// Returns None if the html cell is not loaded.
 #[tracing::instrument(level = "debug", skip(html, path_map), fields(html_len = html.len(), path_map_len = path_map.len()))]
 pub async fn rewrite_urls_in_html_plugin(
     html: &str,
@@ -1618,19 +1587,19 @@ pub async fn rewrite_urls_in_html_plugin(
         Ok(cell_html_proto::HtmlResult::Success { html }) => Some(html),
         Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, .. }) => Some(html),
         Ok(cell_html_proto::HtmlResult::Error { message }) => {
-            warn!("html rewrite_urls plugin error: {}", message);
+            warn!("html rewrite_urls cell error: {}", message);
             None
         }
         Err(e) => {
-            warn!("html rewrite_urls plugin call failed: {:?}", e);
+            warn!("html rewrite_urls cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Mark dead internal links in HTML using the plugin.
+/// Mark dead internal links in HTML using the cell.
 ///
-/// Returns (modified_html, had_dead_links) or None if plugin not loaded.
+/// Returns (modified_html, had_dead_links) or None if cell not loaded.
 #[tracing::instrument(level = "debug", skip(html, known_routes), fields(html_len = html.len(), routes_count = known_routes.len()))]
 pub async fn mark_dead_links_plugin(
     html: &str,
@@ -1645,19 +1614,19 @@ pub async fn mark_dead_links_plugin(
         Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, flag }) => Some((html, flag)),
         Ok(cell_html_proto::HtmlResult::Success { html }) => Some((html, false)),
         Ok(cell_html_proto::HtmlResult::Error { message }) => {
-            warn!("html mark_dead_links plugin error: {}", message);
+            warn!("html mark_dead_links cell error: {}", message);
             None
         }
         Err(e) => {
-            warn!("html mark_dead_links plugin call failed: {:?}", e);
+            warn!("html mark_dead_links cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Inject build info buttons into code blocks using the plugin.
+/// Inject build info buttons into code blocks using the cell.
 ///
-/// Returns (modified_html, had_buttons) or None if plugin not loaded.
+/// Returns (modified_html, had_buttons) or None if cell not loaded.
 #[tracing::instrument(level = "debug", skip(html, code_metadata), fields(html_len = html.len(), metadata_count = code_metadata.len()))]
 pub async fn inject_build_info_plugin(
     html: &str,
@@ -1672,18 +1641,18 @@ pub async fn inject_build_info_plugin(
         Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, flag }) => Some((html, flag)),
         Ok(cell_html_proto::HtmlResult::Success { html }) => Some((html, false)),
         Ok(cell_html_proto::HtmlResult::Error { message }) => {
-            warn!("html inject_build_info plugin error: {}", message);
+            warn!("html inject_build_info cell error: {}", message);
             None
         }
         Err(e) => {
-            warn!("html inject_build_info plugin call failed: {:?}", e);
+            warn!("html inject_build_info cell call failed: {:?}", e);
             None
         }
     }
 }
 
 // ============================================================================
-// Syntax highlighting plugin functions
+// Syntax highlighting cell functions
 // ============================================================================
 
 /// Highlight source code using the rapace syntax highlight service.
@@ -1728,7 +1697,7 @@ fn syntax_highlight_client() -> Option<Arc<SyntaxHighlightServiceClient<HubHostP
 }
 
 // ============================================================================
-// Markdown processing plugin functions
+// Markdown processing cell functions
 // ============================================================================
 
 /// Parsed markdown result with code blocks that need highlighting
@@ -1743,13 +1712,12 @@ pub struct ParsedMarkdown {
     pub code_blocks: Vec<cell_markdown_proto::CodeBlock>,
 }
 
-/// Parse and render markdown content using the plugin.
+/// Parse and render markdown content using the cell.
 ///
 /// Returns frontmatter, HTML (with placeholders), headings, and code blocks.
 /// The caller is responsible for highlighting code blocks and replacing placeholders.
 #[tracing::instrument(level = "debug", skip(content), fields(content_len = content.len()))]
 pub async fn parse_and_render_markdown_cell(content: &str) -> Option<ParsedMarkdown> {
-    ensure_plugins_ready().await;
     let plugin = plugins().markdown.as_ref()?;
 
     match plugin.parse_and_render(content.to_string()).await {
@@ -1765,17 +1733,17 @@ pub async fn parse_and_render_markdown_cell(content: &str) -> Option<ParsedMarkd
             code_blocks,
         }),
         Ok(ParseResult::Error { message }) => {
-            warn!("markdown parse_and_render plugin error: {}", message);
+            warn!("markdown parse_and_render cell error: {}", message);
             None
         }
         Err(e) => {
-            warn!("markdown parse_and_render plugin call failed: {:?}", e);
+            warn!("markdown parse_and_render cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Render markdown to HTML using the plugin (without frontmatter parsing).
+/// Render markdown to HTML using the cell (without frontmatter parsing).
 #[tracing::instrument(level = "debug", skip(markdown), fields(markdown_len = markdown.len()))]
 async fn _render_markdown_cell(
     markdown: &str,
@@ -1793,17 +1761,17 @@ async fn _render_markdown_cell(
             code_blocks,
         }) => Some((html, headings, code_blocks)),
         Ok(MarkdownResult::Error { message }) => {
-            warn!("markdown render plugin error: {}", message);
+            warn!("markdown render cell error: {}", message);
             None
         }
         Err(e) => {
-            warn!("markdown render plugin call failed: {:?}", e);
+            warn!("markdown render cell call failed: {:?}", e);
             None
         }
     }
 }
 
-/// Parse frontmatter from content using the plugin.
+/// Parse frontmatter from content using the cell.
 #[tracing::instrument(level = "debug", skip(content), fields(content_len = content.len()))]
 async fn _parse_frontmatter_cell(
     content: &str,
@@ -1813,11 +1781,11 @@ async fn _parse_frontmatter_cell(
     match plugin.parse_frontmatter(content.to_string()).await {
         Ok(FrontmatterResult::Success { frontmatter, body }) => Some((frontmatter, body)),
         Ok(FrontmatterResult::Error { message }) => {
-            warn!("markdown parse_frontmatter plugin error: {}", message);
+            warn!("markdown parse_frontmatter cell error: {}", message);
             None
         }
         Err(e) => {
-            warn!("markdown parse_frontmatter plugin call failed: {:?}", e);
+            warn!("markdown parse_frontmatter cell call failed: {:?}", e);
             None
         }
     }

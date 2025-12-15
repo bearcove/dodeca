@@ -1,5 +1,6 @@
 //! Syntax highlighting implementation for the rapace plugin
 
+use arborium::advanced::html_escape;
 use cell_arborium_proto::{HighlightResult, SyntaxHighlightService};
 
 /// Syntax highlighting implementation
@@ -14,7 +15,7 @@ impl SyntaxHighlightService for SyntaxHighlightImpl {
             Err(_) => {
                 // Panic occurred - fallback to escaped plain text
                 HighlightResult {
-                    html: arborium::html_escape(&code),
+                    html: html_escape(&code),
                     highlighted: false,
                 }
             }
@@ -58,9 +59,8 @@ fn highlight_code_inner(code: &str, language: &str) -> HighlightResult {
     // Normalize language name (handle common aliases)
     let lang = normalize_language(language);
 
-    // Create highlighter with static provider
-    let provider = arborium::StaticProvider::default();
-    let mut highlighter = arborium::SyncHighlighter::new(provider);
+    // Create highlighter
+    let mut highlighter = arborium::Highlighter::new();
 
     // Attempt to highlight
     match highlighter.highlight(&lang, code) {
@@ -71,7 +71,7 @@ fn highlight_code_inner(code: &str, language: &str) -> HighlightResult {
         Err(_) => {
             // Fallback to escaped plain text
             HighlightResult {
-                html: arborium::html_escape(code),
+                html: html_escape(code),
                 highlighted: false,
             }
         }

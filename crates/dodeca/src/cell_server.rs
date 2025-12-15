@@ -20,12 +20,14 @@ use tokio::sync::watch;
 use tokio_stream::wrappers::TcpListenerStream;
 
 use cell_http_proto::{ContentServiceServer, TcpTunnelClient};
+use cell_lifecycle_proto::CellLifecycleServer;
+use rapace_tracing::TracingSinkServer;
 
-use crate::cells::{get_cell_session, plugins};
+use crate::cells::{HostCellLifecycle, cell_ready_registry, get_cell_session, plugins};
 use crate::content_service::HostContentService;
 use crate::serve::SiteServer;
 
-/// Find the plugin binary path (for backwards compatibility).
+/// Find the cell binary path (for backwards compatibility).
 ///
 /// Note: The http cell is now loaded via the hub, so this just returns a dummy path.
 /// The actual cell location is determined by cells.rs.
@@ -38,15 +40,15 @@ pub fn find_plugin_path() -> Result<std::path::PathBuf> {
 const CHUNK_SIZE: usize = 4096;
 
 // ============================================================================
-// Forwarding TracingSink - re-emits plugin tracing events to host's tracing
+// Forwarding TracingSink - re-emits cell tracing events to host's tracing
 // ============================================================================
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// A TracingSink implementation that forwards events to the host's tracing subscriber.
 ///
-/// Events from the plugin are re-emitted as regular tracing events on the host,
-/// making plugin logs appear in the host's output with their original target.
+/// Events from the cell are re-emitted as regular tracing events on the host,
+/// making cell logs appear in the host's output with their original target.
 #[derive(Clone)]
 pub struct ForwardingTracingSink {
     next_span_id: Arc<AtomicU64>,
@@ -88,7 +90,7 @@ impl TracingSink for ForwardingTracingSink {
 
     async fn event(&self, event: EventMeta) {
         // Re-emit the event using host's tracing
-        // Note: tracing macros require static targets, so we include the plugin target in the message
+        // Note: tracing macros require static targets, so we include the cell target in the message
         let fields = format_fields(&event.fields);
         let msg = if fields.is_empty() {
             event.message.clone()
@@ -96,7 +98,7 @@ impl TracingSink for ForwardingTracingSink {
             format!("{} {}", event.message, fields)
         };
 
-        // Include the plugin's target in the log message
+        // Include the cell's target in the log message
         // Use a static target for the host side
         match event.level.as_str() {
             "ERROR" => tracing::error!(target: "cell", "[{}] {}", event.target, msg),
@@ -121,12 +123,12 @@ impl TracingSink for ForwardingTracingSink {
     }
 }
 
-/// Create a combined dispatcher that handles both ContentService and TracingSink.
+/// Create a multi-service dispatcher that handles TracingSink, CellLifecycle, and ContentService.
 ///
-/// Method IDs are now globally unique hashes, so we try each dispatcher in turn.
+/// Method IDs are globally unique hashes, so we try each service in turn.
 /// The correct one will succeed, the others will return "unknown method_id".
 #[allow(clippy::type_complexity)]
-fn create_content_dispatcher(
+fn create_http_cell_dispatcher(
     content_service: Arc<HostContentService>,
 ) -> impl Fn(
     u32,
@@ -136,9 +138,29 @@ fn create_content_dispatcher(
 + Send
 + Sync
 + 'static {
+    let tracing_sink = ForwardingTracingSink::new();
+    let lifecycle_registry = cell_ready_registry().clone();
+
     move |_channel_id, method_id, payload| {
         let content_service = content_service.clone();
+        let tracing_sink = tracing_sink.clone();
+        let lifecycle_registry = lifecycle_registry.clone();
+
         Box::pin(async move {
+            // Try TracingSink service first
+            let tracing_server = TracingSinkServer::new(tracing_sink);
+            if let Ok(frame) = tracing_server.dispatch(method_id, &payload).await {
+                return Ok(frame);
+            }
+
+            // Try CellLifecycle service
+            let lifecycle_impl = HostCellLifecycle::new(lifecycle_registry);
+            let lifecycle_server = CellLifecycleServer::new(lifecycle_impl);
+            if let Ok(frame) = lifecycle_server.dispatch(method_id, &payload).await {
+                return Ok(frame);
+            }
+
+            // Try ContentService
             let content_server = ContentServiceServer::new((*content_service).clone());
             content_server.dispatch(method_id, &payload).await
         })
@@ -183,9 +205,9 @@ pub async fn start_plugin_server_with_shutdown(
     // Create the ContentService implementation
     let content_service = Arc::new(HostContentService::new(server));
 
-    // Set up ContentService dispatcher on the http cell's session
-    // Note: TracingSink is already set up by cells.rs, this adds ContentService
-    session.set_dispatcher(create_content_dispatcher(content_service));
+    // Set up multi-service dispatcher on the http cell's session
+    // This replaces the basic dispatcher from cells.rs with one that includes ContentService
+    session.set_dispatcher(create_http_cell_dispatcher(content_service));
 
     // Start TCP listeners for browser connections
     let (listeners, bound_port) = if let Some(listener) = pre_bound_listener {
@@ -312,7 +334,7 @@ pub async fn start_plugin_server_with_shutdown(
     Ok(())
 }
 
-/// Start the plugin server (convenience wrapper without shutdown signal)
+/// Start the cell server (convenience wrapper without shutdown signal)
 #[allow(dead_code)]
 pub async fn start_plugin_server(
     server: Arc<SiteServer>,

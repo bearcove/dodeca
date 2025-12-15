@@ -1,12 +1,12 @@
 //! ContentService implementation for the rapace RPC server
 //!
 //! This implements the ContentService trait from dodeca-serve-protocol,
-//! allowing the plugin to fetch content from the host's Salsa DB via RPC.
+//! allowing the cell to fetch content from the host's Salsa DB via RPC.
 
 use std::sync::Arc;
 
-use dodeca_protocol::{EvalResult, ScopeEntry};
 use cell_http_proto::{ContentService, ServeContent};
+use dodeca_protocol::{EvalResult, ScopeEntry};
 
 use crate::serve::{SiteServer, get_devtools_asset, get_search_file_content};
 
@@ -51,7 +51,11 @@ impl ContentService for HostContentService {
     }
 
     async fn eval_expression(&self, route: String, expression: String) -> EvalResult {
-        match self.server.eval_expression_for_route(&route, &expression).await {
+        match self
+            .server
+            .eval_expression_for_route(&route, &expression)
+            .await
+        {
             Ok(value) => EvalResult::Ok(value),
             Err(msg) => EvalResult::Err(msg),
         }

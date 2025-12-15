@@ -75,10 +75,13 @@ pub fn install_sigusr1_handler(process_name: &'static str) {
         libc::signal(libc::SIGUSR1, sigusr1_handler as libc::sighandler_t);
     }
 
-    eprintln!(
-        "[{}] SIGUSR1 handler installed (send signal to dump stack traces)",
-        process_name
-    );
+    // Only print if RAPACE_DEBUG is set
+    if std::env::var("RAPACE_DEBUG").is_ok() {
+        eprintln!(
+            "[{}] SIGUSR1 handler installed (send signal to dump stack traces)",
+            process_name
+        );
+    }
 }
 
 // Static storage for process name (signal handlers can't capture environment)

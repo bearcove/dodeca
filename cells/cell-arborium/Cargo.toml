@@ -23,7 +23,7 @@ rapace = { workspace = true, features = ["stream"] }
 rapace-cell.workspace = true
 
 # Syntax highlighting with tree-sitter
-arborium = { version = "1.2", features = [
+arborium = { version = "2", features = [
     "lang-bash",
     "lang-c",
     "lang-cpp",

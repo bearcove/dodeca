@@ -72,16 +72,12 @@ impl ContentStore {
 
     /// Write content to a file if it has changed since last build.
     /// Returns true if the file was written, false if skipped (unchanged).
-    pub fn write_if_changed(
-        &mut self,
-        path: &Utf8Path,
-        content: &[u8],
-    ) -> eyre::Result<bool> {
+    pub fn write_if_changed(&mut self, path: &Utf8Path, content: &[u8]) -> eyre::Result<bool> {
         let hash = Self::hash(content);
         let path_key = path.as_str().to_string();
 
-        // Check if hash matches
-        if self.store.hashes.get(&path_key) == Some(&hash) {
+        // Check if hash matches AND file exists on disk
+        if self.store.hashes.get(&path_key) == Some(&hash) && path.exists() {
             return Ok(false);
         }
 

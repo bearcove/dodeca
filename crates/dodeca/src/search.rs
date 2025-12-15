@@ -37,18 +37,13 @@ pub fn collect_search_pages(output: &SiteOutput) -> Vec<SearchPage> {
 
 /// Build a search index from site output (one-shot, for build mode)
 ///
-/// Creates a current-thread runtime to call the async plugin RPC.
-#[allow(clippy::disallowed_methods)]
-pub fn build_search_index(output: &SiteOutput) -> eyre::Result<SearchFiles> {
+/// This is an async function that should be called from the main runtime
+/// where the cell RPC sessions are running.
+pub async fn build_search_index_async(output: &SiteOutput) -> eyre::Result<SearchFiles> {
     let pages = collect_search_pages(output);
 
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| eyre!("failed to build runtime for search indexing: {e}"))?;
-
-    let files = rt
-        .block_on(build_search_index_plugin(pages))
+    let files = build_search_index_plugin(pages)
+        .await
         .map_err(|e| eyre!("pagefind: {}", e))?;
 
     // Convert to HashMap

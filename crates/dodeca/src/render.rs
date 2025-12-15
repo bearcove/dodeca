@@ -321,7 +321,7 @@ const BUILD_INFO_POPUP_SCRIPT: &str = r##"<script>
 })();
 </script>"##;
 
-/// Convert internal CodeExecutionMetadata to plugin protocol type
+/// Convert internal CodeExecutionMetadata to cell protocol type
 fn convert_metadata_to_proto(
     meta: &CodeExecutionMetadata,
 ) -> cell_html_proto::CodeExecutionMetadata {
@@ -370,7 +370,7 @@ fn build_code_metadata_map(
     map
 }
 
-/// Inject build info buttons into code blocks using the html plugin
+/// Inject build info buttons into code blocks using the html cell
 async fn inject_build_info_buttons(
     html: &str,
     code_metadata: &HashMap<String, cell_html_proto::CodeExecutionMetadata>,
@@ -1116,8 +1116,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_inject_build_info_buttons() {
-        // Note: This test requires the html plugin to be running
-        // Without the plugin, the function returns the original HTML with no buttons
+        // Note: This test requires the html cell to be running
+        // Without the cell, the function returns the original HTML with no buttons
         let html = r#"<html><body><pre><code>fn main() {}</code></pre></body></html>"#;
 
         let metadata = CodeExecutionMetadata {
@@ -1140,8 +1140,8 @@ mod tests {
         let code_metadata = build_code_metadata_map(&results);
         let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata).await;
 
-        // With plugin: buttons are injected
-        // Without plugin: returns original HTML
+        // With cell: buttons are injected
+        // Without cell: returns original HTML
         if had_buttons {
             assert!(
                 result.contains(r#"class="build-info-btn verified""#),
@@ -1156,13 +1156,13 @@ mod tests {
                 "Should contain rustc version in title"
             );
         } else {
-            assert_eq!(result, html, "Without plugin, HTML should be unchanged");
+            assert_eq!(result, html, "Without cell, HTML should be unchanged");
         }
     }
 
     #[tokio::test]
     async fn test_inject_build_info_buttons_no_match() {
-        // Note: This test requires the html plugin to be running
+        // Note: This test requires the html cell to be running
         let html = r#"<html><body><pre><code>fn other() {}</code></pre></body></html>"#;
 
         let metadata = CodeExecutionMetadata {
@@ -1182,7 +1182,7 @@ mod tests {
         let code_metadata = build_code_metadata_map(&results);
         let (result, had_buttons) = inject_build_info_buttons(html, &code_metadata).await;
 
-        // Even with plugin, no match means no buttons
+        // Even with cell, no match means no buttons
         assert!(!had_buttons, "Should not have injected buttons");
         assert!(
             !result.contains("build-info-btn"),

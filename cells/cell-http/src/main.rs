@@ -20,11 +20,9 @@
 
 use std::sync::Arc;
 
-use color_eyre::Result;
-use dodeca_cell_runtime::{CellTracing, add_tracing_service};
 use rapace::RpcSession;
 use rapace::transport::shm::HubPeerTransport;
-use rapace_cell::{DispatcherBuilder, ServiceDispatch};
+use rapace_cell::ServiceDispatch;
 
 use cell_http_proto::{ContentServiceClient, TcpTunnelServer, WebSocketTunnelClient};
 
@@ -73,118 +71,25 @@ impl ServiceDispatch for TcpTunnelService {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-#[allow(clippy::disallowed_methods)] // False positive on run_task.await - we're in async main
-async fn main() -> Result<()> {
-    color_eyre::install()?;
+impl From<Arc<RpcSession<PluginTransport>>> for TcpTunnelService {
+    fn from(session: Arc<RpcSession<PluginTransport>>) -> Self {
+        // Build plugin context
+        let ctx = Arc::new(PluginContext {
+            session: session.clone(),
+        });
 
-    // Use standardized argument parsing and transport creation
-    let args = dodeca_cell_runtime::parse_args()?;
-    let transport = dodeca_cell_runtime::create_hub_transport(&args).await?;
+        // Build axum router
+        let app = build_router(ctx);
 
-    // Plugin uses even channel IDs (2, 4, 6, ...)
-    // Host uses odd channel IDs (1, 3, 5, ...)
-    let session = Arc::new(RpcSession::with_channel_start(transport, 2));
+        // Create the tunnel implementation
+        let tunnel_impl = tunnel::TcpTunnelImpl::new(session, app);
 
-    // Initialize tracing to forward logs to host via RapaceTracingLayer
-    // The host controls the filter level via TracingConfig RPC
-    let CellTracing { tracing_config, .. } = dodeca_cell_runtime::init_tracing(session.clone());
-
-    tracing::info!("Connected to host via SHM");
-
-    // Build plugin context
-    let ctx = Arc::new(PluginContext {
-        session: session.clone(),
-    });
-
-    // Build axum router (service)
-    let app = build_router(ctx);
-
-    // Create the tunnel implementation (host calls this to open HTTP tunnels)
-    // Pass the app so we can serve it directly on tunnel streams
-    let tunnel_impl = tunnel::TcpTunnelImpl::new(session.clone(), app);
-
-    // Wrap services with rapace-cell multi-service dispatcher
-    let dispatcher = DispatcherBuilder::new();
-    let dispatcher = add_tracing_service(dispatcher, tracing_config);
-    let dispatcher = dispatcher.add_service(TcpTunnelService(Arc::new(TcpTunnelServer::new(
-        tunnel_impl,
-    ))));
-    let dispatcher = dispatcher.build();
-
-    session.set_dispatcher(dispatcher);
-
-    // Start demux loop in background task
-    let run_task = {
-        let session = session.clone();
-        tokio::spawn(async move {
-            tracing::info!("Starting demux loop");
-            session.run().await
-        })
-    };
-
-    // Yield to let the demux loop start (critical for current_thread runtime)
-    for _ in 0..10 {
-        tokio::task::yield_now().await;
-    }
-
-    // Perform ready handshake with host
-    {
-        use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
-
-        let client = CellLifecycleClient::new(session.clone());
-        let cell_name = "ddc-cell-http";
-        let pid = std::process::id();
-
-        let msg = ReadyMsg {
-            peer_id: args.peer_id,
-            cell_name: cell_name.to_string(),
-            pid: Some(pid),
-            version: None,
-            features: vec![],
-        };
-
-        // Retry ready handshake with timeout
-        let timeout = std::time::Duration::from_secs(2);
-        let mut delay_ms = 10u64;
-        let start = std::time::Instant::now();
-
-        loop {
-            match tokio::time::timeout(
-                std::time::Duration::from_millis(200),
-                client.ready(msg.clone()),
-            )
-            .await
-            {
-                Ok(Ok(ack)) => {
-                    tracing::info!(
-                        host_time_ms = ?ack.host_time_unix_ms,
-                        "Ready handshake acknowledged by host"
-                    );
-                    break;
-                }
-                Ok(Err(_)) | Err(_) => {
-                    if start.elapsed() >= timeout {
-                        tracing::warn!("Ready handshake timed out, continuing anyway");
-                        break;
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-                    delay_ms = (delay_ms * 2).min(200);
-                }
-            }
-        }
-    }
-
-    // Wait for the demux loop to finish
-    tracing::info!("Plugin ready, waiting for tunnel connections");
-    match run_task.await? {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            tracing::error!(error = ?e, "RPC session error - host connection lost");
-            Err(e.into())
-        }
+        Self(Arc::new(TcpTunnelServer::new(tunnel_impl)))
     }
 }
+
+// Use the standard cell infrastructure with session access
+dodeca_cell_runtime::run_cell_with_session!(TcpTunnelService::from);
 
 /// Build the axum router for the internal HTTP server
 fn build_router(ctx: Arc<PluginContext>) -> axum::Router {

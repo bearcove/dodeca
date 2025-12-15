@@ -4,7 +4,7 @@
 //! - JPEG-XL (best compression, future-proof)
 //! - WebP (wide browser support, fallback)
 //!
-//! All image processing (decoding, resizing, thumbhash) is done via plugins.
+//! All image processing (decoding, resizing, thumbhash) is done via cells.
 //!
 //! Also generates:
 //! - Multiple width variants for srcset
@@ -103,7 +103,7 @@ pub async fn get_dimensions(data: &[u8], format: InputFormat) -> Option<(u32, u3
     Some((decoded.width, decoded.height))
 }
 
-/// Decode an image from bytes using the appropriate plugin
+/// Decode an image from bytes using the appropriate cell
 async fn decode_image(data: &[u8], format: InputFormat) -> Option<DecodedImage> {
     match format {
         InputFormat::Png => cells::decode_png_plugin(data).await,
@@ -131,14 +131,14 @@ async fn generate_thumbhash_data_url(decoded: &DecodedImage) -> Option<String> {
     cells::generate_thumbhash_plugin(&decoded.pixels, decoded.width, decoded.height).await
 }
 
-/// Encode pixels to WebP format (via plugin)
+/// Encode pixels to WebP format (via cell)
 async fn encode_webp(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     cells::encode_webp_plugin(pixels, width, height, 82).await
 }
 
-/// Encode pixels to JPEG-XL format (via plugin)
+/// Encode pixels to JPEG-XL format (via cell)
 async fn encode_jxl(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
-    // Quality 80 maps to distance ~3 in the plugin (high quality)
+    // Quality 80 maps to distance ~3 in the cell (high quality)
     cells::encode_jxl_plugin(pixels, width, height, 80).await
 }
 

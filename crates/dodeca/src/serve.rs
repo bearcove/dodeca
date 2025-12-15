@@ -464,7 +464,7 @@ impl SiteServer {
                         }
                     }
 
-                    // Try to diff using the plugin
+                    // Try to diff using the cell
                     match futures::executor::block_on(diff_html_plugin(&old, &new)) {
                         Some(diff_result) => {
                             if diff_result.patches.is_empty() {
@@ -492,9 +492,9 @@ impl SiteServer {
                             }
                         }
                         None => {
-                            // Plugin not available or failed - fall back to full reload
+                            // Cell not available or failed - fall back to full reload
                             tracing::debug!(
-                                "{} - html_diff plugin not available, sending full reload",
+                                "{} - html_diff cell not available, sending full reload",
                                 route
                             );
                             let _ = self.livereload_tx.send(LiveReloadMsg::Reload);

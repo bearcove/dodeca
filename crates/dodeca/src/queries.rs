@@ -351,7 +351,7 @@ pub async fn compile_sass<DB: Db>(db: &DB) -> PicanteResult<Option<CompiledCss>>
         return Ok(None);
     }
 
-    // Compile via plugin
+    // Compile via cell
     match crate::cells::compile_sass_plugin(&sass_map).await {
         Ok(css) => Ok(Some(CompiledCss(css))),
         Err(e) => {
@@ -386,19 +386,19 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     let path = source.path(db)?;
     let last_modified = source.last_modified(db)?;
 
-    // Use the markdown plugin to parse frontmatter and render markdown
+    // Use the markdown cell to parse frontmatter and render markdown
     let parsed = parse_and_render_markdown_cell(content.as_str())
         .await
-        .expect("markdown plugin not loaded");
+        .expect("markdown cell not loaded");
 
-    // Convert frontmatter from plugin type
+    // Convert frontmatter from cell type
     let extra: Value = if parsed.frontmatter.extra_json.is_empty() {
         Value::NULL
     } else {
         facet_json::from_str(&parsed.frontmatter.extra_json).unwrap_or(Value::NULL)
     };
 
-    // Highlight code blocks in parallel using the arborium plugin
+    // Highlight code blocks in parallel using the arborium cell
     let mut html_output = parsed.html;
     if !parsed.code_blocks.is_empty() {
         let highlight_futures: Vec<_> = parsed
@@ -414,7 +414,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
         }
     }
 
-    // Convert headings from plugin type to internal type
+    // Convert headings from cell type to internal type
     let headings: Vec<Heading> = parsed
         .headings
         .into_iter()
@@ -447,7 +447,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     })
 }
 
-/// Highlight a code block using the syntax highlighting plugin
+/// Highlight a code block using the syntax highlighting cell
 async fn highlight_code_block_for_plugin(code: &str, language: &str) -> String {
     if let Some(result) = highlight_code(code, language).await {
         // Wrap in pre/code tags with language class
@@ -669,7 +669,7 @@ pub async fn decompress_font<DB: Db>(
     use crate::cells::decompress_font_plugin;
 
     let path = font_file.path(db)?.as_str().to_string();
-    tracing::warn!(
+    tracing::debug!(
         font_path = %path,
         "🟡 QUERY: decompress_font COMPUTING (picante cache miss)"
     );
@@ -686,7 +686,7 @@ pub async fn decompress_font<DB: Db>(
         return Ok(Some(cached));
     }
 
-    // Decompress the font via plugin
+    // Decompress the font via cell
     match decompress_font_plugin(&font_data).await {
         Some(decompressed) => {
             // Cache the result
@@ -719,7 +719,7 @@ pub async fn subset_font<DB: Db>(
 
     let path = font_file.path(db)?.as_str().to_string();
     let num_chars = chars.chars(db).map(|c| c.len()).unwrap_or(0);
-    tracing::warn!(
+    tracing::debug!(
         font_path = %path,
         num_chars,
         "🟡 QUERY: subset_font COMPUTING (picante cache miss)"
@@ -732,7 +732,7 @@ pub async fn subset_font<DB: Db>(
 
     let char_vec: Vec<char> = chars.chars(db)?.to_vec();
 
-    // Subset the decompressed TTF via plugin
+    // Subset the decompressed TTF via cell
     let subsetted = match subset_font_plugin(&decompressed, &char_vec).await {
         Some(data) => data,
         None => {
@@ -741,7 +741,7 @@ pub async fn subset_font<DB: Db>(
         }
     };
 
-    // Compress back to WOFF2 via plugin
+    // Compress back to WOFF2 via cell
     match compress_to_woff2_plugin(&subsetted).await {
         Some(woff2) => {
             tracing::debug!(
@@ -1099,14 +1099,14 @@ pub async fn static_file_output<DB: Db>(
     use crate::cache_bust::{cache_busted_path, content_hash};
 
     let path = file.path(db)?.as_str().to_string();
-    tracing::warn!(
+    tracing::debug!(
         file_path = %path,
         "🔵 QUERY: static_file_output COMPUTING (picante cache miss)"
     );
     // Get processed content based on file type
     let content = if is_font_file(&path) {
         // Font file - need to subset based on char analysis
-        tracing::warn!(
+        tracing::debug!(
             font_path = %path,
             "🟢 static_file_output: processing FONT file"
         );
@@ -1213,7 +1213,7 @@ pub async fn css_output<DB: Db>(db: &DB) -> PicanteResult<Option<CssOutput>> {
 /// Serve a single page or section with full URL rewriting and minification
 /// This is the main entry point for lazy page serving
 #[picante::tracked]
-#[tracing::instrument(skip_all, name = "serve_html")]
+#[tracing::instrument(skip(db), name = "serve_html")]
 pub async fn serve_html<DB: Db>(db: &DB, route: Route) -> PicanteResult<Option<String>> {
     use crate::url_rewrite::{
         ResponsiveImageInfo, rewrite_urls_in_html, transform_images_to_picture,
@@ -1419,13 +1419,13 @@ pub async fn execute_all_code_samples<DB: Db>(db: &DB) -> PicanteResult<Vec<Code
         if let Some(samples) = extract_code_samples_plugin(content.as_str(), &source_path).await
             && !samples.is_empty()
         {
-            tracing::info!("Found {} code samples in {}", samples.len(), source_path);
+            tracing::debug!("Found {} code samples in {}", samples.len(), source_path);
 
             // Execute the code samples
             if let Some(execution_results) =
                 execute_code_samples_plugin(samples, config.clone()).await
             {
-                // Convert plugin results to our internal format
+                // Convert cell results to our internal format
                 for (sample, result) in execution_results {
                     // Convert metadata if present
                     let metadata = result.metadata.map(|m| CodeExecutionMetadata {
@@ -1493,7 +1493,7 @@ pub async fn execute_all_code_samples<DB: Db>(db: &DB) -> PicanteResult<Vec<Code
     Ok(all_results)
 }
 
-/// Convert plugin DependencySource to db DependencySourceInfo
+/// Convert cell DependencySource to db DependencySourceInfo
 fn convert_dependency_source(
     source: dodeca_code_execution_types::DependencySource,
 ) -> DependencySourceInfo {

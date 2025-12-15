@@ -33,9 +33,15 @@ use rapace_tracing::{RapaceTracingLayer, TracingConfigImpl, TracingConfigServer}
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-/// Check if running in quiet mode (TUI active, suppress startup messages).
+/// Check if running in quiet mode (suppress cell initialization debug messages).
+/// Returns true unless RAPACE_DEBUG is explicitly set (and DODECA_QUIET is not set).
 fn is_quiet_mode() -> bool {
-    std::env::var("DODECA_QUIET").is_ok()
+    // DODECA_QUIET overrides everything
+    if std::env::var("DODECA_QUIET").is_ok() {
+        return true;
+    }
+    // Show debug output only if RAPACE_DEBUG is explicitly set
+    std::env::var("RAPACE_DEBUG").is_err()
 }
 
 /// Print a debug message if not in quiet mode.
@@ -155,7 +161,7 @@ async fn ready_handshake(
         .await
         {
             Ok(Ok(ack)) => {
-                tracing::info!(
+                tracing::debug!(
                     cell = %cell_name,
                     peer_id = args.peer_id,
                     host_time_ms = ?ack.host_time_unix_ms,
@@ -217,36 +223,48 @@ where
     // Register SIGUSR1 diagnostic callback
     register_cell_diagnostics(cell_name.clone(), transport.clone());
 
-    eprintln!("[{}] Creating RPC session", cell_name);
+    // Check if debug output is enabled
+    let debug = std::env::var("RAPACE_DEBUG").is_ok();
+
+    if debug {
+        eprintln!("[{}] Creating RPC session", cell_name);
+    }
     let session = Arc::new(RpcSession::with_channel_start(transport, 2));
 
-    eprintln!("[{}] Initializing tracing", cell_name);
+    if debug {
+        eprintln!("[{}] Initializing tracing", cell_name);
+    }
     let CellTracing { tracing_config, .. } = init_tracing(session.clone());
-    eprintln!("[{}] Tracing initialized, connected to host", cell_name);
-    tracing::info!(
-        cell = %cell_name,
-        peer_id = args.peer_id,
-        "Connected to host via hub SHM"
-    );
+    if debug {
+        eprintln!("[{}] Tracing initialized, connected to host", cell_name);
+    }
+    // Don't send tracing events during startup - cells should be silent until first RPC call
 
-    eprintln!("[{}] Building dispatcher", cell_name);
+    if debug {
+        eprintln!("[{}] Building dispatcher", cell_name);
+    }
     let dispatcher = DispatcherBuilder::new();
     let dispatcher = add_tracing_service(dispatcher, tracing_config);
     let dispatcher = dispatcher.add_service(service);
     let dispatcher = dispatcher.build();
 
-    eprintln!("[{}] Setting dispatcher", cell_name);
+    if debug {
+        eprintln!("[{}] Setting dispatcher", cell_name);
+    }
     session.set_dispatcher(dispatcher);
 
     // Start demux loop in background task
-    eprintln!("[{}] Spawning demux loop task", cell_name);
+    if debug {
+        eprintln!("[{}] Spawning demux loop task", cell_name);
+    }
     let run_task = {
         let session = session.clone();
         let cell_name_clone = cell_name.clone();
-        let peer_id = args.peer_id;
         tokio::spawn(async move {
-            eprintln!("[{}] Demux loop task started", cell_name_clone);
-            tracing::info!(cell = %cell_name_clone, peer_id, "Starting demux loop");
+            if debug {
+                eprintln!("[{}] Demux loop task started", cell_name_clone);
+            }
+            // Don't send tracing events during startup - demux loop is internal machinery
             session.run().await
         })
     };
@@ -254,24 +272,132 @@ where
     // Yield to let the demux loop start (critical for current_thread runtime)
     // Without this, the RPC call below would deadlock waiting for a response
     // that can never arrive because the demux loop hasn't started yet
-    eprintln!("[{}] Yielding to start demux loop", cell_name);
+    if debug {
+        eprintln!("[{}] Yielding to start demux loop", cell_name);
+    }
     for _ in 0..10 {
         tokio::task::yield_now().await;
     }
-    eprintln!("[{}] Yielding complete", cell_name);
+    if debug {
+        eprintln!("[{}] Yielding complete", cell_name);
+    }
 
     // Perform ready handshake with host
-    eprintln!("[{}] Starting ready handshake", cell_name);
+    if debug {
+        eprintln!("[{}] Starting ready handshake", cell_name);
+    }
     if let Err(e) = ready_handshake(&args, session.clone(), &cell_name).await {
-        eprintln!("[{}] Ready handshake failed: {:?}", cell_name, e);
-        tracing::warn!(cell = %cell_name, peer_id = args.peer_id, error = ?e, "Ready handshake failed, continuing anyway");
-    } else {
+        if debug {
+            eprintln!("[{}] Ready handshake failed: {:?}", cell_name, e);
+        }
+        // Don't send tracing event - cell should be silent during startup
+    } else if debug {
         eprintln!("[{}] Ready handshake successful", cell_name);
     }
 
-    tracing::info!(cell = %cell_name, peer_id = args.peer_id, "Cell ready, waiting for requests");
+    // Cell is now ready and waiting for RPC calls - no logging needed
 
     // Wait for the demux loop to finish (it runs forever unless host disconnects)
+    match run_task.await? {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            tracing::error!(cell = %cell_name, peer_id = args.peer_id, error = ?e, "RPC session error - host connection lost");
+            Err(e.into())
+        }
+    }
+}
+
+/// Run a cell service that needs access to the session.
+///
+/// This variant allows the service factory to receive the session,
+/// enabling cells that need session access (like ddc-cell-http) to work
+/// with the standard cell infrastructure.
+pub async fn run_cell_service_with_session<F, S>(factory: F) -> Result<()>
+where
+    F: FnOnce(Arc<RpcSession<HubPeerTransport>>) -> S,
+    S: ServiceDispatch + Send + Sync + 'static,
+{
+    let args = parse_args()?;
+    let cell_name = cell_name_from_hub_path(&args.hub_path);
+    let transport = create_hub_transport(&args).await?;
+
+    // Register SIGUSR1 diagnostic callback
+    register_cell_diagnostics(cell_name.clone(), transport.clone());
+
+    // Check if debug output is enabled
+    let debug = std::env::var("RAPACE_DEBUG").is_ok();
+
+    if debug {
+        eprintln!("[{}] Creating RPC session", cell_name);
+    }
+    let session = Arc::new(RpcSession::with_channel_start(transport, 2));
+
+    if debug {
+        eprintln!("[{}] Initializing tracing", cell_name);
+    }
+    let CellTracing { tracing_config, .. } = init_tracing(session.clone());
+    if debug {
+        eprintln!("[{}] Tracing initialized, connected to host", cell_name);
+    }
+
+    // Create the service with session access
+    if debug {
+        eprintln!("[{}] Creating service with session", cell_name);
+    }
+    let service = factory(session.clone());
+
+    if debug {
+        eprintln!("[{}] Building dispatcher", cell_name);
+    }
+    let dispatcher = DispatcherBuilder::new();
+    let dispatcher = add_tracing_service(dispatcher, tracing_config);
+    let dispatcher = dispatcher.add_service(service);
+    let dispatcher = dispatcher.build();
+
+    if debug {
+        eprintln!("[{}] Setting dispatcher", cell_name);
+    }
+    session.set_dispatcher(dispatcher);
+
+    // Start demux loop in background task
+    if debug {
+        eprintln!("[{}] Spawning demux loop task", cell_name);
+    }
+    let run_task = {
+        let session = session.clone();
+        let cell_name_clone = cell_name.clone();
+        tokio::spawn(async move {
+            if debug {
+                eprintln!("[{}] Demux loop task started", cell_name_clone);
+            }
+            session.run().await
+        })
+    };
+
+    // Yield to let the demux loop start (critical for current_thread runtime)
+    if debug {
+        eprintln!("[{}] Yielding to start demux loop", cell_name);
+    }
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    if debug {
+        eprintln!("[{}] Yielding complete", cell_name);
+    }
+
+    // Perform ready handshake with host
+    if debug {
+        eprintln!("[{}] Starting ready handshake", cell_name);
+    }
+    if let Err(e) = ready_handshake(&args, session.clone(), &cell_name).await {
+        if debug {
+            eprintln!("[{}] Ready handshake failed: {:?}", cell_name, e);
+        }
+    } else if debug {
+        eprintln!("[{}] Ready handshake successful", cell_name);
+    }
+
+    // Wait for the demux loop to finish
     match run_task.await? {
         Ok(()) => Ok(()),
         Err(e) => {
@@ -490,6 +616,35 @@ macro_rules! run_cell {
             $crate::dodeca_debug::install_sigusr1_handler(cell_name);
             $crate::color_eyre::install()?;
             $crate::run_cell_service(CellService::from($service_impl)).await
+        }
+    };
+}
+
+/// Macro to run a cell that needs access to the RPC session
+#[macro_export]
+macro_rules! run_cell_with_session {
+    ($factory:expr) => {
+        #[tokio::main(flavor = "current_thread")]
+        async fn main() -> $crate::color_eyre::Result<()> {
+            // Install panic hook that clearly identifies the cell
+            let cell_name = env!("CARGO_BIN_NAME");
+            let default_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                eprintln!("\n[CELL PANIC] {} panicked!", cell_name);
+                eprintln!("[CELL PANIC] Location: {:?}", info.location());
+                if let Some(msg) = info.payload().downcast_ref::<&str>() {
+                    eprintln!("[CELL PANIC] Message: {}", msg);
+                } else if let Some(msg) = info.payload().downcast_ref::<String>() {
+                    eprintln!("[CELL PANIC] Message: {}", msg);
+                }
+                // Also run the default hook for full backtrace
+                default_hook(info);
+            }));
+
+            // Install SIGUSR1 handler for debugging (dumps stack traces)
+            $crate::dodeca_debug::install_sigusr1_handler(cell_name);
+            $crate::color_eyre::install()?;
+            $crate::run_cell_service_with_session($factory).await
         }
     };
 }

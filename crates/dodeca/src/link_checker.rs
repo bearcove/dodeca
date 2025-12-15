@@ -3,11 +3,11 @@
 //! Query-based: works directly with HTML content from SiteOutput,
 //! no disk I/O needed. External links are cached by (url, date).
 //!
-//! External link checking is done via the linkcheck plugin, which handles
+//! External link checking is done via the linkcheck cell, which handles
 //! per-domain rate limiting internally.
 
-use crate::db::ExternalLinkStatus;
 use crate::cells::{CheckOptions, check_urls_plugin, has_linkcheck_plugin};
+use crate::db::ExternalLinkStatus;
 use crate::types::Route;
 use chrono::NaiveDate;
 use regex::Regex;
@@ -213,7 +213,7 @@ pub async fn check_external_links(
     options: &ExternalLinkOptions,
 ) -> (Vec<BrokenLink>, usize) {
     if !has_linkcheck_plugin() {
-        warn!("linkcheck plugin not loaded, skipping external link checks");
+        warn!("linkcheck cell not loaded, skipping external link checks");
         return (Vec::new(), 0);
     }
 
@@ -240,7 +240,7 @@ pub async fn check_external_links(
         }
     }
 
-    // Call the plugin for uncached URLs (blocking, so we spawn_blocking)
+    // Call the cell for uncached URLs (blocking, so we spawn_blocking)
     let checked_count = if !urls_to_check.is_empty() {
         let plugin_options = CheckOptions {
             skip_domains: options.skip_domains.iter().cloned().collect(),
@@ -248,7 +248,7 @@ pub async fn check_external_links(
             timeout_secs: 10,
         };
 
-        // Call the plugin
+        // Call the cell
         let plugin_result = check_urls_plugin(urls_to_check, plugin_options).await;
 
         if let Some(result) = plugin_result {
@@ -294,7 +294,7 @@ pub async fn check_external_links(
             }
             result.checked_count as usize
         } else {
-            warn!("linkcheck plugin call failed");
+            warn!("linkcheck cell call failed");
             0
         }
     } else {

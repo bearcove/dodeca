@@ -349,6 +349,8 @@ pub fn init_standard_tracing() {
         .with(
             tracing_subscriber::fmt::layer()
                 .with_target(true)
+                .with_timer(tracing_subscriber::fmt::time::uptime())
+                .compact()
                 .with_filter(filter),
         )
         .init();

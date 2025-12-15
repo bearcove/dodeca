@@ -1,6 +1,6 @@
 //! Minification utilities
 //!
-//! Provides HTML and SVG minification via plugins.
+//! Provides HTML and SVG minification via cells.
 
 use crate::cells::{minify_html_plugin, optimize_svg_plugin};
 
@@ -27,12 +27,12 @@ pub async fn optimize_svg(svg_content: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    // These tests require external plugins to be loaded, which only happens
-    // in integration tests. The async machinery works correctly - the plugin
+    // These tests require external cells to be loaded, which only happens
+    // in integration tests. The async machinery works correctly - the cell
     // just isn't available in unit test context.
 
     #[tokio::test]
-    #[ignore = "requires dodeca-minify plugin"]
+    #[ignore = "requires dodeca-minify cell"]
     async fn test_minify_html() {
         let input = r#"<!DOCTYPE html>
 <html>
@@ -52,7 +52,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires dodeca-svgo plugin"]
+    #[ignore = "requires dodeca-svgo cell"]
     async fn test_optimize_svg() {
         let input = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
             <!-- A red circle -->

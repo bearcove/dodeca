@@ -283,9 +283,8 @@ fn resolve_dirs(
     }
 }
 
-#[tokio::main]
-#[allow(clippy::disallowed_methods)] // Entry point - block_on is in #[tokio::main] macro
-async fn main() -> Result<()> {
+#[allow(clippy::disallowed_methods)] // Entry point - needs manual runtime management
+fn main() -> Result<()> {
     // Install SIGUSR1 handler for debugging (dumps stack traces)
     dodeca_debug::install_sigusr1_handler("ddc");
 
@@ -298,46 +297,59 @@ async fn main() -> Result<()> {
         Command::Build(args) => {
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
 
-            // Always use the mini build TUI for now
-            build_with_mini_tui(
+            // Build uses its own runtime so spawned cell tasks don't prevent exit.
+            // When the runtime is dropped, all spawned tasks are aborted.
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+
+            rt.block_on(build_with_mini_tui(
                 &cfg.content_dir,
                 &cfg.output_dir,
                 &cfg.skip_domains,
                 cfg.rate_limit_ms,
-            )
-            .await?;
+            ))?;
+
+            // Runtime dropped here - spawned cell tasks are aborted
         }
         Command::Serve(args) => {
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
 
-            // Check if we should use TUI
-            use std::io::IsTerminal;
-            let use_tui = args.force_tui || (!args.no_tui && std::io::stdout().is_terminal());
+            // Serve needs a long-running runtime
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
 
-            if use_tui {
-                serve_with_tui(
-                    &cfg.content_dir,
-                    &cfg.output_dir,
-                    &args.address,
-                    args.port,
-                    args.open,
-                    cfg.stable_assets,
-                    args.public_access,
-                )
-                .await?;
-            } else {
-                // Plain mode - no TUI, serve from Salsa
-                logging::init_standard_tracing();
-                serve_plain(
-                    &cfg.content_dir,
-                    &args.address,
-                    args.port,
-                    args.open,
-                    cfg.stable_assets,
-                    args.fd_socket,
-                )
-                .await?;
-            }
+            rt.block_on(async {
+                // Check if we should use TUI
+                use std::io::IsTerminal;
+                let use_tui = args.force_tui || (!args.no_tui && std::io::stdout().is_terminal());
+
+                if use_tui {
+                    serve_with_tui(
+                        &cfg.content_dir,
+                        &cfg.output_dir,
+                        &args.address,
+                        args.port,
+                        args.open,
+                        cfg.stable_assets,
+                        args.public_access,
+                    )
+                    .await
+                } else {
+                    // Plain mode - no TUI, serve from Salsa
+                    logging::init_standard_tracing();
+                    serve_plain(
+                        &cfg.content_dir,
+                        &args.address,
+                        args.port,
+                        args.open,
+                        cfg.stable_assets,
+                        args.fd_socket,
+                    )
+                    .await
+                }
+            })?;
         }
         Command::Clean(args) => {
             // Find the project directory
@@ -353,28 +365,14 @@ async fn main() -> Result<()> {
             };
 
             let cache_dir = base_dir.join(".cache");
-            let cas_db = base_dir.join(".dodeca.db");
 
-            let mut cleared = Vec::new();
-
-            // Remove .cache directory (Salsa DB + image cache)
+            // Remove .cache directory (contains CAS, Salsa DB, image cache)
             if cache_dir.exists() {
                 let size = dir_size(&cache_dir);
                 fs::remove_dir_all(&cache_dir)?;
-                cleared.push(format!(".cache/ ({})", format_bytes(size)));
-            }
-
-            // Remove CAS database (canopydb is a directory)
-            if cas_db.exists() {
-                let size = dir_size(&cas_db);
-                fs::remove_dir_all(&cas_db)?;
-                cleared.push(format!(".dodeca.db/ ({})", format_bytes(size)));
-            }
-
-            if cleared.is_empty() {
-                println!("{}", "No caches to clear.".dimmed());
+                println!("{} .cache/ ({})", "Cleared:".green(), format_bytes(size));
             } else {
-                println!("{} {}", "Cleared:".green(), cleared.join(", "));
+                println!("{}", "No caches to clear.".dimmed());
             }
         }
     }
@@ -797,8 +795,8 @@ pub async fn build(
 ) -> Result<BuildContext> {
     use std::time::Instant;
 
-    // Set reentrancy guard so code execution plugin knows we're in a build
-    // SAFETY: We're single-threaded at this point (before spawning plugins)
+    // Set reentrancy guard so code execution cell knows we're in a build
+    // SAFETY: We're single-threaded at this point (before spawning cells)
     unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
 
     let start = Instant::now();
@@ -806,11 +804,11 @@ pub async fn build(
 
     // Open content-addressed storage at base dir
     let base_dir = content_dir.parent().unwrap_or(content_dir);
-    let cas_path = base_dir.join(".dodeca.db");
-    let mut store = cas::ContentStore::open(&cas_path)?;
-
-    // Initialize asset cache (processed images, OG images, etc.)
+    // Initialize cache directory
     let cache_dir = base_dir.join(".cache");
+
+    let cas_path = cache_dir.join("cas.db");
+    let mut store = cas::ContentStore::open(&cas_path)?;
     cas::init_asset_cache(cache_dir.as_std_path())?;
 
     // Create query stats for tracking
@@ -1055,12 +1053,8 @@ pub async fn build(
             );
         }
 
-        // Build search index in a separate thread (pagefind uses actix, needs its own runtime)
-        let output_for_search = site_output.clone();
-        let search_files =
-            std::thread::spawn(move || search::build_search_index(&output_for_search))
-                .join()
-                .map_err(|_| eyre!("search thread panicked"))??;
+        // Build search index
+        let search_files = search::build_search_index_async(&site_output).await?;
 
         // Write search index files
         for (path, content) in &search_files {
@@ -1113,15 +1107,18 @@ async fn build_with_mini_tui(
     // Initialize tracing (respects RUST_LOG)
     logging::init_standard_tracing();
 
+    // Initialize cells and wait for ALL to be ready before doing anything
+    cells::init_and_wait_for_cells().await?;
+
     let start = Instant::now();
 
     // Open CAS
     let base_dir = content_dir.parent().unwrap_or(content_dir);
-    let cas_path = base_dir.join(".dodeca.db");
-    let mut store = cas::ContentStore::open(&cas_path)?;
-
-    // Initialize asset cache (processed images, OG images, etc.)
+    // Initialize cache directory
     let cache_dir = base_dir.join(".cache");
+
+    let cas_path = cache_dir.join("cas.db");
+    let mut store = cas::ContentStore::open(&cas_path)?;
     cas::init_asset_cache(cache_dir.as_std_path())?;
 
     // Create query stats
@@ -1144,7 +1141,7 @@ async fn build_with_mini_tui(
         + ctx.static_files.len()
         + ctx.data_files.len();
 
-    println!("{} Loading {} files...", "→".cyan(), input_count);
+    tracing::info!("Loading {} files...", input_count);
 
     // Create registries
     let source_vec: Vec<_> = ctx.sources.values().copied().collect();
@@ -1159,7 +1156,7 @@ async fn build_with_mini_tui(
     StaticRegistry::set(&ctx.db, static_vec)?;
     DataRegistry::set(&ctx.db, data_vec)?;
 
-    println!("{} Building...", "→".cyan());
+    tracing::info!("Building...");
 
     // Run the build query
     let site_output = build_site(&ctx.db).await?;
@@ -1219,7 +1216,7 @@ async fn build_with_mini_tui(
         }
     }
 
-    println!("{} Writing outputs...", "→".cyan());
+    tracing::info!("Writing outputs...");
 
     // Write outputs
     let mut written = 0usize;
@@ -1279,7 +1276,7 @@ async fn build_with_mini_tui(
     }
 
     // Check links
-    println!("{} Checking links...", "→".cyan());
+    tracing::info!("Checking links...");
 
     let pages = site_output.files.iter().filter_map(|f| match f {
         OutputFile::Html { route, content } => Some(link_checker::Page {
@@ -1339,15 +1336,9 @@ async fn build_with_mini_tui(
     }
 
     // Build search index
-    println!("{} Building search index...", "→".cyan());
+    tracing::info!("Building search index...");
 
-    // Build search index in a separate thread (pagefind uses actix, needs its own runtime)
-    let search_files = {
-        let output = site_output.clone();
-        std::thread::spawn(move || search::build_search_index(&output))
-            .join()
-            .map_err(|_| eyre!("search thread panicked"))??
-    };
+    let search_files = search::build_search_index_async(&site_output).await?;
 
     // Write search index files
     for (path, content) in &search_files {
@@ -1692,9 +1683,12 @@ async fn serve_plain(
 ) -> Result<()> {
     use std::sync::Arc;
 
-    // Set reentrancy guard so code execution plugin knows we're in a build
-    // SAFETY: We're single-threaded at this point (before spawning plugins)
+    // Set reentrancy guard so code execution cell knows we're in a build
+    // SAFETY: We're single-threaded at this point (before spawning cells)
     unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
+
+    // Initialize cells and wait for ALL to be ready before doing anything
+    cells::init_and_wait_for_cells().await?;
 
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
@@ -1884,6 +1878,14 @@ async fn serve_plain(
         println!("  Loaded {} SASS files", count);
     }
 
+    // Ensure cells are loaded before spawning search index thread
+    // (search index needs to wait for cells to be ready)
+    // Use spawn_blocking since plugins() does blocking I/O (spawns processes, waits for them)
+    tokio::task::spawn_blocking(|| {
+        let _ = cells::plugins();
+    })
+    .await?;
+
     // Build search index in background
     println!("{}", "Building search index...".dimmed());
     let server_for_search = server.clone();
@@ -2062,7 +2064,7 @@ async fn serve_plain(
         None
     };
 
-    // Start the plugin server in background
+    // Start the cell server in background
     let server_clone = server.clone();
     tokio::spawn(async move {
         if let Err(e) = cell_server::start_plugin_server_with_shutdown(
@@ -2118,27 +2120,6 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
 
     #[allow(clippy::await_holding_lock)] // Intentional - creating snapshot while holding lock
     rt.block_on(async {
-        // Wait for markdown cell to be ready before building search index
-        // This prevents the race condition where we try to call markdown RPC before cell is ready
-        eprintln!("[SEARCH INDEX] Waiting for markdown cell to be ready...");
-        tracing::info!("Waiting for markdown cell to be ready before building search index");
-        let timeout = std::time::Duration::from_secs(10);
-        match cells::wait_for_cell_ready("ddc-cell-markdown", timeout).await {
-            Ok(_) => {
-                eprintln!("[SEARCH INDEX] Markdown cell is ready!");
-            }
-            Err(e) => {
-                eprintln!(
-                    "[SEARCH INDEX] Timeout waiting for markdown cell: {}. Proceeding anyway.",
-                    e
-                );
-                tracing::warn!(
-                    "Timeout waiting for markdown cell: {}. Proceeding anyway.",
-                    e
-                );
-            }
-        }
-
         // Snapshot pattern: lock, snapshot, release, then query the snapshot
         let snapshot = {
             let db = server.db.lock().map_err(|_| eyre!("db lock poisoned"))?;
@@ -2151,8 +2132,7 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
         // Cache code execution results for build info display in serve mode
         server.set_code_execution_results(site_output.code_execution_results.clone());
 
-        // Build search index - call the plugin directly since we're already in an async context.
-        // Don't go through search::build_search_index which creates another runtime.
+        // Build search index - call the cell directly since we're already in an async context.
         let pages = search::collect_search_pages(&site_output);
         let files = cells::build_search_index_plugin(pages)
             .await
@@ -2183,12 +2163,15 @@ async fn serve_with_tui(
     use std::sync::mpsc;
     use tokio::sync::watch;
 
-    // Set reentrancy guard so code execution plugin knows we're in a build
-    // SAFETY: We're single-threaded at this point (before spawning plugins)
+    // Set reentrancy guard so code execution cell knows we're in a build
+    // SAFETY: We're single-threaded at this point (before spawning cells)
     unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
 
     // Enable quiet mode for cells so they don't print startup messages that corrupt TUI
     cells::set_quiet_mode(true);
+
+    // Initialize cells and wait for ALL to be ready before doing anything
+    cells::init_and_wait_for_cells().await?;
 
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
@@ -2503,7 +2486,7 @@ async fn serve_with_tui(
     let plugin_path = match cell_server::find_plugin_path() {
         Ok(p) => p,
         Err(e) => {
-            return Err(eyre!("Failed to find plugin: {e}"));
+            return Err(eyre!("Failed to find cell: {e}"));
         }
     };
 

@@ -1,7 +1,7 @@
 //! TUI types for dodeca build progress
 //!
-//! These types are used for channel communication with the TUI plugin.
-//! The actual TUI rendering is done by the mod-tui plugin.
+//! These types are used for channel communication with the TUI cell.
+//! The actual TUI rendering is done by the mod-tui cell.
 
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
