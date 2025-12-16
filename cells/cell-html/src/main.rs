@@ -1,6 +1,6 @@
-//! Dodeca HTML processing plugin (dodeca-mod-html)
+//! Dodeca HTML processing cell (cell-html)
 //!
-//! This plugin handles HTML transformations:
+//! This cell handles HTML transformations:
 //! - URL rewriting (href, src, srcset attributes)
 //! - Dead link marking
 //! - Build info button injection
@@ -12,12 +12,10 @@ use std::rc::Rc;
 use color_eyre::Result;
 use html5ever::serialize::{SerializeOpts, serialize};
 use html5ever::tendril::TendrilSink;
-use html5ever::{parse_document, LocalName, QualName, local_name, ns};
+use html5ever::{LocalName, QualName, local_name, ns, parse_document};
 use markup5ever_rcdom::{Handle, NodeData, RcDom, SerializableHandle};
 
-use cell_html_proto::{
-    CodeExecutionMetadata, HtmlProcessor, HtmlProcessorServer, HtmlResult,
-};
+use cell_html_proto::{CodeExecutionMetadata, HtmlProcessor, HtmlProcessorServer, HtmlResult};
 
 /// HTML processor implementation
 pub struct HtmlProcessorImpl;
@@ -94,21 +92,30 @@ fn walk_and_rewrite(handle: &Handle, path_map: &HashMap<String, String>) {
         let mut attrs = attrs.borrow_mut();
 
         // Rewrite href
-        if let Some(attr) = attrs.iter_mut().find(|a| a.name.local == local_name!("href")) {
+        if let Some(attr) = attrs
+            .iter_mut()
+            .find(|a| a.name.local == local_name!("href"))
+        {
             if let Some(new_val) = path_map.get(attr.value.as_ref()) {
                 attr.value = new_val.clone().into();
             }
         }
 
         // Rewrite src
-        if let Some(attr) = attrs.iter_mut().find(|a| a.name.local == local_name!("src")) {
+        if let Some(attr) = attrs
+            .iter_mut()
+            .find(|a| a.name.local == local_name!("src"))
+        {
             if let Some(new_val) = path_map.get(attr.value.as_ref()) {
                 attr.value = new_val.clone().into();
             }
         }
 
         // Rewrite srcset
-        if let Some(attr) = attrs.iter_mut().find(|a| a.name.local == local_name!("srcset")) {
+        if let Some(attr) = attrs
+            .iter_mut()
+            .find(|a| a.name.local == local_name!("srcset"))
+        {
             let new_srcset = rewrite_srcset(&attr.value, path_map);
             attr.value = new_srcset.into();
         }
@@ -174,7 +181,11 @@ fn mark_dead_links_impl(html: &str, known_routes: &HashSet<String>) -> Result<(S
     Ok((result, had_dead_result))
 }
 
-fn walk_and_mark_dead(handle: &Handle, known_routes: &HashSet<String>, had_dead: &Rc<RefCell<bool>>) {
+fn walk_and_mark_dead(
+    handle: &Handle,
+    known_routes: &HashSet<String>,
+    had_dead: &Rc<RefCell<bool>>,
+) {
     if let NodeData::Element { name, attrs, .. } = &handle.data {
         if name.local == local_name!("a") {
             let mut attrs = attrs.borrow_mut();
@@ -202,7 +213,8 @@ fn walk_and_mark_dead(handle: &Handle, known_routes: &HashSet<String>, had_dead:
                             let target = normalize_route(path);
 
                             let exists = known_routes.contains(&target)
-                                || known_routes.contains(&format!("{}/", target.trim_end_matches('/')))
+                                || known_routes
+                                    .contains(&format!("{}/", target.trim_end_matches('/')))
                                 || known_routes.contains(target.trim_end_matches('/'));
 
                             if !exists {
@@ -229,7 +241,9 @@ fn normalize_route(path: &str) -> String {
     for part in path.split('/') {
         match part {
             "" | "." => {}
-            ".." => { parts.pop(); }
+            ".." => {
+                parts.pop();
+            }
             p => parts.push(p),
         }
     }
@@ -248,8 +262,8 @@ fn inject_build_info_impl(
     html: &str,
     code_metadata: &HashMap<String, CodeExecutionMetadata>,
 ) -> Result<(String, bool)> {
-    use lol_html::{RewriteStrSettings, element, text, rewrite_str};
     use lol_html::html_content::ContentType;
+    use lol_html::{RewriteStrSettings, element, rewrite_str, text};
 
     if code_metadata.is_empty() {
         return Ok((html.to_string(), false));
@@ -281,7 +295,8 @@ fn inject_build_info_impl(
                             if let Some(meta) = metadata_map_ref.get(&normalized) {
                                 *had_buttons_inner.borrow_mut() = true;
                                 let json = metadata_to_json(meta);
-                                let rustc_short = meta.rustc_version
+                                let rustc_short = meta
+                                    .rustc_version
                                     .lines()
                                     .next()
                                     .unwrap_or(&meta.rustc_version);
@@ -325,18 +340,25 @@ fn normalize_code_for_matching(code: &str) -> String {
 }
 
 fn metadata_to_json(meta: &CodeExecutionMetadata) -> String {
-    let deps_json: Vec<String> = meta.dependencies.iter().map(|d| {
-        let source = match &d.source {
-            cell_html_proto::DependencySource::CratesIo => "crates.io".to_string(),
-            cell_html_proto::DependencySource::Git { url, commit } => format!("git:{}@{}", url, &commit[..7.min(commit.len())]),
-            cell_html_proto::DependencySource::Path { path } => format!("path:{}", path),
-        };
-        format!(r#"{{"name":"{}","version":"{}","source":"{}"}}"#,
-            escape_json(&d.name),
-            escape_json(&d.version),
-            escape_json(&source)
-        )
-    }).collect();
+    let deps_json: Vec<String> = meta
+        .dependencies
+        .iter()
+        .map(|d| {
+            let source = match &d.source {
+                cell_html_proto::DependencySource::CratesIo => "crates.io".to_string(),
+                cell_html_proto::DependencySource::Git { url, commit } => {
+                    format!("git:{}@{}", url, &commit[..7.min(commit.len())])
+                }
+                cell_html_proto::DependencySource::Path { path } => format!("path:{}", path),
+            };
+            format!(
+                r#"{{"name":"{}","version":"{}","source":"{}"}}"#,
+                escape_json(&d.name),
+                escape_json(&d.version),
+                escape_json(&source)
+            )
+        })
+        .collect();
 
     format!(
         r#"{{"rustc_version":"{}","cargo_version":"{}","target":"{}","timestamp":"{}","cache_hit":{},"platform":"{}","arch":"{}","dependencies":[{}]}}"#,
@@ -367,12 +389,34 @@ fn escape_html_attr(s: &str) -> String {
 }
 
 // ============================================================================
-// Plugin Setup
+// Cell Setup
 // ============================================================================
 
-dodeca_cell_runtime::cell_service!(
-    HtmlProcessorServer<HtmlProcessorImpl>,
-    HtmlProcessorImpl
-);
+use std::sync::Arc;
 
-dodeca_cell_runtime::run_cell!(HtmlProcessorImpl);
+struct CellService(Arc<HtmlProcessorServer<HtmlProcessorImpl>>);
+
+impl rapace_cell::ServiceDispatch for CellService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let server = self.0.clone();
+        let payload = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &payload).await })
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = HtmlProcessorServer::new(HtmlProcessorImpl);
+    rapace_cell::run(CellService(Arc::new(server))).await?;
+    Ok(())
+}

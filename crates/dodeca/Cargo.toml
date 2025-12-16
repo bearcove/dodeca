@@ -109,6 +109,7 @@ cell-markdown-proto = { path = "../../cells/cell-markdown-proto" }
 
 # RPC framework for plugin communication
 rapace = { workspace = true, features = ["stream"] }
+rapace-cell.workspace = true
 rapace-tracing.workspace = true
 ur-taking-me-with-you.workspace = true
 async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process

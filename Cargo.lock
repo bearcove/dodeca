@@ -1320,7 +1320,6 @@ dependencies = [
  "arborium",
  "cell-arborium-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "rapace",
  "rapace-cell",
  "tokio",
@@ -1341,7 +1340,6 @@ version = "0.1.0"
 dependencies = [
  "cell-code-execution-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "dodeca-code-execution-config",
  "dodeca-code-execution-types",
  "facet",
@@ -1369,7 +1367,6 @@ version = "0.1.0"
 dependencies = [
  "cell-css-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "facet",
  "facet-kdl",
  "lightningcss",
@@ -1393,7 +1390,6 @@ version = "0.1.0"
 dependencies = [
  "cell-fonts-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "facet",
  "facet-kdl",
  "fontcull",
@@ -1417,7 +1413,6 @@ version = "0.1.0"
 dependencies = [
  "cell-html-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "facet",
  "html5ever 0.36.1",
  "lol_html 2.7.0",
@@ -1434,7 +1429,6 @@ version = "0.1.0"
 dependencies = [
  "cell-html-diff-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "dodeca-protocol",
  "facet",
  "facet-kdl",
@@ -1470,7 +1464,6 @@ dependencies = [
  "cell-http-proto",
  "cell-lifecycle-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "futures-util",
  "hyper",
  "hyper-util",
@@ -1498,7 +1491,6 @@ dependencies = [
  "base64 0.22.1",
  "cell-image-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "facet",
  "facet-kdl",
  "image",
@@ -1523,7 +1515,6 @@ version = "0.1.0"
 dependencies = [
  "cell-js-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "facet",
  "facet-kdl",
  "oxc",
@@ -1547,7 +1538,6 @@ version = "0.1.0"
 dependencies = [
  "cell-jxl-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "facet",
  "facet-kdl",
  "jpegxl-rs",
@@ -1579,7 +1569,6 @@ version = "0.1.0"
 dependencies = [
  "cell-linkcheck-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "facet",
  "rapace",
  "rapace-cell",
@@ -1603,7 +1592,6 @@ version = "0.1.0"
 dependencies = [
  "cell-markdown-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "facet",
  "facet-json",
  "facet-toml",
@@ -1629,7 +1617,6 @@ version = "0.1.0"
 dependencies = [
  "cell-minify-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "facet",
  "facet-kdl",
  "minify-html",
@@ -1653,7 +1640,6 @@ version = "0.1.0"
 dependencies = [
  "cell-pagefind-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "facet",
  "facet-kdl",
  "pagefind",
@@ -1677,7 +1663,6 @@ version = "0.1.0"
 dependencies = [
  "cell-sass-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "facet",
  "facet-kdl",
  "grass",
@@ -1701,7 +1686,6 @@ version = "0.1.0"
 dependencies = [
  "cell-svgo-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "facet",
  "facet-kdl",
  "rapace",
@@ -1726,7 +1710,6 @@ dependencies = [
  "cell-tui-proto",
  "color-eyre",
  "crossterm",
- "dodeca-cell-runtime",
  "facet",
  "futures",
  "rapace",
@@ -1751,7 +1734,6 @@ version = "0.1.0"
 dependencies = [
  "cell-webp-proto",
  "color-eyre",
- "dodeca-cell-runtime",
  "facet",
  "facet-kdl",
  "rapace",
@@ -2927,6 +2909,7 @@ dependencies = [
  "picante",
  "postcard",
  "rapace",
+ "rapace-cell",
  "rapace-tracing",
  "rapidhash",
  "regex",
@@ -2941,22 +2924,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ur-taking-me-with-you",
-]
-
-[[package]]
-name = "dodeca-cell-runtime"
-version = "0.1.0"
-dependencies = [
- "cell-lifecycle-proto",
- "color-eyre",
- "dodeca-debug",
- "libc",
- "rapace",
- "rapace-cell",
- "rapace-tracing",
- "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

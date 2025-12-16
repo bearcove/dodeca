@@ -366,7 +366,7 @@ impl SiteServer {
     /// Notify all connected browsers to reload
     /// Computes patches for all cached routes and sends them
     pub fn trigger_reload(&self) {
-        use crate::cells::diff_html_plugin;
+        use crate::cells::diff_html_cell;
 
         // Check for CSS changes first
         let old_css_path = {
@@ -465,7 +465,7 @@ impl SiteServer {
                     }
 
                     // Try to diff using the cell
-                    match futures::executor::block_on(diff_html_plugin(&old, &new)) {
+                    match futures::executor::block_on(diff_html_cell(&old, &new)) {
                         Some(diff_result) => {
                             if diff_result.patches.is_empty() {
                                 // DOM structure identical but HTML differs (whitespace/comments?)

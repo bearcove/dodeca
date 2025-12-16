@@ -1,6 +1,6 @@
-//! Dodeca TUI plugin (dodeca-mod-tui)
+//! Dodeca TUI cell (cell-tui)
 //!
-//! This plugin connects to dodeca and subscribes to event streams,
+//! This cell connects to dodeca and subscribes to event streams,
 //! rendering them in a terminal UI.
 
 use std::collections::VecDeque;
@@ -15,6 +15,8 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use futures::StreamExt;
+use rapace::RpcSession;
+use rapace::transport::shm::HubPeerTransport;
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Layout},
@@ -22,8 +24,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
-use rapace::RpcSession;
-use rapace::transport::shm::HubPeerTransport;
 use tokio::sync::mpsc;
 
 use cell_tui_proto::{
@@ -34,7 +34,7 @@ use cell_tui_proto::{
 mod theme;
 
 /// Type alias for our transport
-type _PluginTransport = HubPeerTransport;
+type _CellTransport = HubPeerTransport;
 
 /// Maximum number of events to keep in buffer
 const MAX_EVENTS: usize = 100;
@@ -374,17 +374,45 @@ fn restore_terminal() -> Result<()> {
     Ok(())
 }
 
+/// No-op service for TUI cell (it only makes client calls, doesn't serve anything)
+struct TuiCellService;
+
+impl rapace_cell::ServiceDispatch for TuiCellService {
+    fn dispatch(
+        &self,
+        _method_id: u32,
+        _payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        Box::pin(async move {
+            Err(rapace::RpcError::Status {
+                code: rapace::ErrorCode::Unimplemented,
+                message: "TUI cell does not serve any methods".to_string(),
+            })
+        })
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    // Use standardized argument parsing and transport creation
-    let args = dodeca_cell_runtime::parse_args()?;
-    let transport = dodeca_cell_runtime::create_hub_transport(&args).await?;
+    rapace_cell::run_with_session(|session| {
+        // Spawn the TUI loop
+        tokio::spawn(run_tui(session));
+        TuiCellService
+    })
+    .await?;
 
-    // Plugin uses even channel IDs
-    let session = Arc::new(RpcSession::with_channel_start(transport, 2));
+    Ok(())
+}
 
+async fn run_tui(session: Arc<RpcSession>) -> Result<()> {
     // Create TuiHost client
     let client = TuiHostClient::new(session.clone());
 

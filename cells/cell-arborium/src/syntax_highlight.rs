@@ -1,4 +1,4 @@
-//! Syntax highlighting implementation for the rapace plugin
+//! Syntax highlighting implementation for the rapace cell
 
 use arborium::advanced::html_escape;
 use cell_arborium_proto::{HighlightResult, SyntaxHighlightService};

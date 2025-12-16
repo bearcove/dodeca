@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca CSS plugin
+//! RPC protocol for dodeca CSS cell
 //!
 //! Defines services for CSS URL rewriting and minification.
 
@@ -15,7 +15,7 @@ pub enum CssResult {
     Error { message: String },
 }
 
-/// CSS processing service implemented by the plugin.
+/// CSS processing service implemented by the cell.
 ///
 /// The host calls these methods to process CSS content.
 #[allow(async_fn_in_trait)]
@@ -25,5 +25,6 @@ pub trait CssProcessor {
     ///
     /// Takes CSS source code and a path map for URL rewriting,
     /// returns processed and minified CSS.
-    async fn rewrite_and_minify(&self, css: String, path_map: HashMap<String, String>) -> CssResult;
+    async fn rewrite_and_minify(&self, css: String, path_map: HashMap<String, String>)
+    -> CssResult;
 }

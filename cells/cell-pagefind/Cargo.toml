@@ -25,9 +25,6 @@ tokio = { version = "1", features = ["rt", "time", "rt-multi-thread"] }
 # Logging
 tracing = "0.1"
 
-# Plugin runtime (with utilities)
-dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
-
 # RPC framework
 rapace = { workspace = true, features = ["stream"] }
 rapace-cell.workspace = true

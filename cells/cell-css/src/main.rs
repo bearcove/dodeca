@@ -1,6 +1,6 @@
-//! Dodeca CSS plugin (dodeca-mod-css)
+//! Dodeca CSS cell (cell-css)
 //!
-//! This plugin handles CSS URL rewriting and minification via lightningcss.
+//! This cell handles CSS URL rewriting and minification via lightningcss.
 
 use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 use lightningcss::visitor::Visit;
@@ -11,7 +11,11 @@ use cell_css_proto::{CssProcessor, CssProcessorServer};
 pub struct CssProcessorImpl;
 
 impl CssProcessor for CssProcessorImpl {
-    async fn rewrite_and_minify(&self, css: String, path_map: std::collections::HashMap<String, String>) -> cell_css_proto::CssResult {
+    async fn rewrite_and_minify(
+        &self,
+        css: String,
+        path_map: std::collections::HashMap<String, String>,
+    ) -> cell_css_proto::CssResult {
         // Parse the CSS
         let mut stylesheet = match StyleSheet::parse(&css, ParserOptions::default()) {
             Ok(s) => s,
@@ -70,9 +74,31 @@ impl<'i, 'a> lightningcss::visitor::Visitor<'i> for UrlRewriter<'a> {
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    CssProcessorServer<CssProcessorImpl>,
-    CssProcessorImpl
-);
+use std::sync::Arc;
 
-dodeca_cell_runtime::run_cell!(CssProcessorImpl);
+struct CellService(Arc<CssProcessorServer<CssProcessorImpl>>);
+
+impl rapace_cell::ServiceDispatch for CellService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let server = self.0.clone();
+        let payload = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &payload).await })
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = CssProcessorServer::new(CssProcessorImpl);
+    rapace_cell::run(CellService(Arc::new(server))).await?;
+    Ok(())
+}

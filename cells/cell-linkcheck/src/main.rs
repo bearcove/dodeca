@@ -1,6 +1,6 @@
-//! Dodeca linkcheck plugin (dodeca-mod-linkcheck)
+//! Dodeca linkcheck cell (cell-linkcheck)
 //!
-//! This plugin handles external link checking with per-domain rate limiting.
+//! This cell handles external link checking with per-domain rate limiting.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -31,7 +31,9 @@ impl LinkCheckerImpl {
 
     /// Extract domain from URL for rate limiting
     fn get_domain(url: &str) -> Option<String> {
-        Url::parse(url).ok().and_then(|u| u.host_str().map(|s| s.to_string()))
+        Url::parse(url)
+            .ok()
+            .and_then(|u| u.host_str().map(|s| s.to_string()))
     }
 
     /// Check a single URL
@@ -139,9 +141,31 @@ impl LinkChecker for LinkCheckerImpl {
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    LinkCheckerServer<LinkCheckerImpl>,
-    LinkCheckerImpl
-);
+use std::sync::Arc;
 
-dodeca_cell_runtime::run_cell!(LinkCheckerImpl::new());
+struct CellService(Arc<LinkCheckerServer<LinkCheckerImpl>>);
+
+impl rapace_cell::ServiceDispatch for CellService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let server = self.0.clone();
+        let payload = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &payload).await })
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = LinkCheckerServer::new(LinkCheckerImpl::new());
+    rapace_cell::run(CellService(Arc::new(server))).await?;
+    Ok(())
+}

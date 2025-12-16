@@ -38,4 +38,3 @@ color-eyre = "0.6"
 
 # Logging (via rapace-tracing to forward to host)
 tracing = "0.1"
-dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }

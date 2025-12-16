@@ -106,17 +106,17 @@ pub async fn get_dimensions(data: &[u8], format: InputFormat) -> Option<(u32, u3
 /// Decode an image from bytes using the appropriate cell
 async fn decode_image(data: &[u8], format: InputFormat) -> Option<DecodedImage> {
     match format {
-        InputFormat::Png => cells::decode_png_plugin(data).await,
-        InputFormat::Jpg => cells::decode_jpeg_plugin(data).await,
-        InputFormat::Gif => cells::decode_gif_plugin(data).await,
-        InputFormat::WebP => cells::decode_webp_plugin(data).await,
-        InputFormat::Jxl => cells::decode_jxl_plugin(data).await,
+        InputFormat::Png => cells::decode_png_cell(data).await,
+        InputFormat::Jpg => cells::decode_jpeg_cell(data).await,
+        InputFormat::Gif => cells::decode_gif_cell(data).await,
+        InputFormat::WebP => cells::decode_webp_cell(data).await,
+        InputFormat::Jxl => cells::decode_jxl_cell(data).await,
     }
 }
 
 /// Resize an image to a target width, maintaining aspect ratio
 async fn resize_image(decoded: &DecodedImage, target_width: u32) -> Option<DecodedImage> {
-    cells::resize_image_plugin(
+    cells::resize_image_cell(
         &decoded.pixels,
         decoded.width,
         decoded.height,
@@ -128,18 +128,18 @@ async fn resize_image(decoded: &DecodedImage, target_width: u32) -> Option<Decod
 
 /// Generate a thumbhash and encode it as a data URL
 async fn generate_thumbhash_data_url(decoded: &DecodedImage) -> Option<String> {
-    cells::generate_thumbhash_plugin(&decoded.pixels, decoded.width, decoded.height).await
+    cells::generate_thumbhash_cell(&decoded.pixels, decoded.width, decoded.height).await
 }
 
 /// Encode pixels to WebP format (via cell)
 async fn encode_webp(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
-    cells::encode_webp_plugin(pixels, width, height, 82).await
+    cells::encode_webp_cell(pixels, width, height, 82).await
 }
 
 /// Encode pixels to JPEG-XL format (via cell)
 async fn encode_jxl(pixels: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     // Quality 80 maps to distance ~3 in the cell (high quality)
-    cells::encode_jxl_plugin(pixels, width, height, 80).await
+    cells::encode_jxl_cell(pixels, width, height, 80).await
 }
 
 /// Image metadata without the processed bytes

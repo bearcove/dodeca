@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca minify plugin
+//! RPC protocol for dodeca minify cell
 //!
 //! Defines services for HTML minification.
 
@@ -14,7 +14,7 @@ pub enum MinifyResult {
     Error { message: String },
 }
 
-/// Minification service implemented by the plugin.
+/// Minification service implemented by the cell.
 ///
 /// The host calls these methods to minify content.
 #[allow(async_fn_in_trait)]

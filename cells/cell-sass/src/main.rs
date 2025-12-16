@@ -1,11 +1,11 @@
-//! Dodeca SASS plugin (dodeca-mod-sass)
+//! Dodeca SASS cell (cell-sass)
 //!
-//! This plugin handles SASS/SCSS compilation using grass.
+//! This cell handles SASS/SCSS compilation using grass.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use cell_sass_proto::{SassCompiler, SassResult, SassInput, SassCompilerServer};
+use cell_sass_proto::{SassCompiler, SassCompilerServer, SassInput, SassResult};
 
 /// SASS compiler implementation
 pub struct SassCompilerImpl;
@@ -17,9 +17,11 @@ impl SassCompiler for SassCompilerImpl {
         // Find main.scss
         let main_content = match files.get("main.scss") {
             Some(content) => content,
-            None => return SassResult::Error {
-                message: "main.scss not found in files".to_string(),
-            },
+            None => {
+                return SassResult::Error {
+                    message: "main.scss not found in files".to_string(),
+                };
+            }
         };
 
         // Create an in-memory filesystem for grass
@@ -73,9 +75,31 @@ impl grass::Fs for InMemorySassFs {
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    SassCompilerServer<SassCompilerImpl>,
-    SassCompilerImpl
-);
+use std::sync::Arc;
 
-dodeca_cell_runtime::run_cell!(SassCompilerImpl);
+struct CellService(Arc<SassCompilerServer<SassCompilerImpl>>);
+
+impl rapace_cell::ServiceDispatch for CellService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let server = self.0.clone();
+        let payload = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &payload).await })
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = SassCompilerServer::new(SassCompilerImpl);
+    rapace_cell::run(CellService(Arc::new(server))).await?;
+    Ok(())
+}

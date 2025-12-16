@@ -1,4 +1,4 @@
-use crate::cells::inject_build_info_plugin;
+use crate::cells::inject_build_info_cell;
 use crate::db::{
     CodeExecutionMetadata, CodeExecutionResult, DependencySourceInfo, Heading, Page, Section,
     SiteTree,
@@ -379,7 +379,7 @@ async fn inject_build_info_buttons(
         return (html.to_string(), false);
     }
 
-    match inject_build_info_plugin(html, code_metadata).await {
+    match inject_build_info_cell(html, code_metadata).await {
         Some((result, had_buttons)) => (result, had_buttons),
         None => (html.to_string(), false),
     }

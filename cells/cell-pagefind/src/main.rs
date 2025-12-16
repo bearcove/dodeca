@@ -1,9 +1,9 @@
-//! Dodeca Pagefind plugin (dodeca-mod-pagefind)
+//! Dodeca Pagefind cell (cell-pagefind)
 //!
-//! This plugin handles search indexing using Pagefind.
+//! This cell handles search indexing using Pagefind.
 //!
 //! The pagefind crate uses html5ever's DomParser which is !Send, so the async
-//! futures cannot be sent across threads. Since the plugin runtime already runs
+//! futures cannot be sent across threads. Since the cell runtime already runs
 //! in a tokio context, we spawn a separate OS thread with its own runtime to
 //! avoid "Cannot start a runtime from within a runtime" errors.
 
@@ -11,7 +11,10 @@ use std::sync::mpsc;
 
 use pagefind::api::PagefindIndex;
 
-use cell_pagefind_proto::{SearchIndexer, SearchIndexResult, SearchIndexInput, SearchIndexOutput, SearchFile, SearchIndexerServer};
+use cell_pagefind_proto::{
+    SearchFile, SearchIndexInput, SearchIndexOutput, SearchIndexResult, SearchIndexer,
+    SearchIndexerServer,
+};
 
 /// Search indexer implementation
 pub struct SearchIndexerImpl;
@@ -19,7 +22,7 @@ pub struct SearchIndexerImpl;
 impl SearchIndexer for SearchIndexerImpl {
     async fn build_search_index(&self, input: SearchIndexInput) -> SearchIndexResult {
         // Spawn a separate OS thread with its own runtime because:
-        // 1. We're already inside the plugin's tokio runtime
+        // 1. We're already inside the cell's tokio runtime
         // 2. Pagefind futures are !Send (html5ever's DomParser)
         // 3. We need block_on but can't nest runtimes
         let (tx, rx) = mpsc::channel();
@@ -37,7 +40,9 @@ impl SearchIndexer for SearchIndexerImpl {
         match rx.recv() {
             Ok(Ok(output)) => SearchIndexResult::Success { output },
             Ok(Err(e)) => SearchIndexResult::Error { message: e },
-            Err(_) => SearchIndexResult::Error { message: "pagefind thread panicked".to_string() },
+            Err(_) => SearchIndexResult::Error {
+                message: "pagefind thread panicked".to_string(),
+            },
         }
     }
 }
@@ -79,9 +84,31 @@ async fn build_search_index_inner(input: SearchIndexInput) -> Result<SearchIndex
     })
 }
 
-dodeca_cell_runtime::cell_service!(
-    SearchIndexerServer<SearchIndexerImpl>,
-    SearchIndexerImpl
-);
+use std::sync::Arc;
 
-dodeca_cell_runtime::run_cell!(SearchIndexerImpl);
+struct CellService(Arc<SearchIndexerServer<SearchIndexerImpl>>);
+
+impl rapace_cell::ServiceDispatch for CellService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let server = self.0.clone();
+        let payload = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &payload).await })
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = SearchIndexerServer::new(SearchIndexerImpl);
+    rapace_cell::run(CellService(Arc::new(server))).await?;
+    Ok(())
+}

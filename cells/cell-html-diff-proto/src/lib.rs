@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca HTML diff plugin
+//! RPC protocol for dodeca HTML diff cell
 //!
 //! Defines services for HTML DOM diffing.
 
@@ -34,7 +34,7 @@ pub enum HtmlDiffResult {
     Error { message: String },
 }
 
-/// HTML diff service implemented by the plugin.
+/// HTML diff service implemented by the cell.
 ///
 /// The host calls these methods to diff HTML documents.
 #[allow(async_fn_in_trait)]

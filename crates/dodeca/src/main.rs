@@ -1880,9 +1880,9 @@ async fn serve_plain(
 
     // Ensure cells are loaded before spawning search index thread
     // (search index needs to wait for cells to be ready)
-    // Use spawn_blocking since plugins() does blocking I/O (spawns processes, waits for them)
+    // Use spawn_blocking since cells() does blocking I/O (spawns processes, waits for them)
     tokio::task::spawn_blocking(|| {
-        let _ = cells::plugins();
+        let _ = cells::all();
     })
     .await?;
 
@@ -2016,8 +2016,8 @@ async fn serve_plain(
     // Use the requested port (or default to 4000)
     let requested_port: u16 = port.unwrap_or(4000);
 
-    // Find the plugin path
-    let plugin_path = cell_server::find_plugin_path()?;
+    // Find the cell path
+    let cell_path = cell_server::find_cell_path()?;
 
     // Parse the address to get the IP to bind to
     let bind_ip: std::net::Ipv4Addr = match address.parse::<std::net::IpAddr>() {
@@ -2067,9 +2067,9 @@ async fn serve_plain(
     // Start the cell server in background
     let server_clone = server.clone();
     tokio::spawn(async move {
-        if let Err(e) = cell_server::start_plugin_server_with_shutdown(
+        if let Err(e) = cell_server::start_cell_server_with_shutdown(
             server_clone,
-            plugin_path,
+            cell_path,
             vec![bind_ip],
             requested_port,
             None,
@@ -2087,7 +2087,7 @@ async fn serve_plain(
         .await
         .map_err(|_| eyre!("Failed to get bound port"))?;
 
-    // Print server URLs (LISTENING_PORT already printed by start_plugin_server)
+    // Print server URLs (LISTENING_PORT already printed by start_cell_server)
     print_server_urls(address, actual_port);
 
     if open {
@@ -2134,7 +2134,7 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
 
         // Build search index - call the cell directly since we're already in an async context.
         let pages = search::collect_search_pages(&site_output);
-        let files = cells::build_search_index_plugin(pages)
+        let files = cells::build_search_index_cell(pages)
             .await
             .map_err(|e| eyre!("pagefind: {}", e))?;
 
@@ -2482,8 +2482,8 @@ async fn serve_with_tui(
     let salsa_cache_path_clone = salsa_cache_path.clone();
     let cas_cache_dir_clone = cas_cache_dir.clone();
 
-    // Find the plugin path once upfront
-    let plugin_path = match cell_server::find_plugin_path() {
+    // Find the cell path once upfront
+    let cell_path = match cell_server::find_cell_path() {
         Ok(p) => p,
         Err(e) => {
             return Err(eyre!("Failed to find cell: {e}"));
@@ -2498,7 +2498,7 @@ async fn serve_with_tui(
                         event_tx: tui::EventTx,
                         salsa_path: Utf8PathBuf,
                         cas_dir: Utf8PathBuf,
-                        plugin_path: std::path::PathBuf| {
+                        cell_path: std::path::PathBuf| {
         tokio::spawn(async move {
             let ips = get_bind_ips(mode);
             let requested_port = preferred_port.unwrap_or(4000);
@@ -2510,13 +2510,13 @@ async fn serve_with_tui(
             let server_clone = server.clone();
             let ips_clone = ips.clone();
             let shutdown_rx_clone = shutdown_rx.clone();
-            let plugin_path_clone = plugin_path.clone();
+            let cell_path_clone = cell_path.clone();
             let event_tx_clone = event_tx.clone();
 
             tokio::spawn(async move {
-                if let Err(e) = cell_server::start_plugin_server_with_shutdown(
+                if let Err(e) = cell_server::start_cell_server_with_shutdown(
                     server_clone,
-                    plugin_path_clone,
+                    cell_path_clone,
                     ips_clone,
                     requested_port,
                     Some(shutdown_rx_clone),
@@ -2575,7 +2575,7 @@ async fn serve_with_tui(
         })
     };
 
-    let plugin_path_clone = plugin_path.clone();
+    let cell_path_clone = cell_path.clone();
     let mut server_handle = start_server(
         server_for_http.clone(),
         initial_mode,
@@ -2585,7 +2585,7 @@ async fn serve_with_tui(
         event_tx_clone.clone(),
         salsa_cache_path_clone.clone(),
         cas_cache_dir_clone.clone(),
-        plugin_path_clone,
+        cell_path_clone,
     );
 
     // Open browser if requested (use preferred port or default 4000)
@@ -2914,7 +2914,7 @@ async fn serve_with_tui(
     let event_tx_for_cmd = event_tx.clone();
     let salsa_path_for_cmd = salsa_cache_path_clone.clone();
     let cas_dir_for_cmd = cas_cache_dir_clone.clone();
-    let plugin_path_for_cmd = plugin_path.clone();
+    let cell_path_for_cmd = cell_path.clone();
     // Use Arc<Mutex> for the shutdown sender so we can update it for each rebind
     let current_shutdown = Arc::new(std::sync::Mutex::new(shutdown_tx.clone()));
     let current_shutdown_for_handler = current_shutdown.clone();
@@ -2956,7 +2956,7 @@ async fn serve_with_tui(
                 event_tx_for_cmd.clone(),
                 salsa_path_for_cmd.clone(),
                 cas_dir_for_cmd.clone(),
-                plugin_path_for_cmd.clone(),
+                cell_path_for_cmd.clone(),
             );
         }
     });
@@ -3034,7 +3034,7 @@ async fn serve_with_tui(
         }
     });
 
-    // Create shutdown channel for TUI plugin
+    // Create shutdown channel for TUI cell
     let (tui_shutdown_tx, tui_shutdown_rx) = watch::channel(false);
 
     // Run the TUI cell (blocks until TUI exits)

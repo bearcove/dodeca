@@ -62,6 +62,3 @@ tokio = { version = "1", features = ["full"] }
 
 # Logging
 tracing = "0.1"
-
-# Shared plugin runtime (Rapace tracing, dispatcher helpers)
-dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }

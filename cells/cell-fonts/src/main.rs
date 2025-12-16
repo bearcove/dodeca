@@ -1,10 +1,12 @@
-//! Dodeca fonts plugin (dodeca-mod-fonts)
+//! Dodeca fonts cell (cell-fonts)
 //!
-//! This plugin handles font analysis, subsetting, and compression.
+//! This cell handles font analysis, subsetting, and compression.
 
 use std::collections::{HashMap, HashSet};
 
-use cell_fonts_proto::{FontProcessor, FontResult, FontAnalysis, FontFace, SubsetFontInput, FontProcessorServer};
+use cell_fonts_proto::{
+    FontAnalysis, FontFace, FontProcessor, FontProcessorServer, FontResult, SubsetFontInput,
+};
 
 /// Font processor implementation
 pub struct FontProcessorImpl;
@@ -79,9 +81,31 @@ impl FontProcessor for FontProcessorImpl {
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    FontProcessorServer<FontProcessorImpl>,
-    FontProcessorImpl
-);
+use std::sync::Arc;
 
-dodeca_cell_runtime::run_cell!(FontProcessorImpl);
+struct CellService(Arc<FontProcessorServer<FontProcessorImpl>>);
+
+impl rapace_cell::ServiceDispatch for CellService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let server = self.0.clone();
+        let payload = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &payload).await })
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = FontProcessorServer::new(FontProcessorImpl);
+    rapace_cell::run(CellService(Arc::new(server))).await?;
+    Ok(())
+}

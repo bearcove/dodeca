@@ -1,6 +1,6 @@
-//! Protocol definitions for the dodeca TUI plugin.
+//! Protocol definitions for the dodeca TUI cell.
 //!
-//! The TUI is a "reverse plugin" - dodeca hosts the `TuiHost` service,
+//! The TUI is a "reverse cell" - dodeca hosts the `TuiHost` service,
 //! and the TUI binary connects to subscribe to streams and send commands.
 
 use rapace::Streaming;
@@ -258,7 +258,7 @@ pub enum CommandResult {
 }
 
 // ============================================================================
-// TuiHost Service (hosted by dodeca, called by TUI plugin)
+// TuiHost Service (hosted by dodeca, called by TUI cell)
 // ============================================================================
 
 /// Service hosted by dodeca for the TUI to connect to.

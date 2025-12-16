@@ -11,7 +11,6 @@ use std::sync::Arc;
 
 use eyre::Result;
 use futures::stream::{self, StreamExt};
-use rapace::transport::shm::HubHostPeerTransport;
 use rapace::{Frame, RpcError, RpcSession};
 use rapace_tracing::{EventMeta, Field, SpanMeta, TracingSink};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -23,7 +22,7 @@ use cell_http_proto::{ContentServiceServer, TcpTunnelClient};
 use cell_lifecycle_proto::CellLifecycleServer;
 use rapace_tracing::TracingSinkServer;
 
-use crate::cells::{HostCellLifecycle, cell_ready_registry, get_cell_session, plugins};
+use crate::cells::{HostCellLifecycle, all, cell_ready_registry, get_cell_session};
 use crate::content_service::HostContentService;
 use crate::serve::SiteServer;
 
@@ -31,7 +30,7 @@ use crate::serve::SiteServer;
 ///
 /// Note: The http cell is now loaded via the hub, so this just returns a dummy path.
 /// The actual cell location is determined by cells.rs.
-pub fn find_plugin_path() -> Result<std::path::PathBuf> {
+pub fn find_cell_path() -> Result<std::path::PathBuf> {
     // Return a dummy path - cells are loaded via hub now
     Ok(std::path::PathBuf::from("ddc-cell-http"))
 }
@@ -130,21 +129,19 @@ impl TracingSink for ForwardingTracingSink {
 #[allow(clippy::type_complexity)]
 fn create_http_cell_dispatcher(
     content_service: Arc<HostContentService>,
-) -> impl Fn(
-    u32,
-    u32,
-    Vec<u8>,
-) -> Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
+) -> impl Fn(Frame) -> Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
 + Send
 + Sync
 + 'static {
     let tracing_sink = ForwardingTracingSink::new();
     let lifecycle_registry = cell_ready_registry().clone();
 
-    move |_channel_id, method_id, payload| {
+    move |frame: Frame| {
         let content_service = content_service.clone();
         let tracing_sink = tracing_sink.clone();
         let lifecycle_registry = lifecycle_registry.clone();
+        let method_id = frame.desc.method_id;
+        let payload = frame.payload_bytes().to_vec();
 
         Box::pin(async move {
             // Try TracingSink service first
@@ -170,16 +167,16 @@ fn create_http_cell_dispatcher(
 /// Start the HTTP cell server with optional shutdown signal
 ///
 /// This:
-/// 1. Ensures the http cell is loaded (via plugins())
+/// 1. Ensures the http cell is loaded (via all())
 /// 2. Sets up ContentService on the http cell's session
 /// 3. Listens for browser TCP connections and tunnels them to the cell
 ///
 /// If `shutdown_rx` is provided, the server will stop when the signal is received.
 ///
 /// The `bind_ips` parameter specifies which IP addresses to bind to.
-pub async fn start_plugin_server_with_shutdown(
+pub async fn start_cell_server_with_shutdown(
     server: Arc<SiteServer>,
-    _plugin_path: std::path::PathBuf, // No longer used - cells loaded via hub
+    _cell_path: std::path::PathBuf, // No longer used - cells loaded via hub
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
     mut shutdown_rx: Option<watch::Receiver<bool>>,
@@ -187,7 +184,7 @@ pub async fn start_plugin_server_with_shutdown(
     pre_bound_listener: Option<TcpListener>,
 ) -> Result<()> {
     // Ensure all cells are loaded (including http)
-    let registry = plugins();
+    let registry = all();
 
     // Check that the http cell is loaded
     if registry.http.is_none() {
@@ -336,13 +333,13 @@ pub async fn start_plugin_server_with_shutdown(
 
 /// Start the cell server (convenience wrapper without shutdown signal)
 #[allow(dead_code)]
-pub async fn start_plugin_server(
+pub async fn start_cell_server(
     server: Arc<SiteServer>,
-    plugin_path: std::path::PathBuf,
+    cell_path: std::path::PathBuf,
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
 ) -> Result<()> {
-    start_plugin_server_with_shutdown(server, plugin_path, bind_ips, port, None, None, None).await
+    start_cell_server_with_shutdown(server, cell_path, bind_ips, port, None, None, None).await
 }
 
 /// Handle a browser TCP connection by tunneling it through the cell
@@ -395,13 +392,14 @@ async fn handle_browser_connection(
     // Task B: rapace → Browser (read from tunnel, write to browser)
     tokio::spawn(async move {
         while let Some(chunk) = tunnel_rx.recv().await {
-            if !chunk.payload.is_empty()
-                && let Err(e) = browser_write.write_all(&chunk.payload).await
+            let payload = chunk.payload_bytes();
+            if !payload.is_empty()
+                && let Err(e) = browser_write.write_all(payload).await
             {
                 tracing::debug!(channel_id, error = %e, "Browser write error");
                 break;
             }
-            if chunk.is_eos {
+            if chunk.is_eos() {
                 tracing::debug!(channel_id, "Received EOS from cell");
                 let _ = browser_write.shutdown().await;
                 break;

@@ -1,6 +1,6 @@
-//! Dodeca JS plugin (dodeca-mod-js)
+//! Dodeca JS cell (cell-js)
 //!
-//! This plugin handles JavaScript string literal rewriting using OXC.
+//! This cell handles JavaScript string literal rewriting using OXC.
 
 use std::collections::HashMap;
 
@@ -10,7 +10,7 @@ use oxc::ast_visit::Visit;
 use oxc::parser::Parser;
 use oxc::span::SourceType;
 
-use cell_js_proto::{JsProcessor, JsResult, JsRewriteInput, JsProcessorServer};
+use cell_js_proto::{JsProcessor, JsProcessorServer, JsResult, JsRewriteInput};
 
 /// JS processor implementation
 pub struct JsProcessorImpl;
@@ -115,9 +115,31 @@ impl<'a> Visit<'_> for StringCollector<'a> {
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    JsProcessorServer<JsProcessorImpl>,
-    JsProcessorImpl
-);
+use std::sync::Arc;
 
-dodeca_cell_runtime::run_cell!(JsProcessorImpl);
+struct CellService(Arc<JsProcessorServer<JsProcessorImpl>>);
+
+impl rapace_cell::ServiceDispatch for CellService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let server = self.0.clone();
+        let payload = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &payload).await })
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = JsProcessorServer::new(JsProcessorImpl);
+    rapace_cell::run(CellService(Arc::new(server))).await?;
+    Ok(())
+}

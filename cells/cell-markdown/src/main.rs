@@ -1,26 +1,17 @@
-//! Dodeca markdown processing plugin (dodeca-mod-markdown)
+//! Dodeca markdown processing cell (cell-markdown)
 //!
-//! This plugin handles:
+//! This cell handles:
 //! - Markdown to HTML conversion (pulldown-cmark)
 //! - Frontmatter parsing (TOML)
 //! - Heading extraction
 //! - Code block extraction (for syntax highlighting by host)
 
-use pulldown_cmark::{html, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, html};
 
 use cell_markdown_proto::{
-    CodeBlock, Frontmatter, FrontmatterResult, Heading, MarkdownProcessor,
-    MarkdownProcessorServer, MarkdownResult, ParseResult,
+    CodeBlock, Frontmatter, FrontmatterResult, Heading, MarkdownProcessor, MarkdownProcessorServer,
+    MarkdownResult, ParseResult,
 };
-
-// Create the ServiceDispatch wrapper
-dodeca_cell_runtime::cell_service!(
-    MarkdownProcessorServer<MarkdownProcessorImpl>,
-    MarkdownProcessorImpl
-);
-
-// Create main function
-dodeca_cell_runtime::run_cell!(MarkdownProcessorImpl);
 
 /// Markdown processor implementation
 #[derive(Clone)]
@@ -321,4 +312,33 @@ fn inject_heading_ids(html: &str, headings: &[Heading]) -> String {
     }
 
     result
+}
+
+use std::sync::Arc;
+
+struct CellService(Arc<MarkdownProcessorServer<MarkdownProcessorImpl>>);
+
+impl rapace_cell::ServiceDispatch for CellService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let server = self.0.clone();
+        let payload = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &payload).await })
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = MarkdownProcessorServer::new(MarkdownProcessorImpl);
+    rapace_cell::run(CellService(Arc::new(server))).await?;
+    Ok(())
 }

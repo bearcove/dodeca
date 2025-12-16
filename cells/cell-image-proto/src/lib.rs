@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca image plugin
+//! RPC protocol for dodeca image cell
 //!
 //! Defines services for image decoding, resizing, and thumbhash generation.
 
@@ -43,7 +43,7 @@ pub struct ThumbhashInput {
     pub height: u32,
 }
 
-/// Image processing service implemented by the plugin.
+/// Image processing service implemented by the cell.
 ///
 /// The host calls these methods to process image content.
 #[allow(async_fn_in_trait)]

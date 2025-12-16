@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca WebP plugin
+//! RPC protocol for dodeca WebP cell
 //!
 //! Defines services for WebP encoding and decoding.
 
@@ -18,14 +18,19 @@ pub struct WebPEncodeInput {
 #[repr(u8)]
 pub enum WebPResult {
     /// Successfully decoded WebP
-    DecodeSuccess { pixels: Vec<u8>, width: u32, height: u32, channels: u8 },
+    DecodeSuccess {
+        pixels: Vec<u8>,
+        width: u32,
+        height: u32,
+        channels: u8,
+    },
     /// Successfully encoded WebP
     EncodeSuccess { data: Vec<u8> },
     /// Error during processing
     Error { message: String },
 }
 
-/// WebP processing service implemented by the plugin.
+/// WebP processing service implemented by the cell.
 ///
 /// The host calls these methods to process WebP images.
 #[allow(async_fn_in_trait)]

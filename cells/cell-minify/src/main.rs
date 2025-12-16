@@ -1,8 +1,8 @@
-//! Dodeca minify plugin (dodeca-mod-minify)
+//! Dodeca minify cell (cell-minify)
 //!
-//! This plugin handles HTML minification.
+//! This cell handles HTML minification.
 
-use cell_minify_proto::{Minifier, MinifyResult, MinifierServer};
+use cell_minify_proto::{Minifier, MinifierServer, MinifyResult};
 
 /// Minifier implementation
 pub struct MinifierImpl;
@@ -27,9 +27,31 @@ impl Minifier for MinifierImpl {
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    MinifierServer<MinifierImpl>,
-    MinifierImpl
-);
+use std::sync::Arc;
 
-dodeca_cell_runtime::run_cell!(MinifierImpl);
+struct CellService(Arc<MinifierServer<MinifierImpl>>);
+
+impl rapace_cell::ServiceDispatch for CellService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let server = self.0.clone();
+        let payload = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &payload).await })
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = MinifierServer::new(MinifierImpl);
+    rapace_cell::run(CellService(Arc::new(server))).await?;
+    Ok(())
+}

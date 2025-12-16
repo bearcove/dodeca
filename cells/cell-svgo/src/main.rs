@@ -1,8 +1,8 @@
-//! Dodeca SVGO plugin (dodeca-mod-svgo)
+//! Dodeca SVGO cell (cell-svgo)
 //!
-//! This plugin handles SVG optimization.
+//! This cell handles SVG optimization.
 
-use cell_svgo_proto::{SvgoOptimizer, SvgoResult, SvgoOptimizerServer};
+use cell_svgo_proto::{SvgoOptimizer, SvgoOptimizerServer, SvgoResult};
 
 /// SVGO optimizer implementation
 pub struct SvgoOptimizerImpl;
@@ -18,9 +18,31 @@ impl SvgoOptimizer for SvgoOptimizerImpl {
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    SvgoOptimizerServer<SvgoOptimizerImpl>,
-    SvgoOptimizerImpl
-);
+use std::sync::Arc;
 
-dodeca_cell_runtime::run_cell!(SvgoOptimizerImpl);
+struct CellService(Arc<SvgoOptimizerServer<SvgoOptimizerImpl>>);
+
+impl rapace_cell::ServiceDispatch for CellService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        let server = self.0.clone();
+        let payload = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &payload).await })
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = SvgoOptimizerServer::new(SvgoOptimizerImpl);
+    rapace_cell::run(CellService(Arc::new(server))).await?;
+    Ok(())
+}

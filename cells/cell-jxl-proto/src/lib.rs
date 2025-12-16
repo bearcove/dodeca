@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca JXL plugin
+//! RPC protocol for dodeca JXL cell
 //!
 //! Defines services for JPEG XL encoding and decoding.
 
@@ -18,14 +18,19 @@ pub struct JXLEncodeInput {
 #[repr(u8)]
 pub enum JXLResult {
     /// Successfully decoded JXL
-    DecodeSuccess { pixels: Vec<u8>, width: u32, height: u32, channels: u8 },
+    DecodeSuccess {
+        pixels: Vec<u8>,
+        width: u32,
+        height: u32,
+        channels: u8,
+    },
     /// Successfully encoded JXL
     EncodeSuccess { data: Vec<u8> },
     /// Error during processing
     Error { message: String },
 }
 
-/// JXL processing service implemented by the plugin.
+/// JXL processing service implemented by the cell.
 ///
 /// The host calls these methods to process JPEG XL images.
 #[allow(async_fn_in_trait)]

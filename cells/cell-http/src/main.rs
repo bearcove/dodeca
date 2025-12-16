@@ -1,17 +1,17 @@
-//! Dodeca HTTP module (dodeca-mod-http)
+//! Dodeca HTTP cell (cell-http)
 //!
 //! This binary handles HTTP serving for dodeca via L4 tunneling:
 //!
 //! Architecture:
 //! ```text
-//! Browser → Host (TCP) → rapace tunnel → Plugin → internal axum
+//! Browser → Host (TCP) → rapace tunnel → Cell → internal axum
 //!                                              ↓
 //!                              ContentService RPC → Host (Salsa DB)
 //!                                    ↑
 //!                          (zero-copy via SHM)
 //! ```
 //!
-//! The plugin:
+//! The cell:
 //! - Runs axum internally on localhost (not exposed to network)
 //! - Implements TcpTunnel service (host opens tunnels for each browser connection)
 //! - Calls ContentService on host for all content (HTML, CSS, static files)
@@ -21,7 +21,6 @@
 use std::sync::Arc;
 
 use rapace::RpcSession;
-use rapace::transport::shm::HubPeerTransport;
 use rapace_cell::ServiceDispatch;
 
 use cell_http_proto::{ContentServiceClient, TcpTunnelServer, WebSocketTunnelClient};
@@ -29,16 +28,13 @@ use cell_http_proto::{ContentServiceClient, TcpTunnelServer, WebSocketTunnelClie
 mod devtools;
 mod tunnel;
 
-/// Type alias for our transport (SHM-based for zero-copy)
-type PluginTransport = HubPeerTransport;
-
-/// Plugin context shared across HTTP handlers
-pub struct PluginContext {
+/// Cell context shared across HTTP handlers
+pub struct CellContext {
     /// RPC session for bidirectional communication with host
     pub session: Arc<RpcSession>,
 }
 
-impl PluginContext {
+impl CellContext {
     /// Create a ContentServiceClient for calling the host
     pub fn content_client(&self) -> ContentServiceClient {
         ContentServiceClient::new(self.session.clone())
@@ -73,8 +69,8 @@ impl ServiceDispatch for TcpTunnelService {
 
 impl From<Arc<RpcSession>> for TcpTunnelService {
     fn from(session: Arc<RpcSession>) -> Self {
-        // Build plugin context
-        let ctx = Arc::new(PluginContext {
+        // Build cell context
+        let ctx = Arc::new(CellContext {
             session: session.clone(),
         });
 
@@ -88,11 +84,14 @@ impl From<Arc<RpcSession>> for TcpTunnelService {
     }
 }
 
-// Use the standard cell infrastructure with session access
-dodeca_cell_runtime::run_cell_with_session!(TcpTunnelService::from);
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run_with_session(|session| TcpTunnelService::from(session)).await?;
+    Ok(())
+}
 
 /// Build the axum router for the internal HTTP server
-fn build_router(ctx: Arc<PluginContext>) -> axum::Router {
+fn build_router(ctx: Arc<CellContext>) -> axum::Router {
     use axum::{
         Router,
         body::Body,
@@ -111,7 +110,7 @@ fn build_router(ctx: Arc<PluginContext>) -> axum::Router {
     const CACHE_NO_CACHE: &str = "no-cache, no-store, must-revalidate";
 
     /// Handle content requests by calling host via RPC
-    async fn content_handler(State(ctx): State<Arc<PluginContext>>, request: Request) -> Response {
+    async fn content_handler(State(ctx): State<Arc<CellContext>>, request: Request) -> Response {
         let path = request.uri().path().to_string();
         let client = ctx.content_client();
 
@@ -175,10 +174,10 @@ fn build_router(ctx: Arc<PluginContext>) -> axum::Router {
 
         let mut response = next.run(request).await;
 
-        // Add header to identify this is served by the plugin
+        // Add header to identify this is served by the cell
         response
             .headers_mut()
-            .insert("x-served-by", "dodeca-mod-http".parse().unwrap());
+            .insert("x-served-by", "cell-http".parse().unwrap());
 
         let status = response.status().as_u16();
         let latency_ms = start.elapsed().as_secs_f64() * 1000.0;

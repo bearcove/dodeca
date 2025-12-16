@@ -34,9 +34,6 @@ tempfile = "3"
 # Logging
 tracing = "0.1"
 
-# Plugin runtime
-dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
-
 # RPC framework
 rapace = { workspace = true, features = ["stream"] }
 rapace-cell.workspace = true

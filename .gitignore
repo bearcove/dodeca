@@ -9,3 +9,4 @@ llvm-lines*
 perf-*.data
 *.zst
 *.log
+.handoffs

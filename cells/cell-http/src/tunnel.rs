@@ -1,4 +1,4 @@
-//! TCP tunnel implementation for the plugin.
+//! TCP tunnel implementation for the cell.
 //!
 //! Implements the TcpTunnel service that the host calls to open tunnels.
 //! Each tunnel serves HTTP directly on the rapace channel stream.
@@ -17,7 +17,7 @@ use tokio_util::io::StreamReader;
 
 use cell_http_proto::{TcpTunnel, TunnelHandle};
 
-/// Plugin-side implementation of TcpTunnel.
+/// Cell-side implementation of TcpTunnel.
 ///
 /// Each `open()` call:
 /// 1. Allocates a new channel_id
@@ -46,10 +46,10 @@ impl TcpTunnel for TcpTunnelImpl {
 
         // Convert receiver to a Stream, then to AsyncRead using StreamReader
         fn chunk_to_bytes(chunk: TunnelChunk) -> Result<Bytes, std::io::Error> {
-            if chunk.is_eos {
+            if chunk.is_eos() {
                 Ok(Bytes::new()) // EOF
             } else {
-                Ok(Bytes::from(chunk.payload))
+                Ok(Bytes::from(chunk.payload_bytes().to_vec()))
             }
         }
         let rx_stream = ReceiverStream::new(tunnel_rx).map(chunk_to_bytes as fn(_) -> _);

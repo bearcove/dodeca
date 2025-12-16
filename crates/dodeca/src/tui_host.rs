@@ -284,16 +284,14 @@ impl Clone for TuiHostWrapper {
 #[allow(clippy::type_complexity)]
 pub fn create_tui_dispatcher(
     tui_host: Arc<TuiHostImpl>,
-) -> impl Fn(
-    u32,
-    u32,
-    Vec<u8>,
-) -> Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
+) -> impl Fn(Frame) -> Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
 + Send
 + Sync
 + 'static {
-    move |_channel_id, method_id, payload| {
+    move |frame: Frame| {
         let wrapper = TuiHostWrapper(tui_host.clone());
+        let method_id = frame.desc.method_id;
+        let payload = frame.payload_bytes().to_vec();
         Box::pin(async move {
             let server = TuiHostServer::new(wrapper);
             server.dispatch(method_id, &payload).await

@@ -1,6 +1,6 @@
-//! RPC protocol for dodeca markdown processing plugin
+//! RPC protocol for dodeca markdown processing cell
 //!
-//! This plugin handles:
+//! This cell handles:
 //! - Markdown to HTML conversion (pulldown-cmark)
 //! - Frontmatter parsing (TOML/YAML)
 //! - Heading extraction
@@ -96,10 +96,10 @@ pub enum ParseResult {
 }
 
 // ============================================================================
-// Plugin service (host calls these)
+// Cell service (host calls these)
 // ============================================================================
 
-/// Markdown processing service implemented by the PLUGIN.
+/// Markdown processing service implemented by the CELL.
 ///
 /// The host calls these methods to process markdown content.
 #[allow(async_fn_in_trait)]

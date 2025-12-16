@@ -1,9 +1,9 @@
-//! RPC protocol for dodeca dev server plugin
+//! RPC protocol for dodeca dev server cell
 //!
 //! Defines three RPC services:
-//! - `ContentService`: Host implements, plugin calls (for content from Salsa DB)
-//! - `TcpTunnel`: Plugin implements, host calls (for L4 TCP tunneling)
-//! - `WebSocketTunnel`: Host implements, plugin calls (for devtools WebSocket)
+//! - `ContentService`: Host implements, cell calls (for content from Salsa DB)
+//! - `TcpTunnel`: Cell implements, host calls (for L4 TCP tunneling)
+//! - `WebSocketTunnel`: Host implements, cell calls (for devtools WebSocket)
 //!
 //! # Method ID Generation
 //!
@@ -18,7 +18,7 @@ pub use dodeca_protocol::{EvalResult, ScopeEntry, ScopeValue};
 /// Handle returned when opening a TCP tunnel.
 ///
 /// Contains the channel ID used for bidirectional streaming.
-/// After `open()` returns, both host and plugin use this channel_id
+/// After `open()` returns, both host and cell use this channel_id
 /// to send and receive raw TCP bytes via rapace tunnel APIs.
 #[derive(Debug, Clone, PartialEq, Eq, Facet)]
 pub struct TunnelHandle {
@@ -26,19 +26,19 @@ pub struct TunnelHandle {
     pub channel_id: u32,
 }
 
-/// TCP tunnel service implemented by the plugin.
+/// TCP tunnel service implemented by the cell.
 ///
 /// The host calls `open()` for each incoming browser TCP connection.
-/// The plugin connects to its internal HTTP server and bridges the tunnel.
+/// The cell connects to its internal HTTP server and bridges the tunnel.
 ///
 /// Workflow:
 /// 1. Host accepts TCP connection from browser
 /// 2. Host calls `TcpTunnelClient::open()` via RPC
-/// 3. Plugin connects to its internal HTTP server (127.0.0.1:internal_port)
-/// 4. Plugin returns `TunnelHandle` with channel_id
+/// 3. Cell connects to its internal HTTP server (127.0.0.1:internal_port)
+/// 4. Cell returns `TunnelHandle` with channel_id
 /// 5. Both sides use rapace tunnel APIs to bridge:
 ///    - Host: browser TCP ↔ rapace chunks
-///    - Plugin: rapace chunks ↔ internal TCP
+///    - Cell: rapace chunks ↔ internal TCP
 #[allow(async_fn_in_trait)]
 #[rapace::service]
 pub trait TcpTunnel {
@@ -68,7 +68,7 @@ pub enum ServeContent {
 
 /// Content service provided by the host
 ///
-/// The plugin calls these methods to get content from the host's Salsa DB.
+/// The cell calls these methods to get content from the host's Salsa DB.
 #[allow(async_fn_in_trait)]
 #[rapace::service]
 pub trait ContentService {
@@ -84,15 +84,15 @@ pub trait ContentService {
 
 /// WebSocket tunnel service implemented by the host.
 ///
-/// The plugin calls `open()` when a browser opens a WebSocket connection
+/// The cell calls `open()` when a browser opens a WebSocket connection
 /// to the devtools endpoint (/_/ws). The host handles the devtools protocol
-/// directly - the plugin just pipes bytes.
+/// directly - the cell just pipes bytes.
 ///
 /// Workflow:
-/// 1. Browser opens WebSocket to plugin at /_/ws
-/// 2. Plugin calls `WebSocketTunnelClient::open()` via RPC
+/// 1. Browser opens WebSocket to cell at /_/ws
+/// 2. Cell calls `WebSocketTunnelClient::open()` via RPC
 /// 3. Host returns `TunnelHandle` with channel_id
-/// 4. Plugin bridges: WebSocket frames ↔ rapace tunnel chunks
+/// 4. Cell bridges: WebSocket frames ↔ rapace tunnel chunks
 /// 5. Host handles devtools protocol (get_scope, eval, reload broadcasts)
 #[allow(async_fn_in_trait)]
 #[rapace::service]
@@ -100,7 +100,7 @@ pub trait WebSocketTunnel {
     /// Open a new WebSocket tunnel to the host.
     ///
     /// Returns a handle containing the channel_id to use for data transfer.
-    /// After this returns, the plugin sends WebSocket frame bytes through the tunnel,
+    /// After this returns, the cell sends WebSocket frame bytes through the tunnel,
     /// and the host handles the devtools protocol.
     async fn open(&self) -> crate::TunnelHandle;
 }

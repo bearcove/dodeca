@@ -1,7 +1,7 @@
 //! Devtools WebSocket handler
 //!
 //! Handles the /_/ws endpoint by opening a tunnel to the host and piping
-//! WebSocket frames through it. The plugin doesn't understand the devtools
+//! WebSocket frames through it. The cell doesn't understand the devtools
 //! protocol - it just bridges bytes.
 
 use std::sync::Arc;
@@ -13,17 +13,17 @@ use axum::extract::{
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 
-use crate::PluginContext;
+use crate::CellContext;
 
 /// WebSocket handler - opens tunnel to host and pipes bytes
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
-    State(ctx): State<Arc<PluginContext>>,
+    State(ctx): State<Arc<CellContext>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_socket(socket, ctx))
 }
 
-async fn handle_socket(socket: WebSocket, ctx: Arc<PluginContext>) {
+async fn handle_socket(socket: WebSocket, ctx: Arc<CellContext>) {
     // Open a WebSocket tunnel to the host
     let handle = match ctx.ws_tunnel_client().open().await {
         Ok(h) => h,
@@ -74,17 +74,18 @@ async fn handle_socket(socket: WebSocket, ctx: Arc<PluginContext>) {
     // Task B: Host → WebSocket (host sends, we forward to browser)
     tokio::spawn(async move {
         while let Some(chunk) = tunnel_rx.recv().await {
-            if !chunk.payload.is_empty() {
+            let payload = chunk.payload_bytes();
+            if !payload.is_empty() {
                 // Send as binary (the devtools protocol uses binary postcard)
                 if ws_sender
-                    .send(Message::Binary(chunk.payload.into()))
+                    .send(Message::Binary(payload.to_vec().into()))
                     .await
                     .is_err()
                 {
                     break;
                 }
             }
-            if chunk.is_eos {
+            if chunk.is_eos() {
                 tracing::debug!(channel_id, "received EOS from host");
                 let _ = ws_sender.close().await;
                 break;

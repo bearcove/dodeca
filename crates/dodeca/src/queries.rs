@@ -352,7 +352,7 @@ pub async fn compile_sass<DB: Db>(db: &DB) -> PicanteResult<Option<CompiledCss>>
     }
 
     // Compile via cell
-    match crate::cells::compile_sass_plugin(&sass_map).await {
+    match crate::cells::compile_sass_cell(&sass_map).await {
         Ok(css) => Ok(Some(CompiledCss(css))),
         Err(e) => {
             tracing::error!("SASS compilation failed: {}", e);
@@ -404,7 +404,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
         let highlight_futures: Vec<_> = parsed
             .code_blocks
             .iter()
-            .map(|cb| highlight_code_block_for_plugin(&cb.code, &cb.language))
+            .map(|cb| highlight_code_block_for_cell(&cb.code, &cb.language))
             .collect();
         let highlighted_blocks = futures::future::join_all(highlight_futures).await;
 
@@ -448,7 +448,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
 }
 
 /// Highlight a code block using the syntax highlighting cell
-async fn highlight_code_block_for_plugin(code: &str, language: &str) -> String {
+async fn highlight_code_block_for_cell(code: &str, language: &str) -> String {
     if let Some(result) = highlight_code(code, language).await {
         // Wrap in pre/code tags with language class
         let lang_class = if language.is_empty() {
@@ -666,7 +666,7 @@ pub async fn decompress_font<DB: Db>(
     use crate::cas::{
         font_content_hash, get_cached_decompressed_font, put_cached_decompressed_font,
     };
-    use crate::cells::decompress_font_plugin;
+    use crate::cells::decompress_font_cell;
 
     let path = font_file.path(db)?.as_str().to_string();
     tracing::debug!(
@@ -687,7 +687,7 @@ pub async fn decompress_font<DB: Db>(
     }
 
     // Decompress the font via cell
-    match decompress_font_plugin(&font_data).await {
+    match decompress_font_cell(&font_data).await {
         Some(decompressed) => {
             // Cache the result
             put_cached_decompressed_font(&content_hash, &decompressed);
@@ -715,7 +715,7 @@ pub async fn subset_font<DB: Db>(
     font_file: StaticFile,
     chars: CharSet,
 ) -> PicanteResult<Option<Vec<u8>>> {
-    use crate::cells::{compress_to_woff2_plugin, subset_font_plugin};
+    use crate::cells::{compress_to_woff2_cell, subset_font_cell};
 
     let path = font_file.path(db)?.as_str().to_string();
     let num_chars = chars.chars(db).map(|c| c.len()).unwrap_or(0);
@@ -733,7 +733,7 @@ pub async fn subset_font<DB: Db>(
     let char_vec: Vec<char> = chars.chars(db)?.to_vec();
 
     // Subset the decompressed TTF via cell
-    let subsetted = match subset_font_plugin(&decompressed, &char_vec).await {
+    let subsetted = match subset_font_cell(&decompressed, &char_vec).await {
         Some(data) => data,
         None => {
             tracing::warn!("Failed to subset font {}", font_file.path(db)?.as_str());
@@ -742,7 +742,7 @@ pub async fn subset_font<DB: Db>(
     };
 
     // Compress back to WOFF2 via cell
-    match compress_to_woff2_plugin(&subsetted).await {
+    match compress_to_woff2_cell(&subsetted).await {
         Some(woff2) => {
             tracing::debug!(
                 "Subsetted font {} ({} chars, {} -> {} bytes)",
@@ -1066,10 +1066,10 @@ pub async fn font_char_analysis<DB: Db>(db: &DB) -> PicanteResult<LocalFontAnaly
         .cloned()
         .collect::<Vec<_>>()
         .join("\n");
-    let inline_css = crate::cells::extract_css_from_html_plugin(&combined_html).await;
+    let inline_css = crate::cells::extract_css_from_html_cell(&combined_html).await;
     let all_css = format!("{sass_str}\n{static_css}\n{inline_css}");
 
-    let analysis = crate::cells::analyze_fonts_plugin(&combined_html, &all_css).await;
+    let analysis = crate::cells::analyze_fonts_cell(&combined_html, &all_css).await;
 
     let font_faces = analysis
         .font_faces
@@ -1402,7 +1402,7 @@ fn html_escape_content(s: &str) -> String {
 /// Execute code samples from all source files and return results
 /// This is called during the build process to validate code samples
 pub async fn execute_all_code_samples<DB: Db>(db: &DB) -> PicanteResult<Vec<CodeExecutionResult>> {
-    use crate::cells::{execute_code_samples_plugin, extract_code_samples_plugin};
+    use crate::cells::{execute_code_samples_cell, extract_code_samples_cell};
 
     let mut all_results = Vec::new();
 
@@ -1416,14 +1416,14 @@ pub async fn execute_all_code_samples<DB: Db>(db: &DB) -> PicanteResult<Vec<Code
         let source_path = source.path(db)?.as_str().to_string();
 
         // Extract code samples from this source file
-        if let Some(samples) = extract_code_samples_plugin(content.as_str(), &source_path).await
+        if let Some(samples) = extract_code_samples_cell(content.as_str(), &source_path).await
             && !samples.is_empty()
         {
             tracing::debug!("Found {} code samples in {}", samples.len(), source_path);
 
             // Execute the code samples
             if let Some(execution_results) =
-                execute_code_samples_plugin(samples, config.clone()).await
+                execute_code_samples_cell(samples, config.clone()).await
             {
                 // Convert cell results to our internal format
                 for (sample, result) in execution_results {
