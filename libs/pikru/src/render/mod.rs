@@ -501,175 +501,10 @@ fn render_object_stmt(
         style.arrow_end = true;
     }
 
-    // Pre-scan for `fit` and string attributes to apply fit sizing early.
-    // This allows `this.wid` to access the fit-computed width during attribute processing.
-    let has_fit = obj_stmt
-        .attributes
-        .iter()
-        .any(|a| matches!(a, Attribute::Fit));
-
-    // Determine stroke_width for fit calculation matching C's attribute order processing
-    // C processes attributes sequentially - if "fit" comes before "thickness", the fit
-    // uses the default sw. Only use thickness value if it appears BEFORE fit.
-    let fit_stroke_width = {
-        let mut thickness_value: Option<Inches> = None;
-        for attr in &obj_stmt.attributes {
-            match attr {
-                Attribute::NumProperty(NumProperty::Thickness, relexpr) => {
-                    thickness_value = eval_len(ctx, &relexpr.expr).ok();
-                }
-                Attribute::Fit => {
-                    // Fit encountered - stop scanning, use thickness seen so far (or default)
-                    break;
-                }
-                _ => {}
-            }
-        }
-        thickness_value.unwrap_or(style.stroke_width)
-    };
-
-    if has_fit {
-        // Collect all text (from basetype and string attributes)
-        let mut fit_text = text.clone();
-        for attr in &obj_stmt.attributes {
-            if let Attribute::StringAttr(s, pos) = attr {
-                fit_text.push(PositionedText::from_textposition(
-                    s.value.clone(),
-                    pos.as_ref(),
-                ));
-            }
-        }
-        // Apply fit sizing - SET size to fit text (can shrink below default)
-        // This matches C pikchr's pik_size_to_fit() function
-        if !fit_text.is_empty() {
-            let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
-            let charht = ctx.get_scalar("charht", defaults::FONT_SIZE);
-
-            // Calculate text bounding box like C pikchr's pik_append_txt
-            // Uses each text's own font properties for accurate width calculation
-            let max_text_width = fit_text
-                .iter()
-                .map(|t| t.width_inches(charwid))
-                .fold(0.0_f64, |a, b| a.max(b));
-
-            // C pikchr fit: w = (bbox.ne.x - bbox.sw.x) + charWidth
-            let fit_width = Inches(max_text_width + charwid);
-
-            // cref: pik_size_to_fit (pikchr.c:6461-6466)
-            // C computes h1 = bbox.ne.y - ptAt.y and h2 = ptAt.y - bbox.sw.y
-            // then: h = 2.0 * max(h1, h2) + 0.5 * charHeight
-            //
-            // For shapes with yBase offset (like cylinder), text is shifted from center.
-            // cref: pik_append_txt (pikchr.c:5102-5104) - cylinder yBase = -0.75 * rad
-            let y_base = match class_name {
-                Some(ClassName::Cylinder) => {
-                    let rad = ctx.get_length("cylrad", 0.075);
-                    -0.75 * rad.raw()
-                }
-                _ => 0.0,
-            };
-
-            // Calculate half-heights from center (ptAt) to text bbox edges
-            let center_lines = fit_text.iter().filter(|t| !t.above && !t.below);
-            let text_half_height = center_lines
-                .map(|t| t.height(charht) * 0.5)
-                .fold(0.0_f64, |a, b| a.max(b))
-                .max(charht * 0.5); // At least one line height
-
-            // h1 = distance from center to top of text bbox
-            // h2 = distance from center to bottom of text bbox
-            // With yBase offset, text center is at y_base from shape center
-            let h1 = text_half_height + y_base; // top of text relative to shape center
-            let h2 = text_half_height - y_base; // bottom of text relative to shape center
-            let fit_height = Inches(2.0 * h1.max(h2) + 0.5 * charht);
-
-            // Apply shape-specific fit logic matching C pikchr's xFit callbacks
-            match class_name {
-                Some(ClassName::Circle) => {
-                    // cref: circleFit (pikchr.c:3940) - uses hypot(w,h) when both are positive
-                    let w = fit_width.raw();
-                    let h = fit_height.raw();
-                    let mut mx = w.max(h);
-                    if w > 0.0 && h > 0.0 && (w * w + h * h) > mx * mx {
-                        mx = w.hypot(h);
-                    }
-                    let diameter = Inches(mx);
-                    width = diameter;
-                    height = diameter;
-                }
-                Some(ClassName::Cylinder) => {
-                    // cref: cylinderFit (pikchr.c:3976) - height = h + 0.25*rad + stroke_width
-                    let rad = ctx.get_length("cylrad", 0.075);
-                    width = fit_width;
-                    height = fit_height + rad * 0.25 + fit_stroke_width;
-                    tracing::debug!(
-                        fit_height = fit_height.raw(),
-                        rad = rad.raw(),
-                        fit_stroke_width = fit_stroke_width.raw(),
-                        height = height.raw(),
-                        "cylinderFit"
-                    );
-                }
-                Some(ClassName::Diamond) => {
-                    // cref: diamondFit (pikchr.c:4096)
-                    // The C code uses the shape's CURRENT dimensions (defaults if not set)
-                    // in the fit formula, not the text dimensions directly.
-                    // diamondInit sets w=diamondwid (1.0), h=diamondht (0.75) by default.
-                    let diamond_w = ctx.get_length("diamondwid", 1.0);
-                    let diamond_h = ctx.get_length("diamondht", 0.75);
-
-                    // Use current shape dimensions (fallback to text*1.5 only if <= 0)
-                    let mut w = if width.raw() > 0.0 {
-                        width.raw()
-                    } else {
-                        fit_width.raw() * 1.5
-                    };
-                    let mut h = if height.raw() > 0.0 {
-                        height.raw()
-                    } else {
-                        fit_height.raw() * 1.5
-                    };
-
-                    // If no explicit dimensions were set, use defaults
-                    if width.raw() <= 0.0 && height.raw() <= 0.0 {
-                        w = diamond_w.raw();
-                        h = diamond_h.raw();
-                    }
-
-                    if w > 0.0 && h > 0.0 {
-                        let x = w * fit_height.raw() / h + fit_width.raw();
-                        let y = h * x / w;
-                        w = x;
-                        h = y;
-                    }
-                    width = Inches(w);
-                    height = Inches(h);
-                }
-                Some(ClassName::File) => {
-                    // cref: fileFit (pikchr.c:4214) - height = h + 2*rad (corner fold padding)
-                    let rad = ctx.get_length("filerad", 0.15);
-                    width = fit_width;
-                    height = fit_height + rad * 2.0;
-                }
-                Some(ClassName::Oval) => {
-                    // cref: ovalFit (pikchr.c:4320) - enforce width >= height
-                    width = fit_width.max(fit_height);
-                    height = fit_height;
-                }
-                _ => {
-                    // cref: boxFit (pikchr.c:3845) - Box, Ellipse, Text: direct assignment
-                    width = fit_width;
-                    height = fit_height;
-                }
-            }
-            style.fit = true;
-        }
-    }
-
     // Initialize current_object for `this` keyword support
     update_current_object(ctx, class_name, width, height, &style);
 
-    // Process attributes
+    // Process attributes in order, just like C does
     for attr in &obj_stmt.attributes {
         match attr {
             Attribute::NumProperty(prop, relexpr) => {
@@ -831,7 +666,122 @@ fn render_object_stmt(
                 style.chop = true;
             }
             Attribute::Fit => {
+                // cref: pik_size_to_fit (pikchr.c:3754-3782)
+                // Compute fit using current state (text, width, height) just like C does
                 style.fit = true;
+
+                if !text.is_empty() {
+                    let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
+                    let charht = ctx.get_scalar("charht", defaults::FONT_SIZE);
+
+                    // Calculate text bounding box width
+                    let max_text_width = text
+                        .iter()
+                        .map(|t| t.width_inches(charwid))
+                        .fold(0.0_f64, |a, b| a.max(b));
+                    let fit_width = Inches(max_text_width + charwid);
+
+                    // Calculate text bounding box height using vertical slots
+                    let y_base = match class_name {
+                        Some(ClassName::Cylinder) => {
+                            let rad = ctx.get_length("cylrad", 0.075);
+                            -0.75 * rad.raw()
+                        }
+                        _ => 0.0,
+                    };
+
+                    let vslots = compute_text_vslots(&text);
+                    let mut hc = 0.0_f64;
+                    let mut ha1 = 0.0_f64;
+                    let mut ha2 = 0.0_f64;
+                    let mut hb1 = 0.0_f64;
+                    let mut hb2 = 0.0_f64;
+
+                    for (i, t) in text.iter().enumerate() {
+                        let h = t.height(charht);
+                        match vslots.get(i).unwrap_or(&TextVSlot::Center) {
+                            TextVSlot::Center => hc = hc.max(h),
+                            TextVSlot::Above => ha1 = ha1.max(h),
+                            TextVSlot::Above2 => ha2 = ha2.max(h),
+                            TextVSlot::Below => hb1 = hb1.max(h),
+                            TextVSlot::Below2 => hb2 = hb2.max(h),
+                        }
+                    }
+
+                    let mut bbox_min_y = 0.0_f64;
+                    let mut bbox_max_y = 0.0_f64;
+                    for (i, t) in text.iter().enumerate() {
+                        let slot = vslots.get(i).unwrap_or(&TextVSlot::Center);
+                        let y_offset = match slot {
+                            TextVSlot::Above2 => 0.5 * hc + ha1 + 0.5 * ha2,
+                            TextVSlot::Above => 0.5 * hc + 0.5 * ha1,
+                            TextVSlot::Center => 0.0,
+                            TextVSlot::Below => -(0.5 * hc + 0.5 * hb1),
+                            TextVSlot::Below2 => -(0.5 * hc + hb1 + 0.5 * hb2),
+                        };
+                        let y = y_base + y_offset;
+                        let ch = charht * 0.5 * t.font_scale();
+                        bbox_min_y = bbox_min_y.min(y - ch);
+                        bbox_max_y = bbox_max_y.max(y + ch);
+                    }
+
+                    let h1 = bbox_max_y;
+                    let h2 = -bbox_min_y;
+                    let fit_height = Inches(2.0 * h1.max(h2) + 0.5 * charht);
+
+                    // Apply shape-specific fit logic
+                    match class_name {
+                        Some(ClassName::Circle) => {
+                            let w = fit_width.raw();
+                            let h = fit_height.raw();
+                            let mut mx = w.max(h);
+                            if w > 0.0 && h > 0.0 && (w * w + h * h) > mx * mx {
+                                mx = w.hypot(h);
+                            }
+                            width = Inches(mx);
+                            height = Inches(mx);
+                        }
+                        Some(ClassName::Cylinder) => {
+                            let rad = ctx.get_length("cylrad", 0.075);
+                            width = fit_width;
+                            height = fit_height + rad * 0.25 + style.stroke_width;
+                        }
+                        Some(ClassName::Diamond) => {
+                            // cref: diamondFit (pikchr.c:1418-1430)
+                            // Use current width/height (set by earlier attributes, or defaults)
+                            let mut w = width.raw();
+                            let mut h = height.raw();
+                            if w <= 0.0 {
+                                w = fit_width.raw() * 1.5;
+                            }
+                            if h <= 0.0 {
+                                h = fit_height.raw() * 1.5;
+                            }
+                            if w > 0.0 && h > 0.0 {
+                                let x = w * fit_height.raw() / h + fit_width.raw();
+                                let y = h * x / w;
+                                w = x;
+                                h = y;
+                            }
+                            width = Inches(w);
+                            height = Inches(h);
+                        }
+                        Some(ClassName::File) => {
+                            let rad = ctx.get_length("filerad", 0.15);
+                            width = fit_width;
+                            height = fit_height + rad * 2.0;
+                        }
+                        Some(ClassName::Oval) => {
+                            width = fit_width.max(fit_height);
+                            height = fit_height;
+                        }
+                        _ => {
+                            width = fit_width;
+                            height = fit_height;
+                        }
+                    }
+                    update_current_object(ctx, class_name, width, height, &style);
+                }
             }
             Attribute::Same(obj_ref) => {
                 // Copy properties from referenced object
@@ -869,13 +819,10 @@ fn render_object_stmt(
         }
     }
 
-    // Apply fit: auto-size shape to fit text content
-    // cref: pik_size_to_fit (pikchr.c:6438)
+    // Apply auto-fit for Text class objects (they always get auto-fitted)
     // cref: textOffset (pikchr.c:4416) - text objects always get auto-fitted
-    //
-    // Skip if has_fit is true - the first fit block already handled it with
-    // correct attribute-order-aware stroke_width calculation
-    let should_fit = !has_fit && (style.fit || class == ClassName::Text);
+    // Normal fit is handled inline when Attribute::Fit is encountered
+    let should_fit = class == ClassName::Text && !style.fit;
     if should_fit && !text.is_empty() {
         let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
         let charht = ctx.get_scalar("charht", defaults::FONT_SIZE);
