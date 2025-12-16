@@ -3,6 +3,18 @@
 
 experimental = ["wrapper-scripts", "setup-scripts"]
 
+# Setup script to build cells before running tests
+[scripts.setup.build-cells]
+command = 'cargo build --workspace --exclude dodeca-devtools'
+
+# Default profile runs the setup script
+[profile.default]
+
+[[profile.default.scripts]]
+platform = 'cfg(target_os = "linux")'
+filter = 'all()'
+setup = 'build-cells'
+
 [scripts.wrapper.heaptrack]
 # Run tests under heaptrack for memory profiling
 command = 'heaptrack'

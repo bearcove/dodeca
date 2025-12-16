@@ -267,10 +267,6 @@ pub async fn start_cell_server_with_shutdown(
             );
         }
 
-        println!("LISTENING_PORT={}", bound_port);
-        use std::io::Write;
-        let _ = std::io::stdout().flush();
-
         (listeners, bound_port)
     };
 

@@ -4,6 +4,11 @@
 //!
 //! Uses Unix socket FD passing to hand the listening socket to the server process,
 //! avoiding stdout parsing races and ensuring immediate readiness.
+//!
+//! # Environment Variables
+//!
+//! - `DODECA_BIN`: Path to the ddc binary (defaults to cargo-built binary)
+//! - `DODECA_CELL_PATH`: Path to cell binaries (defaults to same dir as ddc)
 
 #![allow(clippy::disallowed_methods)]
 
@@ -18,6 +23,18 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 use tokio::net::UnixListener;
 use tracing::{debug, error, info, warn};
+
+/// Get the path to the ddc binary
+fn ddc_binary() -> PathBuf {
+    std::env::var("DODECA_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_BIN_EXE_ddc")))
+}
+
+/// Get the path to the cell binaries directory
+fn cell_path() -> Option<PathBuf> {
+    std::env::var("DODECA_CELL_PATH").map(PathBuf::from).ok()
+}
 
 /// A running test site with a server and isolated fixture directory
 pub struct TestSite {
@@ -79,21 +96,27 @@ impl TestSite {
         let rust_log =
             std::env::var("RUST_LOG").unwrap_or_else(|_| "trace,hyper=info,tokio=info".to_string());
 
-        let mut child = Command::new(env!("CARGO_BIN_EXE_ddc"))
-            .args([
-                "serve",
-                &fixture_str,
-                "--no-tui",
-                "--fd-socket",
-                &unix_socket_str,
-            ])
-            .env("RUST_LOG", &rust_log)
-            .env("RUST_BACKTRACE", "1")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("start server");
-        info!(child_pid = child.id(), %rust_log, "Spawned ddc server process");
+        let ddc = ddc_binary();
+        let mut cmd = Command::new(&ddc);
+        cmd.args([
+            "serve",
+            &fixture_str,
+            "--no-tui",
+            "--fd-socket",
+            &unix_socket_str,
+        ])
+        .env("RUST_LOG", &rust_log)
+        .env("RUST_BACKTRACE", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+        // Set cell path if provided via env var
+        if let Some(cell_dir) = cell_path() {
+            cmd.env("DODECA_CELL_PATH", &cell_dir);
+        }
+
+        let mut child = cmd.spawn().expect("start server");
+        info!(child_pid = child.id(), ddc = %ddc.display(), %rust_log, "Spawned ddc server process");
 
         // Take stdout/stderr before the async block
         let stdout = child.stdout.take().expect("capture stdout");
@@ -497,10 +520,16 @@ fn build_site_from_source(src: &Path) -> BuildResult {
 
     // Run build
     let fixture_str = fixture_dir.to_string_lossy().to_string();
-    let output = Command::new(env!("CARGO_BIN_EXE_ddc"))
-        .args(["build", &fixture_str])
-        .output()
-        .expect("run build");
+    let ddc = ddc_binary();
+    let mut cmd = Command::new(&ddc);
+    cmd.args(["build", &fixture_str]);
+
+    // Set cell path if provided via env var
+    if let Some(cell_dir) = cell_path() {
+        cmd.env("DODECA_CELL_PATH", &cell_dir);
+    }
+
+    let output = cmd.output().expect("run build");
 
     BuildResult {
         success: output.status.success(),

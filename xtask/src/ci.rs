@@ -568,10 +568,7 @@ pub fn build_ci_workflow() -> Workflow {
                         rust_cache(),
                         Step::run("Build cells", format!("cargo build --release {build_args}")),
                         Step::run("Test cells", format!("cargo test --release {test_args}")),
-                        upload_artifact(
-                            format!("cells-{short}-{group_num}"),
-                            binary_paths,
-                        ),
+                        upload_artifact(format!("cells-{short}-{group_num}"), binary_paths),
                     ]),
             );
 
@@ -626,10 +623,8 @@ pub fn build_ci_workflow() -> Workflow {
                     checkout(),
                     install_rust(),
                     rust_cache(),
-                    Step::uses("Download build", "actions/download-artifact@v4").with_inputs([
-                        ("name", format!("build-{short}")),
-                        ("path", "dist".into()),
-                    ]),
+                    Step::uses("Download build", "actions/download-artifact@v4")
+                        .with_inputs([("name", format!("build-{short}")), ("path", "dist".into())]),
                     Step::run(
                         "Extract archive",
                         format!(
@@ -639,11 +634,11 @@ pub fn build_ci_workflow() -> Workflow {
                     ),
                     Step::run(
                         "Run integration tests",
-                        "cargo test --release -p dodeca-integration --test '*'",
+                        "cargo test --release -p dodeca --test serve",
                     )
                     .with_env([
                         ("DODECA_BIN", "${{ github.workspace }}/dist/ddc"),
-                        ("DODECA_CELLS", "${{ github.workspace }}/dist"),
+                        ("DODECA_CELL_PATH", "${{ github.workspace }}/dist"),
                     ]),
                 ]),
         );

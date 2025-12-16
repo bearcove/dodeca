@@ -2966,17 +2966,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dodeca-integration"
-version = "0.1.0"
-dependencies = [
- "regex",
- "reqwest",
- "tempfile",
- "test-log",
- "tracing",
-]
-
-[[package]]
 name = "dodeca-protocol"
 version = "0.1.0"
 dependencies = [
