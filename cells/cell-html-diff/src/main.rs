@@ -154,31 +154,14 @@ fn diff(old_dom: &DomNode, new_dom: &DomNode) -> InternalDiffResult {
     result
 }
 
-use std::sync::Arc;
+rapace_cell::cell_service!(HtmlDifferServer<HtmlDifferImpl>, HtmlDifferImpl);
 
-struct CellService(Arc<HtmlDifferServer<HtmlDifferImpl>>);
-
-impl rapace_cell::ServiceDispatch for CellService {
-    fn dispatch(
-        &self,
-        method_id: u32,
-        payload: &[u8],
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
-                + Send
-                + 'static,
-        >,
-    > {
-        let server = self.0.clone();
-        let payload = payload.to_vec();
-        Box::pin(async move { server.dispatch(method_id, &payload).await })
-    }
-}
-
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tokio::main uses block_on internally"
+)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let server = HtmlDifferServer::new(HtmlDifferImpl);
-    rapace_cell::run(CellService(Arc::new(server))).await?;
+    rapace_cell::run(CellService::from(HtmlDifferImpl)).await?;
     Ok(())
 }

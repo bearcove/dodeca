@@ -27,31 +27,14 @@ impl Minifier for MinifierImpl {
     }
 }
 
-use std::sync::Arc;
+rapace_cell::cell_service!(MinifierServer<MinifierImpl>, MinifierImpl);
 
-struct CellService(Arc<MinifierServer<MinifierImpl>>);
-
-impl rapace_cell::ServiceDispatch for CellService {
-    fn dispatch(
-        &self,
-        method_id: u32,
-        payload: &[u8],
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
-                + Send
-                + 'static,
-        >,
-    > {
-        let server = self.0.clone();
-        let payload = payload.to_vec();
-        Box::pin(async move { server.dispatch(method_id, &payload).await })
-    }
-}
-
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tokio::main uses block_on internally"
+)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let server = MinifierServer::new(MinifierImpl);
-    rapace_cell::run(CellService(Arc::new(server))).await?;
+    rapace_cell::run(CellService::from(MinifierImpl)).await?;
     Ok(())
 }

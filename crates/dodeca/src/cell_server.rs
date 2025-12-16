@@ -19,7 +19,7 @@ use tokio::sync::watch;
 use tokio_stream::wrappers::TcpListenerStream;
 
 use cell_http_proto::{ContentServiceServer, TcpTunnelClient};
-use cell_lifecycle_proto::CellLifecycleServer;
+use rapace_cell::CellLifecycleServer;
 use rapace_tracing::TracingSinkServer;
 
 use crate::cells::{HostCellLifecycle, all, cell_ready_registry, get_cell_session};

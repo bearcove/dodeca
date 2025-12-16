@@ -20,6 +20,10 @@ use cell_pagefind_proto::{
 pub struct SearchIndexerImpl;
 
 impl SearchIndexer for SearchIndexerImpl {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "pagefind needs its own runtime due to !Send futures"
+    )]
     async fn build_search_index(&self, input: SearchIndexInput) -> SearchIndexResult {
         // Spawn a separate OS thread with its own runtime because:
         // 1. We're already inside the cell's tokio runtime
@@ -84,31 +88,14 @@ async fn build_search_index_inner(input: SearchIndexInput) -> Result<SearchIndex
     })
 }
 
-use std::sync::Arc;
+rapace_cell::cell_service!(SearchIndexerServer<SearchIndexerImpl>, SearchIndexerImpl);
 
-struct CellService(Arc<SearchIndexerServer<SearchIndexerImpl>>);
-
-impl rapace_cell::ServiceDispatch for CellService {
-    fn dispatch(
-        &self,
-        method_id: u32,
-        payload: &[u8],
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
-                + Send
-                + 'static,
-        >,
-    > {
-        let server = self.0.clone();
-        let payload = payload.to_vec();
-        Box::pin(async move { server.dispatch(method_id, &payload).await })
-    }
-}
-
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tokio::main uses block_on internally"
+)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let server = SearchIndexerServer::new(SearchIndexerImpl);
-    rapace_cell::run(CellService(Arc::new(server))).await?;
+    rapace_cell::run(CellService::from(SearchIndexerImpl)).await?;
     Ok(())
 }

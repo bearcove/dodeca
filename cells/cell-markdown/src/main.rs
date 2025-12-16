@@ -84,12 +84,12 @@ fn split_frontmatter(content: &str) -> (String, String) {
     let content = content.trim_start();
 
     // Check for +++ delimiters (TOML frontmatter)
-    if let Some(rest) = content.strip_prefix("+++") {
-        if let Some(end) = rest.find("+++") {
-            let frontmatter = rest[..end].trim().to_string();
-            let body = rest[end + 3..].trim_start().to_string();
-            return (frontmatter, body);
-        }
+    if let Some(rest) = content.strip_prefix("+++")
+        && let Some(end) = rest.find("+++")
+    {
+        let frontmatter = rest[..end].trim().to_string();
+        let body = rest[end + 3..].trim_start().to_string();
+        return (frontmatter, body);
     }
 
     // No frontmatter found
@@ -314,31 +314,17 @@ fn inject_heading_ids(html: &str, headings: &[Heading]) -> String {
     result
 }
 
-use std::sync::Arc;
+rapace_cell::cell_service!(
+    MarkdownProcessorServer<MarkdownProcessorImpl>,
+    MarkdownProcessorImpl
+);
 
-struct CellService(Arc<MarkdownProcessorServer<MarkdownProcessorImpl>>);
-
-impl rapace_cell::ServiceDispatch for CellService {
-    fn dispatch(
-        &self,
-        method_id: u32,
-        payload: &[u8],
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
-                + Send
-                + 'static,
-        >,
-    > {
-        let server = self.0.clone();
-        let payload = payload.to_vec();
-        Box::pin(async move { server.dispatch(method_id, &payload).await })
-    }
-}
-
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tokio::main uses block_on internally"
+)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let server = MarkdownProcessorServer::new(MarkdownProcessorImpl);
-    rapace_cell::run(CellService(Arc::new(server))).await?;
+    rapace_cell::run(CellService::from(MarkdownProcessorImpl)).await?;
     Ok(())
 }

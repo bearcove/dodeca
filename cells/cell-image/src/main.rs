@@ -167,31 +167,14 @@ fn pixels_to_dynamic_image(
     }
 }
 
-use std::sync::Arc;
+rapace_cell::cell_service!(ImageProcessorServer<ImageProcessorImpl>, ImageProcessorImpl);
 
-struct CellService(Arc<ImageProcessorServer<ImageProcessorImpl>>);
-
-impl rapace_cell::ServiceDispatch for CellService {
-    fn dispatch(
-        &self,
-        method_id: u32,
-        payload: &[u8],
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
-                + Send
-                + 'static,
-        >,
-    > {
-        let server = self.0.clone();
-        let payload = payload.to_vec();
-        Box::pin(async move { server.dispatch(method_id, &payload).await })
-    }
-}
-
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tokio::main uses block_on internally"
+)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let server = ImageProcessorServer::new(ImageProcessorImpl);
-    rapace_cell::run(CellService(Arc::new(server))).await?;
+    rapace_cell::run(CellService::from(ImageProcessorImpl)).await?;
     Ok(())
 }

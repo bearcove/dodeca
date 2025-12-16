@@ -2,10 +2,9 @@
 //!
 //! This cell handles CSS URL rewriting and minification via lightningcss.
 
+use cell_css_proto::{CssProcessor, CssProcessorServer};
 use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 use lightningcss::visitor::Visit;
-
-use cell_css_proto::{CssProcessor, CssProcessorServer};
 
 /// CSS processor implementation
 pub struct CssProcessorImpl;
@@ -74,31 +73,14 @@ impl<'i, 'a> lightningcss::visitor::Visitor<'i> for UrlRewriter<'a> {
     }
 }
 
-use std::sync::Arc;
+rapace_cell::cell_service!(CssProcessorServer<CssProcessorImpl>, CssProcessorImpl);
 
-struct CellService(Arc<CssProcessorServer<CssProcessorImpl>>);
-
-impl rapace_cell::ServiceDispatch for CellService {
-    fn dispatch(
-        &self,
-        method_id: u32,
-        payload: &[u8],
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
-                + Send
-                + 'static,
-        >,
-    > {
-        let server = self.0.clone();
-        let payload = payload.to_vec();
-        Box::pin(async move { server.dispatch(method_id, &payload).await })
-    }
-}
-
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tokio::main uses block_on internally"
+)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let server = CssProcessorServer::new(CssProcessorImpl);
-    rapace_cell::run(CellService(Arc::new(server))).await?;
+    rapace_cell::run(CellService::from(CssProcessorImpl)).await?;
     Ok(())
 }

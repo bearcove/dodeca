@@ -23,8 +23,6 @@ use cell_http_proto::TcpTunnelClient;
 use cell_image_proto::{ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput};
 use cell_js_proto::{JsProcessorClient, JsResult, JsRewriteInput};
 use cell_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
-use cell_lifecycle_proto::CellLifecycleServer;
-use cell_lifecycle_proto::{CellLifecycle, ReadyAck, ReadyMsg};
 use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, LinkStatus};
 use cell_markdown_proto::{
     FrontmatterResult, MarkdownProcessorClient, MarkdownResult, ParseResult,
@@ -39,6 +37,7 @@ use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
 use rapace::transport::shm::{HubConfig, HubHost, HubHostPeerTransport, close_peer_fd};
 use rapace::{Frame, RpcError, RpcSession};
+use rapace_cell::{CellLifecycle, CellLifecycleServer, ReadyAck, ReadyMsg};
 use rapace_cell::{DispatcherBuilder, ServiceDispatch};
 use rapace_tracing::{TracingConfigClient, TracingSinkServer};
 use std::collections::HashMap;

@@ -115,31 +115,14 @@ impl<'a> Visit<'_> for StringCollector<'a> {
     }
 }
 
-use std::sync::Arc;
+rapace_cell::cell_service!(JsProcessorServer<JsProcessorImpl>, JsProcessorImpl);
 
-struct CellService(Arc<JsProcessorServer<JsProcessorImpl>>);
-
-impl rapace_cell::ServiceDispatch for CellService {
-    fn dispatch(
-        &self,
-        method_id: u32,
-        payload: &[u8],
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
-                + Send
-                + 'static,
-        >,
-    > {
-        let server = self.0.clone();
-        let payload = payload.to_vec();
-        Box::pin(async move { server.dispatch(method_id, &payload).await })
-    }
-}
-
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tokio::main uses block_on internally"
+)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let server = JsProcessorServer::new(JsProcessorImpl);
-    rapace_cell::run(CellService(Arc::new(server))).await?;
+    rapace_cell::run(CellService::from(JsProcessorImpl)).await?;
     Ok(())
 }

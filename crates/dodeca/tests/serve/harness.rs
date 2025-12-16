@@ -368,9 +368,9 @@ impl Response {
     /// Find an <img> tag's src attribute matching a glob pattern
     /// Returns the matched src value (without host) or None
     pub fn img_src(&self, pattern: &str) -> Option<String> {
-        // Convert glob pattern to regex (simple version)
-        let pattern_re = pattern.replace(".", r"\.").replace("*", ".*");
-        let re = Regex::new(&format!(r#"<img[^>]+src="([^"]*{}[^"]*)""#, pattern_re)).ok()?;
+        // Convert glob pattern to regex (non-greedy to avoid capturing too much)
+        let pattern_re = pattern.replace(".", r"\.").replace("*", "[^\"]*?");
+        let re = Regex::new(&format!(r#"<img[^>]+src="({}[^"]*)""#, pattern_re)).ok()?;
 
         re.captures(&self.body)
             .and_then(|caps| caps.get(1))
@@ -380,9 +380,9 @@ impl Response {
     /// Find a <link> tag's href attribute matching a glob pattern
     /// Returns the matched href value (without host) or None
     pub fn css_link(&self, pattern: &str) -> Option<String> {
-        // Convert glob pattern to regex (simple version)
-        let pattern_re = pattern.replace(".", r"\.").replace("*", ".*");
-        let re = Regex::new(&format!(r#"<link[^>]+href="([^"]*{}[^"]*)""#, pattern_re)).ok()?;
+        // Convert glob pattern to regex (non-greedy to avoid capturing too much)
+        let pattern_re = pattern.replace(".", r"\.").replace("*", "[^\"]*?");
+        let re = Regex::new(&format!(r#"<link[^>]+href="({}[^"]*)""#, pattern_re)).ok()?;
 
         re.captures(&self.body)
             .and_then(|caps| caps.get(1))

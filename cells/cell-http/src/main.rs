@@ -21,7 +21,6 @@
 use std::sync::Arc;
 
 use rapace::RpcSession;
-use rapace_cell::ServiceDispatch;
 
 use cell_http_proto::{ContentServiceClient, TcpTunnelServer, WebSocketTunnelClient};
 
@@ -46,29 +45,18 @@ impl CellContext {
     }
 }
 
-/// Service wrapper for TcpTunnel to satisfy ServiceDispatch
-struct TcpTunnelService(Arc<TcpTunnelServer<tunnel::TcpTunnelImpl>>);
+rapace_cell::cell_service!(
+    TcpTunnelServer<tunnel::TcpTunnelImpl>,
+    tunnel::TcpTunnelImpl
+);
 
-impl ServiceDispatch for TcpTunnelService {
-    fn dispatch(
-        &self,
-        method_id: u32,
-        payload: &[u8],
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
-                + Send
-                + 'static,
-        >,
-    > {
-        let server = self.0.clone();
-        let bytes = payload.to_vec();
-        Box::pin(async move { server.dispatch(method_id, &bytes).await })
-    }
-}
-
-impl From<Arc<RpcSession>> for TcpTunnelService {
-    fn from(session: Arc<RpcSession>) -> Self {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tokio::main uses block_on internally"
+)]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run_with_session(|session: Arc<RpcSession>| {
         // Build cell context
         let ctx = Arc::new(CellContext {
             session: session.clone(),
@@ -80,13 +68,9 @@ impl From<Arc<RpcSession>> for TcpTunnelService {
         // Create the tunnel implementation
         let tunnel_impl = tunnel::TcpTunnelImpl::new(session, app);
 
-        Self(Arc::new(TcpTunnelServer::new(tunnel_impl)))
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run_with_session(|session| TcpTunnelService::from(session)).await?;
+        CellService::from(tunnel_impl)
+    })
+    .await?;
     Ok(())
 }
 

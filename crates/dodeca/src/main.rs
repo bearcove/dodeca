@@ -1683,6 +1683,42 @@ async fn serve_plain(
 ) -> Result<()> {
     use std::sync::Arc;
 
+    // IMPORTANT: Receive listening FD FIRST if --fd-socket was provided (for testing)
+    // This must happen before any other initialization so the test harness isn't blocked.
+    let pre_bound_listener = if let Some(ref socket_path) = fd_socket {
+        use async_send_fd::AsyncRecvFd;
+        use std::os::unix::io::FromRawFd;
+        use tokio::net::UnixStream;
+
+        tracing::info!("Connecting to Unix socket for FD passing: {}", socket_path);
+        let unix_stream = UnixStream::connect(socket_path)
+            .await
+            .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", socket_path, e))?;
+
+        tracing::info!("Receiving TCP listener FD from test harness");
+        let fd = unix_stream
+            .recv_fd()
+            .await
+            .map_err(|e| eyre!("Failed to receive FD: {}", e))?;
+
+        // SAFETY: We just received this FD from the test harness, which created a valid TcpListener
+        // and sent us its file descriptor. We're the only owner now.
+        let std_listener = unsafe { std::net::TcpListener::from_raw_fd(fd) };
+
+        // IMPORTANT: tokio requires the listener to be in non-blocking mode
+        std_listener
+            .set_nonblocking(true)
+            .map_err(|e| eyre!("Failed to set listener to non-blocking: {}", e))?;
+
+        let listener = tokio::net::TcpListener::from_std(std_listener)
+            .map_err(|e| eyre!("Failed to convert std TcpListener to tokio: {}", e))?;
+
+        tracing::info!("Successfully received TCP listener FD");
+        Some(listener)
+    } else {
+        None
+    };
+
     // Set reentrancy guard so code execution cell knows we're in a build
     // SAFETY: We're single-threaded at this point (before spawning cells)
     unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
@@ -2028,41 +2064,6 @@ async fn serve_plain(
 
     // Create channel to receive actual bound port
     let (port_tx, port_rx) = tokio::sync::oneshot::channel();
-
-    // Receive listening FD if --fd-socket was provided (for testing)
-    let pre_bound_listener = if let Some(socket_path) = fd_socket {
-        use async_send_fd::AsyncRecvFd;
-        use std::os::unix::io::FromRawFd;
-        use tokio::net::UnixStream;
-
-        tracing::info!("Connecting to Unix socket for FD passing: {}", socket_path);
-        let unix_stream = UnixStream::connect(&socket_path)
-            .await
-            .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", socket_path, e))?;
-
-        tracing::info!("Receiving TCP listener FD from test harness");
-        let fd = unix_stream
-            .recv_fd()
-            .await
-            .map_err(|e| eyre!("Failed to receive FD: {}", e))?;
-
-        // SAFETY: We just received this FD from the test harness, which created a valid TcpListener
-        // and sent us its file descriptor. We're the only owner now.
-        let std_listener = unsafe { std::net::TcpListener::from_raw_fd(fd) };
-
-        // IMPORTANT: tokio requires the listener to be in non-blocking mode
-        std_listener
-            .set_nonblocking(true)
-            .map_err(|e| eyre!("Failed to set listener to non-blocking: {}", e))?;
-
-        let listener = tokio::net::TcpListener::from_std(std_listener)
-            .map_err(|e| eyre!("Failed to convert std TcpListener to tokio: {}", e))?;
-
-        tracing::info!("Successfully received TCP listener FD");
-        Some(listener)
-    } else {
-        None
-    };
 
     // Start the cell server in background
     let server_clone = server.clone();

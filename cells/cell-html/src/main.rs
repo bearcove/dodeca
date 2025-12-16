@@ -95,20 +95,18 @@ fn walk_and_rewrite(handle: &Handle, path_map: &HashMap<String, String>) {
         if let Some(attr) = attrs
             .iter_mut()
             .find(|a| a.name.local == local_name!("href"))
+            && let Some(new_val) = path_map.get(attr.value.as_ref())
         {
-            if let Some(new_val) = path_map.get(attr.value.as_ref()) {
-                attr.value = new_val.clone().into();
-            }
+            attr.value = new_val.clone().into();
         }
 
         // Rewrite src
         if let Some(attr) = attrs
             .iter_mut()
             .find(|a| a.name.local == local_name!("src"))
+            && let Some(new_val) = path_map.get(attr.value.as_ref())
         {
-            if let Some(new_val) = path_map.get(attr.value.as_ref()) {
-                attr.value = new_val.clone().into();
-            }
+            attr.value = new_val.clone().into();
         }
 
         // Rewrite srcset
@@ -186,44 +184,43 @@ fn walk_and_mark_dead(
     known_routes: &HashSet<String>,
     had_dead: &Rc<RefCell<bool>>,
 ) {
-    if let NodeData::Element { name, attrs, .. } = &handle.data {
-        if name.local == local_name!("a") {
-            let mut attrs = attrs.borrow_mut();
-            if let Some(href_attr) = attrs.iter().find(|a| a.name.local == local_name!("href")) {
-                let href = href_attr.value.as_ref();
+    if let NodeData::Element { name, attrs, .. } = &handle.data
+        && name.local == local_name!("a")
+    {
+        let mut attrs = attrs.borrow_mut();
+        if let Some(href_attr) = attrs.iter().find(|a| a.name.local == local_name!("href")) {
+            let href = href_attr.value.as_ref();
 
-                if !href.starts_with("http://")
-                    && !href.starts_with("https://")
-                    && !href.starts_with('#')
-                    && !href.starts_with("mailto:")
-                    && !href.starts_with("tel:")
-                    && !href.starts_with("javascript:")
-                    && !href.starts_with("/__")
-                    && href.starts_with('/')
-                {
-                    let static_extensions = [
-                        ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff",
-                        ".woff2", ".ttf", ".eot", ".pdf", ".zip", ".tar", ".gz", ".webp", ".jxl",
-                        ".xml", ".txt", ".md", ".wasm",
-                    ];
+            if !href.starts_with("http://")
+                && !href.starts_with("https://")
+                && !href.starts_with('#')
+                && !href.starts_with("mailto:")
+                && !href.starts_with("tel:")
+                && !href.starts_with("javascript:")
+                && !href.starts_with("/__")
+                && href.starts_with('/')
+            {
+                let static_extensions = [
+                    ".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff",
+                    ".woff2", ".ttf", ".eot", ".pdf", ".zip", ".tar", ".gz", ".webp", ".jxl",
+                    ".xml", ".txt", ".md", ".wasm",
+                ];
 
-                    if !static_extensions.iter().any(|ext| href.ends_with(ext)) {
-                        let path = href.split('#').next().unwrap_or(href);
-                        if !path.is_empty() {
-                            let target = normalize_route(path);
+                if !static_extensions.iter().any(|ext| href.ends_with(ext)) {
+                    let path = href.split('#').next().unwrap_or(href);
+                    if !path.is_empty() {
+                        let target = normalize_route(path);
 
-                            let exists = known_routes.contains(&target)
-                                || known_routes
-                                    .contains(&format!("{}/", target.trim_end_matches('/')))
-                                || known_routes.contains(target.trim_end_matches('/'));
+                        let exists = known_routes.contains(&target)
+                            || known_routes.contains(&format!("{}/", target.trim_end_matches('/')))
+                            || known_routes.contains(target.trim_end_matches('/'));
 
-                            if !exists {
-                                attrs.push(html5ever::Attribute {
-                                    name: QualName::new(None, ns!(), LocalName::from("data-dead")),
-                                    value: target.into(),
-                                });
-                                *had_dead.borrow_mut() = true;
-                            }
+                        if !exists {
+                            attrs.push(html5ever::Attribute {
+                                name: QualName::new(None, ns!(), LocalName::from("data-dead")),
+                                value: target.into(),
+                            });
+                            *had_dead.borrow_mut() = true;
                         }
                     }
                 }
@@ -392,31 +389,14 @@ fn escape_html_attr(s: &str) -> String {
 // Cell Setup
 // ============================================================================
 
-use std::sync::Arc;
+rapace_cell::cell_service!(HtmlProcessorServer<HtmlProcessorImpl>, HtmlProcessorImpl);
 
-struct CellService(Arc<HtmlProcessorServer<HtmlProcessorImpl>>);
-
-impl rapace_cell::ServiceDispatch for CellService {
-    fn dispatch(
-        &self,
-        method_id: u32,
-        payload: &[u8],
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
-                + Send
-                + 'static,
-        >,
-    > {
-        let server = self.0.clone();
-        let payload = payload.to_vec();
-        Box::pin(async move { server.dispatch(method_id, &payload).await })
-    }
-}
-
+#[expect(
+    clippy::disallowed_methods,
+    reason = "tokio::main uses block_on internally"
+)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let server = HtmlProcessorServer::new(HtmlProcessorImpl);
-    rapace_cell::run(CellService(Arc::new(server))).await?;
+    rapace_cell::run(CellService::from(HtmlProcessorImpl)).await?;
     Ok(())
 }

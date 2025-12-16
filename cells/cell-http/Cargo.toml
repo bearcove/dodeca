@@ -31,7 +31,6 @@ futures-util = "0.3"
 rapace = { workspace = true, features = ["stream"] }
 rapace-cell.workspace = true
 cell-http-proto = { path = "../cell-http-proto" }
-cell-lifecycle-proto = { path = "../cell-lifecycle-proto" }
 
 # Error handling
 color-eyre = "0.6"
