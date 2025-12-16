@@ -267,11 +267,9 @@ pub async fn start_cell_server_with_shutdown(
             );
         }
 
-        eprintln!("DEBUG: About to print LISTENING_PORT={}", bound_port);
         println!("LISTENING_PORT={}", bound_port);
         use std::io::Write;
         let _ = std::io::stdout().flush();
-        eprintln!("DEBUG: Flushed LISTENING_PORT");
 
         (listeners, bound_port)
     };

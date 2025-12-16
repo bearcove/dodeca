@@ -179,7 +179,7 @@ impl TestSite {
         std::thread::spawn(move || {
             for line in reader.lines() {
                 match line {
-                    Ok(l) => info!(target: "server.stdout", line = l),
+                    Ok(l) => info!(target: "server.stdout", "{l}"),
                     Err(e) => warn!(target: "server.stdout", error = %e, "Failed to read stdout"),
                 }
             }
@@ -189,7 +189,7 @@ impl TestSite {
         std::thread::spawn(move || {
             for line in stderr_reader.lines() {
                 match line {
-                    Ok(l) => info!(target: "server.stderr", line = l),
+                    Ok(l) => info!(target: "server.stderr", "{l}"),
                     Err(e) => warn!(target: "server.stderr", error = %e, "Failed to read stderr"),
                 }
             }
@@ -308,6 +308,13 @@ impl TestSite {
     pub fn delete_file(&self, rel_path: &str) {
         let path = self.fixture_dir.join(rel_path);
         fs::remove_file(&path).unwrap_or_else(|e| panic!("delete {}: {e}", path.display()));
+    }
+
+    /// Delete a file or directory from the fixture directory, ignoring if it doesn't exist
+    pub fn delete_if_exists(&self, rel_path: &str) {
+        let path = self.fixture_dir.join(rel_path);
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir_all(&path);
     }
 
     /// Wait for the file watcher debounce window
