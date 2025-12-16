@@ -157,13 +157,13 @@ body {
         .css_link("/css/style.*.css")
         .expect("Initial CSS URL should exist");
 
-    // Verify initial CSS content
+    // Verify initial CSS content (minified, so no space after colon)
     let css_1 = site.get(&css_url_1);
-    css_1.assert_contains("font-weight: 400");
+    css_1.assert_contains("font-weight:400");
 
     site.wait_debounce();
 
-    // Modify the CSS file
+    // Modify the CSS file (source has space after colon)
     site.modify_file("static/css/style.css", |css| {
         css.replace("font-weight: 400", "font-weight: 700")
     });
@@ -178,9 +178,9 @@ body {
         }
     });
 
-    // Verify new CSS content
+    // Verify new CSS content (minified)
     let css_2 = site.get(&css_url_2);
-    css_2.assert_contains("font-weight: 700");
+    css_2.assert_contains("font-weight:700");
     assert_ne!(
         css_url_1, css_url_2,
         "CSS URL hash should change after modification"
@@ -215,11 +215,11 @@ body {
         .css_link("/css/style.*.css")
         .expect("Initial CSS URL should exist");
 
-    // Verify initial CSS content
+    // Verify initial CSS content (minified, so no space after colon)
     let css_1 = site.get(&css_url_1);
-    css_1.assert_contains("font-weight: 400");
+    css_1.assert_contains("font-weight:400");
 
-    // Modify the CSS file
+    // Modify the CSS file (source has space after colon)
     site.modify_file("static/css/style.css", |css| {
         css.replace("font-weight: 400", "font-weight: 700")
     });
@@ -239,9 +239,9 @@ body {
         "CSS URL hash should change after modification"
     );
 
-    // Fetch the new CSS content
+    // Fetch the new CSS content (minified)
     let css_2 = site.get(&css_url_2);
-    css_2.assert_contains("font-weight: 700");
+    css_2.assert_contains("font-weight:700");
 }
 
 /// Test CSS livereload in TUI mode using docs directory (mimics user workflow)
@@ -272,11 +272,11 @@ body {
         .css_link("/css/style.*.css")
         .expect("Initial CSS URL should exist");
 
-    // Verify initial CSS content
+    // Verify initial CSS content (minified, so no space after colon)
     let css_1 = site.get(&css_url_1);
-    css_1.assert_contains("font-weight: 400");
+    css_1.assert_contains("font-weight:400");
 
-    // Modify the CSS file
+    // Modify the CSS file (source has space after colon)
     site.modify_file("static/css/style.css", |css| {
         css.replace("font-weight: 400", "font-weight: 700")
     });
@@ -296,7 +296,7 @@ body {
         "CSS URL hash should change after modification"
     );
 
-    // Fetch the new CSS content
+    // Fetch the new CSS content (minified)
     let css_2 = site.get(&css_url_2);
-    css_2.assert_contains("font-weight: 700");
+    css_2.assert_contains("font-weight:700");
 }

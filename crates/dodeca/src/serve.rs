@@ -7,6 +7,7 @@
 pub const SALSA_CACHE_VERSION: u32 = 4;
 
 use eyre::Result;
+use futures::future::FutureExt;
 use std::collections::HashMap;
 use std::sync::{Mutex, RwLock};
 use tokio::sync::broadcast;
@@ -580,10 +581,13 @@ impl SiteServer {
     /// Find content for a given path using lazy picante queries
     async fn find_content(&self, path: &str) -> Option<ServeContent> {
         // Snapshot pattern: create snapshot while holding lock (sync), then release
-        // Note: from_database is async but doesn't await internally, so we use block_on
+        // Note: from_database is async but doesn't await internally, so we use now_or_never()
+        // to avoid nested block_on calls (which panic in futures-executor)
         let snapshot = {
             let db = self.db.lock().ok()?;
-            futures::executor::block_on(DatabaseSnapshot::from_database(&db))
+            DatabaseSnapshot::from_database(&db)
+                .now_or_never()
+                .expect("from_database should complete immediately")
         };
 
         // Get known routes for dead link detection (only in dev mode)
@@ -802,14 +806,16 @@ impl SiteServer {
         use facet_value::{VObject, VString};
 
         // Snapshot pattern: create snapshot while holding lock (sync), then release
-        // Note: from_database is async but doesn't await internally, so we use block_on
+        // Note: from_database is async but doesn't await internally, so we use now_or_never()
+        // to avoid nested block_on calls (which panic in futures-executor)
         let snapshot = {
             let db = match self.db.lock() {
                 Ok(db) => db,
                 Err(_) => return vec![],
             };
-            // from_database is async but sync internally - use block_on to avoid Send issues
-            futures::executor::block_on(DatabaseSnapshot::from_database(&db))
+            DatabaseSnapshot::from_database(&db)
+                .now_or_never()
+                .expect("from_database should complete immediately")
         };
 
         let site_tree = match build_tree(&snapshot).await {
@@ -988,9 +994,12 @@ impl SiteServer {
         use facet_value::{VObject, VString};
 
         // Snapshot pattern: create snapshot while holding lock (sync), then release
-        // Note: from_database is async but doesn't await internally, so we use block_on
+        // Note: from_database is async but doesn't await internally, so we use now_or_never()
+        // to avoid nested block_on calls (which panic in futures-executor)
         let snapshot = match self.db.lock() {
-            Ok(db) => futures::executor::block_on(DatabaseSnapshot::from_database(&db)),
+            Ok(db) => DatabaseSnapshot::from_database(&db)
+                .now_or_never()
+                .expect("from_database should complete immediately"),
             Err(_) => return Err("Failed to acquire database lock".to_string()),
         };
 
