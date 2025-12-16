@@ -258,21 +258,51 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     let mut sorted_objects: Vec<_> = ctx.object_list.iter().collect();
     sorted_objects.sort_by_key(|obj| obj.layer);
 
+    // Helper to render a single object (shape + text), recursing into sublist children
+    // This ensures text is rendered inline with each shape, matching C pikchr order
+    fn render_object_full(
+        obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        dashwid: Inches,
+        arrow_ht: Inches,
+        arrow_wid: Inches,
+        charht: f64,
+        charwid: f64,
+        thickness: f64,
+        svg_children: &mut Vec<SvgNode>,
+    ) {
+        // For sublists, render each child (shape + text) in order
+        if let Some(children) = obj.children() {
+            for child in children {
+                render_object_full(
+                    child, scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid,
+                    charht, charwid, thickness, svg_children,
+                );
+            }
+        } else {
+            // Non-sublist: render shape then text
+            if !obj.style().invisible {
+                let shape = &obj.shape;
+                let shape_nodes =
+                    shape.render_svg(obj, scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid);
+                svg_children.extend(shape_nodes);
+            }
+            // Render text for this object
+            render_object_text(
+                obj, scaler, offset_x, max_y, charht, charwid, thickness, svg_children,
+            );
+        }
+    }
+
     // Render each object
     let charht = get_length(ctx, "charht", 0.14);
     let charwid = get_length(ctx, "charwid", 0.08);
     for obj in sorted_objects {
-        // Render shape using the Shape trait's render_svg method
-        if !obj.style().invisible {
-            let shape = &obj.shape;
-            let shape_nodes =
-                shape.render_svg(obj, &scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid);
-            svg_children.extend(shape_nodes);
-        }
-
-        // Render text for this object (and recursively for sublist children)
-        render_object_text(
-            obj, &scaler, offset_x, max_y, charht, charwid, thickness, &mut svg_children,
+        render_object_full(
+            obj, &scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid,
+            charht, charwid, thickness, &mut svg_children,
         );
     }
 
