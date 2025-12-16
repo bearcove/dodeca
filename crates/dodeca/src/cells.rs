@@ -38,7 +38,8 @@ use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
 use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
 use rapace::transport::shm::{HubConfig, HubHost, HubHostPeerTransport, close_peer_fd};
-use rapace::{Frame, RpcSession};
+use rapace::{Frame, RpcError, RpcSession};
+use rapace_cell::{DispatcherBuilder, ServiceDispatch};
 use rapace_tracing::{TracingConfigClient, TracingSinkServer};
 use std::collections::HashMap;
 use std::env;
@@ -246,6 +247,40 @@ struct PeerDiagInfo {
     rpc_session: Arc<RpcSession>,
 }
 
+/// Wrapper for TracingSinkServer to implement ServiceDispatch
+struct TracingSinkService(Arc<TracingSinkServer<ForwardingTracingSink>>);
+
+impl ServiceDispatch for TracingSinkService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send + 'static>,
+    > {
+        let server = self.0.clone();
+        let payload = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &payload).await })
+    }
+}
+
+/// Wrapper for CellLifecycleServer to implement ServiceDispatch
+struct CellLifecycleService(Arc<CellLifecycleServer<HostCellLifecycle>>);
+
+impl ServiceDispatch for CellLifecycleService {
+    fn dispatch(
+        &self,
+        method_id: u32,
+        payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send + 'static>,
+    > {
+        let server = self.0.clone();
+        let payload = payload.to_vec();
+        Box::pin(async move { server.dispatch(method_id, &payload).await })
+    }
+}
+
 /// Global peer diagnostic info.
 static PEER_DIAG_INFO: RwLock<Vec<PeerDiagInfo>> = RwLock::new(Vec::new());
 
@@ -297,9 +332,7 @@ pub fn spawn_cell_with_dispatcher<D>(
 ) -> Option<(Arc<RpcSession>, tokio::process::Child)>
 where
     D: Fn(
-            u32,
-            u32,
-            Vec<u8>,
+            Frame,
         ) -> std::pin::Pin<
             Box<dyn std::future::Future<Output = Result<Frame, rapace::RpcError>> + Send>,
         > + Send
@@ -620,23 +653,16 @@ impl PluginRegistry {
 
         // Set up multi-service dispatcher for tracing and cell lifecycle
         let tracing_sink = ForwardingTracingSink::new();
-        let lifecycle_registry = cell_ready_registry().clone();
-        rpc_session.set_dispatcher(move |_channel_id, method_id, payload| {
-            let tracing_sink = tracing_sink.clone();
-            let lifecycle_registry = lifecycle_registry.clone();
-            Box::pin(async move {
-                // Try TracingSink service first
-                let tracing_server = TracingSinkServer::new(tracing_sink);
-                if let Ok(frame) = tracing_server.dispatch(method_id, &payload).await {
-                    return Ok(frame);
-                }
+        let tracing_server = Arc::new(TracingSinkServer::new(tracing_sink));
+        let lifecycle_impl = HostCellLifecycle::new(lifecycle_registry.clone());
+        let lifecycle_server = Arc::new(CellLifecycleServer::new(lifecycle_impl));
 
-                // Try CellLifecycle service
-                let lifecycle_impl = HostCellLifecycle::new(lifecycle_registry);
-                let lifecycle_server = CellLifecycleServer::new(lifecycle_impl);
-                lifecycle_server.dispatch(method_id, &payload).await
-            })
-        });
+        let dispatcher = DispatcherBuilder::new()
+            .add_service(TracingSinkService(tracing_server))
+            .add_service(CellLifecycleService(lifecycle_server))
+            .build();
+
+        rpc_session.set_dispatcher(dispatcher);
 
         // Push the current RUST_LOG filter to the cell (async, doesn't block)
         {
