@@ -404,20 +404,65 @@ pub fn create_rounded_box_path(x1: f64, y1: f64, x2: f64, y2: f64, r: f64) -> Pa
 
 /// Create oval (pill shape) path using PathData fluent API (matching C pikchr output)
 /// Oval has fully rounded ends where rad = min(width, height) / 2
+/// cref: boxRender (oval uses same render function as box with rad > 0)
 pub fn create_oval_path(x1: f64, y1: f64, x2: f64, y2: f64, rad: f64) -> PathData {
-    // C pikchr path format for oval - uses 4 quarter-circle arcs:
-    // Start bottom-left, line bottom, arc to east, arc to top-right,
-    // line top, arc to west, arc back to bottom-left
-    let cy = (y1 + y2) / 2.0; // vertical center
-    PathData::new()
-        .m(x1 + rad, y2) // M: start at bottom-left inner corner
-        .l(x2 - rad, y2) // L: line to bottom-right inner corner
-        .a(rad, rad, 0.0, false, false, x2, cy) // A: quarter arc to east edge center
-        .a(rad, rad, 0.0, false, false, x2 - rad, y1) // A: quarter arc to top-right inner corner
-        .l(x1 + rad, y1) // L: line to top-left inner corner
-        .a(rad, rad, 0.0, false, false, x1, cy) // A: quarter arc to west edge center
-        .a(rad, rad, 0.0, false, false, x1 + rad, y2) // A: quarter arc back to start
-        .z() // Z: close path
+    // C pikchr uses conditional lines: only emit L commands where there's
+    // actually space between the arc endpoints. When width < height (vertical oval),
+    // there are no horizontal lines. When height < width (horizontal oval),
+    // there are no vertical lines.
+    //
+    // IMPORTANT: The path must go COUNTER-CLOCKWISE with sweep-flag=0 for arcs
+    // to curve inward. C starts at bottom-left and goes: right along bottom,
+    // up right side, left along top, down left side.
+    //
+    // SVG coordinates: y1 = top (smaller y), y2 = bottom (larger y)
+    // C variable mapping (after Y-flip to SVG coords):
+    //   x0 = x1 (left edge), x3 = x2 (right edge)
+    //   xi1 = x1 + rad (inner left), xi2 = x2 - rad (inner right)
+    //   y0_svg = y2 (bottom in SVG), y3_svg = y1 (top in SVG)
+    //   yi1 = y2 - rad (inner bottom), yi2 = y1 + rad (inner top)
+    let xi1 = x1 + rad; // inner left x
+    let xi2 = x2 - rad; // inner right x
+    let yi_bottom = y2 - rad; // inner bottom y
+    let yi_top = y1 + rad; // inner top y
+
+    let mut path = PathData::new();
+    path = path.m(xi1, y2); // Start at bottom-left inner corner
+
+    // Bottom edge (horizontal line) - only if there's horizontal space
+    if xi2 > xi1 {
+        path = path.l(xi2, y2);
+    }
+
+    // Bottom-right corner arc (going up)
+    path = path.a(rad, rad, 0.0, false, false, x2, yi_bottom);
+
+    // Right edge (vertical line going up) - only if there's vertical space
+    if yi_bottom > yi_top {
+        path = path.l(x2, yi_top);
+    }
+
+    // Top-right corner arc (going left)
+    path = path.a(rad, rad, 0.0, false, false, xi2, y1);
+
+    // Top edge (horizontal line going left) - only if there's horizontal space
+    if xi2 > xi1 {
+        path = path.l(xi1, y1);
+    }
+
+    // Top-left corner arc (going down)
+    path = path.a(rad, rad, 0.0, false, false, x1, yi_top);
+
+    // Left edge (vertical line going down) - only if there's vertical space
+    if yi_bottom > yi_top {
+        path = path.l(x1, yi_bottom);
+    }
+
+    // Bottom-left corner arc back to start
+    path = path.a(rad, rad, 0.0, false, false, xi1, y2);
+    path = path.z();
+
+    path
 }
 
 /// Create cylinder path using PathData fluent API (matching C pikchr output)

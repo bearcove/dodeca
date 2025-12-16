@@ -1,3 +1,4 @@
+use facet::Facet;
 use rust_mcp_sdk::macros::{JsonSchema, mcp_tool};
 use rust_mcp_sdk::schema::{
     CallToolResult, ContentBlock, ImageContent, TextContent, schema_utils::CallToolError,
@@ -18,29 +19,35 @@ fn tool_error(msg: impl Into<String>) -> CallToolError {
 }
 
 /// Result of running a pikchr test
-#[derive(Debug, Serialize)]
+#[derive(Debug, Facet)]
 pub struct TestResult {
     pub test_name: String,
     pub status: String,
-    pub source: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[facet(skip_unless_truthy)]
     pub c_error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[facet(skip_unless_truthy)]
     pub rust_error: Option<String>,
     pub comparison: Comparison,
-    pub svg_diff: Option<String>,
+    /// Path to full diff file (if there was a mismatch)
+    #[facet(skip_unless_truthy)]
+    pub diff_file: Option<String>,
+    /// Preview of the diff (first ~100 lines)
+    #[facet(skip_unless_truthy)]
+    pub diff_preview: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Facet)]
 pub struct Comparison {
+    #[facet(skip_unless_truthy)]
     pub ssim: Option<f64>,
+    #[facet(skip_unless_truthy)]
     pub pixel_diff: Option<PixelDiff>,
     pub viewbox: ViewboxComparison,
     pub elements: ElementComparison,
     pub text: TextComparison,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Facet)]
 pub struct PixelDiff {
     pub c_only: u32,
     pub rust_only: u32,
@@ -49,15 +56,17 @@ pub struct PixelDiff {
     pub overlap_pct: f64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Facet)]
 pub struct ViewboxComparison {
+    #[facet(skip_unless_truthy)]
     pub c: Option<Viewbox>,
+    #[facet(skip_unless_truthy)]
     pub rust: Option<Viewbox>,
-    #[serde(rename = "match")]
+    #[facet(rename = "match", skip_unless_truthy)]
     pub matches: Option<bool>,
 }
 
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Facet, PartialEq)]
 pub struct Viewbox {
     pub x: f64,
     pub y: f64,
@@ -65,47 +74,43 @@ pub struct Viewbox {
     pub height: f64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Facet)]
 pub struct ElementComparison {
     pub c: ElementCounts,
     pub rust: ElementCounts,
-    #[serde(rename = "match")]
+    #[facet(rename = "match")]
     pub matches: bool,
 }
 
-#[derive(Debug, Serialize, PartialEq, Default)]
+#[derive(Debug, Facet, PartialEq, Default)]
 pub struct ElementCounts {
-    #[serde(skip_serializing_if = "is_zero")]
+    #[facet(skip_unless_truthy)]
     pub circle: u32,
-    #[serde(skip_serializing_if = "is_zero")]
+    #[facet(skip_unless_truthy)]
     pub ellipse: u32,
-    #[serde(skip_serializing_if = "is_zero")]
+    #[facet(skip_unless_truthy)]
     pub line: u32,
-    #[serde(skip_serializing_if = "is_zero")]
+    #[facet(skip_unless_truthy)]
     pub path: u32,
-    #[serde(skip_serializing_if = "is_zero")]
+    #[facet(skip_unless_truthy)]
     pub polygon: u32,
-    #[serde(skip_serializing_if = "is_zero")]
+    #[facet(skip_unless_truthy)]
     pub polyline: u32,
-    #[serde(skip_serializing_if = "is_zero")]
+    #[facet(skip_unless_truthy)]
     pub rect: u32,
-    #[serde(skip_serializing_if = "is_zero")]
+    #[facet(skip_unless_truthy)]
     pub text: u32,
 }
 
-fn is_zero(n: &u32) -> bool {
-    *n == 0
-}
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Facet)]
 pub struct TextComparison {
     pub c: Vec<String>,
     pub rust: Vec<String>,
-    #[serde(rename = "match")]
+    #[facet(rename = "match")]
     pub matches: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Facet)]
 pub struct TestListResult {
     pub total: usize,
     pub numbered_tests: Vec<String>,
@@ -151,7 +156,7 @@ impl ListPikruTestsTool {
             other_tests: other,
         };
 
-        let json = serde_json::to_string_pretty(&result).map_err(|e| tool_error(e.to_string()))?;
+        let json = facet_json::to_string(&result);
 
         Ok(CallToolResult::text_content(vec![TextContent::from(json)]))
     }
@@ -193,6 +198,7 @@ impl RunPikruTestTool {
 
         // Run C pikchr
         let (c_svg, c_error) = run_c_pikchr(&source, &paths.c_pikchr);
+        // source is read but not included in result to save tokens
 
         // Run Rust pikchr
         let (rust_svg, rust_error) = run_rust_pikchr(&test_file, paths);
@@ -238,10 +244,31 @@ impl RunPikruTestTool {
             _ => None,
         };
 
+        // Write diff to temp file if present, extract preview
+        let (diff_file, diff_preview) = if let Some(ref diff) = svg_diff {
+            let diff_path = format!("/tmp/pikru-diff-{}.txt", self.test_name);
+            std::fs::write(&diff_path, diff).ok();
+
+            // Extract first ~100 lines as preview
+            let preview: String = diff
+                .lines()
+                .take(100)
+                .collect::<Vec<_>>()
+                .join("\n");
+            let preview = if diff.lines().count() > 100 {
+                format!("{}\n... ({} more lines, see {})", preview, diff.lines().count() - 100, diff_path)
+            } else {
+                preview
+            };
+
+            (Some(diff_path), Some(preview))
+        } else {
+            (None, None)
+        };
+
         let result = TestResult {
             test_name: self.test_name.clone(),
             status,
-            source,
             c_error,
             rust_error,
             comparison: Comparison {
@@ -266,10 +293,11 @@ impl RunPikruTestTool {
                     rust: rust_texts,
                 },
             },
-            svg_diff,
+            diff_file,
+            diff_preview,
         };
 
-        let json = serde_json::to_string_pretty(&result).map_err(|e| tool_error(e.to_string()))?;
+        let json = facet_json::to_string(&result);
 
         // Build response with text and images
         let mut content: Vec<ContentBlock> = vec![TextContent::from(json).into()];

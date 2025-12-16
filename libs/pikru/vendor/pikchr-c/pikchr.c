@@ -3976,6 +3976,7 @@ static void cylinderInit(Pik *p, PObj *pObj){
 static void cylinderFit(Pik *p, PObj *pObj, PNum w, PNum h){
   if( w>0 ) pObj->w = w;
   if( h>0 ) pObj->h = h + 0.25*pObj->rad + pObj->sw;
+  DBG("[C cylinderFit] input_h=%g rad=%g sw=%g result_h=%g\n", h, pObj->rad, pObj->sw, pObj->h);
   UNUSED_PARAMETER(p);
 }
 static void cylinderRender(Pik *p, PObj *pObj){

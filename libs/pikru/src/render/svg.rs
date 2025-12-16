@@ -41,8 +41,9 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
     let margin = margin_base + thickness;
     let scale = get_scalar(ctx, "scale", 1.0);
-    let r_scale = scale * 144.0; // match pikchr.c rScale - use scale factor for coordinates
-    // C pikchr uses r_scale for coordinate conversion
+    // C pikchr uses constant rScale=144.0 for all coordinates
+    // Scale only affects the display width/height attributes
+    let r_scale = 144.0;
     let scaler = Scaler::try_new(r_scale)
         .map_err(|e| miette::miette!("invalid scale value {}: {}", r_scale, e))?;
     let arrow_ht = Inches(get_length(ctx, "arrowht", 0.08));
@@ -113,31 +114,29 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
     // Arrowheads are now rendered inline as polygon elements (matching C pikchr)
 
-    // Render each object
-    for obj in &ctx.object_list {
+    // Helper to render text for an object (and recursively for sublist children)
+    fn render_object_text(
+        obj: &RenderedObject,
+        scaler: &Scaler,
+        offset_x: Inches,
+        max_y: Inches,
+        charht: f64,
+        charwid: f64,
+        thickness: f64,
+        svg_children: &mut Vec<SvgNode>,
+    ) {
         // Convert from pikchr coordinates (Y-up) to SVG pixels (Y-down)
-        let center = obj.center().to_svg(&scaler, offset_x, max_y);
-
-        // Render shape using the Shape trait's render_svg method
-        if !obj.style().invisible {
-            // Use the shape's render_svg method which properly handles Y-flipping
-            let shape = &obj.shape;
-            let shape_nodes =
-                shape.render_svg(obj, &scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid);
-            svg_children.extend(shape_nodes);
-        }
+        let center = obj.center().to_svg(scaler, offset_x, max_y);
 
         // Render text labels inside objects (always rendered, even for invisible shapes)
         // cref: pik_append_txt (pikchr.c:5077)
         if obj.class() != ClassName::Text && !obj.text().is_empty() {
             let texts = obj.text();
-            let charht = get_length(ctx, "charht", 0.14);
 
             // For cylinders, C pikchr shifts text down by 0.75 * cylrad
-            // This accounts for the top ellipse taking up space
             let y_base = if obj.class() == ClassName::Cylinder {
-                let cylrad = get_length(ctx, "cylrad", 0.075);
-                -0.75 * cylrad // In pikchr coordinates (positive Y is up)
+                let cylrad = 0.075; // default cylrad
+                -0.75 * cylrad
             } else {
                 0.0
             };
@@ -145,22 +144,18 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             // Compute slot assignments for all text lines
             let slots = compute_text_vslots(texts);
 
-            // Helper to compute font scale factor
             fn font_scale(text: &PositionedText) -> f64 {
                 if text.big { 1.25 } else if text.small { 0.8 } else { 1.0 }
             }
 
-            // Compute max height for each slot type (like C's ha2, ha1, hc, hb1, hb2)
-            // cref: pik_append_txt (pikchr.c:5104-5143)
-            let mut ha2: f64 = 0.0; // Height of Above2 row
-            let mut ha1: f64 = 0.0; // Height of Above row
-            let mut hc: f64 = 0.0;  // Height of Center row
-            let mut hb1: f64 = 0.0; // Height of Below row
-            let mut hb2: f64 = 0.0; // Height of Below2 row
+            let mut ha2: f64 = 0.0;
+            let mut ha1: f64 = 0.0;
+            let mut hc: f64 = 0.0;
+            let mut hb1: f64 = 0.0;
+            let mut hb2: f64 = 0.0;
 
             for (text, slot) in texts.iter().zip(slots.iter()) {
                 let h = font_scale(text) * charht;
-                tracing::debug!(text = %text.value, ?slot, h, "slot assignment");
                 match slot {
                     TextVSlot::Above2 => ha2 = ha2.max(h),
                     TextVSlot::Above => ha1 = ha1.max(h),
@@ -169,9 +164,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     TextVSlot::Below2 => hb2 = hb2.max(h),
                 }
             }
-            tracing::debug!(ha2, ha1, hc, hb1, hb2, "slot heights");
 
-            // Text color comes from stroke ("color" attribute in pikchr)
             let text_color = if obj.style().stroke == "black" || obj.style().stroke == "none" {
                 "rgb(0,0,0)".to_string()
             } else {
@@ -179,37 +172,20 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             };
 
             for (positioned_text, slot) in texts.iter().zip(slots.iter()) {
-                // Compute y offset based on slot assignment
-                // cref: pik_append_txt (pikchr.c:5155-5158)
                 let mut y_offset = y_base;
                 match slot {
                     TextVSlot::Above2 => y_offset += 0.5 * hc + ha1 + 0.5 * ha2,
                     TextVSlot::Above => y_offset += 0.5 * hc + 0.5 * ha1,
-                    TextVSlot::Center => {} // No offset
+                    TextVSlot::Center => {}
                     TextVSlot::Below => y_offset -= 0.5 * hc + 0.5 * hb1,
                     TextVSlot::Below2 => y_offset -= 0.5 * hc + hb1 + 0.5 * hb2,
                 }
 
-                // Convert y offset to SVG pixels (negative because SVG Y is flipped)
                 let svg_y_offset = scaler.px(Inches::inches(-y_offset));
-                tracing::debug!(
-                    text = %positioned_text.value,
-                    ?slot,
-                    y_offset,
-                    svg_y_offset,
-                    center_y = center.y,
-                    final_y = center.y + svg_y_offset,
-                    "text y position"
-                );
 
-                // Determine text anchor and x position based on ljust/rjust
-                // cref: pik_append_txt (pikchr.c:5144-5160)
-                // For box-style shapes (eJust=1), calculate jw padding
                 let uses_box_justification =
                     matches!(obj.class(), ClassName::Box | ClassName::Cylinder);
-                let charwid = get_length(ctx, "charwid", 0.08);
                 let jw_inches = if uses_box_justification {
-                    // jw = 0.5 * (obj.width - 0.5 * (charWidth + strokeWidth))
                     0.5 * (obj.width().0 - 0.5 * (charwid + thickness))
                 } else {
                     0.0
@@ -224,8 +200,6 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     ("middle", center.x)
                 };
 
-                // Determine font styling based on text attributes
-                // cref: pik_append_txt (pikchr.c:5180-5200)
                 let font_family = if positioned_text.mono {
                     Some("monospace".to_string())
                 } else {
@@ -241,8 +215,6 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 } else {
                     None
                 };
-                // C pikchr uses percentage-based font sizes: 125% for big, 80% for small
-                // cref: pik_append_txt (pikchr.c:5183)
                 let font_size = if positioned_text.big {
                     Some("125%".to_string())
                 } else if positioned_text.small {
@@ -264,12 +236,38 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     font_size,
                     text_anchor: Some(anchor.to_string()),
                     dominant_baseline: Some("central".to_string()),
-                    // C pikchr uses NO-BREAK SPACE (U+00A0) in SVG text output
                     content: positioned_text.value.replace(' ', "\u{00A0}"),
                 };
                 svg_children.push(SvgNode::Text(text_element));
             }
         }
+
+        // Recursively render text for sublist children
+        if let Some(children) = obj.shape.children() {
+            for child in children {
+                render_object_text(
+                    child, scaler, offset_x, max_y, charht, charwid, thickness, svg_children,
+                );
+            }
+        }
+    }
+
+    // Render each object
+    let charht = get_length(ctx, "charht", 0.14);
+    let charwid = get_length(ctx, "charwid", 0.08);
+    for obj in &ctx.object_list {
+        // Render shape using the Shape trait's render_svg method
+        if !obj.style().invisible {
+            let shape = &obj.shape;
+            let shape_nodes =
+                shape.render_svg(obj, &scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid);
+            svg_children.extend(shape_nodes);
+        }
+
+        // Render text for this object (and recursively for sublist children)
+        render_object_text(
+            obj, &scaler, offset_x, max_y, charht, charwid, thickness, &mut svg_children,
+        );
     }
 
     // Set children on the SVG element

@@ -18,8 +18,10 @@ async-trait = "0.1"
 futures = "0.3"
 
 # Serialization
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { version = "1", features = ["derive"] }  # needed by rust-mcp-sdk macros
+serde_json = "1"  # needed by rust-mcp-sdk macros
+facet = "0.32"
+facet-json = "0.32"
 
 # Image processing
 image = "0.25"

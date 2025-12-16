@@ -641,6 +641,7 @@ pub struct CylinderShape {
     pub center: PointIn,
     pub width: Inches,
     pub height: Inches,
+    pub ellipse_rad: Inches, // cref: cylrad - minor radius of top/bottom ellipses
     pub style: ObjectStyle,
     pub text: Vec<PositionedText>,
 }
@@ -686,8 +687,14 @@ impl Shape for CylinderShape {
         let w = scaler.px(self.width);
         let h = scaler.px(self.height);
 
-        // Cylinder oval radius (from C pikchr)
-        let rad = w * 0.1;
+        // cref: cylinderRender - use stored cylrad, clamped to half height
+        let mut rad = scaler.px(self.ellipse_rad);
+        let h2 = h / 2.0;
+        if rad > h2 {
+            rad = h2;
+        } else if rad < 0.0 {
+            rad = 0.0;
+        }
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
 
@@ -1868,6 +1875,14 @@ impl ShapeEnum {
             ShapeEnum::Arc(s) => &mut s.text,
             ShapeEnum::Move(s) => &mut s.text,
             ShapeEnum::Sublist(s) => &mut s.text,
+        }
+    }
+
+    /// Get reference to children (for Sublist only)
+    pub fn children(&self) -> Option<&Vec<RenderedObject>> {
+        match self {
+            ShapeEnum::Sublist(s) => Some(&s.children),
+            _ => None,
         }
     }
 

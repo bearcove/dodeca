@@ -507,6 +507,27 @@ fn render_object_stmt(
         .attributes
         .iter()
         .any(|a| matches!(a, Attribute::Fit));
+
+    // Determine stroke_width for fit calculation matching C's attribute order processing
+    // C processes attributes sequentially - if "fit" comes before "thickness", the fit
+    // uses the default sw. Only use thickness value if it appears BEFORE fit.
+    let fit_stroke_width = {
+        let mut thickness_value: Option<Inches> = None;
+        for attr in &obj_stmt.attributes {
+            match attr {
+                Attribute::NumProperty(NumProperty::Thickness, relexpr) => {
+                    thickness_value = eval_len(ctx, &relexpr.expr).ok();
+                }
+                Attribute::Fit => {
+                    // Fit encountered - stop scanning, use thickness seen so far (or default)
+                    break;
+                }
+                _ => {}
+            }
+        }
+        thickness_value.unwrap_or(style.stroke_width)
+    };
+
     if has_fit {
         // Collect all text (from basetype and string attributes)
         let mut fit_text = text.clone();
@@ -561,12 +582,41 @@ fn render_object_stmt(
                     // cref: cylinderFit (pikchr.c:3976) - height = h + 0.25*rad + stroke_width
                     let rad = ctx.get_length("cylrad", 0.075);
                     width = fit_width;
-                    height = fit_height + rad * 0.25 + style.stroke_width;
+                    height = fit_height + rad * 0.25 + fit_stroke_width;
+                    tracing::debug!(
+                        fit_height = fit_height.raw(),
+                        rad = rad.raw(),
+                        fit_stroke_width = fit_stroke_width.raw(),
+                        height = height.raw(),
+                        "cylinderFit"
+                    );
                 }
                 Some(ClassName::Diamond) => {
-                    // cref: diamondFit (pikchr.c:4096) - 1.5x initial scale, then proportional expansion
-                    let mut w = fit_width.raw() * 1.5;
-                    let mut h = fit_height.raw() * 1.5;
+                    // cref: diamondFit (pikchr.c:4096)
+                    // The C code uses the shape's CURRENT dimensions (defaults if not set)
+                    // in the fit formula, not the text dimensions directly.
+                    // diamondInit sets w=diamondwid (1.0), h=diamondht (0.75) by default.
+                    let diamond_w = ctx.get_length("diamondwid", 1.0);
+                    let diamond_h = ctx.get_length("diamondht", 0.75);
+
+                    // Use current shape dimensions (fallback to text*1.5 only if <= 0)
+                    let mut w = if width.raw() > 0.0 {
+                        width.raw()
+                    } else {
+                        fit_width.raw() * 1.5
+                    };
+                    let mut h = if height.raw() > 0.0 {
+                        height.raw()
+                    } else {
+                        fit_height.raw() * 1.5
+                    };
+
+                    // If no explicit dimensions were set, use defaults
+                    if width.raw() <= 0.0 && height.raw() <= 0.0 {
+                        w = diamond_w.raw();
+                        h = diamond_h.raw();
+                    }
+
                     if w > 0.0 && h > 0.0 {
                         let x = w * fit_height.raw() / h + fit_width.raw();
                         let y = h * x / w;
@@ -667,7 +717,7 @@ fn render_object_stmt(
                 DashProperty::Dotted => style.dotted = true,
             },
             Attribute::ColorProperty(prop, rvalue) => {
-                let color = eval_color(rvalue);
+                let color = eval_color(ctx, rvalue);
                 match prop {
                     ColorProperty::Fill => style.fill = color,
                     ColorProperty::Color => style.stroke = color,
@@ -941,8 +991,9 @@ fn render_object_stmt(
             }
             ClassName::Diamond => {
                 // cref: diamondFit (pikchr.c:4096)
-                let mut w = fit_width.raw() * 1.5;
-                let mut h = fit_height.raw() * 1.5;
+                // Use default shape dimensions (diamondwid=1.0, diamondht=0.75) in formula
+                let mut w = width.raw(); // Already set to diamondwid default
+                let mut h = height.raw(); // Already set to diamondht default
                 if w > 0.0 && h > 0.0 {
                     let x = w * fit_height.raw() / h + fit_width.raw();
                     let y = h * x / w;
@@ -1183,6 +1234,7 @@ fn render_object_stmt(
             center,
             width,
             height,
+            ellipse_rad: ctx.get_length("cylrad", 0.075),
             style: style.clone(),
             text: text.clone(),
         }),

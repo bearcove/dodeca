@@ -502,16 +502,39 @@ fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
     }
 }
 
-pub fn eval_color(rvalue: &RValue) -> String {
-    // Try to extract a color name from the rvalue
-    let name = match rvalue {
-        RValue::PlaceName(name) => Some(name.as_str()),
-        RValue::Expr(Expr::Variable(name)) => Some(name.as_str()),
-        _ => None,
-    };
-
-    name.map(|n| n.parse::<crate::types::Color>().unwrap().to_string())
-        .unwrap_or_else(|| "black".to_string())
+// cref: pik_get_color_from_name
+pub fn eval_color(ctx: &RenderContext, rvalue: &RValue) -> String {
+    match rvalue {
+        // Color name like "Red", "blue", "lightgray"
+        RValue::PlaceName(name) => name
+            .parse::<crate::types::Color>()
+            .unwrap()
+            .to_string(),
+        // Expression - could be a variable like $featurecolor or a hex literal
+        RValue::Expr(expr) => match expr {
+            Expr::Variable(name) => {
+                // Look up variable in context
+                if let Some(val) = ctx.variables.get(name) {
+                    match val {
+                        EvalValue::Color(c) => format!("#{:06x}", c),
+                        // Scalar or Length could be a hex color value (e.g., 0xfedbce)
+                        EvalValue::Scalar(s) => format!("#{:06x}", *s as u32),
+                        EvalValue::Length(l) => format!("#{:06x}", l.raw() as u32),
+                    }
+                } else {
+                    // Undefined variable - fall back to parsing as color name
+                    name.parse::<crate::types::Color>()
+                        .unwrap()
+                        .to_string()
+                }
+            }
+            Expr::Number(n) => {
+                // Numeric literal like 0xfedbce
+                format!("#{:06x}", *n as u32)
+            }
+            _ => "black".to_string(),
+        },
+    }
 }
 
 /// Helper to extract a length from an EvalValue, with fallback
