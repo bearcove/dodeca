@@ -1931,6 +1931,7 @@ impl ShapeEnum {
 // ============================================================================
 
 /// Build an SVG style from an ObjectStyle
+/// cref: pik_append_style (pikchr.c:2277)
 fn build_svg_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> SvgStyle {
     let mut entries = vec![
         ("fill", color_to_rgb(&style.fill)),
@@ -1941,14 +1942,22 @@ fn build_svg_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> Svg
         ),
     ];
 
-    if style.dashed {
-        let dash = scaler.px(dashwid);
+    // Dashed: dash and gap are both the stored width
+    // cref: pik_append_style
+    if let Some(dash_width) = style.dashed {
+        let dash = scaler.px(dash_width);
         entries.push(("stroke-dasharray", format!("{},{}", dash, dash)));
-    } else if style.dotted {
+    }
+    // Dotted: dot is stroke width, gap is the stored width
+    // cref: pik_append_style
+    else if let Some(gap_width) = style.dotted {
         let dot = scaler.px(style.stroke_width);
-        let gap = scaler.px(dashwid);
+        let gap = scaler.px(gap_width);
         entries.push(("stroke-dasharray", format!("{},{}", dot, gap)));
     }
+    // Note: dashwid parameter is kept for potential future use but not needed
+    // when the style stores the width directly
+    let _ = dashwid;
 
     svg_style_from_entries(entries)
 }

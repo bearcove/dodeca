@@ -159,6 +159,10 @@ pub struct RenderedObject {
     pub shape: super::shapes::ShapeEnum,
     pub start_attachment: Option<EndpointObject>,
     pub end_attachment: Option<EndpointObject>,
+    /// Layer for z-ordering. Lower layers render first (behind).
+    /// Default is 1000. Set via "layer" variable.
+    // cref: pik_elem_new (pikchr.c:2960)
+    pub layer: i32,
 }
 
 impl RenderedObject {
@@ -288,8 +292,11 @@ pub struct ObjectStyle {
     pub stroke: String,
     pub fill: String,
     pub stroke_width: Inches,
-    pub dashed: bool,
-    pub dotted: bool,
+    /// Dashed line style. Some(width) = dashed with that dash width, None = not dashed.
+    /// The width is stored directly from the attribute (e.g., `dashed 0.25` stores 0.25).
+    pub dashed: Option<Inches>,
+    /// Dotted line style. Some(gap) = dotted with that gap width, None = not dotted.
+    pub dotted: Option<Inches>,
     pub arrow_start: bool,
     pub arrow_end: bool,
     pub invisible: bool,
@@ -307,8 +314,8 @@ impl Default for ObjectStyle {
             stroke: "black".to_string(),
             fill: "none".to_string(),
             stroke_width: defaults::STROKE_WIDTH,
-            dashed: false,
-            dotted: false,
+            dashed: None,
+            dotted: None,
             arrow_start: false,
             arrow_end: false,
             invisible: false,

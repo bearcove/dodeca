@@ -355,6 +355,7 @@ fn make_partial_object(
         shape,
         start_attachment: None,
         end_attachment: None,
+        layer: 1000, // Default layer for partial objects
     }
 }
 
@@ -382,6 +383,10 @@ fn render_object_stmt(
     };
     // Unwrap for use in fit/position logic - Sublist uses default Box-like behavior
     let class = class_name.unwrap_or(ClassName::Box);
+
+    // Get layer from "layer" variable, default 1000
+    // cref: pik_elem_new (pikchr.c:2960)
+    let layer = ctx.get_scalar("layer", 1000.0) as i32;
 
     // Determine base object properties from context variables (like C pikchr's pik_value)
     let (mut width, mut height) = match &obj_stmt.basetype {
@@ -566,10 +571,26 @@ fn render_object_stmt(
                     NumProperty::Thickness => style.stroke_width = val,
                 }
             }
-            Attribute::DashProperty(prop, _) => match prop {
-                DashProperty::Dashed => style.dashed = true,
-                DashProperty::Dotted => style.dotted = true,
-            },
+            Attribute::DashProperty(prop, opt_expr) => {
+                // Get the dash/dot width: use explicit value or fall back to dashwid default
+                // cref: pik_set_dashed (pikchr.c:3205)
+                let width = if let Some(expr) = opt_expr {
+                    eval_len(ctx, expr)?
+                } else {
+                    Inches(eval::get_length(ctx, "dashwid", 0.05))
+                };
+
+                match prop {
+                    DashProperty::Dashed => {
+                        style.dashed = Some(width);
+                        style.dotted = None; // Clear dotted if setting dashed
+                    }
+                    DashProperty::Dotted => {
+                        style.dotted = Some(width);
+                        style.dashed = None; // Clear dashed if setting dotted
+                    }
+                }
+            }
             Attribute::ColorProperty(prop, rvalue) => {
                 let color = eval_color(ctx, rvalue);
                 match prop {
@@ -673,13 +694,50 @@ fn render_object_stmt(
                 if !text.is_empty() {
                     let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
                     let charht = ctx.get_scalar("charht", defaults::FONT_SIZE);
+                    let sw = style.stroke_width.raw();
 
-                    // Calculate text bounding box width
-                    let max_text_width = text
-                        .iter()
-                        .map(|t| t.width_inches(charwid))
-                        .fold(0.0_f64, |a, b| a.max(b));
-                    let fit_width = Inches(max_text_width + charwid);
+                    // Calculate text bounding box width using jw offset like C does
+                    // cref: pik_append_txt (pikchr.c:2466-2508)
+                    // For shapes with eJust==1 (box, cylinder, file, oval), ljust/rjust
+                    // text is offset inward from edges by jw
+                    let has_ejust = matches!(
+                        class_name,
+                        Some(ClassName::Box)
+                            | Some(ClassName::Cylinder)
+                            | Some(ClassName::File)
+                            | Some(ClassName::Oval)
+                    );
+                    let jw = if has_ejust {
+                        0.5 * (width.raw() - 0.5 * (charwid + sw))
+                    } else {
+                        0.0
+                    };
+
+                    // Compute bbox x-range for all text lines
+                    let mut bbox_min_x = 0.0_f64;
+                    let mut bbox_max_x = 0.0_f64;
+                    for t in &text {
+                        let cw = t.width_inches(charwid);
+                        let nx = if t.ljust {
+                            -jw
+                        } else if t.rjust {
+                            jw
+                        } else {
+                            0.0
+                        };
+                        // Text extent depends on justification
+                        let (x0, x1) = if t.rjust {
+                            (nx, nx - cw) // text extends left from anchor
+                        } else if t.ljust {
+                            (nx, nx + cw) // text extends right from anchor
+                        } else {
+                            (nx - cw / 2.0, nx + cw / 2.0) // centered
+                        };
+                        bbox_min_x = bbox_min_x.min(x0).min(x1);
+                        bbox_max_x = bbox_max_x.max(x0).max(x1);
+                    }
+                    let bbox_width = bbox_max_x - bbox_min_x;
+                    let fit_width = Inches(bbox_width + charwid);
 
                     // Calculate text bounding box height using vertical slots
                     let y_base = match class_name {
@@ -1280,11 +1338,19 @@ fn render_object_stmt(
         }),
     };
 
+    tracing::debug!(
+        name = ?final_name,
+        class = ?class,
+        layer = layer,
+        "creating RenderedObject"
+    );
+
     Ok(RenderedObject {
         name: final_name,
         shape,
         start_attachment: from_attachment,
         end_attachment: to_attachment,
+        layer,
     })
 }
 

@@ -104,10 +104,11 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     };
 
     // C pikchr: when scale != 1.0, display width = viewBox width * scale
+    // cref: pik_render (pikchr.c:4632-4633) - uses pik_round which truncates (int)v
     let is_scaled = scale < 0.99 || scale > 1.01;
     if is_scaled {
-        let display_width = (viewbox_width * scale).round();
-        let display_height = (viewbox_height * scale).round();
+        let display_width = (viewbox_width * scale) as i32;
+        let display_height = (viewbox_height * scale) as i32;
         svg.width = Some(display_width.to_string());
         svg.height = Some(display_height.to_string());
     }
@@ -252,10 +253,15 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         }
     }
 
+    // Sort objects by layer for rendering (lower layers first = behind)
+    // cref: pik_render (pikchr.c:5619) - renders by layer
+    let mut sorted_objects: Vec<_> = ctx.object_list.iter().collect();
+    sorted_objects.sort_by_key(|obj| obj.layer);
+
     // Render each object
     let charht = get_length(ctx, "charht", 0.14);
     let charwid = get_length(ctx, "charwid", 0.08);
-    for obj in &ctx.object_list {
+    for obj in sorted_objects {
         // Render shape using the Shape trait's render_svg method
         if !obj.style().invisible {
             let shape = &obj.shape;
