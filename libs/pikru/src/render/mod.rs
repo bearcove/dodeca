@@ -356,6 +356,7 @@ fn make_partial_object(
         start_attachment: None,
         end_attachment: None,
         layer: 1000, // Default layer for partial objects
+        direction: Direction::Right, // Default direction for partial objects
     }
 }
 
@@ -1189,7 +1190,7 @@ fn render_object_stmt(
         }
     } else if let Some((edge, target)) = with_clause {
         // Position object so that specified edge is at target position
-        let center = calculate_center_from_edge(edge, target, width, height, class);
+        let center = calculate_center_from_edge(edge, target, width, height, class, ctx.direction);
         let (_, s, e) = calculate_object_position_at(ctx.direction, center, width, height);
         (center, s, e, vec![s, e])
     } else if let Some(pos) = explicit_position {
@@ -1351,6 +1352,7 @@ fn render_object_stmt(
         start_attachment: from_attachment,
         end_attachment: to_attachment,
         layer,
+        direction: ctx.direction,
     })
 }
 
@@ -1387,16 +1389,44 @@ fn render_sublist(
 
 /// Calculate center position given that a specific edge should be at target
 /// cref: pik_place_adjust (pikchr.c:5829) - adjusts position based on edge
+/// cref: pik_set_at (pikchr.c:6195-6199) - converts Start/End to compass points
 fn calculate_center_from_edge(
     edge: EdgePoint,
     target: PointIn,
     width: Inches,
     height: Inches,
     class: ClassName,
+    direction: Direction,
 ) -> PointIn {
-    match edge {
-        EdgePoint::Center | EdgePoint::C | EdgePoint::Start | EdgePoint::End => return target,
-        _ => {}
+    // Convert Start/End to compass points based on direction
+    // cref: pik_set_at - eDirToCp maps direction to compass point:
+    //   Right -> East, Down -> South, Left -> West, Up -> North
+    // For End: use outDir (same as current direction)
+    // For Start: use (inDir+2)%4, which is OPPOSITE of direction
+    let edge = match edge {
+        EdgePoint::Start => {
+            // Start is at the entry edge (opposite of direction)
+            match direction {
+                Direction::Right => EdgePoint::West,
+                Direction::Down => EdgePoint::North,
+                Direction::Left => EdgePoint::East,
+                Direction::Up => EdgePoint::South,
+            }
+        }
+        EdgePoint::End => {
+            // End is at the exit edge (same as direction)
+            match direction {
+                Direction::Right => EdgePoint::East,
+                Direction::Down => EdgePoint::South,
+                Direction::Left => EdgePoint::West,
+                Direction::Up => EdgePoint::North,
+            }
+        }
+        other => other,
+    };
+
+    if matches!(edge, EdgePoint::Center | EdgePoint::C) {
+        return target;
     }
 
     let hw = width / 2.0;
@@ -1416,11 +1446,14 @@ fn calculate_center_from_edge(
         let sign_x = unit.dx().signum();
         let sign_y = unit.dy().signum();
         OffsetIn::new(Inches(sign_x * hw.0), Inches(sign_y * hh.0))
-    } else {
-        // For cardinal directions or round shapes, use the normalized unit vector
-        // with diagonal_factor applied for round shapes
+    } else if is_diagonal && class.is_round() {
+        // For round shapes, diagonal edges are on the perimeter at (0.707*r, 0.707*r)
         let diag = class.diagonal_factor();
         edge.to_unit_vec().scale_xy(hw * diag, hh * diag)
+    } else {
+        // For cardinal directions (N/S/E/W), edge is at full (hw, 0) or (0, hh)
+        // No diagonal factor needed
+        edge.to_unit_vec().scale_xy(hw, hh)
     };
 
     // Edge point = center + offset, so center = edge point - offset

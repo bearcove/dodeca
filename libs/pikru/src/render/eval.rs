@@ -493,12 +493,36 @@ fn nth_class_to_class_name(nc: &NthClass) -> Option<ClassName> {
     }
 }
 
+// cref: pik_set_at (pikchr.c:6195-6199) - converts Start/End to compass points
 fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
-    match edge {
+    use crate::ast::Direction;
+
+    // Convert Start/End to compass points based on object's stored direction
+    let resolved_edge = match edge {
+        EdgePoint::Start => {
+            // Start is at the entry edge (opposite of object's direction)
+            match obj.direction {
+                Direction::Right => EdgePoint::West,
+                Direction::Down => EdgePoint::North,
+                Direction::Left => EdgePoint::East,
+                Direction::Up => EdgePoint::South,
+            }
+        }
+        EdgePoint::End => {
+            // End is at the exit edge (same as object's direction)
+            match obj.direction {
+                Direction::Right => EdgePoint::East,
+                Direction::Down => EdgePoint::South,
+                Direction::Left => EdgePoint::West,
+                Direction::Up => EdgePoint::North,
+            }
+        }
+        other => *other,
+    };
+
+    match resolved_edge {
         EdgePoint::Center | EdgePoint::C => obj.center(),
-        EdgePoint::Start => obj.start(),
-        EdgePoint::End => obj.end(),
-        _ => obj.edge_point(edge.to_unit_vec()),
+        _ => obj.edge_point(resolved_edge.to_unit_vec()),
     }
 }
 

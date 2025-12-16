@@ -163,6 +163,10 @@ pub struct RenderedObject {
     /// Default is 1000. Set via "layer" variable.
     // cref: pik_elem_new (pikchr.c:2960)
     pub layer: i32,
+    /// The layout direction when this object was created.
+    /// Used to resolve .start and .end edge points.
+    // cref: pObj->inDir, pObj->outDir in C pikchr
+    pub direction: crate::ast::Direction,
 }
 
 impl RenderedObject {
