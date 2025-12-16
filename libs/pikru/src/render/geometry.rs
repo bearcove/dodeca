@@ -426,35 +426,39 @@ pub fn create_oval_path(x1: f64, y1: f64, x2: f64, y2: f64, rad: f64) -> PathDat
     let yi_bottom = y2 - rad; // inner bottom y
     let yi_top = y1 + rad; // inner top y
 
+    // Epsilon for floating-point comparisons - avoids emitting zero-length lines
+    // when computed coordinates are nearly equal due to floating-point precision
+    const EPSILON: f64 = 1e-6;
+
     let mut path = PathData::new();
     path = path.m(xi1, y2); // Start at bottom-left inner corner
 
-    // Bottom edge (horizontal line) - only if there's horizontal space
-    if xi2 > xi1 {
+    // Bottom edge (horizontal line) - only if there's meaningful horizontal space
+    if xi2 - xi1 > EPSILON {
         path = path.l(xi2, y2);
     }
 
     // Bottom-right corner arc (going up)
     path = path.a(rad, rad, 0.0, false, false, x2, yi_bottom);
 
-    // Right edge (vertical line going up) - only if there's vertical space
-    if yi_bottom > yi_top {
+    // Right edge (vertical line going up) - only if there's meaningful vertical space
+    if yi_bottom - yi_top > EPSILON {
         path = path.l(x2, yi_top);
     }
 
     // Top-right corner arc (going left)
     path = path.a(rad, rad, 0.0, false, false, xi2, y1);
 
-    // Top edge (horizontal line going left) - only if there's horizontal space
-    if xi2 > xi1 {
+    // Top edge (horizontal line going left) - only if there's meaningful horizontal space
+    if xi2 - xi1 > EPSILON {
         path = path.l(xi1, y1);
     }
 
     // Top-left corner arc (going down)
     path = path.a(rad, rad, 0.0, false, false, x1, yi_top);
 
-    // Left edge (vertical line going down) - only if there's vertical space
-    if yi_bottom > yi_top {
+    // Left edge (vertical line going down) - only if there's meaningful vertical space
+    if yi_bottom - yi_top > EPSILON {
         path = path.l(x1, yi_bottom);
     }
 
