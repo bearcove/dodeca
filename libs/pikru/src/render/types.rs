@@ -111,6 +111,45 @@ impl PositionedText {
         }
         pt
     }
+
+    /// Font scale factor: 1.25 for big, 0.8 for small, 1.0 otherwise
+    // cref: pik_font_scale (pikchr.c:5151)
+    pub fn font_scale(&self) -> f64 {
+        if self.big {
+            1.25
+        } else if self.small {
+            0.8
+        } else {
+            1.0
+        }
+    }
+
+    /// Calculate text width in inches, accounting for font properties.
+    /// Uses monospace width (82 units/char) or proportional width table.
+    /// Applies font scale and bold multiplier.
+    // cref: pik_append_txt (pikchr.c:5165-5171)
+    pub fn width_inches(&self, charwid: f64) -> f64 {
+        let length_hundredths = if self.mono {
+            super::monospace_text_length(&self.value)
+        } else {
+            super::proportional_text_length(&self.value)
+        };
+
+        let mut width = length_hundredths as f64 * charwid * self.font_scale() * 0.01;
+
+        // Bold (without mono) text is wider
+        if self.bold && !self.mono {
+            width *= 1.1;
+        }
+
+        width
+    }
+
+    /// Height contribution for this text line
+    // cref: pik_append_txt (pikchr.c:5107-5108)
+    pub fn height(&self, charht: f64) -> f64 {
+        self.font_scale() * charht
+    }
 }
 
 /// A rendered object with its properties

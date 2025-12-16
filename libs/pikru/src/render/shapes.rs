@@ -12,7 +12,7 @@ use facet_svg::{
 use glam::DVec2;
 
 use super::defaults;
-use super::{TextVSlot, compute_text_vslots, count_text_above_below, text_width_inches};
+use super::{TextVSlot, compute_text_vslots, count_text_above_below};
 
 /// Bounding box type alias
 pub type BoundingBox = BoxIn;
@@ -129,11 +129,11 @@ pub trait Shape {
 
         if style.invisible && !text.is_empty() {
             // For invisible objects, only include text bounds
-            let charht = Inches(defaults::FONT_SIZE);
+            let charht = defaults::FONT_SIZE;
             let charwid = defaults::CHARWID;
             for t in text {
-                let text_w = Inches(text_width_inches(&t.value, charwid));
-                let hh = charht / 2.0;
+                let text_w = Inches(t.width_inches(charwid));
+                let hh = Inches(t.height(charht)) / 2.0;
                 let hw = text_w / 2.0;
                 bounds.expand_point(Point::new(center.x - hw, center.y - hh));
                 bounds.expand_point(Point::new(center.x + hw, center.y + hh));
@@ -1358,6 +1358,33 @@ impl Shape for TextShape {
                 "middle"
             };
             let line_y = start_y + i as f64 * charht_px;
+
+            // Font styling based on text attributes
+            let font_family = if positioned_text.mono {
+                Some("monospace".to_string())
+            } else {
+                None
+            };
+            let font_style = if positioned_text.italic {
+                Some("italic".to_string())
+            } else {
+                None
+            };
+            let font_weight = if positioned_text.bold {
+                Some("bold".to_string())
+            } else {
+                None
+            };
+            // C pikchr uses percentage-based font sizes: 125% for big, 80% for small
+            // cref: pik_append_txt (pikchr.c:5183)
+            let font_size = if positioned_text.big {
+                Some("125%".to_string())
+            } else if positioned_text.small {
+                Some("80%".to_string())
+            } else {
+                None
+            };
+
             let text_element = SvgText {
                 x: Some(center_svg.x),
                 y: Some(line_y),
@@ -1365,6 +1392,10 @@ impl Shape for TextShape {
                 stroke: None,
                 stroke_width: None,
                 style: SvgStyle::default(),
+                font_family,
+                font_style,
+                font_weight,
+                font_size,
                 text_anchor: Some(anchor.to_string()),
                 dominant_baseline: Some("central".to_string()),
                 content: positioned_text.value.replace(' ', "\u{00A0}"),
@@ -1427,8 +1458,8 @@ impl Shape for TextShape {
             // cref: pikchr.c:5155-5158
             let y_base = Inches::ZERO;
             for (i, t) in self.text.iter().enumerate() {
-                let text_w = Inches(text_width_inches(&t.value, charwid));
-                let ch = charht / 2.0;
+                let text_w = Inches(t.width_inches(charwid));
+                let ch = Inches(t.height(charht.0)) / 2.0;
 
                 let y = match vslots.get(i).unwrap_or(&TextVSlot::Center) {
                     TextVSlot::Above2 => y_base + hc * 0.5 + ha1 + ha2 * 0.5,

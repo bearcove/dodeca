@@ -1,6 +1,7 @@
 //! SVG generation
 
 use super::shapes::{Shape, svg_style_from_entries};
+use super::{TextVSlot, compute_text_vslots};
 use crate::types::{Length as Inches, Scaler};
 use facet_svg::facet_xml::SerializeOptions;
 use facet_svg::{Color, Points, Polygon, Svg, SvgNode, SvgStyle, Text, facet_xml};
@@ -127,15 +128,48 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         }
 
         // Render text labels inside objects (always rendered, even for invisible shapes)
+        // cref: pik_append_txt (pikchr.c:5077)
         if obj.class() != ClassName::Text && !obj.text().is_empty() {
+            let texts = obj.text();
+            let charht = get_length(ctx, "charht", 0.14);
+
             // For cylinders, C pikchr shifts text down by 0.75 * cylrad
             // This accounts for the top ellipse taking up space
-            let text_y_offset = if obj.class() == ClassName::Cylinder {
+            let y_base = if obj.class() == ClassName::Cylinder {
                 let cylrad = get_length(ctx, "cylrad", 0.075);
-                scaler.px(Inches::inches(0.75 * cylrad))
+                -0.75 * cylrad // In pikchr coordinates (positive Y is up)
             } else {
                 0.0
             };
+
+            // Compute slot assignments for all text lines
+            let slots = compute_text_vslots(texts);
+
+            // Helper to compute font scale factor
+            fn font_scale(text: &PositionedText) -> f64 {
+                if text.big { 1.25 } else if text.small { 0.8 } else { 1.0 }
+            }
+
+            // Compute max height for each slot type (like C's ha2, ha1, hc, hb1, hb2)
+            // cref: pik_append_txt (pikchr.c:5104-5143)
+            let mut ha2: f64 = 0.0; // Height of Above2 row
+            let mut ha1: f64 = 0.0; // Height of Above row
+            let mut hc: f64 = 0.0;  // Height of Center row
+            let mut hb1: f64 = 0.0; // Height of Below row
+            let mut hb2: f64 = 0.0; // Height of Below2 row
+
+            for (text, slot) in texts.iter().zip(slots.iter()) {
+                let h = font_scale(text) * charht;
+                tracing::debug!(text = %text.value, ?slot, h, "slot assignment");
+                match slot {
+                    TextVSlot::Above2 => ha2 = ha2.max(h),
+                    TextVSlot::Above => ha1 = ha1.max(h),
+                    TextVSlot::Center => hc = hc.max(h),
+                    TextVSlot::Below => hb1 = hb1.max(h),
+                    TextVSlot::Below2 => hb2 = hb2.max(h),
+                }
+            }
+            tracing::debug!(ha2, ha1, hc, hb1, hb2, "slot heights");
 
             // Text color comes from stroke ("color" attribute in pikchr)
             let text_color = if obj.style().stroke == "black" || obj.style().stroke == "none" {
@@ -143,22 +177,91 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             } else {
                 color_to_rgb(&obj.style().stroke)
             };
-            for positioned_text in obj.text() {
-                // Determine text anchor based on ljust/rjust
-                let anchor = if positioned_text.rjust {
-                    "end"
-                } else if positioned_text.ljust {
-                    "start"
+
+            for (positioned_text, slot) in texts.iter().zip(slots.iter()) {
+                // Compute y offset based on slot assignment
+                // cref: pik_append_txt (pikchr.c:5155-5158)
+                let mut y_offset = y_base;
+                match slot {
+                    TextVSlot::Above2 => y_offset += 0.5 * hc + ha1 + 0.5 * ha2,
+                    TextVSlot::Above => y_offset += 0.5 * hc + 0.5 * ha1,
+                    TextVSlot::Center => {} // No offset
+                    TextVSlot::Below => y_offset -= 0.5 * hc + 0.5 * hb1,
+                    TextVSlot::Below2 => y_offset -= 0.5 * hc + hb1 + 0.5 * hb2,
+                }
+
+                // Convert y offset to SVG pixels (negative because SVG Y is flipped)
+                let svg_y_offset = scaler.px(Inches::inches(-y_offset));
+                tracing::debug!(
+                    text = %positioned_text.value,
+                    ?slot,
+                    y_offset,
+                    svg_y_offset,
+                    center_y = center.y,
+                    final_y = center.y + svg_y_offset,
+                    "text y position"
+                );
+
+                // Determine text anchor and x position based on ljust/rjust
+                // cref: pik_append_txt (pikchr.c:5144-5160)
+                // For box-style shapes (eJust=1), calculate jw padding
+                let uses_box_justification =
+                    matches!(obj.class(), ClassName::Box | ClassName::Cylinder);
+                let charwid = get_length(ctx, "charwid", 0.08);
+                let jw_inches = if uses_box_justification {
+                    // jw = 0.5 * (obj.width - 0.5 * (charWidth + strokeWidth))
+                    0.5 * (obj.width().0 - 0.5 * (charwid + thickness))
                 } else {
-                    "middle"
+                    0.0
                 };
+                let jw = scaler.px(Inches(jw_inches));
+
+                let (anchor, text_x) = if positioned_text.rjust {
+                    ("end", center.x + jw)
+                } else if positioned_text.ljust {
+                    ("start", center.x - jw)
+                } else {
+                    ("middle", center.x)
+                };
+
+                // Determine font styling based on text attributes
+                // cref: pik_append_txt (pikchr.c:5180-5200)
+                let font_family = if positioned_text.mono {
+                    Some("monospace".to_string())
+                } else {
+                    None
+                };
+                let font_style = if positioned_text.italic {
+                    Some("italic".to_string())
+                } else {
+                    None
+                };
+                let font_weight = if positioned_text.bold {
+                    Some("bold".to_string())
+                } else {
+                    None
+                };
+                // C pikchr uses percentage-based font sizes: 125% for big, 80% for small
+                // cref: pik_append_txt (pikchr.c:5183)
+                let font_size = if positioned_text.big {
+                    Some("125%".to_string())
+                } else if positioned_text.small {
+                    Some("80%".to_string())
+                } else {
+                    None
+                };
+
                 let text_element = Text {
-                    x: Some(center.x),
-                    y: Some(center.y + text_y_offset),
+                    x: Some(text_x),
+                    y: Some(center.y + svg_y_offset),
                     fill: Some(text_color.clone()),
                     stroke: None,
                     stroke_width: None,
                     style: SvgStyle::default(),
+                    font_family,
+                    font_style,
+                    font_weight,
+                    font_size,
                     text_anchor: Some(anchor.to_string()),
                     dominant_baseline: Some("central".to_string()),
                     // C pikchr uses NO-BREAK SPACE (U+00A0) in SVG text output

@@ -48,24 +48,25 @@ pub const AW_CHAR: [u8; 95] = [
     81,  80,  76,  91,  49,  91, 118,
 ];
 
-/// Calculate text width using proportional character widths like C pikchr.
-// cref: pik_text_length (pikchr.c:6368)
-pub fn pik_text_length(text: &str) -> u32 {
+/// Character width units for proportional text (in hundredths).
+/// Monospace uses constant 82 units per character.
+// cref: pik_text_length (pikchr.c:6386)
+fn proportional_text_length(text: &str) -> u32 {
+    const STD_AVG: u32 = 100;
     let mut cnt: u32 = 0;
     for c in text.chars() {
         if c >= ' ' && c <= '~' {
             cnt += AW_CHAR[(c as usize) - 0x20] as u32;
         } else {
-            cnt += 100;
+            cnt += STD_AVG;
         }
     }
     cnt
 }
 
-/// Calculate text width in inches using proportional character widths.
-pub fn text_width_inches(text: &str, charwid: f64) -> f64 {
-    let length_hundredths = pik_text_length(text);
-    length_hundredths as f64 * charwid * 0.01
+fn monospace_text_length(text: &str) -> u32 {
+    const MONO_AVG: u32 = 82;
+    text.chars().count() as u32 * MONO_AVG
 }
 
 /// Render a pikchr program to SVG
@@ -437,12 +438,13 @@ fn render_object_stmt(
             // Sublist is handled via BaseType::Sublist, not BaseType::Class(Sublist)
             ClassName::Sublist => (Inches::ZERO, Inches::ZERO),
         },
-        BaseType::Text(s, _) => {
+        BaseType::Text(s, pos) => {
             // Use proportional character widths like C pikchr
             let charwid = ctx.get_scalar("charwid", 0.08);
             let charht = ctx.get_scalar("charht", 0.14);
-            let w = text_width_inches(&s.value, charwid);
-            let h = charht;
+            let pt = PositionedText::from_textposition(s.value.clone(), pos.as_ref());
+            let w = pt.width_inches(charwid);
+            let h = pt.height(charht);
             (Inches(w), Inches(h))
         }
         BaseType::Sublist(_) => {
@@ -523,21 +525,22 @@ fn render_object_stmt(
             let charht = ctx.get_scalar("charht", defaults::FONT_SIZE);
 
             // Calculate text bounding box like C pikchr's pik_append_txt
-            // For centered text: bbox extends from -cw/2 to +cw/2 horizontally
-            // and -ch to +ch vertically (where ch = charht * 0.5)
+            // Uses each text's own font properties for accurate width calculation
             let max_text_width = fit_text
                 .iter()
-                .map(|t| text_width_inches(&t.value, charwid))
+                .map(|t| t.width_inches(charwid))
                 .fold(0.0_f64, |a, b| a.max(b));
 
             // C pikchr fit: w = (bbox.ne.x - bbox.sw.x) + charWidth
-            // For centered text, bbox width = text_width, so w = text_width + charwid
             let fit_width = Inches(max_text_width + charwid);
 
             // C pikchr fit: h = 2.0 * max(h1, h2) + 0.5 * charHeight
-            // For single centered line: h1 = h2 = charht * 0.5, so h = charht + 0.5*charht = 1.5*charht
-            let center_lines = fit_text.iter().filter(|t| !t.above && !t.below).count();
-            let half_height = charht * 0.5 * center_lines.max(1) as f64;
+            // Uses each text's font scale for accurate height calculation
+            let center_lines = fit_text.iter().filter(|t| !t.above && !t.below);
+            let half_height = center_lines
+                .map(|t| t.height(charht) * 0.5)
+                .fold(0.0_f64, |a, b| a.max(b))
+                .max(charht * 0.5); // At least one line height
             let fit_height = Inches(2.0 * half_height + 0.5 * charht);
 
             // Apply shape-specific fit logic matching C pikchr's xFit callbacks
@@ -805,64 +808,106 @@ fn render_object_stmt(
         let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
         let charht = ctx.get_scalar("charht", defaults::FONT_SIZE);
 
-        // Calculate text bounding box like C pikchr's pik_append_txt
-        let max_text_width = text
-            .iter()
-            .map(|t| text_width_inches(&t.value, charwid))
-            .fold(0.0_f64, |a, b| a.max(b));
+        // For box-style shapes (eJust=1), C computes bbox with jw-based offsets
+        // jw is computed from the CURRENT object width (default boxwid/cylwid)
+        // cref: pik_append_txt (pikchr.c:5144-5187)
+        let uses_box_justification = matches!(class, ClassName::Box | ClassName::Cylinder);
+        let current_width = if uses_box_justification {
+            match class {
+                ClassName::Box => eval::get_length(ctx, "boxwid", 0.75),
+                ClassName::Cylinder => eval::get_length(ctx, "cylwid", 1.0),
+                _ => 0.0,
+            }
+        } else {
+            0.0
+        };
+        let sw = style.stroke_width.0;
+        let jw = if uses_box_justification {
+            0.5 * (current_width - 0.5 * (charwid + sw))
+        } else {
+            0.0
+        };
+
+        // Calculate text bounding box including jw-based position offsets
+        // cref: pik_append_txt (pikchr.c:5173-5187)
+        let mut bbox_min_x = f64::MAX;
+        let mut bbox_max_x = f64::MIN;
+        for t in &text {
+            let cw = t.width_inches(charwid);
+            let nx = if t.ljust {
+                -jw // ljust shifts text left from center
+            } else if t.rjust {
+                jw // rjust shifts text right from center
+            } else {
+                0.0
+            };
+
+            // Compute x extent based on alignment
+            let (x0, x1) = if t.rjust {
+                (nx, nx - cw) // text extends left from anchor
+            } else if t.ljust {
+                (nx, nx + cw) // text extends right from anchor
+            } else {
+                (nx + cw / 2.0, nx - cw / 2.0) // centered
+            };
+
+            bbox_min_x = bbox_min_x.min(x0).min(x1);
+            bbox_max_x = bbox_max_x.max(x0).max(x1);
+        }
+        let bbox_width = bbox_max_x - bbox_min_x;
 
         // C pikchr fit: w = (bbox.ne.x - bbox.sw.x) + charWidth
-        let fit_width = Inches(max_text_width + charwid);
+        let fit_width = Inches(bbox_width + charwid);
 
         // C pikchr fit: h = 2.0 * max(h1, h2) + 0.5 * charHeight
         // cref: pik_size_to_fit (pikchr.c:6461-6466) - computes h1, h2 from actual text bbox
         // cref: pik_append_txt (pikchr.c:5104-5143) - computes region heights
         //
-        // We need to calculate the actual text bbox considering above/below positioning.
-        // C assigns text to slots (CENTER, ABOVE, ABOVE2, BELOW, BELOW2) and computes
-        // the max height in each slot, then positions text accordingly.
+        // Compute heights for each slot using each text's font scale
         let vslots = compute_text_vslots(&text);
 
-        // Compute heights for each region (matching C's logic in pik_append_txt)
         let mut hc = 0.0_f64; // center height
         let mut ha1 = 0.0_f64; // above height
         let mut ha2 = 0.0_f64; // above2 height
         let mut hb1 = 0.0_f64; // below height
         let mut hb2 = 0.0_f64; // below2 height
 
-        for slot in &vslots {
+        for (t, slot) in text.iter().zip(vslots.iter()) {
+            let h = t.height(charht);
             match slot {
-                TextVSlot::Center => hc = hc.max(charht),
-                TextVSlot::Above => ha1 = ha1.max(charht),
-                TextVSlot::Above2 => ha2 = ha2.max(charht),
-                TextVSlot::Below => hb1 = hb1.max(charht),
-                TextVSlot::Below2 => hb2 = hb2.max(charht),
+                TextVSlot::Center => hc = hc.max(h),
+                TextVSlot::Above => ha1 = ha1.max(h),
+                TextVSlot::Above2 => ha2 = ha2.max(h),
+                TextVSlot::Below => hb1 = hb1.max(h),
+                TextVSlot::Below2 => hb2 = hb2.max(h),
             }
         }
 
-        // Calculate h1 (max extent above center) and h2 (max extent below center)
-        // cref: pik_append_txt lines 5155-5158 for Y positioning
-        // Y positions relative to center (ptAt):
-        //   ABOVE2: 0.5*hc + ha1 + 0.5*ha2 + 0.5*charht (top of text)
-        //   ABOVE:  0.5*hc + 0.5*ha1 + 0.5*charht
-        //   CENTER: 0.5*charht (half height above center)
-        //   BELOW:  -(0.5*hc + 0.5*hb1) - 0.5*charht (bottom of text)
-        //   BELOW2: -(0.5*hc + hb1 + 0.5*hb2) - 0.5*charht
-        let h1 = if ha2 > 0.0 {
-            0.5 * hc + ha1 + 0.5 * ha2 + 0.5 * charht
-        } else if ha1 > 0.0 {
-            0.5 * hc + 0.5 * ha1 + 0.5 * charht
-        } else {
-            0.5 * hc.max(charht)
-        };
+        // Compute actual bbox y-extents like C's pik_append_txt
+        // For each text: y_position +/- (0.5 * charht * fontScale)
+        // cref: pik_append_txt (pikchr.c:5162-5188)
+        let mut bbox_max_y = f64::MIN;
+        let mut bbox_min_y = f64::MAX;
 
-        let h2 = if hb2 > 0.0 {
-            0.5 * hc + hb1 + 0.5 * hb2 + 0.5 * charht
-        } else if hb1 > 0.0 {
-            0.5 * hc + 0.5 * hb1 + 0.5 * charht
-        } else {
-            0.5 * hc.max(charht)
-        };
+        for (t, slot) in text.iter().zip(vslots.iter()) {
+            // Compute y position offset (same as C's y calculation)
+            let y = match slot {
+                TextVSlot::Above2 => 0.5 * hc + ha1 + 0.5 * ha2,
+                TextVSlot::Above => 0.5 * hc + 0.5 * ha1,
+                TextVSlot::Center => 0.0,
+                TextVSlot::Below => -(0.5 * hc + 0.5 * hb1),
+                TextVSlot::Below2 => -(0.5 * hc + hb1 + 0.5 * hb2),
+            };
+            // Character half-height, scaled by font scale
+            let ch = charht * 0.5 * t.font_scale();
+            // Text extends from y-ch to y+ch
+            bbox_max_y = bbox_max_y.max(y + ch);
+            bbox_min_y = bbox_min_y.min(y - ch);
+        }
+
+        // h1 = extent above center, h2 = extent below center
+        let h1 = bbox_max_y; // max y relative to center
+        let h2 = -bbox_min_y; // min y (negative) relative to center
 
         let fit_height = Inches(2.0 * h1.max(h2) + 0.5 * charht);
 
@@ -936,6 +981,16 @@ fn render_object_stmt(
     }
 
     // Calculate position based on object type
+    tracing::debug!(
+        ?class,
+        from_position = from_position.is_some(),
+        to_position = to_position.is_some(),
+        has_direction_move,
+        then_clauses_empty = then_clauses.is_empty(),
+        even_clause = even_clause.is_some(),
+        with_clause = with_clause.is_some(),
+        "position branch conditions"
+    );
     let (center, start, end, waypoints) = if from_position.is_some()
         || to_position.is_some()
         || has_direction_move
@@ -1231,6 +1286,7 @@ fn render_sublist(
 }
 
 /// Calculate center position given that a specific edge should be at target
+/// cref: pik_place_adjust (pikchr.c:5829) - adjusts position based on edge
 fn calculate_center_from_edge(
     edge: EdgePoint,
     target: PointIn,
@@ -1245,10 +1301,27 @@ fn calculate_center_from_edge(
 
     let hw = width / 2.0;
     let hh = height / 2.0;
-    let diag = class.diagonal_factor();
 
-    // Use UnitVec for direction, then negate to go from edge back to center
-    let offset = edge.to_unit_vec().scale_xy(hw * diag, hh * diag);
+    // For diagonal corners on rectangular shapes, the corner is at the full (hw, hh) distance.
+    // For round shapes, the diagonal point is on the perimeter at (0.707*r, 0.707*r).
+    // For cardinal directions (N/S/E/W), the offset is simply (0, hh) or (hw, 0).
+    let is_diagonal = matches!(
+        edge,
+        EdgePoint::NorthEast | EdgePoint::NorthWest | EdgePoint::SouthEast | EdgePoint::SouthWest
+    );
+
+    let offset = if is_diagonal && !class.is_round() {
+        // For box-like shapes, diagonal corners are at full (hw, hh) with appropriate signs
+        let unit = edge.to_unit_vec();
+        let sign_x = unit.dx().signum();
+        let sign_y = unit.dy().signum();
+        OffsetIn::new(Inches(sign_x * hw.0), Inches(sign_y * hh.0))
+    } else {
+        // For cardinal directions or round shapes, use the normalized unit vector
+        // with diagonal_factor applied for round shapes
+        let diag = class.diagonal_factor();
+        edge.to_unit_vec().scale_xy(hw * diag, hh * diag)
+    };
 
     // Edge point = center + offset, so center = edge point - offset
     target - offset
