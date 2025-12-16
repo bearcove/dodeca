@@ -3,7 +3,7 @@
 use super::shapes::{Shape, svg_style_from_entries};
 use crate::types::{Length as Inches, Scaler};
 use facet_svg::facet_xml::SerializeOptions;
-use facet_svg::{Color, Polygon, Svg, SvgNode, SvgStyle, Text, facet_xml};
+use facet_svg::{Color, Points, Polygon, Svg, SvgNode, SvgStyle, Text, facet_xml};
 use glam::{DVec2, dvec2};
 use time::{OffsetDateTime, format_description};
 
@@ -218,20 +218,15 @@ pub fn render_arrowhead_dom(
     let p1 = base + perp * half_width;
     let p2 = base - perp * half_width;
 
-    let points = format!(
-        "{},{} {},{} {},{}",
-        fmt_num(end.x),
-        fmt_num(end.y),
-        fmt_num(p1.x),
-        fmt_num(p1.y),
-        fmt_num(p2.x),
-        fmt_num(p2.y)
-    );
+    let points = Points::new()
+        .push(end.x, end.y)
+        .push(p1.x, p1.y)
+        .push(p2.x, p2.y);
 
     let fill_color = Color::parse(&style.stroke);
 
     Some(Polygon {
-        points: Some(points),
+        points,
         fill: None,
         stroke: None,
         stroke_width: None,
@@ -240,8 +235,10 @@ pub fn render_arrowhead_dom(
     })
 }
 
+/// Format a number with up to 3 decimal places (sufficient for SVG coordinates).
+/// Trims trailing zeros and decimal point.
 fn fmt_num(value: f64) -> String {
-    let s = format!("{:.10}", value);
+    let s = format!("{:.3}", value);
     let s = s.trim_end_matches('0');
     let s = s.trim_end_matches('.');
     s.to_string()
