@@ -555,14 +555,33 @@ fn render_object_stmt(
             // C pikchr fit: w = (bbox.ne.x - bbox.sw.x) + charWidth
             let fit_width = Inches(max_text_width + charwid);
 
-            // C pikchr fit: h = 2.0 * max(h1, h2) + 0.5 * charHeight
-            // Uses each text's font scale for accurate height calculation
+            // cref: pik_size_to_fit (pikchr.c:6461-6466)
+            // C computes h1 = bbox.ne.y - ptAt.y and h2 = ptAt.y - bbox.sw.y
+            // then: h = 2.0 * max(h1, h2) + 0.5 * charHeight
+            //
+            // For shapes with yBase offset (like cylinder), text is shifted from center.
+            // cref: pik_append_txt (pikchr.c:5102-5104) - cylinder yBase = -0.75 * rad
+            let y_base = match class_name {
+                Some(ClassName::Cylinder) => {
+                    let rad = ctx.get_length("cylrad", 0.075);
+                    -0.75 * rad.raw()
+                }
+                _ => 0.0,
+            };
+
+            // Calculate half-heights from center (ptAt) to text bbox edges
             let center_lines = fit_text.iter().filter(|t| !t.above && !t.below);
-            let half_height = center_lines
+            let text_half_height = center_lines
                 .map(|t| t.height(charht) * 0.5)
                 .fold(0.0_f64, |a, b| a.max(b))
                 .max(charht * 0.5); // At least one line height
-            let fit_height = Inches(2.0 * half_height + 0.5 * charht);
+
+            // h1 = distance from center to top of text bbox
+            // h2 = distance from center to bottom of text bbox
+            // With yBase offset, text center is at y_base from shape center
+            let h1 = text_half_height + y_base; // top of text relative to shape center
+            let h2 = text_half_height - y_base; // bottom of text relative to shape center
+            let fit_height = Inches(2.0 * h1.max(h2) + 0.5 * charht);
 
             // Apply shape-specific fit logic matching C pikchr's xFit callbacks
             match class_name {
@@ -853,7 +872,10 @@ fn render_object_stmt(
     // Apply fit: auto-size shape to fit text content
     // cref: pik_size_to_fit (pikchr.c:6438)
     // cref: textOffset (pikchr.c:4416) - text objects always get auto-fitted
-    let should_fit = style.fit || class == ClassName::Text;
+    //
+    // Skip if has_fit is true - the first fit block already handled it with
+    // correct attribute-order-aware stroke_width calculation
+    let should_fit = !has_fit && (style.fit || class == ClassName::Text);
     if should_fit && !text.is_empty() {
         let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
         let charht = ctx.get_scalar("charht", defaults::FONT_SIZE);
@@ -936,18 +958,31 @@ fn render_object_stmt(
         // Compute actual bbox y-extents like C's pik_append_txt
         // For each text: y_position +/- (0.5 * charht * fontScale)
         // cref: pik_append_txt (pikchr.c:5162-5188)
+        //
+        // For shapes with yBase offset (like cylinder), text is shifted from center.
+        // cref: pik_append_txt (pikchr.c:5102-5104) - cylinder yBase = -0.75 * rad
+        let y_base = match class {
+            ClassName::Cylinder => {
+                let rad = ctx.get_length("cylrad", 0.075);
+                -0.75 * rad.raw()
+            }
+            _ => 0.0,
+        };
+
         let mut bbox_max_y = f64::MIN;
         let mut bbox_min_y = f64::MAX;
 
         for (t, slot) in text.iter().zip(vslots.iter()) {
             // Compute y position offset (same as C's y calculation)
-            let y = match slot {
-                TextVSlot::Above2 => 0.5 * hc + ha1 + 0.5 * ha2,
-                TextVSlot::Above => 0.5 * hc + 0.5 * ha1,
-                TextVSlot::Center => 0.0,
-                TextVSlot::Below => -(0.5 * hc + 0.5 * hb1),
-                TextVSlot::Below2 => -(0.5 * hc + hb1 + 0.5 * hb2),
-            };
+            // Start from yBase, then add slot-specific offset
+            let y = y_base
+                + match slot {
+                    TextVSlot::Above2 => 0.5 * hc + ha1 + 0.5 * ha2,
+                    TextVSlot::Above => 0.5 * hc + 0.5 * ha1,
+                    TextVSlot::Center => 0.0,
+                    TextVSlot::Below => -(0.5 * hc + 0.5 * hb1),
+                    TextVSlot::Below2 => -(0.5 * hc + hb1 + 0.5 * hb2),
+                };
             // Character half-height, scaled by font scale
             let ch = charht * 0.5 * t.font_scale();
             // Text extends from y-ch to y+ch
