@@ -93,8 +93,7 @@ impl TestSite {
         // Start server with Unix socket path
         let fixture_str = fixture_dir.to_string_lossy().to_string();
         let unix_socket_str = unix_socket_path.to_string_lossy().to_string();
-        let rust_log =
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "trace,hyper=info,tokio=info".to_string());
+        let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_string());
 
         let ddc = ddc_binary();
         let mut cmd = Command::new(&ddc);
@@ -198,12 +197,16 @@ impl TestSite {
             }
         }
 
-        // Drain stdout in background
+        // Drain stdout in background - use println! to preserve ANSI escape codes
+        // (tracing-subscriber's DefaultVisitor wraps messages in Escape() which
+        // converts \x1b bytes to literal "\\x1b" strings as a security measure
+        // against terminal injection attacks - there's no config to disable it,
+        // you'd need a custom FormatEvent implementation)
         std::thread::spawn(move || {
             for line in reader.lines() {
                 match line {
-                    Ok(l) => info!(target: "server.stdout", "{l}"),
-                    Err(e) => warn!(target: "server.stdout", error = %e, "Failed to read stdout"),
+                    Ok(l) => println!("{l}"),
+                    Err(e) => eprintln!("Failed to read server stdout: {e}"),
                 }
             }
         });
@@ -212,8 +215,8 @@ impl TestSite {
         std::thread::spawn(move || {
             for line in stderr_reader.lines() {
                 match line {
-                    Ok(l) => info!(target: "server.stderr", "{l}"),
-                    Err(e) => warn!(target: "server.stderr", error = %e, "Failed to read stderr"),
+                    Ok(l) => eprintln!("{l}"),
+                    Err(e) => eprintln!("Failed to read server stderr: {e}"),
                 }
             }
         });
