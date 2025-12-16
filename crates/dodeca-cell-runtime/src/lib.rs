@@ -54,14 +54,14 @@ macro_rules! cell_debug {
 }
 
 /// Result of initializing Rapace tracing for a cell.
-pub struct CellTracing<T: rapace::Transport> {
+pub struct CellTracing {
     /// RPC session used for communication with the host.
-    pub session: Arc<RpcSession<T>>,
+    pub session: Arc<RpcSession>,
     /// Tracing config implementation used by the host to update filters.
     pub tracing_config: TracingConfigImpl,
 }
 
-impl<T: rapace::Transport> Clone for CellTracing<T> {
+impl Clone for CellTracing {
     fn clone(&self) -> Self {
         Self {
             session: self.session.clone(),
@@ -71,10 +71,7 @@ impl<T: rapace::Transport> Clone for CellTracing<T> {
 }
 
 /// Initialize tracing for a cell using RapaceTracingLayer.
-pub fn init_tracing<T>(session: Arc<RpcSession<T>>) -> CellTracing<T>
-where
-    T: rapace::Transport + Send + Sync + 'static,
-{
+pub fn init_tracing(session: Arc<RpcSession>) -> CellTracing {
     let rt = tokio::runtime::Handle::current();
     let (tracing_layer, shared_filter) = RapaceTracingLayer::new(session.clone(), rt);
     let tracing_config = TracingConfigImpl::new(shared_filter);
@@ -120,11 +117,7 @@ pub fn add_tracing_service(
 /// Perform ready handshake with the host.
 ///
 /// This signals that the cell has started its demux loop and is ready to handle RPC requests.
-async fn ready_handshake(
-    args: &Args,
-    session: Arc<RpcSession<HubPeerTransport>>,
-    cell_name: &str,
-) -> Result<()> {
+async fn ready_handshake(args: &Args, session: Arc<RpcSession>, cell_name: &str) -> Result<()> {
     use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
 
     let client = CellLifecycleClient::new(session);
@@ -314,7 +307,7 @@ where
 /// with the standard cell infrastructure.
 pub async fn run_cell_service_with_session<F, S>(factory: F) -> Result<()>
 where
-    F: FnOnce(Arc<RpcSession<HubPeerTransport>>) -> S,
+    F: FnOnce(Arc<RpcSession>) -> S,
     S: ServiceDispatch + Send + Sync + 'static,
 {
     let args = parse_args()?;

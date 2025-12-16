@@ -348,8 +348,8 @@ pub async fn start_plugin_server(
 /// Handle a browser TCP connection by tunneling it through the cell
 async fn handle_browser_connection(
     browser_stream: TcpStream,
-    tunnel_client: TcpTunnelClient<HubHostPeerTransport>,
-    session: Arc<RpcSession<HubHostPeerTransport>>,
+    tunnel_client: TcpTunnelClient,
+    session: Arc<RpcSession>,
 ) -> Result<()> {
     // Open a tunnel to the cell
     let handle = tunnel_client

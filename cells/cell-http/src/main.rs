@@ -35,23 +35,23 @@ type PluginTransport = HubPeerTransport;
 /// Plugin context shared across HTTP handlers
 pub struct PluginContext {
     /// RPC session for bidirectional communication with host
-    pub session: Arc<RpcSession<PluginTransport>>,
+    pub session: Arc<RpcSession>,
 }
 
 impl PluginContext {
     /// Create a ContentServiceClient for calling the host
-    pub fn content_client(&self) -> ContentServiceClient<PluginTransport> {
+    pub fn content_client(&self) -> ContentServiceClient {
         ContentServiceClient::new(self.session.clone())
     }
 
     /// Create a WebSocketTunnelClient for opening devtools tunnels to host
-    pub fn ws_tunnel_client(&self) -> WebSocketTunnelClient<PluginTransport> {
+    pub fn ws_tunnel_client(&self) -> WebSocketTunnelClient {
         WebSocketTunnelClient::new(self.session.clone())
     }
 }
 
 /// Service wrapper for TcpTunnel to satisfy ServiceDispatch
-struct TcpTunnelService(Arc<TcpTunnelServer<tunnel::TcpTunnelImpl<PluginTransport>>>);
+struct TcpTunnelService(Arc<TcpTunnelServer<tunnel::TcpTunnelImpl>>);
 
 impl ServiceDispatch for TcpTunnelService {
     fn dispatch(
@@ -71,8 +71,8 @@ impl ServiceDispatch for TcpTunnelService {
     }
 }
 
-impl From<Arc<RpcSession<PluginTransport>>> for TcpTunnelService {
-    fn from(session: Arc<RpcSession<PluginTransport>>) -> Self {
+impl From<Arc<RpcSession>> for TcpTunnelService {
+    fn from(session: Arc<RpcSession>) -> Self {
         // Build plugin context
         let ctx = Arc::new(PluginContext {
             session: session.clone(),

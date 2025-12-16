@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
+use rapace::RpcSession;
 use rapace::rapace_core::TunnelChunk;
-use rapace::{RpcSession, Transport};
 use tokio::io::AsyncWrite;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
@@ -23,18 +23,18 @@ use cell_http_proto::{TcpTunnel, TunnelHandle};
 /// 1. Allocates a new channel_id
 /// 2. Creates a duplex stream from rapace channels
 /// 3. Serves HTTP directly on that stream with hyper
-pub struct TcpTunnelImpl<T: Transport> {
-    session: Arc<RpcSession<T>>,
+pub struct TcpTunnelImpl {
+    session: Arc<RpcSession>,
     app: axum::Router,
 }
 
-impl<T: Transport + Send + Sync + 'static> TcpTunnelImpl<T> {
-    pub fn new(session: Arc<RpcSession<T>>, app: axum::Router) -> Self {
+impl TcpTunnelImpl {
+    pub fn new(session: Arc<RpcSession>, app: axum::Router) -> Self {
         Self { session, app }
     }
 }
 
-impl<T: Transport + Send + Sync + 'static> TcpTunnel for TcpTunnelImpl<T> {
+impl TcpTunnel for TcpTunnelImpl {
     async fn open(&self) -> TunnelHandle {
         // Allocate a channel for this tunnel
         let channel_id = self.session.next_channel_id();
@@ -86,7 +86,7 @@ impl<T: Transport + Send + Sync + 'static> TcpTunnel for TcpTunnelImpl<T> {
 }
 
 // Need to implement Clone for TcpTunnelImpl to use with the server
-impl<T: Transport + Send + Sync + 'static> Clone for TcpTunnelImpl<T> {
+impl Clone for TcpTunnelImpl {
     fn clone(&self) -> Self {
         Self {
             session: self.session.clone(),
@@ -97,15 +97,15 @@ impl<T: Transport + Send + Sync + 'static> Clone for TcpTunnelImpl<T> {
 
 /// Writer that sends data to the rapace session
 #[allow(clippy::type_complexity)]
-struct TunnelWriter<T: Transport> {
+struct TunnelWriter {
     channel_id: u32,
-    session: Arc<RpcSession<T>>,
+    session: Arc<RpcSession>,
     pending_send:
         Option<Pin<Box<dyn std::future::Future<Output = Result<(), rapace::RpcError>> + Send>>>,
     closed: bool,
 }
 
-impl<T: Transport + Send + Sync + 'static> AsyncWrite for TunnelWriter<T> {
+impl AsyncWrite for TunnelWriter {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -220,7 +220,7 @@ impl<T: Transport + Send + Sync + 'static> AsyncWrite for TunnelWriter<T> {
 
 /// Bidirectional stream combining StreamReader for reads and TunnelWriter for writes
 #[allow(clippy::type_complexity)]
-struct TunnelStream<T: Transport> {
+struct TunnelStream {
     reader: StreamReader<
         tokio_stream::adapters::Map<
             ReceiverStream<TunnelChunk>,
@@ -228,10 +228,10 @@ struct TunnelStream<T: Transport> {
         >,
         Bytes,
     >,
-    writer: TunnelWriter<T>,
+    writer: TunnelWriter,
 }
 
-impl<T: Transport + Send + Sync + 'static> tokio::io::AsyncRead for TunnelStream<T> {
+impl tokio::io::AsyncRead for TunnelStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -241,7 +241,7 @@ impl<T: Transport + Send + Sync + 'static> tokio::io::AsyncRead for TunnelStream
     }
 }
 
-impl<T: Transport + Send + Sync + 'static> tokio::io::AsyncWrite for TunnelStream<T> {
+impl tokio::io::AsyncWrite for TunnelStream {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,

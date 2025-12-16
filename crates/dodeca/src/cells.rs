@@ -243,7 +243,7 @@ struct PeerDiagInfo {
     peer_id: u16,
     name: String,
     transport: Arc<HubHostPeerTransport>,
-    rpc_session: Arc<RpcSession<HubHostPeerTransport>>,
+    rpc_session: Arc<RpcSession>,
 }
 
 /// Global peer diagnostic info.
@@ -254,7 +254,7 @@ fn register_peer_diag(
     peer_id: u16,
     name: &str,
     transport: Arc<HubHostPeerTransport>,
-    rpc_session: Arc<RpcSession<HubHostPeerTransport>>,
+    rpc_session: Arc<RpcSession>,
 ) {
     if let Ok(mut info) = PEER_DIAG_INFO.write() {
         info.push(PeerDiagInfo {
@@ -268,7 +268,7 @@ fn register_peer_diag(
 
 /// Get a cell's RPC session by binary name (e.g., "ddc-cell-http").
 /// Returns None if the cell is not loaded.
-pub fn get_cell_session(name: &str) -> Option<Arc<RpcSession<HubHostPeerTransport>>> {
+pub fn get_cell_session(name: &str) -> Option<Arc<RpcSession>> {
     PEER_DIAG_INFO
         .read()
         .ok()?
@@ -294,7 +294,7 @@ pub fn get_hub() -> Option<(Arc<HubHost>, PathBuf)> {
 pub fn spawn_cell_with_dispatcher<D>(
     binary_name: &str,
     dispatcher: D,
-) -> Option<(Arc<RpcSession<HubHostPeerTransport>>, tokio::process::Child)>
+) -> Option<(Arc<RpcSession>, tokio::process::Child)>
 where
     D: Fn(
             u32,
@@ -466,7 +466,7 @@ pub fn init_hub_diagnostics() {
 /// Info about a spawned cell with its RPC session already running.
 struct SpawnedPlugin {
     peer_id: u16,
-    rpc_session: Arc<RpcSession<HubHostPeerTransport>>,
+    rpc_session: Arc<RpcSession>,
 }
 
 macro_rules! define_plugins {
@@ -474,7 +474,7 @@ macro_rules! define_plugins {
         #[derive(Default)]
         pub struct PluginRegistry {
             $(
-                pub $key: Option<Arc<$Client<HubHostPeerTransport>>>,
+                pub $key: Option<Arc<$Client>>,
             )*
         }
 
@@ -507,7 +507,7 @@ macro_rules! define_plugins {
                 $(
                     let (_, spawn_result) = iter.next().unwrap();
                     let $key = spawn_result
-                        .map(|s| Arc::new($Client::<HubHostPeerTransport>::new(s.rpc_session)));
+                        .map(|s| Arc::new($Client::new(s.rpc_session)));
                 )*
 
                 PluginRegistry {
@@ -1692,7 +1692,7 @@ pub async fn highlight_code(code: &str, language: &str) -> Option<HighlightResul
 }
 
 /// Get the syntax highlight service client, if available
-fn syntax_highlight_client() -> Option<Arc<SyntaxHighlightServiceClient<HubHostPeerTransport>>> {
+fn syntax_highlight_client() -> Option<Arc<SyntaxHighlightServiceClient>> {
     plugins().syntax_highlight.clone()
 }
 
