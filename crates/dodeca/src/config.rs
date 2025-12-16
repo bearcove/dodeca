@@ -43,7 +43,8 @@ pub struct DodecaConfig {
 }
 
 /// Link checking configuration
-#[derive(Debug, Clone, Facet, Default)]
+#[derive(Debug, Clone, Default, Facet)]
+#[facet(traits(Default))]
 pub struct LinkCheckConfig {
     /// Domains to skip checking (anti-bot policies, known flaky, etc.)
     #[facet(kdl::children, default)]
@@ -57,6 +58,7 @@ pub struct LinkCheckConfig {
 
 /// Stable assets configuration (served at original paths without cache-busting)
 #[derive(Debug, Clone, Default, Facet)]
+#[facet(traits(Default))]
 pub struct StableAssetsConfig {
     /// Asset paths relative to static/ directory
     #[facet(kdl::children, default)]
