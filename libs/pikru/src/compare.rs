@@ -12,6 +12,12 @@ use facet_svg::{Svg, facet_xml};
 /// catching mis-chopped endpoints like autochop02.
 pub const FLOAT_TOLERANCE: f64 = 0.002;
 
+/// Similarity threshold for tree-based element matching.
+/// Elements with structural similarity >= this threshold are paired for
+/// inline field-level diffing rather than shown as remove+add.
+/// A value of 0.5 means elements sharing 50%+ of their structure are paired.
+pub const SIMILARITY_THRESHOLD: f64 = 0.5;
+
 /// Result of comparing two pikchr outputs
 #[derive(Debug, Clone)]
 pub enum CompareResult {
@@ -86,9 +92,11 @@ pub fn parse_svg(svg: &str) -> Result<Svg, String> {
         .map_err(|e| format!("XML parse error: {:?}", miette::Report::new(e)))
 }
 
-/// Options for SVG comparison with float tolerance
+/// Options for SVG comparison with float tolerance and tree-based similarity
 pub fn svg_compare_options() -> SameOptions {
-    SameOptions::new().float_tolerance(FLOAT_TOLERANCE)
+    SameOptions::new()
+        .float_tolerance(FLOAT_TOLERANCE)
+        .similarity_threshold(SIMILARITY_THRESHOLD)
 }
 
 /// Check if output represents an error
