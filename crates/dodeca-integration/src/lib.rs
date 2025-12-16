@@ -37,12 +37,17 @@ pub fn ddc_binary() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             // Fallback for local development: use cargo-built binary
+            #[cfg(debug_assertions)]
+            let profile = "debug";
+            #[cfg(not(debug_assertions))]
+            let profile = "release";
+
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .parent()
                 .unwrap()
                 .parent()
                 .unwrap()
-                .join("target/release/ddc")
+                .join(format!("target/{profile}/ddc"))
         })
 }
 
@@ -52,12 +57,17 @@ pub fn plugins_dir() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             // Fallback for local development: use cargo-built plugins
+            #[cfg(debug_assertions)]
+            let profile = "debug";
+            #[cfg(not(debug_assertions))]
+            let profile = "release";
+
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .parent()
                 .unwrap()
                 .parent()
                 .unwrap()
-                .join("target/release")
+                .join(format!("target/{profile}"))
         })
 }
 
