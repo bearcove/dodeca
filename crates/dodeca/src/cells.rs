@@ -238,8 +238,34 @@ pub async fn init_and_wait_for_cells() -> eyre::Result<()> {
         .wait_for_all_ready(&peer_ids, timeout)
         .await?;
 
+    // Push current host filter to cells (now that they're ready and the hub is not contended).
+    push_tracing_filter_to_cells().await;
+
     debug!("All {} cells ready", peer_ids.len());
     Ok(())
+}
+
+async fn push_tracing_filter_to_cells() {
+    let filter_str = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+
+    let Ok(peers) = PEER_DIAG_INFO.read() else {
+        warn!("Failed to acquire peer info lock; skipping tracing filter push");
+        return;
+    };
+
+    for peer in peers.iter() {
+        let rpc_session = peer.rpc_session.clone();
+        let cell_label = peer.name.clone();
+        let filter_str = filter_str.clone();
+        tokio::spawn(async move {
+            let tracing_config_client = TracingConfigClient::new(rpc_session);
+            if let Err(e) = tracing_config_client.set_filter(filter_str.clone()).await {
+                warn!("Failed to push filter to {} cell: {:?}", cell_label, e);
+            } else {
+                debug!("Pushed filter to {} cell: {}", cell_label, filter_str);
+            }
+        });
+    }
 }
 
 /// Peer info for diagnostics
