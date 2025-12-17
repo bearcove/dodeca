@@ -58,7 +58,7 @@ jobs:
         run: cargo build --release -p dodeca
       - 
         name: Test ddc
-        run: cargo test --release -p dodeca
+        run: cargo test --release -p dodeca --lib --bins
       - 
         name: Clippy
         run: cargo clippy --all-features --all-targets -- -D warnings
@@ -375,7 +375,7 @@ jobs:
         run: cargo build --release -p dodeca
       - 
         name: Test ddc
-        run: cargo test --release -p dodeca
+        run: cargo test --release -p dodeca --lib --bins
       - 
         name: Clippy
         run: cargo clippy --all-features --all-targets -- -D warnings
