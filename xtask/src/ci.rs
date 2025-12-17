@@ -614,6 +614,8 @@ pub fn build_ci_workflow() -> Workflow {
         );
 
         // Integration tests
+        // Note: We need to build WASM because `cargo test` compiles the test harness,
+        // which depends on `dodeca`, which uses include_str!/include_bytes! for WASM files.
         let integration_job_id = format!("integration-{short}");
         jobs.insert(
             integration_job_id.clone(),
@@ -623,8 +625,12 @@ pub fn build_ci_workflow() -> Workflow {
                 .needs([assemble_job_id])
                 .steps([
                     checkout(),
-                    install_rust(),
+                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable")
+                        .with_inputs([("targets", "wasm32-unknown-unknown")]),
+                    Step::uses("Install Rust (nightly)", "dtolnay/rust-toolchain@nightly"),
                     rust_cache(),
+                    Step::run("Install wasm-pack", wasm_install),
+                    Step::run("Build WASM", "cargo xtask wasm"),
                     Step::uses("Download build", "actions/download-artifact@v4")
                         .with_inputs([("name", format!("build-{short}")), ("path", "dist".into())]),
                     Step::run(

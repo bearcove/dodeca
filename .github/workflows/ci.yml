@@ -316,12 +316,24 @@ jobs:
       - 
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with: 
+          targets: wasm32-unknown-unknown
+
+      - 
+        name: Install Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
       - 
         name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
 
+      - 
+        name: Install wasm-pack
+        run: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
+      - 
+        name: Build WASM
+        run: cargo xtask wasm
       - 
         name: Download build
         uses: actions/download-artifact@v4
@@ -633,12 +645,24 @@ jobs:
       - 
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with: 
+          targets: wasm32-unknown-unknown
+
+      - 
+        name: Install Rust (nightly)
+        uses: dtolnay/rust-toolchain@nightly
       - 
         name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
 
+      - 
+        name: Install wasm-pack
+        run: brew install wasm-pack
+      - 
+        name: Build WASM
+        run: cargo xtask wasm
       - 
         name: Download build
         uses: actions/download-artifact@v4
