@@ -493,6 +493,9 @@ fn render_object_stmt(
     let mut even_clause: Option<(Direction, Position)> = None;
     let mut then_clauses: Vec<ThenClause> = Vec::new();
     let mut with_clause: Option<(EdgePoint, PointIn)> = None; // (edge, target_position)
+    // The object's direction - starts as ctx.direction, updated by DirectionMove attributes
+    // cref: pObj->outDir in C pikchr
+    let mut object_direction = ctx.direction;
 
     // Extract text from basetype
     if let BaseType::Text(s, pos) = &obj_stmt.basetype {
@@ -644,6 +647,9 @@ fn render_object_stmt(
             }
             Attribute::DirectionMove(_go, dir, dist) => {
                 has_direction_move = true;
+                // Update object's direction - this will become the new global direction
+                // cref: pik_after_adding_element sets p->eDir = pObj->outDir
+                object_direction = *dir;
                 let distance = if let Some(relexpr) = dist {
                     if let Ok(d) = eval_len(ctx, &relexpr.expr) {
                         // Handle percent: 40% means 40% of the default line width
@@ -1152,6 +1158,15 @@ fn render_object_stmt(
             } else if has_direction_move {
                 // Apply accumulated offsets as single diagonal move (C pikchr behavior)
                 let next = current_pos + direction_offset;
+                tracing::debug!(
+                    start_x = start.x.raw(),
+                    start_y = start.y.raw(),
+                    direction_offset_dx = direction_offset.dx.raw(),
+                    direction_offset_dy = direction_offset.dy.raw(),
+                    next_x = next.x.raw(),
+                    next_y = next.y.raw(),
+                    "[Rust line_direction_move]"
+                );
                 points.push(next);
                 current_pos = next;
 
@@ -1181,11 +1196,30 @@ fn render_object_stmt(
             } else {
                 // No direction moves, no then clauses - default single segment
                 let next = move_in_direction(current_pos, ctx.direction, width);
+                tracing::debug!(
+                    start_x = start.x.raw(),
+                    start_y = start.y.raw(),
+                    ctx_direction = ?ctx.direction,
+                    width = width.raw(),
+                    next_x = next.x.raw(),
+                    next_y = next.y.raw(),
+                    "[Rust line_default_path]"
+                );
                 points.push(next);
             }
 
             let end = *points.last().unwrap_or(&start);
             let center = start.midpoint(end);
+            tracing::debug!(
+                center_x = center.x.raw(),
+                center_y = center.y.raw(),
+                start_x = start.x.raw(),
+                start_y = start.y.raw(),
+                end_x = end.x.raw(),
+                end_y = end.y.raw(),
+                waypoints_len = points.len(),
+                "[Rust line_final]"
+            );
             (center, start, end, points)
         }
     } else if let Some((edge, target)) = with_clause {
@@ -1199,6 +1233,16 @@ fn render_object_stmt(
         (pos, s, e, vec![s, e])
     } else {
         let (c, s, e) = calculate_object_position(ctx, class, width, height);
+        tracing::debug!(
+            center_x = c.x.raw(),
+            center_y = c.y.raw(),
+            start_x = s.x.raw(),
+            start_y = s.y.raw(),
+            end_x = e.x.raw(),
+            end_y = e.y.raw(),
+            ctx_direction = ?ctx.direction,
+            "[Rust calculate_object_position for {:?}]", class
+        );
         (c, s, e, vec![s, e])
     };
 
@@ -1352,7 +1396,7 @@ fn render_object_stmt(
         start_attachment: from_attachment,
         end_attachment: to_attachment,
         layer,
-        direction: ctx.direction,
+        direction: object_direction,
     })
 }
 

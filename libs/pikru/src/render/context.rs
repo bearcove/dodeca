@@ -167,11 +167,17 @@ impl RenderContext {
     }
 
     /// Add an object to the context
+    // cref: pik_after_adding_element (pikchr.c:7095) - p->eDir = pObj->outDir
     pub fn add_object(&mut self, obj: RenderedObject) {
         // Update bounds
         expand_object_bounds(&mut self.bounds, &obj);
 
-        // Update position to exit edge of object in current direction
+        // Update direction to match the object's direction
+        // This handles cases like "arrow left" where the direction attribute
+        // changes the global direction for subsequent objects
+        self.direction = obj.direction;
+
+        // Update position to exit edge of object in the object's direction
         // For shaped objects, this is the edge point in the travel direction
         // For line-like objects, this is already handled correctly by their end()
         let exit_point = match obj.class() {
