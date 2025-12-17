@@ -46,10 +46,11 @@ impl TcpTunnel for TcpTunnelImpl {
 
         // Convert receiver to a Stream, then to AsyncRead using StreamReader
         fn chunk_to_bytes(chunk: TunnelChunk) -> Result<Bytes, std::io::Error> {
+            let payload = chunk.payload_bytes();
             if chunk.is_eos() {
                 Ok(Bytes::new()) // EOF
             } else {
-                Ok(Bytes::from(chunk.payload_bytes().to_vec()))
+                Ok(Bytes::from(payload.to_vec()))
             }
         }
         let rx_stream = ReceiverStream::new(tunnel_rx).map(chunk_to_bytes as fn(_) -> _);

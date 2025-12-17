@@ -1,6 +1,7 @@
 //! Template rendering tests
 
 use crate::harness::TestSite;
+use std::time::Duration;
 
 #[test_log::test]
 fn template_renders_content() {
@@ -10,8 +11,7 @@ fn template_renders_content() {
     html.assert_ok();
 
     // Template should wrap content in proper HTML structure
-    // Note: minified HTML uses lowercase doctype
-    html.assert_contains("<!doctype html>");
+    html.assert_contains("<!DOCTYPE html>");
     html.assert_contains("<body>");
 }
 
@@ -50,18 +50,19 @@ fn different_templates_for_different_pages() {
     guide.assert_ok();
 
     // Both should have proper HTML structure (minified)
-    index.assert_contains("<!doctype html>");
-    guide.assert_contains("<!doctype html>");
+    index.assert_contains("<!DOCTYPE html>");
+    guide.assert_contains("<!DOCTYPE html>");
 }
 
 #[test_log::test]
 fn extra_frontmatter_accessible_in_templates() {
-    let site = TestSite::new("sample-site");
-
-    // Add [extra] to the guide section frontmatter
-    site.write_file(
-        "content/guide/_index.md",
-        r#"+++
+    // Create site with custom content and template BEFORE server starts
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (
+                "content/guide/_index.md",
+                r#"+++
 title = "Guide"
 [extra]
 sidebar = true
@@ -73,12 +74,10 @@ custom_value = 42
 
 This is the guide section.
 "#,
-    );
-
-    // Update the section template to display extra fields
-    site.write_file(
-        "templates/section.html",
-        r#"<!DOCTYPE html>
+            ),
+            (
+                "templates/section.html",
+                r#"<!DOCTYPE html>
 <html>
 <head>
   <title>{{ section.title }}</title>
@@ -92,10 +91,9 @@ This is the guide section.
 </body>
 </html>
 "#,
+            ),
+        ],
     );
-
-    // Wait for livereload
-    std::thread::sleep(std::time::Duration::from_millis(500));
 
     let html = site.get("/guide/");
     html.assert_ok();
@@ -110,12 +108,13 @@ This is the guide section.
 
 #[test_log::test]
 fn page_extra_frontmatter_accessible_in_templates() {
-    let site = TestSite::new("sample-site");
-
-    // Add [extra] to a page frontmatter
-    site.write_file(
-        "content/guide/getting-started.md",
-        r#"+++
+    // Create site with custom content and template BEFORE server starts
+    let site = TestSite::with_files(
+        "sample-site",
+        &[
+            (
+                "content/guide/getting-started.md",
+                r#"+++
 title = "Getting Started"
 [extra]
 difficulty = "beginner"
@@ -126,12 +125,10 @@ reading_time = 5
 
 This is the getting started guide.
 "#,
-    );
-
-    // Update the page template to display extra fields
-    site.write_file(
-        "templates/page.html",
-        r#"<!DOCTYPE html>
+            ),
+            (
+                "templates/page.html",
+                r#"<!DOCTYPE html>
 <html>
 <head>
   <title>{{ page.title }}</title>
@@ -145,10 +142,9 @@ This is the getting started guide.
 </body>
 </html>
 "#,
+            ),
+        ],
     );
-
-    // Wait for livereload
-    std::thread::sleep(std::time::Duration::from_millis(500));
 
     let html = site.get("/guide/getting-started/");
     html.assert_ok();
@@ -162,12 +158,12 @@ This is the getting started guide.
 
 #[test_log::test]
 fn code_blocks_have_copy_button_script() {
-    let site = TestSite::new("sample-site");
-
-    // Add a page with a code block
-    site.write_file(
-        "content/guide/code-example.md",
-        r#"+++
+    // Create site with a page containing a code block BEFORE server starts
+    let site = TestSite::with_files(
+        "sample-site",
+        &[(
+            "content/guide/code-example.md",
+            r#"+++
 title = "Code Example"
 +++
 
@@ -181,10 +177,8 @@ fn main() {
 }
 ```
 "#,
+        )],
     );
-
-    // Wait for livereload
-    std::thread::sleep(std::time::Duration::from_millis(500));
 
     let html = site.get("/guide/code-example/");
     html.assert_ok();

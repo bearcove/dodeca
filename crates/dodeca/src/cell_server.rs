@@ -279,9 +279,12 @@ pub async fn start_cell_server_with_shutdown(
     let mut accept_stream = stream::select_all(listeners.into_iter().map(TcpListenerStream::new));
 
     // Accept browser connections and tunnel them to the cell
+    tracing::debug!("Entering accept loop");
     loop {
+        tracing::debug!("Accept loop: waiting for connection...");
         tokio::select! {
             accept_result = accept_stream.next() => {
+                tracing::debug!("Accept loop: got accept_result = {:?}", accept_result.as_ref().map(|r| r.as_ref().map(|_| "stream").map_err(|e| e.to_string())));
                 match accept_result {
                     Some(Ok(stream)) => {
                         let addr = stream.peer_addr().ok();
@@ -359,8 +362,10 @@ async fn handle_browser_connection(
     // Task A: Browser → rapace (read from browser, send to tunnel)
     let session_a = session.clone();
     tokio::spawn(async move {
+        tracing::debug!(channel_id, "Browser→rapace task started");
         let mut buf = vec![0u8; CHUNK_SIZE];
         loop {
+            tracing::debug!(channel_id, "Browser→rapace: waiting for browser data...");
             match browser_read.read(&mut buf).await {
                 Ok(0) => {
                     tracing::debug!(channel_id, "Browser closed connection");
@@ -368,9 +373,25 @@ async fn handle_browser_connection(
                     break;
                 }
                 Ok(n) => {
-                    if let Err(e) = session_a.send_chunk(channel_id, buf[..n].to_vec()).await {
-                        tracing::debug!(channel_id, error = %e, "Tunnel send error");
-                        break;
+                    tracing::debug!(
+                        channel_id,
+                        bytes = n,
+                        "Browser→rapace: read {} bytes from browser",
+                        n
+                    );
+                    match session_a.send_chunk(channel_id, buf[..n].to_vec()).await {
+                        Ok(()) => {
+                            tracing::debug!(
+                                channel_id,
+                                bytes = n,
+                                "Browser→rapace: sent {} bytes to tunnel",
+                                n
+                            );
+                        }
+                        Err(e) => {
+                            tracing::debug!(channel_id, error = %e, "Tunnel send error");
+                            break;
+                        }
                     }
                 }
                 Err(e) => {
@@ -385,8 +406,15 @@ async fn handle_browser_connection(
 
     // Task B: rapace → Browser (read from tunnel, write to browser)
     tokio::spawn(async move {
+        tracing::debug!(channel_id, "rapace→browser task started");
         while let Some(chunk) = tunnel_rx.recv().await {
             let payload = chunk.payload_bytes();
+            tracing::debug!(
+                channel_id,
+                payload_len = payload.len(),
+                is_eos = chunk.is_eos(),
+                "rapace→browser: received chunk"
+            );
             if !payload.is_empty()
                 && let Err(e) = browser_write.write_all(payload).await
             {

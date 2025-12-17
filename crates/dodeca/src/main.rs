@@ -1987,8 +1987,12 @@ async fn serve_plain(
         while let Ok(event) = watcher_rx.recv() {
             let Ok(event) = event else { continue };
 
+            // DEBUG: Print raw notify events
+            eprintln!("  [NOTIFY] {:?} paths={:?}", event.kind, event.paths);
+
             let mut file_events =
                 file_watcher::process_notify_event(event, &watcher_config, &watcher);
+            eprintln!("  [PROCESSED] {} events", file_events.len());
             if file_events.is_empty() {
                 continue;
             }

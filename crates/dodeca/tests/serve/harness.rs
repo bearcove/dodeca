@@ -9,6 +9,8 @@
 //!
 //! - `DODECA_BIN`: Path to the ddc binary (defaults to cargo-built binary)
 //! - `DODECA_CELL_PATH`: Path to cell binaries (defaults to same dir as ddc)
+//! - `DODECA_TEST_WRAPPER`: Optional wrapper script/command to run ddc under
+//!   (e.g., "valgrind --leak-check=full" or "strace -f -o /tmp/trace.out")
 
 #![allow(clippy::disallowed_methods)]
 
@@ -36,6 +38,13 @@ fn cell_path() -> Option<PathBuf> {
     std::env::var("DODECA_CELL_PATH").map(PathBuf::from).ok()
 }
 
+/// Get the wrapper command if specified (e.g., "valgrind --leak-check=full")
+fn test_wrapper() -> Option<Vec<String>> {
+    std::env::var("DODECA_TEST_WRAPPER")
+        .ok()
+        .map(|s| s.split_whitespace().map(String::from).collect())
+}
+
 /// A running test site with a server and isolated fixture directory
 pub struct TestSite {
     child: Child,
@@ -54,8 +63,22 @@ impl TestSite {
         Self::from_source(&src)
     }
 
+    /// Create a new test site from a fixture with custom files written before server start.
+    /// This is useful for tests that need custom templates or content that should be
+    /// loaded at server startup time rather than triggering livereload.
+    pub fn with_files(fixture_name: &str, files: &[(&str, &str)]) -> Self {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let src = manifest_dir.join("tests/fixtures").join(fixture_name);
+        Self::from_source_with_files(&src, files)
+    }
+
     /// Create a new test site from an arbitrary source directory
     pub fn from_source(src: &Path) -> Self {
+        Self::from_source_with_files(src, &[])
+    }
+
+    /// Create a new test site from an arbitrary source directory with custom files
+    pub fn from_source_with_files(src: &Path, files: &[(&str, &str)]) -> Self {
         // Create isolated temp directory
         let temp_dir = tempfile::Builder::new()
             .prefix("dodeca-test-")
@@ -64,6 +87,16 @@ impl TestSite {
 
         let fixture_dir = temp_dir.path().to_path_buf();
         copy_dir_recursive(src, &fixture_dir).expect("copy fixture");
+
+        // Write any custom files before starting the server
+        for (rel_path, content) in files {
+            let path = fixture_dir.join(rel_path);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent).expect("create parent dir for custom file");
+            }
+            fs::write(&path, content)
+                .unwrap_or_else(|e| panic!("write custom file {}: {e}", path.display()));
+        }
 
         // Ensure .cache exists and is empty
         let cache_dir = fixture_dir.join(".cache");
@@ -96,18 +129,35 @@ impl TestSite {
         let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_string());
 
         let ddc = ddc_binary();
-        let mut cmd = Command::new(&ddc);
-        cmd.args([
+        let ddc_args = [
             "serve",
             &fixture_str,
             "--no-tui",
             "--fd-socket",
             &unix_socket_str,
-        ])
-        .env("RUST_LOG", &rust_log)
-        .env("RUST_BACKTRACE", "1")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        ];
+
+        // Build command, optionally wrapping with DODECA_TEST_WRAPPER
+        let mut cmd = if let Some(wrapper_parts) = test_wrapper() {
+            let (wrapper_cmd, wrapper_args) = wrapper_parts
+                .split_first()
+                .expect("DODECA_TEST_WRAPPER must not be empty");
+            let mut cmd = Command::new(wrapper_cmd);
+            cmd.args(wrapper_args);
+            cmd.arg(&ddc);
+            cmd.args(&ddc_args);
+            info!(wrapper = %wrapper_cmd, "Using test wrapper");
+            cmd
+        } else {
+            let mut cmd = Command::new(&ddc);
+            cmd.args(&ddc_args);
+            cmd
+        };
+
+        cmd.env("RUST_LOG", &rust_log)
+            .env("RUST_BACKTRACE", "1")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
         // Set cell path if provided via env var
         if let Some(cell_dir) = cell_path() {
@@ -377,9 +427,10 @@ impl Response {
     pub fn assert_contains(&self, needle: &str) {
         assert!(
             self.body.contains(needle),
-            "Response body for {} does not contain '{}'",
+            "Response body for {} does not contain '{}'\nActual body (first 500 chars): {}",
             self.url,
-            needle
+            needle,
+            &self.body[..self.body.len().min(500)]
         );
     }
 

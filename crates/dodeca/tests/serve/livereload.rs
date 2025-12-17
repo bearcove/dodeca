@@ -11,11 +11,16 @@ use std::time::Duration;
 fn test_new_section_detected() {
     let site = TestSite::new("sample-site");
 
+    // Wait for file watcher to fully initialize after server startup
+    site.wait_debounce();
+
     // Ensure the new section doesn't exist initially
     site.delete_if_exists("content/new-section");
 
     // Verify the new section doesn't exist yet
+    eprintln!("TEST: About to GET /new-section/ expecting 404...");
     let resp = site.get("/new-section/");
+    eprintln!("TEST: Got status {} for /new-section/", resp.status);
     assert_eq!(resp.status, 404, "New section should not exist initially");
 
     // Create the new section
@@ -45,6 +50,9 @@ This is a dynamically created section."#,
 #[test_log::test]
 fn test_deeply_nested_new_section() {
     let site = TestSite::new("sample-site");
+
+    // Wait for file watcher to fully initialize after server startup
+    site.wait_debounce();
 
     // Ensure the nested directories don't exist before starting
     site.delete_if_exists("content/level1");
@@ -83,6 +91,9 @@ This is a deeply nested section at level 3."#,
 #[test_log::test]
 fn test_file_move_detected() {
     let site = TestSite::new("sample-site");
+
+    // Wait for file watcher to fully initialize after server startup
+    site.wait_debounce();
 
     // Create a page in the 'guide' section first
     site.write_file(

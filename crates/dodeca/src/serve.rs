@@ -1124,7 +1124,7 @@ impl SiteServer {
             },
             None => {
                 // 404 with similar routes - render the page on the host side
-                let similar = self.find_similar_routes(path);
+                let similar = self.find_similar_routes(path).await;
                 let html = crate::error_pages::render_404_page(path, &similar);
                 RpcServeContent::NotFound { html }
             }
@@ -1132,14 +1132,17 @@ impl SiteServer {
     }
 
     /// Find routes similar to the requested path (for 404 suggestions)
-    pub fn find_similar_routes(&self, path: &str) -> Vec<(String, String)> {
+    pub async fn find_similar_routes(&self, path: &str) -> Vec<(String, String)> {
         // Snapshot pattern: create snapshot while holding lock (sync), then release
+        // Note: from_database is async but doesn't await internally, so we use now_or_never()
         let snapshot = match self.db.lock() {
-            Ok(db) => futures::executor::block_on(DatabaseSnapshot::from_database(&db)),
+            Ok(db) => DatabaseSnapshot::from_database(&db)
+                .now_or_never()
+                .expect("from_database should complete immediately"),
             Err(_) => return Vec::new(),
         };
 
-        let site_tree = match futures::executor::block_on(build_tree(&snapshot)) {
+        let site_tree = match build_tree(&snapshot).await {
             Ok(tree) => tree,
             Err(_) => return Vec::new(),
         };
