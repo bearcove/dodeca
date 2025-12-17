@@ -506,7 +506,10 @@ macro_rules! define_cells {
             /// waits for them to register, then creates clients.
             async fn load_from_dir(dir: &Path, hub: &Arc<HubHost>, hub_path: &Path) -> Self {
                 // Phase 1: Spawn all cells with RPC sessions already running
+                // We yield periodically to give the RPC session tasks a chance to run,
+                // which allows them to process incoming messages and free SHM slots.
                 let mut spawned: Vec<(&'static str, Option<SpawnedCell>)> = Vec::new();
+                let mut spawn_count = 0u32;
                 $(
                     let cell_name = match stringify!($key) {
                         "syntax_highlight" => "ddc-cell-arborium".to_string(),
@@ -514,7 +517,17 @@ macro_rules! define_cells {
                     };
                     let spawn_result = Self::spawn_cell(dir, &cell_name, hub, hub_path);
                     spawned.push((stringify!($key), spawn_result));
+                    spawn_count += 1;
+
+                    // Yield every 4 cells to let RPC sessions process messages
+                    // This prevents SHM slot exhaustion during parallel startup
+                    if spawn_count % 4 == 0 {
+                        tokio::task::yield_now().await;
+                    }
                 )*
+
+                // Final yield to ensure all spawned sessions get a chance to run
+                tokio::task::yield_now().await;
 
                 // Phase 2: Wait for all spawned cells to register
                 // (RPC sessions are already running, so messages can be processed)
