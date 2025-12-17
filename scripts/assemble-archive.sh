@@ -40,17 +40,6 @@ esac
 
 ARCHIVE_NAME="dodeca-${TARGET}.${ARCHIVE_EXT}"
 
-# Auto-discover cdylib cells (crates with cdylib in Cargo.toml)
-CDYLIB_CELLS=()
-for dir in crates/dodeca-*/; do
-    if [[ -f "$dir/Cargo.toml" ]] && grep -q 'cdylib' "$dir/Cargo.toml"; then
-        cell=$(basename "$dir")
-        # Convert crate name to lib name (dodeca-foo -> dodeca_foo)
-        lib_name="${cell//-/_}"
-        CDYLIB_CELLS+=("$lib_name")
-    fi
-done
-
 # Auto-discover rapace cells (cells with [[bin]] in Cargo.toml, excluding -proto)
 RAPACE_CELLS=()
 for dir in cells/cell-*/; do
@@ -64,7 +53,6 @@ for dir in cells/cell-*/; do
     fi
 done
 
-echo "Discovered cdylib cells: ${CDYLIB_CELLS[*]:-none}"
 echo "Discovered rapace cells: ${RAPACE_CELLS[*]:-none}"
 
 # Create staging directory
@@ -112,25 +100,6 @@ for cell in "${RAPACE_CELLS[@]}"; do
         echo "Warning: Rapace cell not found: $SRC"
     fi
 done
-
-# Copy and strip cdylib cells (if any)
-if [[ ${#CDYLIB_CELLS[@]} -gt 0 ]]; then
-    mkdir -p staging/cells
-    for cell in "${CDYLIB_CELLS[@]}"; do
-        CELL_FILE="${LIB_PREFIX}${cell}.${LIB_EXT}"
-        SRC="${RELEASE_DIR}/${CELL_FILE}"
-        if [[ -f "$SRC" ]]; then
-            cp "$SRC" staging/cells/
-            if [[ -n "$STRIP_CMD" ]]; then
-                echo "Stripping: cells/${CELL_FILE}"
-                $STRIP_CMD "staging/cells/${CELL_FILE}"
-            fi
-            echo "Copied cdylib cell: ${CELL_FILE}"
-        else
-            echo "Warning: cdylib cell not found: $SRC"
-        fi
-    done
-fi
 
 # Create archive
 echo "Creating archive: $ARCHIVE_NAME"
