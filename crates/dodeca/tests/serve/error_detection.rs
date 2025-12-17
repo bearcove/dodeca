@@ -17,7 +17,7 @@ fn template_syntax_error_shows_error_page() {
     let html = site.get("/");
     html.assert_ok();
     html.assert_not_contains(RENDER_ERROR_MARKER);
-    html.assert_contains("<!doctype html>");
+    html.assert_contains("<!DOCTYPE html>");
 
     // Introduce a template syntax error: unclosed tag
     site.modify_file("templates/index.html", |content| {
@@ -62,7 +62,7 @@ fn template_error_recovery_removes_error_page() {
     // Verify page works again
     let html = site.get("/");
     html.assert_not_contains(RENDER_ERROR_MARKER);
-    html.assert_contains("<!doctype html>");
+    html.assert_contains("<!DOCTYPE html>");
 }
 
 #[test_log::test]

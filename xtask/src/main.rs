@@ -2,7 +2,7 @@
 //!
 //! Usage:
 //!   cargo xtask build [--release]
-//!   cargo xtask run [--release] [-- <ddc args>]
+//!   cargo xtask run [--release] [-- ddc-args]
 //!   cargo xtask install
 //!   cargo xtask wasm
 //!   cargo xtask ci [--check]
@@ -169,7 +169,7 @@ fn discover_cdylib_plugins() -> Vec<String> {
     plugins
 }
 
-/// Discover rapace plugins by looking for mod-* directories with [[bin]] in Cargo.toml
+/// Discover rapace plugins by looking for mod-* directories with `[[bin]]` in Cargo.toml
 /// Returns (package_name, binary_name) pairs
 fn discover_rapace_plugins() -> Vec<(String, String)> {
     let cells_dir = PathBuf::from("cells");

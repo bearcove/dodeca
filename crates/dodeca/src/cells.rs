@@ -1278,7 +1278,7 @@ pub async fn analyze_fonts_cell(html: &str, css: &str) -> FontAnalysis {
     }
 }
 
-/// Extract inline CSS from HTML (from <style> tags).
+/// Extract inline CSS from HTML (from `<style>` tags).
 ///
 /// # Panics
 /// Panics if the fonts cell is not loaded.

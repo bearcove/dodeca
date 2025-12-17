@@ -61,7 +61,7 @@ pub trait FontProcessor {
     /// Analyze HTML and CSS to collect font usage information
     async fn analyze_fonts(&self, html: String, css: String) -> FontResult;
 
-    /// Extract inline CSS from HTML (from <style> tags)
+    /// Extract inline CSS from HTML (from `<style>` tags)
     async fn extract_css_from_html(&self, html: String) -> FontResult;
 
     /// Decompress a WOFF2/WOFF font to TTF

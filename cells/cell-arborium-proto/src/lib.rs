@@ -7,7 +7,7 @@ use facet::Facet;
 /// Result of syntax highlighting
 #[derive(Facet, Debug, Clone)]
 pub struct HighlightResult {
-    /// The highlighted HTML (with <span> tags for tokens)
+    /// The highlighted HTML (with `<span>` tags for tokens)
     pub html: String,
     /// Whether highlighting was successful (vs fallback to plain text)
     pub highlighted: bool,

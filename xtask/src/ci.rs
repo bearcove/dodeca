@@ -57,7 +57,7 @@ pub fn discover_cdylib_cells(repo_root: &Utf8Path) -> Vec<String> {
     cells
 }
 
-/// Discover rapace plugins by scanning cells/cell-*/Cargo.toml for [[bin]] sections.
+/// Discover rapace plugins by scanning cells/cell-*/Cargo.toml for `[[bin]]` sections.
 /// Returns (package_name, binary_name) pairs.
 pub fn discover_rapace_cells(repo_root: &Utf8Path) -> Vec<(String, String)> {
     let mut cells = Vec::new();

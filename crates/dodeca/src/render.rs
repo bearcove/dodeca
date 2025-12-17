@@ -53,7 +53,7 @@ a[data-dead] {
 </style>"#;
 
 /// CSS for syntax highlighting (arborium theme - Tokyo Night style)
-/// These styles target custom elements like <a-k>, <a-c>, <a-f> etc.
+/// These styles target custom elements like `<a-k>`, `<a-c>`, `<a-f>` etc.
 const SYNTAX_HIGHLIGHT_STYLES: &str = r##"<style>
 /* Arborium syntax highlighting - Tokyo Night theme */
 a-k { color: #bb9af7; } /* keywords */
@@ -85,6 +85,51 @@ a-dd { color: #f7768e; } /* diff delete */
 a-eb { color: #ff9e64; } /* embedded */
 a-er { color: #f7768e; text-decoration: wavy underline; } /* errors */
 </style>"##;
+
+/// CSS for copy button on code blocks
+const COPY_BUTTON_STYLES: &str = r##"<style>
+pre { position: relative; }
+pre .copy-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    background: rgba(80,80,95,0.8);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 0.25rem;
+    color: #c0caf5;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+pre:hover .copy-btn { opacity: 1; }
+pre .copy-btn:hover { background: rgba(80,80,95,0.95); }
+pre .copy-btn.copied { background: rgba(50,160,50,0.9); }
+</style>"##;
+
+/// JavaScript for copy button functionality
+const COPY_BUTTON_SCRIPT: &str = r##"<script>
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('pre').forEach(pre => {
+        if (pre.querySelector('.copy-btn')) return;
+        const btn = document.createElement('button');
+        btn.className = 'copy-btn';
+        btn.textContent = 'Copy';
+        btn.onclick = async () => {
+            const code = pre.querySelector('code')?.textContent || pre.textContent;
+            await navigator.clipboard.writeText(code);
+            btn.textContent = 'Copied!';
+            btn.classList.add('copied');
+            setTimeout(() => {
+                btn.textContent = 'Copy';
+                btn.classList.remove('copied');
+            }, 2000);
+        };
+        pre.appendChild(btn);
+    });
+});
+</script>"##;
 
 /// CSS and JS for build info icon on code blocks
 const BUILD_INFO_STYLES: &str = r##"<style>
@@ -426,7 +471,9 @@ pub async fn inject_livereload_with_build_info(
 
     // Always inject copy button script and syntax highlighting styles for code blocks
     // Try to inject after <html, but fall back to after <!doctype html> if <html not found
-    let scripts_to_inject = format!("{SYNTAX_HIGHLIGHT_STYLES}{build_info_assets}");
+    let scripts_to_inject = format!(
+        "{SYNTAX_HIGHLIGHT_STYLES}{COPY_BUTTON_STYLES}{COPY_BUTTON_SCRIPT}{build_info_assets}"
+    );
     if result.contains("<html") {
         result = result.replacen("<html", &format!("{scripts_to_inject}<html"), 1);
     } else if let Some(pos) = result.to_lowercase().find("<!doctype html>") {

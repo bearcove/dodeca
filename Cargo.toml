@@ -42,3 +42,18 @@ inherits = "release"
 opt-level = 1
 debug = true
 strip = false
+
+# cargo-shear false positives - these deps are used via macros that cargo-shear can't detect
+[workspace.metadata.cargo-shear]
+ignored = [
+    "rapace",               # Used via rapace_cell::cell_service! macro
+    "rapace-core",          # Re-exported through rapace
+    "facet",                # Used via #[derive(Facet)] macro
+    "facet-kdl",            # Used via facet macros
+    "color-eyre",           # Used for error setup in cells
+    "tracing",              # Used via tracing macros
+    "tokio-stream",         # Used for async streaming
+    "dodeca-code-execution-types",   # Used by code execution cell
+    "dodeca-code-execution-config",  # Used by code execution cell
+    "cell-lifecycle-proto", # Used for cell lifecycle management
+]

@@ -253,7 +253,7 @@ pub fn convert_server_command(cmd: ServerCommand) -> crate::tui::ServerCommand {
 // TUI Cell Spawning
 // ============================================================================
 
-/// Wrapper struct that implements TuiHost by delegating to Arc<TuiHostImpl>
+/// Wrapper struct that implements TuiHost by delegating to `Arc<TuiHostImpl>`
 struct TuiHostWrapper(Arc<TuiHostImpl>);
 
 impl TuiHost for TuiHostWrapper {

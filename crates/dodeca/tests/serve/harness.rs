@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 use tokio::net::UnixListener;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 /// Get the path to the ddc binary
 fn ddc_binary() -> PathBuf {
@@ -145,12 +145,12 @@ impl TestSite {
             let mut cmd = Command::new(wrapper_cmd);
             cmd.args(wrapper_args);
             cmd.arg(&ddc);
-            cmd.args(&ddc_args);
+            cmd.args(ddc_args);
             info!(wrapper = %wrapper_cmd, "Using test wrapper");
             cmd
         } else {
             let mut cmd = Command::new(&ddc);
-            cmd.args(&ddc_args);
+            cmd.args(ddc_args);
             cmd
         };
 
