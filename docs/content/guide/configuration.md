@@ -20,12 +20,9 @@ output "public"
 If you have a lot of external links (or you’re hitting rate limits / anti-bot checks), you can tune external checking:
 
 ```kdl
-link_check {
+link_check rate_limit_ms=1000 {
     # Skip domains entirely (useful for sites that block bots)
     skip_domain "example.com"
-
-    # Minimum delay between requests to the same domain
-    rate_limit_ms 1000
 }
 ```
 
@@ -52,9 +49,8 @@ stable_assets {
 content "content"
 output "public"
 
-link_check {
+link_check rate_limit_ms=1000 {
     skip_domain "example.com"
-    rate_limit_ms 1000
 }
 
 stable_assets {
