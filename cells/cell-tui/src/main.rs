@@ -11,7 +11,7 @@ use std::time::Duration;
 use color_eyre::Result;
 use crossterm::{
     ExecutableCommand,
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use futures::StreamExt;
@@ -423,6 +423,9 @@ async fn run_tui(session: Arc<RpcSession>) -> Result<()> {
     // Channel for sending commands
     let (command_tx, mut command_rx) = mpsc::unbounded_channel::<ServerCommand>();
 
+    // Channel for key events (read on a blocking thread so we don't stall the RPC runtime)
+    let (key_tx, mut key_rx) = mpsc::unbounded_channel::<KeyEvent>();
+
     // Initialize terminal
     let mut terminal = init_terminal()?;
 
@@ -434,26 +437,40 @@ async fn run_tui(session: Arc<RpcSession>) -> Result<()> {
     let mut events_stream = client.subscribe_events().await?;
     let mut status_stream = client.subscribe_server_status().await?;
 
+    // Spawn a blocking reader for keyboard input.
+    // Exits automatically when the receiver is dropped.
+    std::thread::spawn(move || {
+        loop {
+            if key_tx.is_closed() {
+                break;
+            }
+            match event::poll(Duration::from_millis(100)) {
+                Ok(true) => match event::read() {
+                    Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => {
+                        if key_tx.send(key).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(_) => break,
+                },
+                Ok(false) => {}
+                Err(_) => break,
+            }
+        }
+    });
+
+    let mut tick = tokio::time::interval(Duration::from_millis(33));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
     // Main event loop
     loop {
-        // Draw
-        terminal.draw(|frame| app.draw(frame))?;
-
-        // Poll for terminal events with short timeout
-        if event::poll(Duration::from_millis(16))?
-            && let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-        {
-            app.handle_key(key.code, key.modifiers);
-        }
-
-        if app.should_quit {
-            break;
-        }
-
-        // Check for stream updates (non-blocking)
         tokio::select! {
-            biased;
+            _ = tick.tick() => {}
+
+            Some(key) = key_rx.recv() => {
+                app.handle_key(key.code, key.modifiers);
+            }
 
             Some(cmd) = command_rx.recv() => {
                 let _ = client.send_command(cmd).await;
@@ -476,8 +493,13 @@ async fn run_tui(session: Arc<RpcSession>) -> Result<()> {
                     app.server_status = status;
                 }
             }
+        }
 
-            else => {}
+        // Draw after handling any update (including tick) so we stay responsive to keys
+        terminal.draw(|frame| app.draw(frame))?;
+
+        if app.should_quit {
+            break;
         }
     }
 

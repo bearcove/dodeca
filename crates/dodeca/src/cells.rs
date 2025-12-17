@@ -350,7 +350,7 @@ pub async fn get_hub() -> Option<(Arc<HubHost>, PathBuf)> {
 /// just being clients that we call methods on.
 pub async fn spawn_cell_with_dispatcher<D>(
     binary_name: &str,
-    dispatcher: D,
+    dispatcher_factory: impl FnOnce(Arc<RpcSession>) -> D,
 ) -> Option<(Arc<RpcSession>, tokio::process::Child)>
 where
     D: Fn(
@@ -395,13 +395,13 @@ where
     cmd.arg(format!("--hub-path={}", hub_path.display()))
         .arg(format!("--peer-id={}", peer_id))
         .arg(format!("--doorbell-fd={}", peer_doorbell_fd))
-        .stdin(Stdio::null())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+        .stdin(Stdio::null());
 
-    // Set quiet mode if TUI is active
     if is_quiet_mode() {
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
         cmd.env("DODECA_QUIET", "1");
+    } else {
+        cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
     }
 
     let child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
@@ -432,7 +432,7 @@ where
     register_peer_diag(peer_id, binary_name, rpc_session.clone());
 
     // Set up the custom dispatcher
-    rpc_session.set_dispatcher(dispatcher);
+    rpc_session.set_dispatcher(dispatcher_factory(rpc_session.clone()));
 
     // Spawn the RPC session runner
     {
@@ -637,13 +637,13 @@ impl CellRegistry {
         cmd.arg(format!("--hub-path={}", hub_path.display()))
             .arg(format!("--peer-id={}", peer_id))
             .arg(format!("--doorbell-fd={}", peer_doorbell_fd))
-            .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
+            .stdin(Stdio::null());
 
-        // Set quiet mode if TUI is active
         if is_quiet_mode() {
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
             cmd.env("DODECA_QUIET", "1");
+        } else {
+            cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
         }
 
         let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {

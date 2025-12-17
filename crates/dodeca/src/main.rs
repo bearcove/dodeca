@@ -3011,34 +3011,47 @@ async fn serve_with_tui(
     let tui_host = tui_host::TuiHostImpl::new(proto_cmd_tx);
     let tui_handle = tui_host.handle();
 
+    // Seed the TUI host with the latest snapshots before the cell subscribes.
+    // (The forwarders will keep it updated after this.)
+    {
+        let progress = progress_rx.borrow().clone();
+        tui_handle.send_progress(tui_host::convert_build_progress(&progress));
+    }
+    {
+        let status = server_rx.borrow().clone();
+        tui_handle.send_status(tui_host::convert_server_status(&status));
+    }
+
     // Spawn forwarders to bridge old channels to TuiHost
     // Forward progress updates
     let tui_handle_progress = tui_handle.clone();
     tokio::spawn(async move {
-        loop {
-            if progress_rx.has_changed().unwrap_or(false) {
-                let progress = progress_rx.borrow_and_update().clone();
-                tui_handle_progress.send_progress(tui_host::convert_build_progress(&progress));
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+        // Send current value immediately, then forward changes.
+        let progress = progress_rx.borrow().clone();
+        tui_handle_progress.send_progress(tui_host::convert_build_progress(&progress));
+
+        while progress_rx.changed().await.is_ok() {
+            let progress = progress_rx.borrow().clone();
+            tui_handle_progress.send_progress(tui_host::convert_build_progress(&progress));
         }
     });
 
     // Forward server status updates
     let tui_handle_status = tui_handle.clone();
     tokio::spawn(async move {
-        loop {
-            if server_rx.has_changed().unwrap_or(false) {
-                let status = server_rx.borrow_and_update().clone();
-                tui_handle_status.send_status(tui_host::convert_server_status(&status));
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+        // Send current value immediately, then forward changes.
+        let status = server_rx.borrow().clone();
+        tui_handle_status.send_status(tui_host::convert_server_status(&status));
+
+        while server_rx.changed().await.is_ok() {
+            let status = server_rx.borrow().clone();
+            tui_handle_status.send_status(tui_host::convert_server_status(&status));
         }
     });
 
     // Forward log events
     let tui_handle_events = tui_handle.clone();
-    tokio::spawn(async move {
+    tokio::task::spawn_blocking(move || {
         while let Ok(event) = event_rx.recv() {
             tui_handle_events.send_event(tui_host::convert_log_event(&event));
         }

@@ -3,8 +3,9 @@
 //! This module implements the TuiHost trait from cell-tui-proto, allowing
 //! the TUI cell to connect and receive streaming updates.
 
-use std::pin::Pin;
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use cell_tui_proto::{
     BindMode, BuildProgress, CommandResult, EventKind, LogEvent, LogLevel, ServerCommand,
@@ -12,22 +13,27 @@ use cell_tui_proto::{
 };
 use eyre::Result;
 use futures::StreamExt;
+use rapace::RpcSession;
 use rapace::Streaming;
-use rapace::{Frame, RpcError};
 use tokio::sync::{broadcast, mpsc, watch};
-use tokio_stream::wrappers::{BroadcastStream, errors::BroadcastStreamRecvError};
+use tokio_stream::wrappers::{BroadcastStream, WatchStream, errors::BroadcastStreamRecvError};
 
 /// Capacity for broadcast channels
 const BROADCAST_CAPACITY: usize = 256;
 
+/// Number of recent events to retain for late subscribers.
+const EVENT_HISTORY_CAPACITY: usize = 512;
+
 /// TuiHost implementation that broadcasts updates to connected TUI clients
 pub struct TuiHostImpl {
-    /// Sender for progress updates
-    progress_tx: broadcast::Sender<BuildProgress>,
+    /// Sender for progress updates (latest-value semantics)
+    progress_tx: watch::Sender<BuildProgress>,
     /// Sender for log events
     events_tx: broadcast::Sender<LogEvent>,
-    /// Sender for server status updates
-    status_tx: broadcast::Sender<ServerStatus>,
+    /// Recent log events for late subscribers
+    events_history: Arc<Mutex<VecDeque<LogEvent>>>,
+    /// Sender for server status updates (latest-value semantics)
+    status_tx: watch::Sender<ServerStatus>,
     /// Channel to send commands back to the main server loop
     command_tx: mpsc::UnboundedSender<ServerCommand>,
 }
@@ -36,13 +42,15 @@ pub struct TuiHostImpl {
 impl TuiHostImpl {
     /// Create a new TuiHost implementation
     pub fn new(command_tx: mpsc::UnboundedSender<ServerCommand>) -> Self {
-        let (progress_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+        let (progress_tx, _) = watch::channel(BuildProgress::default());
         let (events_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
-        let (status_tx, _) = broadcast::channel(BROADCAST_CAPACITY);
+        let events_history = Arc::new(Mutex::new(VecDeque::with_capacity(EVENT_HISTORY_CAPACITY)));
+        let (status_tx, _) = watch::channel(ServerStatus::default());
 
         Self {
             progress_tx,
             events_tx,
+            events_history,
             status_tx,
             command_tx,
         }
@@ -50,17 +58,20 @@ impl TuiHostImpl {
 
     /// Send a progress update to all connected TUI clients
     pub fn send_progress(&self, progress: BuildProgress) {
-        let _ = self.progress_tx.send(progress);
+        // Use `send_replace` so the latest value is retained even if there are
+        // currently no connected TUI clients.
+        let _ = self.progress_tx.send_replace(progress);
     }
 
     /// Send a log event to all connected TUI clients
     pub fn send_event(&self, event: LogEvent) {
+        record_event(&self.events_history, event.clone());
         let _ = self.events_tx.send(event);
     }
 
     /// Send a server status update to all connected TUI clients
     pub fn send_status(&self, status: ServerStatus) {
-        let _ = self.status_tx.send(status);
+        let _ = self.status_tx.send_replace(status);
     }
 
     /// Get a handle for sending updates (can be cloned and passed around)
@@ -68,6 +79,7 @@ impl TuiHostImpl {
         TuiHostHandle {
             progress_tx: self.progress_tx.clone(),
             events_tx: self.events_tx.clone(),
+            events_history: self.events_history.clone(),
             status_tx: self.status_tx.clone(),
         }
     }
@@ -81,64 +93,62 @@ impl TuiHostImpl {
 /// A handle for sending TUI updates (can be cloned)
 #[derive(Clone)]
 pub struct TuiHostHandle {
-    progress_tx: broadcast::Sender<BuildProgress>,
+    progress_tx: watch::Sender<BuildProgress>,
     events_tx: broadcast::Sender<LogEvent>,
-    status_tx: broadcast::Sender<ServerStatus>,
+    events_history: Arc<Mutex<VecDeque<LogEvent>>>,
+    status_tx: watch::Sender<ServerStatus>,
 }
 
 impl TuiHostHandle {
     /// Send a progress update
     pub fn send_progress(&self, progress: BuildProgress) {
-        let _ = self.progress_tx.send(progress);
+        let _ = self.progress_tx.send_replace(progress);
     }
 
     /// Send a log event
     pub fn send_event(&self, event: LogEvent) {
+        record_event(&self.events_history, event.clone());
         let _ = self.events_tx.send(event);
     }
 
     /// Send a server status update
     pub fn send_status(&self, status: ServerStatus) {
-        let _ = self.status_tx.send(status);
+        let _ = self.status_tx.send_replace(status);
     }
 }
 
 impl TuiHost for TuiHostImpl {
     async fn subscribe_progress(&self) -> Streaming<BuildProgress> {
         let rx = self.progress_tx.subscribe();
-        let stream = BroadcastStream::new(rx).filter_map(|result| async move {
-            match result {
-                Ok(item) => Some(Ok(item)),
-                Err(BroadcastStreamRecvError::Lagged(_)) => None, // Skip lagged messages
-            }
-        });
-        Box::pin(stream)
+        let stream = WatchStream::new(rx).map(Ok);
+        Box::pin(stream) as Streaming<BuildProgress>
     }
 
     async fn subscribe_events(&self) -> Streaming<LogEvent> {
+        let history = {
+            let history = self.events_history.lock().unwrap();
+            history.iter().cloned().collect::<Vec<_>>()
+        };
         let rx = self.events_tx.subscribe();
-        let stream = BroadcastStream::new(rx).filter_map(|result| async move {
+        let live = BroadcastStream::new(rx).filter_map(|result| async move {
             match result {
                 Ok(item) => Some(Ok(item)),
                 Err(BroadcastStreamRecvError::Lagged(_)) => None,
             }
         });
-        Box::pin(stream)
+        let stream = futures::stream::iter(history.into_iter().map(Ok)).chain(live);
+        Box::pin(stream) as Streaming<LogEvent>
     }
 
     async fn subscribe_server_status(&self) -> Streaming<ServerStatus> {
         let rx = self.status_tx.subscribe();
-        let stream = BroadcastStream::new(rx).filter_map(|result| async move {
-            match result {
-                Ok(item) => Some(Ok(item)),
-                Err(BroadcastStreamRecvError::Lagged(_)) => None,
-            }
-        });
-        Box::pin(stream)
+        let stream = WatchStream::new(rx).map(Ok);
+        Box::pin(stream) as Streaming<ServerStatus>
     }
 
     async fn send_command(&self, command: ServerCommand) -> CommandResult {
-        match self.command_tx.send(command) {
+        let command_tx = self.command_tx.clone();
+        match command_tx.send(command) {
             Ok(_) => CommandResult::Ok,
             Err(e) => CommandResult::Error {
                 message: format!("Failed to send command: {}", e),
@@ -280,25 +290,6 @@ impl Clone for TuiHostWrapper {
     }
 }
 
-/// Create a dispatcher for the TuiHost service
-#[allow(clippy::type_complexity)]
-pub fn create_tui_dispatcher(
-    tui_host: Arc<TuiHostImpl>,
-) -> impl Fn(Frame) -> Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
-+ Send
-+ Sync
-+ 'static {
-    move |frame: Frame| {
-        let wrapper = TuiHostWrapper(tui_host.clone());
-        let method_id = frame.desc.method_id;
-        let payload = frame.payload_bytes().to_vec();
-        Box::pin(async move {
-            let server = TuiHostServer::new(wrapper);
-            server.dispatch(method_id, &payload).await
-        })
-    }
-}
-
 /// Start the TUI cell and run the host service
 ///
 /// This spawns the TUI cell through the hub (like all other cells) and sets up
@@ -310,11 +301,14 @@ pub async fn start_tui_cell(
     mut shutdown_rx: Option<watch::Receiver<bool>>,
 ) -> Result<()> {
     let tui_host_arc = Arc::new(tui_host);
-    let dispatcher = create_tui_dispatcher(tui_host_arc);
+    let dispatcher_factory = move |session: Arc<RpcSession>| {
+        let wrapper = TuiHostWrapper(tui_host_arc.clone());
+        TuiHostServer::new(wrapper).into_session_dispatcher(session.transport().clone())
+    };
 
     let (_rpc_session, mut child) = crate::cells::spawn_cell_with_dispatcher(
         "ddc-cell-tui",
-        dispatcher,
+        dispatcher_factory,
     )
     .await
     .ok_or_else(|| {
@@ -352,4 +346,78 @@ pub async fn start_tui_cell(
     }
 
     Ok(())
+}
+
+fn record_event(history: &Arc<Mutex<VecDeque<LogEvent>>>, event: LogEvent) {
+    let mut history = history.lock().unwrap();
+    history.push_back(event);
+    while history.len() > EVENT_HISTORY_CAPACITY {
+        history.pop_front();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::StreamExt;
+
+    #[tokio::test]
+    async fn progress_and_status_are_retained_without_subscribers() {
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel::<ServerCommand>();
+        let host = TuiHostImpl::new(cmd_tx);
+
+        let mut progress = BuildProgress::default();
+        progress.parse.name = "parse".to_string();
+        progress.parse.total = 10;
+        progress.parse.completed = 3;
+        host.send_progress(progress.clone());
+
+        let status = ServerStatus {
+            urls: vec!["http://127.0.0.1:4000".to_string()],
+            is_running: true,
+            bind_mode: BindMode::Local,
+            salsa_cache_size: 1,
+            cas_cache_size: 2,
+        };
+        host.send_status(status.clone());
+
+        let mut progress_stream = host.subscribe_progress().await;
+        let mut status_stream = host.subscribe_server_status().await;
+
+        let first_progress = progress_stream.next().await.unwrap().unwrap();
+        let first_status = status_stream.next().await.unwrap().unwrap();
+
+        assert_eq!(first_progress.parse.name, progress.parse.name);
+        assert_eq!(first_progress.parse.total, progress.parse.total);
+        assert_eq!(first_progress.parse.completed, progress.parse.completed);
+
+        assert_eq!(first_status.urls, status.urls);
+        assert_eq!(first_status.is_running, status.is_running);
+        assert_eq!(first_status.bind_mode, status.bind_mode);
+        assert_eq!(first_status.salsa_cache_size, status.salsa_cache_size);
+        assert_eq!(first_status.cas_cache_size, status.cas_cache_size);
+    }
+
+    #[tokio::test]
+    async fn events_are_replayed_for_late_subscribers() {
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel::<ServerCommand>();
+        let host = TuiHostImpl::new(cmd_tx);
+
+        host.send_event(LogEvent {
+            level: LogLevel::Info,
+            kind: EventKind::Server,
+            message: "first".to_string(),
+        });
+        host.send_event(LogEvent {
+            level: LogLevel::Info,
+            kind: EventKind::Server,
+            message: "second".to_string(),
+        });
+
+        let mut stream = host.subscribe_events().await;
+        let a = stream.next().await.unwrap().unwrap();
+        let b = stream.next().await.unwrap().unwrap();
+        assert_eq!(a.message, "first");
+        assert_eq!(b.message, "second");
+    }
 }
