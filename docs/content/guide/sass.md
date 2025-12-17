@@ -83,7 +83,7 @@ When you modify any `.scss` file during `ddc serve`:
 3. A CSS-specific live reload message is sent
 4. The browser updates styles without a full page reload
 
-This makes style iteration fast - you'll see changes almost instantly.
+This makes style iteration quick and avoids a full page reload for pure CSS changes.
 
 ## Cache busting
 

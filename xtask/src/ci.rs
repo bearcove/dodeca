@@ -636,7 +636,7 @@ pub fn build_ci_workflow() -> Workflow {
                     Step::run(
                         "Extract archive",
                         format!(
-                            "tar -xf dist/dodeca-{}.tar.xz -C dist && ls -la dist/",
+                            "tar -xf dist/dodeca-{}.tar.xz -C dist && chmod +x dist/ddc dist/ddc-cell-* && ls -la dist/",
                             target.triple
                         ),
                     ),

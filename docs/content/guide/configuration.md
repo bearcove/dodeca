@@ -9,35 +9,31 @@ Configuration lives in `.config/dodeca.kdl` in your project root.
 ## Basic settings
 
 ```kdl
-content "docs/content"
-output "docs/public"
+content "content"
+output "public"
 ```
 
 ## Link checking
 
-Enable broken link detection:
+`ddc build` checks links and fails the build if it finds broken ones.
+
+If you have a lot of external links (or you’re hitting rate limits / anti-bot checks), you can tune external checking:
 
 ```kdl
 link_check {
+    # Skip domains entirely (useful for sites that block bots)
+    skip_domain "example.com"
+
+    # Minimum delay between requests to the same domain
+    rate_limit_ms 1000
 }
 ```
 
 ## Code execution
 
-Control automatic code sample validation:
+If the code execution helper is available (`ddc-cell-code-execution`), Rust code blocks can be executed as part of the build.
 
-```kdl
-code_execution {
-    enabled true
-    fail_on_error false
-    dependency "serde" version="1.0" features=["derive"]
-}
-```
-
-Common options:
-- `enabled false` - Turn off code execution entirely
-- `fail_on_error true` - Fail builds on broken code even in dev mode  
-- `dependency` - Add crates your code examples need
+At the moment, `.config/dodeca.kdl` contains a `code_execution { ... }` section, but it is not fully wired through to the build yet (defaults are used). If you need to disable code execution, use the environment variable `DODECA_NO_CODE_EXEC=1`.
 
 ## Stable assets
 
@@ -53,14 +49,12 @@ stable_assets {
 ## Full example
 
 ```kdl
-content "docs/content"
-output "docs/public"
+content "content"
+output "public"
 
 link_check {
-}
-
-code_execution {
-    dependency "serde" version="1.0" features=["derive"]
+    skip_domain "example.com"
+    rate_limit_ms 1000
 }
 
 stable_assets {

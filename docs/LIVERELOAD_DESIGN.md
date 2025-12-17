@@ -72,9 +72,9 @@ These still use cache-busting hashes. When they change:
 Page (hash mismatch → descend)
 ├── <header>  hash=aaa ✓ (skip)
 ├── <nav>     hash=bbb ✓ (skip)
-├── <article> hash=XXX ✗ (descend)
+├── <article> hash=ccc ✗ (descend)
 │   ├── <section id="intro">   hash=xxx ✓ (skip)
-│   ├── <section id="install"> hash=YYY ✗ (DIFF THIS)
+│   ├── <section id="install"> hash=eee ✗ (DIFF THIS)
 │   └── <section id="usage">   hash=zzz ✓ (skip)
 └── <footer>  hash=ddd ✓ (skip)
 ```

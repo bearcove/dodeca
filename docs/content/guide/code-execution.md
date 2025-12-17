@@ -4,7 +4,9 @@ description = "Automatic code sample validation"
 weight = 45
 +++
 
-Dodeca automatically runs code samples in your markdown files to make sure they actually work. No more embarrassing docs with broken examples!
+dodeca can run code samples found in your Markdown files and report failures.
+
+This feature requires the code execution helper binary (`ddc-cell-code-execution`). If it isn’t present, code blocks will not be executed.
 
 ## How it works
 
@@ -17,16 +19,15 @@ println!("Hello, {}!", name);
 ```
 ````
 
-Dodeca will:
-1. Extract the code during your build
-2. Run it to make sure it works
-3. Fail your build if the code is broken
+dodeca will extract the code during your build and run it using `cargo`.
 
-This happens automatically - no setup required.
+Behavior by command:
+- `ddc build`: execution failures fail the build.
+- `ddc serve`: execution failures are reported as warnings.
 
 ## What gets executed
 
-By default, Rust code blocks are executed. Other languages are planned.
+Right now, only fenced blocks whose language is exactly `rust` (or `rs`) are treated as executable. If you include extra tags (for example `rust,noexec`), the block will be skipped.
 
 ### Simple examples
 
@@ -62,14 +63,7 @@ let broken_code = does_not_compile();
 ```
 ````
 
-Or disable for a whole file in frontmatter:
-
-```markdown
-+++
-title = "My Page"
-code_execution = false
-+++
-```
+Or disable code execution globally by setting `DODECA_NO_CODE_EXEC=1` in the environment.
 
 ## When builds fail
 
@@ -80,44 +74,28 @@ If your code doesn't work, the build stops:
   stderr: error[E0425]: cannot find value `typo_variable`
 ```
 
-Fix the code and rebuild. In development mode (`ddc serve`), you get warnings instead of hard failures.
+Fix the code and rebuild. In development mode (`ddc serve`), failures are reported as warnings instead of hard failures.
 
 ## Configuration
 
-Add to `.config/dodeca.kdl` to customize behavior:
+There is a `code_execution { ... }` section in the config schema, but it is not fully applied by the build yet (defaults are used). If you need to control execution today, use:
 
-```kdl
-code_execution {
-    # Turn off completely
-    enabled false
-    
-    # Fail builds even in dev mode  
-    fail_on_error true
-    
-    # Add dependencies for your examples
-    dependency "serde" version="1.0" features=["derive"]
-}
-```
-
-## Performance
-
-Code execution is cached - unchanged samples don't re-run on subsequent builds. Your incremental builds stay fast.
+- `DODECA_NO_CODE_EXEC=1` to disable
+- `rust,noexec` on individual blocks to skip
 
 ## Best practices
 
 **Keep examples focused:**
 - Show one concept per code block
 - Avoid complex setup code
-- Use realistic but minimal examples
+- Use minimal but realistic examples
 
 **Test your docs:**
 - Run `ddc build` before publishing
-- Let CI catch broken examples for you
 - Update examples when APIs change
 
 **For complex examples:**
 - Break into smaller pieces
-- Link to full example projects in your repo
-- Use configuration to add needed dependencies
+- Link to a full example project instead of embedding a large program in a single page
 
 That's it! Your documentation examples now stay working automatically.

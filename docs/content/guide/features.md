@@ -4,39 +4,38 @@ description = "What dodeca offers"
 weight = 40
 +++
 
+This page describes what’s currently implemented in dodeca (as shipped in this repository). Some features depend on helper binaries (`ddc-cell-*`); if those binaries are missing, the corresponding feature may be unavailable.
+
 ## Build
 
 - **Incremental builds** via [Salsa](https://salsa-rs.github.io/salsa/) - only rebuild what changed
 - **Sass/SCSS compilation** - modern CSS workflow built-in
-- **Search indexing** via Pagefind - fast client-side search
-- **Link checking** - catch broken internal and external links
+- **Search indexing** via Pagefind (generates static search files)
+- **Link checking** - fail builds on broken links
 
 ## Runtime
 
-- **DOM patching** - no full reload, just surgical DOM updates via WASM
-- **Live-reload dev server** - instant feedback while editing
+- **Live reload dev server** - rebuilds on change and notifies the browser
+- **DOM patching** - can update pages without a full reload (when live reload is enabled)
 
 ## Assets
 
-- **Font subsetting** - only include glyphs actually used on your site (saves TONS of bandwidth!)
-- **Responsive images** - automatic JXL/WebP variants at multiple sizes
+- **Font subsetting** - include only glyphs used by your site
+- **Responsive images** - generate multiple sizes and modern formats (e.g. WebP/JXL)
 
 ## Templating
 
-- **Jinja-like template engine** - familiar syntax, zero serde
+- **Jinja-like template engine** - blocks, inheritance, loops, filters, and diagnostics
 
 ## Code Sample Execution
 
-- **Automatic validation** - all code samples in your markdown are executed during build
-- **Build failure protection** - builds fail if any code samples don't work (in production mode)
-- **Multi-language support** - currently Rust, with Python/JavaScript planned
-- **Dependency management** - configure custom dependencies for your examples
-- **Performance optimized** - Blake3 content hashing for fast incremental builds
-- **Detailed error reporting** - see exactly which file, line, and what went wrong
+- **Rust code blocks** can be executed during the build (if `ddc-cell-code-execution` is available)
+- `ddc build` fails on execution errors; `ddc serve` reports them as warnings
+- Add `,noexec` to a fenced Rust code block to skip execution (for pseudo-code or intentionally failing examples)
 
 ### Automatic Rust Validation
 
-Any fenced Rust code block is automatically compiled and executed:
+Any fenced Rust code block is treated as executable:
 
 ```rust
 use std::collections::HashMap;
@@ -56,10 +55,9 @@ fn main() {
 
 Code without a main function is automatically wrapped:
 
-```rust,noexec
+```rust
 let message = "Hello, world!";
 println!("{}", message);
-// This becomes fn main() { ... } automatically
 ```
 
 ### Error Reporting

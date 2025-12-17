@@ -343,7 +343,7 @@ jobs:
 
       - 
         name: Extract archive
-        run: tar -xf dist/dodeca-x86_64-unknown-linux-gnu.tar.xz -C dist && ls -la dist/
+        run: tar -xf dist/dodeca-x86_64-unknown-linux-gnu.tar.xz -C dist && chmod +x dist/ddc dist/ddc-cell-* && ls -la dist/
       - 
         name: Run integration tests
         run: cargo test --release -p dodeca --test serve
@@ -672,7 +672,7 @@ jobs:
 
       - 
         name: Extract archive
-        run: tar -xf dist/dodeca-aarch64-apple-darwin.tar.xz -C dist && ls -la dist/
+        run: tar -xf dist/dodeca-aarch64-apple-darwin.tar.xz -C dist && chmod +x dist/ddc dist/ddc-cell-* && ls -la dist/
       - 
         name: Run integration tests
         run: cargo test --release -p dodeca --test serve

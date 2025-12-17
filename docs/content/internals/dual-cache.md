@@ -11,4 +11,4 @@ Large outputs—processed images, subsetted fonts, any binary blob—go to a sep
 
 When you edit a markdown file, Salsa invalidates just the affected queries. The rendered HTML recomputes, but images with unchanged content skip reprocessing entirely—their hash is already in the CAS.
 
-On startup, both caches load from disk. Most queries return cached results instantly; only truly changed content recomputes. Even a "cold" build is warm if you've built before.
+On startup, both caches load from disk. Most queries can reuse cached results; only changed inputs should trigger recomputation. A “cold” build can still be quicker if you’ve built the same project before.
