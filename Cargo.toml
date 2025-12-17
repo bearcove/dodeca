@@ -7,11 +7,11 @@ members = [
 resolver = "3"
 
 [workspace.dependencies]
-rapace = { path = "../rapace/crates/rapace", default-features = false }
-rapace-core = { path = "../rapace/crates/rapace-core" }
-rapace-cell = { path = "../rapace/crates/rapace-cell" }
-rapace-tracing = { path = "../rapace/crates/rapace-tracing" }
-ur-taking-me-with-you = { path = "../rapace/crates/ur-taking-me-with-you", features = ["tokio"] }
+rapace = { git = "https://github.com/bearcove/rapace", branch = "main", default-features = false }
+rapace-core = { git = "https://github.com/bearcove/rapace", branch = "main" }
+rapace-cell = { git = "https://github.com/bearcove/rapace", branch = "main" }
+rapace-tracing = { git = "https://github.com/bearcove/rapace", branch = "main" }
+ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", branch = "main", features = ["tokio"] }
 
 # Optimize dependencies in dev mode for faster tests
 # (keeps main crate unoptimized for fast incremental builds)
