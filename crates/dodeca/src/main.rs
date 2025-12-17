@@ -346,6 +346,7 @@ fn main() -> Result<()> {
                         args.open,
                         cfg.stable_assets,
                         args.fd_socket,
+                        args.public_access,
                     )
                     .await
                 }
@@ -1680,6 +1681,7 @@ async fn serve_plain(
     open: bool,
     stable_assets: Vec<String>,
     fd_socket: Option<String>,
+    public_access: bool,
 ) -> Result<()> {
     use std::sync::Arc;
 
@@ -1987,12 +1989,8 @@ async fn serve_plain(
         while let Ok(event) = watcher_rx.recv() {
             let Ok(event) = event else { continue };
 
-            // DEBUG: Print raw notify events
-            eprintln!("  [NOTIFY] {:?} paths={:?}", event.kind, event.paths);
-
             let mut file_events =
                 file_watcher::process_notify_event(event, &watcher_config, &watcher);
-            eprintln!("  [PROCESSED] {} events", file_events.len());
             if file_events.is_empty() {
                 continue;
             }
@@ -2059,11 +2057,20 @@ async fn serve_plain(
     // Find the cell path
     let cell_path = cell_server::find_cell_path()?;
 
-    // Parse the address to get the IP to bind to
-    let bind_ip: std::net::Ipv4Addr = match address.parse::<std::net::IpAddr>() {
-        Ok(std::net::IpAddr::V4(ip)) => ip,
-        Ok(std::net::IpAddr::V6(_)) => std::net::Ipv4Addr::LOCALHOST, // Fallback for IPv6
-        Err(_) => std::net::Ipv4Addr::LOCALHOST,
+    // Determine bind IPs based on --public flag or explicit 0.0.0.0 address
+    let bind_ips: Vec<std::net::Ipv4Addr> = if public_access || address == "0.0.0.0" {
+        // LAN mode: bind to localhost + all LAN interfaces
+        let mut ips = vec![std::net::Ipv4Addr::LOCALHOST];
+        ips.extend(tui::get_lan_ips());
+        ips
+    } else {
+        // Local mode: bind to the specified address only
+        let bind_ip = match address.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V4(ip)) => ip,
+            Ok(std::net::IpAddr::V6(_)) => std::net::Ipv4Addr::LOCALHOST,
+            Err(_) => std::net::Ipv4Addr::LOCALHOST,
+        };
+        vec![bind_ip]
     };
 
     // Create channel to receive actual bound port
@@ -2075,7 +2082,7 @@ async fn serve_plain(
         if let Err(e) = cell_server::start_cell_server_with_shutdown(
             server_clone,
             cell_path,
-            vec![bind_ip],
+            bind_ips,
             requested_port,
             None,
             Some(port_tx),
@@ -2093,7 +2100,9 @@ async fn serve_plain(
         .map_err(|_| eyre!("Failed to get bound port"))?;
 
     // Print server URLs (LISTENING_PORT already printed by start_cell_server)
-    print_server_urls(address, actual_port);
+    // Use "0.0.0.0" to trigger multi-interface display when --public is used
+    let display_address = if public_access { "0.0.0.0" } else { address };
+    print_server_urls(display_address, actual_port);
 
     if open {
         let url = format!("http://127.0.0.1:{actual_port}");
