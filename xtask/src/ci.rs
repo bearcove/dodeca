@@ -518,9 +518,9 @@ pub fn build_ci_workflow() -> Workflow {
                     Step::run("Install wasm-pack", wasm_install),
                     Step::run("Build WASM", "cargo xtask wasm"),
                     Step::run("Build ddc", "cargo build --release -p dodeca"),
-                    // Only run unit tests here - integration tests (serve/) need cells
+                    // Only run binary unit tests here - integration tests (serve/) need cells
                     // and run in the integration phase after assembly
-                    Step::run("Test ddc", "cargo test --release -p dodeca --lib --bins"),
+                    Step::run("Test ddc", "cargo test --release -p dodeca --bins"),
                     Step::run(
                         "Clippy",
                         "cargo clippy --all-features --all-targets -- -D warnings",
