@@ -212,7 +212,7 @@ pub async fn check_external_links(
     date: NaiveDate,
     options: &ExternalLinkOptions,
 ) -> (Vec<BrokenLink>, usize) {
-    if !has_linkcheck_cell() {
+    if !has_linkcheck_cell().await {
         warn!("linkcheck cell not loaded, skipping external link checks");
         return (Vec::new(), 0);
     }

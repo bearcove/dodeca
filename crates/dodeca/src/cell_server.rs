@@ -184,7 +184,7 @@ pub async fn start_cell_server_with_shutdown(
     pre_bound_listener: Option<TcpListener>,
 ) -> Result<()> {
     // Ensure all cells are loaded (including http)
-    let registry = all();
+    let registry = all().await;
 
     // Check that the http cell is loaded
     if registry.http.is_none() {

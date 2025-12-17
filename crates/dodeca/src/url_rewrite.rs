@@ -18,7 +18,7 @@ use crate::cells::{
 /// Returns original CSS if cell is not available.
 pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) -> String {
     // Check if CSS cell is available
-    if crate::cells::all().css.is_none() {
+    if crate::cells::all().await.css.is_none() {
         return css.to_string();
     }
 
@@ -35,7 +35,7 @@ pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) 
 /// Returns original JS if cell is not available.
 async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, String>) -> String {
     // Check if JS cell is available
-    if crate::cells::all().js.is_none() {
+    if crate::cells::all().await.js.is_none() {
         return js.to_string();
     }
 

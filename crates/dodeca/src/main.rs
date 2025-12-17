@@ -1918,11 +1918,7 @@ async fn serve_plain(
 
     // Ensure cells are loaded before spawning search index thread
     // (search index needs to wait for cells to be ready)
-    // Use spawn_blocking since cells() does blocking I/O (spawns processes, waits for them)
-    tokio::task::spawn_blocking(|| {
-        let _ = cells::all();
-    })
-    .await?;
+    let _ = cells::all().await;
 
     // Build search index in background
     println!("{}", "Building search index...".dimmed());

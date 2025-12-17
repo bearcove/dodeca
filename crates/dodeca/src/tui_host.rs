@@ -312,12 +312,16 @@ pub async fn start_tui_cell(
     let tui_host_arc = Arc::new(tui_host);
     let dispatcher = create_tui_dispatcher(tui_host_arc);
 
-    let (_rpc_session, mut child) =
-        crate::cells::spawn_cell_with_dispatcher("ddc-cell-tui", dispatcher).ok_or_else(|| {
-            eyre::eyre!(
-                "Failed to spawn TUI cell. Make sure ddc-cell-tui is built and in the cell path."
-            )
-        })?;
+    let (_rpc_session, mut child) = crate::cells::spawn_cell_with_dispatcher(
+        "ddc-cell-tui",
+        dispatcher,
+    )
+    .await
+    .ok_or_else(|| {
+        eyre::eyre!(
+            "Failed to spawn TUI cell. Make sure ddc-cell-tui is built and in the cell path."
+        )
+    })?;
 
     // Wait for TUI process to exit or shutdown signal
     #[allow(clippy::never_loop)] // Loop is for select! - exits on either branch

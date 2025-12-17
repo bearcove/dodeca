@@ -182,6 +182,10 @@ impl CellLifecycle for HostCellLifecycle {
     async fn ready(&self, msg: ReadyMsg) -> ReadyAck {
         let peer_id = msg.peer_id;
         let cell_name = msg.cell_name.clone();
+        eprintln!(
+            "[dodeca-host] Received ready signal from {} (peer_id={})",
+            cell_name, peer_id
+        );
         debug!("Cell {} (peer_id={}) is ready", cell_name, peer_id);
 
         self.registry.mark_ready(msg);
@@ -201,8 +205,8 @@ impl CellLifecycle for HostCellLifecycle {
 /// Decoded image data returned by cells
 pub type DecodedImage = cell_image_proto::DecodedImage;
 
-/// Global cell registry, initialized once.
-static CELLS: OnceLock<CellRegistry> = OnceLock::new();
+/// Global cell registry, initialized once (async).
+static CELLS: tokio::sync::OnceCell<CellRegistry> = tokio::sync::OnceCell::const_new();
 
 /// Initialize cells and wait for ALL of them to complete their readiness handshake.
 ///
@@ -212,8 +216,8 @@ static CELLS: OnceLock<CellRegistry> = OnceLock::new();
 pub async fn init_and_wait_for_cells() -> eyre::Result<()> {
     use std::time::Duration;
 
-    // Trigger cell loading (sync) - this spawns all cells and their RPC sessions
-    let _ = all();
+    // Trigger cell loading - this spawns all cells and their RPC sessions
+    let _ = all().await;
 
     // Get all spawned peer IDs
     let peer_ids: Vec<u16> = PEER_DIAG_INFO
@@ -306,9 +310,9 @@ pub fn get_cell_session(name: &str) -> Option<Arc<RpcSession>> {
 
 /// Get the global hub and hub path (initializing if needed).
 /// Returns None if hub creation fails.
-pub fn get_hub() -> Option<(Arc<HubHost>, PathBuf)> {
+pub async fn get_hub() -> Option<(Arc<HubHost>, PathBuf)> {
     // Ensure all() is called to initialize the hub
-    let _ = all();
+    let _ = all().await;
     let hub = HUB.get()?.clone();
     let hub_path = HUB_PATH.get()?.clone();
     Some((hub, hub_path))
@@ -318,7 +322,7 @@ pub fn get_hub() -> Option<(Arc<HubHost>, PathBuf)> {
 ///
 /// This is used for cells like TUI that need a custom dispatcher rather than
 /// just being clients that we call methods on.
-pub fn spawn_cell_with_dispatcher<D>(
+pub async fn spawn_cell_with_dispatcher<D>(
     binary_name: &str,
     dispatcher: D,
 ) -> Option<(Arc<RpcSession>, tokio::process::Child)>
@@ -331,7 +335,7 @@ where
         + Sync
         + 'static,
 {
-    let (hub, hub_path) = get_hub()?;
+    let (hub, hub_path) = get_hub().await?;
 
     // Find the binary
     let exe_path = std::env::current_exe().ok()?;
@@ -500,7 +504,7 @@ macro_rules! define_cells {
             ///
             /// Spawns all cells in parallel (with RPC sessions immediately running),
             /// waits for them to register, then creates clients.
-            fn load_from_dir(dir: &Path, hub: &Arc<HubHost>, hub_path: &Path) -> Self {
+            async fn load_from_dir(dir: &Path, hub: &Arc<HubHost>, hub_path: &Path) -> Self {
                 // Phase 1: Spawn all cells with RPC sessions already running
                 let mut spawned: Vec<(&'static str, Option<SpawnedCell>)> = Vec::new();
                 $(
@@ -517,7 +521,7 @@ macro_rules! define_cells {
                 let peer_ids: Vec<u16> = spawned.iter()
                     .filter_map(|(_, s)| s.as_ref().map(|p| p.peer_id))
                     .collect();
-                Self::wait_for_peers(hub, &peer_ids);
+                Self::wait_for_peers(hub, &peer_ids).await;
 
                 // Phase 3: Create clients from already-running sessions
                 let mut iter = spawned.into_iter();
@@ -646,20 +650,10 @@ impl CellRegistry {
 
         rpc_session.set_dispatcher(dispatcher);
 
-        // Push the current RUST_LOG filter to the cell (async, doesn't block)
-        {
-            let rpc_session = rpc_session.clone();
-            let cell_label = binary_name.to_string();
-            tokio::spawn(async move {
-                let tracing_config_client = TracingConfigClient::new(rpc_session.clone());
-                let filter_str = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
-                if let Err(e) = tracing_config_client.set_filter(filter_str.clone()).await {
-                    warn!("Failed to push filter to {} cell: {:?}", cell_label, e);
-                } else {
-                    debug!("Pushed filter to {} cell: {}", cell_label, filter_str);
-                }
-            });
-        }
+        // NOTE: Filter push is disabled during startup to avoid slot contention.
+        // Cells default to "trace" level anyway, and we'd need to add the tracing service
+        // back to their dispatcher for filter updates to work.
+        // TODO: Add a separate post-startup filter push mechanism if needed.
 
         // Start the RPC session runner (processes incoming messages)
         {
@@ -713,10 +707,9 @@ impl CellRegistry {
 
     /// Wait for all spawned peers to register.
     ///
-    /// Uses spin-polling without blocking to allow tokio tasks to run on
-    /// current_thread runtime. The spawned session.run() tasks need to process
-    /// incoming messages from cells.
-    fn wait_for_peers(hub: &Arc<HubHost>, peer_ids: &[u16]) {
+    /// Async version that properly yields to the tokio runtime, allowing
+    /// RPC session tasks to process incoming messages from cells.
+    async fn wait_for_peers(hub: &Arc<HubHost>, peer_ids: &[u16]) {
         if peer_ids.is_empty() {
             return;
         }
@@ -727,10 +720,8 @@ impl CellRegistry {
             peer_ids
         );
 
-        // Spin-poll for peer registration without blocking
-        // On current_thread runtime, std::thread::sleep would block ALL tasks
         let start = std::time::Instant::now();
-        let timeout = std::time::Duration::from_secs(2);
+        let timeout = Duration::from_secs(2);
 
         loop {
             let all_active = peer_ids.iter().all(|&id| hub.is_peer_active(id));
@@ -753,8 +744,8 @@ impl CellRegistry {
                 return;
             }
 
-            // Yield CPU to other threads (but doesn't help tokio tasks on current_thread)
-            std::hint::spin_loop();
+            // Yield to tokio runtime so RPC session tasks can process messages
+            tokio::time::sleep(Duration::from_millis(1)).await;
         }
     }
 }
@@ -777,82 +768,84 @@ fn init_hub() -> Option<(Arc<HubHost>, PathBuf)> {
 }
 
 /// Get the global cell registry, initializing it if needed.
-pub fn all() -> &'static CellRegistry {
-    CELLS.get_or_init(|| {
-        // Create hub first
-        let (hub, hub_path) = match init_hub() {
-            Some((h, p)) => {
-                // Store in global statics for later access/cleanup
-                let _ = HUB.set(h.clone());
-                let _ = HUB_PATH.set(p.clone());
-                // Register diagnostic callback for SIGUSR1
-                init_hub_diagnostics();
-                (h, p)
-            }
-            None => {
-                warn!("hub creation failed, cells will not be available");
-                return Default::default();
-            }
-        };
-
-        // Look for cells in several locations:
-        // 1. DODECA_CELL_PATH environment variable (highest priority)
-        // 2. Next to the executable
-        // 3. In cells/ subdirectory next to executable (for installed releases)
-        // 4. In target/debug (for development)
-        // 5. In target/release
-
-        let env_cell_path = std::env::var("DODECA_CELL_PATH").ok().map(PathBuf::from);
-
-        let exe_dir = std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()));
-
-        let cells_dir = exe_dir.as_ref().map(|p| p.join("cells"));
-
-        #[cfg(debug_assertions)]
-        let profile_dir = PathBuf::from("target/debug");
-        #[cfg(not(debug_assertions))]
-        let profile_dir = PathBuf::from("target/release");
-
-        let search_paths: Vec<PathBuf> = [env_cell_path, exe_dir, cells_dir, Some(profile_dir)]
-            .into_iter()
-            .flatten()
-            .collect();
-
-        for dir in &search_paths {
-            let registry = CellRegistry::load_from_dir(dir, &hub, &hub_path);
-            // Consider the directory "active" if at least one cell binary exists and loaded.
-            if !matches!(
-                registry,
-                CellRegistry {
-                    webp: None,
-                    jxl: None,
-                    minify: None,
-                    svgo: None,
-                    sass: None,
-                    css: None,
-                    js: None,
-                    pagefind: None,
-                    image: None,
-                    fonts: None,
-                    linkcheck: None,
-                    code_execution: None,
-                    html_diff: None,
-                    html: None,
-                    markdown: None,
-                    syntax_highlight: None,
-                    http: None,
+pub async fn all() -> &'static CellRegistry {
+    CELLS
+        .get_or_init(|| async {
+            // Create hub first
+            let (hub, hub_path) = match init_hub() {
+                Some((h, p)) => {
+                    // Store in global statics for later access/cleanup
+                    let _ = HUB.set(h.clone());
+                    let _ = HUB_PATH.set(p.clone());
+                    // Register diagnostic callback for SIGUSR1
+                    init_hub_diagnostics();
+                    (h, p)
                 }
-            ) {
-                info!("loaded cells from {}", dir.display());
-                return registry;
-            }
-        }
+                None => {
+                    warn!("hub creation failed, cells will not be available");
+                    return Default::default();
+                }
+            };
 
-        debug!("no cells found in search paths: {:?}", search_paths);
-        Default::default()
-    })
+            // Look for cells in several locations:
+            // 1. DODECA_CELL_PATH environment variable (highest priority)
+            // 2. Next to the executable
+            // 3. In cells/ subdirectory next to executable (for installed releases)
+            // 4. In target/debug (for development)
+            // 5. In target/release
+
+            let env_cell_path = std::env::var("DODECA_CELL_PATH").ok().map(PathBuf::from);
+
+            let exe_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+            let cells_dir = exe_dir.as_ref().map(|p| p.join("cells"));
+
+            #[cfg(debug_assertions)]
+            let profile_dir = PathBuf::from("target/debug");
+            #[cfg(not(debug_assertions))]
+            let profile_dir = PathBuf::from("target/release");
+
+            let search_paths: Vec<PathBuf> = [env_cell_path, exe_dir, cells_dir, Some(profile_dir)]
+                .into_iter()
+                .flatten()
+                .collect();
+
+            for dir in &search_paths {
+                let registry = CellRegistry::load_from_dir(dir, &hub, &hub_path).await;
+                // Consider the directory "active" if at least one cell binary exists and loaded.
+                if !matches!(
+                    registry,
+                    CellRegistry {
+                        webp: None,
+                        jxl: None,
+                        minify: None,
+                        svgo: None,
+                        sass: None,
+                        css: None,
+                        js: None,
+                        pagefind: None,
+                        image: None,
+                        fonts: None,
+                        linkcheck: None,
+                        code_execution: None,
+                        html_diff: None,
+                        html: None,
+                        markdown: None,
+                        syntax_highlight: None,
+                        http: None,
+                    }
+                ) {
+                    info!("loaded cells from {}", dir.display());
+                    return registry;
+                }
+            }
+
+            debug!("no cells found in search paths: {:?}", search_paths);
+            Default::default()
+        })
+        .await
 }
 
 /// Encode RGBA pixels to WebP using the cell if available, otherwise return None.
@@ -863,7 +856,7 @@ pub async fn encode_webp_cell(
     height: u32,
     quality: u8,
 ) -> Option<Vec<u8>> {
-    let cell = all().webp.as_ref()?;
+    let cell = all().await.webp.as_ref()?;
 
     let input = WebPEncodeInput {
         pixels: pixels.to_vec(),
@@ -897,7 +890,7 @@ pub async fn encode_jxl_cell(
     height: u32,
     quality: u8,
 ) -> Option<Vec<u8>> {
-    let cell = all().jxl.as_ref()?;
+    let cell = all().await.jxl.as_ref()?;
 
     let input = JXLEncodeInput {
         pixels: pixels.to_vec(),
@@ -926,7 +919,7 @@ pub async fn encode_jxl_cell(
 /// Decode WebP to pixels using the cell.
 #[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_webp_cell(data: &[u8]) -> Option<DecodedImage> {
-    let cell = all().webp.as_ref()?;
+    let cell = all().await.webp.as_ref()?;
 
     match cell.decode_webp(data.to_vec()).await {
         Ok(WebPResult::DecodeSuccess {
@@ -958,7 +951,7 @@ pub async fn decode_webp_cell(data: &[u8]) -> Option<DecodedImage> {
 /// Decode JXL to pixels using the cell.
 #[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_jxl_cell(data: &[u8]) -> Option<DecodedImage> {
-    let cell = all().jxl.as_ref()?;
+    let cell = all().await.jxl.as_ref()?;
 
     match cell.decode_jxl(data.to_vec()).await {
         Ok(JXLResult::DecodeSuccess {
@@ -994,6 +987,7 @@ pub async fn decode_jxl_cell(data: &[u8]) -> Option<DecodedImage> {
 #[tracing::instrument(level = "debug", skip(html), fields(html_len = html.len()))]
 pub async fn minify_html_cell(html: &str) -> Result<String, String> {
     let cell = all()
+        .await
         .minify
         .as_ref()
         .expect("dodeca-minify cell not loaded");
@@ -1011,7 +1005,11 @@ pub async fn minify_html_cell(html: &str) -> Result<String, String> {
 /// Panics if the svgo cell is not loaded.
 #[tracing::instrument(level = "debug", skip(svg), fields(svg_len = svg.len()))]
 pub async fn optimize_svg_cell(svg: &str) -> Result<String, String> {
-    let cell = all().svgo.as_ref().expect("dodeca-svgo cell not loaded");
+    let cell = all()
+        .await
+        .svgo
+        .as_ref()
+        .expect("dodeca-svgo cell not loaded");
 
     match cell.optimize_svg(svg.to_string()).await {
         Ok(SvgoResult::Success { svg }) => Ok(svg),
@@ -1028,7 +1026,11 @@ pub async fn optimize_svg_cell(svg: &str) -> Result<String, String> {
 pub async fn compile_sass_cell(
     files: &std::collections::HashMap<String, String>,
 ) -> Result<String, String> {
-    let cell = all().sass.as_ref().expect("dodeca-sass cell not loaded");
+    let cell = all()
+        .await
+        .sass
+        .as_ref()
+        .expect("dodeca-sass cell not loaded");
 
     let input = SassInput {
         files: files.clone(),
@@ -1050,7 +1052,11 @@ pub async fn rewrite_urls_in_css_cell(
     css: &str,
     path_map: &HashMap<String, String>,
 ) -> Result<String, String> {
-    let cell = all().css.as_ref().expect("dodeca-css cell not loaded");
+    let cell = all()
+        .await
+        .css
+        .as_ref()
+        .expect("dodeca-css cell not loaded");
 
     match cell
         .rewrite_and_minify(css.to_string(), path_map.clone())
@@ -1071,7 +1077,7 @@ pub async fn rewrite_string_literals_in_js_cell(
     js: &str,
     path_map: &HashMap<String, String>,
 ) -> Result<String, String> {
-    let cell = all().js.as_ref().expect("dodeca-js cell not loaded");
+    let cell = all().await.js.as_ref().expect("dodeca-js cell not loaded");
 
     let input = JsRewriteInput {
         js: js.to_string(),
@@ -1092,6 +1098,7 @@ pub async fn rewrite_string_literals_in_js_cell(
 #[tracing::instrument(level = "debug", skip(pages), fields(num_pages = pages.len()))]
 pub async fn build_search_index_cell(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, String> {
     let cell = all()
+        .await
         .pagefind
         .as_ref()
         .expect("dodeca-pagefind cell not loaded");
@@ -1112,7 +1119,7 @@ pub async fn build_search_index_cell(pages: Vec<SearchPage>) -> Result<Vec<Searc
 /// Decode a PNG image using the cell.
 #[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_png_cell(data: &[u8]) -> Option<DecodedImage> {
-    let cell = all().image.as_ref()?;
+    let cell = all().await.image.as_ref()?;
 
     match cell.decode_png(data.to_vec()).await {
         Ok(ImageResult::Success { image }) => Some(DecodedImage {
@@ -1139,7 +1146,7 @@ pub async fn decode_png_cell(data: &[u8]) -> Option<DecodedImage> {
 /// Decode a JPEG image using the cell.
 #[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_jpeg_cell(data: &[u8]) -> Option<DecodedImage> {
-    let cell = all().image.as_ref()?;
+    let cell = all().await.image.as_ref()?;
 
     match cell.decode_jpeg(data.to_vec()).await {
         Ok(ImageResult::Success { image }) => Some(DecodedImage {
@@ -1166,7 +1173,7 @@ pub async fn decode_jpeg_cell(data: &[u8]) -> Option<DecodedImage> {
 /// Decode a GIF image using the cell.
 #[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_gif_cell(data: &[u8]) -> Option<DecodedImage> {
-    let cell = all().image.as_ref()?;
+    let cell = all().await.image.as_ref()?;
 
     match cell.decode_gif(data.to_vec()).await {
         Ok(ImageResult::Success { image }) => Some(DecodedImage {
@@ -1199,7 +1206,7 @@ pub async fn resize_image_cell(
     channels: u8,
     target_width: u32,
 ) -> Option<DecodedImage> {
-    let cell = all().image.as_ref()?;
+    let cell = all().await.image.as_ref()?;
 
     let input = ResizeInput {
         pixels: pixels.to_vec(),
@@ -1234,7 +1241,7 @@ pub async fn resize_image_cell(
 /// Generate a thumbhash data URL using the cell.
 #[tracing::instrument(level = "debug", skip(pixels), fields(pixels_len = pixels.len()))]
 pub async fn generate_thumbhash_cell(pixels: &[u8], width: u32, height: u32) -> Option<String> {
-    let cell = all().image.as_ref()?;
+    let cell = all().await.image.as_ref()?;
 
     let input = ThumbhashInput {
         pixels: pixels.to_vec(),
@@ -1268,7 +1275,11 @@ pub async fn generate_thumbhash_cell(pixels: &[u8], width: u32, height: u32) -> 
 /// # Panics
 /// Panics if the fonts cell is not loaded.
 pub async fn analyze_fonts_cell(html: &str, css: &str) -> FontAnalysis {
-    let cell = all().fonts.as_ref().expect("dodeca-fonts cell not loaded");
+    let cell = all()
+        .await
+        .fonts
+        .as_ref()
+        .expect("dodeca-fonts cell not loaded");
 
     match cell.analyze_fonts(html.to_string(), css.to_string()).await {
         Ok(FontResult::AnalysisSuccess { analysis }) => analysis,
@@ -1287,7 +1298,11 @@ pub async fn extract_css_from_html_cell(html: &str) -> String {
         "[HOST] extract_css_from_html_cell: START (html_len={})",
         html.len()
     );
-    let cell = all().fonts.as_ref().expect("dodeca-fonts cell not loaded");
+    let cell = all()
+        .await
+        .fonts
+        .as_ref()
+        .expect("dodeca-fonts cell not loaded");
 
     tracing::debug!("[HOST] extract_css_from_html_cell: calling RPC...");
     match cell.extract_css_from_html(html.to_string()).await {
@@ -1306,7 +1321,7 @@ pub async fn extract_css_from_html_cell(html: &str) -> String {
 
 /// Decompress a WOFF2/WOFF font to TTF.
 pub async fn decompress_font_cell(data: &[u8]) -> Option<Vec<u8>> {
-    let cell = all().fonts.as_ref()?;
+    let cell = all().await.fonts.as_ref()?;
 
     match cell.decompress_font(data.to_vec()).await {
         Ok(FontResult::DecompressSuccess { data }) => Some(data),
@@ -1327,7 +1342,7 @@ pub async fn decompress_font_cell(data: &[u8]) -> Option<Vec<u8>> {
 
 /// Subset a font to only include specified characters.
 pub async fn subset_font_cell(data: &[u8], chars: &[char]) -> Option<Vec<u8>> {
-    let cell = all().fonts.as_ref()?;
+    let cell = all().await.fonts.as_ref()?;
 
     let input = SubsetFontInput {
         data: data.to_vec(),
@@ -1353,7 +1368,7 @@ pub async fn subset_font_cell(data: &[u8], chars: &[char]) -> Option<Vec<u8>> {
 
 /// Compress TTF font data to WOFF2.
 pub async fn compress_to_woff2_cell(data: &[u8]) -> Option<Vec<u8>> {
-    let cell = all().fonts.as_ref()?;
+    let cell = all().await.fonts.as_ref()?;
 
     match cell.compress_to_woff2(data.to_vec()).await {
         Ok(FontResult::CompressSuccess { data }) => Some(data),
@@ -1412,7 +1427,7 @@ pub struct CheckResult {
 ///
 /// Returns None if the cell is not loaded.
 pub async fn check_urls_cell(urls: Vec<String>, options: CheckOptions) -> Option<CheckResult> {
-    let cell = all().linkcheck.as_ref()?;
+    let cell = all().await.linkcheck.as_ref()?;
 
     let input = LinkCheckInput {
         urls: urls.clone(),
@@ -1453,8 +1468,8 @@ pub async fn check_urls_cell(urls: Vec<String>, options: CheckOptions) -> Option
 }
 
 /// Check if the linkcheck cell is available.
-pub fn has_linkcheck_cell() -> bool {
-    all().linkcheck.is_some()
+pub async fn has_linkcheck_cell() -> bool {
+    all().await.linkcheck.is_some()
 }
 
 // ============================================================================
@@ -1468,7 +1483,7 @@ pub async fn extract_code_samples_cell(
     content: &str,
     source_path: &str,
 ) -> Option<Vec<dodeca_code_execution_types::CodeSample>> {
-    let cell = all().code_execution.as_ref()?;
+    let cell = all().await.code_execution.as_ref()?;
 
     let input = ExtractSamplesInput {
         source_path: source_path.to_string(),
@@ -1504,7 +1519,7 @@ pub async fn execute_code_samples_cell(
         dodeca_code_execution_types::ExecutionResult,
     )>,
 > {
-    let cell = all().code_execution.as_ref()?;
+    let cell = all().await.code_execution.as_ref()?;
 
     tracing::debug!(
         "[HOST] execute_code_samples_cell: START (num_samples={})",
@@ -1539,7 +1554,7 @@ pub async fn execute_code_samples_cell(
 /// Diff two HTML documents and produce patches using the cell.
 /// Returns None if the cell is not loaded.
 pub async fn diff_html_cell(old_html: &str, new_html: &str) -> Option<DiffResult> {
-    let cell = all().html_diff.as_ref()?;
+    let cell = all().await.html_diff.as_ref()?;
 
     let input = DiffInput {
         old_html: old_html.to_string(),
@@ -1571,7 +1586,7 @@ pub async fn rewrite_urls_in_html_cell(
     html: &str,
     path_map: &HashMap<String, String>,
 ) -> Option<String> {
-    let cell = all().html.as_ref()?;
+    let cell = all().await.html.as_ref()?;
 
     match cell.rewrite_urls(html.to_string(), path_map.clone()).await {
         Ok(cell_html_proto::HtmlResult::Success { html }) => Some(html),
@@ -1595,7 +1610,7 @@ pub async fn mark_dead_links_cell(
     html: &str,
     known_routes: &std::collections::HashSet<String>,
 ) -> Option<(String, bool)> {
-    let cell = all().html.as_ref()?;
+    let cell = all().await.html.as_ref()?;
 
     match cell
         .mark_dead_links(html.to_string(), known_routes.clone())
@@ -1622,7 +1637,7 @@ pub async fn inject_build_info_cell(
     html: &str,
     code_metadata: &HashMap<String, cell_html_proto::CodeExecutionMetadata>,
 ) -> Option<(String, bool)> {
-    let cell = all().html.as_ref()?;
+    let cell = all().await.html.as_ref()?;
 
     match cell
         .inject_build_info(html.to_string(), code_metadata.clone())
@@ -1649,7 +1664,7 @@ pub async fn inject_build_info_cell(
 ///
 /// Returns the code with syntax highlighting applied as HTML, or None if no service is available.
 pub async fn highlight_code(code: &str, language: &str) -> Option<HighlightResult> {
-    let client = syntax_highlight_client()?;
+    let client = syntax_highlight_client().await?;
     let code_len = code.len();
     tracing::debug!(
         language = language,
@@ -1682,8 +1697,8 @@ pub async fn highlight_code(code: &str, language: &str) -> Option<HighlightResul
 }
 
 /// Get the syntax highlight service client, if available
-fn syntax_highlight_client() -> Option<Arc<SyntaxHighlightServiceClient>> {
-    all().syntax_highlight.clone()
+async fn syntax_highlight_client() -> Option<Arc<SyntaxHighlightServiceClient>> {
+    all().await.syntax_highlight.clone()
 }
 
 // ============================================================================
@@ -1708,7 +1723,7 @@ pub struct ParsedMarkdown {
 /// The caller is responsible for highlighting code blocks and replacing placeholders.
 #[tracing::instrument(level = "debug", skip(content), fields(content_len = content.len()))]
 pub async fn parse_and_render_markdown_cell(content: &str) -> Option<ParsedMarkdown> {
-    let cell = all().markdown.as_ref()?;
+    let cell = all().await.markdown.as_ref()?;
 
     match cell.parse_and_render(content.to_string()).await {
         Ok(ParseResult::Success {
@@ -1742,7 +1757,7 @@ async fn _render_markdown_cell(
     Vec<cell_markdown_proto::Heading>,
     Vec<cell_markdown_proto::CodeBlock>,
 )> {
-    let cell = all().markdown.as_ref()?;
+    let cell = all().await.markdown.as_ref()?;
 
     match cell.render_markdown(markdown.to_string()).await {
         Ok(MarkdownResult::Success {
@@ -1766,7 +1781,7 @@ async fn _render_markdown_cell(
 async fn _parse_frontmatter_cell(
     content: &str,
 ) -> Option<(cell_markdown_proto::Frontmatter, String)> {
-    let cell = all().markdown.as_ref()?;
+    let cell = all().await.markdown.as_ref()?;
 
     match cell.parse_frontmatter(content.to_string()).await {
         Ok(FrontmatterResult::Success { frontmatter, body }) => Some((frontmatter, body)),

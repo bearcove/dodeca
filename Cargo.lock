@@ -7236,7 +7236,6 @@ dependencies = [
 [[package]]
 name = "rapace"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#8b2c2d132b2f15c230e3853135185226cbe417f6"
 dependencies = [
  "facet",
  "facet-core",
@@ -7254,7 +7253,6 @@ dependencies = [
 [[package]]
 name = "rapace-cell"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#8b2c2d132b2f15c230e3853135185226cbe417f6"
 dependencies = [
  "facet",
  "libc",
@@ -7269,7 +7267,6 @@ dependencies = [
 [[package]]
 name = "rapace-core"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#8b2c2d132b2f15c230e3853135185226cbe417f6"
 dependencies = [
  "allocator-api2",
  "async-stream",
@@ -7293,7 +7290,6 @@ dependencies = [
 [[package]]
 name = "rapace-macros"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#8b2c2d132b2f15c230e3853135185226cbe417f6"
 dependencies = [
  "heck 0.4.1",
  "proc-macro-crate",
@@ -7305,7 +7301,6 @@ dependencies = [
 [[package]]
 name = "rapace-registry"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#8b2c2d132b2f15c230e3853135185226cbe417f6"
 dependencies = [
  "facet",
  "facet-core",
@@ -7315,7 +7310,6 @@ dependencies = [
 [[package]]
 name = "rapace-tracing"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#8b2c2d132b2f15c230e3853135185226cbe417f6"
 dependencies = [
  "facet",
  "parking_lot",
@@ -9238,7 +9232,6 @@ checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 [[package]]
 name = "ur-taking-me-with-you"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#8b2c2d132b2f15c230e3853135185226cbe417f6"
 dependencies = [
  "libc",
  "tokio",
