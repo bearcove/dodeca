@@ -20,7 +20,6 @@ use cell_pagefind_proto::{
 pub struct SearchIndexerImpl;
 
 impl SearchIndexer for SearchIndexerImpl {
-    #[expect(reason = "pagefind needs its own runtime due to !Send futures")]
     async fn build_search_index(&self, input: SearchIndexInput) -> SearchIndexResult {
         // Spawn a separate OS thread with its own runtime because:
         // 1. We're already inside the cell's tokio runtime
