@@ -224,11 +224,6 @@ pub async fn start_cell_server_with_shutdown(
             .port();
         tracing::info!("Using pre-bound listener on port {}", bound_port);
 
-        // Print READY signal for test harness
-        println!("READY");
-        use std::io::Write;
-        let _ = std::io::stdout().flush();
-
         (vec![listener], bound_port)
     } else {
         // Bind to requested IPs normally - one listener per IP

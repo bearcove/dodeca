@@ -2,8 +2,9 @@
 //!
 //! Provides high-level APIs for testing the server without boilerplate.
 //!
-//! Uses Unix socket FD passing to hand the listening socket to the server process,
-//! avoiding stdout parsing races and ensuring immediate readiness.
+//! Uses Unix socket FD passing to hand the listening socket to the server process.
+//! The test harness binds the socket first, so connections queue in the TCP backlog
+//! until the server is ready to accept.
 //!
 //! # Environment Variables
 //!
@@ -226,55 +227,9 @@ impl TestSite {
             std::mem::forget(std_listener);
         });
 
-        // Wait for server to signal readiness (it prints to stdout after receiving FD)
-        // Use a timeout to avoid hanging forever
-        use std::io::Read;
-        let mut reader = BufReader::new(stdout);
-        let mut line = String::new();
-        let mut stderr_reader = BufReader::new(stderr);
-
-        // Try to read with a timeout by doing a non-blocking read loop
-        let start = Instant::now();
-        let timeout_dur = Duration::from_secs(10);
-        loop {
-            if start.elapsed() > timeout_dur {
-                let mut stderr_content = String::new();
-                let _ = stderr_reader.read_to_string(&mut stderr_content);
-                error!(stderr = %stderr_content, "Timeout waiting for READY signal");
-                panic!("Timeout waiting for READY signal after {:?}", timeout_dur);
-            }
-
-            // Try to read a line
-            match reader.read_line(&mut line) {
-                Ok(0) => {
-                    // EOF - server closed stdout
-                    let mut stderr_content = String::new();
-                    let _ = stderr_reader.read_to_string(&mut stderr_content);
-                    error!("Server closed stdout before printing READY");
-                    error!(stderr = %stderr_content, "Server stderr on early EOF");
-                    panic!("Server closed stdout before printing READY");
-                }
-                Ok(_) => {
-                    // Got a line
-                    if line.contains("READY") {
-                        debug!("Received READY from server");
-                        break; // Success!
-                    } else {
-                        debug!(line = line.trim_end(), "Server stdout");
-                        line.clear();
-                        continue;
-                    }
-                }
-                Err(e) => {
-                    let mut stderr_content = String::new();
-                    let _ = stderr_reader.read_to_string(&mut stderr_content);
-                    error!(error = %e, stderr = %stderr_content, "Failed to read READY signal");
-                    panic!("Failed to read READY signal: {}", e);
-                }
-            }
-        }
-
         // Capture logs (stdout/stderr) for assertions. Only printed on test failure.
+        let reader = BufReader::new(stdout);
+        let stderr_reader = BufReader::new(stderr);
         let logs: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
         // Drain stdout in background (capture only, no printing)
@@ -309,7 +264,8 @@ impl TestSite {
             .expect("build http client");
 
         // HTTP probe: verify we can actually complete an HTTP round-trip.
-        // The server waits for required cells before printing READY, so this should succeed quickly.
+        // The server waits for required cells before accepting connections.
+        // Our connection queues in the TCP backlog until the server is ready.
         let probe_deadline = Instant::now() + Duration::from_secs(10);
         let probe_url = format!("http://127.0.0.1:{}/__probe__", port);
         let mut probe_attempts = 0u32;
