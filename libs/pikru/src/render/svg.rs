@@ -150,18 +150,15 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             // Compute slot assignments for all text lines
             let slots = compute_text_vslots(texts);
 
-            fn font_scale(text: &PositionedText) -> f64 {
-                if text.big { 1.25 } else if text.small { 0.8 } else { 1.0 }
-            }
-
             let mut ha2: f64 = 0.0;
             let mut ha1: f64 = 0.0;
             let mut hc: f64 = 0.0;
             let mut hb1: f64 = 0.0;
             let mut hb2: f64 = 0.0;
 
+            // cref: pik_append_txt (pikchr.c:5114-5147) - uses pik_font_scale for each text
             for (text, slot) in texts.iter().zip(slots.iter()) {
-                let h = font_scale(text) * charht;
+                let h = text.font_scale() * charht;
                 match slot {
                     TextVSlot::Above2 => ha2 = ha2.max(h),
                     TextVSlot::Above => ha1 = ha1.max(h),
@@ -221,10 +218,13 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 } else {
                     None
                 };
-                let font_size = if positioned_text.big {
-                    Some("125%".to_string())
-                } else if positioned_text.small {
-                    Some("80%".to_string())
+                // Use font_scale() to get the correct scale (handles xtra for double big/small)
+                // cref: pik_append_txt (pikchr.c:5183) - outputs as percentage
+                let font_size = if positioned_text.big || positioned_text.small {
+                    let scale = positioned_text.font_scale();
+                    let percent = scale * 100.0;
+                    // Format with appropriate precision to avoid floating point artifacts
+                    Some(fmt_num(percent) + "%")
                 } else {
                     None
                 };
@@ -380,7 +380,7 @@ pub fn render_arrowhead_dom(
 
 /// Format a number with up to 3 decimal places (sufficient for SVG coordinates).
 /// Trims trailing zeros and decimal point.
-fn fmt_num(value: f64) -> String {
+pub(crate) fn fmt_num(value: f64) -> String {
     let s = format!("{:.3}", value);
     let s = s.trim_end_matches('0');
     let s = s.trim_end_matches('.');

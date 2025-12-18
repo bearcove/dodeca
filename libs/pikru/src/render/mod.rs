@@ -870,8 +870,8 @@ fn render_object_stmt(
                         }
                     }
 
-                    let mut bbox_min_y = 0.0_f64;
-                    let mut bbox_max_y = 0.0_f64;
+                    let mut bbox_min_y = f64::MAX;
+                    let mut bbox_max_y = f64::MIN;
                     for (i, t) in text.iter().enumerate() {
                         let slot = vslots.get(i).unwrap_or(&TextVSlot::Center);
                         let y_offset = match slot {
@@ -890,6 +890,16 @@ fn render_object_stmt(
                     let h1 = bbox_max_y;
                     let h2 = -bbox_min_y;
                     let fit_height = Inches(2.0 * h1.max(h2) + 0.5 * charht);
+
+                    tracing::debug!(
+                        bbox_min_y = bbox_min_y,
+                        bbox_max_y = bbox_max_y,
+                        h1 = h1,
+                        h2 = h2,
+                        charht = charht,
+                        fit_height = fit_height.raw(),
+                        "[Rust fit height calculation]"
+                    );
 
                     // Apply shape-specific fit logic
                     match class_name {

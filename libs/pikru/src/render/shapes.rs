@@ -1562,12 +1562,14 @@ impl Shape for TextShape {
             } else {
                 None
             };
-            // C pikchr uses percentage-based font sizes: 125% for big, 80% for small
+            // Use font_scale() to get the correct scale (handles xtra for double big/small)
+            // C pikchr uses percentage-based font sizes: 125% for big, 80% for small, squared if xtra
             // cref: pik_append_txt (pikchr.c:5183)
-            let font_size = if positioned_text.big {
-                Some("125%".to_string())
-            } else if positioned_text.small {
-                Some("80%".to_string())
+            let font_size = if positioned_text.big || positioned_text.small {
+                let scale = positioned_text.font_scale();
+                let percent = scale * 100.0;
+                // Format with appropriate precision to avoid floating point artifacts
+                Some(super::svg::fmt_num(percent) + "%")
             } else {
                 None
             };
@@ -1631,13 +1633,15 @@ impl Shape for TextShape {
             let mut hb1 = Inches::ZERO;
             let mut hb2 = Inches::ZERO;
 
-            for slot in &vslots {
+            // cref: pik_append_txt (pikchr.c:5114-5147) - uses font_scale for each text
+            for (t, slot) in self.text.iter().zip(vslots.iter()) {
+                let h = Inches(t.height(charht.0));
                 match slot {
-                    TextVSlot::Center => hc = hc.max(charht),
-                    TextVSlot::Above => ha1 = ha1.max(charht),
-                    TextVSlot::Above2 => ha2 = ha2.max(charht),
-                    TextVSlot::Below => hb1 = hb1.max(charht),
-                    TextVSlot::Below2 => hb2 = hb2.max(charht),
+                    TextVSlot::Center => hc = hc.max(h),
+                    TextVSlot::Above => ha1 = ha1.max(h),
+                    TextVSlot::Above2 => ha2 = ha2.max(h),
+                    TextVSlot::Below => hb1 = hb1.max(h),
+                    TextVSlot::Below2 => hb2 = hb2.max(h),
                 }
             }
 

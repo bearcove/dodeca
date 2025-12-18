@@ -77,6 +77,7 @@ pub struct PositionedText {
     pub mono: bool,
     pub big: bool,
     pub small: bool,
+    pub xtra: bool,  // Amplify big or small (for double big/small)
 }
 
 impl PositionedText {
@@ -92,12 +93,15 @@ impl PositionedText {
             mono: false,
             big: false,
             small: false,
+            xtra: false,
         }
     }
 
     pub fn from_textposition(value: String, pos: Option<&crate::ast::TextPosition>) -> Self {
         let mut pt = Self::new(value);
         if let Some(pos) = pos {
+            // cref: pik_txt_token (pikchr.c:6262-6265)
+            // If we see a second Big or Small, set xtra flag
             for attr in &pos.attrs {
                 match attr {
                     TextAttr::Above => pt.above = true,
@@ -107,8 +111,22 @@ impl PositionedText {
                     TextAttr::Bold => pt.bold = true,
                     TextAttr::Italic => pt.italic = true,
                     TextAttr::Mono => pt.mono = true,
-                    TextAttr::Big => pt.big = true,
-                    TextAttr::Small => pt.small = true,
+                    TextAttr::Big => {
+                        if pt.big {
+                            // Second occurrence of Big - set xtra
+                            pt.xtra = true;
+                        } else {
+                            pt.big = true;
+                        }
+                    }
+                    TextAttr::Small => {
+                        if pt.small {
+                            // Second occurrence of Small - set xtra
+                            pt.xtra = true;
+                        } else {
+                            pt.small = true;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -117,15 +135,20 @@ impl PositionedText {
     }
 
     /// Font scale factor: 1.25 for big, 0.8 for small, 1.0 otherwise
-    // cref: pik_font_scale (pikchr.c:5151)
+    /// If xtra is true, square the scale (for double big/small)
+    // cref: pik_font_scale (pikchr.c:5065-5071)
     pub fn font_scale(&self) -> f64 {
+        let mut scale = 1.0;
         if self.big {
-            1.25
-        } else if self.small {
-            0.8
-        } else {
-            1.0
+            scale *= 1.25;
         }
+        if self.small {
+            scale *= 0.8;
+        }
+        if self.xtra {
+            scale *= scale;  // Square the scale for double big/small
+        }
+        scale
     }
 
     /// Calculate text width in inches, accounting for font properties.
