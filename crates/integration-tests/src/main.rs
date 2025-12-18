@@ -17,14 +17,6 @@ use owo_colors::OwoColorize;
 use std::panic::{self, AssertUnwindSafe};
 use std::time::{Duration, Instant};
 
-/// Test result
-#[derive(Debug)]
-enum TestResult {
-    Pass,
-    Fail(String),
-    Skip(String),
-}
-
 /// A test case
 struct Test {
     name: &'static str,
@@ -35,7 +27,6 @@ struct Test {
 
 enum TestFn {
     Sync(fn()),
-    Async(fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>),
 }
 
 /// Run all tests and return (passed, failed, skipped)
@@ -43,8 +34,6 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
     let mut passed = 0;
     let mut failed = 0;
     let mut skipped = 0;
-
-    let rt = tokio::runtime::Runtime::new().expect("create tokio runtime");
 
     fn panic_message(e: &Box<dyn std::any::Any + Send>) -> String {
         if let Some(s) = e.downcast_ref::<&str>() {
@@ -99,14 +88,6 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
                 TestFn::Sync(f) => {
                     let f = *f;
                     panic::catch_unwind(AssertUnwindSafe(f))
-                }
-                TestFn::Async(f) => {
-                    let fut = f();
-                    rt.block_on(async {
-                        panic::catch_unwind(AssertUnwindSafe(|| {
-                            tokio::runtime::Handle::current().block_on(fut)
-                        }))
-                    })
                 }
             };
 
