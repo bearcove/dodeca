@@ -1629,18 +1629,32 @@ fn calculate_center_from_edge(
         let sign_x = unit.dx().signum();
         let sign_y = unit.dy().signum();
         OffsetIn::new(Inches(sign_x * hw.0), Inches(sign_y * hh.0))
-    } else if is_diagonal && class.is_round() {
-        // For round shapes, diagonal edges are on the perimeter at (0.707*r, 0.707*r)
-        let diag = class.diagonal_factor();
-        edge.to_unit_vec().scale_xy(hw * diag, hh * diag)
     } else {
-        // For cardinal directions (N/S/E/W), edge is at full (hw, 0) or (0, hh)
-        // No diagonal factor needed
+        // For round shapes with diagonal edges OR any cardinal direction:
+        // The diagonal unit vectors already have 1/√2 built in (e.g., SOUTH_EAST.dx = 0.707)
+        // So we just scale by hw/hh directly to get the correct perimeter point.
+        // cref: pik_elem_bbox (pikchr.c:3788-3798) - uses rx = (1-1/√2)*rad, then pt = w2-rx = rad/√2
         edge.to_unit_vec().scale_xy(hw, hh)
     };
 
     // Edge point = center + offset, so center = edge point - offset
-    target - offset
+    let center = target - offset;
+
+    tracing::debug!(
+        ?edge,
+        target_x = target.x.0,
+        target_y = target.y.0,
+        width = width.0,
+        height = height.0,
+        offset_x = offset.dx.0,
+        offset_y = offset.dy.0,
+        center_x = center.x.0,
+        center_y = center.y.0,
+        is_round = class.is_round(),
+        "[calculate_center_from_edge]"
+    );
+
+    center
 }
 
 /// Move a point in a direction by a distance

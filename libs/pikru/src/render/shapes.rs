@@ -155,8 +155,9 @@ pub trait Shape {
             new_min_x = bounds.min.x.0,
             center_x = center.x.0,
             width = self.width().0,
+            height = self.height().0,
             invisible = style.invisible,
-            "[BBOX Box]"
+            "[BBOX]"
         );
     }
 }
