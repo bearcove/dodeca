@@ -16,22 +16,9 @@ path = "src/main.rs"
 # Search indexing
 pagefind = "1.4"
 
-# Error handling
-color-eyre = "0.6"
-
 # Async runtime
 tokio = { version = "1", features = ["rt", "time", "rt-multi-thread"] }
-
-# Logging
-tracing = "0.1"
-
-# RPC framework
-rapace = { workspace = true, features = ["stream"] }
 rapace-cell.workspace = true
 
 # Local protocol definitions
 cell-pagefind-proto = { path = "../cell-pagefind-proto" }
-
-# Facet for serialization  
-facet.workspace = true
-facet-kdl.workspace = true

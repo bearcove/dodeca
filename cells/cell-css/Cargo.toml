@@ -16,22 +16,9 @@ path = "src/main.rs"
 # CSS processing
 lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }
 
-# Error handling
-color-eyre = "0.6"
-
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
-
-# Logging
-tracing = "0.1"
-
-# RPC framework
-rapace = { workspace = true, features = ["stream"] }
 rapace-cell.workspace = true
 
 # Local protocol definitions
 cell-css-proto = { path = "../cell-css-proto" }
-
-# Facet for serialization  
-facet.workspace = true
-facet-kdl.workspace = true

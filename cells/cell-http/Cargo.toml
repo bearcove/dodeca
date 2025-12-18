@@ -18,7 +18,6 @@ path = "src/main.rs"
 # HTTP server (internal only - not exposed to network)
 axum = { version = "0.8", features = ["ws"] }
 tokio = { version = "1", features = ["full"] }
-tokio-stream = "0.1"
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 
@@ -29,9 +28,6 @@ futures-util = "0.3"
 rapace = { workspace = true, features = ["stream"] }
 rapace-cell.workspace = true
 cell-http-proto = { path = "../cell-http-proto" }
-
-# Error handling
-color-eyre = "0.6"
 
 # Logging (via rapace-tracing to forward to host)
 tracing = "0.1"

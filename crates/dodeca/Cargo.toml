@@ -96,7 +96,6 @@ cell-html-diff-proto = { path = "../../cells/cell-html-diff-proto" }
 cell-image-proto = { path = "../../cells/cell-image-proto" }
 cell-js-proto = { path = "../../cells/cell-js-proto" }
 cell-jxl-proto = { path = "../../cells/cell-jxl-proto" }
-cell-lifecycle-proto = { path = "../../cells/cell-lifecycle-proto" }
 cell-linkcheck-proto = { path = "../../cells/cell-linkcheck-proto" }
 cell-minify-proto = { path = "../../cells/cell-minify-proto" }
 cell-tui-proto = { path = "../../cells/cell-tui-proto" }
@@ -148,12 +147,9 @@ dodeca-debug = { path = "../dodeca-debug" }
 [dev-dependencies]
 divan = "0.1"
 minijinja = "2"  # For template engine benchmarks
-test-log = { version = "0.2", features = ["trace"] }
 regex = "1"  # For test assertions
-tempfile = "3"  # For isolated test fixtures
 futures = "0.3"        # For StreamExt in browser tests
 async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
-reqwest = { version = "0.12", features = ["blocking"] }
 
 [[bench]]
 name = "template"

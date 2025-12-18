@@ -24,21 +24,12 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 # URL parsing for domain extraction
 url = "2"
 
-# Error handling
-color-eyre = "0.6"
-
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 
 # Logging
 tracing = "0.1"
-
-# RPC framework
-rapace = { workspace = true, features = ["stream"] }
 rapace-cell.workspace = true
 
 # Local protocol definitions
 cell-linkcheck-proto = { path = "../cell-linkcheck-proto" }
-
-# Facet for serialization
-facet.workspace = true

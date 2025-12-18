@@ -1319,11 +1319,8 @@ version = "0.1.0"
 dependencies = [
  "arborium",
  "cell-arborium-proto",
- "color-eyre",
- "rapace",
  "rapace-cell",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1339,13 +1336,7 @@ name = "cell-code-execution"
 version = "0.1.0"
 dependencies = [
  "cell-code-execution-proto",
- "color-eyre",
- "dodeca-code-execution-config",
- "dodeca-code-execution-types",
- "facet",
- "facet-kdl",
  "pulldown-cmark",
- "rapace",
  "rapace-cell",
  "tempfile",
  "tokio",
@@ -1366,14 +1357,9 @@ name = "cell-css"
 version = "0.1.0"
 dependencies = [
  "cell-css-proto",
- "color-eyre",
- "facet",
- "facet-kdl",
  "lightningcss",
- "rapace",
  "rapace-cell",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1389,14 +1375,9 @@ name = "cell-fonts"
 version = "0.1.0"
 dependencies = [
  "cell-fonts-proto",
- "color-eyre",
- "facet",
- "facet-kdl",
  "fontcull",
- "rapace",
  "rapace-cell",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1413,14 +1394,11 @@ version = "0.1.0"
 dependencies = [
  "cell-html-proto",
  "color-eyre",
- "facet",
  "html5ever 0.36.1",
  "lol_html 2.7.0",
  "markup5ever_rcdom",
- "rapace",
  "rapace-cell",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1428,14 +1406,9 @@ name = "cell-html-diff"
 version = "0.1.0"
 dependencies = [
  "cell-html-diff-proto",
- "color-eyre",
  "dodeca-protocol",
- "facet",
- "facet-kdl",
- "rapace",
  "rapace-cell",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1461,14 +1434,12 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "cell-http-proto",
- "color-eyre",
  "futures-util",
  "hyper",
  "hyper-util",
  "rapace",
  "rapace-cell",
  "tokio",
- "tokio-stream",
  "tracing",
 ]
 
@@ -1487,15 +1458,10 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "cell-image-proto",
- "color-eyre",
- "facet",
- "facet-kdl",
  "image",
- "rapace",
  "rapace-cell",
  "thumbhash",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1511,14 +1477,9 @@ name = "cell-js"
 version = "0.1.0"
 dependencies = [
  "cell-js-proto",
- "color-eyre",
- "facet",
- "facet-kdl",
  "oxc",
- "rapace",
  "rapace-cell",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1534,14 +1495,9 @@ name = "cell-jxl"
 version = "0.1.0"
 dependencies = [
  "cell-jxl-proto",
- "color-eyre",
- "facet",
- "facet-kdl",
  "jpegxl-rs",
- "rapace",
  "rapace-cell",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1565,9 +1521,6 @@ name = "cell-linkcheck"
 version = "0.1.0"
 dependencies = [
  "cell-linkcheck-proto",
- "color-eyre",
- "facet",
- "rapace",
  "rapace-cell",
  "reqwest",
  "tokio",
@@ -1588,16 +1541,13 @@ name = "cell-markdown"
 version = "0.1.0"
 dependencies = [
  "cell-markdown-proto",
- "color-eyre",
  "facet",
  "facet-json",
  "facet-toml",
  "facet-value",
  "pulldown-cmark",
- "rapace",
  "rapace-cell",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1613,14 +1563,9 @@ name = "cell-minify"
 version = "0.1.0"
 dependencies = [
  "cell-minify-proto",
- "color-eyre",
- "facet",
- "facet-kdl",
  "minify-html",
- "rapace",
  "rapace-cell",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1636,14 +1581,9 @@ name = "cell-pagefind"
 version = "0.1.0"
 dependencies = [
  "cell-pagefind-proto",
- "color-eyre",
- "facet",
- "facet-kdl",
  "pagefind",
- "rapace",
  "rapace-cell",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1659,14 +1599,9 @@ name = "cell-sass"
 version = "0.1.0"
 dependencies = [
  "cell-sass-proto",
- "color-eyre",
- "facet",
- "facet-kdl",
  "grass",
- "rapace",
  "rapace-cell",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1682,14 +1617,9 @@ name = "cell-svgo"
 version = "0.1.0"
 dependencies = [
  "cell-svgo-proto",
- "color-eyre",
- "facet",
- "facet-kdl",
- "rapace",
  "rapace-cell",
  "svag",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -1707,14 +1637,11 @@ dependencies = [
  "cell-tui-proto",
  "color-eyre",
  "crossterm",
- "facet",
  "futures",
  "rapace",
  "rapace-cell",
  "ratatui",
  "tokio",
- "tokio-stream",
- "tracing",
 ]
 
 [[package]]
@@ -1730,13 +1657,8 @@ name = "cell-webp"
 version = "0.1.0"
 dependencies = [
  "cell-webp-proto",
- "color-eyre",
- "facet",
- "facet-kdl",
- "rapace",
  "rapace-cell",
  "tokio",
- "tracing",
  "webp",
 ]
 
@@ -2870,7 +2792,6 @@ dependencies = [
  "cell-image-proto",
  "cell-js-proto",
  "cell-jxl-proto",
- "cell-lifecycle-proto",
  "cell-linkcheck-proto",
  "cell-markdown-proto",
  "cell-minify-proto",
@@ -2909,12 +2830,9 @@ dependencies = [
  "rapace-tracing",
  "rapidhash",
  "regex",
- "reqwest",
  "serde",
  "serde_yaml 0.9.34+deprecated",
  "strid",
- "tempfile",
- "test-log",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -3086,27 +3004,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.111",
-]
-
-[[package]]
-name = "env_filter"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bf3c259d255ca70051b30e2e95b5446cdb8949ac4cd22c0d7fd634d89f568e2"
-dependencies = [
- "log",
-]
-
-[[package]]
-name = "env_logger"
-version = "0.11.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13c863f0904021b108aa8b2f55046443e6b1ebde8fd4a15c399893aae4fa069f"
-dependencies = [
- "anstream",
- "anstyle",
- "env_filter",
- "log",
 ]
 
 [[package]]
@@ -4655,8 +4552,6 @@ name = "integration-tests"
 version = "0.1.0"
 dependencies = [
  "async-send-fd",
- "facet",
- "facet-args",
  "owo-colors",
  "regex",
  "reqwest",
@@ -8669,28 +8564,6 @@ checksum = "60b8cb979cb11c32ce1603f8137b22262a9d131aaa5c37b5678025f22b8becd0"
 dependencies = [
  "rustix 1.1.2",
  "windows-sys 0.60.2",
-]
-
-[[package]]
-name = "test-log"
-version = "0.2.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37d53ac171c92a39e4769491c4b4dde7022c60042254b5fc044ae409d34a24d4"
-dependencies = [
- "env_logger",
- "test-log-macros",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "test-log-macros"
-version = "0.2.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be35209fd0781c5401458ab66e4f98accf63553e8fae7425503e92fdd319783b"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.111",
 ]
 
 [[package]]

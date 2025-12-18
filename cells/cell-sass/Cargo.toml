@@ -16,22 +16,9 @@ path = "src/main.rs"
 # SASS compilation
 grass = { version = "0.13", features = ["macro"] }
 
-# Error handling
-color-eyre = "0.6"
-
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
-
-# Logging
-tracing = "0.1"
-
-# RPC framework
-rapace = { workspace = true, features = ["stream"] }
 rapace-cell.workspace = true
 
 # Local protocol definitions
 cell-sass-proto = { path = "../cell-sass-proto" }
-
-# Facet for serialization  
-facet.workspace = true
-facet-kdl.workspace = true

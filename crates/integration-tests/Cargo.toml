@@ -32,9 +32,5 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Death-watch for child processes
 ur-taking-me-with-you.workspace = true
 
-# CLI argument parsing
-facet.workspace = true
-facet-args.workspace = true
-
 # Colorful output
 owo-colors = "4"
