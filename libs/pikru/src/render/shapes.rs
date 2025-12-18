@@ -127,6 +127,8 @@ pub trait Shape {
         let text = self.text();
         let center = self.center();
 
+        let old_min_x = bounds.min.x.0;
+
         if style.invisible && !text.is_empty() {
             // For invisible objects, only include text bounds
             let charht = defaults::FONT_SIZE;
@@ -147,6 +149,15 @@ pub trait Shape {
                 },
             );
         }
+
+        tracing::debug!(
+            old_min_x,
+            new_min_x = bounds.min.x.0,
+            center_x = center.x.0,
+            width = self.width().0,
+            invisible = style.invisible,
+            "[BBOX Box]"
+        );
     }
 }
 
@@ -1033,54 +1044,58 @@ impl Shape for LineShape {
         let mut path_data = PathData::new();
 
         if corner_radius_px > 0.0 && svg_points.len() >= 3 {
-            // Render with rounded corners using quadratic bezier curves
+            // cref: radiusPath (pikchr.c:1683-1711) - render rounded corners
             let n = svg_points.len();
-            let mut i = 0;
-            while i < n {
-                let curr = svg_points[i];
+            let i_last = if self.style.close_path { n } else { n - 1 };
 
-                if i == 0 {
-                    // Start point - find entry point for first segment
-                    if i + 1 < n {
-                        let next = svg_points[i + 1];
-                        let dir = (next - curr).normalize();
-                        let start_pt = curr + dir * corner_radius_px;
-                        path_data = path_data.m(start_pt.x, start_pt.y);
-                    } else {
-                        path_data = path_data.m(curr.x, curr.y);
-                    }
-                } else if i == n - 1 {
-                    // End point - draw to it and we're done (unless closing)
-                    if self.style.close_path && n >= 3 {
-                        // For closed paths, round the corner back to start
-                        let prev = svg_points[i - 1];
-                        let first = svg_points[0];
-                        let dir_to_curr = (curr - prev).normalize();
-                        let dir_from_curr = (first - curr).normalize();
-                        let entry = curr - dir_to_curr * corner_radius_px;
-                        let exit = curr + dir_from_curr * corner_radius_px;
-                        path_data = path_data.l(entry.x, entry.y);
-                        path_data = path_data.q(curr.x, curr.y, exit.x, exit.y);
-                    } else {
-                        path_data = path_data.l(curr.x, curr.y);
-                    }
-                } else {
-                    // Middle point - create rounded corner
-                    let prev = svg_points[i - 1];
-                    let next = svg_points[i + 1];
-                    let dir_in = (curr - prev).normalize();
-                    let dir_out = (next - curr).normalize();
+            // Start at first waypoint
+            path_data = path_data.m(svg_points[0].x, svg_points[0].y);
 
-                    // Entry and exit points for the curve
-                    let entry = curr - dir_in * corner_radius_px;
-                    let exit = curr + dir_out * corner_radius_px;
-
-                    // Line to entry, then curve around corner, then continue
-                    path_data = path_data.l(entry.x, entry.y);
-                    path_data = path_data.q(curr.x, curr.y, exit.x, exit.y);
-                }
-                i += 1;
+            // Draw line to midpoint before second waypoint
+            if n >= 2 {
+                let dir = (svg_points[1] - svg_points[0]).normalize();
+                let m = svg_points[0] + dir * corner_radius_px;
+                path_data = path_data.l(m.x, m.y);
             }
+
+            // Loop through waypoints 1 to i_last-1, rounding each corner
+            for i in 1..i_last {
+                let a_i = svg_points[i];
+                // Next waypoint (wraps to first for closed paths)
+                let a_n = if i < n - 1 { svg_points[i + 1] } else { svg_points[0] };
+
+                // Entry point: from a_n toward a_i, then back off by radius
+                // cref: radiusMidpoint(an, a[i], r) returns a[i] - r*dir
+                let dir_in = (a_i - a_n).normalize();
+                let m_entry = a_i - dir_in * corner_radius_px;
+
+                tracing::debug!(
+                    i,
+                    a_i_x = a_i.x,
+                    a_i_y = a_i.y,
+                    a_n_x = a_n.x,
+                    a_n_y = a_n.y,
+                    m_entry_x = m_entry.x,
+                    m_entry_y = m_entry.y,
+                    "[entry point]"
+                );
+
+                // Quadratic curve: control at a[i], end at entry point
+                path_data = path_data.q(a_i.x, a_i.y, m_entry.x, m_entry.y);
+
+                // Exit point: point before reaching next waypoint
+                // cref: radiusMidpoint(a[i], an, r) returns an - r*dir = point near an
+                let dist = (a_n - a_i).length();
+                if corner_radius_px < dist * 0.5 {
+                    let dir_out = (a_n - a_i).normalize();
+                    let m_exit = a_n - dir_out * corner_radius_px;  // near a_n, not a_i!
+                    path_data = path_data.l(m_exit.x, m_exit.y);
+                }
+            }
+
+            // Line back to start (for closed paths)
+            let a_n = if i_last == n { svg_points[0] } else { svg_points[n - 1] };
+            path_data = path_data.l(a_n.x, a_n.y);
         } else {
             // No rounding - simple polyline
             for (i, pt) in svg_points.iter().enumerate() {
@@ -1123,6 +1138,8 @@ impl Shape for LineShape {
     /// cref: pik_bbox_add_elist (pikchr.c:7243) - only if sw>=0
     /// cref: pik_bbox_add_elist (pikchr.c:7251-7260) - arrowheads always added as ellipses
     fn expand_bounds(&self, bounds: &mut BoundingBox) {
+        let old_min_x = bounds.min.x.0;
+
         // Only expand by waypoints if stroke width is non-negative
         if self.style.stroke_width.0 >= 0.0 {
             for pt in &self.waypoints {
@@ -1147,6 +1164,14 @@ impl Shape for LineShape {
                 bounds.expand_point(Point::new(pt.x + w_arrow, pt.y + w_arrow));
             }
         }
+
+        tracing::debug!(
+            old_min_x,
+            new_min_x = bounds.min.x.0,
+            num_waypoints = self.waypoints.len(),
+            sw = self.style.stroke_width.0,
+            "[BBOX Line]"
+        );
         // Include text labels (they extend above and below the line)
         if !self.text.is_empty() {
             let charht = Inches(defaults::FONT_SIZE);
@@ -1388,6 +1413,12 @@ impl Shape for DotShape {
 
         let center_svg = self.center.to_svg(scaler, offset_x, max_y);
         let r = scaler.px(self.radius);
+
+        tracing::debug!(
+            fill = %self.style.fill,
+            stroke = %self.style.stroke,
+            "[Rust dot render] About to render dot"
+        );
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
 
@@ -2057,9 +2088,20 @@ fn build_svg_style_ex(
     dashwid: Inches,
     add_linejoin: bool,
 ) -> SvgStyle {
+    let fill_rgb = color_to_rgb(&style.fill);
+    let stroke_rgb = color_to_rgb(&style.stroke);
+
+    tracing::debug!(
+        fill_input = %style.fill,
+        fill_output = %fill_rgb,
+        stroke_input = %style.stroke,
+        stroke_output = %stroke_rgb,
+        "[Rust build_svg_style] Converting colors"
+    );
+
     let mut entries = vec![
-        ("fill", color_to_rgb(&style.fill)),
-        ("stroke", color_to_rgb(&style.stroke)),
+        ("fill", fill_rgb),
+        ("stroke", stroke_rgb),
         (
             "stroke-width",
             format!("{}", scaler.px(style.stroke_width)),

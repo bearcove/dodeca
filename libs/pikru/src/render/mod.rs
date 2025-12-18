@@ -564,6 +564,18 @@ fn render_object_stmt(
         style.arrow_end = true;
     }
 
+    // For dots, initialize fill to match stroke color and set stroke width to 0
+    // cref: dotInit (pikchr.c:1348-1352) - pObj->fill = pObj->color
+    // Dots should only show fill, no stroke outline
+    if class_name == Some(ClassName::Dot) {
+        style.fill = style.stroke.clone();
+        style.stroke_width = Inches(0.0);
+        tracing::debug!(
+            fill = %style.fill,
+            "[Rust dot init] Set fill = stroke, stroke_width = 0"
+        );
+    }
+
     // Initialize current_object for `this` keyword support
     update_current_object(ctx, class_name, width, height, &style);
 
@@ -655,9 +667,30 @@ fn render_object_stmt(
             }
             Attribute::ColorProperty(prop, rvalue) => {
                 let color = eval_color(ctx, rvalue);
+                // cref: dotNumProp (pikchr.c:1353-1363) - dots keep fill and stroke synchronized
                 match prop {
-                    ColorProperty::Fill => style.fill = color,
-                    ColorProperty::Color => style.stroke = color,
+                    ColorProperty::Fill => {
+                        style.fill = color.clone();
+                        // For dots, when fill is set, also update stroke to match
+                        if class_name == Some(ClassName::Dot) {
+                            style.stroke = color.clone();
+                            tracing::debug!(
+                                color = %color,
+                                "[Rust dot] Fill set, updating stroke to match"
+                            );
+                        }
+                    }
+                    ColorProperty::Color => {
+                        style.stroke = color.clone();
+                        // For dots, when color (stroke) is set, also update fill to match
+                        if class_name == Some(ClassName::Dot) {
+                            style.fill = color.clone();
+                            tracing::debug!(
+                                color = %color,
+                                "[Rust dot] Color set, updating fill to match"
+                            );
+                        }
+                    }
                 }
             }
             Attribute::BoolProperty(prop) => match prop {
