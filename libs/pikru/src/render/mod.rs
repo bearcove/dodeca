@@ -402,7 +402,7 @@ fn render_object_stmt(
 
     // Get layer from "layer" variable, default 1000
     // cref: pik_elem_new (pikchr.c:2960)
-    let layer = ctx.get_scalar("layer", 1000.0) as i32;
+    let mut layer = ctx.get_scalar("layer", 1000.0) as i32;
 
     // Determine base object properties from context variables (like C pikchr's pik_value)
     let (mut width, mut height) = match &obj_stmt.basetype {
@@ -943,6 +943,15 @@ fn render_object_stmt(
                     with_clause = Some((edge, target));
                 }
             }
+            Attribute::Behind(obj_ref) => {
+                // Lower the layer of the current object so that it is behind the given object
+                // cref: pik_behind (pikchr.c:3500-3505)
+                if let Some(other) = resolve_object(ctx, obj_ref) {
+                    // Set our layer to one less than the other object's layer
+                    // We'll apply this after creating the object
+                    layer = other.layer - 1;
+                }
+            }
             _ => {}
         }
     }
@@ -1281,7 +1290,23 @@ fn render_object_stmt(
             }
 
             let end = *points.last().unwrap_or(&start);
-            let center = start.midpoint(end);
+            // Compute line center as center of bounding box over all path points
+            // cref: pikchr.y:4381-4391 - "the center of a line is the center of its bounding box"
+            // This differs from PIC where center is midpoint between start and end
+            let mut min_x = f64::MAX;
+            let mut max_x = f64::MIN;
+            let mut min_y = f64::MAX;
+            let mut max_y = f64::MIN;
+            for pt in &points {
+                min_x = min_x.min(pt.x.raw());
+                max_x = max_x.max(pt.x.raw());
+                min_y = min_y.min(pt.y.raw());
+                max_y = max_y.max(pt.y.raw());
+            }
+            let center = Point {
+                x: Inches((min_x + max_x) / 2.0),
+                y: Inches((min_y + max_y) / 2.0),
+            };
             tracing::debug!(
                 center_x = center.x.raw(),
                 center_y = center.y.raw(),
