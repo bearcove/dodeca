@@ -514,7 +514,17 @@ pub fn resolve_object<'a>(ctx: &'a RenderContext, obj: &Object) -> Option<&'a Re
             }
             Nth::First(class) => {
                 let oc = class.as_ref().and_then(|c| nth_class_to_class_name(c));
-                ctx.get_nth_object(1, oc)
+                let obj = ctx.get_nth_object(1, oc);
+                if let Some(o) = obj {
+                    tracing::debug!(
+                        name = ?o.name,
+                        class = ?o.class(),
+                        start_x = o.start().x.0,
+                        start_y = o.start().y.0,
+                        "resolve_object Nth::First"
+                    );
+                }
+                obj
             }
             Nth::Ordinal(n, _, class) => {
                 let oc = class.as_ref().and_then(|c| nth_class_to_class_name(c));

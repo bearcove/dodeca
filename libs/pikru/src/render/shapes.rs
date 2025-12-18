@@ -12,7 +12,7 @@ use facet_svg::{
 use glam::DVec2;
 
 use super::defaults;
-use super::{TextVSlot, compute_text_vslots, count_text_above_below};
+use super::{TextVSlot, compute_text_vslots, count_text_above_below, sum_text_heights_above_below};
 
 /// Bounding box type alias
 pub type BoundingBox = BoxIn;
@@ -1209,14 +1209,13 @@ impl Shape for LineShape {
             "[BBOX Line]"
         );
         // Include text labels (they extend above and below the line)
+        // Must account for font scaling from big/small modifiers
         if !self.text.is_empty() {
-            let charht = Inches(defaults::FONT_SIZE);
-            let (above_count, below_count) = count_text_above_below(&self.text);
-            let text_above = charht * above_count as f64;
-            let text_below = charht * below_count as f64;
+            let charht = defaults::FONT_SIZE;
+            let (text_above, text_below) = sum_text_heights_above_below(&self.text, charht);
             let center = self.center();
-            bounds.expand_point(Point::new(center.x, center.y + text_above));
-            bounds.expand_point(Point::new(center.x, center.y - text_below));
+            bounds.expand_point(Point::new(center.x, center.y + Inches(text_above)));
+            bounds.expand_point(Point::new(center.x, center.y - Inches(text_below)));
         }
     }
 }
@@ -1368,15 +1367,13 @@ impl Shape for SplineShape {
                 bounds.expand_point(Point::new(pt.x + w_arrow, pt.y + w_arrow));
             }
         }
-        // Include text labels
+        // Include text labels (must account for font scaling)
         if !self.text.is_empty() {
-            let charht = Inches(defaults::FONT_SIZE);
-            let (above_count, below_count) = count_text_above_below(&self.text);
-            let text_above = charht * above_count as f64;
-            let text_below = charht * below_count as f64;
+            let charht = defaults::FONT_SIZE;
+            let (text_above, text_below) = sum_text_heights_above_below(&self.text, charht);
             let center = self.center();
-            bounds.expand_point(Point::new(center.x, center.y + text_above));
-            bounds.expand_point(Point::new(center.x, center.y - text_below));
+            bounds.expand_point(Point::new(center.x, center.y + Inches(text_above)));
+            bounds.expand_point(Point::new(center.x, center.y - Inches(text_below)));
         }
     }
 }
@@ -1800,15 +1797,13 @@ impl Shape for ArcShape {
     fn expand_bounds(&self, bounds: &mut BoundingBox) {
         bounds.expand_point(self.start);
         bounds.expand_point(self.end);
-        // Include text labels
+        // Include text labels (must account for font scaling)
         if !self.text.is_empty() {
-            let charht = Inches(defaults::FONT_SIZE);
-            let (above_count, below_count) = count_text_above_below(&self.text);
-            let text_above = charht * above_count as f64;
-            let text_below = charht * below_count as f64;
+            let charht = defaults::FONT_SIZE;
+            let (text_above, text_below) = sum_text_heights_above_below(&self.text, charht);
             let center = self.center();
-            bounds.expand_point(Point::new(center.x, center.y + text_above));
-            bounds.expand_point(Point::new(center.x, center.y - text_below));
+            bounds.expand_point(Point::new(center.x, center.y + Inches(text_above)));
+            bounds.expand_point(Point::new(center.x, center.y - Inches(text_below)));
         }
     }
 }

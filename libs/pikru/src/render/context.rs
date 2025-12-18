@@ -169,6 +169,14 @@ impl RenderContext {
     /// Add an object to the context
     // cref: pik_after_adding_element (pikchr.c:7095) - p->eDir = pObj->outDir
     pub fn add_object(&mut self, obj: RenderedObject) {
+        tracing::debug!(
+            name = ?obj.name,
+            class = ?obj.class(),
+            old_cursor_x = self.position.x.0,
+            old_cursor_y = self.position.y.0,
+            "[add_object] BEFORE cursor update"
+        );
+
         // Update bounds
         expand_object_bounds(&mut self.bounds, &obj);
 
@@ -198,6 +206,16 @@ impl RenderContext {
             }
         };
         self.position = exit_point;
+
+        tracing::debug!(
+            name = ?obj.name,
+            class = ?obj.class(),
+            new_cursor_x = self.position.x.0,
+            new_cursor_y = self.position.y.0,
+            exit_x = exit_point.x.0,
+            exit_y = exit_point.y.0,
+            "[add_object] AFTER cursor update"
+        );
 
         // Store named objects
         if let Some(ref name) = obj.name {

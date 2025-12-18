@@ -194,6 +194,10 @@ pub struct RenderedObject {
     /// Used to resolve .start and .end edge points.
     // cref: pObj->inDir, pObj->outDir in C pikchr
     pub direction: crate::ast::Direction,
+    /// The original class name (Arrow vs Line, etc.)
+    /// This is needed for "first arrow" lookups, since arrows are stored as Line shapes
+    /// cref: pObj->type in C pikchr
+    pub class_name: crate::ast::ClassName,
 }
 
 impl RenderedObject {
@@ -264,7 +268,7 @@ impl RenderedObject {
     }
 
     pub fn class(&self) -> ClassName {
-        self.shape.class()
+        self.class_name
     }
 
     pub fn children(&self) -> Option<&[RenderedObject]> {

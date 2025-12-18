@@ -122,23 +122,81 @@ fn render_statement(
             }
         }
         Statement::Assignment(assign) => {
+            // cref: pik_set_var (pikchr.c:6479-6511)
             // eval_rvalue now returns EvalValue directly, preserving Color type information
-            let eval_val = eval_rvalue(ctx, &assign.rvalue)?;
+            let rhs_val = eval_rvalue(ctx, &assign.rvalue)?;
+
+            // Get variable name for lookup
+            let var_name = match &assign.lvalue {
+                LValue::Variable(name) => name.clone(),
+                LValue::Fill => "fill".to_string(),
+                LValue::Color => "color".to_string(),
+                LValue::Thickness => "thickness".to_string(),
+            };
+
+            // Apply compound assignment operators
+            let eval_val = match assign.op {
+                AssignOp::Assign => rhs_val,
+                AssignOp::AddAssign | AssignOp::SubAssign | AssignOp::MulAssign | AssignOp::DivAssign => {
+                    // Get current value (with default of 0)
+                    let current = ctx.variables.get(&var_name).cloned().unwrap_or(EvalValue::Scalar(0.0));
+
+                    // Apply operation based on types
+                    match (current, rhs_val) {
+                        (EvalValue::Length(lhs), EvalValue::Scalar(rhs)) => {
+                            // Length op Scalar
+                            let result = match assign.op {
+                                AssignOp::AddAssign => lhs + Inches(rhs),
+                                AssignOp::SubAssign => lhs - Inches(rhs),
+                                AssignOp::MulAssign => lhs * rhs,
+                                AssignOp::DivAssign => lhs / rhs,
+                                _ => unreachable!(),
+                            };
+                            EvalValue::Length(result)
+                        }
+                        (EvalValue::Scalar(lhs), EvalValue::Scalar(rhs)) => {
+                            // Scalar op Scalar
+                            let result = match assign.op {
+                                AssignOp::AddAssign => lhs + rhs,
+                                AssignOp::SubAssign => lhs - rhs,
+                                AssignOp::MulAssign => lhs * rhs,
+                                AssignOp::DivAssign => if rhs == 0.0 { lhs } else { lhs / rhs },
+                                _ => unreachable!(),
+                            };
+                            EvalValue::Scalar(result)
+                        }
+                        (EvalValue::Length(lhs), EvalValue::Length(rhs)) => {
+                            // For *= and /=, treat RHS length as scalar (bare number context)
+                            // cref: pik_set_var (pikchr.c:6496-6499) - *= and /= use raw values
+                            let result = match assign.op {
+                                AssignOp::AddAssign => lhs + rhs,
+                                AssignOp::SubAssign => lhs - rhs,
+                                AssignOp::MulAssign => lhs * rhs.raw(), // Treat as scalar for multiplication
+                                AssignOp::DivAssign => lhs / rhs.raw(), // Treat as scalar for division
+                                _ => lhs,
+                            };
+                            EvalValue::Length(result)
+                        }
+                        _ => rhs_val, // Fallback for other combinations
+                    }
+                }
+            };
+
             match &assign.lvalue {
                 LValue::Variable(name) => {
-                    tracing::debug!("Setting variable {} to {:?}", name, eval_val);
+                    tracing::debug!(op = ?assign.op, "Setting variable {} to {:?}", name, eval_val);
                     ctx.variables.insert(name.clone(), eval_val);
                 }
                 LValue::Fill => {
-                    tracing::debug!("Setting global fill to {:?}", eval_val);
+                    tracing::debug!(op = ?assign.op, "Setting global fill to {:?}", eval_val);
                     ctx.variables.insert("fill".to_string(), eval_val);
                 }
                 LValue::Color => {
-                    tracing::debug!("Setting global color to {:?}", eval_val);
+                    tracing::debug!(op = ?assign.op, "Setting global color to {:?}", eval_val);
                     ctx.variables.insert("color".to_string(), eval_val);
                 }
                 LValue::Thickness => {
-                    tracing::debug!("Setting global thickness to {:?}", eval_val);
+                    tracing::debug!(op = ?assign.op, "Setting global thickness to {:?}", eval_val);
                     ctx.variables.insert("thickness".to_string(), eval_val);
                 }
             }
@@ -320,6 +378,26 @@ pub fn count_text_above_below(texts: &[PositionedText]) -> (usize, usize) {
     (above, below)
 }
 
+/// Sum actual text heights above and below for bbox calculation
+/// Unlike count_text_above_below, this accounts for font scaling from big/small modifiers
+// cref: pik_append_txt (pikchr.c:5107-5108) - adds text height contribution to bbox
+pub fn sum_text_heights_above_below(texts: &[PositionedText], charht: f64) -> (f64, f64) {
+    let slots = compute_text_vslots(texts);
+    let mut above_height = 0.0;
+    let mut below_height = 0.0;
+
+    for (text, slot) in texts.iter().zip(slots.iter()) {
+        let height = text.height(charht);
+        match slot {
+            TextVSlot::Above | TextVSlot::Above2 => above_height += height,
+            TextVSlot::Below | TextVSlot::Below2 => below_height += height,
+            _ => {}
+        }
+    }
+
+    (above_height, below_height)
+}
+
 /// Compute the bounding box of a list of rendered objects (in local coordinates)
 fn compute_children_bounds(children: &[RenderedObject]) -> BoundingBox {
     let mut bounds = BoundingBox::new();
@@ -372,6 +450,7 @@ fn make_partial_object(
         end_attachment: None,
         layer: 1000, // Default layer for partial objects
         direction: Direction::Right, // Default direction for partial objects
+        class_name: class_name.unwrap_or(ClassName::Box),
     }
 }
 
@@ -702,8 +781,19 @@ fn render_object_stmt(
                     style.arrow_start = true;
                     style.arrow_end = true;
                 }
-                BoolProperty::Thick => style.stroke_width = defaults::STROKE_WIDTH * 2.0,
-                BoolProperty::Thin => style.stroke_width = defaults::STROKE_WIDTH * 0.5,
+                // cref: pikchr.y:694-697 - thick/thin multiply, solid resets stroke width
+                BoolProperty::Thick => style.stroke_width = style.stroke_width * 1.5,
+                BoolProperty::Thin => style.stroke_width = style.stroke_width * 0.67,
+                BoolProperty::Solid => {
+                    style.stroke_width = ctx
+                        .variables
+                        .get("thickness")
+                        .and_then(|v| match v {
+                            EvalValue::Length(l) => Some(*l),
+                            _ => None,
+                        })
+                        .unwrap_or(defaults::STROKE_WIDTH);
+                }
                 BoolProperty::Clockwise => style.clockwise = true,
                 BoolProperty::CounterClockwise => style.clockwise = false,
                 _ => {}
@@ -731,6 +821,11 @@ fn render_object_stmt(
             }
             Attribute::To(pos) => {
                 if let Ok(p) = eval_position(ctx, pos) {
+                    tracing::debug!(
+                        x = p.x.0,
+                        y = p.y.0,
+                        "Attribute::To evaluated position"
+                    );
                     to_positions.push(p);
                     if to_attachment.is_none() {
                         to_attachment = endpoint_object_from_position(ctx, pos);
@@ -1550,6 +1645,7 @@ fn render_object_stmt(
         end_attachment: to_attachment,
         layer,
         direction: object_direction,
+        class_name: class,
     })
 }
 
