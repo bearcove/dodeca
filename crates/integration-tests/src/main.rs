@@ -4,7 +4,7 @@
 //! It bypasses cargo test/nextest entirely for better control over the test environment.
 //!
 //! Usage:
-//!   integration-tests [OPTIONS]
+//!   `integration-tests [OPTIONS]`
 //!
 //! Environment variables:
 //!   DODECA_BIN       - Path to the ddc binary (required)

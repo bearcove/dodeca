@@ -191,16 +191,37 @@ fn main() -> ExitCode {
 }
 
 fn build_all(release: bool) -> bool {
+    // Build WASM first
     if !build_wasm() {
         return false;
     }
-    if !build_cdylib_plugins(release) {
-        return false;
+
+    // Build everything else (dodeca + all cells in workspace)
+    eprintln!(
+        "Building dodeca + all cells{}...",
+        if release { " (release)" } else { "" }
+    );
+
+    let mut cmd = Command::new("cargo");
+    cmd.arg("build");
+    if release {
+        cmd.arg("--release");
     }
-    if !build_dodeca_and_rapace_plugins(release) {
-        return false;
+
+    match cmd.status() {
+        Ok(s) if s.success() => {
+            eprintln!("Build complete");
+            true
+        }
+        Ok(s) => {
+            eprintln!("cargo build failed with status: {s}");
+            false
+        }
+        Err(e) => {
+            eprintln!("Failed to run cargo: {e}");
+            false
+        }
     }
-    true
 }
 
 fn build_wasm() -> bool {
@@ -222,147 +243,6 @@ fn build_wasm() -> bool {
         Err(e) => {
             eprintln!("Failed to run wasm-pack: {e}");
             eprintln!("Install with: cargo install wasm-pack");
-            false
-        }
-    }
-}
-
-/// Discover cdylib plugin crates by looking for dodeca-* directories with cdylib crate type
-fn discover_cdylib_plugins() -> Vec<String> {
-    let crates_dir = PathBuf::from("crates");
-    let mut plugins = Vec::new();
-
-    if let Ok(entries) = fs::read_dir(&crates_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if !name.starts_with("dodeca-") {
-                continue;
-            }
-
-            // Check if it's a cdylib (plugin)
-            let cargo_toml = path.join("Cargo.toml");
-            if let Ok(content) = fs::read_to_string(&cargo_toml)
-                && content.contains("cdylib")
-            {
-                plugins.push(name.to_string());
-            }
-        }
-    }
-
-    plugins.sort();
-    plugins
-}
-
-/// Discover rapace plugins by looking for mod-* directories with `[[bin]]` in Cargo.toml
-/// Returns (package_name, binary_name) pairs
-fn discover_rapace_plugins() -> Vec<(String, String)> {
-    let cells_dir = PathBuf::from("cells");
-    let mut plugins = Vec::new();
-
-    if let Ok(entries) = fs::read_dir(&cells_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            // Skip proto crates
-            if !name.starts_with("mod-") || name.ends_with("-proto") {
-                continue;
-            }
-
-            // Check if it has a [[bin]] section
-            let cargo_toml = path.join("Cargo.toml");
-            if let Ok(content) = fs::read_to_string(&cargo_toml)
-                && content.contains("[[bin]]")
-            {
-                let bin_name = format!("dodeca-{}", name);
-                plugins.push((name.to_string(), bin_name));
-            }
-        }
-    }
-
-    plugins.sort();
-    plugins
-}
-
-fn build_cdylib_plugins(release: bool) -> bool {
-    let plugins = discover_cdylib_plugins();
-    if plugins.is_empty() {
-        eprintln!("No cdylib plugins found to build");
-        return true;
-    }
-
-    eprintln!(
-        "Building {} cdylib plugins{}...",
-        plugins.len(),
-        if release { " (release)" } else { "" }
-    );
-
-    let mut cmd = Command::new("cargo");
-    cmd.arg("build");
-    for plugin in &plugins {
-        cmd.args(["-p", plugin]);
-    }
-    if release {
-        cmd.arg("--release");
-    }
-
-    match cmd.status() {
-        Ok(s) if s.success() => {
-            eprintln!("cdylib plugins built: {}", plugins.join(", "));
-            true
-        }
-        Ok(s) => {
-            eprintln!("cdylib plugin build failed with status: {s}");
-            false
-        }
-        Err(e) => {
-            eprintln!("Failed to run cargo: {e}");
-            false
-        }
-    }
-}
-
-fn build_dodeca_and_rapace_plugins(release: bool) -> bool {
-    let rapace_plugins = discover_rapace_plugins();
-
-    eprintln!(
-        "Building dodeca + {} rapace plugins{}...",
-        rapace_plugins.len(),
-        if release { " (release)" } else { "" }
-    );
-
-    let mut cmd = Command::new("cargo");
-    cmd.args(["build", "--package", "dodeca"]);
-
-    // Add all rapace plugins
-    for (pkg, bin) in &rapace_plugins {
-        cmd.args(["--package", pkg, "--bin", bin]);
-    }
-
-    if release {
-        cmd.arg("--release");
-    }
-
-    match cmd.status() {
-        Ok(s) if s.success() => {
-            let bins: Vec<_> = rapace_plugins.iter().map(|(_, b)| b.as_str()).collect();
-            eprintln!("Built: ddc, {}", bins.join(", "));
-            true
-        }
-        Ok(s) => {
-            eprintln!("cargo build failed with status: {s}");
-            false
-        }
-        Err(e) => {
-            eprintln!("Failed to run cargo: {e}");
             false
         }
     }
@@ -422,92 +302,56 @@ fn install_dev() -> bool {
 
     eprintln!("Installing to {}...", cargo_bin.display());
 
+    let release_dir = PathBuf::from("target/release");
+
     // Copy ddc binary (remove first to avoid "text file busy" on Linux)
-    let ddc_src = PathBuf::from("target/release/ddc");
+    let ddc_src = release_dir.join("ddc");
     let ddc_dst = cargo_bin.join("ddc");
-    let _ = fs::remove_file(&ddc_dst); // Ignore error if file doesn't exist
+    let _ = fs::remove_file(&ddc_dst);
     if let Err(e) = fs::copy(&ddc_src, &ddc_dst) {
         eprintln!("Failed to copy ddc: {e}");
         return false;
     }
     eprintln!("  Installed ddc");
 
-    // Copy all rapace plugin binaries
-    let rapace_plugins = discover_rapace_plugins();
-    for (_, bin_name) in &rapace_plugins {
-        let src = PathBuf::from(format!("target/release/{bin_name}"));
-        let dst = cargo_bin.join(bin_name);
-        if src.exists() {
-            let _ = fs::remove_file(&dst);
-            if let Err(e) = fs::copy(&src, &dst) {
-                eprintln!("Failed to copy {bin_name}: {e}");
-                return false;
+    // Copy all dodeca-cell-* binaries
+    if let Ok(entries) = fs::read_dir(&release_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
             }
-            eprintln!("  Installed {bin_name}");
-        } else {
-            eprintln!("  Warning: {bin_name} not found, skipping");
-        }
-    }
 
-    // Copy cdylib plugins
-    let plugin_ext = if cfg!(target_os = "macos") {
-        "dylib"
-    } else if cfg!(target_os = "windows") {
-        "dll"
-    } else {
-        "so"
-    };
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-    let cdylib_plugins = discover_cdylib_plugins();
-    for plugin in &cdylib_plugins {
-        // Convert crate name (dodeca-webp) to lib name (libdodeca_webp)
-        let lib_name = format!("lib{}", plugin.replace('-', "_"));
-        let src = PathBuf::from(format!("target/release/{lib_name}.{plugin_ext}"));
-        let dst = cargo_bin.join(format!("{lib_name}.{plugin_ext}"));
-        if src.exists() {
-            let _ = fs::remove_file(&dst); // Remove first to avoid "text file busy"
-            if let Err(e) = fs::copy(&src, &dst) {
-                eprintln!("Failed to copy {lib_name}: {e}");
-                return false;
+            // Copy cell binaries (dodeca-cell-*)
+            if name.starts_with("dodeca-cell-") && !name.contains('.') {
+                let dst = cargo_bin.join(name);
+                let _ = fs::remove_file(&dst);
+                if let Err(e) = fs::copy(&path, &dst) {
+                    eprintln!("Failed to copy {name}: {e}");
+                    return false;
+                }
+                eprintln!("  Installed {name}");
             }
-            eprintln!("  Installed {lib_name}.{plugin_ext}");
-        } else {
-            eprintln!("  Warning: {lib_name}.{plugin_ext} not found, skipping");
+
+            // Copy cdylib files (libdodeca_*.dylib/so/dll)
+            let is_cdylib = name.starts_with("libdodeca_")
+                && (name.ends_with(".dylib") || name.ends_with(".so") || name.ends_with(".dll"));
+            if is_cdylib {
+                let dst = cargo_bin.join(name);
+                let _ = fs::remove_file(&dst);
+                if let Err(e) = fs::copy(&path, &dst) {
+                    eprintln!("Failed to copy {name}: {e}");
+                    return false;
+                }
+                eprintln!("  Installed {name}");
+            }
         }
     }
 
     eprintln!("Installation complete!");
     true
-}
-
-/// Discover cell binaries (cell-* crates that produce binaries)
-fn discover_cell_binaries() -> Vec<String> {
-    let cells_dir = PathBuf::from("cells");
-    let mut bins = Vec::new();
-
-    if let Ok(entries) = fs::read_dir(&cells_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            // Skip proto crates
-            if !name.starts_with("cell-") || name.ends_with("-proto") {
-                continue;
-            }
-
-            // Check if it has a src/main.rs (binary crate)
-            let main_rs = path.join("src/main.rs");
-            if main_rs.exists() {
-                bins.push(name.to_string());
-            }
-        }
-    }
-
-    bins.sort();
-    bins
 }
 
 fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
@@ -519,52 +363,9 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
 
     if !no_build {
         eprintln!("Building release binaries for integration tests...");
+        // build_all builds everything: WASM, dodeca, all cells, and integration-tests
         if !build_all(release) {
             return false;
-        }
-
-        // Build all cell binaries
-        let cell_bins = discover_cell_binaries();
-        if !cell_bins.is_empty() {
-            eprintln!("Building {} cell binaries...", cell_bins.len());
-            let mut cmd = Command::new("cargo");
-            cmd.arg("build").arg("--release");
-            for bin in &cell_bins {
-                cmd.args(["-p", bin]);
-            }
-
-            match cmd.status() {
-                Ok(s) if s.success() => {
-                    eprintln!("Cell binaries built: {}", cell_bins.join(", "));
-                }
-                Ok(s) => {
-                    eprintln!("Cell binary build failed with status: {s}");
-                    return false;
-                }
-                Err(e) => {
-                    eprintln!("Failed to run cargo: {e}");
-                    return false;
-                }
-            }
-        }
-
-        // Build the integration-tests binary
-        eprintln!("Building integration-tests binary...");
-        let mut cmd = Command::new("cargo");
-        cmd.args(["build", "--release", "-p", "integration-tests"]);
-
-        match cmd.status() {
-            Ok(s) if s.success() => {
-                eprintln!("integration-tests built");
-            }
-            Ok(s) => {
-                eprintln!("integration-tests build failed with status: {s}");
-                return false;
-            }
-            Err(e) => {
-                eprintln!("Failed to run cargo: {e}");
-                return false;
-            }
         }
     } else {
         eprintln!("Skipping build (--no-build), assuming binaries are already built");
