@@ -126,8 +126,14 @@ relexpr = { expr ~ percent? }
 optrelexpr = { relexpr? }
 percent = { "%" }
 
-expr = { prefix? ~ primary ~ (infix ~ prefix? ~ primary)* }
+// Expression with proper operator precedence:
+// Addition/subtraction has lower precedence than multiplication/division
+expr = { term ~ (add_op ~ term)* }
+add_op = { "+" | "-" }
+term = { prefix? ~ primary ~ (mul_op ~ prefix? ~ primary)* }
+mul_op = { "*" | "/" }
 prefix = { "-" | "+" }
+// Keep old infix for backward compatibility during transition
 infix = { "+" | "-" | "*" | "/" }
 
 primary = {

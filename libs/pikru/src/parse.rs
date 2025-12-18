@@ -854,6 +854,28 @@ fn parse_relexpr(pair: Pair<Rule>) -> Result<RelExpr, miette::Report> {
 }
 
 fn parse_expr(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
+    // expr = term ~ (add_op ~ term)*
+    let mut inner = pair.into_inner();
+    let mut result = parse_term(inner.next().unwrap())?;
+
+    while let Some(op_pair) = inner.next() {
+        if op_pair.as_rule() != Rule::add_op {
+            continue;
+        }
+        let op = match op_pair.as_str() {
+            "+" => BinaryOp::Add,
+            "-" => BinaryOp::Sub,
+            _ => continue,
+        };
+        let rhs = parse_term(inner.next().unwrap())?;
+        result = Expr::BinaryOp(Box::new(result), op, Box::new(rhs));
+    }
+
+    Ok(result)
+}
+
+fn parse_term(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
+    // term = prefix? ~ primary ~ (mul_op ~ prefix? ~ primary)*
     let mut inner = pair.into_inner().peekable();
 
     // Handle prefix
@@ -876,14 +898,12 @@ fn parse_expr(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
         result = Expr::UnaryOp(op, Box::new(result));
     }
 
-    // Handle infix operations
-    while let Some(infix_pair) = inner.next() {
-        if infix_pair.as_rule() != Rule::infix {
+    // Handle mul/div operations
+    while let Some(op_pair) = inner.next() {
+        if op_pair.as_rule() != Rule::mul_op {
             continue;
         }
-        let op = match infix_pair.as_str() {
-            "+" => BinaryOp::Add,
-            "-" => BinaryOp::Sub,
+        let op = match op_pair.as_str() {
             "*" => BinaryOp::Mul,
             "/" => BinaryOp::Div,
             _ => continue,

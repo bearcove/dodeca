@@ -457,12 +457,10 @@ pub fn resolve_object<'a>(ctx: &'a RenderContext, obj: &Object) -> Option<&'a Re
                 ctx.get_nth_object(*n as usize, oc)
             }
             Nth::Previous => {
-                let len = ctx.object_list.len();
-                if len > 1 {
-                    ctx.object_list.get(len - 2)
-                } else {
-                    None
-                }
+                // "previous" refers to the most recently completed object
+                // Since the current object hasn't been added to the list yet,
+                // "previous" is the last object in the list
+                ctx.object_list.last()
             }
         },
     }
