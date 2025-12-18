@@ -1025,12 +1025,67 @@ impl Shape for LineShape {
             // TODO: Render arrowheads for multi-segment lines
         }
 
+        // cref: lineRender (pikchr.c:4302-4336) - rounded corners with rad attribute
+        let corner_radius_px = scaler.px(self.style.corner_radius);
         let mut path_data = PathData::new();
-        for (i, pt) in svg_points.iter().enumerate() {
-            if i == 0 {
-                path_data = path_data.m(pt.x, pt.y);
-            } else {
-                path_data = path_data.l(pt.x, pt.y);
+
+        if corner_radius_px > 0.0 && svg_points.len() >= 3 {
+            // Render with rounded corners using quadratic bezier curves
+            let n = svg_points.len();
+            let mut i = 0;
+            while i < n {
+                let curr = svg_points[i];
+
+                if i == 0 {
+                    // Start point - find entry point for first segment
+                    if i + 1 < n {
+                        let next = svg_points[i + 1];
+                        let dir = (next - curr).normalize();
+                        let start_pt = curr + dir * corner_radius_px;
+                        path_data = path_data.m(start_pt.x, start_pt.y);
+                    } else {
+                        path_data = path_data.m(curr.x, curr.y);
+                    }
+                } else if i == n - 1 {
+                    // End point - draw to it and we're done (unless closing)
+                    if self.style.close_path && n >= 3 {
+                        // For closed paths, round the corner back to start
+                        let prev = svg_points[i - 1];
+                        let first = svg_points[0];
+                        let dir_to_curr = (curr - prev).normalize();
+                        let dir_from_curr = (first - curr).normalize();
+                        let entry = curr - dir_to_curr * corner_radius_px;
+                        let exit = curr + dir_from_curr * corner_radius_px;
+                        path_data = path_data.l(entry.x, entry.y);
+                        path_data = path_data.q(curr.x, curr.y, exit.x, exit.y);
+                    } else {
+                        path_data = path_data.l(curr.x, curr.y);
+                    }
+                } else {
+                    // Middle point - create rounded corner
+                    let prev = svg_points[i - 1];
+                    let next = svg_points[i + 1];
+                    let dir_in = (curr - prev).normalize();
+                    let dir_out = (next - curr).normalize();
+
+                    // Entry and exit points for the curve
+                    let entry = curr - dir_in * corner_radius_px;
+                    let exit = curr + dir_out * corner_radius_px;
+
+                    // Line to entry, then curve around corner, then continue
+                    path_data = path_data.l(entry.x, entry.y);
+                    path_data = path_data.q(curr.x, curr.y, exit.x, exit.y);
+                }
+                i += 1;
+            }
+        } else {
+            // No rounding - simple polyline
+            for (i, pt) in svg_points.iter().enumerate() {
+                if i == 0 {
+                    path_data = path_data.m(pt.x, pt.y);
+                } else {
+                    path_data = path_data.l(pt.x, pt.y);
+                }
             }
         }
 

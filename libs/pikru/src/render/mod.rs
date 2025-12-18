@@ -122,13 +122,24 @@ fn render_statement(
             }
         }
         Statement::Assignment(assign) => {
-            let value = eval_rvalue(ctx, &assign.rvalue)?;
+            // eval_rvalue now returns EvalValue directly, preserving Color type information
+            let eval_val = eval_rvalue(ctx, &assign.rvalue)?;
             match &assign.lvalue {
                 LValue::Variable(name) => {
-                    ctx.variables.insert(name.clone(), EvalValue::from(value));
+                    tracing::debug!("Setting variable {} to {:?}", name, eval_val);
+                    ctx.variables.insert(name.clone(), eval_val);
                 }
-                _ => {
-                    // fill, color, thickness - global settings
+                LValue::Fill => {
+                    tracing::debug!("Setting global fill to {:?}", eval_val);
+                    ctx.variables.insert("fill".to_string(), eval_val);
+                }
+                LValue::Color => {
+                    tracing::debug!("Setting global color to {:?}", eval_val);
+                    ctx.variables.insert("color".to_string(), eval_val);
+                }
+                LValue::Thickness => {
+                    tracing::debug!("Setting global thickness to {:?}", eval_val);
+                    ctx.variables.insert("thickness".to_string(), eval_val);
                 }
             }
         }
@@ -157,6 +168,7 @@ fn render_statement(
                         match val {
                             Value::Scalar(v) => format!("{}", v),
                             Value::Len(l) => format!("{}", l.0),
+                            Value::Color(c) => format!("#{:06x}", c),
                         }
                     }
                     PrintArg::PlaceName(name) => name.clone(),
@@ -490,9 +502,18 @@ fn render_object_stmt(
     if let Some(fill_val) = ctx.variables.get("fill") {
         // fill is a color value
         style.fill = match fill_val {
-            EvalValue::Color(c) => format!("#{:06x}", c),
-            _ => "none".to_string(),
+            EvalValue::Color(c) => {
+                let color_hex = format!("#{:06x}", c);
+                tracing::debug!("Applying global fill color: {} (from {:?})", color_hex, fill_val);
+                color_hex
+            }
+            _ => {
+                tracing::debug!("Global fill is not a color: {:?}", fill_val);
+                "none".to_string()
+            }
         };
+    } else {
+        tracing::debug!("No global fill variable found");
     }
     if let Some(color_val) = ctx.variables.get("color") {
         // color/stroke is a color value

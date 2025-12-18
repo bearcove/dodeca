@@ -126,6 +126,10 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                     }
                     Scalar(a / b)
                 }
+                // Colors can't participate in mathematical operations
+                (Color(_), _, _) | (_, Color(_), _) => {
+                    return Err(miette::miette!("Cannot perform math operations on colors"))
+                }
             };
             // Validate result is finite (catches overflow to infinity)
             validate_value(result)
@@ -137,6 +141,9 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                 (UnaryOp::Pos, Value::Len(l)) => Value::Len(l),
                 (UnaryOp::Neg, Value::Scalar(s)) => Value::Scalar(-s),
                 (UnaryOp::Pos, Value::Scalar(s)) => Value::Scalar(s),
+                (_, Value::Color(_)) => {
+                    return Err(miette::miette!("Cannot perform unary operations on colors"))
+                }
             })
         }
         Expr::ParenExpr(e) => eval_expr(ctx, e),
@@ -148,11 +155,13 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                 Function::Abs => match args[0] {
                     Len(l) => Len(l.abs()), // typed abs
                     Scalar(s) => Scalar(s.abs()),
+                    Color(_) => return Err(miette::miette!("Cannot take abs() of a color")),
                 },
                 Function::Cos => {
                     let v = match args[0] {
                         Len(l) => l.raw(),
                         Scalar(s) => s,
+                        Color(_) => return Err(miette::miette!("Cannot take cos() of a color")),
                     };
                     Scalar(v.to_radians().cos())
                 }
@@ -160,27 +169,32 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                     let v = match args[0] {
                         Len(l) => l.raw(),
                         Scalar(s) => s,
+                        Color(_) => return Err(miette::miette!("Cannot take sin() of a color")),
                     };
                     Scalar(v.to_radians().sin())
                 }
                 Function::Int => match args[0] {
                     Len(l) => Len(Inches::inches(l.raw().trunc())),
                     Scalar(s) => Scalar(s.trunc()),
+                    Color(_) => return Err(miette::miette!("Cannot take int() of a color")),
                 },
                 Function::Sqrt => match args[0] {
                     Len(l) if l.raw() < 0.0 => return Err(miette::miette!("sqrt of negative")),
                     Len(l) => Len(Inches::inches(l.raw().sqrt())),
                     Scalar(s) if s < 0.0 => return Err(miette::miette!("sqrt of negative")),
                     Scalar(s) => Scalar(s.sqrt()),
+                    Color(_) => return Err(miette::miette!("Cannot take sqrt() of a color")),
                 },
                 Function::Max => {
                     let a = match args[0] {
                         Len(l) => l.raw(),
                         Scalar(s) => s,
+                        Color(_) => return Err(miette::miette!("Cannot take max() of a color")),
                     };
                     let b = match args[1] {
                         Len(l) => l.raw(),
                         Scalar(s) => s,
+                        Color(_) => return Err(miette::miette!("Cannot take max() of a color")),
                     };
                     Scalar(a.max(b))
                 }
@@ -188,10 +202,12 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                     let a = match args[0] {
                         Len(l) => l.raw(),
                         Scalar(s) => s,
+                        Color(_) => return Err(miette::miette!("Cannot take min() of a color")),
                     };
                     let b = match args[1] {
                         Len(l) => l.raw(),
                         Scalar(s) => s,
+                        Color(_) => return Err(miette::miette!("Cannot take min() of a color")),
                     };
                     Scalar(a.min(b))
                 }
@@ -260,6 +276,7 @@ pub fn eval_len(ctx: &RenderContext, expr: &Expr) -> Result<Inches, miette::Repo
     match eval_expr(ctx, expr)? {
         Value::Len(l) => Ok(l),
         Value::Scalar(s) => Ok(Inches(s)), // treat scalar as inches for len contexts
+        Value::Color(_) => Err(miette::miette!("Cannot use a color as a length")),
     }
 }
 
@@ -267,16 +284,25 @@ pub fn eval_scalar(ctx: &RenderContext, expr: &Expr) -> Result<f64, miette::Repo
     match eval_expr(ctx, expr)? {
         Value::Scalar(s) => Ok(s),
         Value::Len(l) => Ok(l.0),
+        Value::Color(_) => Err(miette::miette!("Cannot use a color as a scalar")),
     }
 }
 
-pub fn eval_rvalue(ctx: &RenderContext, rvalue: &RValue) -> Result<Value, miette::Report> {
+pub fn eval_rvalue(ctx: &RenderContext, rvalue: &RValue) -> Result<EvalValue, miette::Report> {
     match rvalue {
-        RValue::Expr(e) => eval_expr(ctx, e),
+        RValue::Expr(e) => {
+            tracing::debug!("eval_rvalue: RValue::Expr({:?})", e);
+            let value = eval_expr(ctx, e)?;
+            let eval_val = EvalValue::from(value);
+            tracing::debug!("eval_rvalue: converted to {:?}", eval_val);
+            Ok(eval_val)
+        }
         RValue::PlaceName(name) => {
+            tracing::debug!("eval_rvalue: RValue::PlaceName({})", name);
             // Try to parse as a color name
             let color = name.parse::<crate::types::Color>().unwrap();
             let rgb_str = color.to_rgb_string();
+            tracing::debug!("eval_rvalue: parsed color {} -> {}", name, rgb_str);
             if let Some(rgb) = rgb_str.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
                 let parts: Vec<&str> = rgb.split(',').collect();
                 if parts.len() == 3 {
@@ -286,11 +312,13 @@ pub fn eval_rvalue(ctx: &RenderContext, rvalue: &RValue) -> Result<Value, miette
                         parts[2].trim().parse::<u32>(),
                     ) {
                         let color_val = (r << 16) | (g << 8) | b;
-                        return Ok(Value::from(EvalValue::Color(color_val)));
+                        tracing::debug!("eval_rvalue: returning Color({})", color_val);
+                        return Ok(EvalValue::Color(color_val));
                     }
                 }
             }
-            Ok(Value::Scalar(0.0))
+            tracing::debug!("eval_rvalue: failed to parse color, returning Scalar(0.0)");
+            Ok(EvalValue::Scalar(0.0))
         }
     }
 }

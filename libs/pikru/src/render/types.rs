@@ -6,11 +6,12 @@ use crate::types::{BoxIn, EvalValue, Length as Inches, OffsetIn, Point, PtIn, Un
 use super::defaults;
 use super::shapes::Shape;
 
-/// Generic numeric value that can be either a length (in inches) or a unitless scalar.
+/// Generic numeric value that can be either a length (in inches), a unitless scalar, or a color.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Value {
     Len(Inches),
     Scalar(f64),
+    Color(u32), // RGB color packed as 0xRRGGBB
 }
 
 impl Value {
@@ -19,6 +20,7 @@ impl Value {
         match self {
             Value::Len(l) => Ok(l),
             Value::Scalar(_) => Err(miette::miette!("Expected length value, got scalar")),
+            Value::Color(_) => Err(miette::miette!("Expected length value, got color")),
         }
     }
 
@@ -27,6 +29,7 @@ impl Value {
         match self {
             Value::Scalar(s) => Ok(s),
             Value::Len(_) => Err(miette::miette!("Expected scalar value, got length")),
+            Value::Color(_) => Err(miette::miette!("Expected scalar value, got color")),
         }
     }
 }
@@ -36,7 +39,7 @@ impl From<EvalValue> for Value {
         match ev {
             EvalValue::Length(l) => Value::Len(l),
             EvalValue::Scalar(s) => Value::Scalar(s),
-            EvalValue::Color(c) => Value::Scalar(c as f64),
+            EvalValue::Color(c) => Value::Color(c),
         }
     }
 }
@@ -46,6 +49,7 @@ impl From<Value> for EvalValue {
         match v {
             Value::Len(l) => EvalValue::Length(l),
             Value::Scalar(s) => EvalValue::Scalar(s),
+            Value::Color(c) => EvalValue::Color(c),
         }
     }
 }
