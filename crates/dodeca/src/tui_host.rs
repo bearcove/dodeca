@@ -361,6 +361,10 @@ mod tests {
     use super::*;
     use futures::StreamExt;
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "tokio::test uses block_on internally"
+    )]
     #[tokio::test]
     async fn progress_and_status_are_retained_without_subscribers() {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel::<ServerCommand>();
@@ -398,6 +402,10 @@ mod tests {
         assert_eq!(first_status.cas_cache_size, status.cas_cache_size);
     }
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "tokio::test uses block_on internally"
+    )]
     #[tokio::test]
     async fn events_are_replayed_for_late_subscribers() {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel::<ServerCommand>();
