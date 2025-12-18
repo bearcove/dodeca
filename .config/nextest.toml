@@ -53,3 +53,16 @@ command = '/home/amos/bearcove/dodeca/.config/perf-wrapper.sh'
 platform = 'cfg(target_os = "linux")'
 filter = 'all()'
 run-wrapper = 'perf'
+
+[scripts.wrapper.systemd-run]
+# Run tests under systemd-run with memory limit to prevent OOM
+command = '/home/amos/bearcove/dodeca/.config/systemd-run-wrapper.sh'
+
+# Systemd-run profile - runs tests under systemd-run with 4GB memory limit
+[profile.systemd-run]
+
+[[profile.systemd-run.scripts]]
+# Apply systemd-run wrapper to all tests on Linux
+platform = 'cfg(target_os = "linux")'
+filter = 'all()'
+run-wrapper = 'systemd-run'
