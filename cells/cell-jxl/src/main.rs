@@ -88,10 +88,6 @@ impl JXLProcessor for JXLProcessorImpl {
 
 rapace_cell::cell_service!(JXLProcessorServer<JXLProcessorImpl>, JXLProcessorImpl);
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "tokio::main uses block_on internally"
-)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     rapace_cell::run(CellService::from(JXLProcessorImpl)).await?;

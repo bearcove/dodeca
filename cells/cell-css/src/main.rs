@@ -75,10 +75,6 @@ impl<'i, 'a> lightningcss::visitor::Visitor<'i> for UrlRewriter<'a> {
 
 rapace_cell::cell_service!(CssProcessorServer<CssProcessorImpl>, CssProcessorImpl);
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "tokio::main uses block_on internally"
-)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     rapace_cell::run(CellService::from(CssProcessorImpl)).await?;

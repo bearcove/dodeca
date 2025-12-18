@@ -156,10 +156,6 @@ fn diff(old_dom: &DomNode, new_dom: &DomNode) -> InternalDiffResult {
 
 rapace_cell::cell_service!(HtmlDifferServer<HtmlDifferImpl>, HtmlDifferImpl);
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "tokio::main uses block_on internally"
-)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     rapace_cell::run(CellService::from(HtmlDifferImpl)).await?;

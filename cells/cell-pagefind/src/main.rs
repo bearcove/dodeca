@@ -20,10 +20,7 @@ use cell_pagefind_proto::{
 pub struct SearchIndexerImpl;
 
 impl SearchIndexer for SearchIndexerImpl {
-    #[expect(
-        clippy::disallowed_methods,
-        reason = "pagefind needs its own runtime due to !Send futures"
-    )]
+    #[expect(reason = "pagefind needs its own runtime due to !Send futures")]
     async fn build_search_index(&self, input: SearchIndexInput) -> SearchIndexResult {
         // Spawn a separate OS thread with its own runtime because:
         // 1. We're already inside the cell's tokio runtime
@@ -90,10 +87,6 @@ async fn build_search_index_inner(input: SearchIndexInput) -> Result<SearchIndex
 
 rapace_cell::cell_service!(SearchIndexerServer<SearchIndexerImpl>, SearchIndexerImpl);
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "tokio::main uses block_on internally"
-)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     rapace_cell::run(CellService::from(SearchIndexerImpl)).await?;

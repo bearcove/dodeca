@@ -398,10 +398,6 @@ impl rapace_cell::ServiceDispatch for TuiCellService {
     }
 }
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "tokio::main uses block_on internally"
-)]
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     color_eyre::install()?;

@@ -169,10 +169,6 @@ fn pixels_to_dynamic_image(
 
 rapace_cell::cell_service!(ImageProcessorServer<ImageProcessorImpl>, ImageProcessorImpl);
 
-#[expect(
-    clippy::disallowed_methods,
-    reason = "tokio::main uses block_on internally"
-)]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     rapace_cell::run(CellService::from(ImageProcessorImpl)).await?;
