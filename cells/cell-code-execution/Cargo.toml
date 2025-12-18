@@ -24,7 +24,7 @@ pulldown-cmark = "0.13"
 color-eyre = "0.6"
 
 # Async runtime
-tokio = { version = "1", features = ["rt", "time", "rt-multi-thread"] }
+tokio = { version = "1", features = ["rt", "time", "rt-multi-thread", "process"] }
 
 # Temp file management
 tempfile = "3"

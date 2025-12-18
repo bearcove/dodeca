@@ -1,6 +1,7 @@
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
-use tokio::process::Command;
+use std::path::PathBuf;
 use std::process::Stdio;
+use tokio::process::Command;
 
 use cell_code_execution_proto::*;
 
@@ -128,14 +129,18 @@ fn is_reentrant_build() -> bool {
     std::env::var("DODECA_BUILD_ACTIVE").is_ok()
 }
 
-async fn execute_code_sample(sample: &CodeSample, _config: &CodeExecutionConfig) -> ExecutionResult {
+async fn execute_code_sample(
+    sample: &CodeSample,
+    _config: &CodeExecutionConfig,
+) -> ExecutionResult {
     use tokio::io::AsyncReadExt;
 
     // Reentrancy guard: refuse to execute if we're inside a ddc build
     if is_reentrant_build() {
         tracing::warn!(
             "[code-exec] BLOCKED: refusing to execute code inside ddc build (reentrancy guard) - {}:{}",
-            sample.source_path, sample.line
+            sample.source_path,
+            sample.line
         );
         return ExecutionResult {
             success: false,
@@ -175,7 +180,11 @@ async fn execute_code_sample(sample: &CodeSample, _config: &CodeExecutionConfig)
                 exit_code: None,
                 stdout: String::new(),
                 stderr: format!("Failed to create temp directory: {}", e),
-                duration_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+                duration_ms: start_time
+                    .elapsed()
+                    .as_millis()
+                    .try_into()
+                    .unwrap_or(u64::MAX),
                 error: Some(format!("Failed to create temp directory: {}", e)),
                 metadata: None,
                 skipped: false,
@@ -200,7 +209,11 @@ edition = "2021"
             exit_code: None,
             stdout: String::new(),
             stderr: format!("Failed to write Cargo.toml: {}", e),
-            duration_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+            duration_ms: start_time
+                .elapsed()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX),
             error: Some(format!("Failed to write Cargo.toml: {}", e)),
             metadata: None,
             skipped: false,
@@ -215,7 +228,11 @@ edition = "2021"
             exit_code: None,
             stdout: String::new(),
             stderr: format!("Failed to create src directory: {}", e),
-            duration_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+            duration_ms: start_time
+                .elapsed()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX),
             error: Some(format!("Failed to create src directory: {}", e)),
             metadata: None,
             skipped: false,
@@ -237,7 +254,11 @@ edition = "2021"
             exit_code: None,
             stdout: String::new(),
             stderr: format!("Failed to write main.rs: {}", e),
-            duration_ms: start_time.elapsed().as_millis().try_into().unwrap_or(u64::MAX),
+            duration_ms: start_time
+                .elapsed()
+                .as_millis()
+                .try_into()
+                .unwrap_or(u64::MAX),
             error: Some(format!("Failed to write main.rs: {}", e)),
             metadata: None,
             skipped: false,
@@ -246,6 +267,13 @@ edition = "2021"
 
     let command = "cargo";
     let args = ["run", "--release"];
+
+    // Reuse build artifacts across executions to make repeated code samples much faster (especially
+    // in `ddc serve` + the integration test suite). This is intentionally opt-in overridable.
+    let shared_target_dir: PathBuf = std::env::var_os("DDC_CODE_EXEC_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir().join("dodeca-code-exec-target"));
+    let _ = std::fs::create_dir_all(&shared_target_dir);
 
     tracing::debug!(
         "[code-exec] Starting: {} {} ({})",
@@ -258,6 +286,7 @@ edition = "2021"
     let mut child = match Command::new(command)
         .args(args)
         .current_dir(project_dir)
+        .env("CARGO_TARGET_DIR", &shared_target_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -307,7 +336,10 @@ edition = "2021"
                 stdout: String::from_utf8_lossy(&stdout_buf).to_string(),
                 stderr: String::from_utf8_lossy(&stderr_buf).to_string(),
                 duration_ms: elapsed.as_millis().try_into().unwrap_or(u64::MAX),
-                error: Some(format!("Execution timed out after {}s", EXECUTION_TIMEOUT_SECS)),
+                error: Some(format!(
+                    "Execution timed out after {}s",
+                    EXECUTION_TIMEOUT_SECS
+                )),
                 metadata: None,
                 skipped: false,
             };
@@ -343,7 +375,10 @@ edition = "2021"
                 stdout: String::from_utf8_lossy(&stdout_buf).to_string(),
                 stderr: String::from_utf8_lossy(&stderr_buf).to_string(),
                 duration_ms: elapsed.as_millis().try_into().unwrap_or(u64::MAX),
-                error: Some(format!("Output exceeded {}MB limit", MAX_OUTPUT_SIZE / 1024 / 1024)),
+                error: Some(format!(
+                    "Output exceeded {}MB limit",
+                    MAX_OUTPUT_SIZE / 1024 / 1024
+                )),
                 metadata: None,
                 skipped: false,
             };

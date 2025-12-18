@@ -161,6 +161,12 @@ impl TestSite {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
+        // Keep code-exec builds fast and isolated per test (avoids cross-test contention under
+        // nextest parallelism).
+        let code_exec_target_dir = temp_dir.path().join("code-exec-target");
+        let _ = std::fs::create_dir_all(&code_exec_target_dir);
+        cmd.env("DDC_CODE_EXEC_TARGET_DIR", &code_exec_target_dir);
+
         // Set cell path if provided via env var
         if let Some(cell_dir) = cell_path() {
             cmd.env("DODECA_CELL_PATH", &cell_dir);
@@ -289,6 +295,46 @@ impl TestSite {
             .build()
             .expect("build http client");
 
+        // Wait for the HTTP cell to report ready before issuing any requests.
+        // READY only means the host process is up; on macOS we can otherwise observe
+        // connections being accepted and then immediately reset during early startup.
+        let http_cell_deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            {
+                let logs_guard = logs.lock().unwrap();
+                if logs_guard
+                    .iter()
+                    .any(|l| l.contains("ddc-cell-http") && l.contains("ready acknowledged"))
+                {
+                    break;
+                }
+            }
+            if Instant::now() >= http_cell_deadline {
+                panic!("Timed out waiting for ddc-cell-http to become ready");
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+
+        // Readiness probe: after the server prints READY, macOS can still occasionally accept a
+        // connection and immediately reset it (tunnel opens but no bytes flow). Wait until we can
+        // successfully perform an HTTP round-trip (any status is fine).
+        let probe_deadline = Instant::now() + Duration::from_secs(5);
+        let probe_url = format!("http://127.0.0.1:{}/__dodeca_ready_probe__", port);
+        loop {
+            match client.get(&probe_url).send() {
+                Ok(resp) => {
+                    let _ = resp.text();
+                    break;
+                }
+                Err(e) => {
+                    if Instant::now() >= probe_deadline {
+                        panic!("Server never became HTTP-ready at {probe_url}: {e}");
+                    }
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+        }
+
         Self {
             child,
             port,
@@ -324,18 +370,46 @@ impl TestSite {
         let url = format!("http://127.0.0.1:{}{}", self.port, path);
         debug!(%url, "Issuing GET request");
 
-        match self.client.get(&url).send() {
-            Ok(resp) => {
-                let status = resp.status().as_u16();
-                let body = resp.text().unwrap_or_default();
-                debug!(%url, status, "Received response");
-                Response { status, body, url }
+        fn format_error_chain(err: &dyn std::error::Error) -> String {
+            let mut out = err.to_string();
+            let mut cur = err.source();
+            while let Some(e) = cur {
+                out.push_str("\n  caused by: ");
+                out.push_str(&e.to_string());
+                cur = e.source();
             }
-            Err(e) => {
-                error!(%url, error = %e, "GET failed");
-                panic!("GET {} failed: {}", url, e);
+            out
+        }
+
+        // On macOS we occasionally see a transient failure right after startup
+        // (connection opens then immediately closes). Retry a few times to avoid flakes.
+        let mut last_err: Option<reqwest::Error> = None;
+        for attempt in 1..=20 {
+            match self.client.get(&url).send() {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    let body = resp.text().unwrap_or_default();
+                    debug!(%url, status, attempt, "Received response");
+                    return Response { status, body, url };
+                }
+                Err(e) => {
+                    // Empirically, on macOS we sometimes see an early connection teardown even
+                    // after the server printed READY. Retrying is safe here because a persistent
+                    // error still fails quickly, and non-2xx outcomes are returned as responses.
+                    let will_retry = attempt < 20;
+                    error!(%url, attempt, will_retry, error = ?e, "GET failed");
+                    last_err = Some(e);
+
+                    if attempt == 20 {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(100));
+                }
             }
         }
+
+        let e = last_err.expect("last_err set");
+        panic!("GET {} failed:\n{:?}\n{}", url, e, format_error_chain(&e));
     }
 
     /// Wait for a path to return 200, retrying until timeout
