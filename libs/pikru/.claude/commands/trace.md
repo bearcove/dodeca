@@ -51,3 +51,13 @@ fn cylinder_fit(ctx: &RenderContext, fit_h: Inches, rad: Inches, sw: Inches) -> 
 6. Fix the Rust code based on **observed data differences**
 
 This approach fixes tests based on **data** and helps understand how both codebases flow, instead of guessing at what might be wrong.
+
+## IMPORTANT: Leave Traces in Place!
+
+**DO NOT remove debug traces after fixing a bug!**
+
+- Keep `DBG()` calls in C code for future debugging
+- Keep `tracing::debug!()` calls in Rust code
+- The C implementation is not used in production - traces are helpful for the next bug
+- Rust tracing is compile-time controlled via `RUST_LOG` environment variable
+- Having traces in place makes the next investigation faster and easier
