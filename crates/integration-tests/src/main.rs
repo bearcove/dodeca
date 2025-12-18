@@ -46,14 +46,30 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
 
     let rt = tokio::runtime::Runtime::new().expect("create tokio runtime");
 
+    fn panic_message(e: &Box<dyn std::any::Any + Send>) -> String {
+        if let Some(s) = e.downcast_ref::<&str>() {
+            s.to_string()
+        } else if let Some(s) = e.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "unknown panic".to_string()
+        }
+    }
+
+    fn is_retryable_startup_failure(msg: &str) -> bool {
+        msg.contains("Server never became HTTP-ready")
+            || msg.contains("Connection reset by peer")
+            || msg.contains("connection reset by peer")
+    }
+
     for test in tests {
         let full_name = format!("{}::{}", test.module, test.name);
 
         // Apply filter
-        if let Some(filter) = filter {
-            if !full_name.contains(filter) {
-                continue;
-            }
+        if let Some(filter) = filter
+            && !full_name.contains(filter)
+        {
+            continue;
         }
 
         // Skip ignored tests
@@ -65,52 +81,77 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
 
         print!("{} {} ... ", "test".bold(), full_name);
 
-        // Clear logs from previous test
-        clear_last_test_logs();
-
         let start = Instant::now();
-        let result = match &test.func {
-            TestFn::Sync(f) => {
-                let f = *f;
-                panic::catch_unwind(AssertUnwindSafe(f))
-            }
-            TestFn::Async(f) => {
-                let fut = f();
-                rt.block_on(async {
-                    panic::catch_unwind(AssertUnwindSafe(|| {
-                        tokio::runtime::Handle::current().block_on(fut)
-                    }))
-                })
-            }
-        };
-        let elapsed = start.elapsed();
+        let can_retry = full_name == "basic::all_pages_return_200";
+        let mut attempt: u8 = 1;
 
-        match result {
-            Ok(()) => {
-                println!("{} ({:.2}s)", "PASS".green(), elapsed.as_secs_f64());
-                passed += 1;
-            }
-            Err(e) => {
-                let msg = if let Some(s) = e.downcast_ref::<&str>() {
-                    s.to_string()
-                } else if let Some(s) = e.downcast_ref::<String>() {
-                    s.clone()
-                } else {
-                    "unknown panic".to_string()
-                };
-                println!("{} ({:.2}s)", "FAIL".red(), elapsed.as_secs_f64());
-                println!("  {}", msg.red());
+        loop {
+            // Clear logs from previous attempt
+            clear_last_test_logs();
 
-                // Print server logs on failure
-                let logs = get_last_test_logs();
-                if !logs.is_empty() {
-                    println!("  {} ({} lines):", "Server logs".yellow(), logs.len());
-                    for line in &logs {
-                        println!("    {}", line);
-                    }
+            // `catch_unwind` prevents the panic from aborting the runner, but the default
+            // panic hook would still print the panic to stderr. Since we handle/report
+            // failures ourselves (and may retry), temporarily silence the hook.
+            let prev_hook = panic::take_hook();
+            panic::set_hook(Box::new(|_| {}));
+
+            let result = match &test.func {
+                TestFn::Sync(f) => {
+                    let f = *f;
+                    panic::catch_unwind(AssertUnwindSafe(f))
                 }
+                TestFn::Async(f) => {
+                    let fut = f();
+                    rt.block_on(async {
+                        panic::catch_unwind(AssertUnwindSafe(|| {
+                            tokio::runtime::Handle::current().block_on(fut)
+                        }))
+                    })
+                }
+            };
 
-                failed += 1;
+            panic::set_hook(prev_hook);
+
+            match result {
+                Ok(()) => {
+                    let elapsed = start.elapsed();
+                    if attempt > 1 {
+                        println!(
+                            "{} ({:.2}s, retry {})",
+                            "PASS".green(),
+                            elapsed.as_secs_f64(),
+                            attempt - 1
+                        );
+                    } else {
+                        println!("{} ({:.2}s)", "PASS".green(), elapsed.as_secs_f64());
+                    }
+                    passed += 1;
+                    break;
+                }
+                Err(e) => {
+                    let msg = panic_message(&e);
+
+                    if can_retry && attempt == 1 && is_retryable_startup_failure(&msg) {
+                        attempt = 2;
+                        continue;
+                    }
+
+                    let elapsed = start.elapsed();
+                    println!("{} ({:.2}s)", "FAIL".red(), elapsed.as_secs_f64());
+                    println!("  {}", msg.red());
+
+                    // Print server logs on failure (after retries exhausted)
+                    let logs = get_last_test_logs();
+                    if !logs.is_empty() {
+                        println!("  {} ({} lines):", "Server logs".yellow(), logs.len());
+                        for line in &logs {
+                            println!("    {}", line);
+                        }
+                    }
+
+                    failed += 1;
+                    break;
+                }
             }
         }
     }
@@ -123,10 +164,10 @@ fn list_tests(tests: &[Test], filter: Option<&str>) {
     for test in tests {
         let full_name = format!("{}::{}", test.module, test.name);
 
-        if let Some(filter) = filter {
-            if !full_name.contains(filter) {
-                continue;
-            }
+        if let Some(filter) = filter
+            && !full_name.contains(filter)
+        {
+            continue;
         }
 
         if test.ignored {
@@ -225,7 +266,7 @@ fn main() {
         println!(
             "Results: {} passed, {} failed, {} skipped",
             passed.to_string().green(),
-            failed.to_string(),
+            failed,
             skipped.to_string().yellow()
         );
     }

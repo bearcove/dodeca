@@ -1,5 +1,15 @@
 # Cursed: First Test Fails After Build
 
+## Workaround
+
+```bash
+cargo xtask integration -- --no-build
+```
+
+Run this after an initial `cargo build --release`. Tests pass 100% without rebuilding.
+
+---
+
 ## The Problem
 
 The first integration test (`basic::all_pages_return_200`) consistently fails when run immediately after `cargo build`, but passes when run without rebuilding.
@@ -93,14 +103,53 @@ FSEventsPurgeEventsForDeviceUpToEventId: f2d_purge_events_for_device_up_to_event
 
 These are probably unrelated - they appear during passing tests too.
 
-## Next Steps to Investigate
+## Root Cause Found: HTTP Cell Immediately Closes Tunnel
 
-1. Run with `RUST_BACKTRACE=1` to see where exactly the connection reset happens
-2. Add tracing to the FD-passing code path in ddc
-3. Check if cargo leaves any file descriptors open after build (`lsof`)
-4. Try running the test binary under `dtruss` or similar to trace syscalls
-5. Check if this reproduces on Linux (not just macOS)
+With debug logging, we found the exact failure:
 
-## Workaround
+```
+RPC call start service="TcpTunnel" method="open" channel_id=357
+received frame channel_id=357 ... payload_len=2           # RPC response (TunnelHandle)
+RPC call complete
+received frame channel_id=358 ... DATA | EOS payload_len=0  # Tunnel immediately gets EOS!
+try_route_to_tunnel: EOS received, removing tunnel
+browser <-> tunnel finished to_tunnel=0 to_browser=0
+```
 
-For now, `cargo xtask integration -- --no-build` works reliably after an initial build.
+The HTTP cell successfully opens the tunnel (channel N), but then **immediately sends EOS on channel N+1** (the tunnel stream) with 0 bytes. The cell closes the tunnel before any HTTP data can flow.
+
+This results in `copy_bidirectional` returning `(0, 0)` - zero bytes transferred in both directions.
+
+## Environment
+
+- macOS 15.5 (Darwin 25.1.0) on Apple M4 Pro
+- rustc 1.91.1 (ed61e7d7e 2025-11-07)
+- cargo 1.91.1
+- Release build only (debug not tested)
+
+## Minimal Repro Script
+
+```bash
+#!/bin/bash
+set -e
+echo "Building..."
+cargo build --release -p dodeca
+echo "Running test (should fail)..."
+DODECA_BIN=target/release/ddc DODECA_CELL_PATH=target/release \
+  target/release/integration-tests basic::all_pages_return_200
+```
+
+## Key Files
+
+- **FD passing (harness):** `crates/integration-tests/src/harness.rs:120-227`
+- **FD receiving (host):** `crates/dodeca/src/main.rs:1694-1720`
+- **Accept loop:** `crates/dodeca/src/cell_server.rs:266-311`
+- **Tunnel bridging:** `crates/dodeca/src/cell_server.rs:331-365`
+- **HTTP cell tunnel impl:** `cells/cell-http/src/tunnel.rs`
+
+## Next Steps
+
+1. **Instrument HTTP cell** - Add logging to `cells/cell-http/src/tunnel.rs` to see why the cell immediately closes the tunnel
+2. **Check hyper/HTTP serving** - The cell spawns a hyper server on the tunnel stream; maybe it errors
+3. **Compare cell state** - Why does the cell behave differently right after a build?
+4. **Test on Linux** - Determine if this is macOS-specific

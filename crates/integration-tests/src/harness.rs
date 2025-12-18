@@ -29,7 +29,7 @@ use tracing::{debug, error};
 
 // Thread-local storage for logs from the last test (for printing on failure)
 thread_local! {
-    static LAST_TEST_LOGS: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    static LAST_TEST_LOGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Get the logs from the last test that ran (for printing on failure)
