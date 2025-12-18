@@ -14,6 +14,7 @@
 //!   (e.g., "valgrind --leak-check=full" or "strace -f -o /tmp/trace.out")
 
 use async_send_fd::AsyncSendFd;
+use owo_colors::OwoColorize;
 use regex::Regex;
 use reqwest::blocking::Client;
 use std::cell::RefCell;
@@ -292,6 +293,16 @@ impl TestSite {
                         "HTTP probe attempt failed"
                     );
                     if Instant::now() >= probe_deadline {
+                        // Capture logs before panicking
+                        let captured_logs = logs.lock().unwrap().clone();
+                        eprintln!("\n{}", "Server logs (captured before panic):".bright_red());
+                        for log in &captured_logs {
+                            eprintln!("  {}", log);
+                        }
+                        // Also save to thread-local for test runner
+                        LAST_TEST_LOGS.with(|tl| {
+                            *tl.borrow_mut() = captured_logs;
+                        });
                         panic!(
                             "Server never became HTTP-ready at {probe_url} after {probe_attempts} attempts: {e:?}"
                         );
@@ -347,35 +358,20 @@ impl TestSite {
             out
         }
 
-        // On macOS we occasionally see a transient failure right after startup
-        // (connection opens then immediately closes). Retry a few times to avoid flakes.
-        let mut last_err: Option<reqwest::Error> = None;
-        for attempt in 1..=20 {
-            match self.client.get(&url).send() {
-                Ok(resp) => {
-                    let status = resp.status().as_u16();
-                    let body = resp.text().unwrap_or_default();
-                    debug!(%url, status, attempt, "Received response");
-                    return Response { status, body, url };
-                }
-                Err(e) => {
-                    // Empirically, on macOS we sometimes see an early connection teardown even
-                    // after the server printed READY. Retrying is safe here because a persistent
-                    // error still fails quickly, and non-2xx outcomes are returned as responses.
-                    let will_retry = attempt < 20;
-                    error!(%url, attempt, will_retry, error = ?e, "GET failed");
-                    last_err = Some(e);
-
-                    if attempt == 20 {
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(100));
-                }
+        // Server should only accept connections when it's ready to serve them.
+        // No retries - if the request fails, it's a real failure.
+        match self.client.get(&url).send() {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                let body = resp.text().unwrap_or_default();
+                debug!(%url, status, "Received response");
+                Response { status, body, url }
+            }
+            Err(e) => {
+                error!(%url, error = ?e, "GET failed");
+                panic!("GET {} failed:\n{:?}\n{}", url, e, format_error_chain(&e));
             }
         }
-
-        let e = last_err.expect("last_err set");
-        panic!("GET {} failed:\n{:?}\n{}", url, e, format_error_chain(&e));
     }
 
     /// Wait for a path to return 200, retrying until timeout

@@ -45,12 +45,6 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
         }
     }
 
-    fn is_retryable_startup_failure(msg: &str) -> bool {
-        msg.contains("Server never became HTTP-ready")
-            || msg.contains("Connection reset by peer")
-            || msg.contains("connection reset by peer")
-    }
-
     for test in tests {
         let full_name = format!("{}::{}", test.module, test.name);
 
@@ -71,68 +65,47 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
         print!("{} {} ... ", "test".bold(), full_name);
 
         let start = Instant::now();
-        let can_retry = full_name == "basic::all_pages_return_200";
-        let mut attempt: u8 = 1;
 
-        loop {
-            // Clear logs from previous attempt
-            clear_last_test_logs();
+        // Clear logs from previous test
+        clear_last_test_logs();
 
-            // `catch_unwind` prevents the panic from aborting the runner, but the default
-            // panic hook would still print the panic to stderr. Since we handle/report
-            // failures ourselves (and may retry), temporarily silence the hook.
-            let prev_hook = panic::take_hook();
-            panic::set_hook(Box::new(|_| {}));
+        // `catch_unwind` prevents the panic from aborting the runner, but the default
+        // panic hook would still print the panic to stderr. Since we handle/report
+        // failures ourselves, temporarily silence the hook.
+        let prev_hook = panic::take_hook();
+        panic::set_hook(Box::new(|_| {}));
 
-            let result = match &test.func {
-                TestFn::Sync(f) => {
-                    let f = *f;
-                    panic::catch_unwind(AssertUnwindSafe(f))
-                }
-            };
+        let result = match &test.func {
+            TestFn::Sync(f) => {
+                let f = *f;
+                panic::catch_unwind(AssertUnwindSafe(f))
+            }
+        };
 
-            panic::set_hook(prev_hook);
+        panic::set_hook(prev_hook);
 
-            match result {
-                Ok(()) => {
-                    let elapsed = start.elapsed();
-                    if attempt > 1 {
-                        println!(
-                            "{} ({:.2}s, retry {})",
-                            "PASS".green(),
-                            elapsed.as_secs_f64(),
-                            attempt - 1
-                        );
-                    } else {
-                        println!("{} ({:.2}s)", "PASS".green(), elapsed.as_secs_f64());
+        match result {
+            Ok(()) => {
+                let elapsed = start.elapsed();
+                println!("{} ({:.2}s)", "PASS".green(), elapsed.as_secs_f64());
+                passed += 1;
+            }
+            Err(e) => {
+                let msg = panic_message(&e);
+                let elapsed = start.elapsed();
+                println!("{} ({:.2}s)", "FAIL".red(), elapsed.as_secs_f64());
+                println!("  {}", msg.red());
+
+                // Print server logs on failure
+                let logs = get_last_test_logs();
+                if !logs.is_empty() {
+                    println!("  {} ({} lines):", "Server logs".yellow(), logs.len());
+                    for line in &logs {
+                        println!("    {}", line);
                     }
-                    passed += 1;
-                    break;
                 }
-                Err(e) => {
-                    let msg = panic_message(&e);
 
-                    if can_retry && attempt == 1 && is_retryable_startup_failure(&msg) {
-                        attempt = 2;
-                        continue;
-                    }
-
-                    let elapsed = start.elapsed();
-                    println!("{} ({:.2}s)", "FAIL".red(), elapsed.as_secs_f64());
-                    println!("  {}", msg.red());
-
-                    // Print server logs on failure (after retries exhausted)
-                    let logs = get_last_test_logs();
-                    if !logs.is_empty() {
-                        println!("  {} ({} lines):", "Server logs".yellow(), logs.len());
-                        for line in &logs {
-                            println!("    {}", line);
-                        }
-                    }
-
-                    failed += 1;
-                    break;
-                }
+                failed += 1;
             }
         }
     }
