@@ -500,7 +500,7 @@ fn render_object_stmt(
     let mut text = Vec::new();
     let mut explicit_position: Option<PointIn> = None;
     let mut from_position: Option<PointIn> = None;
-    let mut to_position: Option<PointIn> = None;
+    let mut to_positions: Vec<PointIn> = Vec::new();
     let mut from_attachment: Option<EndpointObject> = None;
     let mut to_attachment: Option<EndpointObject> = None;
     // Accumulated direction offsets for compound moves like "up 1 right 2"
@@ -659,7 +659,7 @@ fn render_object_stmt(
             }
             Attribute::To(pos) => {
                 if let Ok(p) = eval_position(ctx, pos) {
-                    to_position = Some(p);
+                    to_positions.push(p);
                     if to_attachment.is_none() {
                         to_attachment = endpoint_object_from_position(ctx, pos);
                     }
@@ -1114,7 +1114,7 @@ fn render_object_stmt(
     tracing::debug!(
         ?class,
         from_position = from_position.is_some(),
-        to_position = to_position.is_some(),
+        to_positions_count = to_positions.len(),
         has_direction_move,
         then_clauses_empty = then_clauses.is_empty(),
         even_clause = even_clause.is_some(),
@@ -1122,7 +1122,7 @@ fn render_object_stmt(
         "position branch conditions"
     );
     let (center, start, end, waypoints) = if from_position.is_some()
-        || to_position.is_some()
+        || !to_positions.is_empty()
         || has_direction_move
         || !then_clauses.is_empty()
         || even_clause.is_some()
@@ -1184,9 +1184,11 @@ fn render_object_stmt(
             let mut points = vec![start];
             let mut current_pos = start;
 
-            if to_position.is_some() && then_clauses.is_empty() && !has_direction_move {
-                // from X to Y - just two points
-                points.push(to_position.unwrap());
+            if !to_positions.is_empty() && then_clauses.is_empty() && !has_direction_move {
+                // from X to Y [to Z...] - add all to_positions as waypoints
+                for pos in &to_positions {
+                    points.push(*pos);
+                }
             } else if has_direction_move {
                 // Apply accumulated offsets as single diagonal move (C pikchr behavior)
                 let next = current_pos + direction_offset;

@@ -40,12 +40,30 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                 .map_err(|e| miette::miette!("Invalid numeric literal: {}", e))?;
             Ok(Value::Len(len))
         }
-        Expr::Variable(name) => ctx
-            .variables
-            .get(name)
-            .copied()
-            .map(Value::from)
-            .ok_or_else(|| miette::miette!("Undefined variable: {}", name)),
+        Expr::Variable(name) => {
+            // cref: pik_get_var (pikchr.c:6625) - falls back to color lookup
+            if let Some(val) = ctx.variables.get(name) {
+                Ok(Value::from(*val))
+            } else {
+                // Try parsing as a color name (always succeeds, returns Raw if unknown)
+                let color = name.parse::<crate::types::Color>().unwrap();
+                let rgb_str = color.to_rgb_string();
+                if let Some(rgb) = rgb_str.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
+                    let parts: Vec<&str> = rgb.split(',').collect();
+                    if parts.len() == 3 {
+                        if let (Ok(r), Ok(g), Ok(b)) = (
+                            parts[0].trim().parse::<u32>(),
+                            parts[1].trim().parse::<u32>(),
+                            parts[2].trim().parse::<u32>(),
+                        ) {
+                            let color_val = (r << 16) | (g << 8) | b;
+                            return Ok(Value::from(EvalValue::Color(color_val)));
+                        }
+                    }
+                }
+                Err(miette::miette!("Undefined variable: {}", name))
+            }
+        }
         Expr::BuiltinVar(b) => {
             let key = match b {
                 BuiltinVar::Fill => "fill",
