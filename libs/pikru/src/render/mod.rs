@@ -447,8 +447,10 @@ fn render_object_stmt(
             }
             ClassName::Move => (ctx.get_length("movewid", 0.5), Inches::ZERO),
             ClassName::Dot => {
-                let dotrad = ctx.get_length("dotrad", 0.025);
-                (dotrad * 2.0, dotrad * 2.0)
+                // cref: dotInit (pikchr.c:4026-4028)
+                let dotrad = ctx.get_length("dotrad", 0.015);
+                // C: pObj->w = pObj->h = pObj->rad * 6
+                (dotrad * 6.0, dotrad * 6.0)
             }
             ClassName::Text => {
                 // Default dimensions - will be overridden by actual text content later
@@ -564,15 +566,14 @@ fn render_object_stmt(
         style.arrow_end = true;
     }
 
-    // For dots, initialize fill to match stroke color and set stroke width to 0
-    // cref: dotInit (pikchr.c:1348-1352) - pObj->fill = pObj->color
-    // Dots should only show fill, no stroke outline
+    // For dots, initialize fill to match stroke color
+    // cref: dotInit (pikchr.c:4026-4030) - pObj->fill = pObj->color
+    // Dots render with both fill and stroke in the same color (stroke_width is NOT 0)
     if class_name == Some(ClassName::Dot) {
         style.fill = style.stroke.clone();
-        style.stroke_width = Inches(0.0);
         tracing::debug!(
             fill = %style.fill,
-            "[Rust dot init] Set fill = stroke, stroke_width = 0"
+            "[Rust dot init] Set fill = stroke"
         );
     }
 
@@ -1492,15 +1493,18 @@ fn render_object_stmt(
             text: text.clone(),
         }),
         ClassName::Dot => {
+            // C: renders with r = pObj->rad, but sets w = rad * 6
+            // So: radius = width / 6
+            let radius = width / 6.0;
             tracing::debug!(
                 center_x = center.x.raw(),
                 center_y = center.y.raw(),
-                radius = (width / 2.0).raw(),
+                radius = radius.raw(),
                 "[Rust dot created]"
             );
             ShapeEnum::Dot(DotShape {
                 center,
-                radius: width / 2.0,
+                radius,
                 style: style.clone(),
                 text: text.clone(),
             })

@@ -88,7 +88,7 @@ impl RenderContext {
             diamondht  => EvalValue::Length(Inches::from(0.75)), // C name
             diamondwid => EvalValue::Length(Inches::from(1.0)),  // C name
             // Dot
-            dotrad     => EvalValue::Length(Inches::from(0.025)),
+            dotrad     => EvalValue::Length(Inches::from(0.015)),  // cref: pikchr.c:3669
             // Ellipse
             ellipseht  => EvalValue::Length(Inches::from(0.5)),
             ellipsewid => EvalValue::Length(Inches::from(0.75)),
