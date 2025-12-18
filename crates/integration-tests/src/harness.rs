@@ -587,3 +587,168 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 
     Ok(())
 }
+
+// ============================================================================
+// BUILD TESTS (for code execution tests)
+// ============================================================================
+
+/// Result of running `ddc build` on a fixture
+pub struct BuildResult {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+impl BuildResult {
+    /// Assert the build succeeded
+    pub fn assert_success(&self) -> &Self {
+        assert!(
+            self.success,
+            "Build should have succeeded but failed.\nstdout:\n{}\nstderr:\n{}",
+            self.stdout, self.stderr
+        );
+        self
+    }
+
+    /// Assert the build failed
+    pub fn assert_failure(&self) -> &Self {
+        assert!(
+            !self.success,
+            "Build should have failed but succeeded.\nstdout:\n{}\nstderr:\n{}",
+            self.stdout, self.stderr
+        );
+        self
+    }
+
+    /// Assert the build output (stdout + stderr) contains a string
+    pub fn assert_output_contains(&self, needle: &str) -> &Self {
+        let combined = format!("{}{}", self.stdout, self.stderr);
+        assert!(
+            combined.contains(needle),
+            "Build output should contain '{}' but doesn't.\nstdout:\n{}\nstderr:\n{}",
+            needle,
+            self.stdout,
+            self.stderr
+        );
+        self
+    }
+}
+
+/// Helper for creating test sites from inline content
+pub struct InlineSite {
+    _temp_dir: tempfile::TempDir,
+    pub fixture_dir: PathBuf,
+}
+
+impl InlineSite {
+    /// Create a new inline site with the given markdown content
+    pub fn new(content_files: &[(&str, &str)]) -> Self {
+        let temp_dir = tempfile::Builder::new()
+            .prefix("dodeca-inline-test-")
+            .tempdir()
+            .expect("create temp dir");
+
+        let fixture_dir = temp_dir.path().to_path_buf();
+
+        // Create directories
+        fs::create_dir_all(fixture_dir.join("content")).expect("create content dir");
+        fs::create_dir_all(fixture_dir.join("templates")).expect("create templates dir");
+        fs::create_dir_all(fixture_dir.join("sass")).expect("create sass dir");
+        fs::create_dir_all(fixture_dir.join(".config")).expect("create config dir");
+        fs::create_dir_all(fixture_dir.join(".cache")).expect("create cache dir");
+
+        // Write config
+        fs::write(
+            fixture_dir.join(".config/dodeca.kdl"),
+            "content \"content\"\noutput \"public\"\n",
+        )
+        .expect("write config");
+
+        // Write templates
+        fs::write(
+            fixture_dir.join("templates/index.html"),
+            "<!DOCTYPE html><html><head><title>{{ section.title }}</title></head><body>{{ section.content | safe }}</body></html>",
+        )
+        .expect("write index template");
+
+        fs::write(
+            fixture_dir.join("templates/section.html"),
+            "<!DOCTYPE html><html><head><title>{{ section.title }}</title></head><body>{{ section.content | safe }}</body></html>",
+        )
+        .expect("write section template");
+
+        fs::write(
+            fixture_dir.join("templates/page.html"),
+            "<!DOCTYPE html><html><head><title>{{ page.title }}</title></head><body>{{ page.content | safe }}</body></html>",
+        )
+        .expect("write page template");
+
+        // Write sass
+        fs::write(fixture_dir.join("sass/main.scss"), "body { margin: 0; }").expect("write sass");
+
+        // Write content files
+        for (path, content) in content_files {
+            let file_path = fixture_dir.join("content").join(path);
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent).expect("create content parent dir");
+            }
+            fs::write(&file_path, content).expect("write content file");
+        }
+
+        Self {
+            _temp_dir: temp_dir,
+            fixture_dir,
+        }
+    }
+
+    /// Build this site (sync version for standalone test runner)
+    pub fn build(&self) -> BuildResult {
+        build_site_from_source_sync(&self.fixture_dir)
+    }
+}
+
+/// Build a site from an arbitrary source directory (sync version)
+fn build_site_from_source_sync(src: &Path) -> BuildResult {
+    // Create isolated temp directory
+    let temp_dir = tempfile::Builder::new()
+        .prefix("dodeca-build-test-")
+        .tempdir()
+        .expect("create temp dir");
+
+    let fixture_dir = temp_dir.path().to_path_buf();
+    copy_dir_recursive(src, &fixture_dir).expect("copy fixture");
+
+    // Ensure .cache exists and is empty
+    let cache_dir = fixture_dir.join(".cache");
+    let _ = fs::remove_dir_all(&cache_dir);
+    fs::create_dir_all(&cache_dir).expect("create cache dir");
+
+    // Create output directory
+    let output_dir = fixture_dir.join("public");
+    fs::create_dir_all(&output_dir).expect("create output dir");
+
+    // Run build
+    let fixture_str = fixture_dir.to_string_lossy().to_string();
+    let ddc = ddc_binary();
+    let mut cmd = StdCommand::new(&ddc);
+    cmd.args(["build", &fixture_str]);
+
+    // Set cell path if provided via env var
+    if let Some(cell_dir) = cell_path() {
+        cmd.env("DODECA_CELL_PATH", &cell_dir);
+    }
+
+    // Isolate code-execution build artifacts per build invocation to avoid macOS hangs due to
+    // cargo file-lock contention under concurrent tests/processes.
+    let code_exec_target_dir = temp_dir.path().join("code-exec-target");
+    let _ = fs::create_dir_all(&code_exec_target_dir);
+    cmd.env("DDC_CODE_EXEC_TARGET_DIR", &code_exec_target_dir);
+
+    let output = cmd.output().expect("run build");
+
+    BuildResult {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+    }
+}
