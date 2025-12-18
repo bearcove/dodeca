@@ -200,8 +200,11 @@ fn render_statement(
 
 /// Expand a bounding box to include a rendered object (recursing into sublists)
 // cref: pik_bbox_add_elist (pikchr.c:7206) - iterates objects
+// cref: pik_bbox_add_elist (pikchr.c:7243) - checks pObj->sw>=0.0 before adding bbox
+// cref: pik_bbox_add_elist (pikchr.c:7251-7260) - arrowheads added regardless of sw
 pub fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
-    // Delegate to the shape's expand_bounds method via enum_dispatch
+    // C pikchr: shape bbox only added if sw>=0, but arrowheads are always added
+    // The shape's expand_bounds handles both aspects
     obj.shape.expand_bounds(bounds);
 }
 

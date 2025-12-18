@@ -254,7 +254,8 @@ impl Shape for CircleShape {
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        if self.style.invisible {
+        // cref: circleRender (pikchr.c:3961) - checks pObj->sw>=0.0
+        if self.style.invisible || self.style.stroke_width.0 < 0.0 {
             return nodes;
         }
 
@@ -340,7 +341,8 @@ impl Shape for BoxShape {
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        if self.style.invisible {
+        // cref: boxRender (pikchr.c:3856) - checks pObj->sw>=0.0
+        if self.style.invisible || self.style.stroke_width.0 < 0.0 {
             return nodes;
         }
 
@@ -427,7 +429,8 @@ impl Shape for EllipseShape {
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        if self.style.invisible {
+        // cref: ovalRender (pikchr.c:3987) - checks pObj->sw>=0.0
+        if self.style.invisible || self.style.stroke_width.0 < 0.0 {
             return nodes;
         }
 
@@ -505,7 +508,8 @@ impl Shape for OvalShape {
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        if self.style.invisible {
+        // cref: ovalRender (pikchr.c:3987) - checks pObj->sw>=0.0
+        if self.style.invisible || self.style.stroke_width.0 < 0.0 {
             return nodes;
         }
 
@@ -584,7 +588,8 @@ impl Shape for DiamondShape {
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        if self.style.invisible {
+        // cref: diamondRender (pikchr.c:4058) - checks pObj->sw>=0.0
+        if self.style.invisible || self.style.stroke_width.0 < 0.0 {
             return nodes;
         }
 
@@ -679,7 +684,8 @@ impl Shape for CylinderShape {
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        if self.style.invisible {
+        // cref: cylinderRender (pikchr.c:4112) - checks pObj->sw>=0.0
+        if self.style.invisible || self.style.stroke_width.0 < 0.0 {
             return nodes;
         }
 
@@ -788,7 +794,8 @@ impl Shape for FileShape {
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        if self.style.invisible {
+        // cref: fileRender (pikchr.c:4171) - checks pObj->sw>=0.0
+        if self.style.invisible || self.style.stroke_width.0 < 0.0 {
             return nodes;
         }
 
@@ -924,7 +931,8 @@ impl Shape for LineShape {
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        if self.style.invisible || self.waypoints.len() < 2 {
+        // cref: lineRender (pikchr.c:4228) - checks pObj->sw>=0.0
+        if self.style.invisible || self.style.stroke_width.0 < 0.0 || self.waypoints.len() < 2 {
             return nodes;
         }
 
@@ -1054,10 +1062,32 @@ impl Shape for LineShape {
     }
 
     /// cref: pik_bbox_add_elist (pikchr.c:7206) - line bbox from waypoints
+    /// cref: pik_bbox_add_elist (pikchr.c:7243) - only if sw>=0
+    /// cref: pik_bbox_add_elist (pikchr.c:7251-7260) - arrowheads always added as ellipses
     fn expand_bounds(&self, bounds: &mut BoundingBox) {
-        // Expand by waypoints
-        for pt in &self.waypoints {
-            bounds.expand_point(*pt);
+        // Only expand by waypoints if stroke width is non-negative
+        if self.style.stroke_width.0 >= 0.0 {
+            for pt in &self.waypoints {
+                bounds.expand_point(*pt);
+            }
+        }
+
+        // Arrowheads are ALWAYS included as ellipses, even for negative thickness
+        // C: pik_bbox_addellipse(&p->bbox, pObj->aPath[j].x, pObj->aPath[j].y, wArrow, wArrow)
+        // where wArrow = 0.5 * arrowwid (line 7274)
+        // This happens after the sw check in C (lines 7251-7260)
+        if !self.waypoints.is_empty() {
+            let w_arrow = defaults::ARROW_WID * 0.5;
+            if self.style.arrow_start {
+                let pt = self.waypoints[0];
+                bounds.expand_point(Point::new(pt.x - w_arrow, pt.y - w_arrow));
+                bounds.expand_point(Point::new(pt.x + w_arrow, pt.y + w_arrow));
+            }
+            if self.style.arrow_end {
+                let pt = *self.waypoints.last().unwrap();
+                bounds.expand_point(Point::new(pt.x - w_arrow, pt.y - w_arrow));
+                bounds.expand_point(Point::new(pt.x + w_arrow, pt.y + w_arrow));
+            }
         }
         // Include text labels (they extend above and below the line)
         if !self.text.is_empty() {
@@ -1138,7 +1168,8 @@ impl Shape for SplineShape {
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        if self.style.invisible || self.waypoints.len() < 2 {
+        // cref: splineRender (pikchr.c:4381) - checks pObj->sw>=0.0
+        if self.style.invisible || self.style.stroke_width.0 < 0.0 || self.waypoints.len() < 2 {
             return nodes;
         }
 
@@ -1191,10 +1222,32 @@ impl Shape for SplineShape {
     }
 
     /// cref: pik_bbox_add_elist (pikchr.c:7206) - spline bbox from waypoints
+    /// cref: pik_bbox_add_elist (pikchr.c:7243) - only if sw>=0
+    /// cref: pik_bbox_add_elist (pikchr.c:7251-7260) - arrowheads always added as ellipses
     fn expand_bounds(&self, bounds: &mut BoundingBox) {
-        // Expand by waypoints
-        for pt in &self.waypoints {
-            bounds.expand_point(*pt);
+        // Only expand by waypoints if stroke width is non-negative
+        if self.style.stroke_width.0 >= 0.0 {
+            for pt in &self.waypoints {
+                bounds.expand_point(*pt);
+            }
+        }
+
+        // Arrowheads are ALWAYS included as ellipses, even for negative thickness
+        // C: pik_bbox_addellipse(&p->bbox, pObj->aPath[j].x, pObj->aPath[j].y, wArrow, wArrow)
+        // where wArrow = 0.5 * arrowwid (line 7274)
+        // This happens after the sw check in C (lines 7251-7260)
+        if !self.waypoints.is_empty() {
+            let w_arrow = defaults::ARROW_WID * 0.5;
+            if self.style.arrow_start {
+                let pt = self.waypoints[0];
+                bounds.expand_point(Point::new(pt.x - w_arrow, pt.y - w_arrow));
+                bounds.expand_point(Point::new(pt.x + w_arrow, pt.y + w_arrow));
+            }
+            if self.style.arrow_end {
+                let pt = *self.waypoints.last().unwrap();
+                bounds.expand_point(Point::new(pt.x - w_arrow, pt.y - w_arrow));
+                bounds.expand_point(Point::new(pt.x + w_arrow, pt.y + w_arrow));
+            }
         }
         // Include text labels
         if !self.text.is_empty() {
@@ -1269,7 +1322,9 @@ impl Shape for DotShape {
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        if self.style.invisible {
+        // cref: dotRender (pikchr.c:3934) - dots are always filled, no sw check needed
+        // But for consistency with other shapes, we still check for negative thickness
+        if self.style.invisible || self.style.stroke_width.0 < 0.0 {
             return nodes;
         }
 
@@ -1558,7 +1613,8 @@ impl Shape for ArcShape {
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        if self.style.invisible {
+        // cref: arcRender (pikchr.c:4485) - checks pObj->sw>=0.0
+        if self.style.invisible || self.style.stroke_width.0 < 0.0 {
             return nodes;
         }
 
