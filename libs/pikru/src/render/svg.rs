@@ -134,10 +134,15 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         if obj.class() != ClassName::Text && !obj.text().is_empty() {
             let texts = obj.text();
 
-            // For cylinders, C pikchr shifts text down by 0.75 * cylrad
-            let y_base = if obj.class() == ClassName::Cylinder {
-                let cylrad = 0.075; // default cylrad
-                -0.75 * cylrad
+            // For cylinders, C pikchr shifts text down by 0.75 * rad
+            // cref: pik_append_txt (pikchr.c:5102-5104)
+            // Note: C code only applies yBase if rad > 0
+            let y_base = if let super::shapes::ShapeEnum::Cylinder(cyl) = &obj.shape {
+                if cyl.ellipse_rad.0 > 0.0 {
+                    -0.75 * cyl.ellipse_rad.0
+                } else {
+                    0.0
+                }
             } else {
                 0.0
             };

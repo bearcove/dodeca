@@ -481,6 +481,19 @@ fn render_object_stmt(
     }
 
     let mut style = ObjectStyle::default();
+
+    // Initialize shape-specific radius values before processing attributes
+    // cref: cylinderInit (pikchr.c:3974), boxInit (pikchr.c:3775), etc.
+    if let Some(ref cn) = class_name {
+        style.corner_radius = match cn {
+            ClassName::Cylinder => ctx.get_length("cylrad", 0.075),
+            ClassName::Box => ctx.get_length("boxrad", 0.0),
+            ClassName::File => ctx.get_length("filerad", 0.0),
+            ClassName::Line | ClassName::Arrow | ClassName::Spline => ctx.get_length("linerad", 0.0),
+            _ => Inches::ZERO,
+        };
+    }
+
     let mut text = Vec::new();
     let mut explicit_position: Option<PointIn> = None;
     let mut from_position: Option<PointIn> = None;
@@ -529,6 +542,10 @@ fn render_object_stmt(
                                 | Some(ClassName::Ellipse)
                                 | Some(ClassName::Arc) => {
                                     width / 2.0 // current radius
+                                }
+                                Some(ClassName::Cylinder) => {
+                                    // For cylinders, corner_radius was initialized to cylrad before attributes
+                                    style.corner_radius
                                 }
                                 _ => style.corner_radius,
                             }
@@ -749,8 +766,8 @@ fn render_object_stmt(
                     // Calculate text bounding box height using vertical slots
                     let y_base = match class_name {
                         Some(ClassName::Cylinder) => {
-                            let rad = ctx.get_length("cylrad", 0.075);
-                            -0.75 * rad.raw()
+                            // corner_radius was initialized to cylrad before attributes
+                            -0.75 * style.corner_radius.raw()
                         }
                         _ => 0.0,
                     };
@@ -807,9 +824,9 @@ fn render_object_stmt(
                             height = Inches(mx);
                         }
                         Some(ClassName::Cylinder) => {
-                            let rad = ctx.get_length("cylrad", 0.075);
+                            // corner_radius was initialized to cylrad before attributes
                             width = fit_width;
-                            height = fit_height + rad * 0.25 + style.stroke_width;
+                            height = fit_height + style.corner_radius * 0.25 + style.stroke_width;
                         }
                         Some(ClassName::Diamond) => {
                             // cref: diamondFit (pikchr.c:1418-1430)
@@ -975,8 +992,8 @@ fn render_object_stmt(
         // cref: pik_append_txt (pikchr.c:5102-5104) - cylinder yBase = -0.75 * rad
         let y_base = match class {
             ClassName::Cylinder => {
-                let rad = ctx.get_length("cylrad", 0.075);
-                -0.75 * rad.raw()
+                // corner_radius was initialized to cylrad before attributes
+                -0.75 * style.corner_radius.raw()
             }
             _ => 0.0,
         };
@@ -1032,9 +1049,9 @@ fn render_object_stmt(
             }
             ClassName::Cylinder => {
                 // cref: cylinderFit (pikchr.c:3976)
-                let rad = ctx.get_length("cylrad", 0.075);
+                // corner_radius was initialized to cylrad before attributes
                 width = fit_width;
-                height = fit_height + rad * 0.25 + style.stroke_width;
+                height = fit_height + style.corner_radius * 0.25 + style.stroke_width;
             }
             ClassName::Diamond => {
                 // cref: diamondFit (pikchr.c:4096)
@@ -1319,7 +1336,8 @@ fn render_object_stmt(
             center,
             width,
             height,
-            ellipse_rad: ctx.get_length("cylrad", 0.075),
+            // corner_radius was initialized to cylrad before attributes
+            ellipse_rad: style.corner_radius,
             style: style.clone(),
             text: text.clone(),
         }),
