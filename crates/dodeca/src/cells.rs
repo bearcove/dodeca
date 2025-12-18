@@ -639,12 +639,15 @@ impl CellRegistry {
             .arg(format!("--doorbell-fd={}", peer_doorbell_fd))
             .stdin(Stdio::null());
 
-        if is_quiet_mode() {
-            cmd.stdout(Stdio::null()).stderr(Stdio::null());
-            cmd.env("DODECA_QUIET", "1");
-        } else {
-            cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
-        }
+        // Cells communicate with the host via RPC, not stdout/stderr.
+        // Always use null stdio to prevent fd leaks when the host is spawned via
+        // Command::output() or similar (which creates pipes that cells would inherit).
+        //
+        // Diagnostic output from cells isn't necessary - the host process logs what matters.
+        // TEMPORARY: inherit stderr for debugging ur-taking-me-with-you
+        cmd.stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .env("DODECA_QUIET", "1");
 
         let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
             Ok(child) => child,

@@ -296,40 +296,37 @@ impl TestSite {
             .build()
             .expect("build http client");
 
-        // Wait for the HTTP cell to report ready before issuing any requests.
-        // READY only means the host process is up; on macOS we can otherwise observe
-        // connections being accepted and then immediately reset during early startup.
-        let http_cell_deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            {
-                let logs_guard = logs.lock().unwrap();
-                if logs_guard
-                    .iter()
-                    .any(|l| l.contains("ddc-cell-http") && l.contains("ready acknowledged"))
-                {
-                    break;
-                }
-            }
-            if Instant::now() >= http_cell_deadline {
-                panic!("Timed out waiting for ddc-cell-http to become ready");
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-
-        // Readiness probe: after the server prints READY, macOS can still occasionally accept a
-        // connection and immediately reset it (tunnel opens but no bytes flow). Wait until we can
-        // successfully perform an HTTP round-trip (any status is fine).
+        // HTTP probe: verify we can actually complete an HTTP round-trip.
+        // The server waits for required cells before printing READY, so this should succeed quickly.
         let probe_deadline = Instant::now() + Duration::from_secs(5);
-        let probe_url = format!("http://127.0.0.1:{}/__dodeca_ready_probe__", port);
+        let probe_url = format!("http://127.0.0.1:{}/__probe__", port);
+        let mut probe_attempts = 0u32;
         loop {
+            probe_attempts += 1;
             match client.get(&probe_url).send() {
                 Ok(resp) => {
-                    let _ = resp.text();
+                    tracing::info!(
+                        status = %resp.status(),
+                        probe_attempts,
+                        "HTTP probe succeeded"
+                    );
                     break;
                 }
                 Err(e) => {
+                    // Log every error to understand what's happening
+                    tracing::debug!(
+                        error = %e,
+                        error_debug = ?e,
+                        is_connect = e.is_connect(),
+                        is_timeout = e.is_timeout(),
+                        is_request = e.is_request(),
+                        probe_attempts,
+                        "HTTP probe attempt failed"
+                    );
                     if Instant::now() >= probe_deadline {
-                        panic!("Server never became HTTP-ready at {probe_url}: {e}");
+                        panic!(
+                            "Server never became HTTP-ready at {probe_url} after {probe_attempts} attempts: {e:?}"
+                        );
                     }
                     std::thread::sleep(Duration::from_millis(50));
                 }
@@ -690,6 +687,12 @@ async fn build_site_from_source(src: &Path) -> BuildResult {
     if let Some(cell_dir) = cell_path() {
         cmd.env("DODECA_CELL_PATH", &cell_dir);
     }
+
+    // Isolate code-execution build artifacts per build invocation to avoid macOS hangs due to
+    // cargo file-lock contention under concurrent tests/processes.
+    let code_exec_target_dir = temp_dir.path().join("code-exec-target");
+    let _ = fs::create_dir_all(&code_exec_target_dir);
+    cmd.env("DDC_CODE_EXEC_TARGET_DIR", &code_exec_target_dir);
 
     let output = cmd.output().await.expect("run build");
 

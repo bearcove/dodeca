@@ -313,6 +313,8 @@ edition = "2021"
     let mut stderr_buf = Vec::new();
     let mut last_output_time = std::time::Instant::now();
     let mut last_progress_report = std::time::Instant::now();
+    let mut stdout_eof = false;
+    let mut stderr_eof = false;
 
     // Read output with progress reporting and timeout
     let timeout = std::time::Duration::from_secs(EXECUTION_TIMEOUT_SECS);
@@ -388,9 +390,11 @@ edition = "2021"
         let mut stdout_tmp = [0u8; 4096];
         let mut stderr_tmp = [0u8; 4096];
         tokio::select! {
-            result = stdout_handle.read(&mut stdout_tmp) => {
+            // NOTE: once a pipe hits EOF, further reads resolve immediately with Ok(0).
+            // If we keep selecting on it, it can starve `child.wait()` and hang forever.
+            result = stdout_handle.read(&mut stdout_tmp), if !stdout_eof => {
                 match result {
-                    Ok(0) => {} // EOF
+                    Ok(0) => stdout_eof = true,
                     Ok(n) => {
                         stdout_buf.extend_from_slice(&stdout_tmp[..n]);
                         last_output_time = std::time::Instant::now();
@@ -398,9 +402,9 @@ edition = "2021"
                     Err(_) => {}
                 }
             }
-            result = stderr_handle.read(&mut stderr_tmp) => {
+            result = stderr_handle.read(&mut stderr_tmp), if !stderr_eof => {
                 match result {
-                    Ok(0) => {} // EOF
+                    Ok(0) => stderr_eof = true,
                     Ok(n) => {
                         stderr_buf.extend_from_slice(&stderr_tmp[..n]);
                         last_output_time = std::time::Instant::now();

@@ -5,8 +5,8 @@ use std::fs;
 use std::time::Duration;
 
 /// Test that a site without any SCSS files builds successfully
-#[tokio::test]
-async fn no_scss_builds_successfully() {
+#[test_log::test]
+fn no_scss_builds_successfully() {
     let site = TestSite::new("no-scss-site");
 
     // Site should load without errors
@@ -40,8 +40,8 @@ async fn scss_without_main_entry_point_skipped() {
     result.assert_success();
 }
 
-#[tokio::test]
-async fn scss_compiled_to_css() {
+#[test_log::test]
+fn scss_compiled_to_css() {
     let site = TestSite::new("sample-site");
 
     let html = site.get("/");
@@ -58,8 +58,8 @@ async fn scss_compiled_to_css() {
     css.assert_not_contains("$primary-color"); // Variables should be resolved
 }
 
-#[tokio::test]
-async fn scss_change_triggers_rebuild() {
+#[test_log::test]
+fn scss_change_triggers_rebuild() {
     let site = TestSite::new("sample-site");
 
     let css_url_1 = site

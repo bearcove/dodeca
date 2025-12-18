@@ -202,6 +202,22 @@ pub async fn start_cell_server_with_shutdown(
     // This replaces the basic dispatcher from cells.rs with one that includes ContentService
     session.set_dispatcher(create_http_cell_dispatcher(content_service));
 
+    // Wait for required cells to be ready before accepting connections
+    // This prevents race conditions where clients connect before cells can handle RPCs
+    let required_cells = ["ddc-cell-http", "ddc-cell-markdown"];
+    let timeout = std::time::Duration::from_secs(5);
+
+    tracing::info!(
+        "Waiting for required cells to be ready: {:?}",
+        required_cells
+    );
+    if let Err(e) = crate::cells::wait_for_cells_ready(&required_cells, timeout).await {
+        tracing::warn!(
+            "Timeout waiting for cells to be ready: {}. Proceeding anyway.",
+            e
+        );
+    }
+
     // Start TCP listeners for browser connections
     let (listeners, bound_port) = if let Some(listener) = pre_bound_listener {
         // Use the pre-bound listener from FD passing (for testing)
@@ -246,22 +262,6 @@ pub async fn start_cell_server_with_shutdown(
 
         let bound_port =
             actual_port.ok_or_else(|| eyre::eyre!("Could not determine bound port"))?;
-
-        // Wait for required cells to be ready before declaring the server ready
-        // This prevents the race condition where tests/clients connect before cells can handle RPCs
-        let required_cells = ["ddc-cell-http", "ddc-cell-markdown"];
-        let timeout = std::time::Duration::from_secs(5);
-
-        tracing::info!(
-            "Waiting for required cells to be ready: {:?}",
-            required_cells
-        );
-        if let Err(e) = crate::cells::wait_for_cells_ready(&required_cells, timeout).await {
-            tracing::warn!(
-                "Timeout waiting for cells to be ready: {}. Proceeding anyway.",
-                e
-            );
-        }
 
         (listeners, bound_port)
     };

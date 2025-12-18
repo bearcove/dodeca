@@ -9,6 +9,8 @@ command = 'cargo build --workspace --exclude dodeca-devtools'
 
 # Default profile runs the setup script
 [profile.default]
+# Limit parallelism globally - serve tests spawn many subprocesses
+test-threads = 4
 
 [[profile.default.scripts]]
 platform = 'cfg(target_os = "linux")'
