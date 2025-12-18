@@ -21,10 +21,11 @@ use std::fs;
 use std::io::{BufRead, BufReader};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command as StdCommand, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::UnixListener;
+use tokio::process::Command;
 use tracing::{debug, error, info};
 
 /// Get the path to the ddc binary
@@ -144,14 +145,14 @@ impl TestSite {
             let (wrapper_cmd, wrapper_args) = wrapper_parts
                 .split_first()
                 .expect("DODECA_TEST_WRAPPER must not be empty");
-            let mut cmd = Command::new(wrapper_cmd);
+            let mut cmd = StdCommand::new(wrapper_cmd);
             cmd.args(wrapper_args);
             cmd.arg(&ddc);
             cmd.args(ddc_args);
             info!(wrapper = %wrapper_cmd, "Using test wrapper");
             cmd
         } else {
-            let mut cmd = Command::new(&ddc);
+            let mut cmd = StdCommand::new(&ddc);
             cmd.args(ddc_args);
             cmd
         };
@@ -660,7 +661,7 @@ impl BuildResult {
 }
 
 /// Build a site from an arbitrary source directory
-fn build_site_from_source(src: &Path) -> BuildResult {
+async fn build_site_from_source(src: &Path) -> BuildResult {
     // Create isolated temp directory
     let temp_dir = tempfile::Builder::new()
         .prefix("dodeca-build-test-")
@@ -690,7 +691,7 @@ fn build_site_from_source(src: &Path) -> BuildResult {
         cmd.env("DODECA_CELL_PATH", &cell_dir);
     }
 
-    let output = cmd.output().expect("run build");
+    let output = cmd.output().await.expect("run build");
 
     BuildResult {
         success: output.status.success(),
@@ -767,7 +768,7 @@ impl InlineSite {
     }
 
     /// Build this site
-    pub fn build(&self) -> BuildResult {
-        build_site_from_source(&self.fixture_dir)
+    pub async fn build(&self) -> BuildResult {
+        build_site_from_source(&self.fixture_dir).await
     }
 }

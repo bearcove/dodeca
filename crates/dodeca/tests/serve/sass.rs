@@ -5,8 +5,8 @@ use std::fs;
 use std::time::Duration;
 
 /// Test that a site without any SCSS files builds successfully
-#[test_log::test]
-fn no_scss_builds_successfully() {
+#[tokio::test]
+async fn no_scss_builds_successfully() {
     let site = TestSite::new("no-scss-site");
 
     // Site should load without errors
@@ -22,8 +22,8 @@ fn no_scss_builds_successfully() {
 }
 
 /// Test that SCSS files without main.scss entry point are gracefully skipped
-#[test_log::test]
-fn scss_without_main_entry_point_skipped() {
+#[tokio::test]
+async fn scss_without_main_entry_point_skipped() {
     // Create a site with SCSS files but no main.scss
     let site = InlineSite::new(&[("_index.md", "+++\ntitle = \"Home\"\n+++\n\n# Hello")]);
 
@@ -36,12 +36,12 @@ fn scss_without_main_entry_point_skipped() {
     .expect("write partial");
 
     // Build should succeed
-    let result = site.build();
+    let result = site.build().await;
     result.assert_success();
 }
 
-#[test_log::test]
-fn scss_compiled_to_css() {
+#[tokio::test]
+async fn scss_compiled_to_css() {
     let site = TestSite::new("sample-site");
 
     let html = site.get("/");
@@ -58,8 +58,8 @@ fn scss_compiled_to_css() {
     css.assert_not_contains("$primary-color"); // Variables should be resolved
 }
 
-#[test_log::test]
-fn scss_change_triggers_rebuild() {
+#[tokio::test]
+async fn scss_change_triggers_rebuild() {
     let site = TestSite::new("sample-site");
 
     let css_url_1 = site

@@ -8,8 +8,8 @@
 use crate::harness::InlineSite;
 
 /// Test that a correct code sample executes successfully and shows output
-#[test_log::test]
-fn test_successful_code_sample_shows_output() {
+#[tokio::test]
+async fn test_successful_code_sample_shows_output() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -26,7 +26,7 @@ fn main() {
 "#,
     )]);
 
-    let result = site.build();
+    let result = site.build().await;
 
     // Build should succeed
     result.assert_success();
@@ -36,8 +36,8 @@ fn main() {
 }
 
 /// Test that a correct code sample with ANSI colors in output works
-#[test_log::test]
-fn test_successful_code_sample_with_ansi_colors() {
+#[tokio::test]
+async fn test_successful_code_sample_with_ansi_colors() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -57,13 +57,13 @@ fn main() {
 "#,
     )]);
 
-    let result = site.build();
+    let result = site.build().await;
     result.assert_success();
 }
 
 /// Test that a failing code sample causes the build to fail and shows compiler errors
-#[test_log::test]
-fn test_failing_code_sample_shows_compiler_error() {
+#[tokio::test]
+async fn test_failing_code_sample_shows_compiler_error() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -81,7 +81,7 @@ fn main() {
 "#,
     )]);
 
-    let result = site.build();
+    let result = site.build().await;
 
     // Build should fail
     result.assert_failure();
@@ -95,8 +95,8 @@ fn main() {
 }
 
 /// Test that compiler errors preserve ANSI colors from rustc
-#[test_log::test]
-fn test_compiler_error_with_ansi_colors() {
+#[tokio::test]
+async fn test_compiler_error_with_ansi_colors() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -114,7 +114,7 @@ fn main() {
 "#,
     )]);
 
-    let result = site.build();
+    let result = site.build().await;
     result.assert_failure();
 
     // The stderr should contain the error
@@ -124,8 +124,8 @@ fn main() {
 }
 
 /// Test that an incorrect code sample that's expected to pass causes build failure
-#[test_log::test]
-fn test_incorrect_sample_expected_to_pass_fails_build() {
+#[tokio::test]
+async fn test_incorrect_sample_expected_to_pass_fails_build() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -147,7 +147,7 @@ fn main() {
 "#,
     )]);
 
-    let result = site.build();
+    let result = site.build().await;
 
     // Build should fail because the code doesn't compile
     result.assert_failure();
@@ -157,8 +157,8 @@ fn main() {
 }
 
 /// Test that multiple code samples are all executed
-#[test_log::test]
-fn test_multiple_code_samples_executed() {
+#[tokio::test]
+async fn test_multiple_code_samples_executed() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -185,7 +185,7 @@ fn main() {
 "#,
     )]);
 
-    let result = site.build();
+    let result = site.build().await;
     result.assert_success();
 
     // Should show that multiple samples executed
@@ -194,8 +194,8 @@ fn main() {
 }
 
 /// Test that non-rust code blocks are not executed
-#[test_log::test]
-fn test_non_rust_code_blocks_not_executed() {
+#[tokio::test]
+async fn test_non_rust_code_blocks_not_executed() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -224,15 +224,15 @@ Some random text
 "#,
     )]);
 
-    let result = site.build();
+    let result = site.build().await;
 
     // Build should succeed (no rust code to fail)
     result.assert_success();
 }
 
 /// Test that runtime panics are caught and reported
-#[test_log::test]
-fn test_runtime_panic_reported() {
+#[tokio::test]
+async fn test_runtime_panic_reported() {
     let site = InlineSite::new(&[(
         "_index.md",
         r#"+++
@@ -249,7 +249,7 @@ fn main() {
 "#,
     )]);
 
-    let result = site.build();
+    let result = site.build().await;
 
     // Build should fail because the code panicked
     result.assert_failure();
