@@ -288,6 +288,12 @@ fn main() -> Result<()> {
     // Install SIGUSR1 handler for debugging (dumps stack traces)
     dodeca_debug::install_sigusr1_handler("ddc");
 
+    // When spawned by test harness with DODECA_DIE_WITH_PARENT=1, install death-watch
+    // so we exit when the test process dies. This prevents orphan accumulation.
+    if std::env::var("DODECA_DIE_WITH_PARENT").is_ok() {
+        ur_taking_me_with_you::die_with_parent();
+    }
+
     miette::set_hook(Box::new(
         |_| Box::new(miette::GraphicalReportHandler::new()),
     ))?;

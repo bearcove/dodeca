@@ -173,7 +173,12 @@ impl TestSite {
             cmd.env("DODECA_CELL_PATH", &cell_dir);
         }
 
-        let mut child = cmd.spawn().expect("start server");
+        // Enable death-watch so ddc (and its cells) die when the test process dies.
+        // This prevents orphan accumulation when tests are killed or crash.
+        cmd.env("DODECA_DIE_WITH_PARENT", "1");
+
+        let mut child = ur_taking_me_with_you::spawn_dying_with_parent(cmd)
+            .expect("start server with death-watch");
         info!(child_pid = child.id(), ddc = %ddc.display(), %rust_log, "Spawned ddc server process");
 
         // Take stdout/stderr before the async block
