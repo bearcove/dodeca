@@ -346,7 +346,7 @@ jobs:
         run: tar -xf dist/dodeca-x86_64-unknown-linux-gnu.tar.xz -C dist && chmod +x dist/ddc dist/ddc-cell-* && ls -la dist/
       - 
         name: Run integration tests
-        run: cargo test --release -p dodeca --test serve
+        run: cargo xtask integration --no-build
         env: 
           DODECA_BIN: ${{ github.workspace }}/dist/ddc
           DODECA_CELL_PATH: ${{ github.workspace }}/dist
@@ -675,7 +675,7 @@ jobs:
         run: tar -xf dist/dodeca-aarch64-apple-darwin.tar.xz -C dist && chmod +x dist/ddc dist/ddc-cell-* && ls -la dist/
       - 
         name: Run integration tests
-        run: cargo test --release -p dodeca --test serve
+        run: cargo xtask integration --no-build
         env: 
           DODECA_BIN: ${{ github.workspace }}/dist/ddc
           DODECA_CELL_PATH: ${{ github.workspace }}/dist

@@ -642,7 +642,7 @@ pub fn build_ci_workflow() -> Workflow {
                     ),
                     Step::run(
                         "Run integration tests",
-                        "cargo test --release -p dodeca --test serve",
+                        "cargo xtask integration --no-build",
                     )
                     .with_env([
                         ("DODECA_BIN", "${{ github.workspace }}/dist/ddc"),
