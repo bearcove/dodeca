@@ -936,7 +936,10 @@ impl Shape for LineShape {
             return nodes;
         }
 
-        let svg_style = build_svg_style(&self.style, scaler, dashwid);
+        // cref: lineRender (pikchr.c:4253) - add stroke-linejoin:round for closed sharp-cornered paths
+        let add_linejoin = self.style.close_path && self.style.corner_radius.raw() == 0.0;
+        let svg_style = build_svg_style_ex(&self.style, scaler, dashwid, add_linejoin);
+
         let arrow_len_px = scaler.px(arrow_len);
         let arrow_wid_px = scaler.px(arrow_wid);
         let arrow_chop = arrow_len_px / 2.0;
@@ -2044,6 +2047,16 @@ impl ShapeEnum {
 /// Build an SVG style from an ObjectStyle
 /// cref: pik_append_style (pikchr.c:2277)
 fn build_svg_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> SvgStyle {
+    build_svg_style_ex(style, scaler, dashwid, false)
+}
+
+/// Build an SVG style with optional stroke-linejoin
+fn build_svg_style_ex(
+    style: &ObjectStyle,
+    scaler: &Scaler,
+    dashwid: Inches,
+    add_linejoin: bool,
+) -> SvgStyle {
     let mut entries = vec![
         ("fill", color_to_rgb(&style.fill)),
         ("stroke", color_to_rgb(&style.stroke)),
@@ -2066,6 +2079,13 @@ fn build_svg_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> Svg
         let gap = scaler.px(gap_width);
         entries.push(("stroke-dasharray", format!("{},{}", dot, gap)));
     }
+
+    // Add stroke-linejoin:round for closed paths with sharp corners
+    // cref: lineRender (pikchr.c:4253)
+    if add_linejoin {
+        entries.push(("stroke-linejoin", "round".to_string()));
+    }
+
     // Note: dashwid parameter is kept for potential future use but not needed
     // when the style stores the width directly
     let _ = dashwid;
