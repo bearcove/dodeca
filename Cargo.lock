@@ -6709,7 +6709,7 @@ dependencies = [
 [[package]]
 name = "picante"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/picante#229c0f7834b158f94bf5bbf295f5bdf0d003dc4e"
+source = "git+https://github.com/bearcove/picante#8b306b09ffca70191adaaac14b491d060ccddc57"
 dependencies = [
  "dashmap 5.5.3",
  "facet",
@@ -6726,7 +6726,7 @@ dependencies = [
 [[package]]
 name = "picante-macros"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/picante#229c0f7834b158f94bf5bbf295f5bdf0d003dc4e"
+source = "git+https://github.com/bearcove/picante#8b306b09ffca70191adaaac14b491d060ccddc57"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",

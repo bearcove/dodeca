@@ -11,6 +11,7 @@ mod content;
 mod dead_links;
 mod error_detection;
 mod livereload;
+mod picante_cache;
 mod sass;
 mod section_pages;
 mod static_assets;

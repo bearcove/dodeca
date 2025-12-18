@@ -22,6 +22,7 @@ use std::io::{BufRead, BufReader};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::UnixListener;
 use tracing::{debug, error, info};
@@ -53,6 +54,7 @@ pub struct TestSite {
     _temp_dir: tempfile::TempDir,
     client: Client,
     _unix_socket_dir: tempfile::TempDir,
+    logs: Arc<Mutex<Vec<String>>>,
 }
 
 impl TestSite {
@@ -247,25 +249,36 @@ impl TestSite {
             }
         }
 
+        // Capture logs (stdout/stderr) for assertions + also forward to terminal for debugging.
+        let logs: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+
         // Drain stdout in background - use println! to preserve ANSI escape codes
         // (tracing-subscriber's DefaultVisitor wraps messages in Escape() which
         // converts \x1b bytes to literal "\\x1b" strings as a security measure
         // against terminal injection attacks - there's no config to disable it,
         // you'd need a custom FormatEvent implementation)
+        let logs_stdout = Arc::clone(&logs);
         std::thread::spawn(move || {
             for line in reader.lines() {
                 match line {
-                    Ok(l) => println!("{l}"),
+                    Ok(l) => {
+                        logs_stdout.lock().unwrap().push(l.clone());
+                        println!("{l}");
+                    }
                     Err(e) => eprintln!("Failed to read server stdout: {e}"),
                 }
             }
         });
 
         // Drain stderr in background
+        let logs_stderr = Arc::clone(&logs);
         std::thread::spawn(move || {
             for line in stderr_reader.lines() {
                 match line {
-                    Ok(l) => eprintln!("{l}"),
+                    Ok(l) => {
+                        logs_stderr.lock().unwrap().push(l.clone());
+                        eprintln!("{l}");
+                    }
                     Err(e) => eprintln!("Failed to read server stderr: {e}"),
                 }
             }
@@ -283,7 +296,27 @@ impl TestSite {
             _temp_dir: temp_dir,
             client,
             _unix_socket_dir: unix_socket_dir,
+            logs,
         }
+    }
+
+    /// Clear captured logs (stdout + stderr).
+    pub fn clear_logs(&self) {
+        self.logs.lock().unwrap().clear();
+    }
+
+    /// Return the current log cursor (index into the captured log vector).
+    pub fn log_cursor(&self) -> usize {
+        self.logs.lock().unwrap().len()
+    }
+
+    /// Count log lines containing `needle` since `cursor`.
+    pub fn count_logs_since(&self, cursor: usize, needle: &str) -> usize {
+        let logs = self.logs.lock().unwrap();
+        logs.iter()
+            .skip(cursor)
+            .filter(|l| l.contains(needle))
+            .count()
     }
 
     /// Make a GET request to a path
