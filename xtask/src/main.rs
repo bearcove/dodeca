@@ -68,84 +68,41 @@ struct IntegrationArgs {
     extra_args: Vec<String>,
 }
 
+#[derive(Facet, Debug)]
+#[repr(u8)]
 enum XtaskCommand {
+    /// Build WASM + plugins + dodeca
     Build(BuildArgs),
+    /// Build all, then run ddc
     Run(RunArgs),
+    /// Build release & install to ~/.cargo/bin
     Install(InstallArgs),
+    /// Build WASM only
     Wasm(WasmArgs),
+    /// Generate release workflow
     Ci(CiArgs),
+    /// Generate PowerShell installer
     GeneratePs1Installer(GeneratePs1InstallerArgs),
+    /// Run integration tests
     Integration(IntegrationArgs),
 }
 
-/// Top-level xtask arguments
 #[derive(Facet, Debug)]
 struct XtaskArgs {
-    /// Command to run: build, run, install, wasm, ci, generate-ps1-installer, integration
-    #[facet(args::positional)]
-    command: String,
-
-    /// Arguments for the command
-    #[facet(args::positional, default)]
-    rest: Vec<String>,
+    #[facet(args::subcommand)]
+    command: XtaskCommand,
 }
 
 fn parse_args() -> Result<XtaskCommand, String> {
     let args: Vec<String> = env::args().skip(1).collect();
     let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
 
-    let top: XtaskArgs = facet_args::from_slice(&args_refs).map_err(|e| {
+    let parsed: XtaskArgs = facet_args::from_slice(&args_refs).map_err(|e| {
         eprintln!("{:?}", miette::Report::new(e));
         "Failed to parse arguments".to_string()
     })?;
 
-    let rest: Vec<&str> = top.rest.iter().map(|s| s.as_str()).collect();
-
-    match top.command.as_str() {
-        "build" => Ok(XtaskCommand::Build(facet_args::from_slice(&rest).map_err(
-            |e| {
-                eprintln!("{:?}", miette::Report::new(e));
-                "Failed to parse build arguments".to_string()
-            },
-        )?)),
-        "run" => Ok(XtaskCommand::Run(facet_args::from_slice(&rest).map_err(
-            |e| {
-                eprintln!("{:?}", miette::Report::new(e));
-                "Failed to parse run arguments".to_string()
-            },
-        )?)),
-        "install" => Ok(XtaskCommand::Install(
-            facet_args::from_slice(&rest).map_err(|e| {
-                eprintln!("{:?}", miette::Report::new(e));
-                "Failed to parse install arguments".to_string()
-            })?,
-        )),
-        "wasm" => Ok(XtaskCommand::Wasm(facet_args::from_slice(&rest).map_err(
-            |e| {
-                eprintln!("{:?}", miette::Report::new(e));
-                "Failed to parse wasm arguments".to_string()
-            },
-        )?)),
-        "ci" => Ok(XtaskCommand::Ci(facet_args::from_slice(&rest).map_err(
-            |e| {
-                eprintln!("{:?}", miette::Report::new(e));
-                "Failed to parse ci arguments".to_string()
-            },
-        )?)),
-        "generate-ps1-installer" => Ok(XtaskCommand::GeneratePs1Installer(
-            facet_args::from_slice(&rest).map_err(|e| {
-                eprintln!("{:?}", miette::Report::new(e));
-                "Failed to parse generate-ps1-installer arguments".to_string()
-            })?,
-        )),
-        "integration" => Ok(XtaskCommand::Integration(
-            facet_args::from_slice(&rest).map_err(|e| {
-                eprintln!("{:?}", miette::Report::new(e));
-                "Failed to parse integration arguments".to_string()
-            })?,
-        )),
-        other => Err(format!("Unknown command: {other}")),
-    }
+    Ok(parsed.command)
 }
 
 fn main() -> ExitCode {

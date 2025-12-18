@@ -42,5 +42,5 @@ rapace-cell.workspace = true
 cell-code-execution-proto = { path = "../cell-code-execution-proto" }
 
 # Facet for serialization  
-facet = { version = "0.32.2" }
-facet-kdl = { version = "0.32.2" }
+facet.workspace = true
+facet-kdl.workspace = true

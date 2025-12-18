@@ -35,4 +35,4 @@ rapace-cell.workspace = true
 cell-html-proto = { path = "../cell-html-proto" }
 
 # Facet for serialization
-facet = { version = "0.32.2" }
+facet.workspace = true

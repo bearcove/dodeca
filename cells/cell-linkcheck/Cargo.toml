@@ -41,4 +41,4 @@ rapace-cell.workspace = true
 cell-linkcheck-proto = { path = "../cell-linkcheck-proto" }
 
 # Facet for serialization
-facet = { version = "0.32.2" }
+facet.workspace = true

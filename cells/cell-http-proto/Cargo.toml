@@ -15,7 +15,7 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 rapace.workspace = true
 
 # Serialization
-facet = "0.32.2"
+facet.workspace = true
 
 # Re-export types from dodeca-protocol
 dodeca-protocol = { path = "../../crates/dodeca-protocol" }

@@ -13,9 +13,9 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
 # CI generation
-facet = { version = "0.32.2", features = ["indexmap"] }
-facet-args = "0.32.2"
-facet-yaml = "0.32.2"
+facet = { workspace = true, features = ["indexmap"] }
+facet-args.workspace = true
+facet-yaml.workspace = true
 indexmap = "2"
 structstruck = "0.4"
 

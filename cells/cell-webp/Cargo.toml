@@ -33,5 +33,5 @@ rapace-cell.workspace = true
 cell-webp-proto = { path = "../cell-webp-proto" }
 
 # Facet for serialization  
-facet = { version = "0.32.2" }
-facet-kdl = { version = "0.32.2" }
+facet.workspace = true
+facet-kdl.workspace = true

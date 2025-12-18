@@ -13,6 +13,36 @@ rapace-cell = { git = "https://github.com/bearcove/rapace" }
 rapace-tracing = { git = "https://github.com/bearcove/rapace" }
 ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", features = ["tokio"] }
 
+facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+
+# Force all transitive facet dependencies to use git version
+[patch.crates-io]
+facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-assert = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macro-parse = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macro-types = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macros = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macros-impl = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-singularize = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-solver = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+
 # Optimize dependencies in dev mode for faster tests
 # (keeps main crate unoptimized for fast incremental builds)
 [profile.dev.package."*"]

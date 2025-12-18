@@ -14,6 +14,6 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-facet = "0.32.2"
+facet.workspace = true
 # RPC framework
 rapace.workspace = true

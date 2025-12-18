@@ -30,12 +30,12 @@ path = "src/main.rs"
 
 [dependencies]
 # Facet (dogfooding!)
-facet = "0.32.2"
-facet-kdl = "0.32.2"
-facet-toml = "0.32.2"
-facet-json = "0.32.2"
-facet-value = "0.32.2"
-facet-postcard = "0.32.2"
+facet.workspace = true
+facet-kdl.workspace = true
+facet-toml.workspace = true
+facet-json.workspace = true
+facet-value.workspace = true
+facet-postcard.workspace = true
 
 # YAML parsing (for data files - facet-yaml doesn't support dynamic values)
 serde_yaml = "0.9"
@@ -55,7 +55,7 @@ dashmap = "6"
 # TUI is now in the mod-tui plugin
 
 # CLI (using facet-args instead of clap)
-facet-args = "0.32.2"
+facet-args.workspace = true
 
 # Error handling & diagnostics
 eyre = "0.6"

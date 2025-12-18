@@ -40,4 +40,4 @@ rapace-cell.workspace = true
 cell-tui-proto = { path = "../cell-tui-proto" }
 
 # Facet for serialization
-facet = "0.32.2"
+facet.workspace = true

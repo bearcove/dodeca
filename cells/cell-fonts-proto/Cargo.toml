@@ -9,5 +9,5 @@ edition = "2024"
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-facet = { version = "0.32.2" }
+facet.workspace = true
 rapace.workspace = true

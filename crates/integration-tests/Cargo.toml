@@ -33,8 +33,8 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ur-taking-me-with-you.workspace = true
 
 # CLI argument parsing
-facet = "0.32.2"
-facet-args = "0.32.2"
+facet.workspace = true
+facet-args.workspace = true
 
 # Colorful output
 owo-colors = "4"
