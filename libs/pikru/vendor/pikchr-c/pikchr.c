@@ -4364,20 +4364,27 @@ static void radiusPath(Pik *p, PObj *pObj, PNum r){
   int isMid = 0;
   int iLast = pObj->bClose ? n : n-1;
 
+  DBG("[C radiusPath] n=%d r=%g close=%d\n", n, r, pObj->bClose);
   pik_append_xy(p,"<path d=\"M", a[0].x, a[0].y);
+  DBG("[C radiusPath] M %g,%g\n", a[0].x, a[0].y);
   m = radiusMidpoint(a[0], a[1], r, &isMid);
   pik_append_xy(p," L ",m.x,m.y);
+  DBG("[C radiusPath] L %g,%g (before wp1)\n", m.x, m.y);
   for(i=1; i<iLast; i++){
     an = i<n-1 ? a[i+1] : a[0];
+    DBG("[C radiusPath] i=%d a[i]=(%g,%g) an=(%g,%g)\n", i, a[i].x, a[i].y, an.x, an.y);
     m = radiusMidpoint(an,a[i],r, &isMid);
     pik_append_xy(p," Q ",a[i].x,a[i].y);
     pik_append_xy(p," ",m.x,m.y);
+    DBG("[C radiusPath] Q %g,%g %g,%g (curve at wp%d)\n", a[i].x, a[i].y, m.x, m.y, i);
     if( !isMid ){
       m = radiusMidpoint(a[i],an,r, &isMid);
       pik_append_xy(p," L ",m.x,m.y);
+      DBG("[C radiusPath] L %g,%g (toward wp%d)\n", m.x, m.y, i+1);
     }
   }
   pik_append_xy(p," L ",an.x,an.y);
+  DBG("[C radiusPath] L %g,%g (final)\n", an.x, an.y);
   if( pObj->bClose ){
     pik_append(p,"Z",1);
   }else{

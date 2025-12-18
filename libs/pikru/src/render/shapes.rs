@@ -1048,14 +1048,32 @@ impl Shape for LineShape {
             let n = svg_points.len();
             let i_last = if self.style.close_path { n } else { n - 1 };
 
+            tracing::debug!(
+                n,
+                r = corner_radius_px,
+                close = self.style.close_path,
+                "[Rust radiusPath]"
+            );
+
             // Start at first waypoint
             path_data = path_data.m(svg_points[0].x, svg_points[0].y);
+            tracing::debug!(
+                x = svg_points[0].x,
+                y = svg_points[0].y,
+                "[Rust radiusPath] M"
+            );
 
             // Draw line to midpoint before second waypoint
+            // cref: radiusMidpoint(a[0], a[1], r) returns a[1] - r*normalized(a[1]-a[0])
             if n >= 2 {
                 let dir = (svg_points[1] - svg_points[0]).normalize();
-                let m = svg_points[0] + dir * corner_radius_px;
+                let m = svg_points[1] - dir * corner_radius_px;  // Go from wp1 back toward wp0
                 path_data = path_data.l(m.x, m.y);
+                tracing::debug!(
+                    x = m.x,
+                    y = m.y,
+                    "[Rust radiusPath] L (before wp1)"
+                );
             }
 
             // Loop through waypoints 1 to i_last-1, rounding each corner
@@ -1064,24 +1082,30 @@ impl Shape for LineShape {
                 // Next waypoint (wraps to first for closed paths)
                 let a_n = if i < n - 1 { svg_points[i + 1] } else { svg_points[0] };
 
-                // Entry point: from a_n toward a_i, then back off by radius
-                // cref: radiusMidpoint(an, a[i], r) returns a[i] - r*dir
-                let dir_in = (a_i - a_n).normalize();
-                let m_entry = a_i - dir_in * corner_radius_px;
-
                 tracing::debug!(
                     i,
                     a_i_x = a_i.x,
                     a_i_y = a_i.y,
                     a_n_x = a_n.x,
                     a_n_y = a_n.y,
-                    m_entry_x = m_entry.x,
-                    m_entry_y = m_entry.y,
-                    "[entry point]"
+                    "[Rust radiusPath] loop start"
                 );
+
+                // Entry point: from a_n toward a_i, then back off by radius
+                // cref: radiusMidpoint(an, a[i], r) returns a[i] - r*dir
+                let dir_in = (a_i - a_n).normalize();
+                let m_entry = a_i - dir_in * corner_radius_px;
 
                 // Quadratic curve: control at a[i], end at entry point
                 path_data = path_data.q(a_i.x, a_i.y, m_entry.x, m_entry.y);
+                tracing::debug!(
+                    ctrl_x = a_i.x,
+                    ctrl_y = a_i.y,
+                    end_x = m_entry.x,
+                    end_y = m_entry.y,
+                    i,
+                    "[Rust radiusPath] Q (curve at wp)"
+                );
 
                 // Exit point: point before reaching next waypoint
                 // cref: radiusMidpoint(a[i], an, r) returns an - r*dir = point near an
@@ -1090,12 +1114,23 @@ impl Shape for LineShape {
                     let dir_out = (a_n - a_i).normalize();
                     let m_exit = a_n - dir_out * corner_radius_px;  // near a_n, not a_i!
                     path_data = path_data.l(m_exit.x, m_exit.y);
+                    tracing::debug!(
+                        x = m_exit.x,
+                        y = m_exit.y,
+                        toward = i + 1,
+                        "[Rust radiusPath] L (toward wp)"
+                    );
                 }
             }
 
             // Line back to start (for closed paths)
             let a_n = if i_last == n { svg_points[0] } else { svg_points[n - 1] };
             path_data = path_data.l(a_n.x, a_n.y);
+            tracing::debug!(
+                x = a_n.x,
+                y = a_n.y,
+                "[Rust radiusPath] L (final)"
+            );
         } else {
             // No rounding - simple polyline
             for (i, pt) in svg_points.iter().enumerate() {

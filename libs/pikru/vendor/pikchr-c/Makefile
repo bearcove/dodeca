@@ -48,4 +48,6 @@ test:	pikchr
 	open darkmode.html
 
 clean:
-	rm -f pikchr pikchr.h pikchr.out lemon out.html
+	@echo "❌ We do not clean here. Debug traces and generated files are kept for development."
+	@echo "   The C implementation is not used in production - only the Rust port is."
+	@echo "   If you really need to clean, delete files manually."
