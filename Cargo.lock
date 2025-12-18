@@ -1460,7 +1460,6 @@ name = "cell-http"
 version = "0.1.0"
 dependencies = [
  "axum",
- "bytes",
  "cell-http-proto",
  "color-eyre",
  "futures-util",
@@ -1470,7 +1469,6 @@ dependencies = [
  "rapace-cell",
  "tokio",
  "tokio-stream",
- "tokio-util",
  "tracing",
 ]
 
