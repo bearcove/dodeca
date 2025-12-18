@@ -558,8 +558,34 @@ fn nth_class_to_class_name(nc: &NthClass) -> Option<ClassName> {
 // cref: pik_set_at (pikchr.c:6195-6199) - converts Start/End to compass points
 fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
     use crate::ast::Direction;
+    use crate::render::shapes::ShapeEnum;
+
+    // For lines, .start and .end refer to actual waypoints (ptEnter/ptExit in C)
+    // cref: pik_place_of_elem (pikchr.c:4118-4122)
+    match (&obj.shape, edge) {
+        (ShapeEnum::Line(line), EdgePoint::Start) => {
+            return line.waypoints.first().copied().unwrap_or(obj.center());
+        }
+        (ShapeEnum::Line(line), EdgePoint::End) => {
+            return line.waypoints.last().copied().unwrap_or(obj.center());
+        }
+        (ShapeEnum::Arc(arc), EdgePoint::Start) => {
+            return arc.start;
+        }
+        (ShapeEnum::Arc(arc), EdgePoint::End) => {
+            return arc.end;
+        }
+        (ShapeEnum::Spline(spline), EdgePoint::Start) => {
+            return spline.waypoints.first().copied().unwrap_or(obj.center());
+        }
+        (ShapeEnum::Spline(spline), EdgePoint::End) => {
+            return spline.waypoints.last().copied().unwrap_or(obj.center());
+        }
+        _ => {}
+    }
 
     // Convert Start/End to compass points based on object's stored direction
+    // (for non-line objects)
     let resolved_edge = match edge {
         EdgePoint::Start => {
             // Start is at the entry edge (opposite of object's direction)

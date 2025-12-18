@@ -1458,12 +1458,20 @@ fn render_object_stmt(
             style: style.clone(),
             text: text.clone(),
         }),
-        ClassName::Dot => ShapeEnum::Dot(DotShape {
-            center,
-            radius: width / 2.0,
-            style: style.clone(),
-            text: text.clone(),
-        }),
+        ClassName::Dot => {
+            tracing::debug!(
+                center_x = center.x.raw(),
+                center_y = center.y.raw(),
+                radius = (width / 2.0).raw(),
+                "[Rust dot created]"
+            );
+            ShapeEnum::Dot(DotShape {
+                center,
+                radius: width / 2.0,
+                style: style.clone(),
+                text: text.clone(),
+            })
+        }
         ClassName::Text => ShapeEnum::Text(TextShape {
             center,
             width,
