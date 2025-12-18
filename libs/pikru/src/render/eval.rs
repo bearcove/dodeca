@@ -273,7 +273,25 @@ pub fn eval_scalar(ctx: &RenderContext, expr: &Expr) -> Result<f64, miette::Repo
 pub fn eval_rvalue(ctx: &RenderContext, rvalue: &RValue) -> Result<Value, miette::Report> {
     match rvalue {
         RValue::Expr(e) => eval_expr(ctx, e),
-        RValue::PlaceName(_) => Ok(Value::Scalar(0.0)), // Color names return 0
+        RValue::PlaceName(name) => {
+            // Try to parse as a color name
+            let color = name.parse::<crate::types::Color>().unwrap();
+            let rgb_str = color.to_rgb_string();
+            if let Some(rgb) = rgb_str.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
+                let parts: Vec<&str> = rgb.split(',').collect();
+                if parts.len() == 3 {
+                    if let (Ok(r), Ok(g), Ok(b)) = (
+                        parts[0].trim().parse::<u32>(),
+                        parts[1].trim().parse::<u32>(),
+                        parts[2].trim().parse::<u32>(),
+                    ) {
+                        let color_val = (r << 16) | (g << 8) | b;
+                        return Ok(Value::from(EvalValue::Color(color_val)));
+                    }
+                }
+            }
+            Ok(Value::Scalar(0.0))
+        }
     }
 }
 

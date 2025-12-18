@@ -485,6 +485,23 @@ fn render_object_stmt(
 
     let mut style = ObjectStyle::default();
 
+    // Apply global fill and color settings (these can be overridden by attributes)
+    // cref: pik_color_lookup, pik_render_object (pikchr.c)
+    if let Some(fill_val) = ctx.variables.get("fill") {
+        // fill is a color value
+        style.fill = match fill_val {
+            EvalValue::Color(c) => format!("#{:06x}", c),
+            _ => "none".to_string(),
+        };
+    }
+    if let Some(color_val) = ctx.variables.get("color") {
+        // color/stroke is a color value
+        style.stroke = match color_val {
+            EvalValue::Color(c) => format!("#{:06x}", c),
+            _ => "black".to_string(),
+        };
+    }
+
     // Initialize shape-specific radius values before processing attributes
     // cref: cylinderInit (pikchr.c:3974), boxInit (pikchr.c:3775), etc.
     if let Some(ref cn) = class_name {
