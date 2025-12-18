@@ -355,10 +355,11 @@ fn install_dev() -> bool {
 }
 
 fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
+    use std::env;
+
     // Always use release mode for integration tests
     let release = true;
     let target_dir = PathBuf::from("target/release");
-    let ddc_bin = target_dir.join("ddc");
     let integration_bin = target_dir.join("integration-tests");
 
     if !no_build {
@@ -369,26 +370,36 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
         }
     } else {
         eprintln!("Skipping build (--no-build), assuming binaries are already built");
+
+        // When --no-build is used, we still need the integration-tests binary
+        // Build just the integration-tests binary if it doesn't exist
+        if !integration_bin.exists() {
+            eprintln!("Building integration-tests binary...");
+            let status = Command::new("cargo")
+                .args(["build", "--release", "-p", "integration-tests"])
+                .status();
+
+            match status {
+                Ok(s) if s.success() => {}
+                Ok(s) => {
+                    eprintln!("cargo build failed with status: {s}");
+                    return false;
+                }
+                Err(e) => {
+                    eprintln!("Failed to run cargo: {e}");
+                    return false;
+                }
+            }
+        }
     }
 
-    // Verify binaries exist
-    if !ddc_bin.exists() {
-        eprintln!(
-            "{}: ddc binary not found at {}",
-            "error".red().bold(),
-            ddc_bin.display()
-        );
-        eprintln!("Run without --no-build to build it, or ensure it was built separately");
-        return false;
-    }
-
+    // Verify integration-tests binary exists
     if !integration_bin.exists() {
         eprintln!(
             "{}: integration-tests binary not found at {}",
             "error".red().bold(),
             integration_bin.display()
         );
-        eprintln!("Run without --no-build to build it, or ensure it was built separately");
         return false;
     }
 
@@ -398,15 +409,41 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
     let mut cmd = Command::new(&integration_bin);
     cmd.args(extra_args);
 
+    // Check if DODECA_BIN and DODECA_CELL_PATH are already set in the environment
+    // If so, pass them through. Otherwise, set them to our built binaries.
+    let ddc_bin_path = if let Ok(env_bin) = env::var("DODECA_BIN") {
+        eprintln!("Using DODECA_BIN from environment: {}", env_bin);
+        PathBuf::from(env_bin)
+    } else {
+        let ddc_bin = target_dir.join("ddc");
+        if !ddc_bin.exists() {
+            eprintln!(
+                "{}: ddc binary not found at {}",
+                "error".red().bold(),
+                ddc_bin.display()
+            );
+            eprintln!("Run without --no-build to build it, or set DODECA_BIN environment variable");
+            return false;
+        }
+        ddc_bin
+    };
+
+    let cell_path = if let Ok(env_path) = env::var("DODECA_CELL_PATH") {
+        eprintln!("Using DODECA_CELL_PATH from environment: {}", env_path);
+        PathBuf::from(env_path)
+    } else {
+        target_dir.clone()
+    };
+
     // Set environment variables for the test harness
-    let ddc_bin_abs = ddc_bin.canonicalize().unwrap_or(ddc_bin);
-    let target_dir_abs = target_dir.canonicalize().unwrap_or(target_dir);
+    let ddc_bin_abs = ddc_bin_path.canonicalize().unwrap_or(ddc_bin_path);
+    let cell_path_abs = cell_path.canonicalize().unwrap_or(cell_path);
 
     cmd.env("DODECA_BIN", &ddc_bin_abs);
-    cmd.env("DODECA_CELL_PATH", &target_dir_abs);
+    cmd.env("DODECA_CELL_PATH", &cell_path_abs);
 
     eprintln!("  DODECA_BIN={}", ddc_bin_abs.display());
-    eprintln!("  DODECA_CELL_PATH={}", target_dir_abs.display());
+    eprintln!("  DODECA_CELL_PATH={}", cell_path_abs.display());
 
     match cmd.status() {
         Ok(s) if s.success() => {
