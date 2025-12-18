@@ -55,4 +55,7 @@ dodeca-protocol = { path = "../dodeca-protocol" }
 tracing = "0.1"
 tracing-wasm = "0.2"
 
+# Fix for WASM: getrandom needs wasm_js feature
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
 [dev-dependencies]

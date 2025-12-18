@@ -2953,6 +2953,7 @@ dependencies = [
  "dioxus",
  "dioxus-web",
  "dodeca-protocol",
+ "getrandom 0.3.4",
  "glade",
  "js-sys",
  "livereload-client",
