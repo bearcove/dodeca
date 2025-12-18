@@ -7,14 +7,16 @@ experimental = ["wrapper-scripts", "setup-scripts"]
 [scripts.setup.build-cells]
 command = 'cargo build --workspace --exclude dodeca-devtools'
 
-# Default profile runs the setup script
+# Default profile - excludes integration tests (use `cargo xtask integration` instead)
 [profile.default]
-# Limit parallelism globally - serve tests spawn many subprocesses
+# Limit parallelism globally
 test-threads = 4
+# Exclude integration tests - they are run via `cargo xtask integration`
+default-filter = 'not test(serve::)'
 
 [[profile.default.scripts]]
 platform = 'cfg(target_os = "linux")'
-filter = 'all()'
+filter = 'not test(serve::)'
 setup = 'build-cells'
 
 [scripts.wrapper.heaptrack]

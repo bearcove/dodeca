@@ -205,18 +205,15 @@ pub async fn start_cell_server_with_shutdown(
     // Wait for required cells to be ready before accepting connections
     // This prevents race conditions where clients connect before cells can handle RPCs
     let required_cells = ["ddc-cell-http", "ddc-cell-markdown"];
-    let timeout = std::time::Duration::from_secs(5);
+    let timeout = std::time::Duration::from_secs(10);
 
     tracing::info!(
         "Waiting for required cells to be ready: {:?}",
         required_cells
     );
-    if let Err(e) = crate::cells::wait_for_cells_ready(&required_cells, timeout).await {
-        tracing::warn!(
-            "Timeout waiting for cells to be ready: {}. Proceeding anyway.",
-            e
-        );
-    }
+    crate::cells::wait_for_cells_ready(&required_cells, timeout)
+        .await
+        .map_err(|e| eyre::eyre!("Required cells not ready: {}", e))?;
 
     // Start TCP listeners for browser connections
     let (listeners, bound_port) = if let Some(listener) = pre_bound_listener {

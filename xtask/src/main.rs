@@ -1,11 +1,4 @@
 //! Build tasks for dodeca
-//!
-//! Usage:
-//!   cargo xtask build [--release]
-//!   cargo xtask run [--release] [-- ddc-args]
-//!   cargo xtask install
-//!   cargo xtask wasm
-//!   cargo xtask ci [--check]
 
 mod ci;
 
@@ -15,88 +8,227 @@ use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 
 use camino::Utf8PathBuf;
+use facet::Facet;
+use facet_args as args;
+use owo_colors::OwoColorize;
+
+/// Build command - build WASM + plugins + dodeca
+#[derive(Facet, Debug)]
+struct BuildArgs {
+    /// Build in release mode
+    #[facet(args::named, args::short = 'r')]
+    release: bool,
+}
+
+/// Run command - build all, then run ddc
+#[derive(Facet, Debug)]
+struct RunArgs {
+    /// Build in release mode
+    #[facet(args::named, args::short = 'r')]
+    release: bool,
+
+    /// Arguments to pass to ddc
+    #[facet(args::positional, default)]
+    ddc_args: Vec<String>,
+}
+
+/// Install command - build release & install to ~/.cargo/bin
+#[derive(Facet, Debug)]
+struct InstallArgs {}
+
+/// WASM command - build WASM only
+#[derive(Facet, Debug)]
+struct WasmArgs {}
+
+/// CI command - generate release workflow
+#[derive(Facet, Debug)]
+struct CiArgs {
+    /// Check that generated files are up to date (don't write)
+    #[facet(args::named)]
+    check: bool,
+}
+
+/// Generate PowerShell installer
+#[derive(Facet, Debug)]
+struct GeneratePs1InstallerArgs {
+    /// Output path for the installer script
+    #[facet(args::positional)]
+    output_path: String,
+}
+
+/// Integration tests command
+#[derive(Facet, Debug)]
+struct IntegrationArgs {
+    /// Skip building binaries (assume they're already built)
+    #[facet(args::named)]
+    no_build: bool,
+
+    /// Arguments to pass to integration-tests binary
+    #[facet(args::positional, default)]
+    extra_args: Vec<String>,
+}
+
+enum XtaskCommand {
+    Build(BuildArgs),
+    Run(RunArgs),
+    Install(InstallArgs),
+    Wasm(WasmArgs),
+    Ci(CiArgs),
+    GeneratePs1Installer(GeneratePs1InstallerArgs),
+    Integration(IntegrationArgs),
+}
+
+/// Top-level xtask arguments
+#[derive(Facet, Debug)]
+struct XtaskArgs {
+    /// Command to run: build, run, install, wasm, ci, generate-ps1-installer, integration
+    #[facet(args::positional)]
+    command: String,
+
+    /// Arguments for the command
+    #[facet(args::positional, default)]
+    rest: Vec<String>,
+}
+
+fn parse_args() -> Result<XtaskCommand, String> {
+    let args: Vec<String> = env::args().skip(1).collect();
+    let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+
+    let top: XtaskArgs = facet_args::from_slice(&args_refs).map_err(|e| {
+        eprintln!("{:?}", miette::Report::new(e));
+        "Failed to parse arguments".to_string()
+    })?;
+
+    let rest: Vec<&str> = top.rest.iter().map(|s| s.as_str()).collect();
+
+    match top.command.as_str() {
+        "build" => Ok(XtaskCommand::Build(facet_args::from_slice(&rest).map_err(
+            |e| {
+                eprintln!("{:?}", miette::Report::new(e));
+                "Failed to parse build arguments".to_string()
+            },
+        )?)),
+        "run" => Ok(XtaskCommand::Run(facet_args::from_slice(&rest).map_err(
+            |e| {
+                eprintln!("{:?}", miette::Report::new(e));
+                "Failed to parse run arguments".to_string()
+            },
+        )?)),
+        "install" => Ok(XtaskCommand::Install(
+            facet_args::from_slice(&rest).map_err(|e| {
+                eprintln!("{:?}", miette::Report::new(e));
+                "Failed to parse install arguments".to_string()
+            })?,
+        )),
+        "wasm" => Ok(XtaskCommand::Wasm(facet_args::from_slice(&rest).map_err(
+            |e| {
+                eprintln!("{:?}", miette::Report::new(e));
+                "Failed to parse wasm arguments".to_string()
+            },
+        )?)),
+        "ci" => Ok(XtaskCommand::Ci(facet_args::from_slice(&rest).map_err(
+            |e| {
+                eprintln!("{:?}", miette::Report::new(e));
+                "Failed to parse ci arguments".to_string()
+            },
+        )?)),
+        "generate-ps1-installer" => Ok(XtaskCommand::GeneratePs1Installer(
+            facet_args::from_slice(&rest).map_err(|e| {
+                eprintln!("{:?}", miette::Report::new(e));
+                "Failed to parse generate-ps1-installer arguments".to_string()
+            })?,
+        )),
+        "integration" => Ok(XtaskCommand::Integration(
+            facet_args::from_slice(&rest).map_err(|e| {
+                eprintln!("{:?}", miette::Report::new(e));
+                "Failed to parse integration arguments".to_string()
+            })?,
+        )),
+        other => Err(format!("Unknown command: {other}")),
+    }
+}
 
 fn main() -> ExitCode {
-    let args: Vec<String> = env::args().skip(1).collect();
+    // Set up miette for nice error formatting
+    miette::set_hook(Box::new(|_| {
+        Box::new(
+            miette::MietteHandlerOpts::new()
+                .terminal_links(true)
+                .unicode(true)
+                .build(),
+        )
+    }))
+    .ok();
 
-    match args.first().map(|s| s.as_str()) {
-        Some("build") => {
-            let release = args.iter().any(|a| a == "--release" || a == "-r");
-            if !build_all(release) {
+    let cmd = match parse_args() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{}: {}", "error".red().bold(), e);
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match cmd {
+        XtaskCommand::Build(args) => {
+            if !build_all(args.release) {
                 return ExitCode::FAILURE;
             }
             ExitCode::SUCCESS
         }
-        Some("run") => {
-            let release = args.iter().any(|a| a == "--release" || a == "-r");
-            // Find args after "--" to pass to ddc
-            let ddc_args: Vec<&str> = args
-                .iter()
-                .skip_while(|a| *a != "--")
-                .skip(1)
-                .map(|s| s.as_str())
-                .collect();
-
-            if !build_all(release) {
+        XtaskCommand::Run(args) => {
+            if !build_all(args.release) {
                 return ExitCode::FAILURE;
             }
-            if !run_ddc(release, &ddc_args) {
+            let ddc_args: Vec<&str> = args.ddc_args.iter().map(|s| s.as_str()).collect();
+            if !run_ddc(args.release, &ddc_args) {
                 return ExitCode::FAILURE;
             }
             ExitCode::SUCCESS
         }
-        Some("install") => {
+        XtaskCommand::Install(_) => {
             if !install_dev() {
                 return ExitCode::FAILURE;
             }
             ExitCode::SUCCESS
         }
-        Some("wasm") => {
+        XtaskCommand::Wasm(_) => {
             if build_wasm() {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::FAILURE
             }
         }
-        Some("ci") => {
-            let check = args.iter().any(|a| a == "--check");
+        XtaskCommand::Ci(args) => {
             let repo_root = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .parent()
                 .unwrap()
                 .to_owned();
-            match ci::generate(&repo_root, check) {
+            match ci::generate(&repo_root, args.check) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("Error: {e}");
+                    eprintln!("{}: {e}", "error".red().bold());
                     ExitCode::FAILURE
                 }
             }
         }
-        Some("generate-ps1-installer") => {
-            // Generate PowerShell installer to specified path
-            if let Some(output_path) = args.get(1) {
-                let content = ci::generate_powershell_installer();
-                if let Err(e) = fs::write(output_path, content) {
-                    eprintln!("Error writing PowerShell installer: {e}");
-                    return ExitCode::FAILURE;
-                }
-                eprintln!("Generated PowerShell installer: {output_path}");
-                ExitCode::SUCCESS
-            } else {
-                eprintln!("Usage: cargo xtask generate-ps1-installer <output-path>");
-                ExitCode::FAILURE
+        XtaskCommand::GeneratePs1Installer(args) => {
+            let content = ci::generate_powershell_installer();
+            if let Err(e) = fs::write(&args.output_path, content) {
+                eprintln!(
+                    "{}: writing PowerShell installer: {e}",
+                    "error".red().bold()
+                );
+                return ExitCode::FAILURE;
             }
+            eprintln!("Generated PowerShell installer: {}", args.output_path);
+            ExitCode::SUCCESS
         }
-        _ => {
-            eprintln!("Usage:");
-            eprintln!("  cargo xtask build [--release]        Build WASM + plugins + dodeca");
-            eprintln!("  cargo xtask run [--release] [-- ..]  Build all, then run ddc");
-            eprintln!(
-                "  cargo xtask install                  Build release & install to ~/.cargo/bin"
-            );
-            eprintln!("  cargo xtask wasm                     Build WASM only");
-            eprintln!("  cargo xtask ci [--check]             Generate release workflow");
-            ExitCode::FAILURE
+        XtaskCommand::Integration(args) => {
+            let extra_args: Vec<&str> = args.extra_args.iter().map(|s| s.as_str()).collect();
+            if !run_integration_tests(args.no_build, &extra_args) {
+                return ExitCode::FAILURE;
+            }
+            ExitCode::SUCCESS
         }
     }
 }
@@ -389,4 +521,147 @@ fn install_dev() -> bool {
 
     eprintln!("Installation complete!");
     true
+}
+
+/// Discover cell binaries (cell-* crates that produce binaries)
+fn discover_cell_binaries() -> Vec<String> {
+    let cells_dir = PathBuf::from("cells");
+    let mut bins = Vec::new();
+
+    if let Ok(entries) = fs::read_dir(&cells_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            // Skip proto crates
+            if !name.starts_with("cell-") || name.ends_with("-proto") {
+                continue;
+            }
+
+            // Check if it has a src/main.rs (binary crate)
+            let main_rs = path.join("src/main.rs");
+            if main_rs.exists() {
+                bins.push(name.to_string());
+            }
+        }
+    }
+
+    bins.sort();
+    bins
+}
+
+fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
+    // Always use release mode for integration tests
+    let release = true;
+    let target_dir = PathBuf::from("target/release");
+    let ddc_bin = target_dir.join("ddc");
+    let integration_bin = target_dir.join("integration-tests");
+
+    if !no_build {
+        eprintln!("Building release binaries for integration tests...");
+        if !build_all(release) {
+            return false;
+        }
+
+        // Build all cell binaries
+        let cell_bins = discover_cell_binaries();
+        if !cell_bins.is_empty() {
+            eprintln!("Building {} cell binaries...", cell_bins.len());
+            let mut cmd = Command::new("cargo");
+            cmd.arg("build").arg("--release");
+            for bin in &cell_bins {
+                cmd.args(["-p", bin]);
+            }
+
+            match cmd.status() {
+                Ok(s) if s.success() => {
+                    eprintln!("Cell binaries built: {}", cell_bins.join(", "));
+                }
+                Ok(s) => {
+                    eprintln!("Cell binary build failed with status: {s}");
+                    return false;
+                }
+                Err(e) => {
+                    eprintln!("Failed to run cargo: {e}");
+                    return false;
+                }
+            }
+        }
+
+        // Build the integration-tests binary
+        eprintln!("Building integration-tests binary...");
+        let mut cmd = Command::new("cargo");
+        cmd.args(["build", "--release", "-p", "integration-tests"]);
+
+        match cmd.status() {
+            Ok(s) if s.success() => {
+                eprintln!("integration-tests built");
+            }
+            Ok(s) => {
+                eprintln!("integration-tests build failed with status: {s}");
+                return false;
+            }
+            Err(e) => {
+                eprintln!("Failed to run cargo: {e}");
+                return false;
+            }
+        }
+    } else {
+        eprintln!("Skipping build (--no-build), assuming binaries are already built");
+    }
+
+    // Verify binaries exist
+    if !ddc_bin.exists() {
+        eprintln!(
+            "{}: ddc binary not found at {}",
+            "error".red().bold(),
+            ddc_bin.display()
+        );
+        eprintln!("Run without --no-build to build it, or ensure it was built separately");
+        return false;
+    }
+
+    if !integration_bin.exists() {
+        eprintln!(
+            "{}: integration-tests binary not found at {}",
+            "error".red().bold(),
+            integration_bin.display()
+        );
+        eprintln!("Run without --no-build to build it, or ensure it was built separately");
+        return false;
+    }
+
+    // Run the integration-tests binary
+    eprintln!("Running integration tests...");
+
+    let mut cmd = Command::new(&integration_bin);
+    cmd.args(extra_args);
+
+    // Set environment variables for the test harness
+    let ddc_bin_abs = ddc_bin.canonicalize().unwrap_or(ddc_bin);
+    let target_dir_abs = target_dir.canonicalize().unwrap_or(target_dir);
+
+    cmd.env("DODECA_BIN", &ddc_bin_abs);
+    cmd.env("DODECA_CELL_PATH", &target_dir_abs);
+
+    eprintln!("  DODECA_BIN={}", ddc_bin_abs.display());
+    eprintln!("  DODECA_CELL_PATH={}", target_dir_abs.display());
+
+    match cmd.status() {
+        Ok(s) if s.success() => {
+            eprintln!("Integration tests passed!");
+            true
+        }
+        Ok(s) => {
+            eprintln!("Integration tests failed with status: {s}");
+            false
+        }
+        Err(e) => {
+            eprintln!("Failed to run integration-tests: {e}");
+            false
+        }
+    }
 }

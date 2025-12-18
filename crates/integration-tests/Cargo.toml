@@ -1,0 +1,40 @@
+[package]
+name = "integration-tests"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.91"
+publish = false
+
+[[bin]]
+name = "integration-tests"
+path = "src/main.rs"
+
+[dependencies]
+# HTTP client for test requests
+reqwest = { version = "0.12", features = ["blocking"] }
+
+# Async runtime (for FD passing setup)
+tokio = { version = "1", features = ["full"] }
+
+# For Unix socket FD passing
+async-send-fd = { version = "1.2", features = ["tokio"] }
+
+# Temp directories for test fixtures
+tempfile = "3"
+
+# Regex for response parsing
+regex = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Death-watch for child processes
+ur-taking-me-with-you.workspace = true
+
+# CLI argument parsing
+facet = "0.32.2"
+facet-args = "0.32.2"
+
+# Colorful output
+owo-colors = "4"

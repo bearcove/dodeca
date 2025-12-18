@@ -164,9 +164,8 @@ fn build_router(ctx: Arc<CellContext>) -> axum::Router {
 
         if status >= 500 {
             tracing::error!("{} {} -> {} in {:.1}ms", method, path, status, latency_ms);
-        } else if status >= 400 {
-            tracing::warn!("{} {} -> {} in {:.1}ms", method, path, status, latency_ms);
         } else {
+            // 2xx, 3xx, 4xx are all normal in a dev server (404s are common during probing)
             tracing::debug!("{} {} -> {} in {:.1}ms", method, path, status, latency_ms);
         }
 

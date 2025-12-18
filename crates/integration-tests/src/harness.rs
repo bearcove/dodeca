@@ -7,16 +7,15 @@
 //!
 //! # Environment Variables
 //!
-//! - `DODECA_BIN`: Path to the ddc binary (defaults to cargo-built binary)
+//! - `DODECA_BIN`: Path to the ddc binary (required)
 //! - `DODECA_CELL_PATH`: Path to cell binaries (defaults to same dir as ddc)
 //! - `DODECA_TEST_WRAPPER`: Optional wrapper script/command to run ddc under
 //!   (e.g., "valgrind --leak-check=full" or "strace -f -o /tmp/trace.out")
 
-#![allow(clippy::disallowed_methods)]
-
 use async_send_fd::AsyncSendFd;
 use regex::Regex;
 use reqwest::blocking::Client;
+use std::cell::RefCell;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::os::unix::io::AsRawFd;
@@ -25,14 +24,28 @@ use std::process::{Child, Command as StdCommand, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::UnixListener;
-use tokio::process::Command;
-use tracing::{debug, error, info};
+use tracing::{debug, error};
+
+// Thread-local storage for logs from the last test (for printing on failure)
+thread_local! {
+    static LAST_TEST_LOGS: RefCell<Vec<String>> = RefCell::new(Vec::new());
+}
+
+/// Get the logs from the last test that ran (for printing on failure)
+pub fn get_last_test_logs() -> Vec<String> {
+    LAST_TEST_LOGS.with(|logs| logs.borrow().clone())
+}
+
+/// Clear the last test logs
+pub fn clear_last_test_logs() {
+    LAST_TEST_LOGS.with(|logs| logs.borrow_mut().clear());
+}
 
 /// Get the path to the ddc binary
 fn ddc_binary() -> PathBuf {
     std::env::var("DODECA_BIN")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_BIN_EXE_ddc")))
+        .expect("DODECA_BIN environment variable must be set")
 }
 
 /// Get the path to the cell binaries directory
@@ -62,7 +75,7 @@ impl TestSite {
     /// Create a new test site from a fixture directory name
     pub fn new(fixture_name: &str) -> Self {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let src = manifest_dir.join("tests/fixtures").join(fixture_name);
+        let src = manifest_dir.join("fixtures").join(fixture_name);
         Self::from_source(&src)
     }
 
@@ -71,7 +84,7 @@ impl TestSite {
     /// loaded at server startup time rather than triggering livereload.
     pub fn with_files(fixture_name: &str, files: &[(&str, &str)]) -> Self {
         let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let src = manifest_dir.join("tests/fixtures").join(fixture_name);
+        let src = manifest_dir.join("fixtures").join(fixture_name);
         Self::from_source_with_files(&src, files)
     }
 
@@ -120,7 +133,7 @@ impl TestSite {
         // Bind TCP socket on port 0 (OS assigns port) using std (not tokio)
         let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind TCP");
         let port = std_listener.local_addr().expect("get local addr").port();
-        info!(port, "Bound ephemeral TCP listener for test server");
+        debug!(port, "Bound ephemeral TCP listener for test server");
 
         // Create Unix socket listener
         let unix_listener =
@@ -129,7 +142,7 @@ impl TestSite {
         // Start server with Unix socket path
         let fixture_str = fixture_dir.to_string_lossy().to_string();
         let unix_socket_str = unix_socket_path.to_string_lossy().to_string();
-        let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| "debug".to_string());
+        let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
 
         let ddc = ddc_binary();
         let ddc_args = [
@@ -149,7 +162,7 @@ impl TestSite {
             cmd.args(wrapper_args);
             cmd.arg(&ddc);
             cmd.args(ddc_args);
-            info!(wrapper = %wrapper_cmd, "Using test wrapper");
+            debug!(wrapper = %wrapper_cmd, "Using test wrapper");
             cmd
         } else {
             let mut cmd = StdCommand::new(&ddc);
@@ -179,7 +192,7 @@ impl TestSite {
 
         let mut child = ur_taking_me_with_you::spawn_dying_with_parent(cmd)
             .expect("start server with death-watch");
-        info!(child_pid = child.id(), ddc = %ddc.display(), %rust_log, "Spawned ddc server process");
+        debug!(child_pid = child.id(), ddc = %ddc.display(), %rust_log, "Spawned ddc server process");
 
         // Take stdout/stderr before the async block
         let stdout = child.stdout.take().expect("capture stdout");
@@ -206,7 +219,7 @@ impl TestSite {
                 .send_fd(std_listener.as_raw_fd())
                 .await
                 .expect("send FD");
-            info!("Sent TCP listener FD to server");
+            debug!("Sent TCP listener FD to server");
 
             // IMPORTANT: Don't drop std_listener here - keep it alive!
             // The FD is shared with the server now
@@ -244,7 +257,7 @@ impl TestSite {
                 Ok(_) => {
                     // Got a line
                     if line.contains("READY") {
-                        info!("Received READY from server");
+                        debug!("Received READY from server");
                         break; // Success!
                     } else {
                         debug!(line = line.trim_end(), "Server stdout");
@@ -261,37 +274,31 @@ impl TestSite {
             }
         }
 
-        // Capture logs (stdout/stderr) for assertions + also forward to terminal for debugging.
+        // Capture logs (stdout/stderr) for assertions. Only printed on test failure.
         let logs: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
-        // Drain stdout in background - use println! to preserve ANSI escape codes
-        // (tracing-subscriber's DefaultVisitor wraps messages in Escape() which
-        // converts \x1b bytes to literal "\\x1b" strings as a security measure
-        // against terminal injection attacks - there's no config to disable it,
-        // you'd need a custom FormatEvent implementation)
+        // Drain stdout in background (capture only, no printing)
         let logs_stdout = Arc::clone(&logs);
         std::thread::spawn(move || {
             for line in reader.lines() {
                 match line {
                     Ok(l) => {
-                        logs_stdout.lock().unwrap().push(l.clone());
-                        println!("{l}");
+                        logs_stdout.lock().unwrap().push(format!("[stdout] {l}"));
                     }
-                    Err(e) => eprintln!("Failed to read server stdout: {e}"),
+                    Err(_) => break,
                 }
             }
         });
 
-        // Drain stderr in background
+        // Drain stderr in background (capture only, no printing)
         let logs_stderr = Arc::clone(&logs);
         std::thread::spawn(move || {
             for line in stderr_reader.lines() {
                 match line {
                     Ok(l) => {
-                        logs_stderr.lock().unwrap().push(l.clone());
-                        eprintln!("{l}");
+                        logs_stderr.lock().unwrap().push(format!("[stderr] {l}"));
                     }
-                    Err(e) => eprintln!("Failed to read server stderr: {e}"),
+                    Err(_) => break,
                 }
             }
         });
@@ -310,7 +317,7 @@ impl TestSite {
             probe_attempts += 1;
             match client.get(&probe_url).send() {
                 Ok(resp) => {
-                    tracing::info!(
+                    tracing::debug!(
                         status = %resp.status(),
                         probe_attempts,
                         "HTTP probe succeeded"
@@ -511,6 +518,12 @@ impl TestSite {
 
 impl Drop for TestSite {
     fn drop(&mut self) {
+        // Save logs to thread-local for potential failure reporting
+        let logs = self.logs.lock().unwrap().clone();
+        LAST_TEST_LOGS.with(|tl| {
+            *tl.borrow_mut() = logs;
+        });
+
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -638,7 +651,6 @@ impl BuildResult {
     }
 
     /// Assert the build failed
-    #[allow(dead_code)]
     pub fn assert_failure(&self) -> &Self {
         assert!(
             !self.success,
@@ -664,6 +676,8 @@ impl BuildResult {
 
 /// Build a site from an arbitrary source directory
 async fn build_site_from_source(src: &Path) -> BuildResult {
+    use tokio::process::Command;
+
     // Create isolated temp directory
     let temp_dir = tempfile::Builder::new()
         .prefix("dodeca-build-test-")
@@ -693,8 +707,7 @@ async fn build_site_from_source(src: &Path) -> BuildResult {
         cmd.env("DODECA_CELL_PATH", &cell_dir);
     }
 
-    // Isolate code-execution build artifacts per build invocation to avoid macOS hangs due to
-    // cargo file-lock contention under concurrent tests/processes.
+    // Isolate code-execution build artifacts per build invocation
     let code_exec_target_dir = temp_dir.path().join("code-exec-target");
     let _ = fs::create_dir_all(&code_exec_target_dir);
     cmd.env("DDC_CODE_EXEC_TARGET_DIR", &code_exec_target_dir);

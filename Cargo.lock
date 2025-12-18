@@ -2852,7 +2852,7 @@ checksum = "6738d2e996274e499bc7b0d693c858b7720b9cd2543a0643a3087e6cb0a4fa16"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3151,7 +3151,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4667,6 +4667,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "integration-tests"
+version = "0.1.0"
+dependencies = [
+ "async-send-fd",
+ "facet",
+ "facet-args",
+ "owo-colors",
+ "regex",
+ "reqwest",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "ur-taking-me-with-you",
+]
+
+[[package]]
 name = "interpolate_name"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5724,7 +5741,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6709,7 +6726,7 @@ dependencies = [
 [[package]]
 name = "picante"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/picante#8b306b09ffca70191adaaac14b491d060ccddc57"
+source = "git+https://github.com/bearcove/picante#3e6c53218ca576303fa75f77165d1be7ec0fd827"
 dependencies = [
  "dashmap 5.5.3",
  "facet",
@@ -6726,7 +6743,7 @@ dependencies = [
 [[package]]
 name = "picante-macros"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/picante#8b306b09ffca70191adaaac14b491d060ccddc57"
+source = "git+https://github.com/bearcove/picante#3e6c53218ca576303fa75f77165d1be7ec0fd827"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -7088,7 +7105,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7665,7 +7682,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8569,7 +8586,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9595,7 +9612,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9979,10 +9996,12 @@ version = "0.1.0"
 dependencies = [
  "camino",
  "facet",
+ "facet-args",
  "facet-yaml",
  "fs-err",
  "indexmap 2.12.1",
  "miette",
+ "owo-colors",
  "structstruck",
 ]
 
