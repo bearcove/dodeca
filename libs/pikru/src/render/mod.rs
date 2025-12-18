@@ -767,7 +767,12 @@ fn render_object_stmt(
                     let y_base = match class_name {
                         Some(ClassName::Cylinder) => {
                             // corner_radius was initialized to cylrad before attributes
-                            -0.75 * style.corner_radius.raw()
+                            // C code only applies yBase if rad > 0
+                            if style.corner_radius.raw() > 0.0 {
+                                -0.75 * style.corner_radius.raw()
+                            } else {
+                                0.0
+                            }
                         }
                         _ => 0.0,
                     };
@@ -1052,6 +1057,13 @@ fn render_object_stmt(
                 // corner_radius was initialized to cylrad before attributes
                 width = fit_width;
                 height = fit_height + style.corner_radius * 0.25 + style.stroke_width;
+                tracing::debug!(
+                    fit_height = fit_height.raw(),
+                    rad = style.corner_radius.raw(),
+                    sw = style.stroke_width.raw(),
+                    result_height = height.raw(),
+                    "cylinderFit calculation"
+                );
             }
             ClassName::Diamond => {
                 // cref: diamondFit (pikchr.c:4096)
