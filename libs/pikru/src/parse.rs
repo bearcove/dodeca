@@ -313,6 +313,10 @@ fn parse_classname(pair: Pair<Rule>) -> Result<ClassName, miette::Report> {
 
 fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
     let pair_str = pair.as_str().to_string();
+
+    // Debug: log what attribute we're parsing
+    tracing::debug!("parse_attribute: pair_str={:?}", pair_str);
+
     let mut inner = pair.into_inner().peekable();
 
     // If no inner pairs, check the raw string
@@ -442,7 +446,7 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
                 }
             } else {
                 // Regular direction with optional distance/position variants
-                parse_direction_attribute(&mut inner)
+                parse_direction_attribute(&mut inner, &pair_str)
             }
         }
         Rule::position => {
@@ -484,7 +488,7 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
                     // After "go", check what follows
                     if let Some(next) = inner.peek() {
                         if next.as_rule() == Rule::direction {
-                            parse_direction_attribute(&mut inner)
+                            parse_direction_attribute(&mut inner, &pair_str)
                         } else if next.as_rule() == Rule::optrelexpr {
                             // go optrelexpr heading expr
                             let opt = inner.next().unwrap();
@@ -520,7 +524,7 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
                 }
                 "then" => {
                     inner.next(); // skip "then"
-                    parse_then_clause(&mut inner)
+                    parse_then_clause(&mut inner, &pair_str)
                 }
                 "at" => {
                     inner.next(); // skip "at"
@@ -559,6 +563,7 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
 
 fn parse_direction_attribute<'a, I>(
     inner: &mut std::iter::Peekable<I>,
+    pair_str: &str,
 ) -> Result<Attribute, miette::Report>
 where
     I: Iterator<Item = Pair<'a, Rule>>,
@@ -571,44 +576,60 @@ where
         return Ok(Attribute::DirectionMove(None, dir, None));
     }
 
-    // Check for "until even with" or "even with"
-    let next_str = inner.peek().map(|p| p.as_str()).unwrap_or("");
+    // Debug: log what tokens we have
+    if let Some(peek) = inner.peek() {
+        tracing::debug!(
+            "parse_direction_attribute after direction: next rule={:?}, str={:?}, pair_str={:?}",
+            peek.as_rule(),
+            peek.as_str(),
+            pair_str
+        );
+    }
 
-    if next_str == "until" {
-        inner.next(); // skip "until"
-        inner.next(); // skip "even"
-        // Skip "with" if present
-        if inner.peek().map(|p| p.as_str() == "with").unwrap_or(false) {
-            inner.next();
-        }
-        let pos = parse_position(inner.next().unwrap())?;
-        Ok(Attribute::DirectionUntilEven(None, dir, pos))
-    } else if next_str == "even" {
-        inner.next(); // skip "even"
-        // Skip "with" if present
-        if inner.peek().map(|p| p.as_str() == "with").unwrap_or(false) {
-            inner.next();
-        }
-        let pos = parse_position(inner.next().unwrap())?;
-        Ok(Attribute::DirectionEven(None, dir, pos))
-    } else if let Some(p) = inner.next() {
-        // Should be optrelexpr for distance
-        if p.as_rule() == Rule::optrelexpr {
-            let relexpr = p
-                .into_inner()
-                .next()
-                .map(|r| parse_relexpr(r))
-                .transpose()?;
-            Ok(Attribute::DirectionMove(None, dir, relexpr))
-        } else {
-            Ok(Attribute::DirectionMove(None, dir, None))
+    // Check the next rule - in pest, "until", "even", "with" are literals that get
+    // consumed but don't produce tokens. So we need to check pair_str for context.
+    if let Some(next) = inner.peek() {
+        match next.as_rule() {
+            Rule::position => {
+                // This is "direction [until] even with position"
+                // The keywords are consumed by pest as literals
+                let pos = parse_position(inner.next().unwrap())?;
+                if pair_str.contains("until") {
+                    tracing::debug!("Parsed DirectionUntilEven: {:?}", dir);
+                    Ok(Attribute::DirectionUntilEven(None, dir, pos))
+                } else if pair_str.contains("even") {
+                    tracing::debug!("Parsed DirectionEven: {:?}", dir);
+                    Ok(Attribute::DirectionEven(None, dir, pos))
+                } else {
+                    // Just "direction position" - shouldn't happen in valid grammar
+                    Ok(Attribute::DirectionMove(None, dir, None))
+                }
+            }
+            Rule::optrelexpr => {
+                // direction optrelexpr
+                let relexpr = inner
+                    .next()
+                    .unwrap()
+                    .into_inner()
+                    .next()
+                    .map(|r| parse_relexpr(r))
+                    .transpose()?;
+                Ok(Attribute::DirectionMove(None, dir, relexpr))
+            }
+            _ => {
+                // Unknown pattern - just return direction move with no distance
+                Ok(Attribute::DirectionMove(None, dir, None))
+            }
         }
     } else {
         Ok(Attribute::DirectionMove(None, dir, None))
     }
 }
 
-fn parse_then_clause<'a, I>(inner: &mut std::iter::Peekable<I>) -> Result<Attribute, miette::Report>
+fn parse_then_clause<'a, I>(
+    inner: &mut std::iter::Peekable<I>,
+    pair_str: &str,
+) -> Result<Attribute, miette::Report>
 where
     I: Iterator<Item = Pair<'a, Rule>>,
 {
@@ -636,39 +657,40 @@ where
     } else if next.as_rule() == Rule::direction {
         let dir = parse_direction(inner.next().unwrap())?;
 
-        // Check for until/even/optrelexpr
+        // Check what follows the direction
+        // Note: "until", "even", "with" are literals consumed by pest but not returned as tokens
+        // So we check the rule type and use pair_str for context
         if let Some(after) = inner.peek() {
-            let after_str = after.as_str();
-            if after_str == "until" {
-                inner.next(); // skip "until"
-                inner.next(); // skip "even"
-                if inner.peek().map(|p| p.as_str() == "with").unwrap_or(false) {
-                    inner.next();
+            match after.as_rule() {
+                Rule::position => {
+                    // This is "then direction [until] even with position"
+                    let pos = parse_position(inner.next().unwrap())?;
+                    if pair_str.contains("until") {
+                        tracing::debug!("parse_then_clause: DirectionUntilEven {:?}", dir);
+                        Ok(Attribute::Then(Some(ThenClause::DirectionUntilEven(
+                            dir, pos,
+                        ))))
+                    } else if pair_str.contains("even") {
+                        tracing::debug!("parse_then_clause: DirectionEven {:?}", dir);
+                        Ok(Attribute::Then(Some(ThenClause::DirectionEven(dir, pos))))
+                    } else {
+                        // Shouldn't happen - direction followed by position without even
+                        Ok(Attribute::Then(Some(ThenClause::DirectionMove(dir, None))))
+                    }
                 }
-                let pos = parse_position(inner.next().unwrap())?;
-                Ok(Attribute::Then(Some(ThenClause::DirectionUntilEven(
-                    dir, pos,
-                ))))
-            } else if after_str == "even" {
-                inner.next(); // skip "even"
-                if inner.peek().map(|p| p.as_str() == "with").unwrap_or(false) {
-                    inner.next();
+                Rule::optrelexpr => {
+                    let relexpr = inner
+                        .next()
+                        .unwrap()
+                        .into_inner()
+                        .next()
+                        .map(|p| parse_relexpr(p))
+                        .transpose()?;
+                    Ok(Attribute::Then(Some(ThenClause::DirectionMove(
+                        dir, relexpr,
+                    ))))
                 }
-                let pos = parse_position(inner.next().unwrap())?;
-                Ok(Attribute::Then(Some(ThenClause::DirectionEven(dir, pos))))
-            } else if after.as_rule() == Rule::optrelexpr {
-                let relexpr = inner
-                    .next()
-                    .unwrap()
-                    .into_inner()
-                    .next()
-                    .map(|p| parse_relexpr(p))
-                    .transpose()?;
-                Ok(Attribute::Then(Some(ThenClause::DirectionMove(
-                    dir, relexpr,
-                ))))
-            } else {
-                Ok(Attribute::Then(Some(ThenClause::DirectionMove(dir, None))))
+                _ => Ok(Attribute::Then(Some(ThenClause::DirectionMove(dir, None)))),
             }
         } else {
             Ok(Attribute::Then(Some(ThenClause::DirectionMove(dir, None))))
