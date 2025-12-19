@@ -950,6 +950,14 @@ fn render_object_stmt(
                     if to_attachment.is_none() {
                         to_attachment = endpoint_object_from_position(ctx, pos);
                     }
+                    // cref: pik_add_to (pikchr.y:3464) overwrites current path point
+                    // If there's a pending then segment direction, the "to" position
+                    // replaces it rather than adding to it. Clear the pending segment.
+                    if in_then_segment {
+                        current_segment_offset = OffsetIn::ZERO;
+                        current_segment_direction = None;
+                        in_then_segment = false;
+                    }
                 }
             }
             Attribute::DirectionMove(_go, dir, dist) => {
@@ -1598,26 +1606,39 @@ fn render_object_stmt(
             ctx.position
         };
 
-        if let Some((dir, pos_expr)) = even_clause.as_ref() {
-            // Single-segment move until even with target
-            let target = eval_position(ctx, pos_expr)?;
-            let end = match dir {
-                Direction::Right | Direction::Left => Point::new(target.x, start.y),
-                Direction::Up | Direction::Down => Point::new(start.x, target.y),
-            };
-            let center = start.midpoint(end);
-            (center, start, end, vec![start, end])
-        } else {
-            // Build waypoints starting from start
+        // Build waypoints starting from start
+        {
             let mut points = vec![start];
             let mut current_pos = start;
 
-            if !to_positions.is_empty() && segments.is_empty() && !has_direction_move {
+            // Handle even_clause first - it sets a coordinate without adding offset
+            // cref: pik_evenwith (pikchr.y:3374) - uses = to SET, not +=
+            if let Some((dir, pos_expr)) = even_clause.as_ref() {
+                let target = eval_position(ctx, pos_expr)?;
+                let even_point = match dir {
+                    Direction::Right | Direction::Left => Point::new(target.x, start.y),
+                    Direction::Up | Direction::Down => Point::new(start.x, target.y),
+                };
+                tracing::debug!(
+                    start_x = start.x.raw(),
+                    start_y = start.y.raw(),
+                    target_x = target.x.raw(),
+                    target_y = target.y.raw(),
+                    even_point_x = even_point.x.raw(),
+                    even_point_y = even_point.y.raw(),
+                    ?dir,
+                    "Rust: even_clause computed even_point"
+                );
+                points.push(even_point);
+                current_pos = even_point;
+            }
+
+            if !to_positions.is_empty() && segments.is_empty() && !has_direction_move && even_clause.is_none() {
                 // from X to Y [to Z...] - add all to_positions as waypoints
                 for pos in &to_positions {
                     points.push(*pos);
                 }
-            } else if has_direction_move || !segments.is_empty() {
+            } else if has_direction_move || !segments.is_empty() || even_clause.is_some() {
                 // cref: C pikchr accumulates directions per segment
                 // direction_offset = initial segment (before first "then")
                 // segments = accumulated offsets for each "then" segment
