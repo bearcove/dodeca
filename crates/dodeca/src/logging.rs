@@ -349,13 +349,21 @@ pub fn init_standard_tracing() {
         .unwrap_or(false);
 
     let fmt_layer = tracing_subscriber::fmt::layer().with_target(true).compact();
-    let fmt_layer = if use_utc {
-        fmt_layer.with_timer(tracing_subscriber::fmt::time::SystemTime)
+    if use_utc {
+        tracing_subscriber::registry()
+            .with(
+                fmt_layer
+                    .with_timer(tracing_subscriber::fmt::time::SystemTime)
+                    .with_filter(filter),
+            )
+            .init();
     } else {
-        fmt_layer.with_timer(tracing_subscriber::fmt::time::uptime())
-    };
-
-    tracing_subscriber::registry()
-        .with(fmt_layer.with_filter(filter))
-        .init();
+        tracing_subscriber::registry()
+            .with(
+                fmt_layer
+                    .with_timer(tracing_subscriber::fmt::time::uptime())
+                    .with_filter(filter),
+            )
+            .init();
+    }
 }
