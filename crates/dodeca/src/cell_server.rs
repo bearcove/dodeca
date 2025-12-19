@@ -28,6 +28,8 @@ use crate::content_service::HostContentService;
 use crate::serve::SiteServer;
 
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
+const REQUIRED_CELLS: [&str; 2] = ["ddc-cell-http", "ddc-cell-markdown"];
+const REQUIRED_CELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Find the cell binary path (for backwards compatibility).
 ///
@@ -256,29 +258,9 @@ pub async fn start_cell_server_with_shutdown(
     // This replaces the basic dispatcher from cells.rs with one that includes ContentService
     session.set_dispatcher(create_http_cell_dispatcher(content_service));
 
-    // Wait for required cells + revision readiness before accepting connections.
-    let required_cells = ["ddc-cell-http", "ddc-cell-markdown"];
-    let timeout = std::time::Duration::from_secs(10);
     tracing::info!(
-        "Waiting for required cells to be ready: {:?}",
-        required_cells
-    );
-    let required_start = std::time::Instant::now();
-    if let Err(e) = crate::cells::wait_for_cells_ready(&required_cells, timeout).await {
-        tracing::error!("Required cells not ready: {}", e);
-        return Ok(());
-    }
-    tracing::info!(
-        elapsed_ms = required_start.elapsed().as_millis(),
-        "Required cells ready"
-    );
-
-    tracing::info!("Waiting for revision readiness");
-    let revision_start = std::time::Instant::now();
-    server.wait_revision_ready().await;
-    tracing::info!(
-        elapsed_ms = revision_start.elapsed().as_millis(),
-        "Revision ready"
+        "Accepting connections immediately; readiness gated per connection (cells={:?})",
+        REQUIRED_CELLS
     );
 
     // Merge all listeners into a single stream
@@ -317,12 +299,19 @@ pub async fn start_cell_server_with_shutdown(
                             "Accepted browser connection"
                         );
                         let session = session.clone();
+                        let server = server.clone();
                         tokio::spawn(async move {
                             // Create TcpTunnelClient per connection
                             let tunnel_client = TcpTunnelClient::new(session.clone());
                             if let Err(e) =
-                                handle_browser_connection(conn_id, stream, tunnel_client, session)
-                                    .await
+                                handle_browser_connection(
+                                    conn_id,
+                                    stream,
+                                    tunnel_client,
+                                    session,
+                                    server,
+                                )
+                                .await
                             {
                                 tracing::warn!(
                                     conn_id,
@@ -390,6 +379,7 @@ async fn handle_browser_connection(
     browser_stream: TcpStream,
     tunnel_client: TcpTunnelClient,
     session: Arc<RpcSession>,
+    server: Arc<SiteServer>,
 ) -> Result<()> {
     let started_at = Instant::now();
     let peer_addr = browser_stream.peer_addr().ok();
@@ -399,6 +389,33 @@ async fn handle_browser_connection(
         ?peer_addr,
         ?local_addr,
         "handle_browser_connection: start"
+    );
+
+    tracing::info!(conn_id, "Waiting for required cells (per-connection)");
+    let required_start = Instant::now();
+    if let Err(e) = crate::cells::wait_for_cells_ready(&REQUIRED_CELLS, REQUIRED_CELL_TIMEOUT).await
+    {
+        tracing::error!(
+            conn_id,
+            error = %e,
+            elapsed_ms = required_start.elapsed().as_millis(),
+            "Required cells not ready"
+        );
+        return Err(e);
+    }
+    tracing::info!(
+        conn_id,
+        elapsed_ms = required_start.elapsed().as_millis(),
+        "Required cells ready (per-connection)"
+    );
+
+    tracing::info!(conn_id, "Waiting for revision readiness (per-connection)");
+    let revision_start = Instant::now();
+    server.wait_revision_ready().await;
+    tracing::info!(
+        conn_id,
+        elapsed_ms = revision_start.elapsed().as_millis(),
+        "Revision ready (per-connection)"
     );
 
     // Read first byte before opening a tunnel.
