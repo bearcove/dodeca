@@ -14,6 +14,7 @@ use eyre::Result;
 use futures::stream::{self, StreamExt};
 use rapace::{Frame, RpcError, RpcSession};
 use rapace_tracing::{EventMeta, Field, SpanMeta, TracingSink};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use tokio_stream::wrappers::TcpListenerStream;
@@ -367,6 +368,18 @@ async fn handle_browser_connection(
         "handle_browser_connection: start"
     );
 
+    // Read first byte before opening a tunnel.
+    let mut browser_stream = browser_stream;
+    let mut first_byte = [0u8; 1];
+    let first_read = browser_stream.read(&mut first_byte).await?;
+    if first_read == 0 {
+        tracing::warn!(
+            conn_id,
+            "browser stream closed before request (first_read=0)"
+        );
+        return Ok(());
+    }
+
     // Open a tunnel to the cell
     let open_started = Instant::now();
     let handle = tunnel_client
@@ -379,54 +392,13 @@ async fn handle_browser_connection(
         conn_id,
         channel_id,
         open_elapsed_ms = open_started.elapsed().as_millis(),
+        first_read,
         "Tunnel opened for browser connection"
     );
 
     // Bridge browser <-> tunnel with backpressure.
     let mut tunnel_stream = session.tunnel_stream(channel_id);
-    let mut browser_stream = browser_stream;
-    if let Err(e) = browser_stream.readable().await {
-        tracing::warn!(
-            conn_id,
-            channel_id,
-            error = %e,
-            "browser stream not readable before bridge"
-        );
-    } else {
-        let mut peek_buf = [0u8; 1];
-        match browser_stream.try_read(&mut peek_buf) {
-            Ok(0) => {
-                tracing::warn!(
-                    conn_id,
-                    channel_id,
-                    "browser stream EOF before bridge (try_read=0)"
-                );
-            }
-            Ok(n) => {
-                tracing::info!(
-                    conn_id,
-                    channel_id,
-                    bytes = n,
-                    "browser stream has data before bridge"
-                );
-            }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                tracing::debug!(
-                    conn_id,
-                    channel_id,
-                    "browser stream no data before bridge (WouldBlock)"
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    conn_id,
-                    channel_id,
-                    error = %e,
-                    "browser stream try_read error before bridge"
-                );
-            }
-        }
-    }
+    tunnel_stream.write_all(&first_byte[..first_read]).await?;
     tracing::info!(
         conn_id,
         channel_id,
