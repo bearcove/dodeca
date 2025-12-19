@@ -150,9 +150,17 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             // Compute slot assignments for all text lines
             let slots = compute_text_vslots(texts);
 
+            // cref: pik_append_txt (pikchr.c:2421-2422) - for lines, hc starts at sw*1.5
+            // This reserves vertical space for the line stroke when positioning text
+            // The value can only increase if center text is taller (via .max() below)
+            let is_line = matches!(
+                obj.class(),
+                ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move
+            );
+
             let mut ha2: f64 = 0.0;
             let mut ha1: f64 = 0.0;
-            let mut hc: f64 = 0.0;
+            let mut hc: f64 = if is_line { thickness * 1.5 } else { 0.0 };
             let mut hb1: f64 = 0.0;
             let mut hb2: f64 = 0.0;
 
