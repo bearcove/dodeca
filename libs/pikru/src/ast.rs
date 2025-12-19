@@ -85,6 +85,26 @@ impl Direction {
             Direction::Down => Direction::Up,
         }
     }
+
+    /// Try to get a cardinal direction from an edge point.
+    /// Returns None for diagonal edge points (nw, ne, sw, se) or center.
+    /// cref: C pikchr uses pik_hdg_angle to convert edge points to angles,
+    /// then maps angles to directions (pikchr.c:3350-3360)
+    pub fn from_edge_point(ep: &EdgePoint) -> Option<Direction> {
+        match ep {
+            EdgePoint::North | EdgePoint::Top | EdgePoint::N => Some(Direction::Up),
+            EdgePoint::South | EdgePoint::Bottom | EdgePoint::S => Some(Direction::Down),
+            EdgePoint::East | EdgePoint::Right | EdgePoint::E => Some(Direction::Right),
+            EdgePoint::West | EdgePoint::Left | EdgePoint::W => Some(Direction::Left),
+            // Diagonal directions - use dominant component like C pikchr
+            // cref: pikchr.c:3350-3360 maps angle ranges to directions
+            EdgePoint::NorthEast => Some(Direction::Up), // 45° → Up
+            EdgePoint::NorthWest => Some(Direction::Up), // 315° → Up
+            EdgePoint::SouthEast => Some(Direction::Down), // 135° → Down
+            EdgePoint::SouthWest => Some(Direction::Down), // 225° → Down
+            _ => None, // Center, Start, End don't have a direction
+        }
+    }
 }
 
 /// Variable assignment

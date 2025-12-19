@@ -718,10 +718,23 @@ fn render_object_stmt(
     let mut from_attachment: Option<EndpointObject> = None;
     let mut to_attachment: Option<EndpointObject> = None;
     // Accumulated direction offsets for compound moves like "up 1 right 2"
+    // cref: p->mTPath in C pikchr tracks horizontal/vertical movement
     let mut direction_offset = OffsetIn::ZERO;
     let mut has_direction_move: bool = false;
     let mut even_clause: Option<(Direction, Position)> = None;
-    let mut then_clauses: Vec<ThenClause> = Vec::new();
+    // Instead of storing ThenClauses directly, we store segments
+    // Each "then" starts a new segment with accumulated direction offsets
+    // cref: p->thenFlag in C pikchr - when set, next direction creates new point
+    enum Segment {
+        /// Relative offset from previous position (accumulated directions)
+        Offset(OffsetIn, Direction),
+        /// Absolute position (from "then to position")
+        AbsolutePosition(PointIn),
+    }
+    let mut segments: Vec<Segment> = Vec::new();
+    let mut current_segment_offset = OffsetIn::ZERO;
+    let mut current_segment_direction: Option<Direction> = None;
+    let mut in_then_segment = false;
     let mut with_clause: Option<(EdgePoint, PointIn)> = None; // (edge, target_position)
     // The object's direction - starts as ctx.direction, updated by DirectionMove attributes
     // cref: pObj->outDir in C pikchr
@@ -945,8 +958,15 @@ fn render_object_stmt(
                 } else {
                     width // default distance
                 };
-                // Accumulate offset based on direction
-                direction_offset += dir.offset(distance);
+                // cref: pik_add_direction (pikchr.c:3272) - accumulates directions
+                // If we're in a then segment, accumulate to current segment
+                // Otherwise accumulate to the initial direction_offset
+                if in_then_segment {
+                    current_segment_offset += dir.offset(distance);
+                    current_segment_direction = Some(*dir);
+                } else {
+                    direction_offset += dir.offset(distance);
+                }
             }
             Attribute::DirectionEven(_go, dir, pos) => {
                 even_clause = Some((*dir, pos.clone()));
@@ -964,12 +984,100 @@ fn render_object_stmt(
                         d
                     };
                     has_direction_move = true;
-                    // Apply in context direction
-                    direction_offset += ctx.direction.offset(val);
+                    // Apply in context direction or current segment
+                    if in_then_segment {
+                        current_segment_offset += ctx.direction.offset(val);
+                    } else {
+                        direction_offset += ctx.direction.offset(val);
+                    }
                 }
             }
             Attribute::Then(Some(clause)) => {
-                then_clauses.push(clause.clone());
+                // cref: pik_then (pikchr.c:3240) - "then" starts a new segment
+                // First, save any pending then segment
+                if in_then_segment && current_segment_direction.is_some() {
+                    segments.push(Segment::Offset(
+                        current_segment_offset,
+                        current_segment_direction.unwrap(),
+                    ));
+                    current_segment_offset = OffsetIn::ZERO;
+                    current_segment_direction = None;
+                }
+                in_then_segment = true;
+
+                // Process the then clause's direction if it has one
+                match clause {
+                    ThenClause::DirectionMove(dir, dist) => {
+                        let distance = if let Some(relexpr) = dist {
+                            if let Ok(d) = eval_len(ctx, &relexpr.expr) {
+                                if relexpr.is_percent {
+                                    width * (d.raw() / 100.0)
+                                } else {
+                                    d
+                                }
+                            } else {
+                                width
+                            }
+                        } else {
+                            width
+                        };
+                        current_segment_offset += dir.offset(distance);
+                        current_segment_direction = Some(*dir);
+                        object_direction = *dir;
+                    }
+                    ThenClause::EdgePoint(dist, edge) => {
+                        // EdgePoint like "nw" specifies a diagonal direction
+                        let distance = if let Some(relexpr) = dist {
+                            if let Ok(d) = eval_len(ctx, &relexpr.expr) {
+                                if relexpr.is_percent {
+                                    width * (d.raw() / 100.0)
+                                } else {
+                                    d
+                                }
+                            } else {
+                                width
+                            }
+                        } else {
+                            width
+                        };
+                        let unit_vec = edge.to_unit_vec();
+                        current_segment_offset += unit_vec * distance;
+                        // Direction is determined by the edge point
+                        current_segment_direction =
+                            Some(Direction::from_edge_point(edge).unwrap_or(ctx.direction));
+                    }
+                    ThenClause::To(pos) => {
+                        // "then to position" - save current segment if any, then add absolute position
+                        if current_segment_direction.is_some() {
+                            segments.push(Segment::Offset(
+                                current_segment_offset,
+                                current_segment_direction.unwrap(),
+                            ));
+                            current_segment_offset = OffsetIn::ZERO;
+                            current_segment_direction = None;
+                        }
+                        if let Ok(p) = eval_position(ctx, pos) {
+                            segments.push(Segment::AbsolutePosition(p));
+                        }
+                        in_then_segment = false;
+                    }
+                    _ => {
+                        // Other clause types - handle as before by storing position targets
+                    }
+                }
+            }
+            Attribute::Then(None) => {
+                // Bare "then" - just sets then flag for next direction
+                // cref: pik_then (pikchr.c:3251) - p->thenFlag = 1
+                if in_then_segment && current_segment_direction.is_some() {
+                    segments.push(Segment::Offset(
+                        current_segment_offset,
+                        current_segment_direction.unwrap(),
+                    ));
+                    current_segment_offset = OffsetIn::ZERO;
+                    current_segment_direction = None;
+                }
+                in_then_segment = true;
             }
             Attribute::Chop => {
                 style.chop = true;
@@ -1390,13 +1498,22 @@ fn render_object_stmt(
         }
     }
 
+    // Save final pending then segment if there is one
+    // cref: C pikchr saves the current path point when processing completes
+    if in_then_segment && current_segment_direction.is_some() {
+        segments.push(Segment::Offset(
+            current_segment_offset,
+            current_segment_direction.unwrap(),
+        ));
+    }
+
     // Calculate position based on object type
     tracing::debug!(
         ?class,
         from_position = from_position.is_some(),
         to_positions_count = to_positions.len(),
         has_direction_move,
-        then_clauses_empty = then_clauses.is_empty(),
+        segments_count = segments.len(),
         even_clause = even_clause.is_some(),
         with_clause = with_clause.is_some(),
         "position branch conditions"
@@ -1404,7 +1521,7 @@ fn render_object_stmt(
     let (center, start, end, waypoints) = if from_position.is_some()
         || !to_positions.is_empty()
         || has_direction_move
-        || !then_clauses.is_empty()
+        || !segments.is_empty()
         || even_clause.is_some()
     {
         // Line-like objects with explicit from/to, direction moves, or then clauses
@@ -1480,12 +1597,16 @@ fn render_object_stmt(
             let mut points = vec![start];
             let mut current_pos = start;
 
-            if !to_positions.is_empty() && then_clauses.is_empty() && !has_direction_move {
+            if !to_positions.is_empty() && segments.is_empty() && !has_direction_move {
                 // from X to Y [to Z...] - add all to_positions as waypoints
                 for pos in &to_positions {
                     points.push(*pos);
                 }
-            } else if has_direction_move {
+            } else if has_direction_move || !segments.is_empty() {
+                // cref: C pikchr accumulates directions per segment
+                // direction_offset = initial segment (before first "then")
+                // segments = accumulated offsets for each "then" segment
+
                 // If we have both to_positions and direction moves, the direction offset
                 // should be applied AFTER reaching the to_position (e.g., "move to X down 1in")
                 // cref: C pikchr handles this in pik_elem_new
@@ -1502,44 +1623,56 @@ fn render_object_stmt(
                     }
                 }
 
-                // Apply accumulated offsets as single diagonal move (C pikchr behavior)
-                let next = current_pos + direction_offset;
-                tracing::debug!(
-                    start_x = start.x.raw(),
-                    start_y = start.y.raw(),
-                    current_pos_x = current_pos.x.raw(),
-                    current_pos_y = current_pos.y.raw(),
-                    direction_offset_dx = direction_offset.dx.raw(),
-                    direction_offset_dy = direction_offset.dy.raw(),
-                    next_x = next.x.raw(),
-                    next_y = next.y.raw(),
-                    "Rust: applying direction offset to waypoint"
-                );
-                points.push(next);
-                current_pos = next;
-
-                // Then process any then clauses after direction moves
-                let mut current_dir = ctx.direction;
-                for clause in &then_clauses {
-                    let (next_point, next_dir) =
-                        eval_then_clause(ctx, clause, current_pos, current_dir, width)?;
-                    points.push(next_point);
-                    current_pos = next_point;
-                    current_dir = next_dir;
+                // Apply initial direction offset (segment before first "then")
+                if direction_offset != OffsetIn::ZERO {
+                    let next = current_pos + direction_offset;
+                    tracing::debug!(
+                        start_x = start.x.raw(),
+                        start_y = start.y.raw(),
+                        current_pos_x = current_pos.x.raw(),
+                        current_pos_y = current_pos.y.raw(),
+                        direction_offset_dx = direction_offset.dx.raw(),
+                        direction_offset_dy = direction_offset.dy.raw(),
+                        next_x = next.x.raw(),
+                        next_y = next.y.raw(),
+                        "Rust: applying initial direction offset"
+                    );
+                    points.push(next);
+                    current_pos = next;
                 }
-            } else if !then_clauses.is_empty() {
-                // No direction moves but has then clauses - start with default move
-                let next = move_in_direction(current_pos, ctx.direction, width);
-                points.push(next);
-                current_pos = next;
-                let mut current_dir = ctx.direction;
 
-                for clause in &then_clauses {
-                    let (next_point, next_dir) =
-                        eval_then_clause(ctx, clause, current_pos, current_dir, width)?;
-                    points.push(next_point);
-                    current_pos = next_point;
-                    current_dir = next_dir;
+                // Apply each "then" segment's accumulated offset or absolute position
+                // cref: each segment is like calling pik_add_direction after a "then"
+                for (i, segment) in segments.iter().enumerate() {
+                    let next = match segment {
+                        Segment::Offset(segment_offset, _segment_dir) => {
+                            let next = current_pos + *segment_offset;
+                            tracing::debug!(
+                                segment_index = i,
+                                current_pos_x = current_pos.x.raw(),
+                                current_pos_y = current_pos.y.raw(),
+                                segment_offset_dx = segment_offset.dx.raw(),
+                                segment_offset_dy = segment_offset.dy.raw(),
+                                next_x = next.x.raw(),
+                                next_y = next.y.raw(),
+                                "Rust: applying then segment offset"
+                            );
+                            next
+                        }
+                        Segment::AbsolutePosition(pos) => {
+                            tracing::debug!(
+                                segment_index = i,
+                                current_pos_x = current_pos.x.raw(),
+                                current_pos_y = current_pos.y.raw(),
+                                absolute_x = pos.x.raw(),
+                                absolute_y = pos.y.raw(),
+                                "Rust: applying then absolute position"
+                            );
+                            *pos
+                        }
+                    };
+                    points.push(next);
+                    current_pos = next;
                 }
             } else {
                 // No direction moves, no then clauses - default single segment
@@ -1711,6 +1844,8 @@ fn render_object_stmt(
             waypoints: waypoints.clone(),
             style: style.clone(),
             text: text.clone(),
+            // cref: splineInit (pikchr.c:1656) - pObj->rad = 1000
+            radius: Inches(1000.0),
         }),
         ClassName::Arc => ShapeEnum::Arc(ArcShape {
             start,

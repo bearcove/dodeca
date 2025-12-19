@@ -18,8 +18,8 @@ use super::{TextVSlot, compute_text_vslots, sum_text_heights_above_below};
 pub type BoundingBox = BoxIn;
 use super::geometry::{
     apply_auto_chop_simple_line, arc_control_point, chop_line, create_arc_path,
-    create_cylinder_paths_with_rad, create_file_paths, create_oval_path, create_rounded_box_path,
-    create_spline_path,
+    create_cylinder_paths_with_rad, create_file_paths, create_line_path, create_oval_path,
+    create_rounded_box_path, create_spline_path,
 };
 use super::svg::{color_to_rgb, render_arrowhead_dom};
 use super::types::{ClassName, ObjectStyle, PointIn, PositionedText, RenderedObject};
@@ -1274,11 +1274,15 @@ impl Shape for LineShape {
 }
 
 /// A spline (curved line) shape
+/// cref: splineInit (pikchr.c:1653-1657) - splines have default rad = 1000
 #[derive(Debug, Clone)]
 pub struct SplineShape {
     pub waypoints: Vec<PointIn>,
     pub style: ObjectStyle,
     pub text: Vec<PositionedText>,
+    /// Curve radius for corners. Default is 1000 inches (effectively infinite).
+    /// cref: pObj->rad in splineRender (pikchr.c:1715)
+    pub radius: Inches,
 }
 
 impl Shape for SplineShape {
@@ -1339,13 +1343,19 @@ impl Shape for SplineShape {
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        // cref: splineRender (pikchr.c:4381) - checks pObj->sw>=0.0
+        // cref: splineRender (pikchr.c:1712-1713) - checks pObj->sw>0.0
         if self.style.invisible || self.style.stroke_width.0 < 0.0 || self.waypoints.len() < 2 {
             return nodes;
         }
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
-        let path_data = create_spline_path(&self.waypoints, scaler, offset_x, max_y);
+
+        // cref: splineRender (pikchr.c:1716-1718) - if n<3 or r<=0, use lineRender
+        let path_data = if self.waypoints.len() < 3 || self.radius.raw() <= 0.0 {
+            create_line_path(&self.waypoints, scaler, offset_x, max_y)
+        } else {
+            create_spline_path(&self.waypoints, scaler, offset_x, max_y, self.radius)
+        };
         let arrow_len_px = scaler.px(arrow_len);
         let arrow_wid_px = scaler.px(arrow_wid);
 

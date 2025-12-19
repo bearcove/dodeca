@@ -32,6 +32,48 @@ impl From<f32> for Inches {
     }
 }
 
+/// Get the nth vertex of a rendered object (line, spline, etc.)
+/// cref: pikchr "Nth vertex of object" syntax
+/// For line/spline objects, returns the nth waypoint (1-indexed)
+/// Falls back to start/end/center for objects without waypoints
+fn get_nth_vertex(obj: &RenderedObject, nth: &Nth) -> PointIn {
+    // Try to get waypoints from the object
+    if let Some(waypoints) = obj.waypoints() {
+        let len = waypoints.len();
+        if len == 0 {
+            return obj.center();
+        }
+
+        let index = match nth {
+            Nth::First(_) | Nth::Ordinal(1, _, _) => 0,
+            Nth::Last(_) | Nth::Previous => len - 1,
+            Nth::Ordinal(n, _, _) => {
+                // Pikchr uses 1-based indexing
+                let idx = (*n as usize).saturating_sub(1);
+                idx.min(len - 1)
+            }
+        };
+
+        tracing::debug!(
+            nth = ?nth,
+            waypoints_len = len,
+            index = index,
+            vertex_x = waypoints[index].x.raw(),
+            vertex_y = waypoints[index].y.raw(),
+            "get_nth_vertex"
+        );
+
+        waypoints[index]
+    } else {
+        // Fallback for non-line objects
+        match nth {
+            Nth::First(_) | Nth::Ordinal(1, _, _) => obj.start(),
+            Nth::Last(_) | Nth::Previous => obj.end(),
+            Nth::Ordinal(_, _, _) => obj.center(),
+        }
+    }
+}
+
 pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Report> {
     match expr {
         Expr::Number(n) => {
@@ -255,11 +297,7 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
         Expr::VertexCoord(nth, obj, coord) => {
             let r = resolve_object(ctx, obj)
                 .ok_or_else(|| miette::miette!("Unknown object in vertex coord lookup"))?;
-            let target = match nth {
-                Nth::First(_) | Nth::Ordinal(1, _, _) => r.start(),
-                Nth::Last(_) => r.end(),
-                _ => r.center(),
-            };
+            let target = get_nth_vertex(r, nth);
             Ok(Value::Len(match coord {
                 Coord::X => target.x,
                 Coord::Y => target.y,
@@ -477,13 +515,8 @@ fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, miette::Rep
             }
         }
         Place::Vertex(nth, obj) => {
-            // For now, just return the start or end point
             if let Some(rendered) = resolve_object(ctx, obj) {
-                match nth {
-                    Nth::First(_) | Nth::Ordinal(1, _, _) => Ok(rendered.start()),
-                    Nth::Last(_) => Ok(rendered.end()),
-                    _ => Ok(rendered.center()),
-                }
+                Ok(get_nth_vertex(rendered, nth))
             } else {
                 Ok(ctx.position)
             }

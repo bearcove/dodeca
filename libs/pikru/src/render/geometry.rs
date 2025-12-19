@@ -534,8 +534,9 @@ pub fn create_file_paths(
     (main_path, fold_path)
 }
 
-/// Create spline path using PathData fluent API (matching C pikchr output)
-pub fn create_spline_path(
+/// Create a simple line path from waypoints.
+/// cref: lineRender fallback for splines with < 3 waypoints (pikchr.c:1717)
+pub fn create_line_path(
     waypoints: &[Point<Inches>],
     scaler: &Scaler,
     offset_x: Inches,
@@ -545,42 +546,104 @@ pub fn create_spline_path(
         return PathData::new();
     }
 
-    // Convert waypoints to SVG coordinates (Y-flipped)
     let points: Vec<DVec2> = waypoints
         .iter()
         .map(|p| p.to_svg(scaler, offset_x, max_y))
         .collect();
 
     let mut path = PathData::new().m(points[0].x, points[0].y);
+    for p in points.iter().skip(1) {
+        path = path.l(p.x, p.y);
+    }
+    path
+}
 
-    if points.len() == 2 {
-        // Just a line
-        path = path.l(points[1].x, points[1].y);
+/// Calculate a point along the line from `from` to `to` that is `r` units
+/// prior to reaching `to`, except if the path is less than 2*r total,
+/// return the midpoint.
+/// cref: radiusMidpoint (pikchr.c:1662-1679)
+///
+/// Returns (midpoint, is_mid) where is_mid=true if radius was clamped to midpoint.
+fn radius_midpoint(from: DVec2, to: DVec2, r: f64) -> (DVec2, bool) {
+    let delta = to - from;
+    let dist = delta.length();
+
+    if dist <= 0.0 {
+        return (to, false);
+    }
+
+    let dir = delta / dist;
+
+    if r > 0.5 * dist {
+        // Radius is too large - clamp to midpoint
+        let mid = (from + to) * 0.5;
+        (mid, true)
     } else {
-        // Use quadratic bezier curves for smoothness
-        // For each segment, use the midpoint as control point
-        for i in 1..points.len() {
-            let prev = points[i - 1];
-            let curr = points[i];
+        // Go from `to` back toward `from` by distance r
+        let m = to - dir * r;
+        (m, false)
+    }
+}
 
-            if i == 1 {
-                // First segment: quadratic from start
-                let mid = (prev + curr) * 0.5;
-                path = path.q(prev.x, prev.y, mid.x, mid.y);
-            }
+/// Create spline path using the C pikchr radiusPath algorithm.
+/// cref: radiusPath (pikchr.c:1680-1711)
+///
+/// The algorithm:
+/// 1. Move to first point
+/// 2. Line to a point `r` before the second point (first midpoint)
+/// 3. For each interior vertex:
+///    - Quadratic bezier with vertex as control point, next midpoint as end
+///    - If the radius didn't clamp to midpoint, add a line segment
+/// 4. Line to the last point
+pub fn create_spline_path(
+    waypoints: &[Point<Inches>],
+    scaler: &Scaler,
+    offset_x: Inches,
+    max_y: Inches,
+    radius: Inches,
+) -> PathData {
+    if waypoints.is_empty() {
+        return PathData::new();
+    }
 
-            if i < points.len() - 1 {
-                // Middle segments: curve through midpoints
-                let next = points[i + 1];
-                let mid = (curr + next) * 0.5;
-                path = path.q(curr.x, curr.y, mid.x, mid.y);
-            } else {
-                // Last segment: end at the final point
-                let mid = (prev + curr) * 0.5;
-                path = path.q(mid.x, mid.y, curr.x, curr.y);
-            }
+    // Convert waypoints to SVG coordinates (Y-flipped)
+    let a: Vec<DVec2> = waypoints
+        .iter()
+        .map(|p| p.to_svg(scaler, offset_x, max_y))
+        .collect();
+
+    let n = a.len();
+    // cref: radiusPath uses pObj->rad which is in inches, convert to pixels
+    let r = scaler.px(radius);
+
+    // cref: radiusPath (pikchr.c:1689) - M a[0]
+    let mut path = PathData::new().m(a[0].x, a[0].y);
+
+    // cref: radiusPath (pikchr.c:1690-1691) - L to first midpoint
+    let (m, _) = radius_midpoint(a[0], a[1], r);
+    path = path.l(m.x, m.y);
+
+    // cref: radiusPath (pikchr.c:1692-1701) - loop through interior vertices
+    // Note: C uses iLast = bClose ? n : n-1, we don't support bClose for splines
+    let i_last = n - 1;
+
+    for i in 1..i_last {
+        // an = next point (wrapping for closed paths, but we don't close splines)
+        let an = a[i + 1];
+
+        // cref: radiusPath (pikchr.c:1694-1696) - Q with vertex as control, midpoint as end
+        let (m, is_mid) = radius_midpoint(an, a[i], r);
+        path = path.q(a[i].x, a[i].y, m.x, m.y);
+
+        // cref: radiusPath (pikchr.c:1697-1700) - if radius didn't clamp, add line to next midpoint
+        if !is_mid {
+            let (m2, _) = radius_midpoint(a[i], an, r);
+            path = path.l(m2.x, m2.y);
         }
     }
+
+    // cref: radiusPath (pikchr.c:1702) - L to final point
+    path = path.l(a[n - 1].x, a[n - 1].y);
 
     path
 }

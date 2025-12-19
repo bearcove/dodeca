@@ -447,13 +447,16 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
         }
         Rule::position => {
             let pos = parse_position(inner.next().unwrap())?;
-            // Check if this is "from", "to", or "at" position based on the original string
+            // Check if this is "from", "to", "at", or "then to" position based on the original string
             // (the keyword is a literal and not captured as a child)
             let trimmed = pair_str.trim_start();
             if trimmed.starts_with("from") {
                 Ok(Attribute::From(pos))
             } else if trimmed.starts_with("at") {
                 Ok(Attribute::At(pos))
+            } else if trimmed.starts_with("then") {
+                // "then to position" - new grammar rule
+                Ok(Attribute::Then(Some(ThenClause::To(pos))))
             } else {
                 Ok(Attribute::To(pos))
             }

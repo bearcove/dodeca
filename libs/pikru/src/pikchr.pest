@@ -84,8 +84,9 @@ attribute = {
   | "close"
   | "chop"
   | "from" ~ position
+  | "then" ~ "to" ~ position
   | "to" ~ position
-  | "then" ~ ("to" ~ position | direction ~ "until" ~ "even" ~ "with"? ~ position | direction ~ "even" ~ "with"? ~ position | direction ~ optrelexpr | optrelexpr ~ "heading" ~ expr | optrelexpr ~ EDGEPT)?
+  | "then" ~ (direction ~ "until" ~ "even" ~ "with"? ~ position | direction ~ "even" ~ "with"? ~ position | direction ~ optrelexpr | optrelexpr ~ "heading" ~ expr | optrelexpr ~ EDGEPT)?
   | "at" ~ position
   | "with" ~ withclause
   | "same" ~ ("as" ~ object)?
