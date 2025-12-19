@@ -711,7 +711,9 @@ fn render_object_stmt(
             ClassName::Cylinder => ctx.get_length("cylrad", 0.075),
             ClassName::Box => ctx.get_length("boxrad", 0.0),
             ClassName::File => ctx.get_length("filerad", 0.0),
-            ClassName::Line | ClassName::Arrow | ClassName::Spline => ctx.get_length("linerad", 0.0),
+            ClassName::Line | ClassName::Arrow => ctx.get_length("linerad", 0.0),
+            // cref: splineInit (pikchr.c:1656) - pObj->rad = 1000
+            ClassName::Spline => Inches(1000.0),
             _ => Inches::ZERO,
         };
     }
@@ -2011,8 +2013,9 @@ fn render_object_stmt(
             waypoints: waypoints.clone(),
             style: style.clone(),
             text: text.clone(),
-            // cref: splineInit (pikchr.c:1656) - pObj->rad = 1000
-            radius: Inches(1000.0),
+            // cref: splineInit (pikchr.c:1656) - pObj->rad = 1000 (default)
+            // cref: splineRender uses pObj->rad for curve radius
+            radius: style.corner_radius,
         }),
         ClassName::Arc => ShapeEnum::Arc(ArcShape {
             start,

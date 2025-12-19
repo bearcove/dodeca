@@ -1007,8 +1007,10 @@ impl Shape for LineShape {
             return nodes;
         }
 
-        // cref: lineRender (pikchr.c:4253) - add stroke-linejoin:round for closed sharp-cornered paths
-        let add_linejoin = self.style.close_path && self.style.corner_radius.raw() == 0.0;
+        // cref: lineRender (pikchr.c:4253) - add stroke-linejoin:round for sharp-cornered paths
+        // This applies to closed paths or multi-segment open paths with no corner radius
+        let add_linejoin = (self.style.close_path || self.waypoints.len() > 2)
+            && self.style.corner_radius.raw() == 0.0;
         let svg_style = build_svg_style_ex(&self.style, scaler, dashwid, add_linejoin);
 
         let arrow_len_px = scaler.px(arrow_len);
@@ -1087,17 +1089,41 @@ impl Shape for LineShape {
             svg_points[n - 1] = new_end;
         }
 
-        if (self.style.arrow_start || self.style.arrow_end) && svg_points.len() >= 2 {
+        // cref: lineRender (pikchr.c:4271-4276) - larrow first, then rarrow
+        // Render arrowheads before chopping endpoints
+        if svg_points.len() >= 2 {
+            if self.style.arrow_start {
+                if let Some(arrowhead) = render_arrowhead_dom(
+                    svg_points[1],
+                    svg_points[0],
+                    &self.style,
+                    arrow_len_px,
+                    arrow_wid_px,
+                ) {
+                    nodes.push(SvgNode::Polygon(arrowhead));
+                }
+            }
+            let n = svg_points.len();
+            if self.style.arrow_end {
+                if let Some(arrowhead) = render_arrowhead_dom(
+                    svg_points[n - 2],
+                    svg_points[n - 1],
+                    &self.style,
+                    arrow_len_px,
+                    arrow_wid_px,
+                ) {
+                    nodes.push(SvgNode::Polygon(arrowhead));
+                }
+            }
+            // Chop endpoints for arrow space
             if self.style.arrow_start {
                 let (new_start, _) = chop_line(svg_points[0], svg_points[1], arrow_chop);
                 svg_points[0] = new_start;
             }
             if self.style.arrow_end {
-                let n = svg_points.len();
                 let (_, new_end) = chop_line(svg_points[n - 2], svg_points[n - 1], arrow_chop);
                 svg_points[n - 1] = new_end;
             }
-            // TODO: Render arrowheads for multi-segment lines
         }
 
         // cref: lineRender (pikchr.c:4302-4336) - rounded corners with rad attribute
