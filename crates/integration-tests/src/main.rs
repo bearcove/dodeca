@@ -12,7 +12,9 @@
 
 mod harness;
 
-use harness::{TestSite, clear_last_test_logs, get_last_test_logs};
+use harness::{
+    TestSite, clear_last_test_logs, clear_last_test_setup, get_last_test_logs, get_last_test_setup,
+};
 use owo_colors::OwoColorize;
 use std::panic::{self, AssertUnwindSafe};
 use std::time::{Duration, Instant};
@@ -68,6 +70,7 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
 
         // Clear logs from previous test
         clear_last_test_logs();
+        clear_last_test_setup();
 
         // `catch_unwind` prevents the panic from aborting the runner, but the default
         // panic hook would still print the panic to stderr. Since we handle/report
@@ -87,13 +90,31 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
         match result {
             Ok(()) => {
                 let elapsed = start.elapsed();
-                println!("{} ({:.2}s)", "PASS".green(), elapsed.as_secs_f64());
+                if let Some(setup) = get_last_test_setup() {
+                    println!(
+                        "{} ({:.2}s, setup {:.2}s)",
+                        "PASS".green(),
+                        elapsed.as_secs_f64(),
+                        setup.as_secs_f64()
+                    );
+                } else {
+                    println!("{} ({:.2}s)", "PASS".green(), elapsed.as_secs_f64());
+                }
                 passed += 1;
             }
             Err(e) => {
                 let msg = panic_message(&e);
                 let elapsed = start.elapsed();
-                println!("{} ({:.2}s)", "FAIL".red(), elapsed.as_secs_f64());
+                if let Some(setup) = get_last_test_setup() {
+                    println!(
+                        "{} ({:.2}s, setup {:.2}s)",
+                        "FAIL".red(),
+                        elapsed.as_secs_f64(),
+                        setup.as_secs_f64()
+                    );
+                } else {
+                    println!("{} ({:.2}s)", "FAIL".red(), elapsed.as_secs_f64());
+                }
                 println!("  {}", msg.red());
 
                 // Print server logs on failure

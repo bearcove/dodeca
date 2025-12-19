@@ -30,6 +30,7 @@ use tracing::{debug, error};
 // Thread-local storage for logs from the last test (for printing on failure)
 thread_local! {
     static LAST_TEST_LOGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    static LAST_TEST_SETUP: RefCell<Option<Duration>> = const { RefCell::new(None) };
 }
 
 #[derive(Clone)]
@@ -46,6 +47,16 @@ pub fn get_last_test_logs() -> Vec<String> {
 /// Clear the last test logs
 pub fn clear_last_test_logs() {
     LAST_TEST_LOGS.with(|logs| logs.borrow_mut().clear());
+}
+
+/// Clear the last test setup duration
+pub fn clear_last_test_setup() {
+    LAST_TEST_SETUP.with(|setup| *setup.borrow_mut() = None);
+}
+
+/// Get the setup duration from the last test site creation
+pub fn get_last_test_setup() -> Option<Duration> {
+    LAST_TEST_SETUP.with(|setup| *setup.borrow())
 }
 
 /// Get the path to the ddc binary
@@ -102,6 +113,7 @@ impl TestSite {
 
     /// Create a new test site from an arbitrary source directory with custom files
     pub fn from_source_with_files(src: &Path, files: &[(&str, &str)]) -> Self {
+        let setup_start = Instant::now();
         // Create isolated temp directory
         let temp_dir = tempfile::Builder::new()
             .prefix("dodeca-test-")
@@ -279,6 +291,11 @@ impl TestSite {
             .timeout(Duration::from_secs(10))
             .build()
             .expect("build http client");
+
+        let setup_elapsed = setup_start.elapsed();
+        LAST_TEST_SETUP.with(|setup| {
+            *setup.borrow_mut() = Some(setup_elapsed);
+        });
 
         Self {
             child,
