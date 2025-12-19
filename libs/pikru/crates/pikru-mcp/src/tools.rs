@@ -20,6 +20,15 @@ pub struct RunTestParams {
     pub test_name: String,
 }
 
+/// Parameters for debugging a test with trace output
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct DebugTestParams {
+    /// Name of the test (e.g., 'test01', 'autochop02'). Don't include .pikchr extension.
+    pub test_name: String,
+    /// Optional grep pattern to filter trace output (e.g., 'vertex', 'waypoint')
+    pub filter: Option<String>,
+}
+
 /// Paths to project resources
 pub struct PikruPaths {
     pub project_root: PathBuf,
@@ -364,6 +373,81 @@ impl PikruServer {
         }
 
         Ok(CallToolResult::success(content))
+    }
+
+    /// Debug a pikru test with trace output
+    #[tool(description = "Run a pikru test with RUST_LOG=debug to capture trace output. Writes full trace to /tmp/pikru-trace-{test}.txt and returns the path.")]
+    async fn debug_pikru_test(
+        &self,
+        Parameters(params): Parameters<DebugTestParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let test_name = params.test_name;
+        let test_file = self.paths.tests_dir.join(format!("{}.pikchr", test_name));
+
+        if !test_file.exists() {
+            return Ok(CallToolResult::error(vec![Content::text(format!(
+                "Test '{}' not found",
+                test_name
+            ))]));
+        }
+
+        // Run with RUST_LOG=debug
+        let output = Command::new("cargo")
+            .args(["run", "--example", "simple", "--"])
+            .arg(&test_file)
+            .env("RUST_LOG", "debug")
+            .current_dir(&self.paths.project_root)
+            .output();
+
+        match output {
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+                let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+
+                // Write full trace to file
+                let trace_path = format!("/tmp/pikru-trace-{}.txt", test_name);
+                let svg_path = format!("/tmp/pikru-svg-{}.svg", test_name);
+
+                std::fs::write(&trace_path, &stderr).ok();
+                std::fs::write(&svg_path, &stdout).ok();
+
+                // Count interesting lines
+                let debug_lines = stderr.lines().filter(|l| l.contains("DEBUG")).count();
+                let trace_lines = stderr.lines().filter(|l| l.contains("TRACE")).count();
+
+                // If filter provided, show matching lines preview
+                let preview = if let Some(ref filter) = params.filter {
+                    let matching: Vec<_> = stderr
+                        .lines()
+                        .filter(|line| line.to_lowercase().contains(&filter.to_lowercase()))
+                        .take(20)
+                        .collect();
+                    format!(
+                        "\n\nFiltered preview ({} matches for '{}'):\n{}",
+                        matching.len(),
+                        filter,
+                        matching.join("\n")
+                    )
+                } else {
+                    String::new()
+                };
+
+                let result = format!(
+                    "Trace written to: {}\nSVG written to: {}\n\nStats: {} DEBUG lines, {} TRACE lines, {} total lines{}",
+                    trace_path,
+                    svg_path,
+                    debug_lines,
+                    trace_lines,
+                    stderr.lines().count(),
+                    preview
+                );
+
+                Ok(CallToolResult::success(vec![Content::text(result)]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
+                "Failed to run: {e}"
+            ))])),
+        }
     }
 }
 

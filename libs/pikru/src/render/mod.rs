@@ -784,6 +784,11 @@ fn render_object_stmt(
                                 | Some(ClassName::Arc) => {
                                     width / 2.0 // current radius
                                 }
+                                Some(ClassName::Dot) => {
+                                    // cref: dotInit - dot stores width = rad * 6
+                                    // So current radius = width / 6
+                                    width / 6.0
+                                }
                                 Some(ClassName::Cylinder) => {
                                     // For cylinders, corner_radius was initialized to cylrad before attributes
                                     style.corner_radius
@@ -811,6 +816,7 @@ fn render_object_stmt(
                     }
                     NumProperty::Radius => {
                         // For circles/ellipses, radius sets size (diameter = 2 * radius)
+                        // For dots, radius sets size (width = rad * 6)
                         // For boxes, radius sets corner rounding
                         match class_name {
                             Some(ClassName::Circle)
@@ -818,6 +824,12 @@ fn render_object_stmt(
                             | Some(ClassName::Arc) => {
                                 width = val * 2.0;
                                 height = val * 2.0;
+                                update_current_object(ctx, class_name, width, height, &style);
+                            }
+                            Some(ClassName::Dot) => {
+                                // cref: dotNumProp - dot stores width = rad * 6
+                                width = val * 6.0;
+                                height = val * 6.0;
                                 update_current_object(ctx, class_name, width, height, &style);
                             }
                             _ => {
@@ -1254,22 +1266,24 @@ fn render_object_stmt(
             }
             Attribute::Same(obj_ref) => {
                 // Copy properties from referenced object
-                match obj_ref {
-                    Some(obj) => {
-                        if let Some(source) = resolve_object(ctx, obj) {
-                            width = source.width();
-                            height = source.height();
-                            style = source.style().clone();
-                        }
+                let source = match obj_ref {
+                    Some(obj) => resolve_object(ctx, obj),
+                    None => ctx.get_last_object(Some(class)),
+                };
+                if let Some(source) = source {
+                    // For dots, we need to convert from visual width to internal width
+                    // DotShape::width() returns radius * 2 (diameter)
+                    // But rendering expects width = radius * 6
+                    // cref: dotInit - dot stores w = rad * 6
+                    if source.class_name == ClassName::Dot {
+                        // source.width() = radius * 2, we need radius * 6 = source.width() * 3
+                        width = source.width() * 3.0;
+                        height = source.height() * 3.0;
+                    } else {
+                        width = source.width();
+                        height = source.height();
                     }
-                    None => {
-                        // "same" without object - use last object of same class
-                        if let Some(source) = ctx.get_last_object(Some(class)) {
-                            width = source.width();
-                            height = source.height();
-                            style = source.style().clone();
-                        }
-                    }
+                    style = source.style().clone();
                 }
             }
             Attribute::Close => {
@@ -2143,6 +2157,13 @@ fn calculate_object_position(
             let end = start + ctx.direction.offset(width);
             let mid = start.midpoint(end);
             (start, end, mid)
+        }
+        ClassName::Dot => {
+            // cref: dotCheck (pikchr.c:4042-4047)
+            // Dots use w = h = 0 for positioning, so they don't advance the cursor
+            // center = cursor, start = end = center
+            let center = ctx.position;
+            (center, center, center)
         }
         _ => {
             let (half_w, half_h) = (width / 2.0, height / 2.0);

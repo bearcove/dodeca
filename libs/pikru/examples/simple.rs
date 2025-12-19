@@ -2,6 +2,10 @@ fn main() {
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::DEBUG)
         .with_writer(std::io::stderr)
+        .without_time()
+        .with_target(false)
+        .with_level(false)
+        .with_ansi(false)
         .init();
 
     let input = std::env::args()
