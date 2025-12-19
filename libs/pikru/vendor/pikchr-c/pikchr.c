@@ -5777,6 +5777,8 @@ static void pik_set_direction(Pik *p, int eDir){
 */
 static void pik_elem_move(PObj *pObj, PNum dx, PNum dy){
   int i;
+  DBG("[C pik_elem_move] type=%s dx=%g dy=%g ptAt.x=%g ptAt.y=%g\n",
+      pObj->type->zName, dx, dy, pObj->ptAt.x, pObj->ptAt.y);
   pObj->ptAt.x += dx;
   pObj->ptAt.y += dy;
   pObj->ptEnter.x += dx;

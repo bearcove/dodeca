@@ -12,7 +12,7 @@ use facet_svg::{
 use glam::DVec2;
 
 use super::defaults;
-use super::{TextVSlot, compute_text_vslots, count_text_above_below, sum_text_heights_above_below};
+use super::{TextVSlot, compute_text_vslots, sum_text_heights_above_below};
 
 /// Bounding box type alias
 pub type BoundingBox = BoxIn;

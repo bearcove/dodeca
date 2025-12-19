@@ -94,6 +94,14 @@ pub fn render(program: &Program) -> Result<String, miette::Report> {
         return Ok("<!-- empty pikchr diagram -->\n".to_string());
     }
 
+    tracing::debug!(
+        bounds_min_x = ctx.bounds.min.x.raw(),
+        bounds_min_y = ctx.bounds.min.y.raw(),
+        bounds_max_x = ctx.bounds.max.x.raw(),
+        bounds_max_y = ctx.bounds.max.y.raw(),
+        "Rust: final bounding box before SVG generation"
+    );
+
     // Generate SVG
     generate_svg(&ctx)
 }
@@ -796,7 +804,6 @@ fn render_object_stmt(
                 }
                 BoolProperty::Clockwise => style.clockwise = true,
                 BoolProperty::CounterClockwise => style.clockwise = false,
-                _ => {}
             },
             Attribute::StringAttr(s, pos) => {
                 text.push(PositionedText::from_textposition(
@@ -1316,9 +1323,24 @@ fn render_object_stmt(
         // Line-like objects with explicit from/to, direction moves, or then clauses
         // Determine start position based on direction of movement
         let start = if let Some(pos) = from_position {
+            tracing::debug!(
+                from_x = pos.x.raw(),
+                from_y = pos.y.raw(),
+                "start: from explicit from_position"
+            );
             pos
-        } else if has_direction_move {
-            // Get exit edge of last object based on accumulated offset direction
+        } else if !to_positions.is_empty() && has_direction_move {
+            // "move to X down Y" - start FROM the to_position, not from current cursor
+            // The direction offset will be applied from this point
+            tracing::debug!(
+                to_x = to_positions[0].x.raw(),
+                to_y = to_positions[0].y.raw(),
+                "start: using to_position as start (move to X down Y case)"
+            );
+            to_positions[0]
+        } else if has_direction_move && to_positions.is_empty() {
+            // Only use last object's edge when we have direction_move WITHOUT to_positions
+            // (e.g., "arrow right 2in" uses last object's edge)
             if let Some(last_obj) = ctx.last_object() {
                 // For line-like objects, use the end point directly
                 match last_obj.class() {
@@ -1376,16 +1398,34 @@ fn render_object_stmt(
                     points.push(*pos);
                 }
             } else if has_direction_move {
+                // If we have both to_positions and direction moves, the direction offset
+                // should be applied AFTER reaching the to_position (e.g., "move to X down 1in")
+                // cref: C pikchr handles this in pik_elem_new
+                if !to_positions.is_empty() {
+                    // Note: if start was set to to_positions[0], we've already pushed it
+                    // Skip the first to_position if it equals start to avoid duplicate
+                    for (i, pos) in to_positions.iter().enumerate() {
+                        if i == 0 && *pos == start {
+                            current_pos = *pos;
+                            continue; // Skip - already in points as start
+                        }
+                        points.push(*pos);
+                        current_pos = *pos;
+                    }
+                }
+
                 // Apply accumulated offsets as single diagonal move (C pikchr behavior)
                 let next = current_pos + direction_offset;
                 tracing::debug!(
                     start_x = start.x.raw(),
                     start_y = start.y.raw(),
+                    current_pos_x = current_pos.x.raw(),
+                    current_pos_y = current_pos.y.raw(),
                     direction_offset_dx = direction_offset.dx.raw(),
                     direction_offset_dy = direction_offset.dy.raw(),
                     next_x = next.x.raw(),
                     next_y = next.y.raw(),
-                    "[Rust line_direction_move]"
+                    "Rust: applying direction offset to waypoint"
                 );
                 points.push(next);
                 current_pos = next;

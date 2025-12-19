@@ -178,7 +178,20 @@ impl RenderContext {
         );
 
         // Update bounds
+        let old_min_y = self.bounds.min.y;
+        let old_max_y = self.bounds.max.y;
         expand_object_bounds(&mut self.bounds, &obj);
+        if self.bounds.min.y != old_min_y || self.bounds.max.y != old_max_y {
+            tracing::debug!(
+                obj_class = ?obj.class(),
+                obj_name = ?obj.name,
+                old_min_y = old_min_y.raw(),
+                new_min_y = self.bounds.min.y.raw(),
+                old_max_y = old_max_y.raw(),
+                new_max_y = self.bounds.max.y.raw(),
+                "bounds Y changed after adding object"
+            );
+        }
 
         // Update direction to match the object's direction
         // This handles cases like "arrow left" where the direction attribute
