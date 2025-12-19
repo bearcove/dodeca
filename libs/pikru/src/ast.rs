@@ -86,6 +86,34 @@ impl Direction {
         }
     }
 
+    /// Rotate direction 90 degrees for arc exit direction.
+    /// cref: pikchr.c:4333 - pObj->outDir = (pObj->inDir + (pObj->cw ? 1 : 3))%4
+    ///
+    /// DIR_RIGHT=0, DIR_DOWN=1, DIR_LEFT=2, DIR_UP=3
+    /// CCW (cw=false): +3 mod 4 → rotates counter-clockwise (RIGHT→UP→LEFT→DOWN)
+    /// CW (cw=true): +1 mod 4 → rotates clockwise (RIGHT→DOWN→LEFT→UP)
+    #[inline]
+    pub fn arc_exit(self, clockwise: bool) -> Direction {
+        // Map our enum to C pikchr's numeric values
+        let dir_num = match self {
+            Direction::Right => 0,
+            Direction::Down => 1,
+            Direction::Left => 2,
+            Direction::Up => 3,
+        };
+
+        // Apply rotation: CW adds 1, CCW adds 3 (equivalent to -1 mod 4)
+        let out_num = (dir_num + if clockwise { 1 } else { 3 }) % 4;
+
+        // Map back to our enum
+        match out_num {
+            0 => Direction::Right,
+            1 => Direction::Down,
+            2 => Direction::Left,
+            _ => Direction::Up, // 3
+        }
+    }
+
     /// Try to get a cardinal direction from an edge point.
     /// Returns None for diagonal edge points (nw, ne, sw, se) or center.
     /// cref: C pikchr uses pik_hdg_angle to convert edge points to angles,

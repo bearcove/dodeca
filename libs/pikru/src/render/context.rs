@@ -183,8 +183,8 @@ impl RenderContext {
         // For shaped objects, this is the edge point in the travel direction
         // For line-like objects, this is already handled correctly by their end()
         let exit_point = match obj.class() {
-            ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move => {
-                // For line-like objects, end() is correct
+            ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move | ClassName::Arc => {
+                // For line-like objects (including arcs), end() is correct
                 obj.end()
             }
             ClassName::Dot => {

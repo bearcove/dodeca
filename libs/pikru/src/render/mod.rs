@@ -1742,6 +1742,37 @@ fn render_object_stmt(
         // Box-like objects with explicit "at" position
         let (_, s, e) = calculate_object_position_at(ctx.direction, pos, width, height);
         (pos, s, e, vec![s, e])
+    } else if class == ClassName::Arc {
+        // cref: pikchr.c:4323-4341 - Arc positioning with double movement
+        // Arcs move twice: first in input direction, then in output direction (90° turn)
+        let start = ctx.position;
+
+        // First move in input direction by width
+        let mid_point = start + ctx.direction.offset(width);
+
+        // Calculate output direction (90° rotation based on clockwise)
+        let out_dir = ctx.direction.arc_exit(style.clockwise);
+
+        // Second move in output direction by height
+        let end = mid_point + out_dir.offset(height);
+
+        // Center is midpoint of start and end
+        let center = start.midpoint(end);
+
+        tracing::debug!(
+            start_x = start.x.raw(),
+            start_y = start.y.raw(),
+            mid_x = mid_point.x.raw(),
+            mid_y = mid_point.y.raw(),
+            end_x = end.x.raw(),
+            end_y = end.y.raw(),
+            in_dir = ?ctx.direction,
+            out_dir = ?out_dir,
+            clockwise = style.clockwise,
+            "[Rust arc positioning]"
+        );
+
+        (center, start, end, vec![start, end])
     } else {
         let (c, s, e) = calculate_object_position(ctx, class, width, height);
         tracing::debug!(
@@ -1756,6 +1787,12 @@ fn render_object_stmt(
         );
         (c, s, e, vec![s, e])
     };
+
+    // For arcs, update the object's direction to the output direction (90° rotated)
+    // cref: pikchr.c:4333-4334 - p->eDir = (unsigned char)pObj->outDir
+    if class == ClassName::Arc {
+        object_direction = ctx.direction.arc_exit(style.clockwise);
+    }
 
     // Handle sublist: use pre-rendered children and translate to final position
     let mut children = sublist_children.unwrap_or_default();
