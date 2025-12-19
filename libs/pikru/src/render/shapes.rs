@@ -6,9 +6,7 @@
 //! - Render itself to SVG
 
 use crate::types::{BoxIn, Length as Inches, OffsetIn, Point, Scaler, Size, UnitVec};
-use facet_svg::{
-    Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode, SvgStyle, Text as SvgText,
-};
+use facet_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode, SvgStyle};
 use glam::DVec2;
 
 use super::defaults;
@@ -1662,88 +1660,17 @@ impl Shape for TextShape {
     fn render_svg(
         &self,
         _obj: &RenderedObject,
-        scaler: &Scaler,
-        offset_x: Inches,
-        max_y: Inches,
+        _scaler: &Scaler,
+        _offset_x: Inches,
+        _max_y: Inches,
         _dashwid: Inches,
         _arrow_len: Inches,
         _arrow_wid: Inches,
     ) -> Vec<SvgNode> {
-        let mut nodes = Vec::new();
-
-        if self.text.is_empty() {
-            return nodes;
-        }
-
-        let center_svg = self.center.to_svg(scaler, offset_x, max_y);
-        let charht_px = scaler.px(Inches(defaults::FONT_SIZE));
-        let line_count = self.text.len();
-        let start_y = center_svg.y - (line_count as f64 - 1.0) * charht_px / 2.0;
-
-        let text_color = if self.style.stroke == "black" || self.style.stroke == "none" {
-            "rgb(0,0,0)".to_string()
-        } else {
-            color_to_rgb(&self.style.stroke)
-        };
-
-        for (i, positioned_text) in self.text.iter().enumerate() {
-            let anchor = if positioned_text.rjust {
-                "end"
-            } else if positioned_text.ljust {
-                "start"
-            } else {
-                "middle"
-            };
-            let line_y = start_y + i as f64 * charht_px;
-
-            // Font styling based on text attributes
-            let font_family = if positioned_text.mono {
-                Some("monospace".to_string())
-            } else {
-                None
-            };
-            let font_style = if positioned_text.italic {
-                Some("italic".to_string())
-            } else {
-                None
-            };
-            let font_weight = if positioned_text.bold {
-                Some("bold".to_string())
-            } else {
-                None
-            };
-            // Use font_scale() to get the correct scale (handles xtra for double big/small)
-            // C pikchr uses percentage-based font sizes: 125% for big, 80% for small, squared if xtra
-            // cref: pik_append_txt (pikchr.c:5183)
-            let font_size = if positioned_text.big || positioned_text.small {
-                let scale = positioned_text.font_scale();
-                let percent = scale * 100.0;
-                // Format with appropriate precision to avoid floating point artifacts
-                Some(super::svg::fmt_num(percent) + "%")
-            } else {
-                None
-            };
-
-            let text_element = SvgText {
-                x: Some(center_svg.x),
-                y: Some(line_y),
-                transform: None, // TextShape doesn't support aligned rotation
-                fill: Some(text_color.clone()),
-                stroke: None,
-                stroke_width: None,
-                style: SvgStyle::default(),
-                font_family,
-                font_style,
-                font_weight,
-                font_size,
-                text_anchor: Some(anchor.to_string()),
-                dominant_baseline: Some("central".to_string()),
-                content: positioned_text.value.replace(' ', "\u{00A0}"),
-            };
-            nodes.push(SvgNode::Text(text_element));
-        }
-
-        nodes
+        // Text rendering is handled by render_object_text in svg.rs
+        // This ensures TextShape uses the same slot-based layout as other shapes
+        // cref: textRender just calls pik_append_txt (pikchr.c:1746-1748)
+        Vec::new()
     }
 
     fn translate(&mut self, offset: OffsetIn) {

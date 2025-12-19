@@ -131,7 +131,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
         // Render text labels inside objects (always rendered, even for invisible shapes)
         // cref: pik_append_txt (pikchr.c:5077)
-        if obj.class() != ClassName::Text && !obj.text().is_empty() {
+        // Note: Text objects also use this path - TextShape::render_svg returns empty nodes
+        if !obj.text().is_empty() {
             let texts = obj.text();
 
             // For cylinders, C pikchr shifts text down by 0.75 * rad
