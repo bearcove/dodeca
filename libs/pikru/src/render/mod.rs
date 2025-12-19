@@ -2097,8 +2097,31 @@ fn render_sublist(
                     ctx.add_object(obj);
                 }
             }
+            Statement::Direction(dir) => {
+                // cref: pik_set_direction (pikchr.c:5746)
+                // Handle direction changes inside sublists the same as top-level
+                ctx.direction = *dir;
+                if let Some(last_obj) = ctx.object_list.last() {
+                    let is_line_like = matches!(
+                        last_obj.class(),
+                        ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move
+                    );
+                    if is_line_like {
+                        ctx.position = last_obj.end();
+                    } else {
+                        use crate::types::UnitVec;
+                        let unit_dir = match dir {
+                            Direction::Right => UnitVec::EAST,
+                            Direction::Left => UnitVec::WEST,
+                            Direction::Up => UnitVec::NORTH,
+                            Direction::Down => UnitVec::SOUTH,
+                        };
+                        ctx.position = last_obj.edge_point(unit_dir);
+                    }
+                }
+            }
             _ => {
-                // Skip other statement types in sublists for now
+                // Skip other statement types in sublists (assignments, macros, etc.)
             }
         }
     }
