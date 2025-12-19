@@ -620,7 +620,11 @@ fn render_object_stmt(
                 let arcrad = ctx.get_length("arcrad", 0.25);
                 (arcrad, arcrad)
             }
-            ClassName::Move => (ctx.get_length("movewid", 0.5), Inches::ZERO),
+            ClassName::Move => {
+                // cref: moveInit (pikchr.c:1617-1618) - h = w = movewid
+                let movewid = ctx.get_length("movewid", 0.5);
+                (movewid, movewid)
+            }
             ClassName::Dot => {
                 // cref: dotInit (pikchr.c:4026-4028)
                 let dotrad = ctx.get_length("dotrad", 0.015);
