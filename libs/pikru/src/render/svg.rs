@@ -387,10 +387,22 @@ pub fn render_arrowhead_dom(
     })
 }
 
-/// Format a number with up to 3 decimal places (sufficient for SVG coordinates).
-/// Trims trailing zeros and decimal point.
+/// Format a number matching C's %g format (6 significant figures, trailing zeros trimmed).
+/// cref: pik_append_dis uses snprintf with %g format
 pub(crate) fn fmt_num(value: f64) -> String {
-    let s = format!("{:.3}", value);
+    if value == 0.0 {
+        return "0".to_string();
+    }
+
+    // Round to 6 significant figures like C's %g
+    let abs_val = value.abs();
+    let magnitude = abs_val.log10().floor() as i32;
+    let scale = 10_f64.powi(5 - magnitude); // 6 sig figs means 5 - magnitude
+    let rounded = (value * scale).round() / scale;
+
+    // Format with enough decimal places, then trim
+    let decimals = (5 - magnitude).max(0) as usize;
+    let s = format!("{:.prec$}", rounded, prec = decimals);
     let s = s.trim_end_matches('0');
     let s = s.trim_end_matches('.');
     s.to_string()
