@@ -263,26 +263,46 @@ pub async fn start_cell_server_with_shutdown(
         "Waiting for required cells to be ready: {:?}",
         required_cells
     );
+    let required_start = std::time::Instant::now();
     if let Err(e) = crate::cells::wait_for_cells_ready(&required_cells, timeout).await {
         tracing::error!("Required cells not ready: {}", e);
         return Ok(());
     }
-    tracing::info!("Required cells ready");
+    tracing::info!(
+        elapsed_ms = required_start.elapsed().as_millis(),
+        "Required cells ready"
+    );
 
     tracing::info!("Waiting for revision readiness");
+    let revision_start = std::time::Instant::now();
     server.wait_revision_ready().await;
-    tracing::info!("Revision ready");
+    tracing::info!(
+        elapsed_ms = revision_start.elapsed().as_millis(),
+        "Revision ready"
+    );
 
     // Merge all listeners into a single stream
     let mut accept_stream = stream::select_all(listeners.into_iter().map(TcpListenerStream::new));
 
     // Accept browser connections and tunnel them to the cell
     tracing::info!("Accepting connections");
+    let accept_start = std::time::Instant::now();
+    let mut accept_seq: u64 = 0;
     loop {
-        tracing::debug!("Accept loop: waiting for connection...");
+        tracing::debug!(
+            accept_seq,
+            elapsed_ms = accept_start.elapsed().as_millis(),
+            "Accept loop: waiting for connection..."
+        );
         tokio::select! {
             accept_result = accept_stream.next() => {
-                tracing::debug!("Accept loop: got accept_result = {:?}", accept_result.as_ref().map(|r| r.as_ref().map(|_| "stream").map_err(|e| e.to_string())));
+                tracing::debug!(
+                    accept_seq,
+                    elapsed_ms = accept_start.elapsed().as_millis(),
+                    accept_result = ?accept_result.as_ref().map(|r| r.as_ref().map(|_| "stream").map_err(|e| e.to_string())),
+                    "Accept loop: got accept_result"
+                );
+                accept_seq = accept_seq.wrapping_add(1);
                 match accept_result {
                     Some(Ok(stream)) => {
                         let addr = stream.peer_addr().ok();
@@ -292,6 +312,8 @@ pub async fn start_cell_server_with_shutdown(
                             conn_id,
                             ?addr,
                             ?local_addr,
+                            accept_seq,
+                            elapsed_ms = accept_start.elapsed().as_millis(),
                             "Accepted browser connection"
                         );
                         let session = session.clone();
@@ -311,10 +333,21 @@ pub async fn start_cell_server_with_shutdown(
                         });
                     }
                     Some(Err(e)) => {
-                        tracing::error!("Accept error: {:?}", e);
+                        tracing::error!(
+                            accept_seq,
+                            elapsed_ms = accept_start.elapsed().as_millis(),
+                            error = ?e,
+                            kind = ?e.kind(),
+                            raw_os_error = e.raw_os_error(),
+                            "Accept error"
+                        );
                     }
                     None => {
-                        tracing::info!("All listeners closed");
+                        tracing::info!(
+                            accept_seq,
+                            elapsed_ms = accept_start.elapsed().as_millis(),
+                            "All listeners closed"
+                        );
                         break;
                     }
                 }
