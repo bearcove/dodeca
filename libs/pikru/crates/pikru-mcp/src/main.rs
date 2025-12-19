@@ -1,20 +1,10 @@
-mod handler;
 mod tools;
 
-use handler::PikruServerHandler;
-use rust_mcp_sdk::schema::{
-    Implementation, InitializeResult, LATEST_PROTOCOL_VERSION, ServerCapabilities,
-    ServerCapabilitiesTools,
-};
-use rust_mcp_sdk::{
-    McpServer, StdioTransport, TransportOptions,
-    error::SdkResult,
-    mcp_server::{ServerRuntime, server_runtime},
-};
-use std::sync::Arc;
+use rmcp::{ServiceExt, transport::stdio};
+use tools::PikruServer;
 
 #[tokio::main]
-async fn main() -> SdkResult<()> {
+async fn main() -> anyhow::Result<()> {
     // Initialize tracing to stderr (stdout is for MCP protocol)
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -24,36 +14,9 @@ async fn main() -> SdkResult<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    let server_details = InitializeResult {
-        server_info: Implementation {
-            name: "pikru-test".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            title: Some("Pikru Compliance Test Server".to_string()),
-        },
-        capabilities: ServerCapabilities {
-            tools: Some(ServerCapabilitiesTools { list_changed: None }),
-            ..Default::default()
-        },
-        meta: None,
-        instructions: Some(
-            "Run pikchr compliance tests comparing C and Rust implementations".to_string(),
-        ),
-        protocol_version: LATEST_PROTOCOL_VERSION.to_string(),
-    };
+    let server = PikruServer::new()?;
+    let service = server.serve(stdio()).await?;
+    service.waiting().await?;
 
-    let transport = StdioTransport::new(TransportOptions::default())?;
-    let handler = PikruServerHandler::new()
-        .map_err(|e| rust_mcp_sdk::error::McpSdkError::from(std::io::Error::other(e)))?;
-    let server: Arc<ServerRuntime> =
-        server_runtime::create_server(server_details, transport, handler);
-
-    if let Err(start_error) = server.start().await {
-        eprintln!(
-            "{}",
-            start_error
-                .rpc_error_message()
-                .unwrap_or(&start_error.to_string())
-        );
-    }
     Ok(())
 }

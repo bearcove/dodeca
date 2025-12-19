@@ -1,21 +1,30 @@
 use facet::Facet;
-use rust_mcp_sdk::macros::{JsonSchema, mcp_tool};
-use rust_mcp_sdk::schema::{
-    CallToolResult, ContentBlock, ImageContent, TextContent, schema_utils::CallToolError,
+use rmcp::{
+    ServerHandler,
+    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+    model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
+    tool, tool_handler, tool_router,
+    schemars::{self, JsonSchema},
+    ErrorData as McpError,
 };
-use rust_mcp_sdk::tool_box;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::handler::PikruPaths;
-
-// Re-export base64 encoding
 use base64::Engine;
 
-/// Helper to create CallToolError from a string message
-fn tool_error(msg: impl Into<String>) -> CallToolError {
-    CallToolError::new(std::io::Error::other(msg.into()))
+/// Parameters for running a single test
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+pub struct RunTestParams {
+    /// Name of the test (e.g., 'test01', 'autochop02'). Don't include .pikchr extension.
+    pub test_name: String,
+}
+
+/// Paths to project resources
+pub struct PikruPaths {
+    pub project_root: PathBuf,
+    pub tests_dir: PathBuf,
+    pub c_pikchr: PathBuf,
 }
 
 /// Result of running a pikchr test
@@ -28,10 +37,8 @@ pub struct TestResult {
     #[facet(skip_unless_truthy)]
     pub rust_error: Option<String>,
     pub comparison: Comparison,
-    /// Path to full diff file (if there was a mismatch)
     #[facet(skip_unless_truthy)]
     pub diff_file: Option<String>,
-    /// Preview of the diff (first ~100 lines)
     #[facet(skip_unless_truthy)]
     pub diff_preview: Option<String>,
 }
@@ -118,20 +125,71 @@ pub struct TestListResult {
     pub other_tests: Vec<String>,
 }
 
-//====================//
-//  ListPikruTests    //
-//====================//
-#[mcp_tool(
-    name = "list_pikru_tests",
-    description = "List all available pikru compliance tests. Returns test names grouped by category.",
-    read_only_hint = true
-)]
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct ListPikruTestsTool {}
+/// Pikru MCP Server
+#[derive(Clone)]
+pub struct PikruServer {
+    paths: std::sync::Arc<PikruPaths>,
+    tool_router: ToolRouter<Self>,
+}
 
-impl ListPikruTestsTool {
-    pub fn call_tool(&self, paths: &PikruPaths) -> Result<CallToolResult, CallToolError> {
-        let tests = get_available_tests(&paths.tests_dir);
+#[tool_router]
+impl PikruServer {
+    pub fn new() -> anyhow::Result<Self> {
+        let paths = Self::find_paths()?;
+        Ok(Self {
+            paths: std::sync::Arc::new(paths),
+            tool_router: Self::tool_router(),
+        })
+    }
+
+    fn find_paths() -> anyhow::Result<PikruPaths> {
+        // Find project root by looking for Cargo.toml
+        let exe_path = std::env::current_exe()?;
+        let mut project_root = exe_path.parent().map(|p| p.to_path_buf());
+
+        // Walk up looking for Cargo.toml with pikru
+        while let Some(ref path) = project_root {
+            let cargo_toml = path.join("Cargo.toml");
+            if cargo_toml.exists() {
+                if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
+                    if content.contains("name = \"pikru\"") {
+                        break;
+                    }
+                }
+            }
+            project_root = path.parent().map(|p| p.to_path_buf());
+        }
+
+        // Fallback: use PIKRU_ROOT env var or current dir
+        let project_root = project_root
+            .or_else(|| std::env::var("PIKRU_ROOT").ok().map(PathBuf::from))
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+
+        let tests_dir = project_root.join("vendor/pikchr-c/tests");
+        let c_pikchr = project_root.join("vendor/pikchr-c/pikchr");
+
+        anyhow::ensure!(
+            tests_dir.exists(),
+            "Tests directory not found: {}",
+            tests_dir.display()
+        );
+        anyhow::ensure!(
+            c_pikchr.exists(),
+            "C pikchr binary not found: {}",
+            c_pikchr.display()
+        );
+
+        Ok(PikruPaths {
+            project_root,
+            tests_dir,
+            c_pikchr,
+        })
+    }
+
+    /// List all available pikru compliance tests
+    #[tool(description = "List all available pikru compliance tests. Returns test names grouped by category.")]
+    async fn list_pikru_tests(&self) -> Result<CallToolResult, McpError> {
+        let tests = get_available_tests(&self.paths.tests_dir);
 
         let numbered: Vec<_> = tests
             .iter()
@@ -157,54 +215,43 @@ impl ListPikruTestsTool {
         };
 
         let json = facet_json::to_string(&result);
-
-        Ok(CallToolResult::text_content(vec![TextContent::from(json)]))
+        Ok(CallToolResult::success(vec![Content::text(json)]))
     }
-}
 
-//====================//
-//  RunPikruTest      //
-//====================//
-#[mcp_tool(
-    name = "run_pikru_test",
-    description = "Run a single pikru compliance test comparing C and Rust implementations. Returns side-by-side comparison images and detailed diff information.",
-    read_only_hint = true
-)]
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-pub struct RunPikruTestTool {
-    /// Name of the test (e.g., 'test01', 'autochop02'). Don't include .pikchr extension.
-    pub test_name: String,
-}
-
-impl RunPikruTestTool {
-    pub fn call_tool(&self, paths: &PikruPaths) -> Result<CallToolResult, CallToolError> {
-        let test_file = paths.tests_dir.join(format!("{}.pikchr", self.test_name));
+    /// Run a single pikru compliance test
+    #[tool(description = "Run a single pikru compliance test comparing C and Rust implementations. Returns side-by-side comparison images and detailed diff information.")]
+    async fn run_pikru_test(
+        &self,
+        Parameters(params): Parameters<RunTestParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let test_name = params.test_name;
+        let test_file = self.paths.tests_dir.join(format!("{}.pikchr", test_name));
 
         if !test_file.exists() {
-            let available = get_available_tests(&paths.tests_dir);
+            let available = get_available_tests(&self.paths.tests_dir);
             let hint = available
                 .iter()
                 .take(10)
                 .cloned()
                 .collect::<Vec<_>>()
                 .join(", ");
-            return Err(tool_error(format!(
+            return Ok(CallToolResult::error(vec![Content::text(format!(
                 "Test '{}' not found. Available: {}...",
-                self.test_name, hint
-            )));
+                test_name, hint
+            ))]));
         }
 
-        let source = std::fs::read_to_string(&test_file).map_err(|e| tool_error(e.to_string()))?;
+        let source = std::fs::read_to_string(&test_file)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         // Run C pikchr
-        let (c_svg, c_error) = run_c_pikchr(&source, &paths.c_pikchr);
-        // source is read but not included in result to save tokens
+        let (c_svg, c_error) = run_c_pikchr(&source, &self.paths.c_pikchr);
 
         // Run Rust pikchr
-        let (rust_svg, rust_error) = run_rust_pikchr(&test_file, paths);
+        let (rust_svg, rust_error) = run_rust_pikchr(&test_file, &self.paths);
 
         // Run the actual cargo test to get match status
-        let (status, svg_diff) = run_cargo_test(&self.test_name, &paths.project_root);
+        let (status, svg_diff) = run_cargo_test(&test_name, &self.paths.project_root);
 
         // Parse SVGs for comparison
         let c_viewbox = c_svg.as_ref().and_then(|s| extract_viewbox(s));
@@ -246,17 +293,17 @@ impl RunPikruTestTool {
 
         // Write diff to temp file if present, extract preview
         let (diff_file, diff_preview) = if let Some(ref diff) = svg_diff {
-            let diff_path = format!("/tmp/pikru-diff-{}.txt", self.test_name);
+            let diff_path = format!("/tmp/pikru-diff-{}.txt", test_name);
             std::fs::write(&diff_path, diff).ok();
 
-            // Extract first ~100 lines as preview
-            let preview: String = diff
-                .lines()
-                .take(100)
-                .collect::<Vec<_>>()
-                .join("\n");
+            let preview: String = diff.lines().take(100).collect::<Vec<_>>().join("\n");
             let preview = if diff.lines().count() > 100 {
-                format!("{}\n... ({} more lines, see {})", preview, diff.lines().count() - 100, diff_path)
+                format!(
+                    "{}\n... ({} more lines, see {})",
+                    preview,
+                    diff.lines().count() - 100,
+                    diff_path
+                )
             } else {
                 preview
             };
@@ -267,7 +314,7 @@ impl RunPikruTestTool {
         };
 
         let result = TestResult {
-            test_name: self.test_name.clone(),
+            test_name: test_name.clone(),
             status,
             c_error,
             rust_error,
@@ -300,33 +347,39 @@ impl RunPikruTestTool {
         let json = facet_json::to_string(&result);
 
         // Build response with text and images
-        let mut content: Vec<ContentBlock> = vec![TextContent::from(json).into()];
+        let mut content: Vec<Content> = vec![Content::text(json)];
 
         // Create side-by-side image
         if let Some(side_by_side) = create_side_by_side(&c_png, &rust_png) {
             let b64 = base64::engine::general_purpose::STANDARD.encode(&side_by_side);
-            content.push(ImageContent::new(b64, "image/png".to_string(), None, None).into());
+            content.push(Content::image(b64, "image/png"));
         }
 
         // Create diff image
         if let (Some(c), Some(r)) = (&c_png, &rust_png) {
             if let Some(diff_img) = create_diff_image(c, r) {
                 let b64 = base64::engine::general_purpose::STANDARD.encode(&diff_img);
-                content.push(ImageContent::new(b64, "image/png".to_string(), None, None).into());
+                content.push(Content::image(b64, "image/png"));
             }
         }
 
-        Ok(CallToolResult {
-            content,
-            is_error: None,
-            meta: None,
-            structured_content: None,
-        })
+        Ok(CallToolResult::success(content))
     }
 }
 
-// Generate the tool box enum
-tool_box!(PikruTools, [ListPikruTestsTool, RunPikruTestTool]);
+#[tool_handler(router = self.tool_router)]
+impl ServerHandler for PikruServer {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo {
+            protocol_version: Default::default(),
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            server_info: rmcp::model::Implementation::from_build_env(),
+            instructions: Some(
+                "Run pikchr compliance tests comparing C and Rust implementations".into(),
+            ),
+        }
+    }
+}
 
 //====================//
 //  Helper functions  //
@@ -378,8 +431,6 @@ fn run_c_pikchr(source: &str, c_pikchr_path: &Path) -> (Option<String>, Option<S
 }
 
 fn run_rust_pikchr(test_file: &Path, paths: &PikruPaths) -> (Option<String>, Option<String>) {
-    // Shell out to `cargo run --example simple` so we always test current code
-    // without needing to rebuild the MCP
     let output = Command::new("cargo")
         .args(["run", "--example", "simple", "--"])
         .arg(test_file)
@@ -401,7 +452,6 @@ fn run_rust_pikchr(test_file: &Path, paths: &PikruPaths) -> (Option<String>, Opt
     }
 }
 
-/// Strip ANSI escape sequences from text
 fn strip_ansi(text: &str) -> String {
     let bytes = strip_ansi_escapes::strip(text);
     String::from_utf8_lossy(&bytes).into_owned()
@@ -436,7 +486,6 @@ fn run_cargo_test(test_name: &str, project_root: &Path) -> (String, Option<Strin
                 "error".to_string()
             };
 
-            // Extract diff output and strip ANSI escapes
             let svg_diff = if let Some(start) = combined.find("SVG mismatch for") {
                 let end = combined[start..]
                     .find("\nnote:")
@@ -464,7 +513,6 @@ fn extract_svg(output: &str) -> Option<String> {
 }
 
 fn extract_viewbox(svg: &str) -> Option<Viewbox> {
-    // Try viewBox attribute
     let re = regex_lite::Regex::new(r#"viewBox=["']([^"']+)["']"#).ok()?;
     if let Some(caps) = re.captures(svg) {
         let parts: Vec<f64> = caps
@@ -483,7 +531,6 @@ fn extract_viewbox(svg: &str) -> Option<Viewbox> {
         }
     }
 
-    // Try width/height attributes
     let width_re = regex_lite::Regex::new(r#"width=["']([0-9.]+)"#).ok()?;
     let height_re = regex_lite::Regex::new(r#"height=["']([0-9.]+)"#).ok()?;
 
@@ -501,7 +548,6 @@ fn extract_viewbox(svg: &str) -> Option<Viewbox> {
 fn count_svg_elements(svg: &str) -> ElementCounts {
     let mut counts = ElementCounts::default();
 
-    // Simple regex-based counting
     counts.circle = regex_lite::Regex::new(r"<circle\b")
         .map(|r| r.find_iter(svg).count() as u32)
         .unwrap_or(0);
@@ -547,27 +593,20 @@ fn extract_text_content(svg: &str) -> Vec<String> {
 }
 
 fn svg_to_png(svg: &str, target_width: u32) -> Option<Vec<u8>> {
-    // Parse SVG using usvg
     let options = usvg::Options::default();
     let tree = usvg::Tree::from_str(svg, &options).ok()?;
 
-    // Calculate scale to fit target width
     let svg_size = tree.size();
     let scale = target_width as f32 / svg_size.width();
     let width = (svg_size.width() * scale).ceil() as u32;
     let height = (svg_size.height() * scale).ceil() as u32;
 
-    // Create pixmap
     let mut pixmap = tiny_skia::Pixmap::new(width, height)?;
-
-    // Fill with white background
     pixmap.fill(tiny_skia::Color::WHITE);
 
-    // Render SVG
     let transform = tiny_skia::Transform::from_scale(scale, scale);
     resvg::render(&tree, transform, &mut pixmap.as_mut());
 
-    // Encode as PNG
     pixmap.encode_png().ok()
 }
 
@@ -627,7 +666,6 @@ fn calculate_ssim(c_png: &[u8], rust_png: &[u8]) -> Option<f64> {
     let c_img = image::load_from_memory(c_png).ok()?.to_luma8();
     let rust_img = image::load_from_memory(rust_png).ok()?.to_luma8();
 
-    // Resize to same dimensions if needed
     let width = c_img.width().max(rust_img.width());
     let height = c_img.height().max(rust_img.height());
 
@@ -643,7 +681,6 @@ fn calculate_ssim(c_png: &[u8], rust_png: &[u8]) -> Option<f64> {
         rust_img
     };
 
-    // Use image-compare for proper SSIM calculation
     let result = image_compare::gray_similarity_structure(
         &image_compare::Algorithm::MSSIMSimple,
         &c_resized,
@@ -660,7 +697,6 @@ fn create_side_by_side(c_png: &Option<Vec<u8>>, rust_png: &Option<Vec<u8>>) -> O
     let placeholder_width = 300u32;
     let placeholder_height = 200u32;
 
-    // Load or create placeholder for C image
     let c_img: RgbaImage = if let Some(data) = c_png {
         image::load_from_memory(data).ok()?.to_rgba8()
     } else {
@@ -671,7 +707,6 @@ fn create_side_by_side(c_png: &Option<Vec<u8>>, rust_png: &Option<Vec<u8>>) -> O
         )
     };
 
-    // Load or create placeholder for Rust image
     let rust_img: RgbaImage = if let Some(data) = rust_png {
         image::load_from_memory(data).ok()?.to_rgba8()
     } else {
@@ -682,7 +717,6 @@ fn create_side_by_side(c_png: &Option<Vec<u8>>, rust_png: &Option<Vec<u8>>) -> O
         )
     };
 
-    // Match heights
     let max_height = c_img.height().max(rust_img.height());
     let c_img = if c_img.height() != max_height {
         image::imageops::resize(
@@ -710,35 +744,29 @@ fn create_side_by_side(c_png: &Option<Vec<u8>>, rust_png: &Option<Vec<u8>>) -> O
     let total_width = c_img.width() + gap + rust_img.width();
     let total_height = max_height + label_height;
 
-    // Create combined image
     let mut combined: RgbaImage =
         ImageBuffer::from_pixel(total_width, total_height, Rgba([255, 255, 255, 255]));
 
-    // Draw blue header for C
     for x in 0..c_img.width() {
         for y in 0..label_height {
-            combined.put_pixel(x, y, Rgba([59, 130, 246, 255])); // Blue
+            combined.put_pixel(x, y, Rgba([59, 130, 246, 255]));
         }
     }
 
-    // Draw orange header for Rust
     for x in (c_img.width() + gap)..total_width {
         for y in 0..label_height {
-            combined.put_pixel(x, y, Rgba([249, 115, 22, 255])); // Orange
+            combined.put_pixel(x, y, Rgba([249, 115, 22, 255]));
         }
     }
 
-    // Copy C image
     for (x, y, pixel) in c_img.enumerate_pixels() {
         combined.put_pixel(x, y + label_height, *pixel);
     }
 
-    // Copy Rust image
     for (x, y, pixel) in rust_img.enumerate_pixels() {
         combined.put_pixel(x + c_img.width() + gap, y + label_height, *pixel);
     }
 
-    // Encode as PNG
     let mut buf = Vec::new();
     let encoder = image::codecs::png::PngEncoder::new(&mut buf);
     combined.write_with_encoder(encoder).ok()?;
@@ -761,28 +789,23 @@ fn create_diff_image(c_png: &[u8], rust_png: &[u8]) -> Option<Vec<u8>> {
     let mut diff: RgbaImage =
         ImageBuffer::from_pixel(width, height + legend_height, Rgba([255, 255, 255, 255]));
 
-    // Draw legend boxes
     let box_size = 12u32;
-    // Blue box for C only
     for x in 10..(10 + box_size) {
         for y in 8..(8 + box_size) {
             diff.put_pixel(x, y, Rgba([59, 130, 246, 255]));
         }
     }
-    // Orange box for Rust only
     for x in 90..(90 + box_size) {
         for y in 8..(8 + box_size) {
             diff.put_pixel(x, y, Rgba([249, 115, 22, 255]));
         }
     }
-    // Green box for both
     for x in 180..(180 + box_size) {
         for y in 8..(8 + box_size) {
             diff.put_pixel(x, y, Rgba([100, 150, 100, 255]));
         }
     }
 
-    // Create diff visualization
     for y in 0..height {
         for x in 0..width {
             let c_pixel = c_img.get_pixel(x, y);
@@ -796,17 +819,16 @@ fn create_diff_image(c_png: &[u8], rust_png: &[u8]) -> Option<Vec<u8>> {
             let rust_present = rust_gray < 250.0 && rust_pixel[3] > 128;
 
             let color = match (c_present, rust_present) {
-                (true, true) => Rgba([100, 150, 100, 255]), // Green - both
-                (true, false) => Rgba([59, 130, 246, 255]), // Blue - C only
-                (false, true) => Rgba([249, 115, 22, 255]), // Orange - Rust only
-                (false, false) => Rgba([255, 255, 255, 255]), // White - neither
+                (true, true) => Rgba([100, 150, 100, 255]),
+                (true, false) => Rgba([59, 130, 246, 255]),
+                (false, true) => Rgba([249, 115, 22, 255]),
+                (false, false) => Rgba([255, 255, 255, 255]),
             };
 
             diff.put_pixel(x, y + legend_height, color);
         }
     }
 
-    // Encode as PNG
     let mut buf = Vec::new();
     let encoder = image::codecs::png::PngEncoder::new(&mut buf);
     diff.write_with_encoder(encoder).ok()?;

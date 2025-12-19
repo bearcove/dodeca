@@ -4,7 +4,9 @@
       "type": "stdio",
       "command": "pikru-mcp",
       "args": [],
-      "env": {}
+      "env": {
+        "PIKRU_ROOT": "/Users/amos/bearcove/pikru"
+      }
     }
   }
 }
