@@ -414,6 +414,7 @@ async fn handle_browser_connection(
     let started_at = Instant::now();
     let peer_addr = browser_stream.peer_addr().ok();
     let local_addr = browser_stream.local_addr().ok();
+    let mut browser_stream = browser_stream;
     tracing::info!(
         conn_id,
         ?peer_addr,
@@ -421,20 +422,66 @@ async fn handle_browser_connection(
         "handle_browser_connection: start"
     );
 
+    if let Ok(Some(err)) = browser_stream.take_error() {
+        tracing::warn!(conn_id, error = %err, "socket error present on accept");
+    }
+
+    let mut pre_session_buf: Vec<u8> = Vec::new();
+    let mut pre_session_reads: u64 = 0;
+
     let session = if let Some(session) = session_rx.borrow().clone() {
         session
     } else {
         tracing::info!(conn_id, "Waiting for HTTP cell session");
         let wait_start = Instant::now();
         loop {
-            session_rx.changed().await.ok();
-            if let Some(session) = session_rx.borrow().clone() {
-                tracing::info!(
-                    conn_id,
-                    elapsed_ms = wait_start.elapsed().as_millis(),
-                    "HTTP cell session ready (per-connection)"
-                );
-                break session;
+            tokio::select! {
+                _ = session_rx.changed() => {
+                    if let Some(session) = session_rx.borrow().clone() {
+                        tracing::info!(
+                            conn_id,
+                            elapsed_ms = wait_start.elapsed().as_millis(),
+                            pre_session_reads,
+                            pre_session_bytes = pre_session_buf.len(),
+                            "HTTP cell session ready (per-connection)"
+                        );
+                        break session;
+                    }
+                }
+                ready = browser_stream.readable() => {
+                    if let Err(e) = ready {
+                        tracing::warn!(conn_id, error = %e, "browser stream readable error while waiting for session");
+                        continue;
+                    }
+                    let mut buf = [0u8; 4096];
+                    match browser_stream.try_read(&mut buf) {
+                        Ok(0) => {
+                            tracing::warn!(
+                                conn_id,
+                                elapsed_ms = wait_start.elapsed().as_millis(),
+                                pre_session_reads,
+                                pre_session_bytes = pre_session_buf.len(),
+                                "browser stream closed before session ready (read=0)"
+                            );
+                            return Ok(());
+                        }
+                        Ok(n) => {
+                            pre_session_reads = pre_session_reads.wrapping_add(1);
+                            pre_session_buf.extend_from_slice(&buf[..n]);
+                            tracing::info!(
+                                conn_id,
+                                n,
+                                pre_session_reads,
+                                pre_session_bytes = pre_session_buf.len(),
+                                "read bytes while waiting for session"
+                            );
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                        Err(e) => {
+                            return Err(e.into());
+                        }
+                    }
+                }
             }
         }
     };
@@ -468,16 +515,18 @@ async fn handle_browser_connection(
         "Revision ready (per-connection)"
     );
 
-    // Read first byte before opening a tunnel.
-    let mut browser_stream = browser_stream;
-    let mut first_byte = [0u8; 1];
-    let first_read = browser_stream.read(&mut first_byte).await?;
-    if first_read == 0 {
-        tracing::warn!(
-            conn_id,
-            "browser stream closed before request (first_read=0)"
-        );
-        return Ok(());
+    if pre_session_buf.is_empty() {
+        // Read first byte before opening a tunnel.
+        let mut first_byte = [0u8; 1];
+        let first_read = browser_stream.read(&mut first_byte).await?;
+        if first_read == 0 {
+            tracing::warn!(
+                conn_id,
+                "browser stream closed before request (first_read=0)"
+            );
+            return Ok(());
+        }
+        pre_session_buf.extend_from_slice(&first_byte[..first_read]);
     }
 
     // Open a tunnel to the cell
@@ -492,13 +541,15 @@ async fn handle_browser_connection(
         conn_id,
         channel_id,
         open_elapsed_ms = open_started.elapsed().as_millis(),
-        first_read,
+        initial_bytes = pre_session_buf.len(),
         "Tunnel opened for browser connection"
     );
 
     // Bridge browser <-> tunnel with backpressure.
     let mut tunnel_stream = session.tunnel_stream(channel_id);
-    tunnel_stream.write_all(&first_byte[..first_read]).await?;
+    if !pre_session_buf.is_empty() {
+        tunnel_stream.write_all(&pre_session_buf).await?;
+    }
     tracing::info!(
         conn_id,
         channel_id,
