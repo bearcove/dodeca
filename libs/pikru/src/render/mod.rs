@@ -1788,6 +1788,47 @@ fn render_object_stmt(
     // Clear current_object now that we're done building this object
     ctx.current_object = None;
 
+    // Apply chopping to waypoints for line-like objects
+    // cref: pik_after_adding_attributes (pikchr.c:4372-4379)
+    // This modifies waypoints in place, matching C pikchr's behavior where
+    // chopping happens during construction, not rendering.
+    let mut waypoints = waypoints;
+    let is_line_like = matches!(
+        class,
+        ClassName::Line | ClassName::Arrow | ClassName::Spline
+    );
+    let should_chop = style.chop
+        || (from_attachment.is_some() && to_attachment.is_some());
+
+    if is_line_like && should_chop && waypoints.len() >= 2 {
+        use geometry::autochop_inches;
+        let n = waypoints.len();
+
+        // Chop end point against to_attachment (if present)
+        // cref: pik_autochop(p, &pObj->aPath[n-2], &pObj->aPath[n-1], pObj->pTo)
+        if let Some(ref to_obj) = to_attachment {
+            let from_pt = waypoints[n - 2]; // Direction reference
+            let to_pt = waypoints[n - 1]; // Point to chop
+            waypoints[n - 1] = autochop_inches(from_pt, to_pt, to_obj);
+        }
+
+        // Chop start point against from_attachment (if present)
+        // cref: pik_autochop(p, &pObj->aPath[1], &pObj->aPath[0], pObj->pFrom)
+        if let Some(ref from_obj) = from_attachment {
+            let from_pt = waypoints[1]; // Direction reference
+            let to_pt = waypoints[0]; // Point to chop
+            waypoints[0] = autochop_inches(from_pt, to_pt, from_obj);
+        }
+
+        tracing::debug!(
+            start_x = waypoints[0].x.raw(),
+            start_y = waypoints[0].y.raw(),
+            end_x = waypoints[n - 1].x.raw(),
+            end_y = waypoints[n - 1].y.raw(),
+            "[Rust autochop applied]"
+        );
+    }
+
     // Create the appropriate shape based on class
     use shapes::*;
     let shape = match class {

@@ -17,9 +17,9 @@ use super::{TextVSlot, compute_text_vslots, sum_text_heights_above_below};
 /// Bounding box type alias
 pub type BoundingBox = BoxIn;
 use super::geometry::{
-    apply_auto_chop_simple_line, arc_control_point, chop_line, create_arc_path_with_control,
-    create_cylinder_paths_with_rad, create_file_paths, create_line_path, create_oval_path,
-    create_rounded_box_path, create_spline_path,
+    arc_control_point, chop_line, create_arc_path_with_control, create_cylinder_paths_with_rad,
+    create_file_paths, create_line_path, create_oval_path, create_rounded_box_path,
+    create_spline_path,
 };
 use super::svg::{color_to_rgb, render_arrowhead_dom};
 use super::types::{ClassName, ObjectStyle, PointIn, PositionedText, RenderedObject};
@@ -994,7 +994,7 @@ impl Shape for LineShape {
 
     fn render_svg(
         &self,
-        obj: &RenderedObject,
+        _obj: &RenderedObject,
         scaler: &Scaler,
         offset_x: Inches,
         max_y: Inches,
@@ -1024,10 +1024,10 @@ impl Shape for LineShape {
             .collect();
 
         if svg_points.len() <= 2 {
-            let start = svg_points[0];
-            let end = svg_points[svg_points.len() - 1];
-            let (mut draw_start, mut draw_end) =
-                apply_auto_chop_simple_line(scaler, obj, start, end, offset_x, max_y);
+            // Waypoints are already chopped during construction (see autochop_inches in mod.rs)
+            // cref: pik_after_adding_attributes (pikchr.c:4372-4379)
+            let mut draw_start = svg_points[0];
+            let mut draw_end = svg_points[svg_points.len() - 1];
 
             // cref: lineRender (pikchr.c:4271-4276) - larrow first, then rarrow
             if self.style.arrow_start {

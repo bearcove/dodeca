@@ -699,3 +699,288 @@ pub fn create_arc_path_with_control(start: DVec2, control: DVec2, end: DVec2) ->
         .m(start.x, start.y)
         .q(control.x, control.y, end.x, end.y)
 }
+
+// ============================================================================
+// Construction-time chopping (inches, pikchr coordinates)
+// ============================================================================
+//
+// These functions implement chopping during object construction, matching C pikchr's
+// pik_autochop behavior. They work in pikchr coordinates (Y-up, inches) rather than
+// SVG coordinates (Y-down, pixels).
+//
+// cref: pik_autochop (pikchr.c:4272-4279)
+// cref: boxChop (pikchr.c:1132-1169)
+// cref: circleChop (pikchr.c:1254-1264)
+// cref: ellipseChop (pikchr.c:1451-1466)
+
+/// Chop a line endpoint against an attached object.
+///
+/// This is the inch-based equivalent of C's `pik_autochop`. It modifies the
+/// endpoint to be on the edge of the attached object rather than at its center.
+///
+/// # Arguments
+/// * `from` - The other endpoint of the line (used to determine direction)
+/// * `to` - The endpoint to chop (will be modified if chopping succeeds)
+/// * `endpoint` - Information about the object to chop against
+///
+/// # Returns
+/// The chopped point, or `to` unchanged if chopping is not applicable.
+///
+/// cref: pik_autochop (pikchr.c:4272-4279)
+pub fn autochop_inches(from: PointIn, to: PointIn, endpoint: &EndpointObject) -> PointIn {
+    // Convert to DVec2 for math (pikchr coords: Y-up)
+    let from_vec = dvec2(from.x.raw(), from.y.raw());
+
+    let chopped = match endpoint.class {
+        // boxChop is used by: box, cylinder, diamond, file, oval, text
+        ClassName::Box | ClassName::Cylinder | ClassName::Diamond | ClassName::File
+        | ClassName::Oval | ClassName::Text => {
+            box_chop_inches(endpoint, from_vec)
+        }
+        // circleChop is used by: circle, dot
+        ClassName::Circle | ClassName::Dot => {
+            circle_chop_inches(endpoint, from_vec)
+        }
+        // ellipseChop is used by: ellipse
+        ClassName::Ellipse => {
+            ellipse_chop_inches(endpoint, from_vec)
+        }
+        // Lines, arrows, splines, moves, arcs, sublists have no xChop
+        _ => None,
+    };
+
+    match chopped {
+        Some(pt) => PointIn::new(Inches(pt.x), Inches(pt.y)),
+        None => to,
+    }
+}
+
+/// Box chopping in inches (pikchr coordinates).
+///
+/// Uses discrete compass points to find the edge point, matching C's boxChop.
+/// The direction is determined by the angle from the object center to `toward`,
+/// normalized by aspect ratio.
+///
+/// cref: boxChop (pikchr.c:1132-1169)
+fn box_chop_inches(obj: &EndpointObject, toward: DVec2) -> Option<DVec2> {
+    let center = dvec2(obj.center.x.raw(), obj.center.y.raw());
+    let w = obj.width.raw();
+    let h = obj.height.raw();
+
+    if w <= 0.0 || h <= 0.0 {
+        return Some(center);
+    }
+
+    // C pikchr normalizes dx by h/w for aspect ratio
+    // cref: boxChop line 1138: dx = (pPt->x - pObj->ptAt.x)*pObj->h/pObj->w
+    let dx = (toward.x - center.x) * h / w;
+    let dy = toward.y - center.y;
+
+    // Determine compass point using the normalized direction
+    let cp = CompassPoint::from_direction(dvec2(dx, dy));
+
+    // Get offset for this compass point using the appropriate xOffset function
+    let offset = match obj.class {
+        ClassName::Box | ClassName::Text => box_offset_inches(obj, cp),
+        ClassName::Cylinder => cylinder_offset_inches(obj, cp),
+        ClassName::Diamond => diamond_offset_inches(obj, cp),
+        ClassName::File => file_offset_inches(obj, cp),
+        ClassName::Oval => oval_offset_inches(obj, cp),
+        _ => box_offset_inches(obj, cp), // Default to box
+    };
+
+    Some(center + offset)
+}
+
+/// Circle chopping in inches (pikchr coordinates).
+///
+/// Uses ray intersection with the circle to find the edge point.
+/// This is a continuous calculation, not discrete like boxChop.
+///
+/// cref: circleChop (pikchr.c:1254-1264)
+fn circle_chop_inches(obj: &EndpointObject, toward: DVec2) -> Option<DVec2> {
+    let center = dvec2(obj.center.x.raw(), obj.center.y.raw());
+    // Circle uses width/2 as radius (w = h = 2*rad for circles)
+    let rad = obj.width.raw() / 2.0;
+
+    let dx = toward.x - center.x;
+    let dy = toward.y - center.y;
+    let dist = (dx * dx + dy * dy).sqrt();
+
+    // cref: circleChop line 1259: if( dist<pObj->rad || dist<=0 ) return pObj->ptAt
+    if dist < rad || dist <= 0.0 {
+        return Some(center);
+    }
+
+    // cref: circleChop lines 1260-1261
+    Some(dvec2(
+        center.x + dx * rad / dist,
+        center.y + dy * rad / dist,
+    ))
+}
+
+/// Ellipse chopping in inches (pikchr coordinates).
+///
+/// Uses ray intersection with the ellipse to find the edge point.
+/// The calculation normalizes by aspect ratio to handle non-circular ellipses.
+///
+/// cref: ellipseChop (pikchr.c:1451-1466)
+fn ellipse_chop_inches(obj: &EndpointObject, toward: DVec2) -> Option<DVec2> {
+    let center = dvec2(obj.center.x.raw(), obj.center.y.raw());
+    let w = obj.width.raw();
+    let h = obj.height.raw();
+
+    if w <= 0.0 || h <= 0.0 {
+        return Some(center);
+    }
+
+    let dx = toward.x - center.x;
+    let dy = toward.y - center.y;
+
+    // cref: ellipseChop lines 1458-1460
+    let s = h / w;
+    let dq = dx * s;
+    let dist = (dq * dq + dy * dy).sqrt();
+
+    // cref: ellipseChop line 1461: if( dist<pObj->h ) return pObj->ptAt
+    if dist < h {
+        return Some(center);
+    }
+
+    // cref: ellipseChop lines 1462-1463
+    Some(dvec2(
+        center.x + 0.5 * dq * h / (dist * s),
+        center.y + 0.5 * dy * h / dist,
+    ))
+}
+
+/// Box offset for compass point (inches).
+/// cref: boxOffset (pikchr.c:1178-1213)
+fn box_offset_inches(obj: &EndpointObject, cp: CompassPoint) -> DVec2 {
+    let w2 = obj.width.raw() / 2.0;
+    let h2 = obj.height.raw() / 2.0;
+    let rad = obj.corner_radius.raw();
+
+    // cref: boxOffset lines 1181-1183 - rx for rounded corners
+    // rx = (1 - cos(45°)) * rad ≈ 0.29289 * rad
+    let mn = w2.min(h2);
+    let rad_clamped = rad.min(mn);
+    let rx = if rad_clamped > 0.0 {
+        0.29289321881345252392 * rad_clamped
+    } else {
+        0.0
+    };
+
+    // cref: boxOffset lines 1184-1212
+    match cp {
+        CompassPoint::North => dvec2(0.0, h2),
+        CompassPoint::NorthEast => dvec2(w2 - rx, h2 - rx),
+        CompassPoint::East => dvec2(w2, 0.0),
+        CompassPoint::SouthEast => dvec2(w2 - rx, -h2 + rx),
+        CompassPoint::South => dvec2(0.0, -h2),
+        CompassPoint::SouthWest => dvec2(-w2 + rx, -h2 + rx),
+        CompassPoint::West => dvec2(-w2, 0.0),
+        CompassPoint::NorthWest => dvec2(-w2 + rx, h2 - rx),
+    }
+}
+
+/// Cylinder offset for compass point (inches).
+/// cref: cylinderOffset (pikchr.c:1378-1417)
+fn cylinder_offset_inches(obj: &EndpointObject, cp: CompassPoint) -> DVec2 {
+    let w2 = obj.width.raw() / 2.0;
+    let h2 = obj.height.raw() / 2.0;
+    // cref: cylinderOffset line 1380: rad = pObj->rad (default cylrad = 0.075)
+    // Default cylrad is 0.075 inches
+    let default_cylrad = 0.075;
+    let rad = obj.corner_radius.raw().max(default_cylrad);
+
+    // cref: cylinderOffset - h2_inner = h2 - rad (diagonal corners are inset)
+    let h2_inner = h2 - rad;
+
+    match cp {
+        CompassPoint::North => dvec2(0.0, h2),
+        CompassPoint::NorthEast => dvec2(w2, h2_inner),
+        CompassPoint::East => dvec2(w2, 0.0),
+        CompassPoint::SouthEast => dvec2(w2, -h2_inner),
+        CompassPoint::South => dvec2(0.0, -h2),
+        CompassPoint::SouthWest => dvec2(-w2, -h2_inner),
+        CompassPoint::West => dvec2(-w2, 0.0),
+        CompassPoint::NorthWest => dvec2(-w2, h2_inner),
+    }
+}
+
+/// Diamond offset for compass point (inches).
+/// cref: diamondOffset (pikchr.c:1432-1449)
+fn diamond_offset_inches(obj: &EndpointObject, cp: CompassPoint) -> DVec2 {
+    let w2 = obj.width.raw() / 2.0;
+    let h2 = obj.height.raw() / 2.0;
+
+    // cref: diamondOffset - diagonal points at quarter width/height
+    let w4 = w2 / 2.0;
+    let h4 = h2 / 2.0;
+
+    match cp {
+        CompassPoint::North => dvec2(0.0, h2),
+        CompassPoint::NorthEast => dvec2(w4, h4),
+        CompassPoint::East => dvec2(w2, 0.0),
+        CompassPoint::SouthEast => dvec2(w4, -h4),
+        CompassPoint::South => dvec2(0.0, -h2),
+        CompassPoint::SouthWest => dvec2(-w4, -h4),
+        CompassPoint::West => dvec2(-w2, 0.0),
+        CompassPoint::NorthWest => dvec2(-w4, h4),
+    }
+}
+
+/// File offset for compass point (inches).
+/// cref: fileOffset (pikchr.c:1491-1540)
+fn file_offset_inches(obj: &EndpointObject, cp: CompassPoint) -> DVec2 {
+    let w2 = obj.width.raw() / 2.0;
+    let h2 = obj.height.raw() / 2.0;
+
+    // cref: fileOffset lines 1493-1500
+    // rx = 0.5 * rad, clamped to [mn*0.25, mn] where mn = min(w2, h2)
+    let mn = w2.min(h2);
+    let mut rx = defaults::FILE_RAD.raw();
+    if rx > mn {
+        rx = mn;
+    }
+    if rx < mn * 0.25 {
+        rx = mn * 0.25;
+    }
+    rx *= 0.5;
+
+    // cref: fileOffset - only NE is inset for the fold
+    match cp {
+        CompassPoint::North => dvec2(0.0, h2),
+        CompassPoint::NorthEast => dvec2(w2 - rx, h2 - rx), // NE: inset for fold
+        CompassPoint::East => dvec2(w2, 0.0),
+        CompassPoint::SouthEast => dvec2(w2, -h2), // SE: no inset
+        CompassPoint::South => dvec2(0.0, -h2),
+        CompassPoint::SouthWest => dvec2(-w2, -h2),
+        CompassPoint::West => dvec2(-w2, 0.0),
+        CompassPoint::NorthWest => dvec2(-w2, h2),
+    }
+}
+
+/// Oval offset for compass point (inches).
+/// cref: boxOffset with rad = min(w2, h2) (oval uses boxOffset in C)
+fn oval_offset_inches(obj: &EndpointObject, cp: CompassPoint) -> DVec2 {
+    let w2 = obj.width.raw() / 2.0;
+    let h2 = obj.height.raw() / 2.0;
+    // Oval uses full rounding radius = min of half dimensions
+    let rad = w2.min(h2);
+
+    // rx = (1 - cos(45°)) * rad ≈ 0.29289 * rad
+    let rx = 0.29289321881345252392 * rad;
+
+    match cp {
+        CompassPoint::North => dvec2(0.0, h2),
+        CompassPoint::NorthEast => dvec2(w2 - rx, h2 - rx),
+        CompassPoint::East => dvec2(w2, 0.0),
+        CompassPoint::SouthEast => dvec2(w2 - rx, -h2 + rx),
+        CompassPoint::South => dvec2(0.0, -h2),
+        CompassPoint::SouthWest => dvec2(-w2 + rx, -h2 + rx),
+        CompassPoint::West => dvec2(-w2, 0.0),
+        CompassPoint::NorthWest => dvec2(-w2 + rx, h2 - rx),
+    }
+}
