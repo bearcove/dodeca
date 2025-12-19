@@ -968,10 +968,11 @@ impl Shape for LineShape {
             let (mut draw_start, mut draw_end) =
                 apply_auto_chop_simple_line(scaler, obj, start, end, offset_x, max_y);
 
-            if self.style.arrow_end {
+            // cref: lineRender (pikchr.c:4271-4276) - larrow first, then rarrow
+            if self.style.arrow_start {
                 if let Some(arrowhead) = render_arrowhead_dom(
-                    draw_start,
                     draw_end,
+                    draw_start,
                     &self.style,
                     arrow_len_px,
                     arrow_wid_px,
@@ -979,10 +980,10 @@ impl Shape for LineShape {
                     nodes.push(SvgNode::Polygon(arrowhead));
                 }
             }
-            if self.style.arrow_start {
+            if self.style.arrow_end {
                 if let Some(arrowhead) = render_arrowhead_dom(
-                    draw_end,
                     draw_start,
+                    draw_end,
                     &self.style,
                     arrow_len_px,
                     arrow_wid_px,
@@ -1208,14 +1209,66 @@ impl Shape for LineShape {
             sw = self.style.stroke_width.0,
             "[BBOX Line]"
         );
-        // Include text labels (they extend above and below the line)
-        // Must account for font scaling from big/small modifiers
+
+        // Include text labels with full horizontal and vertical extent
+        // cref: pik_append_txt (pikchr.c:5169-5218) - text bbox expansion with justification
         if !self.text.is_empty() {
-            let charht = defaults::FONT_SIZE;
-            let (text_above, text_below) = sum_text_heights_above_below(&self.text, charht);
+            let charht = Inches(defaults::FONT_SIZE);
+            let charwid = defaults::CHARWID;
             let center = self.center();
-            bounds.expand_point(Point::new(center.x, center.y + Inches(text_above)));
-            bounds.expand_point(Point::new(center.x, center.y - Inches(text_below)));
+
+            // Compute vertical slot assignments matching C's pik_txt_vertical_layout
+            let vslots = compute_text_vslots(&self.text);
+
+            // Compute heights for each region (max charht in each slot)
+            // cref: pikchr.c:5104-5150
+            let mut hc = Inches::ZERO;
+            let mut ha1 = Inches::ZERO;
+            let mut ha2 = Inches::ZERO;
+            let mut hb1 = Inches::ZERO;
+            let mut hb2 = Inches::ZERO;
+
+            for (t, slot) in self.text.iter().zip(vslots.iter()) {
+                let h = Inches(t.height(charht.0));
+                match slot {
+                    TextVSlot::Center => hc = hc.max(h),
+                    TextVSlot::Above => ha1 = ha1.max(h),
+                    TextVSlot::Above2 => ha2 = ha2.max(h),
+                    TextVSlot::Below => hb1 = hb1.max(h),
+                    TextVSlot::Below2 => hb2 = hb2.max(h),
+                }
+            }
+
+            // Calculate Y position and expand bounds for each text line
+            // cref: pikchr.c:5156-5218
+            let y_base = Inches::ZERO;
+            for (i, t) in self.text.iter().enumerate() {
+                let text_w = Inches(t.width_inches(charwid));
+                let ch = Inches(t.height(charht.0)) / 2.0;
+
+                let y = match vslots.get(i).unwrap_or(&TextVSlot::Center) {
+                    TextVSlot::Above2 => y_base + hc * 0.5 + ha1 + ha2 * 0.5,
+                    TextVSlot::Above => y_base + hc * 0.5 + ha1 * 0.5,
+                    TextVSlot::Center => y_base,
+                    TextVSlot::Below => y_base - hc * 0.5 - hb1 * 0.5,
+                    TextVSlot::Below2 => y_base - hc * 0.5 - hb1 - hb2 * 0.5,
+                };
+
+                let line_y = center.y + y;
+
+                // Expand bounds based on text justification
+                // cref: pikchr.c:5180-5195 - rjust extends left, ljust extends right
+                if t.rjust {
+                    bounds.expand_point(Point::new(center.x - text_w, line_y - ch));
+                    bounds.expand_point(Point::new(center.x, line_y + ch));
+                } else if t.ljust {
+                    bounds.expand_point(Point::new(center.x, line_y - ch));
+                    bounds.expand_point(Point::new(center.x + text_w, line_y + ch));
+                } else {
+                    bounds.expand_point(Point::new(center.x - text_w / 2.0, line_y - ch));
+                    bounds.expand_point(Point::new(center.x + text_w / 2.0, line_y + ch));
+                }
+            }
         }
     }
 }
