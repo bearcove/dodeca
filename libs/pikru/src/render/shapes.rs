@@ -1301,6 +1301,19 @@ impl Shape for LineShape {
             // Calculate Y position and expand bounds for each text line
             // cref: pikchr.c:5156-5218
             let y_base = Inches::ZERO;
+
+            // Determine if line is more vertical than horizontal (for aligned text rotation)
+            // cref: pik_bbox_add_text (pikchr.c:4819-4825) - handles rotated text bbox
+            let is_vertical = if self.waypoints.len() >= 2 {
+                let start = self.waypoints[0];
+                let end = self.waypoints[self.waypoints.len() - 1];
+                let dx = (end.x - start.x).0.abs();
+                let dy = (end.y - start.y).0.abs();
+                dy > dx
+            } else {
+                false
+            };
+
             for (i, t) in self.text.iter().enumerate() {
                 let text_w = Inches(t.width_inches(charwid));
                 let ch = Inches(t.height(charht.0)) / 2.0;
@@ -1315,17 +1328,28 @@ impl Shape for LineShape {
 
                 let line_y = center.y + y;
 
+                // For aligned text on vertical lines, the text is rotated 90°
+                // So text width becomes vertical extent, text height becomes horizontal extent
+                // cref: pik_bbox_addellipse (pikchr.c:4837) - C uses rotated bbox for aligned text
+                let (half_x_extent, half_y_extent) = if t.aligned && is_vertical {
+                    // Rotated text: swap width and height
+                    (ch, text_w / 2.0)
+                } else {
+                    // Normal text: width is horizontal, height is vertical
+                    (text_w / 2.0, ch)
+                };
+
                 // Expand bounds based on text justification
                 // cref: pikchr.c:5180-5195 - rjust extends left, ljust extends right
                 if t.rjust {
-                    bounds.expand_point(Point::new(center.x - text_w, line_y - ch));
-                    bounds.expand_point(Point::new(center.x, line_y + ch));
+                    bounds.expand_point(Point::new(center.x - half_x_extent * 2.0, line_y - half_y_extent));
+                    bounds.expand_point(Point::new(center.x, line_y + half_y_extent));
                 } else if t.ljust {
-                    bounds.expand_point(Point::new(center.x, line_y - ch));
-                    bounds.expand_point(Point::new(center.x + text_w, line_y + ch));
+                    bounds.expand_point(Point::new(center.x, line_y - half_y_extent));
+                    bounds.expand_point(Point::new(center.x + half_x_extent * 2.0, line_y + half_y_extent));
                 } else {
-                    bounds.expand_point(Point::new(center.x - text_w / 2.0, line_y - ch));
-                    bounds.expand_point(Point::new(center.x + text_w / 2.0, line_y + ch));
+                    bounds.expand_point(Point::new(center.x - half_x_extent, line_y - half_y_extent));
+                    bounds.expand_point(Point::new(center.x + half_x_extent, line_y + half_y_extent));
                 }
             }
         }

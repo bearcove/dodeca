@@ -2300,10 +2300,16 @@ fn calculate_object_position(
     let is_first_object = ctx.object_list.is_empty();
 
     // For line-like objects, start is at cursor, end is cursor + length in direction
+    // cref: pik_elem_new (pikchr.c:5648) - lineInit uses linewid for horizontal, lineht for vertical
     let (start, end, center) = match class {
         ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move => {
             let start = ctx.position;
-            let end = start + ctx.direction.offset(width);
+            // Use linewid for horizontal (Right/Left), lineht for vertical (Up/Down)
+            let length = match ctx.direction {
+                Direction::Right | Direction::Left => width,
+                Direction::Up | Direction::Down => height,
+            };
+            let end = start + ctx.direction.offset(length);
             let mid = start.midpoint(end);
             (start, end, mid)
         }
