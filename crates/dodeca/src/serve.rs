@@ -311,7 +311,7 @@ impl SiteServer {
             started_at: Some(started_at),
         };
         let _ = self.revision_tx.send(state);
-        tracing::debug!(
+        tracing::info!(
             generation = next_generation,
             reason = %reason,
             "revision: begin"
@@ -340,7 +340,7 @@ impl SiteServer {
             started_at: None,
         };
         let _ = self.revision_tx.send(state);
-        tracing::debug!(
+        tracing::info!(
             generation = token.generation,
             elapsed_ms = token.started_at.elapsed().as_millis(),
             "revision: ready"
@@ -354,14 +354,23 @@ impl SiteServer {
             if state.status == crate::revision::RevisionStatus::Ready {
                 return;
             }
+
+            tracing::info!(
+                generation = state.generation,
+                reason = state.reason.as_deref().unwrap_or(""),
+                "revision: waiting"
+            );
+
             if rx.changed().await.is_err() {
                 return;
             }
-        }
-    }
 
-    pub fn current_revision(&self) -> crate::revision::RevisionState {
-        self.revision_tx.borrow().clone()
+            let state = rx.borrow().clone();
+            if state.status == crate::revision::RevisionStatus::Ready {
+                tracing::info!(generation = state.generation, "revision: ready");
+                return;
+            }
+        }
     }
 
     /// Update cached code execution results
@@ -1308,10 +1317,23 @@ enum ServeContent {
     StaticNoCache(Vec<u8>, &'static str),
 }
 
-/// Embedded devtools WASM client files (built by build.rs)
-const DEVTOOLS_JS: &str = include_str!("../../../crates/dodeca-devtools/pkg/dodeca_devtools.js");
-const DEVTOOLS_WASM: &[u8] =
-    include_bytes!("../../../crates/dodeca-devtools/pkg/dodeca_devtools_bg.wasm");
+fn devtools_js_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../dodeca-devtools/pkg/dodeca_devtools.js")
+}
+
+fn devtools_wasm_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../dodeca-devtools/pkg/dodeca_devtools_bg.wasm")
+}
+
+fn load_devtools_js() -> Option<String> {
+    std::fs::read_to_string(devtools_js_path()).ok()
+}
+
+fn load_devtools_wasm() -> Option<Vec<u8>> {
+    std::fs::read(devtools_wasm_path()).ok()
+}
 
 /// Compute a short hash for cache busting
 fn compute_hash(data: &[u8]) -> String {
@@ -1325,8 +1347,12 @@ fn compute_hash(data: &[u8]) -> String {
 pub fn devtools_urls() -> (String, String) {
     use std::sync::LazyLock;
     static URLS: LazyLock<(String, String)> = LazyLock::new(|| {
-        let js_hash = compute_hash(DEVTOOLS_JS.as_bytes());
-        let wasm_hash = compute_hash(DEVTOOLS_WASM);
+        let js_hash = load_devtools_js()
+            .map(|js| compute_hash(js.as_bytes()))
+            .unwrap_or_else(|| "missing".to_string());
+        let wasm_hash = load_devtools_wasm()
+            .map(|bytes| compute_hash(&bytes))
+            .unwrap_or_else(|| "missing".to_string());
         (
             format!("/_/{}.js", js_hash),
             format!("/_/{}.wasm", wasm_hash),
@@ -1401,12 +1427,29 @@ pub fn get_devtools_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
 
     // Check for JS (cache-busted)
     if asset_path.ends_with(".js") {
-        return Some((rewrite_devtools_js().into_bytes(), "application/javascript"));
+        if let Some(js) = load_devtools_js() {
+            return Some((
+                rewrite_devtools_js(&js).into_bytes(),
+                "application/javascript",
+            ));
+        }
+        tracing::warn!(
+            path = %devtools_js_path().display(),
+            "devtools js missing"
+        );
+        return None;
     }
 
     // Check for WASM (cache-busted)
     if asset_path.ends_with(".wasm") {
-        return Some((DEVTOOLS_WASM.to_vec(), "application/wasm"));
+        if let Some(bytes) = load_devtools_wasm() {
+            return Some((bytes, "application/wasm"));
+        }
+        tracing::warn!(
+            path = %devtools_wasm_path().display(),
+            "devtools wasm missing"
+        );
+        return None;
     }
 
     None
@@ -1422,12 +1465,12 @@ pub fn get_search_file_content(
 }
 
 /// Rewrite relative snippet imports to absolute paths
-fn rewrite_devtools_js() -> String {
+fn rewrite_devtools_js(js: &str) -> String {
     // The generated JS has imports like:
     //   import { X } from './snippets/foo/bar.js';
     // We need to rewrite them to absolute paths:
     //   import { X } from '/_/snippets/foo/bar.js';
-    DEVTOOLS_JS.replace("from './snippets/", "from '/_/snippets/")
+    js.replace("from './snippets/", "from '/_/snippets/")
 }
 
 /// Guess MIME type from file extension

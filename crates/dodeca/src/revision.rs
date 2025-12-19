@@ -10,7 +10,9 @@ pub enum RevisionStatus {
 pub struct RevisionState {
     pub generation: u64,
     pub status: RevisionStatus,
+    #[allow(dead_code)]
     pub reason: Option<String>,
+    #[allow(dead_code)]
     pub started_at: Option<Instant>,
 }
 

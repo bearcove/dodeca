@@ -1389,36 +1389,6 @@ async fn build_with_mini_tui(
     Ok(())
 }
 
-/// Recursively scan a directory for files and process them as changes.
-/// Used when a new directory is created to catch files that were written
-/// before the watcher was fully set up (inotify race condition on Linux).
-fn scan_directory_recursive(
-    dir: &std::path::Path,
-    config: &file_watcher::WatcherConfig,
-    server: &serve::SiteServer,
-) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if entry.file_type().is_ok_and(|t| t.is_file()) {
-            if let Ok(utf8_path) = Utf8PathBuf::from_path_buf(path) {
-                println!(
-                    "    {} Found file in new dir: {}",
-                    "+".green(),
-                    utf8_path.file_name().unwrap_or("?")
-                );
-                handle_file_changed(&utf8_path, config, server);
-            }
-        } else if entry.file_type().is_ok_and(|t| t.is_dir()) {
-            // Recurse into subdirectories
-            scan_directory_recursive(&path, config, server);
-        }
-    }
-}
-
 /// Handle a file change event by updating or adding it to picante
 fn handle_file_changed(
     path: &Utf8PathBuf,
@@ -1678,6 +1648,137 @@ fn handle_file_removed(
         }
         PathCategory::Unknown => {}
     }
+}
+
+async fn start_file_watcher(
+    server: Arc<serve::SiteServer>,
+    watcher_config: file_watcher::WatcherConfig,
+    on_event: Option<Arc<dyn Fn(&file_watcher::FileEvent) + Send + Sync>>,
+    after_apply: Option<Arc<dyn Fn() + Send + Sync>>,
+) -> Result<()> {
+    let (watcher, watcher_rx) = file_watcher::create_watcher(&watcher_config)?;
+    let (event_tx, mut event_rx) =
+        tokio::sync::mpsc::unbounded_channel::<file_watcher::FileEvent>();
+
+    let watcher_config_thread = watcher_config.clone();
+    std::thread::spawn(move || {
+        let watcher = watcher; // keep Arc alive
+        while let Ok(event) = watcher_rx.recv() {
+            let Ok(event) = event else { continue };
+            let file_events =
+                file_watcher::process_notify_event(event, &watcher_config_thread, &watcher);
+            for file_event in file_events {
+                let _ = event_tx.send(file_event);
+            }
+        }
+    });
+
+    tokio::spawn(async move {
+        use tokio::time::{Duration, Instant};
+
+        let debounce = Duration::from_millis(100);
+        let max_debounce = Duration::from_millis(500);
+        let mut pending: Vec<file_watcher::FileEvent> = Vec::new();
+        let mut active_revision: Option<crate::revision::RevisionToken> = None;
+
+        loop {
+            let first = match event_rx.recv().await {
+                Some(ev) => ev,
+                None => break,
+            };
+
+            if active_revision.is_none() {
+                active_revision = Some(server.begin_revision("file changes"));
+            }
+
+            pending.push(first);
+            let batch_start = Instant::now();
+            let mut deadline = batch_start + debounce;
+
+            loop {
+                let max_deadline = batch_start + max_debounce;
+                let sleep_until = if deadline < max_deadline {
+                    deadline
+                } else {
+                    max_deadline
+                };
+                tokio::select! {
+                    Some(ev) = event_rx.recv() => {
+                        pending.push(ev);
+                        deadline = Instant::now() + debounce;
+                    }
+                    _ = tokio::time::sleep_until(sleep_until) => {
+                        break;
+                    }
+                }
+            }
+
+            let batch = std::mem::take(&mut pending);
+            let server_apply = server.clone();
+            let config_apply = watcher_config.clone();
+            let on_event = on_event.clone();
+            let after_apply = after_apply.clone();
+            let token = active_revision.take();
+
+            let apply_result = tokio::task::spawn_blocking(move || {
+                let mut expanded: Vec<file_watcher::FileEvent> = Vec::new();
+
+                for file_event in batch {
+                    match file_event {
+                        file_watcher::FileEvent::DirectoryCreated(path) => {
+                            if let Some(cb) = &on_event {
+                                cb(&file_watcher::FileEvent::DirectoryCreated(path.clone()));
+                            }
+                            let mut scanned = file_watcher::scan_directory_recursive(
+                                path.as_std_path(),
+                                &config_apply,
+                            );
+                            for event in &scanned {
+                                if let Some(cb) = &on_event {
+                                    cb(event);
+                                }
+                            }
+                            expanded.append(&mut scanned);
+                        }
+                        other => {
+                            if let Some(cb) = &on_event {
+                                cb(&other);
+                            }
+                            expanded.push(other);
+                        }
+                    }
+                }
+
+                for file_event in expanded {
+                    match file_event {
+                        file_watcher::FileEvent::Changed(path) => {
+                            handle_file_changed(&path, &config_apply, &server_apply);
+                        }
+                        file_watcher::FileEvent::Removed(path) => {
+                            handle_file_removed(&path, &config_apply, &server_apply);
+                        }
+                        file_watcher::FileEvent::DirectoryCreated(_) => {}
+                    }
+                }
+
+                server_apply.trigger_reload();
+                if let Some(cb) = &after_apply {
+                    cb();
+                }
+            })
+            .await;
+
+            if let Err(e) = apply_result {
+                tracing::error!(error = %e, "file watcher apply task failed");
+            }
+
+            if let Some(token) = token {
+                server.end_revision(token);
+            }
+        }
+    });
+
+    Ok(())
 }
 
 /// Plain serve mode (no TUI) - serves directly from picante
@@ -1953,6 +2054,7 @@ async fn serve_plain(
 
     // Mark the startup revision as ready before accepting requests.
     server.end_revision(startup_revision);
+    tracing::info!("startup revision ready (serve_plain)");
 
     // Set up file watcher for live reload using the file_watcher module
     // This handles:
@@ -1982,88 +2084,27 @@ async fn serve_plain(
             .unwrap_or_else(|_| data_dir.clone()),
     };
 
-    let (watcher, watcher_rx) = file_watcher::create_watcher(&watcher_config)?;
-    let server_for_watcher = server.clone();
-
-    std::thread::spawn(move || {
-        use std::time::{Duration, Instant};
-
-        let debounce = Duration::from_millis(100);
-        let mut last_rebuild = Instant::now() - debounce;
-        let watcher = watcher; // keep Arc alive
-        let mut pending_events: Vec<file_watcher::FileEvent> = Vec::new();
-        let mut active_revision: Option<crate::revision::RevisionToken> = None;
-
-        while let Ok(event) = watcher_rx.recv() {
-            let Ok(event) = event else { continue };
-
-            let mut file_events =
-                file_watcher::process_notify_event(event, &watcher_config, &watcher);
-            if file_events.is_empty() {
-                continue;
-            }
-            pending_events.append(&mut file_events);
-            if active_revision.is_none() {
-                active_revision = Some(server_for_watcher.begin_revision("file changes"));
-            }
-
-            // Coalesce any immediately available events so a burst is handled together.
-            while let Ok(next) = watcher_rx.try_recv() {
-                match next {
-                    Ok(next) => {
-                        let mut more =
-                            file_watcher::process_notify_event(next, &watcher_config, &watcher);
-                        if !more.is_empty() {
-                            pending_events.append(&mut more);
-                        }
-                    }
-                    Err(_) => continue,
-                }
-            }
-
-            let elapsed = last_rebuild.elapsed();
-            if elapsed < debounce {
-                std::thread::sleep(debounce - elapsed);
-            }
-
-            for file_event in pending_events.drain(..) {
-                match file_event {
-                    file_watcher::FileEvent::Changed(path) => {
-                        println!("  Changed: {}", path.file_name().unwrap_or("?"));
-                        handle_file_changed(&path, &watcher_config, &server_for_watcher);
-                    }
-                    file_watcher::FileEvent::Removed(path) => {
-                        println!(
-                            "  {} Removed: {}",
-                            "-".red(),
-                            path.file_name().unwrap_or("?")
-                        );
-                        handle_file_removed(&path, &watcher_config, &server_for_watcher);
-                    }
-                    file_watcher::FileEvent::DirectoryCreated(path) => {
-                        println!(
-                            "  {} New directory: {}",
-                            "+".green(),
-                            path.file_name().unwrap_or("?")
-                        );
-                        // Scan recursively for files that may have been created before the watcher
-                        // was added (race condition with inotify on Linux)
-                        scan_directory_recursive(
-                            path.as_std_path(),
-                            &watcher_config,
-                            &server_for_watcher,
-                        );
-                    }
-                }
-            }
-
-            server_for_watcher.trigger_reload();
-            if let Some(token) = active_revision.take() {
-                server_for_watcher.end_revision(token);
-            }
-            last_rebuild = Instant::now();
+    let on_event = Arc::new(|event: &file_watcher::FileEvent| match event {
+        file_watcher::FileEvent::Changed(path) => {
+            println!("  Changed: {}", path.file_name().unwrap_or("?"));
+        }
+        file_watcher::FileEvent::Removed(path) => {
+            println!(
+                "  {} Removed: {}",
+                "-".red(),
+                path.file_name().unwrap_or("?")
+            );
+        }
+        file_watcher::FileEvent::DirectoryCreated(path) => {
+            println!(
+                "  {} New directory: {}",
+                "+".green(),
+                path.file_name().unwrap_or("?")
+            );
         }
     });
+
+    start_file_watcher(server.clone(), watcher_config.clone(), Some(on_event), None).await?;
 
     // Use the requested port (or default to 4000)
     let requested_port: u16 = port.unwrap_or(4000);
@@ -2186,9 +2227,7 @@ async fn serve_with_tui(
     stable_assets: Vec<String>,
     start_public: bool,
 ) -> Result<()> {
-    use notify::{RecommendedWatcher, RecursiveMode, Watcher};
     use std::sync::Arc;
-    use std::sync::mpsc;
     use tokio::sync::watch;
 
     // Set reentrancy guard so code execution cell knows we're in a build
@@ -2472,31 +2511,47 @@ async fn serve_with_tui(
 
     // Mark startup revision ready before accepting requests.
     server.end_revision(startup_revision);
+    tracing::info!("startup revision ready (serve_with_tui)");
 
     let _ = event_tx.send(LogEvent::server(
         "Server ready - content served from memory",
     ));
 
-    // Set up file watcher for content and templates
-    let (watch_tx, watch_rx) = mpsc::channel();
-    let mut watcher = RecommendedWatcher::new(watch_tx, notify::Config::default())?;
-    watcher.watch(content_dir.as_std_path(), RecursiveMode::Recursive)?;
-
+    // Set up file watcher (shared pipeline with plain serve)
     let sass_dir = parent_dir.join("sass");
-    let mut watched_dirs = vec![content_dir.to_string()];
+    let static_dir = parent_dir.join("static");
+    let data_dir = parent_dir.join("data");
 
+    let watcher_config = file_watcher::WatcherConfig {
+        content_dir: content_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| content_dir.clone()),
+        templates_dir: templates_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| templates_dir.clone()),
+        sass_dir: sass_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| sass_dir.clone()),
+        static_dir: static_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| static_dir.clone()),
+        data_dir: data_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| data_dir.clone()),
+    };
+
+    let mut watched_dirs = vec![content_dir.to_string()];
     if templates_dir.exists() {
-        watcher.watch(templates_dir.as_std_path(), RecursiveMode::Recursive)?;
         watched_dirs.push("templates".to_string());
     }
     if sass_dir.exists() {
-        watcher.watch(sass_dir.as_std_path(), RecursiveMode::Recursive)?;
         watched_dirs.push("sass".to_string());
     }
-    let static_dir = parent_dir.join("static");
     if static_dir.exists() {
-        watcher.watch(static_dir.as_std_path(), RecursiveMode::Recursive)?;
         watched_dirs.push("static".to_string());
+    }
+    if data_dir.exists() {
+        watched_dirs.push("data".to_string());
     }
 
     let _ = event_tx.send(LogEvent::file_change(format!(
@@ -2637,323 +2692,73 @@ async fn serve_with_tui(
         }
     }
 
-    // Spawn file watcher handler
-    // Canonicalize paths for comparison with notify events (which return absolute paths)
-    let content_for_watcher = content_dir
-        .canonicalize_utf8()
-        .unwrap_or_else(|_| content_dir.clone());
-    let templates_dir_for_watcher = templates_dir
-        .canonicalize_utf8()
-        .unwrap_or_else(|_| templates_dir.clone());
-    let sass_dir_for_watcher = sass_dir
-        .canonicalize_utf8()
-        .unwrap_or_else(|_| sass_dir.clone());
-    let static_dir_for_watcher = static_dir
-        .canonicalize_utf8()
-        .unwrap_or_else(|_| static_dir.clone());
     let event_tx_for_watcher = event_tx.clone();
-    let server_for_watcher = server.clone();
-
-    std::thread::spawn(move || {
-        use std::time::Instant;
-        let mut last_rebuild = Instant::now();
-        let debounce = std::time::Duration::from_millis(100);
-        let mut active_revision: Option<crate::revision::RevisionToken> = None;
-
-        while let Ok(res) = watch_rx.recv() {
-            match res {
-                Ok(event) => {
-                    // Debounce rapid events
-                    if last_rebuild.elapsed() < debounce {
-                        continue;
-                    }
-
-                    // React to modify/create/rename events (rename catches atomic saves)
-                    use notify::EventKind;
-                    match event.kind {
-                        EventKind::Modify(_) | EventKind::Create(_) => {
-                            // Accept content/template/sass files by extension, or any file in static dir
-                            // Filter out temp files (editors write to .tmp then rename)
-                            let paths: Vec<Utf8PathBuf> = event
-                                .paths
-                                .iter()
-                                .filter(|p| {
-                                    // Skip temp files created by editors
-                                    let path_str = p.to_string_lossy();
-                                    if path_str.contains(".tmp.") || path_str.ends_with("~") {
-                                        return false;
-                                    }
-                                    let is_known_ext = p
-                                        .extension()
-                                        .map(|e| e == "md" || e == "scss" || e == "html")
-                                        .unwrap_or(false);
-                                    let is_static =
-                                        p.starts_with(static_dir_for_watcher.as_std_path());
-                                    is_known_ext || is_static
-                                })
-                                .filter_map(|p| Utf8PathBuf::from_path_buf(p.clone()).ok())
-                                .collect();
-
-                            if paths.is_empty() {
-                                continue;
-                            }
-
-                            if active_revision.is_none() {
-                                active_revision =
-                                    Some(server_for_watcher.begin_revision("file changes"));
-                            }
-
-                            for path in &paths {
-                                // Determine file type for logging
-                                let ext = path.extension();
-                                let filename = path.file_name().unwrap_or("?");
-                                let file_type = match ext {
-                                    Some("md") => "content",
-                                    Some("html") => "template",
-                                    Some("scss") | Some("sass") => "style",
-                                    Some("css") => "css",
-                                    Some("js") | Some("ts") => "script",
-                                    Some("png") | Some("jpg") | Some("jpeg") | Some("gif")
-                                    | Some("svg") | Some("webp") | Some("avif") => "image",
-                                    Some("woff") | Some("woff2") | Some("ttf") | Some("otf") => {
-                                        "font"
-                                    }
-                                    _ => "file",
-                                };
-                                let _ = event_tx_for_watcher.send(LogEvent::file_change(format!(
-                                    "{} changed: {}",
-                                    file_type, filename
-                                )));
-
-                                // Update the file in the server's picante database
-                                if ext == Some("md") {
-                                    if let Ok(relative) = path.strip_prefix(&content_for_watcher) {
-                                        if let Ok(content) = fs::read_to_string(path) {
-                                            let last_modified = fs::metadata(path.as_std_path())
-                                                .and_then(|m| m.modified())
-                                                .ok()
-                                                .and_then(|t| {
-                                                    t.duration_since(std::time::UNIX_EPOCH).ok()
-                                                })
-                                                .map(|d| d.as_secs() as i64)
-                                                .unwrap_or(0);
-                                            let db = server_for_watcher.db.lock().unwrap();
-                                            let mut sources = SourceRegistry::sources(&*db)
-                                                .ok()
-                                                .flatten()
-                                                .unwrap_or_default();
-
-                                            let relative_str = relative.to_string();
-                                            let source_path = SourcePath::new(relative_str.clone());
-                                            let source_content = SourceContent::new(content);
-
-                                            // Find and replace, or add new
-                                            if let Some(pos) = sources.iter().position(|s| {
-                                                s.path(&*db)
-                                                    .ok()
-                                                    .map(|p| p.as_str() == relative_str)
-                                                    .unwrap_or(false)
-                                            }) {
-                                                sources[pos] = SourceFile::new(
-                                                    &*db,
-                                                    source_path,
-                                                    source_content,
-                                                    last_modified,
-                                                )
-                                                .expect("failed to create source file");
-                                            } else {
-                                                sources.push(
-                                                    SourceFile::new(
-                                                        &*db,
-                                                        source_path,
-                                                        source_content,
-                                                        last_modified,
-                                                    )
-                                                    .expect("failed to create source file"),
-                                                );
-                                            }
-                                            SourceRegistry::set(&*db, sources)
-                                                .expect("failed to set sources");
-                                        }
-                                    }
-                                } else if ext == Some("html") {
-                                    if let Ok(relative) =
-                                        path.strip_prefix(&templates_dir_for_watcher)
-                                    {
-                                        if let Ok(content) = fs::read_to_string(path) {
-                                            let db = server_for_watcher.db.lock().unwrap();
-                                            let mut templates = TemplateRegistry::templates(&*db)
-                                                .ok()
-                                                .flatten()
-                                                .unwrap_or_default();
-
-                                            let relative_str = relative.to_string();
-                                            let template_path =
-                                                TemplatePath::new(relative_str.clone());
-                                            let template_content =
-                                                TemplateContent::new(content.clone());
-
-                                            let content_hash = {
-                                                use std::hash::{Hash, Hasher};
-                                                let mut hasher =
-                                                    std::collections::hash_map::DefaultHasher::new(
-                                                    );
-                                                content.hash(&mut hasher);
-                                                hasher.finish()
-                                            };
-                                            tracing::info!(
-                                                "📝 template changed: {} (content hash: {:016x}, {} bytes)",
-                                                relative_str,
-                                                content_hash,
-                                                content.len()
-                                            );
-
-                                            if let Some(pos) = templates.iter().position(|t| {
-                                                t.path(&*db)
-                                                    .ok()
-                                                    .map(|p| p.as_str() == relative_str)
-                                                    .unwrap_or(false)
-                                            }) {
-                                                templates[pos] = TemplateFile::new(
-                                                    &*db,
-                                                    template_path,
-                                                    template_content,
-                                                )
-                                                .expect("failed to create template file");
-                                            } else {
-                                                templates.push(
-                                                    TemplateFile::new(
-                                                        &*db,
-                                                        template_path,
-                                                        template_content,
-                                                    )
-                                                    .expect("failed to create template file"),
-                                                );
-                                            }
-                                            TemplateRegistry::set(&*db, templates)
-                                                .expect("failed to set templates");
-                                        }
-                                    }
-                                } else if ext == Some("scss") || ext == Some("sass") {
-                                    if let Ok(relative) = path.strip_prefix(&sass_dir_for_watcher) {
-                                        if let Ok(content) = fs::read_to_string(path) {
-                                            let db = server_for_watcher.db.lock().unwrap();
-                                            let mut sass_files = SassRegistry::files(&*db)
-                                                .ok()
-                                                .flatten()
-                                                .unwrap_or_default();
-
-                                            let relative_str = relative.to_string();
-                                            let sass_path = SassPath::new(relative_str.clone());
-                                            let sass_content = SassContent::new(content);
-
-                                            if let Some(pos) = sass_files.iter().position(|s| {
-                                                s.path(&*db)
-                                                    .ok()
-                                                    .map(|p| p.as_str() == relative_str)
-                                                    .unwrap_or(false)
-                                            }) {
-                                                sass_files[pos] =
-                                                    SassFile::new(&*db, sass_path, sass_content)
-                                                        .expect("failed to create sass file");
-                                            } else {
-                                                sass_files.push(
-                                                    SassFile::new(&*db, sass_path, sass_content)
-                                                        .expect("failed to create sass file"),
-                                                );
-                                            }
-                                            SassRegistry::set(&*db, sass_files)
-                                                .expect("failed to set sass files");
-                                        }
-                                    }
-                                } else if path.starts_with(&static_dir_for_watcher) {
-                                    // Static file changed (CSS, fonts, images, etc.)
-                                    if let Ok(relative) = path.strip_prefix(&static_dir_for_watcher)
-                                    {
-                                        if let Ok(content) = fs::read(path) {
-                                            // Skip empty files (transient state during git operations)
-                                            if content.is_empty() {
-                                                continue;
-                                            }
-                                            let db = server_for_watcher.db.lock().unwrap();
-                                            let mut static_files = StaticRegistry::files(&*db)
-                                                .ok()
-                                                .flatten()
-                                                .unwrap_or_default();
-
-                                            let relative_str = relative.to_string();
-                                            let static_path = StaticPath::new(relative_str.clone());
-
-                                            tracing::debug!(
-                                                "Looking for static file: {relative_str}"
-                                            );
-
-                                            if let Some(pos) = static_files.iter().position(|s| {
-                                                s.path(&*db)
-                                                    .ok()
-                                                    .map(|p| p.as_str() == relative_str)
-                                                    .unwrap_or(false)
-                                            }) {
-                                                tracing::info!(
-                                                    "Updating static file: {relative_str}"
-                                                );
-                                                static_files[pos] =
-                                                    StaticFile::new(&*db, static_path, content)
-                                                        .expect("failed to create static file");
-                                            } else {
-                                                static_files.push(
-                                                    StaticFile::new(&*db, static_path, content)
-                                                        .expect("failed to create static file"),
-                                                );
-                                            }
-                                            StaticRegistry::set(&*db, static_files)
-                                                .expect("failed to set static files");
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Trigger live reload - browsers will re-fetch and get fresh content from picante
-                            // (trigger_reload logs detailed patch/reload decisions)
-                            server_for_watcher.trigger_reload();
-                            if let Some(token) = active_revision.take() {
-                                server_for_watcher.end_revision(token);
-                            }
-
-                            // Rebuild search index in background (debounced with live reload)
-                            let server_for_search = server_for_watcher.clone();
-                            let event_tx_for_search = event_tx_for_watcher.clone();
-                            std::thread::spawn(move || {
-                                match rebuild_search_for_serve(&server_for_search) {
-                                    Ok(search_files) => {
-                                        let count = search_files.len();
-                                        let mut sf =
-                                            server_for_search.search_files.write().unwrap();
-                                        *sf = search_files;
-                                        let _ = event_tx_for_search.send(LogEvent::search(
-                                            format!("Search index updated ({count} pages)"),
-                                        ));
-                                    }
-                                    Err(e) => {
-                                        let _ = event_tx_for_search.send(
-                                            LogEvent::error(format!("Search rebuild failed: {e}"))
-                                                .with_kind(crate::tui::EventKind::Search),
-                                        );
-                                    }
-                                }
-                            });
-
-                            last_rebuild = Instant::now();
-                        }
-                        _ => {}
-                    }
-                }
-                Err(e) => {
-                    let _ = event_tx_for_watcher.send(LogEvent::error(format!("Watch error: {e}")));
-                }
+    let on_event = Arc::new(
+        move |path_event: &file_watcher::FileEvent| match path_event {
+            file_watcher::FileEvent::Changed(path) => {
+                let ext = path.extension();
+                let filename = path.file_name().unwrap_or("?");
+                let file_type = match ext {
+                    Some("md") => "content",
+                    Some("html") => "template",
+                    Some("scss") | Some("sass") => "style",
+                    Some("css") => "css",
+                    Some("js") | Some("ts") => "script",
+                    Some("png") | Some("jpg") | Some("jpeg") | Some("gif") | Some("svg")
+                    | Some("webp") | Some("avif") => "image",
+                    Some("woff") | Some("woff2") | Some("ttf") | Some("otf") => "font",
+                    _ => "file",
+                };
+                let _ = event_tx_for_watcher.send(LogEvent::file_change(format!(
+                    "{} changed: {}",
+                    file_type, filename
+                )));
             }
-        }
+            file_watcher::FileEvent::Removed(path) => {
+                let filename = path.file_name().unwrap_or("?");
+                let _ = event_tx_for_watcher
+                    .send(LogEvent::file_change(format!("removed: {}", filename)));
+            }
+            file_watcher::FileEvent::DirectoryCreated(path) => {
+                let filename = path.file_name().unwrap_or("?");
+                let _ = event_tx_for_watcher.send(LogEvent::file_change(format!(
+                    "new directory: {}",
+                    filename
+                )));
+            }
+        },
+    );
+
+    let server_for_search = server.clone();
+    let event_tx_for_search = event_tx.clone();
+    let after_apply = Arc::new(move || {
+        let server_for_search = server_for_search.clone();
+        let event_tx_for_search = event_tx_for_search.clone();
+        std::thread::spawn(move || match rebuild_search_for_serve(&server_for_search) {
+            Ok(search_files) => {
+                let count = search_files.len();
+                let mut sf = server_for_search.search_files.write().unwrap();
+                *sf = search_files;
+                let _ = event_tx_for_search.send(LogEvent::search(format!(
+                    "Search index updated ({count} pages)"
+                )));
+            }
+            Err(e) => {
+                let _ = event_tx_for_search.send(
+                    LogEvent::error(format!("Search rebuild failed: {e}"))
+                        .with_kind(crate::tui::EventKind::Search),
+                );
+            }
+        });
     });
+
+    start_file_watcher(
+        server.clone(),
+        watcher_config,
+        Some(on_event),
+        Some(after_apply),
+    )
+    .await?;
 
     // Spawn command handler for rebinding
     let server_for_cmd = server.clone();

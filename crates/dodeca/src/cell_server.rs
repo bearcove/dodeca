@@ -264,17 +264,18 @@ pub async fn start_cell_server_with_shutdown(
     crate::cells::wait_for_cells_ready(&required_cells, timeout)
         .await
         .map_err(|e| eyre::eyre!("Required cells not ready: {}", e))?;
-    tracing::debug!("CELLS_READY");
+    tracing::info!("Required cells ready");
 
     // Wait for the current revision to be fully ready before accepting connections.
+    tracing::info!("Waiting for revision readiness");
     server.wait_revision_ready().await;
-    tracing::debug!("REVISION_READY");
+    tracing::info!("Revision ready");
 
     // Merge all listeners into a single stream
     let mut accept_stream = stream::select_all(listeners.into_iter().map(TcpListenerStream::new));
 
     // Accept browser connections and tunnel them to the cell
-    tracing::debug!("ACCEPTING");
+    tracing::info!("Accepting connections");
     loop {
         tracing::debug!("Accept loop: waiting for connection...");
         tokio::select! {

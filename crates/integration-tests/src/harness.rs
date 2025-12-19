@@ -14,7 +14,6 @@
 //!   (e.g., "valgrind --leak-check=full" or "strace -f -o /tmp/trace.out")
 
 use async_send_fd::AsyncSendFd;
-use owo_colors::OwoColorize;
 use regex::Regex;
 use reqwest::blocking::Client;
 use std::cell::RefCell;
@@ -31,6 +30,12 @@ use tracing::{debug, error};
 // Thread-local storage for logs from the last test (for printing on failure)
 thread_local! {
     static LAST_TEST_LOGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+#[derive(Clone)]
+struct LogLine {
+    ts: Duration,
+    line: String,
 }
 
 /// Get the logs from the last test that ran (for printing on failure)
@@ -70,7 +75,7 @@ pub struct TestSite {
     _temp_dir: tempfile::TempDir,
     client: Client,
     _unix_socket_dir: tempfile::TempDir,
-    logs: Arc<Mutex<Vec<String>>>,
+    logs: Arc<Mutex<Vec<LogLine>>>,
 }
 
 impl TestSite {
@@ -231,15 +236,21 @@ impl TestSite {
         // Capture logs (stdout/stderr) for assertions. Only printed on test failure.
         let reader = BufReader::new(stdout);
         let stderr_reader = BufReader::new(stderr);
-        let logs: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let logs: Arc<Mutex<Vec<LogLine>>> = Arc::new(Mutex::new(Vec::new()));
+        let log_start = Instant::now();
 
         // Drain stdout in background (capture only, no printing)
         let logs_stdout = Arc::clone(&logs);
+        let log_start_stdout = log_start;
         std::thread::spawn(move || {
             for line in reader.lines() {
                 match line {
                     Ok(l) => {
-                        logs_stdout.lock().unwrap().push(format!("[stdout] {l}"));
+                        let entry = LogLine {
+                            ts: log_start_stdout.elapsed(),
+                            line: format!("[stdout] {l}"),
+                        };
+                        logs_stdout.lock().unwrap().push(entry);
                     }
                     Err(_) => break,
                 }
@@ -248,11 +259,16 @@ impl TestSite {
 
         // Drain stderr in background (capture only, no printing)
         let logs_stderr = Arc::clone(&logs);
+        let log_start_stderr = log_start;
         std::thread::spawn(move || {
             for line in stderr_reader.lines() {
                 match line {
                     Ok(l) => {
-                        logs_stderr.lock().unwrap().push(format!("[stderr] {l}"));
+                        let entry = LogLine {
+                            ts: log_start_stderr.elapsed(),
+                            line: format!("[stderr] {l}"),
+                        };
+                        logs_stderr.lock().unwrap().push(entry);
                     }
                     Err(_) => break,
                 }
@@ -290,7 +306,7 @@ impl TestSite {
         let logs = self.logs.lock().unwrap();
         logs.iter()
             .skip(cursor)
-            .filter(|l| l.contains(needle))
+            .filter(|l| l.line.contains(needle))
             .count()
     }
 
@@ -423,7 +439,7 @@ impl TestSite {
 impl Drop for TestSite {
     fn drop(&mut self) {
         // Save logs to thread-local for potential failure reporting
-        let logs = self.logs.lock().unwrap().clone();
+        let logs = render_logs(&self.logs);
         LAST_TEST_LOGS.with(|tl| {
             *tl.borrow_mut() = logs;
         });
@@ -431,6 +447,15 @@ impl Drop for TestSite {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
+}
+
+fn render_logs(logs: &Arc<Mutex<Vec<LogLine>>>) -> Vec<String> {
+    let mut lines = logs.lock().unwrap().clone();
+    lines.sort_by_key(|l| l.ts);
+    lines
+        .into_iter()
+        .map(|l| format!("{:>8.3}s {}", l.ts.as_secs_f64(), l.line))
+        .collect()
 }
 
 /// An HTTP response

@@ -19,6 +19,7 @@ pub type WatcherHandle = Arc<Mutex<RecommendedWatcher>>;
 pub type WatcherReceiver = std::sync::mpsc::Receiver<notify::Result<notify::Event>>;
 
 /// Configuration for the file watcher
+#[derive(Debug, Clone)]
 pub struct WatcherConfig {
     pub content_dir: Utf8PathBuf,
     pub templates_dir: Utf8PathBuf,
@@ -36,6 +37,30 @@ pub enum FileEvent {
     Removed(Utf8PathBuf),
     /// New directory was created - already added to watcher
     DirectoryCreated(Utf8PathBuf),
+}
+
+/// Recursively scan a directory and return file change events.
+/// Used to catch files created before the watcher was fully set up.
+pub fn scan_directory_recursive(dir: &Path, config: &WatcherConfig) -> Vec<FileEvent> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if entry.file_type().is_ok_and(|t| t.is_file()) {
+            if should_watch_path(&path, config) {
+                if let Ok(utf8) = Utf8PathBuf::from_path_buf(path) {
+                    out.push(FileEvent::Changed(utf8));
+                }
+            }
+        } else if entry.file_type().is_ok_and(|t| t.is_dir()) {
+            out.extend(scan_directory_recursive(&path, config));
+        }
+    }
+
+    out
 }
 
 /// Categorizes a path by which directory it belongs to
@@ -274,9 +299,7 @@ pub fn process_notify_event(
 }
 
 /// Create and configure the file watcher
-pub fn create_watcher(
-    config: &WatcherConfig,
-) -> eyre::Result<(WatcherHandle, WatcherReceiver)> {
+pub fn create_watcher(config: &WatcherConfig) -> eyre::Result<(WatcherHandle, WatcherReceiver)> {
     let (tx, rx) = std::sync::mpsc::channel();
     let watcher = notify::recommended_watcher(move |res| {
         let _ = tx.send(res);
