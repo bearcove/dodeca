@@ -23,7 +23,7 @@ use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as StdCommand, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UnixListener;
 use tracing::{debug, error};
 
@@ -40,7 +40,17 @@ static TEST_SETUP: OnceLock<Mutex<std::collections::HashMap<u64, Duration>>> = O
 #[derive(Clone)]
 struct LogLine {
     ts: Duration,
+    abs: SystemTime,
     line: String,
+}
+
+fn push_log(logs: &Arc<Mutex<Vec<LogLine>>>, log_start: Instant, line: impl Into<String>) {
+    let entry = LogLine {
+        ts: log_start.elapsed(),
+        abs: SystemTime::now(),
+        line: line.into(),
+    };
+    logs.lock().unwrap().push(entry);
 }
 
 /// Set the current test id for log routing
@@ -103,6 +113,7 @@ pub struct TestSite {
     client: Client,
     _unix_socket_dir: tempfile::TempDir,
     logs: Arc<Mutex<Vec<LogLine>>>,
+    log_start: Instant,
     test_id: u64,
 }
 
@@ -235,9 +246,26 @@ impl TestSite {
         let stdout = child.stdout.take().expect("capture stdout");
         let stderr = child.stderr.take().expect("capture stderr");
 
+        // Capture logs (stdout/stderr + harness events). Only printed on test failure.
+        let reader = BufReader::new(stdout);
+        let stderr_reader = BufReader::new(stderr);
+        let logs: Arc<Mutex<Vec<LogLine>>> = Arc::new(Mutex::new(Vec::new()));
+        let log_start = Instant::now();
+        push_log(
+            &logs,
+            log_start,
+            format!("[harness] spawned ddc pid={}", child.id()),
+        );
+
         // Accept connection from server on Unix socket and send FD
         let child_id = child.id();
+        let logs_for_fd = Arc::clone(&logs);
         rt.block_on(async {
+            push_log(
+                &logs_for_fd,
+                log_start,
+                "[harness] waiting for unix socket accept",
+            );
             let accept_future = unix_listener.accept();
             let timeout_duration = tokio::time::Duration::from_secs(5);
 
@@ -256,18 +284,18 @@ impl TestSite {
                 .send_fd(std_listener.as_raw_fd())
                 .await
                 .expect("send FD");
+            push_log(
+                &logs_for_fd,
+                log_start,
+                "[harness] sent TCP listener FD to server",
+            );
             debug!("Sent TCP listener FD to server");
 
             // IMPORTANT: Don't drop std_listener here - keep it alive!
             // The FD is shared with the server now
             std::mem::forget(std_listener);
         });
-
-        // Capture logs (stdout/stderr) for assertions. Only printed on test failure.
-        let reader = BufReader::new(stdout);
-        let stderr_reader = BufReader::new(stderr);
-        let logs: Arc<Mutex<Vec<LogLine>>> = Arc::new(Mutex::new(Vec::new()));
-        let log_start = Instant::now();
+        push_log(&logs, log_start, "[harness] log capture started");
 
         // Drain stdout in background (capture only, no printing)
         let logs_stdout = Arc::clone(&logs);
@@ -276,11 +304,7 @@ impl TestSite {
             for line in reader.lines() {
                 match line {
                     Ok(l) => {
-                        let entry = LogLine {
-                            ts: log_start_stdout.elapsed(),
-                            line: format!("[stdout] {l}"),
-                        };
-                        logs_stdout.lock().unwrap().push(entry);
+                        push_log(&logs_stdout, log_start_stdout, format!("[stdout] {l}"));
                     }
                     Err(_) => break,
                 }
@@ -294,11 +318,7 @@ impl TestSite {
             for line in stderr_reader.lines() {
                 match line {
                     Ok(l) => {
-                        let entry = LogLine {
-                            ts: log_start_stderr.elapsed(),
-                            line: format!("[stderr] {l}"),
-                        };
-                        logs_stderr.lock().unwrap().push(entry);
+                        push_log(&logs_stderr, log_start_stderr, format!("[stderr] {l}"));
                     }
                     Err(_) => break,
                 }
@@ -327,6 +347,7 @@ impl TestSite {
             client,
             _unix_socket_dir: unix_socket_dir,
             logs,
+            log_start,
             test_id,
         }
     }
@@ -354,6 +375,7 @@ impl TestSite {
     pub fn get(&self, path: &str) -> Response {
         let url = format!("http://127.0.0.1:{}{}", self.port, path);
         debug!(%url, "Issuing GET request");
+        push_log(&self.logs, self.log_start, format!("[harness] GET {url}"));
 
         fn format_error_chain(err: &dyn std::error::Error) -> String {
             let mut out = err.to_string();
@@ -398,7 +420,26 @@ impl TestSite {
                     return Response { status, body, url };
                 }
                 Err(e) => {
+                    push_log(
+                        &self.logs,
+                        self.log_start,
+                        format!(
+                            "[harness] GET error attempt {}/{}: {}",
+                            attempt + 1,
+                            max_retries,
+                            e
+                        ),
+                    );
                     if is_connection_reset(&e) && attempt + 1 < max_retries {
+                        push_log(
+                            &self.logs,
+                            self.log_start,
+                            format!(
+                                "[harness] retrying after connection reset attempt {}/{}",
+                                attempt + 1,
+                                max_retries
+                            ),
+                        );
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
@@ -508,24 +549,89 @@ impl TestSite {
 
 impl Drop for TestSite {
     fn drop(&mut self) {
+        push_log(
+            &self.logs,
+            self.log_start,
+            format!("[harness] drop: cleaning up ddc pid={}", self.child.id()),
+        );
+
+        match self.child.try_wait() {
+            Ok(Some(status)) => {
+                push_log(
+                    &self.logs,
+                    self.log_start,
+                    format!("[harness] drop: ddc already exited status={status}"),
+                );
+                let statuses =
+                    TEST_EXIT_STATUS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+                statuses.lock().unwrap().insert(self.test_id, status);
+            }
+            Ok(None) => {
+                push_log(&self.logs, self.log_start, "[harness] drop: killing ddc");
+                if let Err(err) = self.child.kill() {
+                    push_log(
+                        &self.logs,
+                        self.log_start,
+                        format!("[harness] drop: kill failed: {err}"),
+                    );
+                }
+
+                match self.child.wait() {
+                    Ok(status) => {
+                        push_log(
+                            &self.logs,
+                            self.log_start,
+                            format!("[harness] drop: wait complete status={status}"),
+                        );
+                        let statuses = TEST_EXIT_STATUS
+                            .get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+                        statuses.lock().unwrap().insert(self.test_id, status);
+                    }
+                    Err(err) => {
+                        push_log(
+                            &self.logs,
+                            self.log_start,
+                            format!("[harness] drop: wait failed: {err}"),
+                        );
+                    }
+                }
+            }
+            Err(err) => {
+                push_log(
+                    &self.logs,
+                    self.log_start,
+                    format!("[harness] drop: try_wait failed: {err}"),
+                );
+            }
+        }
+
         let logs = self.logs.lock().unwrap().clone();
         let logs_map = TEST_LOGS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
         logs_map.lock().unwrap().insert(self.test_id, logs);
-
-        let _ = self.child.kill();
-        if let Ok(status) = self.child.wait() {
-            let statuses =
-                TEST_EXIT_STATUS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-            statuses.lock().unwrap().insert(self.test_id, status);
-        }
     }
 }
 
 fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {
-    lines.sort_by_key(|l| l.ts);
+    lines.sort_by_key(|l| {
+        l.abs
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| Duration::from_secs(0))
+    });
     lines
         .into_iter()
-        .map(|l| format!("{:>8.3}s {}", l.ts.as_secs_f64(), l.line))
+        .map(|l| {
+            let abs = l
+                .abs
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_else(|_| Duration::from_secs(0));
+            format!(
+                "{:>10}.{:03}Z {:>8.3}s {}",
+                abs.as_secs(),
+                abs.subsec_millis(),
+                l.ts.as_secs_f64(),
+                l.line
+            )
+        })
         .collect()
 }
 

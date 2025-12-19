@@ -344,14 +344,18 @@ pub fn init_tui_tracing(event_tx: Sender<LogEvent>) -> FilterHandle {
 /// Initialize tracing for non-TUI mode (uses RUST_LOG env var)
 pub fn init_standard_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let use_utc = std::env::var("DDC_LOG_TIME")
+        .map(|v| v.eq_ignore_ascii_case("utc"))
+        .unwrap_or(false);
+
+    let fmt_layer = tracing_subscriber::fmt::layer().with_target(true).compact();
+    let fmt_layer = if use_utc {
+        fmt_layer.with_timer(tracing_subscriber::fmt::time::SystemTime)
+    } else {
+        fmt_layer.with_timer(tracing_subscriber::fmt::time::uptime())
+    };
 
     tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_target(true)
-                .with_timer(tracing_subscriber::fmt::time::uptime())
-                .compact()
-                .with_filter(filter),
-        )
+        .with(fmt_layer.with_filter(filter))
         .init();
 }

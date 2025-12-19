@@ -134,15 +134,15 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
                 println!("  {}", msg.red());
 
                 // Print server logs on failure
-                if let Some(status) = get_exit_status_for(test_id) {
-                    println!("  {} {}", "Server exit status:".yellow(), status);
-                }
                 let logs = get_logs_for(test_id);
                 if !logs.is_empty() {
                     println!("  {} ({} lines):", "Server logs".yellow(), logs.len());
                     for line in &logs {
                         println!("    {}", line);
                     }
+                }
+                if let Some(status) = get_exit_status_for(test_id) {
+                    println!("  {} {}", "Server exit status:".yellow(), status);
                 }
 
                 failed += 1;

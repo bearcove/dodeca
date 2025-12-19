@@ -46,6 +46,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, SystemTime};
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command;
 use tracing::{debug, info, warn};
 /// Global hub host for all cells.
@@ -65,6 +66,42 @@ pub fn set_quiet_mode(quiet: bool) {
 /// Check if quiet mode is enabled.
 fn is_quiet_mode() -> bool {
     QUIET_MODE.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+fn spawn_stdio_pump<R>(label: String, stream: &'static str, reader: R)
+where
+    R: AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(reader);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line).await {
+                Ok(0) => {
+                    debug!(cell = %label, %stream, "cell stdio EOF");
+                    break;
+                }
+                Ok(_) => {
+                    let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
+                    info!(cell = %label, %stream, "{trimmed}");
+                }
+                Err(e) => {
+                    warn!(cell = %label, %stream, error = ?e, "cell stdio read failed");
+                    break;
+                }
+            }
+        }
+    });
+}
+
+fn capture_cell_stdio(label: &str, child: &mut tokio::process::Child) {
+    if let Some(stdout) = child.stdout.take() {
+        spawn_stdio_pump(label.to_string(), "stdout", stdout);
+    }
+    if let Some(stderr) = child.stderr.take() {
+        spawn_stdio_pump(label.to_string(), "stderr", stderr);
+    }
 }
 
 // ============================================================================
@@ -401,10 +438,10 @@ where
         cmd.stdout(Stdio::null()).stderr(Stdio::null());
         cmd.env("DODECA_QUIET", "1");
     } else {
-        cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     }
 
-    let child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
+    let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
         Ok(child) => child,
         Err(e) => {
             warn!("failed to spawn {}: {}", executable, e);
@@ -415,6 +452,10 @@ where
     // Register child PID for SIGUSR1 forwarding
     if let Some(pid) = child.id() {
         dodeca_debug::register_child_pid(pid);
+    }
+
+    if !is_quiet_mode() {
+        capture_cell_stdio(binary_name, &mut child);
     }
 
     // Close our end of the peer's doorbell
@@ -639,15 +680,13 @@ impl CellRegistry {
             .arg(format!("--doorbell-fd={}", peer_doorbell_fd))
             .stdin(Stdio::null());
 
-        // Cells communicate with the host via RPC, not stdout/stderr.
-        // Always use null stdio to prevent fd leaks when the host is spawned via
-        // Command::output() or similar (which creates pipes that cells would inherit).
-        //
-        // Diagnostic output from cells isn't necessary - the host process logs what matters.
-        // TEMPORARY: inherit stderr for debugging ur-taking-me-with-you
-        cmd.stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .env("DODECA_QUIET", "1");
+        if is_quiet_mode() {
+            cmd.stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .env("DODECA_QUIET", "1");
+        } else {
+            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        }
 
         let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
             Ok(child) => child,
@@ -660,6 +699,10 @@ impl CellRegistry {
         // Register child PID for SIGUSR1 forwarding (debugging)
         if let Some(pid) = child.id() {
             dodeca_debug::register_child_pid(pid);
+        }
+
+        if !is_quiet_mode() {
+            capture_cell_stdio(binary_name, &mut child);
         }
 
         // Close our end of the peer's doorbell (cell inherits it)
