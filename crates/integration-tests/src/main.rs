@@ -12,7 +12,10 @@
 
 mod harness;
 
-use harness::{TestSite, clear_test_state, get_logs_for, get_setup_for, set_current_test_id};
+use harness::{
+    TestSite, clear_test_state, get_exit_status_for, get_logs_for, get_setup_for,
+    set_current_test_id,
+};
 use owo_colors::OwoColorize;
 use std::panic::{self, AssertUnwindSafe};
 use std::time::{Duration, Instant};
@@ -118,6 +121,9 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
                 println!("  {}", msg.red());
 
                 // Print server logs on failure
+                if let Some(status) = get_exit_status_for(test_id) {
+                    println!("  {} {}", "Server exit status:".yellow(), status);
+                }
                 let logs = get_logs_for(test_id);
                 if !logs.is_empty() {
                     println!("  {} ({} lines):", "Server logs".yellow(), logs.len());

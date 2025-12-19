@@ -33,6 +33,8 @@ thread_local! {
 }
 
 static TEST_LOGS: OnceLock<Mutex<std::collections::HashMap<u64, Vec<LogLine>>>> = OnceLock::new();
+static TEST_EXIT_STATUS: OnceLock<Mutex<std::collections::HashMap<u64, std::process::ExitStatus>>> =
+    OnceLock::new();
 static TEST_SETUP: OnceLock<Mutex<std::collections::HashMap<u64, Duration>>> = OnceLock::new();
 
 #[derive(Clone)]
@@ -59,6 +61,12 @@ pub fn get_logs_for(id: u64) -> Vec<String> {
     let logs = TEST_LOGS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
     let lines = logs.lock().unwrap().get(&id).cloned().unwrap_or_default();
     render_logs(lines)
+}
+
+/// Get the exit status for a test id (if the server already exited)
+pub fn get_exit_status_for(id: u64) -> Option<std::process::ExitStatus> {
+    let statuses = TEST_EXIT_STATUS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    statuses.lock().unwrap().get(&id).copied()
 }
 
 /// Get the setup duration for a test id
@@ -505,7 +513,11 @@ impl Drop for TestSite {
         logs_map.lock().unwrap().insert(self.test_id, logs);
 
         let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Ok(status) = self.child.wait() {
+            let statuses =
+                TEST_EXIT_STATUS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+            statuses.lock().unwrap().insert(self.test_id, status);
+        }
     }
 }
 
