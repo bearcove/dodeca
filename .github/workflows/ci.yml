@@ -425,6 +425,9 @@ jobs:
         env: 
           DODECA_BIN: ${{ github.workspace }}/dist/ddc
           DODECA_CELL_PATH: ${{ github.workspace }}/dist
+          DODECA_RETRIES: "1"
+          DODECA_REQWEST_POOL: "off"
+          RUST_LOG: integration_tests=debug,reqwest=debug,hyper=debug,hyper_util=debug
 
 
   build-ddc-macos-arm64: 
@@ -767,6 +770,9 @@ jobs:
         env: 
           DODECA_BIN: ${{ github.workspace }}/dist/ddc
           DODECA_CELL_PATH: ${{ github.workspace }}/dist
+          DODECA_RETRIES: "1"
+          DODECA_REQWEST_POOL: "off"
+          RUST_LOG: integration_tests=debug,reqwest=debug,hyper=debug,hyper_util=debug
 
 
   release: 
@@ -807,4 +813,3 @@ jobs:
         name: Update Homebrew tap
         run: "bash scripts/update-homebrew.sh \"${{ github.ref_name }}\""
         shell: bash
-
