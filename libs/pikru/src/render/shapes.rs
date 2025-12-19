@@ -26,6 +26,53 @@ use super::types::{ClassName, ObjectStyle, PointIn, PositionedText, RenderedObje
 
 use enum_dispatch::enum_dispatch;
 
+/// Shorten a waypoint list from the start (for start arrows)
+/// cref: pik_chop (pikchr.c:1958-1970)
+fn chop_waypoint_start(waypoints: &mut Vec<PointIn>, amount: Inches) {
+    if waypoints.len() < 2 {
+        return;
+    }
+    let from = waypoints[1];
+    let to = waypoints[0];
+    let delta = to - from;
+    let dist = (delta.dx.0 * delta.dx.0 + delta.dy.0 * delta.dy.0).sqrt();
+
+    if dist <= amount.0 {
+        waypoints[0] = from;
+        return;
+    }
+
+    let r = 1.0 - amount.0 / dist;
+    waypoints[0] = Point::new(
+        Inches(from.x.0 + r * delta.dx.0),
+        Inches(from.y.0 + r * delta.dy.0),
+    );
+}
+
+/// Shorten a waypoint list from the end (for end arrows)
+/// cref: pik_chop (pikchr.c:1958-1970)
+fn chop_waypoint_end(waypoints: &mut Vec<PointIn>, amount: Inches) {
+    if waypoints.len() < 2 {
+        return;
+    }
+    let n = waypoints.len();
+    let from = waypoints[n - 2];
+    let to = waypoints[n - 1];
+    let delta = to - from;
+    let dist = (delta.dx.0 * delta.dx.0 + delta.dy.0 * delta.dy.0).sqrt();
+
+    if dist <= amount.0 {
+        waypoints[n - 1] = from;
+        return;
+    }
+
+    let r = 1.0 - amount.0 / dist;
+    waypoints[n - 1] = Point::new(
+        Inches(from.x.0 + r * delta.dx.0),
+        Inches(from.y.0 + r * delta.dy.0),
+    );
+}
+
 /// Common behavior for all shapes
 #[enum_dispatch]
 pub trait Shape {
@@ -1349,17 +1396,15 @@ impl Shape for SplineShape {
         }
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
-
-        // cref: splineRender (pikchr.c:1716-1718) - if n<3 or r<=0, use lineRender
-        let path_data = if self.waypoints.len() < 3 || self.radius.raw() <= 0.0 {
-            create_line_path(&self.waypoints, scaler, offset_x, max_y)
-        } else {
-            create_spline_path(&self.waypoints, scaler, offset_x, max_y, self.radius)
-        };
         let arrow_len_px = scaler.px(arrow_len);
         let arrow_wid_px = scaler.px(arrow_wid);
 
         let n = self.waypoints.len();
+
+        // cref: pik_draw_arrowhead (pikchr.c:1977-2004) - draws arrowhead first, then shortens endpoint
+        // cref: pik_chop (pikchr.c:1958-1970) - shortens line by h/2 where h = arrowht
+        // In C pikchr, pik_draw_arrowhead modifies aPath in place before radiusPath is called.
+        // We need to shorten waypoints by half the arrow height for the path rendering.
         if self.style.arrow_end && n >= 2 {
             let p1 = self.waypoints[n - 2].to_svg(scaler, offset_x, max_y);
             let p2 = self.waypoints[n - 1].to_svg(scaler, offset_x, max_y);
@@ -1378,6 +1423,27 @@ impl Shape for SplineShape {
                 nodes.push(SvgNode::Polygon(arrowhead));
             }
         }
+
+        // Clone waypoints and shorten endpoints where arrows exist
+        // cref: pik_chop shortens by h/2 where h = p->hArrow * pObj->sw
+        // Since hArrow = arrowht/thickness and we multiply by sw (stroke width),
+        // and typically sw = thickness, the result is arrowht/2
+        let mut waypoints = self.waypoints.clone();
+        let chop_amount = arrow_len / 2.0;
+
+        if self.style.arrow_start && waypoints.len() >= 2 {
+            chop_waypoint_start(&mut waypoints, chop_amount);
+        }
+        if self.style.arrow_end && waypoints.len() >= 2 {
+            chop_waypoint_end(&mut waypoints, chop_amount);
+        }
+
+        // cref: splineRender (pikchr.c:1716-1718) - if n<3 or r<=0, use lineRender
+        let path_data = if waypoints.len() < 3 || self.radius.raw() <= 0.0 {
+            create_line_path(&waypoints, scaler, offset_x, max_y)
+        } else {
+            create_spline_path(&waypoints, scaler, offset_x, max_y, self.radius)
+        };
 
         let path = Path {
             d: Some(path_data),
