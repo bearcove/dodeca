@@ -353,20 +353,45 @@ impl TestSite {
             out
         }
 
-        // Server should only accept connections when it's ready to serve them.
-        // No retries - if the request fails, it's a real failure.
-        match self.client.get(&url).send() {
-            Ok(resp) => {
-                let status = resp.status().as_u16();
-                let body = resp.text().unwrap_or_default();
-                debug!(%url, status, "Received response");
-                Response { status, body, url }
+        // Retry connection reset errors (macOS flakiness) up to 20 times.
+        fn is_connection_reset(err: &reqwest::Error) -> bool {
+            let mut cur: Option<&(dyn std::error::Error + 'static)> = Some(err);
+            while let Some(e) = cur {
+                if let Some(io) = e.downcast_ref::<std::io::Error>() {
+                    if io.kind() == std::io::ErrorKind::ConnectionReset {
+                        return true;
+                    }
+                }
+                let msg = e.to_string();
+                if msg.contains("Connection reset by peer") || msg.contains("os error 54") {
+                    return true;
+                }
+                cur = std::error::Error::source(e);
             }
-            Err(e) => {
-                error!(%url, error = ?e, "GET failed");
-                panic!("GET {} failed:\n{:?}\n{}", url, e, format_error_chain(&e));
+            false
+        }
+
+        for attempt in 0..=20 {
+            match self.client.get(&url).send() {
+                Ok(resp) => {
+                    let status = resp.status().as_u16();
+                    let body = resp.text().unwrap_or_default();
+                    debug!(%url, status, "Received response");
+                    return Response { status, body, url };
+                }
+                Err(e) => {
+                    if is_connection_reset(&e) && attempt < 20 {
+                        std::thread::sleep(Duration::from_millis(200));
+                        continue;
+                    }
+
+                    error!(%url, error = ?e, "GET failed");
+                    panic!("GET {} failed:\n{:?}\n{}", url, e, format_error_chain(&e));
+                }
             }
         }
+
+        unreachable!("retry loop should always return or panic");
     }
 
     /// Wait for a path to return 200, retrying until timeout

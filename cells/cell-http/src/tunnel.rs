@@ -27,6 +27,7 @@ impl TcpTunnel for TcpTunnelImpl {
     async fn open(&self) -> TunnelHandle {
         let (handle, stream) = self.session.open_tunnel_stream();
         let channel_id = handle.channel_id;
+        tracing::info!(channel_id, "HTTP tunnel opened");
 
         let service = self.app.clone();
         tokio::spawn(async move {
@@ -37,9 +38,9 @@ impl TcpTunnel for TcpTunnelImpl {
                 )
                 .await
             {
-                tracing::debug!(channel_id, error = %e, "HTTP connection error");
+                tracing::warn!(channel_id, error = %e, "HTTP connection error");
             }
-            tracing::debug!(channel_id, "HTTP connection finished");
+            tracing::info!(channel_id, "HTTP connection finished");
         });
 
         TunnelHandle { channel_id }

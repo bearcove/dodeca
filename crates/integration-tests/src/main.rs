@@ -259,12 +259,6 @@ fn collect_tests() -> Vec<Test> {
     vec![
         // basic tests
         Test {
-            name: "all_pages_return_200",
-            module: "basic",
-            func: TestFn::Sync(basic::all_pages_return_200),
-            ignored: false,
-        },
-        Test {
             name: "nonexistent_page_returns_404",
             module: "basic",
             func: TestFn::Sync(basic::nonexistent_page_returns_404),
@@ -280,6 +274,12 @@ fn collect_tests() -> Vec<Test> {
             name: "pagefind_files_served",
             module: "basic",
             func: TestFn::Sync(basic::pagefind_files_served),
+            ignored: false,
+        },
+        Test {
+            name: "all_pages_return_200",
+            module: "basic",
+            func: TestFn::Sync(basic::all_pages_return_200),
             ignored: false,
         },
         // content tests

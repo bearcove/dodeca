@@ -252,6 +252,23 @@ pub async fn start_cell_server_with_shutdown(
     // This replaces the basic dispatcher from cells.rs with one that includes ContentService
     session.set_dispatcher(create_http_cell_dispatcher(content_service));
 
+    // Wait for required cells + revision readiness before accepting connections.
+    let required_cells = ["ddc-cell-http", "ddc-cell-markdown"];
+    let timeout = std::time::Duration::from_secs(10);
+    tracing::info!(
+        "Waiting for required cells to be ready: {:?}",
+        required_cells
+    );
+    if let Err(e) = crate::cells::wait_for_cells_ready(&required_cells, timeout).await {
+        tracing::error!("Required cells not ready: {}", e);
+        return Ok(());
+    }
+    tracing::info!("Required cells ready");
+
+    tracing::info!("Waiting for revision readiness");
+    server.wait_revision_ready().await;
+    tracing::info!("Revision ready");
+
     // Merge all listeners into a single stream
     let mut accept_stream = stream::select_all(listeners.into_iter().map(TcpListenerStream::new));
 
@@ -265,31 +282,15 @@ pub async fn start_cell_server_with_shutdown(
                 match accept_result {
                     Some(Ok(stream)) => {
                         let addr = stream.peer_addr().ok();
-                        tracing::debug!("Accepted browser connection from {:?}", addr);
+                        tracing::info!(?addr, "Accepted browser connection");
                         let session = session.clone();
-                        let server = server.clone();
                         tokio::spawn(async move {
-                            let required_cells = ["ddc-cell-http", "ddc-cell-markdown"];
-                            let timeout = std::time::Duration::from_secs(10);
-
-                            tracing::info!(
-                                "Waiting for required cells to be ready: {:?}",
-                                required_cells
-                            );
-                            if let Err(e) = crate::cells::wait_for_cells_ready(&required_cells, timeout).await {
-                                tracing::error!("Required cells not ready: {}", e);
-                                return;
-                            }
-                            tracing::info!("Required cells ready");
-
-                            tracing::info!("Waiting for revision readiness");
-                            server.wait_revision_ready().await;
-                            tracing::info!("Revision ready");
-
                             // Create TcpTunnelClient per connection
                             let tunnel_client = TcpTunnelClient::new(session.clone());
-                            if let Err(e) = handle_browser_connection(stream, tunnel_client, session).await {
-                                tracing::error!("Failed to handle browser connection: {:?}", e);
+                            if let Err(e) =
+                                handle_browser_connection(stream, tunnel_client, session).await
+                            {
+                                tracing::warn!("Failed to handle browser connection: {:?}", e);
                             }
                         });
                     }
@@ -347,7 +348,7 @@ async fn handle_browser_connection(
         .map_err(|e| eyre::eyre!("Failed to open tunnel: {:?}", e))?;
 
     let channel_id = handle.channel_id;
-    tracing::debug!(channel_id, "Tunnel opened for browser connection");
+    tracing::info!(channel_id, "Tunnel opened for browser connection");
 
     // Bridge browser <-> tunnel with backpressure.
     let mut tunnel_stream = session.tunnel_stream(channel_id);
@@ -355,7 +356,7 @@ async fn handle_browser_connection(
     tokio::spawn(async move {
         match tokio::io::copy_bidirectional(&mut browser_stream, &mut tunnel_stream).await {
             Ok((to_tunnel, to_browser)) => {
-                tracing::debug!(
+                tracing::info!(
                     channel_id,
                     to_tunnel,
                     to_browser,
@@ -363,7 +364,7 @@ async fn handle_browser_connection(
                 );
             }
             Err(e) => {
-                tracing::debug!(channel_id, error = %e, "browser <-> tunnel error");
+                tracing::warn!(channel_id, error = %e, "browser <-> tunnel error");
             }
         }
     });
