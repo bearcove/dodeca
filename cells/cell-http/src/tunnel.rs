@@ -4,6 +4,7 @@
 //! Each tunnel serves HTTP directly on a first-class rapace `TunnelStream`.
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use rapace::RpcSession;
 
@@ -31,6 +32,8 @@ impl TcpTunnel for TcpTunnelImpl {
 
         let service = self.app.clone();
         tokio::spawn(async move {
+            let started_at = Instant::now();
+            tracing::info!(channel_id, "HTTP connection starting");
             if let Err(e) = hyper::server::conn::http1::Builder::new()
                 .serve_connection(
                     hyper_util::rt::TokioIo::new(stream),
@@ -38,9 +41,18 @@ impl TcpTunnel for TcpTunnelImpl {
                 )
                 .await
             {
-                tracing::warn!(channel_id, error = %e, "HTTP connection error");
+                tracing::warn!(
+                    channel_id,
+                    error = %e,
+                    elapsed_ms = started_at.elapsed().as_millis(),
+                    "HTTP connection error"
+                );
             }
-            tracing::info!(channel_id, "HTTP connection finished");
+            tracing::info!(
+                channel_id,
+                elapsed_ms = started_at.elapsed().as_millis(),
+                "HTTP connection finished"
+            );
         });
 
         TunnelHandle { channel_id }
