@@ -1478,22 +1478,23 @@ impl Shape for SplineShape {
 
         // cref: pik_draw_arrowhead (pikchr.c:1977-2004) - draws arrowhead first, then shortens endpoint
         // cref: pik_chop (pikchr.c:1958-1970) - shortens line by h/2 where h = arrowht
+        // cref: lineRender (pikchr.c:4271-4276) - larrow first, then rarrow
         // In C pikchr, pik_draw_arrowhead modifies aPath in place before radiusPath is called.
         // We need to shorten waypoints by half the arrow height for the path rendering.
-        if self.style.arrow_end && n >= 2 {
-            let p1 = self.waypoints[n - 2].to_svg(scaler, offset_x, max_y);
-            let p2 = self.waypoints[n - 1].to_svg(scaler, offset_x, max_y);
-            if let Some(arrowhead) =
-                render_arrowhead_dom(p1, p2, &self.style, arrow_len_px, arrow_wid_px)
-            {
-                nodes.push(SvgNode::Polygon(arrowhead));
-            }
-        }
         if self.style.arrow_start && n >= 2 {
             let p1 = self.waypoints[0].to_svg(scaler, offset_x, max_y);
             let p2 = self.waypoints[1].to_svg(scaler, offset_x, max_y);
             if let Some(arrowhead) =
                 render_arrowhead_dom(p2, p1, &self.style, arrow_len_px, arrow_wid_px)
+            {
+                nodes.push(SvgNode::Polygon(arrowhead));
+            }
+        }
+        if self.style.arrow_end && n >= 2 {
+            let p1 = self.waypoints[n - 2].to_svg(scaler, offset_x, max_y);
+            let p2 = self.waypoints[n - 1].to_svg(scaler, offset_x, max_y);
+            if let Some(arrowhead) =
+                render_arrowhead_dom(p1, p2, &self.style, arrow_len_px, arrow_wid_px)
             {
                 nodes.push(SvgNode::Polygon(arrowhead));
             }
