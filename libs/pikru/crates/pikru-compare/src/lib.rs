@@ -1,10 +1,13 @@
 //! SVG comparison utilities for testing pikchr output.
 //!
-//! This module provides shared comparison logic used by both the test harness
+//! This crate provides shared comparison logic used by both the test harness
 //! and the xtask visual comparison tool.
 
+use camino::Utf8Path;
 use facet_assert::{SameOptions, SameReport, check_same_with_report};
 use facet_svg::{Svg, facet_xml};
+use std::fs;
+use std::process::Command;
 
 /// Tolerance for floating-point comparisons (pikchr uses single precision)
 /// Keep this tight so genuine geometry differences don't get masked.
@@ -186,4 +189,52 @@ pub fn compare_outputs(c_output: &str, rust_output: &str, rust_is_err: bool) -> 
             details: format!("Opaque type comparison not supported: {}", type_name),
         },
     }
+}
+
+/// Write debug SVGs for a test so we can inspect C vs Rust output.
+///
+/// Writes to `{debug_dir}/{test_name}-c.svg` and `{debug_dir}/{test_name}-rust.svg`.
+/// Creates the debug directory if it doesn't exist.
+pub fn write_debug_svgs(debug_dir: &Utf8Path, test_name: &str, c_output: &str, rust_output: &str) {
+    // Create debug directory if it doesn't exist
+    fs::create_dir_all(debug_dir).ok();
+
+    let c_svg = extract_svg(c_output).unwrap_or("<!-- No SVG found -->");
+    let rust_svg = extract_svg(rust_output).unwrap_or("<!-- No SVG found -->");
+
+    let c_file = debug_dir.join(format!("{}-c.svg", test_name));
+    let rust_file = debug_dir.join(format!("{}-rust.svg", test_name));
+
+    if let Err(e) = fs::write(&c_file, c_svg) {
+        eprintln!("Warning: Failed to write {}: {}", c_file, e);
+    }
+    if let Err(e) = fs::write(&rust_file, rust_svg) {
+        eprintln!("Warning: Failed to write {}: {}", rust_file, e);
+    }
+}
+
+/// Run the C pikchr implementation and return its SVG output.
+pub fn run_c_pikchr(c_pikchr_path: &Utf8Path, source: &str) -> String {
+    use std::io::Write;
+
+    let mut child = Command::new(c_pikchr_path.as_str())
+        .arg("--svg-only")
+        .arg("/dev/stdin")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to run C pikchr");
+
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(source.as_bytes())
+        .unwrap();
+
+    let output = child
+        .wait_with_output()
+        .expect("failed to wait on C pikchr");
+    String::from_utf8_lossy(&output.stdout).to_string()
 }

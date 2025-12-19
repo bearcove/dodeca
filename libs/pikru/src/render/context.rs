@@ -169,29 +169,10 @@ impl RenderContext {
     /// Add an object to the context
     // cref: pik_after_adding_element (pikchr.c:7095) - p->eDir = pObj->outDir
     pub fn add_object(&mut self, obj: RenderedObject) {
-        tracing::debug!(
-            name = ?obj.name,
-            class = ?obj.class(),
-            old_cursor_x = self.position.x.0,
-            old_cursor_y = self.position.y.0,
-            "[add_object] BEFORE cursor update"
-        );
+        let old_cursor = self.position;
 
         // Update bounds
-        let old_min_y = self.bounds.min.y;
-        let old_max_y = self.bounds.max.y;
         expand_object_bounds(&mut self.bounds, &obj);
-        if self.bounds.min.y != old_min_y || self.bounds.max.y != old_max_y {
-            tracing::debug!(
-                obj_class = ?obj.class(),
-                obj_name = ?obj.name,
-                old_min_y = old_min_y.raw(),
-                new_min_y = self.bounds.min.y.raw(),
-                old_max_y = old_max_y.raw(),
-                new_max_y = self.bounds.max.y.raw(),
-                "bounds Y changed after adding object"
-            );
-        }
 
         // Update direction to match the object's direction
         // This handles cases like "arrow left" where the direction attribute
@@ -205,6 +186,12 @@ impl RenderContext {
             ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move => {
                 // For line-like objects, end() is correct
                 obj.end()
+            }
+            ClassName::Dot => {
+                // cref: dotCheck (pikchr.c:4042-4047)
+                // Dots set w = h = 0, so ptExit = ptAt (center, not edge)
+                // This means dots don't advance the cursor by their radius
+                obj.center()
             }
             _ => {
                 // For shaped objects, get edge point in current direction
@@ -221,13 +208,13 @@ impl RenderContext {
         self.position = exit_point;
 
         tracing::debug!(
-            name = ?obj.name,
-            class = ?obj.class(),
-            new_cursor_x = self.position.x.0,
-            new_cursor_y = self.position.y.0,
-            exit_x = exit_point.x.0,
-            exit_y = exit_point.y.0,
-            "[add_object] AFTER cursor update"
+            "{:?} {:?}: cursor ({:.3}, {:.3}) -> ({:.3}, {:.3})",
+            obj.class(),
+            obj.name.as_deref().unwrap_or("-"),
+            old_cursor.x.0,
+            old_cursor.y.0,
+            exit_point.x.0,
+            exit_point.y.0,
         );
 
         // Store named objects

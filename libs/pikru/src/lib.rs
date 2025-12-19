@@ -1,7 +1,6 @@
 use pest_derive::Parser;
 
 pub mod ast;
-pub mod compare;
 pub mod errors;
 pub mod macros;
 pub mod parse;
@@ -320,47 +319,6 @@ mod tests {
         );
     }
 
-    /// Generate visual comparison HTML (used by tests and pre-commit hooks)
-    pub fn generate_comparison_html() -> Result<(), Box<dyn std::error::Error>> {
-        use std::process::Command;
-
-        println!("Generating visual comparison HTML...");
-        let output = Command::new("cargo")
-            .args(&["run", "--package", "xtask", "--", "compare-html"])
-            .current_dir(env!("CARGO_MANIFEST_DIR"))
-            .output()?;
-
-        if !output.status.success() {
-            eprintln!("Failed to generate comparison HTML:");
-            eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-            return Err("xtask compare-html failed".into());
-        }
-
-        // Add the generated file to git if we're in a git repository
-        let git_add_output = Command::new("git")
-            .args(&["add", "comparison.html"])
-            .current_dir(env!("CARGO_MANIFEST_DIR"))
-            .output();
-
-        match git_add_output {
-            Ok(output) if output.status.success() => {
-                println!("Added comparison.html to git");
-            }
-            Ok(output) => {
-                eprintln!(
-                    "Warning: Failed to add comparison.html to git: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            Err(e) => {
-                eprintln!("Warning: Could not run git add: {}", e);
-            }
-        }
-
-        println!("Visual comparison HTML generated successfully");
-        Ok(())
-    }
-
     #[test]
     fn test_pathdata_serialization() {
         use facet_svg::{Path, PathData, Svg, SvgNode, facet_xml};
@@ -398,22 +356,6 @@ mod tests {
 
         // Should contain the path data
         assert!(xml.contains("M10,10L50,50"));
-    }
-
-    #[test]
-    fn z_update_visual_comparison() {
-        // Named with 'z_' prefix to run after other tests
-        // Generate comparison HTML after running unit tests
-        match generate_comparison_html() {
-            Ok(_) => println!("✅ Visual comparison HTML updated successfully"),
-            Err(e) => {
-                // Don't fail tests if comparison generation fails, just warn
-                eprintln!(
-                    "⚠️  Warning: Failed to update visual comparison HTML: {}",
-                    e
-                );
-            }
-        }
     }
 
     #[test]

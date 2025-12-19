@@ -1,6 +1,6 @@
-use datatest_stable::Utf8Path;
-use pikru::compare::{CompareResult, compare_outputs};
-use std::process::Command;
+use camino::Utf8Path;
+use datatest_stable;
+use pikru_compare::{CompareResult, compare_outputs, run_c_pikchr, write_debug_svgs};
 use std::sync::Once;
 
 static INIT_TRACING: Once = Once::new();
@@ -10,6 +10,9 @@ fn init_tracing() {
         tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .with_test_writer()
+            .without_time()
+            .with_level(false)
+            .with_target(false)
             .init();
     });
 }
@@ -17,30 +20,8 @@ fn init_tracing() {
 /// Path to the C pikchr binary (built from vendor/pikchr-c)
 const C_PIKCHR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/pikchr-c/pikchr");
 
-/// Run the C pikchr implementation and return its SVG output
-fn run_c_pikchr(source: &str) -> String {
-    let mut child = Command::new(C_PIKCHR)
-        .arg("--svg-only")
-        .arg("/dev/stdin")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .expect("failed to run C pikchr");
-
-    use std::io::Write;
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(source.as_bytes())
-        .unwrap();
-
-    let output = child
-        .wait_with_output()
-        .expect("failed to wait on C pikchr");
-    String::from_utf8(output.stdout).expect("C pikchr output not UTF-8")
-}
+/// Debug SVG output directory
+const DEBUG_SVG_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/debug-svg");
 
 fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
     init_tracing();
@@ -54,7 +35,8 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
     let source = std::fs::read_to_string(path)?;
 
     // Get expected output from C implementation
-    let c_output = run_c_pikchr(&source);
+    let c_pikchr_path = Utf8Path::new(C_PIKCHR);
+    let c_output = run_c_pikchr(c_pikchr_path, &source);
 
     // Get output from our Rust implementation
     let rust_result = pikru::pikchr(&source);
@@ -63,6 +45,13 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
         Ok(s) => (s, false),
         Err(e) => (format!("Error: {}", e), true),
     };
+
+    // Extract test name from path (e.g., "test23" from "test23.pikchr")
+    let test_name = path.file_stem().unwrap_or("unknown");
+
+    // Always write debug SVGs so we can inspect them
+    let debug_dir = Utf8Path::new(DEBUG_SVG_DIR);
+    write_debug_svgs(debug_dir, test_name, &c_output, &rust_output);
 
     // Use shared comparison logic
     let result = compare_outputs(&c_output, &rust_output, rust_is_err);
@@ -116,17 +105,4 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
 
 datatest_stable::harness! {
     { test = test_pikchr_file, root = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/pikchr-c/tests"), pattern = r"\.pikchr$" },
-}
-
-#[test]
-fn z_generate_comparison_html() {
-    // Named with 'z_' prefix to run after other tests
-    // Generate comparison HTML after running all pikchr tests
-    match pikru::generate_comparison_html() {
-        Ok(_) => println!("✅ Comparison HTML generated successfully"),
-        Err(e) => {
-            // Don't fail tests if comparison generation fails, just warn
-            eprintln!("⚠️  Warning: Failed to generate comparison HTML: {}", e);
-        }
-    }
 }

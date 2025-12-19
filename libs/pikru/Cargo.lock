@@ -2344,7 +2344,6 @@ dependencies = [
  "dissimilar",
  "enum_dispatch",
  "facet 0.32.3",
- "facet-assert",
  "facet-svg",
  "glam",
  "insta",
@@ -2352,12 +2351,24 @@ dependencies = [
  "pest",
  "pest_ascii_tree",
  "pest_derive",
+ "pikru-compare",
  "regex-lite",
  "rootcause",
  "thiserror",
  "time",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "pikru-compare"
+version = "0.1.0"
+dependencies = [
+ "camino",
+ "facet 0.32.3",
+ "facet-assert",
+ "facet-svg",
+ "miette",
 ]
 
 [[package]]
@@ -4032,7 +4043,9 @@ checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "camino",
  "pikru",
+ "pikru-compare",
  "rayon",
 ]
 

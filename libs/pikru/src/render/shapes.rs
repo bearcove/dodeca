@@ -1426,6 +1426,16 @@ impl Shape for DotShape {
         true
     }
 
+    // cref: dotCheck (pikchr.c:4042-4047)
+    // C sets w = h = 0 for dots, so ptEnter = ptExit = ptAt (center)
+    fn start(&self) -> PointIn {
+        self.center
+    }
+
+    fn end(&self) -> PointIn {
+        self.center
+    }
+
     fn render_svg(
         &self,
         _obj: &RenderedObject,

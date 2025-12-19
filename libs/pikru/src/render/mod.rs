@@ -1435,7 +1435,8 @@ fn render_object_stmt(
                     | ClassName::Arrow
                     | ClassName::Spline
                     | ClassName::Arc
-                    | ClassName::Move => last_obj.end(),
+                    | ClassName::Move
+                    | ClassName::Dot => last_obj.end(),
                     _ => {
                         // For box-like objects, calculate exit edge based on direction
                         let (hw, hh) = (last_obj.width() / 2.0, last_obj.height() / 2.0);
