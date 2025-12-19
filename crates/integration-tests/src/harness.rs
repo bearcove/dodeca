@@ -390,7 +390,7 @@ impl TestSite {
                     return Response { status, body, url };
                 }
                 Err(e) => {
-                    if is_connection_reset(&e) && attempt + 1 < MAX_RETRIES {
+                    if is_connection_reset(&e) && attempt + 1 < max_retries {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
