@@ -235,19 +235,33 @@ pub async fn start_cell_server_with_shutdown(
 
     tracing::debug!(port = bound_port, "BOUND");
 
+    let (session_tx, session_rx) = watch::channel::<Option<Arc<RpcSession>>>(None);
+
+    // Start accepting connections immediately; readiness is gated per-connection.
+    let accept_server = server.clone();
+    let accept_task = tokio::spawn(async move {
+        run_accept_loop(listeners, session_rx, accept_server, shutdown_rx).await
+    });
+
     // Ensure all cells are loaded (including http)
     let registry = all().await;
 
     // Check that the http cell is loaded
     if registry.http.is_none() {
+        accept_task.abort();
         return Err(eyre::eyre!(
             "HTTP cell not loaded. Build it with: cargo build -p cell-http --bin ddc-cell-http"
         ));
     }
 
     // Get the raw session to set up ContentService dispatcher
-    let session = get_cell_session("ddc-cell-http")
-        .ok_or_else(|| eyre::eyre!("HTTP cell session not found"))?;
+    let session = match get_cell_session("ddc-cell-http") {
+        Some(session) => session,
+        None => {
+            accept_task.abort();
+            return Err(eyre::eyre!("HTTP cell session not found"));
+        }
+    };
 
     tracing::info!("HTTP cell connected via hub");
 
@@ -257,6 +271,27 @@ pub async fn start_cell_server_with_shutdown(
     // Set up multi-service dispatcher on the http cell's session
     // This replaces the basic dispatcher from cells.rs with one that includes ContentService
     session.set_dispatcher(create_http_cell_dispatcher(content_service));
+
+    let _ = session_tx.send(Some(session.clone()));
+    tracing::info!("HTTP cell session ready (accept loop can proceed)");
+
+    match accept_task.await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(e) => Err(eyre::eyre!("Accept loop task failed: {}", e)),
+    }
+}
+
+async fn run_accept_loop(
+    listeners: Vec<TcpListener>,
+    session_rx: watch::Receiver<Option<Arc<RpcSession>>>,
+    server: Arc<SiteServer>,
+    mut shutdown_rx: Option<watch::Receiver<bool>>,
+) -> Result<()> {
+    tracing::info!(
+        session_ready = session_rx.borrow().is_some(),
+        "Accept loop starting"
+    );
 
     tracing::info!(
         "Accepting connections immediately; readiness gated per connection (cells={:?})",
@@ -298,17 +333,14 @@ pub async fn start_cell_server_with_shutdown(
                             elapsed_ms = accept_start.elapsed().as_millis(),
                             "Accepted browser connection"
                         );
-                        let session = session.clone();
+                        let session_rx = session_rx.clone();
                         let server = server.clone();
                         tokio::spawn(async move {
-                            // Create TcpTunnelClient per connection
-                            let tunnel_client = TcpTunnelClient::new(session.clone());
                             if let Err(e) =
                                 handle_browser_connection(
                                     conn_id,
                                     stream,
-                                    tunnel_client,
-                                    session,
+                                    session_rx,
                                     server,
                                 )
                                 .await
@@ -358,7 +390,6 @@ pub async fn start_cell_server_with_shutdown(
 
     // Cleanup: drop the stream to release listeners
     drop(accept_stream);
-
     Ok(())
 }
 
@@ -377,8 +408,7 @@ pub async fn start_cell_server(
 async fn handle_browser_connection(
     conn_id: u64,
     browser_stream: TcpStream,
-    tunnel_client: TcpTunnelClient,
-    session: Arc<RpcSession>,
+    mut session_rx: watch::Receiver<Option<Arc<RpcSession>>>,
     server: Arc<SiteServer>,
 ) -> Result<()> {
     let started_at = Instant::now();
@@ -390,6 +420,26 @@ async fn handle_browser_connection(
         ?local_addr,
         "handle_browser_connection: start"
     );
+
+    let session = if let Some(session) = session_rx.borrow().clone() {
+        session
+    } else {
+        tracing::info!(conn_id, "Waiting for HTTP cell session");
+        let wait_start = Instant::now();
+        loop {
+            session_rx.changed().await.ok();
+            if let Some(session) = session_rx.borrow().clone() {
+                tracing::info!(
+                    conn_id,
+                    elapsed_ms = wait_start.elapsed().as_millis(),
+                    "HTTP cell session ready (per-connection)"
+                );
+                break session;
+            }
+        }
+    };
+
+    let tunnel_client = TcpTunnelClient::new(session.clone());
 
     tracing::info!(conn_id, "Waiting for required cells (per-connection)");
     let required_start = Instant::now();
