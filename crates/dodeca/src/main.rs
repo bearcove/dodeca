@@ -1835,9 +1835,6 @@ async fn serve_plain(
     // SAFETY: We're single-threaded at this point (before spawning cells)
     unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
 
-    // Initialize cells and wait for ALL to be ready before doing anything
-    cells::init_and_wait_for_cells().await?;
-
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
     let cache_dir = parent_dir.join(".cache");
@@ -1856,6 +1853,54 @@ async fn serve_plain(
     // Create the site server
     let server = Arc::new(serve::SiteServer::new(render_options, stable_assets));
     let startup_revision = server.begin_revision("startup");
+
+    // Use the requested port (or default to 4000)
+    let requested_port: u16 = port.unwrap_or(4000);
+
+    // Find the cell path
+    let cell_path = cell_server::find_cell_path()?;
+
+    // Determine bind IPs based on --public flag or explicit 0.0.0.0 address
+    let bind_ips: Vec<std::net::Ipv4Addr> = if public_access || address == "0.0.0.0" {
+        // LAN mode: bind to localhost + all LAN interfaces
+        let mut ips = vec![std::net::Ipv4Addr::LOCALHOST];
+        ips.extend(tui::get_lan_ips());
+        ips
+    } else {
+        // Local mode: bind to the specified address only
+        let bind_ip = match address.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V4(ip)) => ip,
+            Ok(std::net::IpAddr::V6(_)) => std::net::Ipv4Addr::LOCALHOST,
+            Err(_) => std::net::Ipv4Addr::LOCALHOST,
+        };
+        vec![bind_ip]
+    };
+
+    // Create channel to receive actual bound port
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+
+    // Start the cell server in background ASAP so we can accept connections early.
+    let server_clone = server.clone();
+    tokio::spawn(async move {
+        if let Err(e) = cell_server::start_cell_server_with_shutdown(
+            server_clone,
+            cell_path,
+            bind_ips,
+            requested_port,
+            None,
+            Some(port_tx),
+            pre_bound_listener,
+        )
+        .await
+        {
+            eprintln!("Server error: {e}");
+        }
+    });
+
+    // Wait for the actual bound port
+    let actual_port = port_rx
+        .await
+        .map_err(|_| eyre!("Failed to get bound port"))?;
 
     // Load source files
     println!("{}", "Loading source files...".dimmed());
@@ -2107,54 +2152,6 @@ async fn serve_plain(
     });
 
     start_file_watcher(server.clone(), watcher_config.clone(), Some(on_event), None).await?;
-
-    // Use the requested port (or default to 4000)
-    let requested_port: u16 = port.unwrap_or(4000);
-
-    // Find the cell path
-    let cell_path = cell_server::find_cell_path()?;
-
-    // Determine bind IPs based on --public flag or explicit 0.0.0.0 address
-    let bind_ips: Vec<std::net::Ipv4Addr> = if public_access || address == "0.0.0.0" {
-        // LAN mode: bind to localhost + all LAN interfaces
-        let mut ips = vec![std::net::Ipv4Addr::LOCALHOST];
-        ips.extend(tui::get_lan_ips());
-        ips
-    } else {
-        // Local mode: bind to the specified address only
-        let bind_ip = match address.parse::<std::net::IpAddr>() {
-            Ok(std::net::IpAddr::V4(ip)) => ip,
-            Ok(std::net::IpAddr::V6(_)) => std::net::Ipv4Addr::LOCALHOST,
-            Err(_) => std::net::Ipv4Addr::LOCALHOST,
-        };
-        vec![bind_ip]
-    };
-
-    // Create channel to receive actual bound port
-    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
-
-    // Start the cell server in background
-    let server_clone = server.clone();
-    tokio::spawn(async move {
-        if let Err(e) = cell_server::start_cell_server_with_shutdown(
-            server_clone,
-            cell_path,
-            bind_ips,
-            requested_port,
-            None,
-            Some(port_tx),
-            pre_bound_listener,
-        )
-        .await
-        {
-            eprintln!("Server error: {e}");
-        }
-    });
-
-    // Wait for the actual bound port
-    let actual_port = port_rx
-        .await
-        .map_err(|_| eyre!("Failed to get bound port"))?;
 
     // Print server URLs (LISTENING_PORT already printed by start_cell_server)
     // Use "0.0.0.0" to trigger multi-interface display when --public is used
