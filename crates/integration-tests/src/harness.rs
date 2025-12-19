@@ -371,7 +371,8 @@ impl TestSite {
             false
         }
 
-        for attempt in 0..=20 {
+        const MAX_RETRIES: usize = 5;
+        for attempt in 0..MAX_RETRIES {
             match self.client.get(&url).send() {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
@@ -380,8 +381,8 @@ impl TestSite {
                     return Response { status, body, url };
                 }
                 Err(e) => {
-                    if is_connection_reset(&e) && attempt < 20 {
-                        std::thread::sleep(Duration::from_millis(200));
+                    if is_connection_reset(&e) && attempt + 1 < MAX_RETRIES {
+                        std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
 

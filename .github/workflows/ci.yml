@@ -133,7 +133,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
 
       - 
         name: Build cells
@@ -165,7 +165,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
 
       - 
         name: Build cells
@@ -197,7 +197,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
 
       - 
         name: Build cells
@@ -229,7 +229,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
 
       - 
         name: Build cells
@@ -261,7 +261,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
 
       - 
         name: Build cells
@@ -293,7 +293,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
 
       - 
         name: Build cells
@@ -475,7 +475,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
 
       - 
         name: Build cells
@@ -507,7 +507,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
 
       - 
         name: Build cells
@@ -539,7 +539,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
 
       - 
         name: Build cells
@@ -571,7 +571,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
 
       - 
         name: Build cells
@@ -603,7 +603,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
 
       - 
         name: Build cells
@@ -635,7 +635,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
-          cache-targets: "false"
+          cache-targets: "true"
 
       - 
         name: Build cells

@@ -127,6 +127,7 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
                 }
 
                 failed += 1;
+                break;
             }
         }
     }

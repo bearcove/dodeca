@@ -438,9 +438,14 @@ pub mod common {
             .with_inputs([("targets", target)])
     }
 
-    pub fn rust_cache() -> Step {
-        Step::uses("Rust cache", "Swatinem/rust-cache@v2")
-            .with_inputs([("cache-on-failure", "true"), ("cache-targets", "false")])
+    pub fn rust_cache_with_targets(cache_targets: bool) -> Step {
+        Step::uses("Rust cache", "Swatinem/rust-cache@v2").with_inputs([
+            ("cache-on-failure", "true"),
+            (
+                "cache-targets",
+                if cache_targets { "true" } else { "false" },
+            ),
+        ])
     }
 
     pub fn upload_artifact(name: impl Into<String>, path: impl Into<String>) -> Step {
@@ -513,7 +518,7 @@ pub fn build_ci_workflow() -> Workflow {
                     ("components", "clippy"),
                     ("targets", "wasm32-unknown-unknown"),
                 ]),
-                rust_cache(),
+                rust_cache_with_targets(false),
                 Step::run(
                     "Clippy",
                     "cargo clippy --all-features --all-targets -- -D warnings",
@@ -532,7 +537,7 @@ pub fn build_ci_workflow() -> Workflow {
                 checkout(),
                 Step::uses("Install Rust", "dtolnay/rust-toolchain@stable")
                     .with_inputs([("targets", "wasm32-unknown-unknown")]),
-                rust_cache(),
+                rust_cache_with_targets(false),
                 Step::run("Install wasm-pack", CI_LINUX.wasm_install),
                 Step::run("Build WASM", "cargo xtask wasm"),
                 upload_artifact(wasm_artifact.clone(), "crates/dodeca-devtools/pkg"),
@@ -552,7 +557,7 @@ pub fn build_ci_workflow() -> Workflow {
                 .steps([
                     checkout(),
                     Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
-                    rust_cache(),
+                    rust_cache_with_targets(false),
                     Step::run("Build ddc", "cargo build --release -p dodeca"),
                     // Only run binary unit tests here - integration tests (serve/) need cells
                     // and run in the integration phase after assembly
@@ -599,7 +604,7 @@ pub fn build_ci_workflow() -> Workflow {
                     .steps([
                         checkout(),
                         install_rust(),
-                        rust_cache(),
+                        rust_cache_with_targets(true),
                         Step::run("Build cells", format!("cargo build --release {build_args}")),
                         Step::run("Test cells", format!("cargo test --release {test_args}")),
                         upload_artifact(format!("cells-{short}-{group_num}"), binary_paths),
@@ -668,7 +673,7 @@ pub fn build_ci_workflow() -> Workflow {
                 .steps([
                     checkout(),
                     Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
-                    rust_cache(),
+                    rust_cache_with_targets(false),
                     Step::uses("Download ddc", "actions/download-artifact@v4")
                         .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
                     Step::uses("Download cells", "actions/download-artifact@v4").with_inputs([
