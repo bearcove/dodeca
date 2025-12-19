@@ -440,7 +440,7 @@ pub mod common {
 
     pub fn rust_cache() -> Step {
         Step::uses("Rust cache", "Swatinem/rust-cache@v2")
-            .with_inputs([("cache-on-failure", "true")])
+            .with_inputs([("cache-on-failure", "true"), ("cache-targets", "false")])
     }
 
     pub fn upload_artifact(name: impl Into<String>, path: impl Into<String>) -> Step {
@@ -552,7 +552,6 @@ pub fn build_ci_workflow() -> Workflow {
                 .steps([
                     checkout(),
                     Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
-                    Step::uses("Install Rust (nightly)", "dtolnay/rust-toolchain@nightly"),
                     rust_cache(),
                     Step::run("Build ddc", "cargo build --release -p dodeca"),
                     // Only run binary unit tests here - integration tests (serve/) need cells

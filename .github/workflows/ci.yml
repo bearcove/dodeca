@@ -44,6 +44,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Clippy
@@ -68,6 +69,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Install wasm-pack
@@ -95,13 +97,11 @@ jobs:
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - 
-        name: Install Rust (nightly)
-        uses: dtolnay/rust-toolchain@nightly
-      - 
         name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build ddc
@@ -133,6 +133,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build cells
@@ -164,6 +165,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build cells
@@ -195,6 +197,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build cells
@@ -226,6 +229,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build cells
@@ -257,6 +261,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build cells
@@ -288,6 +293,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build cells
@@ -386,6 +392,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Download ddc
@@ -432,13 +439,11 @@ jobs:
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - 
-        name: Install Rust (nightly)
-        uses: dtolnay/rust-toolchain@nightly
-      - 
         name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build ddc
@@ -470,6 +475,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build cells
@@ -501,6 +507,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build cells
@@ -532,6 +539,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build cells
@@ -563,6 +571,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build cells
@@ -594,6 +603,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build cells
@@ -625,6 +635,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build cells
@@ -723,6 +734,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Download ddc

@@ -357,10 +357,10 @@ impl TestSite {
         fn is_connection_reset(err: &reqwest::Error) -> bool {
             let mut cur: Option<&(dyn std::error::Error + 'static)> = Some(err);
             while let Some(e) = cur {
-                if let Some(io) = e.downcast_ref::<std::io::Error>() {
-                    if io.kind() == std::io::ErrorKind::ConnectionReset {
-                        return true;
-                    }
+                if let Some(io) = e.downcast_ref::<std::io::Error>()
+                    && io.kind() == std::io::ErrorKind::ConnectionReset
+                {
+                    return true;
                 }
                 let msg = e.to_string();
                 if msg.contains("Connection reset by peer") || msg.contains("os error 54") {
