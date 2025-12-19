@@ -297,10 +297,15 @@ impl TestSite {
             }
         });
 
-        let client = Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .expect("build http client");
+        let mut client_builder = Client::builder().timeout(Duration::from_secs(10));
+        if std::env::var("DODECA_REQWEST_POOL")
+            .as_deref()
+            .map(|v| v.eq_ignore_ascii_case("off") || v == "0")
+            .unwrap_or(false)
+        {
+            client_builder = client_builder.pool_max_idle_per_host(0);
+        }
+        let client = client_builder.build().expect("build http client");
 
         let setup_elapsed = setup_start.elapsed();
         let setup = TEST_SETUP.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
@@ -371,8 +376,12 @@ impl TestSite {
             false
         }
 
-        const MAX_RETRIES: usize = 5;
-        for attempt in 0..MAX_RETRIES {
+        let max_retries = std::env::var("DODECA_RETRIES")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(5);
+        let max_retries = max_retries.max(1);
+        for attempt in 0..max_retries {
             match self.client.get(&url).send() {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
