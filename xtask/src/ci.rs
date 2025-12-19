@@ -482,7 +482,7 @@ const CI_LINUX: CiRunner = CiRunner {
 const CI_MACOS: CiRunner = CiRunner {
     os: "macos",
     runner: "depot-macos-15",
-    wasm_install: "brew install wasm-pack",
+    wasm_install: "brew install wasm-pack xz",
 };
 
 /// Build the unified CI workflow (runs on PRs, main branch, and tags).
@@ -639,6 +639,10 @@ pub fn build_ci_workflow() -> Workflow {
                         ("name", wasm_artifact.clone()),
                         ("path", "crates/dodeca-devtools/pkg".into()),
                     ]),
+                    Step::run(
+                        "Install xz (macOS)",
+                        "if command -v brew >/dev/null 2>&1; then brew install xz; fi",
+                    ),
                     Step::run("List binaries", "ls -la target/release/"),
                     Step::run(
                         "Assemble archive",

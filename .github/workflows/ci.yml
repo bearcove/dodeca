@@ -344,6 +344,9 @@ jobs:
           path: crates/dodeca-devtools/pkg
 
       - 
+        name: Install xz (macOS)
+        run: if command -v brew >/dev/null 2>&1; then brew install xz; fi
+      - 
         name: List binaries
         run: ls -la target/release/
       - 
@@ -677,6 +680,9 @@ jobs:
           name: dodeca-devtools-wasm
           path: crates/dodeca-devtools/pkg
 
+      - 
+        name: Install xz (macOS)
+        run: if command -v brew >/dev/null 2>&1; then brew install xz; fi
       - 
         name: List binaries
         run: ls -la target/release/
