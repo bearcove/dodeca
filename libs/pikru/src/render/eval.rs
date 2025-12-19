@@ -468,16 +468,19 @@ pub fn endpoint_object_from_position(
     ctx: &RenderContext,
     pos: &Position,
 ) -> Option<EndpointObject> {
+    // cref: pik_position_from_place (pikchr.c) - only sets ppObj for direct object/edge references
+    // Calculated positions (between, above/below, bracket) do NOT set pFrom/pTo for autochop
     match pos {
         Position::Place(place) => endpoint_object_from_place(ctx, place),
         // Extract underlying Place from offset positions (e.g., C0.ne + (0.05,0))
+        // These still reference an object for autochop purposes
         Position::PlaceOffset(place, _, _, _) => endpoint_object_from_place(ctx, place),
-        // For "between A and B", use the first position's object for chop
-        Position::Between(_, pos1, _) => endpoint_object_from_position(ctx, pos1),
-        // For "above/below X", extract from X
-        Position::AboveBelow(_, _, inner) => endpoint_object_from_position(ctx, inner),
-        // For angle bracket <A, B>, use first position
-        Position::Bracket(_, pos1, _) => endpoint_object_from_position(ctx, pos1),
+        // cref: PL_BETWEEN in pik_position_from_place - does NOT set *ppObj
+        // For "between A and B", no object attachment (calculated position)
+        Position::Between(_, _, _) => None,
+        // cref: Other calculated positions also don't set object attachment
+        Position::AboveBelow(_, _, _) => None,
+        Position::Bracket(_, _, _) => None,
         _ => None,
     }
 }

@@ -731,6 +731,11 @@ fn render_object_stmt(
         Offset(OffsetIn, Direction),
         /// Absolute position (from "then to position")
         AbsolutePosition(PointIn),
+        /// Even with: take one coordinate from target based on direction
+        /// cref: pik_evenwith (pikchr.c) - sets x or y based on mTPath flag
+        /// For horizontal directions (Left/Right): set X = target.X, keep current Y
+        /// For vertical directions (Up/Down): set Y = target.Y, keep current X
+        EvenWith(Direction, PointIn),
     }
     let mut segments: Vec<Segment> = Vec::new();
     let mut current_segment_offset = OffsetIn::ZERO;
@@ -1082,8 +1087,27 @@ fn render_object_stmt(
                         }
                         in_then_segment = false;
                     }
-                    _ => {
-                        // Other clause types - handle as before by storing position targets
+                    ThenClause::DirectionUntilEven(dir, pos)
+                    | ThenClause::DirectionEven(dir, pos) => {
+                        // cref: pik_evenwith (pikchr.c) - sets coordinate based on direction
+                        // "then down until even with B5" - go down until Y = B5.Y
+                        // "then left even with B5" - go left until X = B5.X
+                        if current_segment_direction.is_some() {
+                            segments.push(Segment::Offset(
+                                current_segment_offset,
+                                current_segment_direction.unwrap(),
+                            ));
+                            current_segment_offset = OffsetIn::ZERO;
+                            current_segment_direction = None;
+                        }
+                        if let Ok(target) = eval_position(ctx, pos) {
+                            segments.push(Segment::EvenWith(*dir, target));
+                        }
+                        object_direction = *dir;
+                        in_then_segment = false;
+                    }
+                    ThenClause::Heading(_, _) => {
+                        // Heading clauses - not yet implemented
                     }
                 }
             }
@@ -1705,6 +1729,31 @@ fn render_object_stmt(
                                 "Rust: applying then absolute position"
                             );
                             *pos
+                        }
+                        Segment::EvenWith(dir, target) => {
+                            // cref: pik_evenwith (pikchr.c) - sets x or y based on mTPath flag
+                            // For vertical directions (Up/Down), Y is being changed, so take Y from target
+                            // For horizontal directions (Left/Right), X is being changed, so take X from target
+                            let next = match dir {
+                                Direction::Up | Direction::Down => {
+                                    PointIn::new(current_pos.x, target.y)
+                                }
+                                Direction::Left | Direction::Right => {
+                                    PointIn::new(target.x, current_pos.y)
+                                }
+                            };
+                            tracing::debug!(
+                                segment_index = i,
+                                direction = ?dir,
+                                current_pos_x = current_pos.x.raw(),
+                                current_pos_y = current_pos.y.raw(),
+                                target_x = target.x.raw(),
+                                target_y = target.y.raw(),
+                                next_x = next.x.raw(),
+                                next_y = next.y.raw(),
+                                "Rust: applying then even-with segment"
+                            );
+                            next
                         }
                     };
                     points.push(next);
