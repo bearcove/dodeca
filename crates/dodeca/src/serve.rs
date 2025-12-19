@@ -310,7 +310,7 @@ impl SiteServer {
             reason: Some(reason.clone()),
             started_at: Some(started_at),
         };
-        let _ = self.revision_tx.send(state);
+        self.revision_tx.send_replace(state);
         tracing::info!(
             generation = next_generation,
             reason = %reason,
@@ -339,7 +339,7 @@ impl SiteServer {
             reason: None,
             started_at: None,
         };
-        let _ = self.revision_tx.send(state);
+        self.revision_tx.send_replace(state);
         tracing::info!(
             generation = token.generation,
             elapsed_ms = token.started_at.elapsed().as_millis(),

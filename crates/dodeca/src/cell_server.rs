@@ -252,25 +252,6 @@ pub async fn start_cell_server_with_shutdown(
     // This replaces the basic dispatcher from cells.rs with one that includes ContentService
     session.set_dispatcher(create_http_cell_dispatcher(content_service));
 
-    // Wait for required cells to be ready before accepting connections
-    // This prevents race conditions where clients connect before cells can handle RPCs
-    let required_cells = ["ddc-cell-http", "ddc-cell-markdown"];
-    let timeout = std::time::Duration::from_secs(10);
-
-    tracing::info!(
-        "Waiting for required cells to be ready: {:?}",
-        required_cells
-    );
-    crate::cells::wait_for_cells_ready(&required_cells, timeout)
-        .await
-        .map_err(|e| eyre::eyre!("Required cells not ready: {}", e))?;
-    tracing::info!("Required cells ready");
-
-    // Wait for the current revision to be fully ready before accepting connections.
-    tracing::info!("Waiting for revision readiness");
-    server.wait_revision_ready().await;
-    tracing::info!("Revision ready");
-
     // Merge all listeners into a single stream
     let mut accept_stream = stream::select_all(listeners.into_iter().map(TcpListenerStream::new));
 
@@ -286,7 +267,25 @@ pub async fn start_cell_server_with_shutdown(
                         let addr = stream.peer_addr().ok();
                         tracing::debug!("Accepted browser connection from {:?}", addr);
                         let session = session.clone();
+                        let server = server.clone();
                         tokio::spawn(async move {
+                            let required_cells = ["ddc-cell-http", "ddc-cell-markdown"];
+                            let timeout = std::time::Duration::from_secs(10);
+
+                            tracing::info!(
+                                "Waiting for required cells to be ready: {:?}",
+                                required_cells
+                            );
+                            if let Err(e) = crate::cells::wait_for_cells_ready(&required_cells, timeout).await {
+                                tracing::error!("Required cells not ready: {}", e);
+                                return;
+                            }
+                            tracing::info!("Required cells ready");
+
+                            tracing::info!("Waiting for revision readiness");
+                            server.wait_revision_ready().await;
+                            tracing::info!("Revision ready");
+
                             // Create TcpTunnelClient per connection
                             let tunnel_client = TcpTunnelClient::new(session.clone());
                             if let Err(e) = handle_browser_connection(stream, tunnel_client, session).await {
