@@ -498,8 +498,8 @@ pub fn build_ci_workflow() -> Workflow {
     let mut jobs = IndexMap::new();
     let groups = cell_groups(3); // 3 cells per group
 
-    // Track all integration jobs (release depends on these passing)
-    let mut all_integration_jobs: Vec<String> = Vec::new();
+    // Track jobs required before release (assemble + integration per target)
+    let mut all_release_needs: Vec<String> = Vec::new();
 
     jobs.insert(
         "clippy".to_string(),
@@ -521,17 +521,28 @@ pub fn build_ci_workflow() -> Workflow {
             ]),
     );
 
+    let wasm_job_id = "build-wasm".to_string();
+    let wasm_artifact = "dodeca-devtools-wasm".to_string();
+    jobs.insert(
+        wasm_job_id.clone(),
+        Job::new(CI_LINUX.runner)
+            .name("Build WASM")
+            .timeout(30)
+            .steps([
+                checkout(),
+                Step::uses("Install Rust", "dtolnay/rust-toolchain@stable")
+                    .with_inputs([("targets", "wasm32-unknown-unknown")]),
+                rust_cache(),
+                Step::run("Install wasm-pack", CI_LINUX.wasm_install),
+                Step::run("Build WASM", "cargo xtask wasm"),
+                upload_artifact(wasm_artifact.clone(), "crates/dodeca-devtools/pkg"),
+            ]),
+    );
+
     for target in TARGETS {
         let short = target.short_name();
-        let is_macos = target.triple.contains("apple");
 
-        let wasm_install = if is_macos {
-            "brew install wasm-pack"
-        } else {
-            "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
-        };
-
-        // Job 1: Build ddc (main binary) + WASM
+        // Job 1: Build ddc (main binary)
         let ddc_job_id = format!("build-ddc-{short}");
         jobs.insert(
             ddc_job_id.clone(),
@@ -540,12 +551,9 @@ pub fn build_ci_workflow() -> Workflow {
                 .timeout(30)
                 .steps([
                     checkout(),
-                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable")
-                        .with_inputs([("targets", "wasm32-unknown-unknown")]),
+                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
                     Step::uses("Install Rust (nightly)", "dtolnay/rust-toolchain@nightly"),
                     rust_cache(),
-                    Step::run("Install wasm-pack", wasm_install),
-                    Step::run("Build WASM", "cargo xtask wasm"),
                     Step::run("Build ddc", "cargo build --release -p dodeca"),
                     // Only run binary unit tests here - integration tests (serve/) need cells
                     // and run in the integration phase after assembly
@@ -604,8 +612,9 @@ pub fn build_ci_workflow() -> Workflow {
 
         // Assembly job: download all artifacts and create archive
         let assemble_job_id = format!("assemble-{short}");
-        let mut assemble_needs = vec![ddc_job_id];
-        assemble_needs.extend(cell_group_jobs);
+        let cell_group_needs = cell_group_jobs.clone();
+        let mut assemble_needs = vec![ddc_job_id.clone(), wasm_job_id.clone()];
+        assemble_needs.extend(cell_group_needs.clone());
 
         jobs.insert(
             assemble_job_id.clone(),
@@ -626,6 +635,10 @@ pub fn build_ci_workflow() -> Workflow {
                         ("path", "target/release".into()),
                         ("merge-multiple", "true".into()),
                     ]),
+                    Step::uses("Download WASM", "actions/download-artifact@v4").with_inputs([
+                        ("name", wasm_artifact.clone()),
+                        ("path", "crates/dodeca-devtools/pkg".into()),
+                    ]),
                     Step::run("List binaries", "ls -la target/release/"),
                     Step::run(
                         "Assemble archive",
@@ -637,33 +650,36 @@ pub fn build_ci_workflow() -> Workflow {
                     ),
                 ]),
         );
+        all_release_needs.push(assemble_job_id.clone());
 
         // Integration tests
-        // Note: We need to build WASM because `cargo test` compiles the test harness,
-        // which depends on `dodeca`, which uses include_str!/include_bytes! for WASM files.
         let integration_job_id = format!("integration-{short}");
+        let mut integration_needs = vec![ddc_job_id.clone(), wasm_job_id.clone()];
+        integration_needs.extend(cell_group_needs);
         jobs.insert(
             integration_job_id.clone(),
             Job::new(target.runner)
                 .name(format!("Integration ({short})"))
                 .timeout(30)
-                .needs([assemble_job_id])
+                .needs(integration_needs)
                 .steps([
                     checkout(),
-                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable")
-                        .with_inputs([("targets", "wasm32-unknown-unknown")]),
-                    Step::uses("Install Rust (nightly)", "dtolnay/rust-toolchain@nightly"),
+                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
                     rust_cache(),
-                    Step::run("Install wasm-pack", wasm_install),
-                    Step::run("Build WASM", "cargo xtask wasm"),
-                    Step::uses("Download build", "actions/download-artifact@v4")
-                        .with_inputs([("name", format!("build-{short}")), ("path", "dist".into())]),
+                    Step::uses("Download ddc", "actions/download-artifact@v4")
+                        .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
+                    Step::uses("Download cells", "actions/download-artifact@v4").with_inputs([
+                        ("pattern", format!("cells-{short}-*")),
+                        ("path", "dist".into()),
+                        ("merge-multiple", "true".into()),
+                    ]),
+                    Step::uses("Download WASM", "actions/download-artifact@v4").with_inputs([
+                        ("name", wasm_artifact.clone()),
+                        ("path", "crates/dodeca-devtools/pkg".into()),
+                    ]),
                     Step::run(
-                        "Extract archive",
-                        format!(
-                            "tar -xf dist/dodeca-{}.tar.xz -C dist && chmod +x dist/ddc dist/ddc-cell-* && ls -la dist/",
-                            target.triple
-                        ),
+                        "Prepare binaries",
+                        "chmod +x dist/ddc dist/ddc-cell-* && ls -la dist/",
                     ),
                     Step::run(
                         "Run integration tests",
@@ -676,7 +692,7 @@ pub fn build_ci_workflow() -> Workflow {
                 ]),
         );
 
-        all_integration_jobs.push(integration_job_id);
+        all_release_needs.push(integration_job_id);
     }
 
     // Release job (only on tags, after integration tests pass)
@@ -685,7 +701,7 @@ pub fn build_ci_workflow() -> Workflow {
         Job::new("ubuntu-latest")
             .name("Release")
             .timeout(30)
-            .needs(all_integration_jobs)
+            .needs(all_release_needs)
             .if_condition("startsWith(github.ref, 'refs/tags/')")
             .env([
                 ("GH_TOKEN", "${{ secrets.GITHUB_TOKEN }}"),

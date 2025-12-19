@@ -74,12 +74,10 @@ case "$TARGET" in
         ;;
 esac
 
-# Copy and strip binary
+# Copy binaries
+BIN_FILES=()
 cp "${RELEASE_DIR}/${BINARY_NAME}" staging/
-if [[ -n "$STRIP_CMD" ]]; then
-    echo "Stripping: ${BINARY_NAME}"
-    $STRIP_CMD "staging/${BINARY_NAME}"
-fi
+BIN_FILES+=("${BINARY_NAME}")
 
 # Copy and strip rapace cell binaries
 for cell in "${RAPACE_CELLS[@]}"; do
@@ -91,22 +89,42 @@ for cell in "${RAPACE_CELLS[@]}"; do
     SRC="${RELEASE_DIR}/${BIN_NAME}"
     if [[ -f "$SRC" ]]; then
         cp "$SRC" staging/
-        if [[ -n "$STRIP_CMD" ]]; then
-            echo "Stripping: ${BIN_NAME}"
-            $STRIP_CMD "staging/${BIN_NAME}"
-        fi
+        BIN_FILES+=("${BIN_NAME}")
         echo "Copied rapace cell: ${BIN_NAME}"
     else
         echo "Warning: Rapace cell not found: $SRC"
     fi
 done
 
+# Copy devtools WASM/JS bundle if present
+DEVTOOLS_DIR="crates/dodeca-devtools/pkg"
+if [[ -d "$DEVTOOLS_DIR" ]]; then
+    mkdir -p staging/devtools
+    cp -R "$DEVTOOLS_DIR"/. staging/devtools/
+    echo "Copied devtools bundle: ${DEVTOOLS_DIR}"
+else
+    echo "Warning: devtools bundle not found at ${DEVTOOLS_DIR}"
+fi
+
+# Strip binaries in parallel (if applicable)
+if [[ -n "$STRIP_CMD" ]]; then
+    echo "Stripping binaries (${#BIN_FILES[@]} files) with: ${STRIP_CMD}"
+    pids=()
+    for bin in "${BIN_FILES[@]}"; do
+        $STRIP_CMD "staging/${bin}" &
+        pids+=("$!")
+    done
+    for pid in "${pids[@]}"; do
+        wait "$pid"
+    done
+fi
+
 # Create archive
 echo "Creating archive: $ARCHIVE_NAME"
 if [[ "$ARCHIVE_EXT" == "zip" ]]; then
     cd staging && 7z a -tzip "../${ARCHIVE_NAME}" .
 else
-    tar -cJf "${ARCHIVE_NAME}" -C staging .
+    tar -c -I 'xz -T0 -1' -f "${ARCHIVE_NAME}" -C staging .
 fi
 
 # Cleanup
