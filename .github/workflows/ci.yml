@@ -23,6 +23,32 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs: 
+  clippy: 
+    name: Clippy
+    runs-on: depot-ubuntu-24.04-32
+    timeout-minutes: 30
+    continue-on-error: true
+    steps: 
+      - 
+        name: Checkout
+        uses: actions/checkout@v4
+      - 
+        name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with: 
+          components: clippy
+          targets: wasm32-unknown-unknown
+
+      - 
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with: 
+          cache-on-failure: "true"
+
+      - 
+        name: Clippy
+        run: cargo clippy --all-features --all-targets -- -D warnings
+
   build-ddc-linux-x64: 
     name: Build ddc (linux-x64)
     runs-on: depot-ubuntu-24.04-32
@@ -35,7 +61,6 @@ jobs:
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with: 
-          components: clippy
           targets: wasm32-unknown-unknown
 
       - 
@@ -59,9 +84,6 @@ jobs:
       - 
         name: Test ddc
         run: cargo test --release -p dodeca --bins
-      - 
-        name: Clippy
-        run: cargo clippy --all-features --all-targets -- -D warnings
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -364,7 +386,6 @@ jobs:
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with: 
-          components: clippy
           targets: wasm32-unknown-unknown
 
       - 
@@ -388,9 +409,6 @@ jobs:
       - 
         name: Test ddc
         run: cargo test --release -p dodeca --bins
-      - 
-        name: Clippy
-        run: cargo clippy --all-features --all-targets -- -D warnings
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4

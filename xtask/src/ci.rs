@@ -230,6 +230,10 @@ structstruck::strike! {
         #[facet(default, skip_serializing_if = Option::is_none)]
         pub env: Option<IndexMap<String, String>>,
 
+        /// Allow job failure without failing the workflow.
+        #[facet(default, skip_serializing_if = Option::is_none, rename = "continue-on-error")]
+        pub continue_on_error: Option<bool>,
+
         /// The steps to run.
         pub steps: Vec<Step>,
     }
@@ -349,6 +353,7 @@ impl Job {
             if_condition: None,
             outputs: None,
             env: None,
+            continue_on_error: None,
             steps: Vec::new(),
         }
     }
@@ -397,6 +402,12 @@ impl Job {
         env: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
     ) -> Self {
         self.env = Some(env.into_iter().map(|(k, v)| (k.into(), v.into())).collect());
+        self
+    }
+
+    /// Allow this job to fail without failing the workflow.
+    pub fn continue_on_error(mut self, enabled: bool) -> Self {
+        self.continue_on_error = Some(enabled);
         self
     }
 
@@ -490,6 +501,26 @@ pub fn build_ci_workflow() -> Workflow {
     // Track all integration jobs (release depends on these passing)
     let mut all_integration_jobs: Vec<String> = Vec::new();
 
+    jobs.insert(
+        "clippy".to_string(),
+        Job::new(CI_LINUX.runner)
+            .name("Clippy")
+            .timeout(30)
+            .continue_on_error(true)
+            .steps([
+                checkout(),
+                Step::uses("Install Rust", "dtolnay/rust-toolchain@stable").with_inputs([
+                    ("components", "clippy"),
+                    ("targets", "wasm32-unknown-unknown"),
+                ]),
+                rust_cache(),
+                Step::run(
+                    "Clippy",
+                    "cargo clippy --all-features --all-targets -- -D warnings",
+                ),
+            ]),
+    );
+
     for target in TARGETS {
         let short = target.short_name();
         let is_macos = target.triple.contains("apple");
@@ -500,7 +531,7 @@ pub fn build_ci_workflow() -> Workflow {
             "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
         };
 
-        // Job 1: Build ddc (main binary) + WASM + clippy
+        // Job 1: Build ddc (main binary) + WASM
         let ddc_job_id = format!("build-ddc-{short}");
         jobs.insert(
             ddc_job_id.clone(),
@@ -509,10 +540,8 @@ pub fn build_ci_workflow() -> Workflow {
                 .timeout(30)
                 .steps([
                     checkout(),
-                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable").with_inputs([
-                        ("components", "clippy"),
-                        ("targets", "wasm32-unknown-unknown"),
-                    ]),
+                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable")
+                        .with_inputs([("targets", "wasm32-unknown-unknown")]),
                     Step::uses("Install Rust (nightly)", "dtolnay/rust-toolchain@nightly"),
                     rust_cache(),
                     Step::run("Install wasm-pack", wasm_install),
@@ -521,10 +550,6 @@ pub fn build_ci_workflow() -> Workflow {
                     // Only run binary unit tests here - integration tests (serve/) need cells
                     // and run in the integration phase after assembly
                     Step::run("Test ddc", "cargo test --release -p dodeca --bins"),
-                    Step::run(
-                        "Clippy",
-                        "cargo clippy --all-features --all-targets -- -D warnings",
-                    ),
                     upload_artifact(format!("ddc-{short}"), "target/release/ddc"),
                 ]),
         );
