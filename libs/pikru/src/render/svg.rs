@@ -29,6 +29,82 @@ pub fn color_to_rgb(color: &str) -> String {
         .to_rgb_string()
 }
 
+/// Decode HTML entities in text content.
+///
+/// C pikchr allows HTML entities in string literals (e.g., `&amp;` for `&`).
+/// Since facet-xml will escape `&` to `&amp;` during serialization, we need to
+/// decode entities first so they get re-encoded correctly.
+///
+/// cref: pik_isentity (pikchr.c:4728) - checks if text starts with HTML entity
+/// cref: pik_append_text (pikchr.c:4766) - handles entity pass-through
+fn decode_html_entities(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+
+    while let Some(c) = chars.next() {
+        if c == '&' {
+            // Collect the potential entity
+            let mut entity = String::from("&");
+            let mut found_semicolon = false;
+
+            while let Some(&next) = chars.peek() {
+                if next == ';' {
+                    entity.push(chars.next().unwrap());
+                    found_semicolon = true;
+                    break;
+                } else if next.is_ascii_alphanumeric() || next == '#' {
+                    entity.push(chars.next().unwrap());
+                } else {
+                    break;
+                }
+            }
+
+            if found_semicolon {
+                // Try to decode the entity
+                match entity.as_str() {
+                    "&amp;" => result.push('&'),
+                    "&lt;" => result.push('<'),
+                    "&gt;" => result.push('>'),
+                    "&quot;" => result.push('"'),
+                    "&apos;" => result.push('\''),
+                    "&nbsp;" => result.push('\u{00A0}'),
+                    _ if entity.starts_with("&#x") || entity.starts_with("&#X") => {
+                        // Hex numeric entity: &#xHH;
+                        if let Ok(code) = u32::from_str_radix(&entity[3..entity.len() - 1], 16) {
+                            if let Some(ch) = char::from_u32(code) {
+                                result.push(ch);
+                                continue;
+                            }
+                        }
+                        result.push_str(&entity);
+                    }
+                    _ if entity.starts_with("&#") => {
+                        // Decimal numeric entity: &#NNN;
+                        if let Ok(code) = entity[2..entity.len() - 1].parse::<u32>() {
+                            if let Some(ch) = char::from_u32(code) {
+                                result.push(ch);
+                                continue;
+                            }
+                        }
+                        result.push_str(&entity);
+                    }
+                    _ => {
+                        // Unknown entity, pass through as-is
+                        result.push_str(&entity);
+                    }
+                }
+            } else {
+                // Not a valid entity, output what we collected
+                result.push_str(&entity);
+            }
+        } else {
+            result.push(c);
+        }
+    }
+
+    result
+}
+
 /// Generate SVG from render context
 // cref: pik_render (pikchr.c:7253) - main SVG output function
 pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
@@ -287,7 +363,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     font_size,
                     text_anchor: Some(anchor.to_string()),
                     dominant_baseline: Some("central".to_string()),
-                    content: positioned_text.value.replace(' ', "\u{00A0}"),
+                    content: decode_html_entities(&positioned_text.value).replace(' ', "\u{00A0}"),
                 };
                 svg_children.push(SvgNode::Text(text_element));
             }
