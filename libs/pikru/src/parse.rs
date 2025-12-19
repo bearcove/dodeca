@@ -377,6 +377,8 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
         Rule::optrelexpr => {
             // optrelexpr can be empty - Grammar: optrelexpr = { relexpr? }
             // This might appear in: "go"? ~ optrelexpr ~ "heading" ~ expr
+            // Or in: "then" ~ optrelexpr ~ "heading" ~ expr
+            let is_then = pair_str.trim_start().starts_with("then");
             let opt = inner.next().unwrap();
             let relexpr = opt
                 .into_inner()
@@ -385,14 +387,22 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
                 .transpose()?;
 
             // Check what follows
-            if inner
-                .peek()
-                .map(|p| p.as_str() == "heading")
-                .unwrap_or(false)
-            {
-                inner.next(); // skip "heading"
+            // Note: "heading" is a literal consumed by pest, not a token
+            // So we check pair_str to detect it, and the next token is the expr
+            let has_heading = pair_str.contains("heading");
+            if has_heading {
+                // The next token after optrelexpr is the heading expr (not "heading" itself)
                 let heading_expr = parse_expr(inner.next().unwrap())?;
-                Ok(Attribute::Heading(relexpr, heading_expr))
+                if is_then {
+                    // "then [optrelexpr] heading expr" -> ThenClause::Heading
+                    Ok(Attribute::Then(Some(ThenClause::Heading(
+                        relexpr,
+                        heading_expr,
+                    ))))
+                } else {
+                    // "[go] [optrelexpr] heading expr" -> Attribute::Heading
+                    Ok(Attribute::Heading(relexpr, heading_expr))
+                }
             } else if inner
                 .peek()
                 .map(|p| p.as_rule() == Rule::EDGEPT)

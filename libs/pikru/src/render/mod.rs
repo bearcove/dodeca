@@ -742,6 +742,9 @@ fn render_object_stmt(
         /// For horizontal directions (Left/Right): set X = target.X, keep current Y
         /// For vertical directions (Up/Down): set Y = target.Y, keep current X
         EvenWith(Direction, PointIn),
+        /// Heading: move at arbitrary angle (degrees clockwise from north)
+        /// cref: pik_move_hdg (pikchr.c:3323-3365)
+        Heading(Inches, f64),
     }
     let mut segments: Vec<Segment> = Vec::new();
     let mut current_segment_offset = OffsetIn::ZERO;
@@ -1024,6 +1027,45 @@ fn render_object_stmt(
                     }
                 }
             }
+            Attribute::Heading(opt_dist, angle_expr) => {
+                // cref: pik_move_hdg (pikchr.c:3323-3365)
+                // Heading is an arbitrary angle (degrees clockwise from north)
+                let angle = eval_scalar(ctx, angle_expr).unwrap_or(0.0);
+                let distance = if let Some(relexpr) = opt_dist {
+                    let d = eval_len(ctx, &relexpr.expr).unwrap_or(width);
+                    if relexpr.is_percent {
+                        width * (d.raw() / 100.0)
+                    } else {
+                        d
+                    }
+                } else {
+                    width // Default to linewid/objwid
+                };
+                has_direction_move = true;
+
+                if in_then_segment {
+                    // Save any pending offset segment first
+                    if current_segment_direction.is_some() {
+                        segments.push(Segment::Offset(
+                            current_segment_offset,
+                            current_segment_direction.unwrap(),
+                        ));
+                        current_segment_offset = OffsetIn::ZERO;
+                        current_segment_direction = None;
+                    }
+                    // Add the heading segment
+                    segments.push(Segment::Heading(distance, angle));
+                    in_then_segment = false;
+                } else {
+                    // Convert heading to offset and add to direction_offset
+                    // cref: pikchr.y:3362-3363 - sin for x, cos for y (heading 0 = north)
+                    let angle_rad = angle.to_radians();
+                    let dx = distance.raw() * angle_rad.sin();
+                    let dy = distance.raw() * angle_rad.cos();
+                    direction_offset.dx = direction_offset.dx + Inches::inches(dx);
+                    direction_offset.dy = direction_offset.dy + Inches::inches(dy);
+                }
+            }
             Attribute::Then(Some(clause)) => {
                 // cref: pik_then (pikchr.c:3240) - "then" starts a new segment
                 // First, save any pending then segment
@@ -1112,8 +1154,30 @@ fn render_object_stmt(
                         object_direction = *dir;
                         in_then_segment = false;
                     }
-                    ThenClause::Heading(_, _) => {
-                        // Heading clauses - not yet implemented
+                    ThenClause::Heading(opt_dist, angle_expr) => {
+                        // cref: pik_move_hdg (pikchr.c:3323-3365)
+                        // "then heading 45" or "then 1in heading 45"
+                        if current_segment_direction.is_some() {
+                            segments.push(Segment::Offset(
+                                current_segment_offset,
+                                current_segment_direction.unwrap(),
+                            ));
+                            current_segment_offset = OffsetIn::ZERO;
+                            current_segment_direction = None;
+                        }
+                        let angle = eval_scalar(ctx, angle_expr).unwrap_or(0.0);
+                        let distance = if let Some(relexpr) = opt_dist {
+                            let d = eval_len(ctx, &relexpr.expr).unwrap_or(width);
+                            if relexpr.is_percent {
+                                width * (d.raw() / 100.0)
+                            } else {
+                                d
+                            }
+                        } else {
+                            width // Default to linewid/objwid
+                        };
+                        segments.push(Segment::Heading(distance, angle));
+                        in_then_segment = false;
                     }
                 }
             }
@@ -1758,6 +1822,30 @@ fn render_object_stmt(
                                 next_x = next.x.raw(),
                                 next_y = next.y.raw(),
                                 "Rust: applying then even-with segment"
+                            );
+                            next
+                        }
+                        Segment::Heading(distance, angle) => {
+                            // cref: pik_move_hdg (pikchr.c:3323-3365)
+                            // Heading angle is degrees clockwise from north (0°=up)
+                            let angle_rad = angle.to_radians();
+                            let dx = distance.raw() * angle_rad.sin();
+                            let dy = distance.raw() * angle_rad.cos();
+                            let next = PointIn::new(
+                                current_pos.x + Inches::inches(dx),
+                                current_pos.y + Inches::inches(dy),
+                            );
+                            tracing::debug!(
+                                segment_index = i,
+                                angle_deg = angle,
+                                distance = distance.raw(),
+                                current_pos_x = current_pos.x.raw(),
+                                current_pos_y = current_pos.y.raw(),
+                                dx = dx,
+                                dy = dy,
+                                next_x = next.x.raw(),
+                                next_y = next.y.raw(),
+                                "Rust: applying then heading segment"
                             );
                             next
                         }
