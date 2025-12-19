@@ -8,6 +8,8 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use eyre::Result;
 use futures::stream::{self, StreamExt};
@@ -24,6 +26,8 @@ use rapace_tracing::TracingSinkServer;
 use crate::cells::{HostCellLifecycle, all, cell_ready_registry, get_cell_session};
 use crate::content_service::HostContentService;
 use crate::serve::SiteServer;
+
+static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Find the cell binary path (for backwards compatibility).
 ///
@@ -282,15 +286,27 @@ pub async fn start_cell_server_with_shutdown(
                 match accept_result {
                     Some(Ok(stream)) => {
                         let addr = stream.peer_addr().ok();
-                        tracing::info!(?addr, "Accepted browser connection");
+                        let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
+                        let local_addr = stream.local_addr().ok();
+                        tracing::info!(
+                            conn_id,
+                            ?addr,
+                            ?local_addr,
+                            "Accepted browser connection"
+                        );
                         let session = session.clone();
                         tokio::spawn(async move {
                             // Create TcpTunnelClient per connection
                             let tunnel_client = TcpTunnelClient::new(session.clone());
                             if let Err(e) =
-                                handle_browser_connection(stream, tunnel_client, session).await
+                                handle_browser_connection(conn_id, stream, tunnel_client, session)
+                                    .await
                             {
-                                tracing::warn!("Failed to handle browser connection: {:?}", e);
+                                tracing::warn!(
+                                    conn_id,
+                                    error = ?e,
+                                    "Failed to handle browser connection"
+                                );
                             }
                         });
                     }
@@ -337,37 +353,81 @@ pub async fn start_cell_server(
 
 /// Handle a browser TCP connection by tunneling it through the cell
 async fn handle_browser_connection(
+    conn_id: u64,
     browser_stream: TcpStream,
     tunnel_client: TcpTunnelClient,
     session: Arc<RpcSession>,
 ) -> Result<()> {
+    let started_at = Instant::now();
+    let peer_addr = browser_stream.peer_addr().ok();
+    let local_addr = browser_stream.local_addr().ok();
+    tracing::info!(
+        conn_id,
+        ?peer_addr,
+        ?local_addr,
+        "handle_browser_connection: start"
+    );
+
     // Open a tunnel to the cell
+    let open_started = Instant::now();
     let handle = tunnel_client
         .open()
         .await
         .map_err(|e| eyre::eyre!("Failed to open tunnel: {:?}", e))?;
 
     let channel_id = handle.channel_id;
-    tracing::info!(channel_id, "Tunnel opened for browser connection");
+    tracing::info!(
+        conn_id,
+        channel_id,
+        open_elapsed_ms = open_started.elapsed().as_millis(),
+        "Tunnel opened for browser connection"
+    );
 
     // Bridge browser <-> tunnel with backpressure.
     let mut tunnel_stream = session.tunnel_stream(channel_id);
     let mut browser_stream = browser_stream;
+    tracing::info!(
+        conn_id,
+        channel_id,
+        "Starting browser <-> tunnel bridge task"
+    );
     tokio::spawn(async move {
+        let bridge_started = Instant::now();
+        tracing::info!(conn_id, channel_id, "browser <-> tunnel bridge: start");
         match tokio::io::copy_bidirectional(&mut browser_stream, &mut tunnel_stream).await {
             Ok((to_tunnel, to_browser)) => {
                 tracing::info!(
+                    conn_id,
                     channel_id,
                     to_tunnel,
                     to_browser,
+                    elapsed_ms = bridge_started.elapsed().as_millis(),
                     "browser <-> tunnel finished"
                 );
             }
             Err(e) => {
-                tracing::warn!(channel_id, error = %e, "browser <-> tunnel error");
+                tracing::warn!(
+                    conn_id,
+                    channel_id,
+                    error = %e,
+                    elapsed_ms = bridge_started.elapsed().as_millis(),
+                    "browser <-> tunnel error"
+                );
             }
         }
+        tracing::info!(
+            conn_id,
+            channel_id,
+            elapsed_ms = bridge_started.elapsed().as_millis(),
+            "browser <-> tunnel bridge: done"
+        );
     });
 
+    tracing::info!(
+        conn_id,
+        channel_id,
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "handle_browser_connection: end"
+    );
     Ok(())
 }
