@@ -15,6 +15,7 @@ mod link_checker;
 mod logging;
 mod queries;
 mod render;
+mod revision;
 mod search;
 mod serve;
 mod svg;
@@ -343,7 +344,7 @@ fn main() -> Result<()> {
                     )
                     .await
                 } else {
-                    // Plain mode - no TUI, serve from Salsa
+                    // Plain mode - no TUI, serve from picante
                     logging::init_standard_tracing();
                     serve_plain(
                         &cfg.content_dir,
@@ -373,7 +374,7 @@ fn main() -> Result<()> {
 
             let cache_dir = base_dir.join(".cache");
 
-            // Remove .cache directory (contains CAS, Salsa DB, image cache)
+            // Remove .cache directory (contains CAS, picante DB, image cache)
             if cache_dir.exists() {
                 let size = dir_size(&cache_dir);
                 fs::remove_dir_all(&cache_dir)?;
@@ -450,7 +451,7 @@ pub enum BuildMode {
     Quick,
 }
 
-/// The build context with Salsa database
+/// The build context with picante database
 pub struct BuildContext {
     pub db: Database,
     pub content_dir: Utf8PathBuf,
@@ -822,7 +823,7 @@ pub async fn build(
     let query_stats = QueryStats::new();
     let mut ctx = BuildContext::with_stats(content_dir, output_dir, Some(Arc::clone(&query_stats)));
 
-    // Phase 1: Load everything into Salsa
+    // Phase 1: Load everything into picante
     ctx.load_sources()?;
     ctx.load_templates()?;
     ctx.load_sass()?;
@@ -1679,7 +1680,7 @@ fn handle_file_removed(
     }
 }
 
-/// Plain serve mode (no TUI) - serves directly from Salsa
+/// Plain serve mode (no TUI) - serves directly from picante
 async fn serve_plain(
     content_dir: &Utf8PathBuf,
     address: &str,
@@ -1751,6 +1752,7 @@ async fn serve_plain(
 
     // Create the site server
     let server = Arc::new(serve::SiteServer::new(render_options, stable_assets));
+    let startup_revision = server.begin_revision("startup");
 
     // Load source files
     println!("{}", "Loading source files...".dimmed());
@@ -1827,7 +1829,7 @@ async fn serve_plain(
         println!("  Loaded {} templates", count);
     }
 
-    // Load static files into Salsa
+    // Load static files into picante
     let static_dir = parent_dir.join("static");
     if static_dir.exists() {
         let walker = WalkBuilder::new(&static_dir).build();
@@ -1854,7 +1856,7 @@ async fn serve_plain(
         println!("  Loaded {count} static files");
     }
 
-    // Load data files into Salsa
+    // Load data files into picante
     let data_dir = parent_dir.join("data");
     if data_dir.exists() {
         let walker = WalkBuilder::new(&data_dir).build();
@@ -1885,7 +1887,7 @@ async fn serve_plain(
         println!("  Loaded {count} data files");
     }
 
-    // Load SASS files into Salsa (CSS compiled on-demand via query)
+    // Load SASS files into picante (CSS compiled on-demand via query)
     let sass_dir = parent_dir.join("sass");
     if sass_dir.exists() {
         let sass_files_list: Vec<Utf8PathBuf> = WalkBuilder::new(&sass_dir)
@@ -1949,6 +1951,9 @@ async fn serve_plain(
         }
     });
 
+    // Mark the startup revision as ready before accepting requests.
+    server.end_revision(startup_revision);
+
     // Set up file watcher for live reload using the file_watcher module
     // This handles:
     // - File creation, modification, and deletion
@@ -1987,6 +1992,7 @@ async fn serve_plain(
         let mut last_rebuild = Instant::now() - debounce;
         let watcher = watcher; // keep Arc alive
         let mut pending_events: Vec<file_watcher::FileEvent> = Vec::new();
+        let mut active_revision: Option<crate::revision::RevisionToken> = None;
 
         while let Ok(event) = watcher_rx.recv() {
             let Ok(event) = event else { continue };
@@ -1997,6 +2003,9 @@ async fn serve_plain(
                 continue;
             }
             pending_events.append(&mut file_events);
+            if active_revision.is_none() {
+                active_revision = Some(server_for_watcher.begin_revision("file changes"));
+            }
 
             // Coalesce any immediately available events so a burst is handled together.
             while let Ok(next) = watcher_rx.try_recv() {
@@ -2049,6 +2058,9 @@ async fn serve_plain(
             }
 
             server_for_watcher.trigger_reload();
+            if let Some(token) = active_revision.take() {
+                server_for_watcher.end_revision(token);
+            }
             last_rebuild = Instant::now();
         }
     });
@@ -2163,8 +2175,8 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
 
 /// Serve with TUI progress display and file watching
 ///
-/// This serves content directly from Salsa - no files written to disk.
-/// HTTP requests query the Salsa database, which caches/memoizes results.
+/// This serves content directly from picante - no files written to disk.
+/// HTTP requests query the picante database, which caches/memoizes results.
 async fn serve_with_tui(
     content_dir: &Utf8PathBuf,
     _output_dir: &Utf8PathBuf,
@@ -2208,8 +2220,9 @@ async fn serve_with_tui(
         dev_mode: true,
     };
 
-    // Create the site server - serves directly from Salsa, no disk I/O
+    // Create the site server - serves directly from picante, no disk I/O
     let server = Arc::new(serve::SiteServer::new(render_options, stable_assets));
+    let startup_revision = server.begin_revision("startup");
 
     // Load cached query results (e.g., processed images) from disk
     let cache_path = content_dir
@@ -2246,18 +2259,21 @@ async fn serve_with_tui(
 
     // Get cache sizes for status display
     let base_dir = content_dir.parent().unwrap_or(content_dir);
-    let salsa_cache_path = base_dir.join(".cache/dodeca.bin");
+    let picante_cache_path = base_dir.join(".cache/dodeca.bin");
     let cas_cache_dir = base_dir.join(".cache");
-    fn get_cache_sizes(salsa_path: &Utf8Path, cas_dir: &Utf8Path) -> (usize, usize) {
-        let salsa_size = salsa_path.metadata().map(|m| m.len() as usize).unwrap_or(0);
+    fn get_cache_sizes(picante_path: &Utf8Path, cas_dir: &Utf8Path) -> (usize, usize) {
+        let picante_size = picante_path
+            .metadata()
+            .map(|m| m.len() as usize)
+            .unwrap_or(0);
         let cas_size = if cas_dir.exists() {
-            dir_size(cas_dir).saturating_sub(salsa_size) // Subtract salsa file since it's inside .cache
+            dir_size(cas_dir).saturating_sub(picante_size) // Subtract picante file since it's inside .cache
         } else {
             0
         };
-        (salsa_size, cas_size)
+        (picante_size, cas_size)
     }
-    let (salsa_size, cas_size) = get_cache_sizes(&salsa_cache_path, &cas_cache_dir);
+    let (picante_size, cas_size) = get_cache_sizes(&picante_cache_path, &cas_cache_dir);
 
     // Set initial server status (use preferred port or 4000 as placeholder until bound)
     let initial_ips = get_bind_ips(initial_mode);
@@ -2266,7 +2282,7 @@ async fn serve_with_tui(
         urls: build_urls(&initial_ips, display_port),
         is_running: false,
         bind_mode: initial_mode,
-        salsa_cache_size: salsa_size,
+        picante_cache_size: picante_size,
         cas_cache_size: cas_size,
     });
 
@@ -2357,7 +2373,7 @@ async fn serve_with_tui(
         let _ = event_tx.send(LogEvent::build(format!("Loaded {} templates", count)));
     }
 
-    // Load static files into Salsa
+    // Load static files into picante
     let static_dir = parent_dir.join("static");
     if static_dir.exists() {
         let walker = WalkBuilder::new(&static_dir).build();
@@ -2387,7 +2403,7 @@ async fn serve_with_tui(
         let _ = event_tx.send(LogEvent::build(format!("Loaded {count} static files")));
     }
 
-    // Load SASS files into Salsa (CSS compiled on-demand via query)
+    // Load SASS files into picante (CSS compiled on-demand via query)
     let sass_dir = parent_dir.join("sass");
     if sass_dir.exists() {
         let sass_files_list: Vec<Utf8PathBuf> = WalkBuilder::new(&sass_dir)
@@ -2448,11 +2464,14 @@ async fn serve_with_tui(
         }
     });
 
-    // Mark all tasks as ready - in serve mode, everything is computed on-demand via Salsa
+    // Mark all tasks as ready - in serve mode, everything is computed on-demand via picante
     progress_tx.send_modify(|prog| {
         prog.render.finish();
         prog.sass.finish();
     });
+
+    // Mark startup revision ready before accepting requests.
+    server.end_revision(startup_revision);
 
     let _ = event_tx.send(LogEvent::server(
         "Server ready - content served from memory",
@@ -2495,7 +2514,7 @@ async fn serve_with_tui(
     let server_for_http = server.clone();
     let server_tx_clone = server_tx.clone();
     let event_tx_clone = event_tx.clone();
-    let salsa_cache_path_clone = salsa_cache_path.clone();
+    let picante_cache_path_clone = picante_cache_path.clone();
     let cas_cache_dir_clone = cas_cache_dir.clone();
 
     // Find the cell path once upfront
@@ -2512,7 +2531,7 @@ async fn serve_with_tui(
                         shutdown_rx: watch::Receiver<bool>,
                         server_tx: tui::ServerStatusTx,
                         event_tx: tui::EventTx,
-                        salsa_path: Utf8PathBuf,
+                        picante_path: Utf8PathBuf,
                         cas_dir: Utf8PathBuf,
                         cell_path: std::path::PathBuf| {
         tokio::spawn(async move {
@@ -2555,7 +2574,10 @@ async fn serve_with_tui(
             };
 
             // Get current cache sizes
-            let salsa_size = salsa_path.metadata().map(|m| m.len() as usize).unwrap_or(0);
+            let picante_size = picante_path
+                .metadata()
+                .map(|m| m.len() as usize)
+                .unwrap_or(0);
             let cas_size = WalkBuilder::new(&cas_dir)
                 .build()
                 .filter_map(|e| e.ok())
@@ -2563,14 +2585,14 @@ async fn serve_with_tui(
                 .filter(|m| m.is_file())
                 .map(|m| m.len() as usize)
                 .sum::<usize>()
-                .saturating_sub(salsa_size);
+                .saturating_sub(picante_size);
 
             // Update server status
             let _ = server_tx.send(tui::ServerStatus {
                 urls: build_urls(&ips, actual_port),
                 is_running: true,
                 bind_mode: mode,
-                salsa_cache_size: salsa_size,
+                picante_cache_size: picante_size,
                 cas_cache_size: cas_size,
             });
 
@@ -2599,7 +2621,7 @@ async fn serve_with_tui(
         shutdown_rx.clone(),
         server_tx_clone.clone(),
         event_tx_clone.clone(),
-        salsa_cache_path_clone.clone(),
+        picante_cache_path_clone.clone(),
         cas_cache_dir_clone.clone(),
         cell_path_clone,
     );
@@ -2636,6 +2658,7 @@ async fn serve_with_tui(
         use std::time::Instant;
         let mut last_rebuild = Instant::now();
         let debounce = std::time::Duration::from_millis(100);
+        let mut active_revision: Option<crate::revision::RevisionToken> = None;
 
         while let Ok(res) = watch_rx.recv() {
             match res {
@@ -2673,6 +2696,11 @@ async fn serve_with_tui(
 
                             if paths.is_empty() {
                                 continue;
+                            }
+
+                            if active_revision.is_none() {
+                                active_revision =
+                                    Some(server_for_watcher.begin_revision("file changes"));
                             }
 
                             for path in &paths {
@@ -2885,9 +2913,12 @@ async fn serve_with_tui(
                                 }
                             }
 
-                            // Trigger live reload - browsers will re-fetch and get fresh content from Salsa
+                            // Trigger live reload - browsers will re-fetch and get fresh content from picante
                             // (trigger_reload logs detailed patch/reload decisions)
                             server_for_watcher.trigger_reload();
+                            if let Some(token) = active_revision.take() {
+                                server_for_watcher.end_revision(token);
+                            }
 
                             // Rebuild search index in background (debounced with live reload)
                             let server_for_search = server_for_watcher.clone();
@@ -2928,7 +2959,7 @@ async fn serve_with_tui(
     let server_for_cmd = server.clone();
     let server_tx_for_cmd = server_tx.clone();
     let event_tx_for_cmd = event_tx.clone();
-    let salsa_path_for_cmd = salsa_cache_path_clone.clone();
+    let picante_path_for_cmd = picante_cache_path_clone.clone();
     let cas_dir_for_cmd = cas_cache_dir_clone.clone();
     let cell_path_for_cmd = cell_path.clone();
     // Use Arc<Mutex> for the shutdown sender so we can update it for each rebind
@@ -2970,7 +3001,7 @@ async fn serve_with_tui(
                 new_shutdown_rx,
                 server_tx_for_cmd.clone(),
                 event_tx_for_cmd.clone(),
-                salsa_path_for_cmd.clone(),
+                picante_path_for_cmd.clone(),
                 cas_dir_for_cmd.clone(),
                 cell_path_for_cmd.clone(),
             );
@@ -2996,11 +3027,11 @@ async fn serve_with_tui(
                         new_level.as_str()
                     )));
                 }
-                cell_tui_proto::ServerCommand::ToggleSalsaDebug => {
-                    // Legacy command - toggle salsa debug (now mostly obsolete with picante)
-                    let enabled = filter_handle_for_bridge.toggle_salsa_debug();
+                cell_tui_proto::ServerCommand::TogglePicanteDebug => {
+                    // Legacy command - toggle picante debug (now mostly obsolete with picante)
+                    let enabled = filter_handle_for_bridge.toggle_picante_debug();
                     let _ = event_tx_for_bridge.send(tui::LogEvent::info(format!(
-                        "Salsa debug: {}",
+                        "Picante debug: {}",
                         if enabled { "ON" } else { "OFF" }
                     )));
                 }

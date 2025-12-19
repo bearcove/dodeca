@@ -170,7 +170,7 @@ This ensures type-safe dispatch: if schemas change, keys change.
 
 ## Rapace (Recommended)
 
-Rapace cells are standalone executables that communicate with the host via shared memory (SHM) using the [rapace](https://github.com/bearcove/rapace) framework. The SHM transport enables zero-copy data transfer between the host and cell processes.
+Rapace cells are standalone executables that communicate with the host via shared memory (SHM) using the [rapace](https://rapace.bearcove.eu/) framework. The SHM transport enables zero-copy data transfer between the host and cell processes.
 
 ### Hub Architecture
 
@@ -254,7 +254,7 @@ Each rapace cell follows this consistent pattern:
 ┌──────────────────────────────────────────────────────────────────────┐
 │                          Core dodeca                                  │
 │  ┌─────────┐ ┌─────────┐ ┌──────────┐ ┌─────────────────────────────┐│
-│  │  Salsa  │ │Markdown │ │ Template │ │      Cell Host            ││
+│  │  Picante  │ │Markdown │ │ Template │ │      Cell Host            ││
 │  │(queries)│ │ Parser  │ │  Engine  │ │  - TCP listener (browsers)  ││
 │  └─────────┘ └─────────┘ └──────────┘ │  - RpcSession + dispatcher  ││
 │                                        │  - ContentService impl      ││
@@ -286,7 +286,7 @@ Browser                Host (dodeca)                Cell (dodeca-cell-http)
    │                        │                                │ (internal axum)
    │                        │                                │
    │                        │◀── find_content("/foo") ───────│
-   │                        │ (queries Salsa DB)             │
+   │                        │ (queries Picante DB)             │
    │                        │── ServeContent::Html {...} ───▶│
    │                        │                                │
    │                        │◀── tunnel response chunk ──────│

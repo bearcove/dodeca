@@ -7,7 +7,7 @@ dodeca is a static site generator written in Rust, with a focus on incremental b
 
 In `ddc serve`, dodeca can update the browser without doing a full page reload by sending DOM patches to a small client-side script.
 
-Under the hood it uses [Salsa](https://salsa-rs.github.io/salsa/) to recompute only the parts of the build graph that are affected by your edits.
+Under the hood it uses picante to recompute only the parts of the build graph that are affected by your edits.
 
 ## Start Here
 

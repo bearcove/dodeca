@@ -12,10 +12,9 @@ in development (skipping minification, using original asset paths, etc.), dodeca
 exactly what you'll get in production: cache-busted URLs, minified HTML, subsetted fonts,
 responsive images—the works. Even font subsetting runs in dev!
 
-This is possible because dodeca uses [Salsa](https://salsa-rs.github.io/salsa/) for
-incremental computation. Every transformation is a cached query. Change a file and only
-the affected queries re-run. First page load builds what's needed; subsequent requests
-are instant.
+This is possible because dodeca uses picante for incremental computation. Every
+transformation is a cached query. Change a file and only the affected queries re-run.
+First page load builds what's needed; subsequent requests are instant.
 
 **Custom template engine.** Dodeca includes its own Jinja-like template engine. This gives
 you the power of a real language (conditionals, loops, variable interpolation) without

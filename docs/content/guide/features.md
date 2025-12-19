@@ -8,7 +8,7 @@ This page describes what’s currently implemented in dodeca (as shipped in this
 
 ## Build
 
-- **Incremental builds** via [Salsa](https://salsa-rs.github.io/salsa/) - only rebuild what changed
+- **Incremental builds** via picante - only rebuild what changed
 - **Sass/SCSS compilation** - modern CSS workflow built-in
 - **Search indexing** via Pagefind (generates static search files)
 - **Link checking** - fail builds on broken links

@@ -241,20 +241,20 @@ pub fn convert_server_status(status: &crate::tui::ServerStatus) -> ServerStatus 
         urls: status.urls.clone(),
         is_running: status.is_running,
         bind_mode: convert_bind_mode(status.bind_mode),
-        salsa_cache_size: status.salsa_cache_size as u64,
+        picante_cache_size: status.picante_cache_size as u64,
         cas_cache_size: status.cas_cache_size as u64,
     }
 }
 
 /// Convert from proto ServerCommand to old tui::ServerCommand
-/// Note: CycleLogLevel and ToggleSalsaDebug are handled directly in main.rs bridge
+/// Note: CycleLogLevel and TogglePicanteDebug are handled directly in main.rs bridge
 pub fn convert_server_command(cmd: ServerCommand) -> crate::tui::ServerCommand {
     match cmd {
         ServerCommand::GoPublic => crate::tui::ServerCommand::GoPublic,
         ServerCommand::GoLocal => crate::tui::ServerCommand::GoLocal,
         // These are handled directly in the bridge, should never reach here
-        ServerCommand::ToggleSalsaDebug | ServerCommand::CycleLogLevel => {
-            unreachable!("ToggleSalsaDebug and CycleLogLevel are handled directly in main.rs")
+        ServerCommand::TogglePicanteDebug | ServerCommand::CycleLogLevel => {
+            unreachable!("TogglePicanteDebug and CycleLogLevel are handled directly in main.rs")
         }
     }
 }
@@ -376,7 +376,7 @@ mod tests {
             urls: vec!["http://127.0.0.1:4000".to_string()],
             is_running: true,
             bind_mode: BindMode::Local,
-            salsa_cache_size: 1,
+            picante_cache_size: 1,
             cas_cache_size: 2,
         };
         host.send_status(status.clone());
@@ -394,7 +394,7 @@ mod tests {
         assert_eq!(first_status.urls, status.urls);
         assert_eq!(first_status.is_running, status.is_running);
         assert_eq!(first_status.bind_mode, status.bind_mode);
-        assert_eq!(first_status.salsa_cache_size, status.salsa_cache_size);
+        assert_eq!(first_status.picante_cache_size, status.picante_cache_size);
         assert_eq!(first_status.cas_cache_size, status.cas_cache_size);
     }
 

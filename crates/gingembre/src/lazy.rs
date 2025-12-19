@@ -3,7 +3,7 @@
 //! This module provides [`LazyValue`], a wrapper around [`facet_value::Value`]
 //! that supports lazy resolution. Field access on lazy values extends a path
 //! rather than immediately resolving, allowing dependency tracking systems
-//! (like Salsa) to track exactly which values are accessed.
+//! (like picante) to track exactly which values are accessed.
 //!
 //! # How It Works
 //!
@@ -75,7 +75,7 @@ impl std::fmt::Display for DataPath {
 ///
 /// # Example
 ///
-/// A Salsa-backed resolver would create a tracked query for each path,
+/// A picante-backed resolver would create a tracked query for each path,
 /// allowing fine-grained cache invalidation when specific values change.
 pub trait DataResolver: Send + Sync {
     /// Resolve a value at the given path.

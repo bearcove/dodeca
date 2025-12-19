@@ -3,7 +3,7 @@ title = "Template Engine"
 weight = 20
 +++
 
-dodeca includes a Jinja-like template engine built for tight integration with Salsa's incremental computation.
+dodeca includes a Jinja-like template engine built for tight integration with Picante's incremental computation.
 
 ## Template Files
 
@@ -111,7 +111,7 @@ version = "0.2.0"
 rust_version = "1.91"
 
 [dependencies]
-salsa = "0.24"
+picante = "0.x"
 ```
 
 ```jinja

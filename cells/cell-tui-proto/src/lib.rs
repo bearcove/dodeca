@@ -98,7 +98,7 @@ pub enum EventKind {
     Search,
     /// Server status
     Server,
-    /// Salsa/build related
+    /// Picante/build related
     Build,
     /// Generic info
     #[default]
@@ -225,8 +225,8 @@ pub struct ServerStatus {
     pub urls: Vec<String>,
     pub is_running: bool,
     pub bind_mode: BindMode,
-    /// Salsa cache size in bytes
-    pub salsa_cache_size: u64,
+    /// Picante cache size in bytes
+    pub picante_cache_size: u64,
     /// CAS/image cache size in bytes
     pub cas_cache_size: u64,
 }
@@ -243,8 +243,8 @@ pub enum ServerCommand {
     GoPublic,
     /// Switch to local mode (bind to 127.0.0.1)
     GoLocal,
-    /// Toggle salsa debug logging
-    ToggleSalsaDebug,
+    /// Toggle picante debug logging
+    TogglePicanteDebug,
     /// Cycle log level
     CycleLogLevel,
 }

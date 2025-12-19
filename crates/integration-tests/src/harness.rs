@@ -264,54 +264,6 @@ impl TestSite {
             .build()
             .expect("build http client");
 
-        // HTTP probe: verify we can actually complete an HTTP round-trip.
-        // The server waits for required cells before accepting connections.
-        // Our connection queues in the TCP backlog until the server is ready.
-        let probe_deadline = Instant::now() + Duration::from_secs(10);
-        let probe_url = format!("http://127.0.0.1:{}/__probe__", port);
-        let mut probe_attempts = 0u32;
-        loop {
-            probe_attempts += 1;
-            match client.get(&probe_url).send() {
-                Ok(resp) => {
-                    tracing::debug!(
-                        status = %resp.status(),
-                        probe_attempts,
-                        "HTTP probe succeeded"
-                    );
-                    break;
-                }
-                Err(e) => {
-                    // Log every error to understand what's happening
-                    tracing::debug!(
-                        error = %e,
-                        error_debug = ?e,
-                        is_connect = e.is_connect(),
-                        is_timeout = e.is_timeout(),
-                        is_request = e.is_request(),
-                        probe_attempts,
-                        "HTTP probe attempt failed"
-                    );
-                    if Instant::now() >= probe_deadline {
-                        // Capture logs before panicking
-                        let captured_logs = logs.lock().unwrap().clone();
-                        eprintln!("\n{}", "Server logs (captured before panic):".bright_red());
-                        for log in &captured_logs {
-                            eprintln!("  {}", log);
-                        }
-                        // Also save to thread-local for test runner
-                        LAST_TEST_LOGS.with(|tl| {
-                            *tl.borrow_mut() = captured_logs;
-                        });
-                        panic!(
-                            "Server never became HTTP-ready at {probe_url} after {probe_attempts} attempts: {e:?}"
-                        );
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-            }
-        }
-
         Self {
             child,
             port,

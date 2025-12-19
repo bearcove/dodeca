@@ -6,10 +6,13 @@
 //! futures cannot be sent across threads. Since the cell runtime already runs
 //! in a tokio context, we spawn a separate OS thread with its own runtime to
 //! avoid "Cannot start a runtime from within a runtime" errors.
-
-use std::sync::mpsc;
+//!
+//! IMPORTANT: This is intentionally an OS thread + dedicated current_thread runtime
+//! with a tokio oneshot back to the async caller. Do NOT replace it with
+//! tokio::spawn/spawn_blocking or a std::sync::mpsc recv in async code.
 
 use pagefind::api::PagefindIndex;
+use tokio::sync::oneshot;
 
 use cell_pagefind_proto::{
     SearchFile, SearchIndexInput, SearchIndexOutput, SearchIndexResult, SearchIndexer,
@@ -25,7 +28,13 @@ impl SearchIndexer for SearchIndexerImpl {
         // 1. We're already inside the cell's tokio runtime
         // 2. Pagefind futures are !Send (html5ever's DomParser)
         // 3. We need block_on but can't nest runtimes
-        let (tx, rx) = mpsc::channel();
+        //
+        // IMPORTANT: Do NOT "simplify" this by using tokio::spawn/spawn_blocking.
+        // Pagefind's futures are !Send, so we must run them on a dedicated OS thread with its
+        // own current_thread runtime and communicate across threads. We use a tokio oneshot
+        // so the async caller can await without blocking the outer runtime.
+        // This has been accidentally reverted multiple times and reintroduced failures.
+        let (tx, rx) = oneshot::channel();
 
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
@@ -37,7 +46,7 @@ impl SearchIndexer for SearchIndexerImpl {
             let _ = tx.send(result);
         });
 
-        match rx.recv() {
+        match rx.await {
             Ok(Ok(output)) => SearchIndexResult::Success { output },
             Ok(Err(e)) => SearchIndexResult::Error { message: e },
             Err(_) => SearchIndexResult::Error {
@@ -86,7 +95,7 @@ async fn build_search_index_inner(input: SearchIndexInput) -> Result<SearchIndex
 
 rapace_cell::cell_service!(SearchIndexerServer<SearchIndexerImpl>, SearchIndexerImpl);
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     rapace_cell::run(CellService::from(SearchIndexerImpl)).await?;
     Ok(())

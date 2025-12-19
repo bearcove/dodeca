@@ -3,7 +3,7 @@ title = "Query Reference"
 weight = 30
 +++
 
-Every computation is a Salsa query. Queries are memoized and track dependencies automatically.
+Every computation is a Picante query. Queries are memoized and track dependencies automatically.
 
 **Inputs** (raw data from disk): `SourceFile`, `TemplateFile`, `SassFile`, `StaticFile`, `OgTemplateFile`.
 

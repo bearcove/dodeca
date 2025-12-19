@@ -1,8 +1,6 @@
 # xtask
 
 [![MIT + Apache 2.0](https://img.shields.io/badge/license-MIT%20%2B%20Apache%202.0-blue)](./LICENSE-MIT)
-[![salsa | yes please](https://img.shields.io/badge/salsa-yes%20please-green)](https://crates.io/crates/salsa)
-
 Build automation tasks for the dodeca workspace.
 
 This crate provides custom `cargo xtask` commands to simplify common development workflows:

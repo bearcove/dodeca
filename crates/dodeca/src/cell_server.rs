@@ -179,42 +179,6 @@ pub async fn start_cell_server_with_shutdown(
     port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
     pre_bound_listener: Option<TcpListener>,
 ) -> Result<()> {
-    // Ensure all cells are loaded (including http)
-    let registry = all().await;
-
-    // Check that the http cell is loaded
-    if registry.http.is_none() {
-        return Err(eyre::eyre!(
-            "HTTP cell not loaded. Build it with: cargo build -p cell-http --bin ddc-cell-http"
-        ));
-    }
-
-    // Get the raw session to set up ContentService dispatcher
-    let session = get_cell_session("ddc-cell-http")
-        .ok_or_else(|| eyre::eyre!("HTTP cell session not found"))?;
-
-    tracing::info!("HTTP cell connected via hub");
-
-    // Create the ContentService implementation
-    let content_service = Arc::new(HostContentService::new(server));
-
-    // Set up multi-service dispatcher on the http cell's session
-    // This replaces the basic dispatcher from cells.rs with one that includes ContentService
-    session.set_dispatcher(create_http_cell_dispatcher(content_service));
-
-    // Wait for required cells to be ready before accepting connections
-    // This prevents race conditions where clients connect before cells can handle RPCs
-    let required_cells = ["ddc-cell-http", "ddc-cell-markdown"];
-    let timeout = std::time::Duration::from_secs(10);
-
-    tracing::info!(
-        "Waiting for required cells to be ready: {:?}",
-        required_cells
-    );
-    crate::cells::wait_for_cells_ready(&required_cells, timeout)
-        .await
-        .map_err(|e| eyre::eyre!("Required cells not ready: {}", e))?;
-
     // Start TCP listeners for browser connections
     let (listeners, bound_port) = if let Some(listener) = pre_bound_listener {
         // Use the pre-bound listener from FD passing (for testing)
@@ -263,11 +227,54 @@ pub async fn start_cell_server_with_shutdown(
         let _ = tx.send(bound_port);
     }
 
+    tracing::debug!(port = bound_port, "BOUND");
+
+    // Ensure all cells are loaded (including http)
+    let registry = all().await;
+
+    // Check that the http cell is loaded
+    if registry.http.is_none() {
+        return Err(eyre::eyre!(
+            "HTTP cell not loaded. Build it with: cargo build -p cell-http --bin ddc-cell-http"
+        ));
+    }
+
+    // Get the raw session to set up ContentService dispatcher
+    let session = get_cell_session("ddc-cell-http")
+        .ok_or_else(|| eyre::eyre!("HTTP cell session not found"))?;
+
+    tracing::info!("HTTP cell connected via hub");
+
+    // Create the ContentService implementation
+    let content_service = Arc::new(HostContentService::new(server.clone()));
+
+    // Set up multi-service dispatcher on the http cell's session
+    // This replaces the basic dispatcher from cells.rs with one that includes ContentService
+    session.set_dispatcher(create_http_cell_dispatcher(content_service));
+
+    // Wait for required cells to be ready before accepting connections
+    // This prevents race conditions where clients connect before cells can handle RPCs
+    let required_cells = ["ddc-cell-http", "ddc-cell-markdown"];
+    let timeout = std::time::Duration::from_secs(10);
+
+    tracing::info!(
+        "Waiting for required cells to be ready: {:?}",
+        required_cells
+    );
+    crate::cells::wait_for_cells_ready(&required_cells, timeout)
+        .await
+        .map_err(|e| eyre::eyre!("Required cells not ready: {}", e))?;
+    tracing::debug!("CELLS_READY");
+
+    // Wait for the current revision to be fully ready before accepting connections.
+    server.wait_revision_ready().await;
+    tracing::debug!("REVISION_READY");
+
     // Merge all listeners into a single stream
     let mut accept_stream = stream::select_all(listeners.into_iter().map(TcpListenerStream::new));
 
     // Accept browser connections and tunnel them to the cell
-    tracing::debug!("Entering accept loop");
+    tracing::debug!("ACCEPTING");
     loop {
         tracing::debug!("Accept loop: waiting for connection...");
         tokio::select! {

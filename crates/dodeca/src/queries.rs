@@ -67,18 +67,18 @@ pub async fn build_template_lookup<DB: Db>(
 /// A template loader that uses a pre-loaded template map for sync access.
 /// Templates are loaded asynchronously before rendering, then this loader
 /// provides sync access during template evaluation.
-pub struct SalsaTemplateLoader {
+pub struct PicanteTemplateLoader {
     templates: HashMap<String, String>,
 }
 
-impl SalsaTemplateLoader {
+impl PicanteTemplateLoader {
     /// Create a new loader from pre-loaded templates
     pub fn new(templates: HashMap<String, String>) -> Self {
         Self { templates }
     }
 }
 
-impl gingembre::TemplateLoader for SalsaTemplateLoader {
+impl gingembre::TemplateLoader for PicanteTemplateLoader {
     fn load(&self, name: &str) -> Option<String> {
         self.templates.get(name).cloned()
     }
@@ -566,7 +566,7 @@ pub async fn render_page<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rendere
 
     // Pre-load all templates for sync access during rendering
     let templates = load_all_templates(db).await?;
-    let loader = SalsaTemplateLoader::new(templates);
+    let loader = PicanteTemplateLoader::new(templates);
 
     // Pre-load data for sync access during rendering
     let raw_data = load_all_data_raw(db).await?;
@@ -598,7 +598,7 @@ pub async fn render_section<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rend
 
     // Pre-load all templates for sync access during rendering
     let templates = load_all_templates(db).await?;
-    let loader = SalsaTemplateLoader::new(templates);
+    let loader = PicanteTemplateLoader::new(templates);
 
     // Pre-load data for sync access during rendering
     let raw_data = load_all_data_raw(db).await?;
@@ -1021,7 +1021,7 @@ pub async fn all_rendered_html<DB: Db>(db: &DB) -> PicanteResult<AllRenderedHtml
     Ok(AllRenderedHtml { pages })
 }
 
-/// Local font-face representation for Salsa tracking
+/// Local font-face representation for picante tracking
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct LocalFontFace {
     pub family: String,
@@ -1030,7 +1030,7 @@ pub struct LocalFontFace {
     pub style: Option<String>,
 }
 
-/// Local font analysis result for Salsa tracking
+/// Local font analysis result for picante tracking
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct LocalFontAnalysis {
     pub chars_per_font: std::collections::HashMap<String, Vec<char>>,

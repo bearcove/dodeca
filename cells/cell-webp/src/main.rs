@@ -51,7 +51,7 @@ impl WebPProcessor for WebPProcessorImpl {
 
 rapace_cell::cell_service!(WebPProcessorServer<WebPProcessorImpl>, WebPProcessorImpl);
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     rapace_cell::run(CellService::from(WebPProcessorImpl)).await?;
     Ok(())

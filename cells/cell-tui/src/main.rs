@@ -102,7 +102,7 @@ impl TuiApp {
                 let _ = self.command_tx.send(cmd);
             }
             KeyCode::Char('d') => {
-                let _ = self.command_tx.send(ServerCommand::ToggleSalsaDebug);
+                let _ = self.command_tx.send(ServerCommand::TogglePicanteDebug);
             }
             KeyCode::Char('l') => {
                 let _ = self.command_tx.send(ServerCommand::CycleLogLevel);
@@ -184,13 +184,13 @@ impl TuiApp {
             status_spans.push(Span::styled(symbol, Style::default().fg(color)));
         }
         // Cache size display
-        if self.server_status.salsa_cache_size > 0 || self.server_status.cas_cache_size > 0 {
+        if self.server_status.picante_cache_size > 0 || self.server_status.cas_cache_size > 0 {
             status_spans.push(Span::raw("  ").fg(FG_DARK));
             status_spans.push(Span::raw("💾 ").fg(FG));
             status_spans.push(
                 Span::raw(format!(
                     "{}+{}",
-                    format_size(self.server_status.salsa_cache_size),
+                    format_size(self.server_status.picante_cache_size),
                     format_size(self.server_status.cas_cache_size)
                 ))
                 .fg(FG_DARK),
@@ -283,7 +283,7 @@ impl TuiApp {
             ]),
             Line::from(vec![
                 Span::raw("  d").fg(YELLOW),
-                Span::raw("      Toggle salsa debug logs").fg(FG),
+                Span::raw("      Toggle picante debug logs").fg(FG),
             ]),
             Line::from(vec![
                 Span::raw("  l").fg(YELLOW),

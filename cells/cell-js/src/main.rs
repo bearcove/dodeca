@@ -117,7 +117,7 @@ impl<'a> Visit<'_> for StringCollector<'a> {
 
 rapace_cell::cell_service!(JsProcessorServer<JsProcessorImpl>, JsProcessorImpl);
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     rapace_cell::run(CellService::from(JsProcessorImpl)).await?;
     Ok(())

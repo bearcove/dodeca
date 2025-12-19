@@ -109,7 +109,7 @@ pub struct ResolvedConfig {
     /// Asset paths that should be served at original paths (no cache-busting)
     pub stable_assets: Vec<String>,
     /// Code execution configuration
-    /// TODO: Pass this through to the Salsa query system instead of using default config
+    /// TODO: Pass this through to the picante query system instead of using default config
     #[allow(dead_code)]
     pub code_execution: CodeExecutionConfig,
 }

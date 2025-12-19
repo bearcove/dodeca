@@ -6,7 +6,7 @@
 //! ```text
 //! Browser → Host (TCP) → rapace tunnel → Cell → internal axum
 //!                                              ↓
-//!                              ContentService RPC → Host (Salsa DB)
+//!                              ContentService RPC → Host (picante DB)
 //!                                    ↑
 //!                          (zero-copy via SHM)
 //! ```
@@ -50,7 +50,7 @@ rapace_cell::cell_service!(
     tunnel::TcpTunnelImpl
 );
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     rapace_cell::run_with_session(|session: Arc<RpcSession>| {
         // Build cell context

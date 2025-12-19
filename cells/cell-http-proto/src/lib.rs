@@ -1,7 +1,7 @@
 //! RPC protocol for dodeca dev server cell
 //!
 //! Defines three RPC services:
-//! - `ContentService`: Host implements, cell calls (for content from Salsa DB)
+//! - `ContentService`: Host implements, cell calls (for content from picante DB)
 //! - `TcpTunnel`: Cell implements, host calls (for L4 TCP tunneling)
 //! - `WebSocketTunnel`: Host implements, cell calls (for devtools WebSocket)
 //!
@@ -68,7 +68,7 @@ pub enum ServeContent {
 
 /// Content service provided by the host
 ///
-/// The cell calls these methods to get content from the host's Salsa DB.
+/// The cell calls these methods to get content from the host's picante DB.
 #[allow(async_fn_in_trait)]
 #[rapace::service]
 pub trait ContentService {

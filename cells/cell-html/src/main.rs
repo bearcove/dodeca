@@ -391,7 +391,7 @@ fn escape_html_attr(s: &str) -> String {
 
 rapace_cell::cell_service!(HtmlProcessorServer<HtmlProcessorImpl>, HtmlProcessorImpl);
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     rapace_cell::run(CellService::from(HtmlProcessorImpl)).await?;
     Ok(())

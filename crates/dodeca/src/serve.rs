@@ -1,16 +1,16 @@
-//! HTTP server that serves content directly from the Salsa database
+//! HTTP server that serves content directly from the picante database
 //!
-//! No files are read from disk - everything is queried from Salsa on demand.
+//! No files are read from disk - everything is queried from picante on demand.
 //! This enables instant incremental rebuilds with zero disk I/O.
 
-/// Salsa cache version - bump this when making incompatible changes to Salsa inputs/queries
-pub const SALSA_CACHE_VERSION: u32 = 4;
+/// Picante cache version - bump this when making incompatible changes to picante inputs/queries
+pub const PICANTE_CACHE_VERSION: u32 = 4;
 
 use eyre::Result;
 use futures::future::FutureExt;
 use std::collections::HashMap;
 use std::sync::{Mutex, RwLock};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 use crate::db::{
     DataFile, DataRegistry, Database, DatabaseSnapshot, SassFile, SassRegistry, SourceFile,
@@ -271,12 +271,20 @@ pub struct SiteServer {
     current_errors: RwLock<HashMap<String, dodeca_protocol::ErrorInfo>>,
     /// Cached code execution results for build info display
     code_execution_results: RwLock<Vec<crate::db::CodeExecutionResult>>,
+    /// Revision readiness gate
+    revision_tx: watch::Sender<crate::revision::RevisionState>,
 }
 
 impl SiteServer {
     pub fn new(render_options: RenderOptions, stable_assets: Vec<String>) -> Self {
         let (livereload_tx, _) = broadcast::channel(16);
         let db = Database::new(None);
+        let (revision_tx, _) = watch::channel(crate::revision::RevisionState {
+            generation: 0,
+            status: crate::revision::RevisionStatus::Building,
+            reason: Some("startup".to_string()),
+            started_at: None,
+        });
 
         Self {
             db: Mutex::new(db),
@@ -288,7 +296,72 @@ impl SiteServer {
             stable_assets,
             current_errors: RwLock::new(HashMap::new()),
             code_execution_results: RwLock::new(Vec::new()),
+            revision_tx,
         }
+    }
+
+    pub fn begin_revision(&self, reason: impl Into<String>) -> crate::revision::RevisionToken {
+        let reason = reason.into();
+        let next_generation = self.revision_tx.borrow().generation + 1;
+        let started_at = std::time::Instant::now();
+        let state = crate::revision::RevisionState {
+            generation: next_generation,
+            status: crate::revision::RevisionStatus::Building,
+            reason: Some(reason.clone()),
+            started_at: Some(started_at),
+        };
+        let _ = self.revision_tx.send(state);
+        tracing::debug!(
+            generation = next_generation,
+            reason = %reason,
+            "revision: begin"
+        );
+        crate::revision::RevisionToken {
+            generation: next_generation,
+            started_at,
+        }
+    }
+
+    pub fn end_revision(&self, token: crate::revision::RevisionToken) {
+        let current = self.revision_tx.borrow().clone();
+        if current.generation != token.generation {
+            tracing::debug!(
+                current_generation = current.generation,
+                token_generation = token.generation,
+                "revision: ignoring stale end"
+            );
+            return;
+        }
+
+        let state = crate::revision::RevisionState {
+            generation: token.generation,
+            status: crate::revision::RevisionStatus::Ready,
+            reason: None,
+            started_at: None,
+        };
+        let _ = self.revision_tx.send(state);
+        tracing::debug!(
+            generation = token.generation,
+            elapsed_ms = token.started_at.elapsed().as_millis(),
+            "revision: ready"
+        );
+    }
+
+    pub async fn wait_revision_ready(&self) {
+        let mut rx = self.revision_tx.subscribe();
+        loop {
+            let state = rx.borrow().clone();
+            if state.status == crate::revision::RevisionStatus::Ready {
+                return;
+            }
+            if rx.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+
+    pub fn current_revision(&self) -> crate::revision::RevisionState {
+        self.revision_tx.borrow().clone()
     }
 
     /// Update cached code execution results
@@ -540,7 +613,7 @@ impl SiteServer {
         let version_path = cache_path.with_extension("version");
         let version_ok = if version_path.exists() {
             match std::fs::read_to_string(&version_path) {
-                Ok(v) => v.trim().parse::<u32>().ok() == Some(SALSA_CACHE_VERSION),
+                Ok(v) => v.trim().parse::<u32>().ok() == Some(PICANTE_CACHE_VERSION),
                 Err(_) => false,
             }
         } else {
@@ -550,8 +623,8 @@ impl SiteServer {
         if !version_ok {
             if cache_path.exists() {
                 tracing::info!(
-                    "Salsa cache version mismatch (expected v{}), deleting stale cache",
-                    SALSA_CACHE_VERSION
+                    "Picante cache version mismatch (expected v{}), deleting stale cache",
+                    PICANTE_CACHE_VERSION
                 );
                 let _ = std::fs::remove_file(cache_path);
             }

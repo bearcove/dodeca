@@ -516,7 +516,7 @@ pub async fn inject_livereload_with_build_info(
 }
 
 // ============================================================================
-// Render functions for Salsa tracked queries
+// Render functions for picante tracked queries
 // ============================================================================
 
 /// Render a page to HTML using a template loader.
@@ -599,11 +599,11 @@ pub fn render_section_with_loader<L: TemplateLoader>(
 }
 
 // ============================================================================
-// Lazy data resolver variants (for fine-grained Salsa tracking)
+// Lazy data resolver variants (for fine-grained picante tracking)
 // ============================================================================
 
 /// Render a page to HTML with lazy data resolver.
-/// Each data path access becomes a tracked Salsa dependency.
+/// Each data path access becomes a tracked picante dependency.
 pub fn try_render_page_with_resolver<L: TemplateLoader>(
     page: &Page,
     site_tree: &SiteTree,
@@ -638,7 +638,7 @@ pub fn render_page_with_resolver<L: TemplateLoader>(
 }
 
 /// Render a section to HTML with lazy data resolver.
-/// Each data path access becomes a tracked Salsa dependency.
+/// Each data path access becomes a tracked picante dependency.
 pub fn try_render_section_with_resolver<L: TemplateLoader>(
     section: &Section,
     site_tree: &SiteTree,
@@ -725,7 +725,7 @@ fn build_render_context(site_tree: &SiteTree, data: Option<Value>) -> Context {
 /// Build the render context with a lazy data resolver
 ///
 /// Instead of loading all data upfront, this uses a resolver that will
-/// fetch data on-demand. Each data path access becomes a tracked Salsa dependency.
+/// fetch data on-demand. Each data path access becomes a tracked picante dependency.
 fn build_render_context_with_resolver(
     site_tree: &SiteTree,
     resolver: Arc<dyn DataResolver>,
