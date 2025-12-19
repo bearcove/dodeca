@@ -16,22 +16,24 @@
 use async_send_fd::AsyncSendFd;
 use regex::Regex;
 use reqwest::blocking::Client;
-use std::cell::RefCell;
+use std::cell::Cell;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as StdCommand, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::net::UnixListener;
 use tracing::{debug, error};
 
-// Thread-local storage for logs from the last test (for printing on failure)
+// Thread-local storage for the active test id (used to route logs).
 thread_local! {
-    static LAST_TEST_LOGS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
-    static LAST_TEST_SETUP: RefCell<Option<Duration>> = const { RefCell::new(None) };
+    static CURRENT_TEST_ID: Cell<u64> = const { Cell::new(0) };
 }
+
+static TEST_LOGS: OnceLock<Mutex<std::collections::HashMap<u64, Vec<LogLine>>>> = OnceLock::new();
+static TEST_SETUP: OnceLock<Mutex<std::collections::HashMap<u64, Duration>>> = OnceLock::new();
 
 #[derive(Clone)]
 struct LogLine {
@@ -39,24 +41,30 @@ struct LogLine {
     line: String,
 }
 
-/// Get the logs from the last test that ran (for printing on failure)
-pub fn get_last_test_logs() -> Vec<String> {
-    LAST_TEST_LOGS.with(|logs| logs.borrow().clone())
+/// Set the current test id for log routing
+pub fn set_current_test_id(id: u64) {
+    CURRENT_TEST_ID.with(|cell| cell.set(id));
 }
 
-/// Clear the last test logs
-pub fn clear_last_test_logs() {
-    LAST_TEST_LOGS.with(|logs| logs.borrow_mut().clear());
+/// Clear per-test logs and setup timing
+pub fn clear_test_state(id: u64) {
+    let logs = TEST_LOGS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let setup = TEST_SETUP.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    logs.lock().unwrap().remove(&id);
+    setup.lock().unwrap().remove(&id);
 }
 
-/// Clear the last test setup duration
-pub fn clear_last_test_setup() {
-    LAST_TEST_SETUP.with(|setup| *setup.borrow_mut() = None);
+/// Get the logs for a test id (for printing on failure)
+pub fn get_logs_for(id: u64) -> Vec<String> {
+    let logs = TEST_LOGS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let lines = logs.lock().unwrap().get(&id).cloned().unwrap_or_default();
+    render_logs(lines)
 }
 
-/// Get the setup duration from the last test site creation
-pub fn get_last_test_setup() -> Option<Duration> {
-    LAST_TEST_SETUP.with(|setup| *setup.borrow())
+/// Get the setup duration for a test id
+pub fn get_setup_for(id: u64) -> Option<Duration> {
+    let setup = TEST_SETUP.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    setup.lock().unwrap().get(&id).copied()
 }
 
 /// Get the path to the ddc binary
@@ -87,6 +95,7 @@ pub struct TestSite {
     client: Client,
     _unix_socket_dir: tempfile::TempDir,
     logs: Arc<Mutex<Vec<LogLine>>>,
+    test_id: u64,
 }
 
 impl TestSite {
@@ -114,6 +123,7 @@ impl TestSite {
     /// Create a new test site from an arbitrary source directory with custom files
     pub fn from_source_with_files(src: &Path, files: &[(&str, &str)]) -> Self {
         let setup_start = Instant::now();
+        let test_id = CURRENT_TEST_ID.with(|cell| cell.get());
         // Create isolated temp directory
         let temp_dir = tempfile::Builder::new()
             .prefix("dodeca-test-")
@@ -293,9 +303,8 @@ impl TestSite {
             .expect("build http client");
 
         let setup_elapsed = setup_start.elapsed();
-        LAST_TEST_SETUP.with(|setup| {
-            *setup.borrow_mut() = Some(setup_elapsed);
-        });
+        let setup = TEST_SETUP.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+        setup.lock().unwrap().insert(test_id, setup_elapsed);
 
         Self {
             child,
@@ -305,6 +314,7 @@ impl TestSite {
             client,
             _unix_socket_dir: unix_socket_dir,
             logs,
+            test_id,
         }
     }
 
@@ -455,19 +465,16 @@ impl TestSite {
 
 impl Drop for TestSite {
     fn drop(&mut self) {
-        // Save logs to thread-local for potential failure reporting
-        let logs = render_logs(&self.logs);
-        LAST_TEST_LOGS.with(|tl| {
-            *tl.borrow_mut() = logs;
-        });
+        let logs = self.logs.lock().unwrap().clone();
+        let logs_map = TEST_LOGS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+        logs_map.lock().unwrap().insert(self.test_id, logs);
 
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
 
-fn render_logs(logs: &Arc<Mutex<Vec<LogLine>>>) -> Vec<String> {
-    let mut lines = logs.lock().unwrap().clone();
+fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {
     lines.sort_by_key(|l| l.ts);
     lines
         .into_iter()

@@ -1650,10 +1650,12 @@ fn handle_file_removed(
     }
 }
 
+type FileEventHandler = Arc<dyn Fn(&file_watcher::FileEvent) + Send + Sync>;
+
 async fn start_file_watcher(
     server: Arc<serve::SiteServer>,
     watcher_config: file_watcher::WatcherConfig,
-    on_event: Option<Arc<dyn Fn(&file_watcher::FileEvent) + Send + Sync>>,
+    on_event: Option<FileEventHandler>,
     after_apply: Option<Arc<dyn Fn() + Send + Sync>>,
 ) -> Result<()> {
     let (watcher, watcher_rx) = file_watcher::create_watcher(&watcher_config)?;

@@ -12,9 +12,7 @@
 
 mod harness;
 
-use harness::{
-    TestSite, clear_last_test_logs, clear_last_test_setup, get_last_test_logs, get_last_test_setup,
-};
+use harness::{TestSite, clear_test_state, get_logs_for, get_setup_for, set_current_test_id};
 use owo_colors::OwoColorize;
 use std::panic::{self, AssertUnwindSafe};
 use std::time::{Duration, Instant};
@@ -36,6 +34,7 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
     let mut passed = 0;
     let mut failed = 0;
     let mut skipped = 0;
+    let mut next_test_id: u64 = 1;
 
     fn panic_message(e: &Box<dyn std::any::Any + Send>) -> String {
         if let Some(s) = e.downcast_ref::<&str>() {
@@ -68,9 +67,10 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
 
         let start = Instant::now();
 
-        // Clear logs from previous test
-        clear_last_test_logs();
-        clear_last_test_setup();
+        let test_id = next_test_id;
+        next_test_id = next_test_id.saturating_add(1);
+        set_current_test_id(test_id);
+        clear_test_state(test_id);
 
         // `catch_unwind` prevents the panic from aborting the runner, but the default
         // panic hook would still print the panic to stderr. Since we handle/report
@@ -90,7 +90,7 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
         match result {
             Ok(()) => {
                 let elapsed = start.elapsed();
-                if let Some(setup) = get_last_test_setup() {
+                if let Some(setup) = get_setup_for(test_id) {
                     println!(
                         "{} ({:.2}s, setup {:.2}s)",
                         "PASS".green(),
@@ -105,7 +105,7 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
             Err(e) => {
                 let msg = panic_message(&e);
                 let elapsed = start.elapsed();
-                if let Some(setup) = get_last_test_setup() {
+                if let Some(setup) = get_setup_for(test_id) {
                     println!(
                         "{} ({:.2}s, setup {:.2}s)",
                         "FAIL".red(),
@@ -118,7 +118,7 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
                 println!("  {}", msg.red());
 
                 // Print server logs on failure
-                let logs = get_last_test_logs();
+                let logs = get_logs_for(test_id);
                 if !logs.is_empty() {
                     println!("  {} ({} lines):", "Server logs".yellow(), logs.len());
                     for line in &logs {
