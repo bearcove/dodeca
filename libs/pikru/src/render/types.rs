@@ -77,7 +77,8 @@ pub struct PositionedText {
     pub mono: bool,
     pub big: bool,
     pub small: bool,
-    pub xtra: bool,  // Amplify big or small (for double big/small)
+    pub xtra: bool,    // Amplify big or small (for double big/small)
+    pub aligned: bool, // Rotate text to align with line direction
 }
 
 impl PositionedText {
@@ -94,6 +95,7 @@ impl PositionedText {
             big: false,
             small: false,
             xtra: false,
+            aligned: false,
         }
     }
 
@@ -127,7 +129,8 @@ impl PositionedText {
                             pt.small = true;
                         }
                     }
-                    _ => {}
+                    TextAttr::Aligned => pt.aligned = true,
+                    TextAttr::Center => {} // Center is handled at layout level, not per-text
                 }
             }
         }

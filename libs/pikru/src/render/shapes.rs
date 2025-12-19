@@ -1727,6 +1727,7 @@ impl Shape for TextShape {
             let text_element = SvgText {
                 x: Some(center_svg.x),
                 y: Some(line_y),
+                transform: None, // TextShape doesn't support aligned rotation
                 fill: Some(text_color.clone()),
                 stroke: None,
                 stroke_width: None,

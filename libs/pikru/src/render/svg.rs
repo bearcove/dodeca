@@ -238,9 +238,44 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     None
                 };
 
+                // Compute rotation transform for aligned text on line-like objects
+                // cref: pik_append_txt (pikchr.c:2559-2568)
+                let transform = if positioned_text.aligned {
+                    if let Some(waypoints) = obj.waypoints() {
+                        if waypoints.len() >= 2 {
+                            let n = waypoints.len();
+                            // Use first and last waypoints to compute line direction
+                            // waypoints are in pikchr Y-up coordinates
+                            let dx = waypoints[n - 1].x.raw() - waypoints[0].x.raw();
+                            let dy = waypoints[n - 1].y.raw() - waypoints[0].y.raw();
+                            if dx != 0.0 || dy != 0.0 {
+                                // Negative because SVG Y is flipped
+                                let angle = dy.atan2(dx) * -180.0 / std::f64::consts::PI;
+                                // Rotation center is at (text_x, center.y) in SVG coordinates
+                                // Use fmt_num_hi for angle to match C's %.10g precision
+                                Some(format!(
+                                    "rotate({} {},{})",
+                                    fmt_num_hi(angle),
+                                    fmt_num(text_x),
+                                    fmt_num(center.y)
+                                ))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
                 let text_element = Text {
                     x: Some(text_x),
                     y: Some(center.y + svg_y_offset),
+                    transform,
                     fill: Some(text_color.clone()),
                     stroke: None,
                     stroke_width: None,
@@ -390,18 +425,29 @@ pub fn render_arrowhead_dom(
 /// Format a number matching C's %g format (6 significant figures, trailing zeros trimmed).
 /// cref: pik_append_dis uses snprintf with %g format
 pub(crate) fn fmt_num(value: f64) -> String {
+    fmt_num_precision(value, 6)
+}
+
+/// Format a number with high precision (10 significant figures) matching C's %.10g format.
+/// cref: pik_append_num uses snprintf with %.10g format
+pub(crate) fn fmt_num_hi(value: f64) -> String {
+    fmt_num_precision(value, 10)
+}
+
+/// Format a number with specified significant figures, trailing zeros trimmed.
+fn fmt_num_precision(value: f64, sig_figs: i32) -> String {
     if value == 0.0 {
         return "0".to_string();
     }
 
-    // Round to 6 significant figures like C's %g
+    // Round to specified significant figures
     let abs_val = value.abs();
     let magnitude = abs_val.log10().floor() as i32;
-    let scale = 10_f64.powi(5 - magnitude); // 6 sig figs means 5 - magnitude
+    let scale = 10_f64.powi(sig_figs - 1 - magnitude);
     let rounded = (value * scale).round() / scale;
 
     // Format with enough decimal places, then trim
-    let decimals = (5 - magnitude).max(0) as usize;
+    let decimals = (sig_figs - 1 - magnitude).max(0) as usize;
     let s = format!("{:.prec$}", rounded, prec = decimals);
     let s = s.trim_end_matches('0');
     let s = s.trim_end_matches('.');
