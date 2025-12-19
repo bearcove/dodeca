@@ -103,6 +103,19 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
                 } else {
                     println!("{} ({:.2}s)", "PASS".green(), elapsed.as_secs_f64());
                 }
+                let show_logs = std::env::var("DODECA_SHOW_LOGS")
+                    .ok()
+                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false);
+                if show_logs {
+                    let logs = get_logs_for(test_id);
+                    if !logs.is_empty() {
+                        println!("  {} ({} lines):", "Server logs".yellow(), logs.len());
+                        for line in &logs {
+                            println!("    {}", line);
+                        }
+                    }
+                }
                 passed += 1;
             }
             Err(e) => {
