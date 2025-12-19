@@ -1281,7 +1281,9 @@ impl Shape for LineShape {
 
             // Compute heights for each region (max charht in each slot)
             // cref: pikchr.c:5104-5150
-            let mut hc = Inches::ZERO;
+            // cref: pikchr.c:5106-5108 - for lines, hc starts at sw*1.5
+            let sw = self.style.stroke_width.0.max(0.0);
+            let mut hc = Inches(sw * 1.5);
             let mut ha1 = Inches::ZERO;
             let mut ha2 = Inches::ZERO;
             let mut hb1 = Inches::ZERO;
@@ -1299,25 +1301,31 @@ impl Shape for LineShape {
             }
 
             // Calculate Y position and expand bounds for each text line
-            // cref: pikchr.c:5156-5218
+            // cref: pikchr.c:5156-5218 - pik_append_txt bbox calculation
             let y_base = Inches::ZERO;
 
-            // Determine if line is more vertical than horizontal (for aligned text rotation)
-            // cref: pik_bbox_add_text (pikchr.c:4819-4825) - handles rotated text bbox
-            let is_vertical = if self.waypoints.len() >= 2 {
+            // Compute line direction unit vector for aligned text rotation
+            // cref: pikchr.c:5194-5212 - rotation transform for aligned text
+            let (line_dx, line_dy) = if self.waypoints.len() >= 2 {
                 let start = self.waypoints[0];
                 let end = self.waypoints[self.waypoints.len() - 1];
-                let dx = (end.x - start.x).0.abs();
-                let dy = (end.y - start.y).0.abs();
-                dy > dx
+                let dx = (end.x - start.x).0;
+                let dy = (end.y - start.y).0;
+                let dist = (dx * dx + dy * dy).sqrt();
+                if dist > 0.0 {
+                    (dx / dist, dy / dist)
+                } else {
+                    (1.0, 0.0) // Default to horizontal
+                }
             } else {
-                false
+                (1.0, 0.0)
             };
 
             for (i, t) in self.text.iter().enumerate() {
-                let text_w = Inches(t.width_inches(charwid));
+                let cw = Inches(t.width_inches(charwid));
                 let ch = Inches(t.height(charht.0)) / 2.0;
 
+                // Compute y offset based on vertical slot (as if line were horizontal)
                 let y = match vslots.get(i).unwrap_or(&TextVSlot::Center) {
                     TextVSlot::Above2 => y_base + hc * 0.5 + ha1 + ha2 * 0.5,
                     TextVSlot::Above => y_base + hc * 0.5 + ha1 * 0.5,
@@ -1326,31 +1334,36 @@ impl Shape for LineShape {
                     TextVSlot::Below2 => y_base - hc * 0.5 - hb1 - hb2 * 0.5,
                 };
 
-                let line_y = center.y + y;
-
-                // For aligned text on vertical lines, the text is rotated 90°
-                // So text width becomes vertical extent, text height becomes horizontal extent
-                // cref: pik_bbox_addellipse (pikchr.c:4837) - C uses rotated bbox for aligned text
-                let (half_x_extent, half_y_extent) = if t.aligned && is_vertical {
-                    // Rotated text: swap width and height
-                    (ch, text_w / 2.0)
+                // Compute text bbox corners relative to center (as if horizontal)
+                // cref: pikchr.c:5175-5195
+                let (x0, y0, x1, y1) = if t.rjust {
+                    // rjust: text extends left from anchor
+                    (Inches::ZERO, y - ch, -cw, y + ch)
+                } else if t.ljust {
+                    // ljust: text extends right from anchor
+                    (Inches::ZERO, y - ch, cw, y + ch)
                 } else {
-                    // Normal text: width is horizontal, height is vertical
-                    (text_w / 2.0, ch)
+                    // centered
+                    (cw / 2.0, y + ch, -cw / 2.0, y - ch)
                 };
 
-                // Expand bounds based on text justification
-                // cref: pikchr.c:5180-5195 - rjust extends left, ljust extends right
-                if t.rjust {
-                    bounds.expand_point(Point::new(center.x - half_x_extent * 2.0, line_y - half_y_extent));
-                    bounds.expand_point(Point::new(center.x, line_y + half_y_extent));
-                } else if t.ljust {
-                    bounds.expand_point(Point::new(center.x, line_y - half_y_extent));
-                    bounds.expand_point(Point::new(center.x + half_x_extent * 2.0, line_y + half_y_extent));
+                // For aligned text, rotate the bbox by line angle
+                // cref: pikchr.c:5197-5211 - rotation transform
+                let (rx0, ry0, rx1, ry1) = if t.aligned && (line_dx != 1.0 || line_dy != 0.0) {
+                    // Rotation: x' = dx*x - dy*y, y' = dy*x - dx*y
+                    let new_x0 = line_dx * x0.0 - line_dy * y0.0;
+                    let new_y0 = line_dy * x0.0 - line_dx * y0.0;
+                    let new_x1 = line_dx * x1.0 - line_dy * y1.0;
+                    let new_y1 = line_dy * x1.0 - line_dx * y1.0;
+                    (Inches(new_x0), Inches(new_y0), Inches(new_x1), Inches(new_y1))
                 } else {
-                    bounds.expand_point(Point::new(center.x - half_x_extent, line_y - half_y_extent));
-                    bounds.expand_point(Point::new(center.x + half_x_extent, line_y + half_y_extent));
-                }
+                    (x0, y0, x1, y1)
+                };
+
+                // Add rotated bbox corners to bounds
+                // cref: pikchr.c:5213-5214
+                bounds.expand_point(Point::new(center.x + rx0, center.y + ry0));
+                bounds.expand_point(Point::new(center.x + rx1, center.y + ry1));
             }
         }
     }
