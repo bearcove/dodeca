@@ -107,6 +107,7 @@ impl RenderContext {
             ovalwid    => EvalValue::Length(Inches::from(1.0)),  // C name
             // Scale
             scale      => EvalValue::Scalar(1.0),
+            fontscale  => EvalValue::Scalar(1.0),  // cref: pikchr.c aBuiltin[] - global font scale multiplier
             // Text
             textht     => EvalValue::Length(Inches::from(0.5)),
             textwid    => EvalValue::Length(Inches::from(0.75)),

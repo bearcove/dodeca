@@ -117,6 +117,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
 
     let margin = margin_base + thickness;
     let scale = get_scalar(ctx, "scale", 1.0);
+    let fontscale = get_scalar(ctx, "fontscale", 1.0);
     // C pikchr uses constant rScale=144.0 for all coordinates
     // Scale only affects the display width/height attributes
     let r_scale = 144.0;
@@ -200,6 +201,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         charht: f64,
         charwid: f64,
         thickness: f64,
+        fontscale: f64,
         svg_children: &mut Vec<SvgNode>,
     ) {
         // Convert from pikchr coordinates (Y-up) to SVG pixels (Y-down)
@@ -305,10 +307,11 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                     None
                 };
                 // Use font_scale() to get the correct scale (handles xtra for double big/small)
+                // Combined with global fontscale variable
                 // cref: pik_append_txt (pikchr.c:5183) - outputs as percentage
-                let font_size = if positioned_text.big || positioned_text.small {
-                    let scale = positioned_text.font_scale();
-                    let percent = scale * 100.0;
+                let total_font_scale = fontscale * positioned_text.font_scale();
+                let font_size = if (total_font_scale - 1.0).abs() > 0.001 {
+                    let percent = total_font_scale * 100.0;
                     // Format with appropriate precision to avoid floating point artifacts
                     Some(fmt_num(percent) + "%")
                 } else {
@@ -373,7 +376,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         if let Some(children) = obj.shape.children() {
             for child in children {
                 render_object_text(
-                    child, scaler, offset_x, max_y, charht, charwid, thickness, svg_children,
+                    child, scaler, offset_x, max_y, charht, charwid, thickness, fontscale, svg_children,
                 );
             }
         }
@@ -398,6 +401,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         charht: f64,
         charwid: f64,
         thickness: f64,
+        fontscale: f64,
         svg_children: &mut Vec<SvgNode>,
     ) {
         // For sublists, render each child (shape + text) in order
@@ -405,7 +409,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             for child in children {
                 render_object_full(
                     child, scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid,
-                    charht, charwid, thickness, svg_children,
+                    charht, charwid, thickness, fontscale, svg_children,
                 );
             }
         } else {
@@ -418,18 +422,19 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             }
             // Render text for this object immediately after its shape
             render_object_text(
-                obj, scaler, offset_x, max_y, charht, charwid, thickness, svg_children,
+                obj, scaler, offset_x, max_y, charht, charwid, thickness, fontscale, svg_children,
             );
         }
     }
 
     // Render each object (shape + text together), sorted by layer
-    let charht = get_length(ctx, "charht", 0.14);
-    let charwid = get_length(ctx, "charwid", 0.08);
+    // cref: pikchr.c:7289-7290 - charht and charwid are scaled by fontscale
+    let charht = get_length(ctx, "charht", 0.14) * fontscale;
+    let charwid = get_length(ctx, "charwid", 0.08) * fontscale;
     for obj in sorted_objects {
         render_object_full(
             obj, &scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid,
-            charht, charwid, thickness, &mut svg_children,
+            charht, charwid, thickness, fontscale, &mut svg_children,
         );
     }
 
