@@ -119,14 +119,27 @@ fn render_statement(
             // work correctly - the second arrow starts from circle's south edge.
             ctx.direction = *dir;
             if let Some(last_obj) = ctx.object_list.last() {
-                use crate::types::UnitVec;
-                let unit_dir = match dir {
-                    Direction::Right => UnitVec::EAST,
-                    Direction::Left => UnitVec::WEST,
-                    Direction::Up => UnitVec::NORTH,
-                    Direction::Down => UnitVec::SOUTH,
-                };
-                ctx.position = last_obj.edge_point(unit_dir);
+                // For line-like objects, the cursor should stay at the line's endpoint,
+                // not be recalculated from center. Lines don't have meaningful "edges"
+                // in the same way shaped objects do.
+                let is_line_like = matches!(
+                    last_obj.class(),
+                    ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move
+                );
+                if is_line_like {
+                    // Keep cursor at line endpoint - don't recalculate
+                    ctx.position = last_obj.end();
+                } else {
+                    // For shaped objects, get edge point in new direction
+                    use crate::types::UnitVec;
+                    let unit_dir = match dir {
+                        Direction::Right => UnitVec::EAST,
+                        Direction::Left => UnitVec::WEST,
+                        Direction::Up => UnitVec::NORTH,
+                        Direction::Down => UnitVec::SOUTH,
+                    };
+                    ctx.position = last_obj.edge_point(unit_dir);
+                }
             }
         }
         Statement::Assignment(assign) => {
@@ -319,6 +332,35 @@ pub fn compute_text_vslots(texts: &[PositionedText]) -> Vec<TextVSlot> {
         })
         .collect();
 
+    // cref: pik_txt_vertical_layout (pikchr.c:2321-2332)
+    // If there is more than one TP_ABOVE, change the first to TP_ABOVE2.
+    // Scan from end: first ABOVE found stays as ABOVE, second becomes ABOVE2.
+    let mut found_above = false;
+    for i in (0..n).rev() {
+        if slots[i] == Some(TextVSlot::Above) {
+            if !found_above {
+                found_above = true;
+            } else {
+                slots[i] = Some(TextVSlot::Above2);
+                break;
+            }
+        }
+    }
+
+    // cref: pik_txt_vertical_layout (pikchr.c:2335-2346)
+    // Same logic for BELOW -> BELOW2
+    let mut found_below = false;
+    for i in 0..n {
+        if slots[i] == Some(TextVSlot::Below) {
+            if !found_below {
+                found_below = true;
+            } else {
+                slots[i] = Some(TextVSlot::Below2);
+                break;
+            }
+        }
+    }
+
     if n == 1 {
         // Single text defaults to center
         if slots[0].is_none() {
@@ -386,24 +428,69 @@ pub fn count_text_above_below(texts: &[PositionedText]) -> (usize, usize) {
     (above, below)
 }
 
-/// Sum actual text heights above and below for bbox calculation
-/// Unlike count_text_above_below, this accounts for font scaling from big/small modifiers
-// cref: pik_append_txt (pikchr.c:5107-5108) - adds text height contribution to bbox
+/// Sum actual text heights above and below for bbox calculation.
+/// This computes the vertical extent of text relative to the object center,
+/// accounting for the actual Y positions of each text slot.
+///
+/// cref: pik_append_txt (pikchr.c:2484-2528) - computes text bbox using y positions
 pub fn sum_text_heights_above_below(texts: &[PositionedText], charht: f64) -> (f64, f64) {
     let slots = compute_text_vslots(texts);
-    let mut above_height = 0.0;
-    let mut below_height = 0.0;
+
+    // First, compute the slot heights like C does (ha2, ha1, hc, hb1, hb2)
+    // These are the MAX heights for each slot category
+    let mut ha2 = 0.0_f64; // Above2 slot height
+    let mut ha1 = 0.0_f64; // Above slot height
+    let mut hc = 0.0_f64; // Center slot height
+    let mut hb1 = 0.0_f64; // Below slot height
+    let mut hb2 = 0.0_f64; // Below2 slot height
 
     for (text, slot) in texts.iter().zip(slots.iter()) {
-        let height = text.height(charht);
+        let h = text.height(charht);
         match slot {
-            TextVSlot::Above | TextVSlot::Above2 => above_height += height,
-            TextVSlot::Below | TextVSlot::Below2 => below_height += height,
-            _ => {}
+            TextVSlot::Above2 => ha2 = ha2.max(h),
+            TextVSlot::Above => ha1 = ha1.max(h),
+            TextVSlot::Center => hc = hc.max(h),
+            TextVSlot::Below => hb1 = hb1.max(h),
+            TextVSlot::Below2 => hb2 = hb2.max(h),
         }
     }
 
-    (above_height, below_height)
+    // Now compute the actual vertical extent from center (y=0)
+    // Following C logic in pik_append_txt lines 2477-2480:
+    //   ABOVE2: y = 0.5*hc + ha1 + 0.5*ha2  (top edge = y + ch = y + 0.5*h)
+    //   ABOVE:  y = 0.5*hc + 0.5*ha1
+    //   CENTER: y = 0  (extends +/- 0.5*hc from center)
+    //   BELOW:  y = -(0.5*hc + 0.5*hb1)
+    //   BELOW2: y = -(0.5*hc + hb1 + 0.5*hb2)
+    //
+    // The top-most point is ABOVE2's top edge: 0.5*hc + ha1 + ha2
+    // The bottom-most point is BELOW2's bottom edge: -(0.5*hc + hb1 + hb2)
+
+    // Total height above center line (positive Y direction)
+    let above_extent = if ha2 > 0.0 {
+        // ABOVE2 top edge
+        0.5 * hc + ha1 + ha2
+    } else if ha1 > 0.0 {
+        // ABOVE top edge
+        0.5 * hc + ha1
+    } else {
+        // Just center text
+        0.5 * hc
+    };
+
+    // Total height below center line (negative Y direction, but return positive)
+    let below_extent = if hb2 > 0.0 {
+        // BELOW2 bottom edge
+        0.5 * hc + hb1 + hb2
+    } else if hb1 > 0.0 {
+        // BELOW bottom edge
+        0.5 * hc + hb1
+    } else {
+        // Just center text
+        0.5 * hc
+    };
+
+    (above_extent, below_extent)
 }
 
 /// Compute the bounding box of a list of rendered objects (in local coordinates)
