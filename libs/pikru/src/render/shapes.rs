@@ -17,7 +17,7 @@ use super::{TextVSlot, compute_text_vslots, sum_text_heights_above_below};
 /// Bounding box type alias
 pub type BoundingBox = BoxIn;
 use super::geometry::{
-    apply_auto_chop_simple_line, arc_control_point, chop_line, create_arc_path,
+    apply_auto_chop_simple_line, arc_control_point, chop_line, create_arc_path_with_control,
     create_cylinder_paths_with_rad, create_file_paths, create_line_path, create_oval_path,
     create_rounded_box_path, create_spline_path,
 };
@@ -25,6 +25,20 @@ use super::svg::{color_to_rgb, render_arrowhead_dom};
 use super::types::{ClassName, ObjectStyle, PointIn, PositionedText, RenderedObject};
 
 use enum_dispatch::enum_dispatch;
+
+/// Shorten a point toward another point by a given amount (in pixels)
+/// cref: pik_chop (pikchr.c:1958-1970)
+fn chop_point(from: DVec2, to: DVec2, amount: f64) -> DVec2 {
+    let delta = to - from;
+    let dist = delta.length();
+
+    if dist <= amount {
+        return from;
+    }
+
+    let r = 1.0 - amount / dist;
+    from + delta * r
+}
 
 /// Shorten a waypoint list from the start (for start arrows)
 /// cref: pik_chop (pikchr.c:1958-1970)
@@ -1878,41 +1892,48 @@ impl Shape for ArcShape {
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
-        // cref: arcRender (pikchr.c:4485) - checks pObj->sw>=0.0
+        // cref: arcRender (pikchr.c:1064) - checks pObj->sw>=0.0
         if self.style.invisible || self.style.stroke_width.0 < 0.0 {
             return nodes;
         }
 
         // Convert points to SVG coordinates with proper Y-flipping
-        let start_svg = self.start.to_svg(scaler, offset_x, max_y);
-        let end_svg = self.end.to_svg(scaler, offset_x, max_y);
+        let mut start_svg = self.start.to_svg(scaler, offset_x, max_y);
+        let mut end_svg = self.end.to_svg(scaler, offset_x, max_y);
 
-        // Calculate control point for arrowheads
+        // cref: arcRender (pikchr.c:1070) - calculate control point
         let control = arc_control_point(self.style.clockwise, start_svg, end_svg);
 
         // Calculate arrow dimensions
-        let arrow_len = scaler.px(arrow_len);
-        let arrow_wid = scaler.px(arrow_wid);
+        let arrow_len_px = scaler.px(arrow_len);
+        let arrow_wid_px = scaler.px(arrow_wid);
+        let arrow_chop = arrow_len_px / 2.0;
 
-        // Render arrowheads first (like svg.rs does)
+        // cref: arcRender (pikchr.c:1071-1076) - render arrowheads first, which modifies endpoints
+        // pik_draw_arrowhead calls pik_chop to shorten the endpoint by h/2
         if self.style.arrow_start {
             if let Some(arrowhead) =
-                render_arrowhead_dom(control, start_svg, &self.style, arrow_len, arrow_wid)
+                render_arrowhead_dom(control, start_svg, &self.style, arrow_len_px, arrow_wid_px)
             {
                 nodes.push(SvgNode::Polygon(arrowhead));
             }
+            // Chop start point: shorten from control toward start by arrow_chop
+            start_svg = chop_point(control, start_svg, arrow_chop);
         }
         if self.style.arrow_end {
             if let Some(arrowhead) =
-                render_arrowhead_dom(control, end_svg, &self.style, arrow_len, arrow_wid)
+                render_arrowhead_dom(control, end_svg, &self.style, arrow_len_px, arrow_wid_px)
             {
                 nodes.push(SvgNode::Polygon(arrowhead));
             }
+            // Chop end point: shorten from control toward end by arrow_chop
+            end_svg = chop_point(control, end_svg, arrow_chop);
         }
 
-        // Render the arc path
+        // cref: arcRender (pikchr.c:1077-1079) - render the arc path with chopped endpoints
+        // but ORIGINAL control point (m is not modified in C)
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
-        let arc_path_data = create_arc_path(start_svg, end_svg, self.style.clockwise);
+        let arc_path_data = create_arc_path_with_control(start_svg, control, end_svg);
 
         let arc_path = Path {
             d: Some(arc_path_data),
@@ -1932,10 +1953,47 @@ impl Shape for ArcShape {
         self.end += offset;
     }
 
-    /// cref: pik_bbox_add_elist (pikchr.c:7206) - arc bbox from endpoints
+    /// cref: arcCheck (pikchr.c:1040-1063) - arc bbox samples 16 points along the curve
     fn expand_bounds(&self, bounds: &mut BoundingBox) {
-        bounds.expand_point(self.start);
-        bounds.expand_point(self.end);
+        // cref: arcCheck (pikchr.c:1048-1062) - sample 16 points along the quadratic bezier
+        let f = self.start;
+        let t = self.end;
+        // Calculate control point (in pikchr coordinates, Y-up)
+        let mid = f.midpoint(t);
+        let dx = t.x - f.x;
+        let dy = t.y - f.y;
+        let m = if self.clockwise {
+            Point::new(mid.x - dy * 0.5, mid.y + dx * 0.5)
+        } else {
+            Point::new(mid.x + dy * 0.5, mid.y - dx * 0.5)
+        };
+
+        let sw = self.style.stroke_width;
+        for i in 1..16 {
+            let t1 = 0.0625 * i as f64;
+            let t2 = 1.0 - t1;
+            let a = t2 * t2;
+            let b = 2.0 * t1 * t2;
+            let c = t1 * t1;
+            let x = Inches(a * f.x.0 + b * m.x.0 + c * t.x.0);
+            let y = Inches(a * f.y.0 + b * m.y.0 + c * t.y.0);
+            // cref: pik_bbox_addellipse - expand by stroke width
+            bounds.expand_point(Point::new(x - sw, y - sw));
+            bounds.expand_point(Point::new(x + sw, y + sw));
+        }
+
+        // cref: pik_bbox_add_elist (pikchr.c:4532-4542) - add arrowhead bounds at endpoints
+        // wArrow = 0.5 * arrowwid (default arrowwid = 0.05")
+        let w_arrow = defaults::ARROW_WID * 0.5;
+        if self.style.arrow_start {
+            bounds.expand_point(Point::new(f.x - w_arrow, f.y - w_arrow));
+            bounds.expand_point(Point::new(f.x + w_arrow, f.y + w_arrow));
+        }
+        if self.style.arrow_end {
+            bounds.expand_point(Point::new(t.x - w_arrow, t.y - w_arrow));
+            bounds.expand_point(Point::new(t.x + w_arrow, t.y + w_arrow));
+        }
+
         // Include text labels (must account for font scaling)
         if !self.text.is_empty() {
             let charht = defaults::FONT_SIZE;

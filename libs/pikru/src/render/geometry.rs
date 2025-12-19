@@ -688,3 +688,14 @@ pub fn create_arc_path(start: DVec2, end: DVec2, clockwise: bool) -> PathData {
         .m(start.x, start.y)
         .q(control.x, control.y, end.x, end.y)
 }
+
+/// Create arc path with a pre-calculated control point.
+/// cref: arcRender (pikchr.c:1077-1079) - uses original control point with chopped endpoints
+///
+/// Use this when endpoints have been chopped for arrows but the control point
+/// should remain calculated from the original (unchopped) endpoints.
+pub fn create_arc_path_with_control(start: DVec2, control: DVec2, end: DVec2) -> PathData {
+    PathData::new()
+        .m(start.x, start.y)
+        .q(control.x, control.y, end.x, end.y)
+}
