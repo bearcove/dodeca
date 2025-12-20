@@ -1028,6 +1028,13 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                             ("merge-multiple", "true".into()),
                         ],
                     ),
+                    // Forgejo v3 download-artifact doesn't support merge-multiple properly,
+                    // so we need to flatten any subdirectories created by the pattern download.
+                    Step::run(
+                        "Flatten cell directories",
+                        "find dist -mindepth 2 -type f -exec mv -t dist {} + 2>/dev/null || true; \
+                         find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true",
+                    ),
                     Step::run("Prepare binaries", "chmod +x dist/ddc* && ls -la dist/"),
                     Step::run("Verify artifacts", verify_artifacts_script()),
                     Step::run(
@@ -1064,6 +1071,12 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                         ("path", "target/release".into()),
                         ("merge-multiple", "true".into()),
                     ]),
+                    // Forgejo v3 download-artifact doesn't support merge-multiple properly
+                    Step::run(
+                        "Flatten cell directories",
+                        "find target/release -mindepth 2 -type f -exec mv -t target/release {} + 2>/dev/null || true; \
+                         find target/release -mindepth 1 -type d -empty -delete 2>/dev/null || true",
+                    ),
                     Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
                         ("name", wasm_artifact.clone()),
                         ("path", "crates/dodeca-devtools/pkg".into()),

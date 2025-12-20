@@ -250,6 +250,9 @@ jobs:
           merge-multiple: "true"
 
       - 
+        name: Flatten cell directories
+        run: find dist -mindepth 2 -type f -exec mv -t dist {} + 2>/dev/null || true; find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true
+      - 
         name: Prepare binaries
         run: chmod +x dist/ddc* && ls -la dist/
       - 
@@ -294,6 +297,9 @@ jobs:
           path: target/release
           merge-multiple: "true"
 
+      - 
+        name: Flatten cell directories
+        run: find target/release -mindepth 2 -type f -exec mv -t target/release {} + 2>/dev/null || true; find target/release -mindepth 1 -type d -empty -delete 2>/dev/null || true
       - 
         name: Download WASM
         uses: actions/download-artifact@v4
@@ -473,6 +479,9 @@ jobs:
           merge-multiple: "true"
 
       - 
+        name: Flatten cell directories
+        run: find dist -mindepth 2 -type f -exec mv -t dist {} + 2>/dev/null || true; find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true
+      - 
         name: Prepare binaries
         run: chmod +x dist/ddc* && ls -la dist/
       - 
@@ -517,6 +526,9 @@ jobs:
           path: target/release
           merge-multiple: "true"
 
+      - 
+        name: Flatten cell directories
+        run: find target/release -mindepth 2 -type f -exec mv -t target/release {} + 2>/dev/null || true; find target/release -mindepth 1 -type d -empty -delete 2>/dev/null || true
       - 
         name: Download WASM
         uses: actions/download-artifact@v4
