@@ -1,12 +1,101 @@
-//! CI workflow generation for GitHub Actions.
+//! CI workflow generation for GitHub Actions and Forgejo Actions.
 //!
-//! This module provides typed representations of GitHub Actions workflow files
+//! This module provides typed representations of GitHub/Forgejo Actions workflow files
 //! and generates the release workflow for dodeca.
 
 #![allow(dead_code)] // Scaffolding for future CI features
 
 use facet::Facet;
 use indexmap::IndexMap;
+
+// =============================================================================
+// CI Platform Configuration
+// =============================================================================
+
+/// The CI platform we're generating workflows for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CiPlatform {
+    GitHub,
+    Forgejo,
+}
+
+impl CiPlatform {
+    /// Get the workflow directory path relative to repo root.
+    pub fn workflows_dir(&self) -> &'static str {
+        match self {
+            CiPlatform::GitHub => ".github/workflows",
+            CiPlatform::Forgejo => ".forgejo/workflows",
+        }
+    }
+
+    /// Get the context variable prefix (e.g., "github" or "gitea").
+    pub fn context_prefix(&self) -> &'static str {
+        match self {
+            CiPlatform::GitHub => "github",
+            CiPlatform::Forgejo => "gitea",
+        }
+    }
+
+    /// Format a context variable reference.
+    pub fn context_var(&self, var: &str) -> String {
+        format!("${{{{ {}.{} }}}}", self.context_prefix(), var)
+    }
+
+    /// Get the checkout action for this platform.
+    pub fn checkout_action(&self) -> &'static str {
+        match self {
+            CiPlatform::GitHub => "actions/checkout@v4",
+            // Forgejo can use actions from GitHub via full URL or has its own
+            CiPlatform::Forgejo => "https://github.com/actions/checkout@v4",
+        }
+    }
+
+    /// Get the upload-artifact action for this platform.
+    pub fn upload_artifact_action(&self) -> &'static str {
+        match self {
+            CiPlatform::GitHub => "actions/upload-artifact@v4",
+            CiPlatform::Forgejo => "https://github.com/actions/upload-artifact@v4",
+        }
+    }
+
+    /// Get the download-artifact action for this platform.
+    pub fn download_artifact_action(&self) -> &'static str {
+        match self {
+            CiPlatform::GitHub => "actions/download-artifact@v4",
+            CiPlatform::Forgejo => "https://github.com/actions/download-artifact@v4",
+        }
+    }
+
+    /// Get the rust-toolchain action for this platform.
+    pub fn rust_toolchain_action(&self) -> &'static str {
+        match self {
+            CiPlatform::GitHub => "dtolnay/rust-toolchain@stable",
+            CiPlatform::Forgejo => "https://github.com/dtolnay/rust-toolchain@stable",
+        }
+    }
+
+    /// Get the local cache action for this platform (for self-hosted runners).
+    pub fn local_cache_action(&self) -> &'static str {
+        match self {
+            CiPlatform::GitHub => "bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794",
+            // Forgejo: use the standard cache action from data.forgejo.org
+            CiPlatform::Forgejo => "https://data.forgejo.org/actions/cache@v4",
+        }
+    }
+
+    /// Check if this platform uses the local-cache action (with base path) or standard cache.
+    pub fn uses_local_cache(&self) -> bool {
+        matches!(self, CiPlatform::GitHub)
+    }
+
+    /// Get the Swatinem rust-cache action for this platform (for non-self-hosted runners).
+    pub fn rust_cache_action(&self) -> &'static str {
+        match self {
+            CiPlatform::GitHub => "Swatinem/rust-cache@v2",
+            CiPlatform::Forgejo => "https://github.com/Swatinem/rust-cache@v2",
+        }
+    }
+}
 
 // =============================================================================
 // Configuration
@@ -18,39 +107,57 @@ const MACOS_SELF_HOSTED: bool = true;
 /// Use self-hosted runner for Linux (true) or Depot (false).
 const LINUX_SELF_HOSTED: bool = true;
 
-/// Self-hosted runner labels for macOS.
-const MACOS_SELF_HOSTED_LABELS: &[&str] = &["self-hosted", "macOS", "ARM64"];
+/// Self-hosted runner labels for GitHub macOS.
+const GITHUB_MACOS_LABELS: &[&str] = &["self-hosted", "macOS", "ARM64"];
 
-/// Self-hosted runner labels for Linux.
-const LINUX_SELF_HOSTED_LABELS: &[&str] = &["self-hosted", "Linux", "X64"];
+/// Self-hosted runner labels for GitHub Linux.
+const GITHUB_LINUX_LABELS: &[&str] = &["self-hosted", "Linux", "X64"];
 
-/// Target platforms for CI and releases.
-pub const TARGETS: &[Target] = &[
-    Target {
-        triple: "x86_64-unknown-linux-gnu",
-        os: "ubuntu-24.04",
-        runner: if LINUX_SELF_HOSTED {
-            RunnerSpec::Labels(LINUX_SELF_HOSTED_LABELS)
-        } else {
-            RunnerSpec::Single("depot-ubuntu-24.04-32")
+/// Self-hosted runner labels for Forgejo macOS.
+const FORGEJO_MACOS_LABELS: &[&str] = &["macos-arm64:host"];
+
+/// Self-hosted runner labels for Forgejo Linux.
+const FORGEJO_LINUX_LABELS: &[&str] = &["linux-amd64:host"];
+
+/// Get target platforms for a specific CI platform.
+pub fn targets_for_platform(platform: CiPlatform) -> Vec<Target> {
+    let (linux_labels, macos_labels): (&[&str], &[&str]) = match platform {
+        CiPlatform::GitHub => (GITHUB_LINUX_LABELS, GITHUB_MACOS_LABELS),
+        CiPlatform::Forgejo => (FORGEJO_LINUX_LABELS, FORGEJO_MACOS_LABELS),
+    };
+
+    vec![
+        Target {
+            triple: "x86_64-unknown-linux-gnu",
+            os: "ubuntu-24.04",
+            runner: if LINUX_SELF_HOSTED {
+                RunnerSpec::labels(linux_labels)
+            } else {
+                RunnerSpec::single("depot-ubuntu-24.04-32")
+            },
+            lib_ext: "so",
+            lib_prefix: "lib",
+            archive_ext: "tar.xz",
         },
-        lib_ext: "so",
-        lib_prefix: "lib",
-        archive_ext: "tar.xz",
-    },
-    Target {
-        triple: "aarch64-apple-darwin",
-        os: "macos-15",
-        runner: if MACOS_SELF_HOSTED {
-            RunnerSpec::Labels(MACOS_SELF_HOSTED_LABELS)
-        } else {
-            RunnerSpec::Single("depot-macos-15")
+        Target {
+            triple: "aarch64-apple-darwin",
+            os: "macos-15",
+            runner: if MACOS_SELF_HOSTED {
+                RunnerSpec::labels(macos_labels)
+            } else {
+                RunnerSpec::single("depot-macos-15")
+            },
+            lib_ext: "dylib",
+            lib_prefix: "lib",
+            archive_ext: "tar.xz",
         },
-        lib_ext: "dylib",
-        lib_prefix: "lib",
-        archive_ext: "tar.xz",
-    },
-];
+    ]
+}
+
+/// Target platforms for CI and releases (GitHub default for backwards compatibility).
+pub fn default_targets() -> Vec<Target> {
+    targets_for_platform(CiPlatform::GitHub)
+}
 
 /// Discover cdylib plugins by scanning crates/dodeca-*/Cargo.toml for cdylib crate-type.
 pub fn discover_cdylib_cells(repo_root: &Utf8Path) -> Vec<String> {
@@ -141,22 +248,32 @@ pub fn cell_groups(chunk_size: usize) -> Vec<(String, Vec<(&'static str, &'stati
 #[derive(Debug, Clone)]
 pub enum RunnerSpec {
     /// A single runner name (e.g., "ubuntu-latest")
-    Single(&'static str),
+    Single(String),
     /// Multiple labels for self-hosted runners (e.g., ["self-hosted", "Linux", "X64"])
-    Labels(&'static [&'static str]),
+    Labels(Vec<String>),
 }
 
 impl RunnerSpec {
+    /// Create a single runner spec from a static string.
+    pub fn single(s: &str) -> Self {
+        RunnerSpec::Single(s.to_string())
+    }
+
+    /// Create a labels runner spec from a slice of static strings.
+    pub fn labels(labels: &[&str]) -> Self {
+        RunnerSpec::Labels(labels.iter().map(|s| s.to_string()).collect())
+    }
+
     /// Convert to the Job's runs_on field.
     pub fn to_runs_on(&self) -> RunsOn {
         match self {
-            RunnerSpec::Single(s) => RunsOn::single(*s),
-            RunnerSpec::Labels(labels) => RunsOn::multiple(labels.iter().copied()),
+            RunnerSpec::Single(s) => RunsOn::single(s.clone()),
+            RunnerSpec::Labels(labels) => RunsOn::multiple(labels.iter().cloned()),
         }
     }
 
     /// Check if this is a self-hosted runner.
-    pub const fn is_self_hosted(&self) -> bool {
+    pub fn is_self_hosted(&self) -> bool {
         matches!(self, RunnerSpec::Labels(_))
     }
 }
@@ -184,7 +301,7 @@ impl Target {
     }
 
     /// Check if this target uses a self-hosted runner.
-    pub const fn is_self_hosted(&self) -> bool {
+    pub fn is_self_hosted(&self) -> bool {
         self.runner.is_self_hosted()
     }
 
@@ -524,21 +641,30 @@ impl Job {
 pub mod common {
     use super::*;
 
-    pub fn checkout() -> Step {
-        Step::uses("Checkout", "actions/checkout@v4")
+    pub fn checkout(platform: CiPlatform) -> Step {
+        Step::uses("Checkout", platform.checkout_action())
     }
 
-    pub fn install_rust() -> Step {
-        Step::uses("Install Rust", "dtolnay/rust-toolchain@stable")
+    pub fn install_rust(platform: CiPlatform) -> Step {
+        Step::uses("Install Rust", platform.rust_toolchain_action())
     }
 
-    pub fn install_rust_with_target(target: &str) -> Step {
-        Step::uses("Install Rust", "dtolnay/rust-toolchain@stable")
+    pub fn install_rust_with_target(platform: CiPlatform, target: &str) -> Step {
+        Step::uses("Install Rust", platform.rust_toolchain_action())
             .with_inputs([("targets", target)])
     }
 
-    pub fn rust_cache_with_targets(cache_targets: bool) -> Step {
-        Step::uses("Rust cache", "Swatinem/rust-cache@v2").with_inputs([
+    pub fn install_rust_with_components_and_target(
+        platform: CiPlatform,
+        components: &str,
+        target: &str,
+    ) -> Step {
+        Step::uses("Install Rust", platform.rust_toolchain_action())
+            .with_inputs([("components", components), ("targets", target)])
+    }
+
+    pub fn rust_cache_with_targets(platform: CiPlatform, cache_targets: bool) -> Step {
+        Step::uses("Rust cache", platform.rust_cache_action()).with_inputs([
             ("cache-on-failure", "true"),
             (
                 "cache-targets",
@@ -548,6 +674,7 @@ pub mod common {
     }
 
     pub fn local_cache_with_targets(
+        platform: CiPlatform,
         cache_targets: bool,
         job_suffix: &str,
         base_path: &str,
@@ -564,25 +691,51 @@ pub mod common {
             )
         };
 
+        let action = platform.local_cache_action();
+
+        if platform.uses_local_cache() {
+            // GitHub: use bearcove/local-cache with base path
+            Step::uses("Local cache", action).with_inputs([
+                ("path", "target"),
+                ("key", &key),
+                ("base", base_path),
+            ])
+        } else {
+            // Forgejo: use standard cache action (no base path, different restore-keys format)
+            let restore_key =
+                format!("${{{{ runner.os }}}}-cargo-${{{{ hashFiles('**/Cargo.lock') }}}}-");
+            Step::uses("Cache", action).with_inputs([
+                ("path", "target"),
+                ("key", &key),
+                ("restore-keys", &restore_key),
+            ])
+        }
+    }
+
+    pub fn upload_artifact(
+        platform: CiPlatform,
+        name: impl Into<String>,
+        path: impl Into<String>,
+    ) -> Step {
+        Step::uses("Upload artifact", platform.upload_artifact_action())
+            .with_inputs([("name", name.into()), ("path", path.into())])
+    }
+
+    pub fn download_artifact(
+        platform: CiPlatform,
+        name: impl Into<String>,
+        path: impl Into<String>,
+    ) -> Step {
+        Step::uses("Download artifact", platform.download_artifact_action())
+            .with_inputs([("name", name.into()), ("path", path.into())])
+    }
+
+    pub fn download_all_artifacts(platform: CiPlatform, path: impl Into<String>) -> Step {
         Step::uses(
-            "Local cache",
-            "bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794",
+            "Download all artifacts",
+            platform.download_artifact_action(),
         )
-        .with_inputs([("path", "target"), ("key", &key), ("base", base_path)])
-    }
-
-    pub fn upload_artifact(name: impl Into<String>, path: impl Into<String>) -> Step {
-        Step::uses("Upload artifact", "actions/upload-artifact@v4")
-            .with_inputs([("name", name.into()), ("path", path.into())])
-    }
-
-    pub fn download_artifact(name: impl Into<String>, path: impl Into<String>) -> Step {
-        Step::uses("Download artifact", "actions/download-artifact@v4")
-            .with_inputs([("name", name.into()), ("path", path.into())])
-    }
-
-    pub fn download_all_artifacts(path: impl Into<String>) -> Step {
-        Step::uses("Download all artifacts", "actions/download-artifact@v4").with_inputs([
+        .with_inputs([
             ("path", path.into()),
             ("pattern", "build-*".to_string()),
             ("merge-multiple", "true".to_string()),
@@ -596,20 +749,26 @@ pub mod common {
 
 /// CI runner configuration.
 struct CiRunner {
-    os: &'static str,
     runner: RunnerSpec,
     wasm_install: &'static str,
 }
 
-const CI_LINUX: CiRunner = CiRunner {
-    os: "linux",
-    runner: if LINUX_SELF_HOSTED {
-        RunnerSpec::Labels(LINUX_SELF_HOSTED_LABELS)
-    } else {
-        RunnerSpec::Single("depot-ubuntu-24.04-32")
-    },
-    wasm_install: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh",
-};
+/// Get the CI Linux runner configuration for a platform.
+fn ci_linux_runner(platform: CiPlatform) -> CiRunner {
+    let labels = match platform {
+        CiPlatform::GitHub => GITHUB_LINUX_LABELS,
+        CiPlatform::Forgejo => FORGEJO_LINUX_LABELS,
+    };
+
+    CiRunner {
+        runner: if LINUX_SELF_HOSTED {
+            RunnerSpec::labels(labels)
+        } else {
+            RunnerSpec::single("depot-ubuntu-24.04-32")
+        },
+        wasm_install: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh",
+    }
+}
 
 /// Build the unified CI workflow (runs on PRs, main branch, and tags).
 ///
@@ -617,9 +776,12 @@ const CI_LINUX: CiRunner = CiRunner {
 /// - Fan-out: Build ddc + cell groups for each target platform
 /// - Fan-in: Assemble archives after all cell groups complete
 /// - Integration: Run integration tests
-/// - Release: On tags, publish GitHub release
-pub fn build_ci_workflow() -> Workflow {
+/// - Release: On tags, publish release (GitHub only)
+pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
     use common::*;
+
+    let ci_linux = ci_linux_runner(platform);
+    let targets = targets_for_platform(platform);
 
     let mut jobs = IndexMap::new();
     let groups = cell_groups(9);
@@ -627,25 +789,26 @@ pub fn build_ci_workflow() -> Workflow {
     // Track jobs required before release (assemble + integration per target)
     let mut all_release_needs: Vec<String> = Vec::new();
 
-    // Cache step for CI_LINUX jobs
-    let ci_linux_cache = if CI_LINUX.runner.is_self_hosted() {
-        local_cache_with_targets(false, "ci-linux", "/home/amos/.cache")
+    // Cache step for CI Linux jobs
+    let ci_linux_cache = if ci_linux.runner.is_self_hosted() {
+        local_cache_with_targets(platform, false, "ci-linux", "/home/amos/.cache")
     } else {
-        rust_cache_with_targets(false)
+        rust_cache_with_targets(platform, false)
     };
 
     jobs.insert(
         "clippy".to_string(),
-        Job::with_runner(CI_LINUX.runner.to_runs_on())
+        Job::with_runner(ci_linux.runner.to_runs_on())
             .name("Clippy")
             .timeout(30)
             .continue_on_error(true)
             .steps([
-                checkout(),
-                Step::uses("Install Rust", "dtolnay/rust-toolchain@stable").with_inputs([
-                    ("components", "clippy"),
-                    ("targets", "wasm32-unknown-unknown"),
-                ]),
+                checkout(platform),
+                install_rust_with_components_and_target(
+                    platform,
+                    "clippy",
+                    "wasm32-unknown-unknown",
+                ),
                 ci_linux_cache.clone(),
                 Step::run(
                     "Clippy",
@@ -658,21 +821,24 @@ pub fn build_ci_workflow() -> Workflow {
     let wasm_artifact = "dodeca-devtools-wasm".to_string();
     jobs.insert(
         wasm_job_id.clone(),
-        Job::with_runner(CI_LINUX.runner.to_runs_on())
+        Job::with_runner(ci_linux.runner.to_runs_on())
             .name("Build WASM")
             .timeout(30)
             .steps([
-                checkout(),
-                Step::uses("Install Rust", "dtolnay/rust-toolchain@stable")
-                    .with_inputs([("targets", "wasm32-unknown-unknown")]),
+                checkout(platform),
+                install_rust_with_target(platform, "wasm32-unknown-unknown"),
                 ci_linux_cache.clone(),
-                Step::run("Install wasm-pack", CI_LINUX.wasm_install),
+                Step::run("Install wasm-pack", ci_linux.wasm_install),
                 Step::run("Build WASM", "cargo xtask wasm"),
-                upload_artifact(wasm_artifact.clone(), "crates/dodeca-devtools/pkg"),
+                upload_artifact(
+                    platform,
+                    wasm_artifact.clone(),
+                    "crates/dodeca-devtools/pkg",
+                ),
             ]),
     );
 
-    for target in TARGETS {
+    for target in &targets {
         let short = target.short_name();
 
         // Job 1: Build ddc (main binary)
@@ -683,22 +849,23 @@ pub fn build_ci_workflow() -> Workflow {
                 .name(format!("Build ddc ({short})"))
                 .timeout(30)
                 .steps([
-                    checkout(),
-                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
+                    checkout(platform),
+                    install_rust(platform),
                     if target.is_self_hosted() {
                         local_cache_with_targets(
+                            platform,
                             false,
                             &format!("ddc-{}", short),
                             target.cache_base_path(),
                         )
                     } else {
-                        rust_cache_with_targets(false)
+                        rust_cache_with_targets(platform, false)
                     },
                     Step::run("Build ddc", "cargo build --release -p dodeca"),
                     // Only run binary unit tests here - integration tests (serve/) need cells
                     // and run in the integration phase after assembly
                     Step::run("Test ddc", "cargo test --release -p dodeca --bins"),
-                    upload_artifact(format!("ddc-{short}"), "target/release/ddc"),
+                    upload_artifact(platform, format!("ddc-{short}"), "target/release/ddc"),
                 ]),
         );
 
@@ -738,20 +905,25 @@ pub fn build_ci_workflow() -> Workflow {
                     .name(format!("Build cells ({short}) [{cell_names}]"))
                     .timeout(30)
                     .steps([
-                        checkout(),
-                        install_rust(),
+                        checkout(platform),
+                        install_rust(platform),
                         if target.is_self_hosted() {
                             local_cache_with_targets(
+                                platform,
                                 true,
                                 &format!("cells-{}-{}", short, group_num),
                                 target.cache_base_path(),
                             )
                         } else {
-                            rust_cache_with_targets(true)
+                            rust_cache_with_targets(platform, true)
                         },
                         Step::run("Build cells", format!("cargo build --release {build_args}")),
                         Step::run("Test cells", format!("cargo test --release {test_args}")),
-                        upload_artifact(format!("cells-{short}-{group_num}"), binary_paths),
+                        upload_artifact(
+                            platform,
+                            format!("cells-{short}-{group_num}"),
+                            binary_paths,
+                        ),
                     ]),
             );
 
@@ -764,6 +936,10 @@ pub fn build_ci_workflow() -> Workflow {
         let integration_job_id = format!("integration-{short}");
         let mut integration_needs = vec![ddc_job_id.clone()];
         integration_needs.extend(cell_group_needs.clone());
+
+        // Use platform-specific workspace variable
+        let workspace_var = platform.context_var("workspace");
+
         jobs.insert(
             integration_job_id.clone(),
             Job::with_runner(target.runs_on())
@@ -771,32 +947,35 @@ pub fn build_ci_workflow() -> Workflow {
                 .timeout(30)
                 .needs(integration_needs)
                 .steps([
-                    checkout(),
-                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
+                    checkout(platform),
+                    install_rust(platform),
                     if target.is_self_hosted() {
                         local_cache_with_targets(
+                            platform,
                             false,
                             &format!("integration-{}", short),
                             target.cache_base_path(),
                         )
                     } else {
-                        rust_cache_with_targets(false)
+                        rust_cache_with_targets(platform, false)
                     },
-                    Step::uses("Download ddc", "actions/download-artifact@v4")
+                    Step::uses("Download ddc", platform.download_artifact_action())
                         .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
-                    Step::uses("Download cells", "actions/download-artifact@v4").with_inputs([
-                        ("pattern", format!("cells-{short}-*")),
-                        ("path", "dist".into()),
-                        ("merge-multiple", "true".into()),
-                    ]),
+                    Step::uses("Download cells", platform.download_artifact_action()).with_inputs(
+                        [
+                            ("pattern", format!("cells-{short}-*")),
+                            ("path", "dist".into()),
+                            ("merge-multiple", "true".into()),
+                        ],
+                    ),
                     Step::run("Prepare binaries", "chmod +x dist/ddc* && ls -la dist/"),
                     Step::run(
                         "Run integration tests",
                         "cargo xtask integration --no-build",
                     )
                     .with_env([
-                        ("DODECA_BIN", "${{ github.workspace }}/dist/ddc"),
-                        ("DODECA_CELL_PATH", "${{ github.workspace }}/dist"),
+                        ("DODECA_BIN", format!("{}/dist/ddc", workspace_var)),
+                        ("DODECA_CELL_PATH", format!("{}/dist", workspace_var)),
                     ]),
                 ]),
         );
@@ -812,19 +991,19 @@ pub fn build_ci_workflow() -> Workflow {
                 .timeout(30)
                 .needs(assemble_needs)
                 .steps([
-                    checkout(),
+                    checkout(platform),
                     // Download ddc binary
-                    Step::uses("Download ddc", "actions/download-artifact@v4").with_inputs([
+                    Step::uses("Download ddc", platform.download_artifact_action()).with_inputs([
                         ("name", format!("ddc-{short}")),
                         ("path", "target/release".into()),
                     ]),
                     // Download all cell group artifacts
-                    Step::uses("Download cells", "actions/download-artifact@v4").with_inputs([
+                    Step::uses("Download cells", platform.download_artifact_action()).with_inputs([
                         ("pattern", format!("cells-{short}-*")),
                         ("path", "target/release".into()),
                         ("merge-multiple", "true".into()),
                     ]),
-                    Step::uses("Download WASM", "actions/download-artifact@v4").with_inputs([
+                    Step::uses("Download WASM", platform.download_artifact_action()).with_inputs([
                         ("name", wasm_artifact.clone()),
                         ("path", "crates/dodeca-devtools/pkg".into()),
                     ]),
@@ -838,6 +1017,7 @@ pub fn build_ci_workflow() -> Workflow {
                         format!("bash scripts/assemble-archive.sh {}", target.triple),
                     ),
                     upload_artifact(
+                        platform,
                         format!("build-{short}"),
                         format!("dodeca-{}.{}", target.triple, target.archive_ext),
                     ),
@@ -846,40 +1026,74 @@ pub fn build_ci_workflow() -> Workflow {
         all_release_needs.push(assemble_job_id.clone());
     }
 
-    // Release job (only on tags, after integration tests pass)
-    jobs.insert(
-        "release".into(),
-        Job::new("ubuntu-latest")
-            .name("Release")
-            .timeout(30)
-            .needs(all_release_needs)
-            .if_condition("startsWith(github.ref, 'refs/tags/')")
-            .env([
-                ("GH_TOKEN", "${{ secrets.GITHUB_TOKEN }}"),
-                ("HOMEBREW_TAP_TOKEN", "${{ secrets.HOMEBREW_TAP_TOKEN }}"),
-            ])
-            .steps([
-                checkout(),
-                download_all_artifacts("dist"),
-                Step::run("List artifacts", "ls -laR dist/"),
-                Step::run(
-                    "Create GitHub Release",
-                    r#"
-gh release create "${{ github.ref_name }}" \
-  --title "dodeca ${{ github.ref_name }}" \
+    // Release job - platform specific
+    match platform {
+        CiPlatform::GitHub => {
+            // GitHub: use gh CLI for releases and Homebrew tap update
+            let ref_name_var = platform.context_var("ref_name");
+            jobs.insert(
+                "release".into(),
+                Job::new("ubuntu-latest")
+                    .name("Release")
+                    .timeout(30)
+                    .needs(all_release_needs)
+                    .if_condition("startsWith(github.ref, 'refs/tags/')")
+                    .env([
+                        ("GH_TOKEN", "${{ secrets.GITHUB_TOKEN }}"),
+                        ("HOMEBREW_TAP_TOKEN", "${{ secrets.HOMEBREW_TAP_TOKEN }}"),
+                    ])
+                    .steps([
+                        checkout(platform),
+                        download_all_artifacts(platform, "dist"),
+                        Step::run("List artifacts", "ls -laR dist/"),
+                        Step::run(
+                            "Create GitHub Release",
+                            format!(
+                                r#"gh release create "{ref_name}" \
+  --title "dodeca {ref_name}" \
   --generate-notes \
-  dist/**/*.tar.xz dist/**/*.zip
-"#
-                    .trim(),
-                )
-                .shell("bash"),
-                Step::run(
-                    "Update Homebrew tap",
-                    r#"bash scripts/update-homebrew.sh "${{ github.ref_name }}""#,
-                )
-                .shell("bash"),
-            ]),
-    );
+  dist/**/*.tar.xz dist/**/*.zip"#,
+                                ref_name = ref_name_var
+                            ),
+                        )
+                        .shell("bash"),
+                        Step::run(
+                            "Update Homebrew tap",
+                            format!(
+                                r#"bash scripts/update-homebrew.sh "{ref_name}""#,
+                                ref_name = ref_name_var
+                            ),
+                        )
+                        .shell("bash"),
+                    ]),
+            );
+        }
+        CiPlatform::Forgejo => {
+            // Forgejo: simpler release - just archive the artifacts
+            // (Can be extended later with Forgejo release API if needed)
+            let ref_name_var = platform.context_var("ref_name");
+            jobs.insert(
+                "release".into(),
+                Job::with_runner(RunnerSpec::labels(FORGEJO_LINUX_LABELS).to_runs_on())
+                    .name("Release")
+                    .timeout(30)
+                    .needs(all_release_needs)
+                    .if_condition("startsWith(gitea.ref, 'refs/tags/')")
+                    .steps([
+                        checkout(platform),
+                        download_all_artifacts(platform, "dist"),
+                        Step::run("List artifacts", "ls -laR dist/"),
+                        Step::run(
+                            "Show release info",
+                            format!(
+                                r#"echo "Release: {ref_name}"; ls -la dist/"#,
+                                ref_name = ref_name_var
+                            ),
+                        ),
+                    ]),
+            );
+        }
+    }
 
     Workflow {
         name: "CI".into(),
@@ -1175,16 +1389,25 @@ fn check_or_write(path: &Utf8Path, content: &str, check: bool) -> Result<()> {
     Ok(())
 }
 
-/// Generate CI workflow and installer script.
+/// Generate CI workflows for all platforms and installer script.
 pub fn generate(repo_root: &Utf8Path, check: bool) -> Result<()> {
-    let workflows_dir = repo_root.join(".github/workflows");
+    // Generate GitHub Actions workflow
+    let github_workflows_dir = repo_root.join(CiPlatform::GitHub.workflows_dir());
+    let github_ci_workflow = build_ci_workflow(CiPlatform::GitHub);
+    let github_ci_yaml = workflow_to_yaml(&github_ci_workflow)?;
+    check_or_write(&github_workflows_dir.join("ci.yml"), &github_ci_yaml, check)?;
 
-    // Generate unified CI workflow (includes release on tags)
-    let ci_workflow = build_ci_workflow();
-    let ci_yaml = workflow_to_yaml(&ci_workflow)?;
-    check_or_write(&workflows_dir.join("ci.yml"), &ci_yaml, check)?;
+    // Generate Forgejo Actions workflow
+    let forgejo_workflows_dir = repo_root.join(CiPlatform::Forgejo.workflows_dir());
+    let forgejo_ci_workflow = build_ci_workflow(CiPlatform::Forgejo);
+    let forgejo_ci_yaml = workflow_to_yaml(&forgejo_ci_workflow)?;
+    check_or_write(
+        &forgejo_workflows_dir.join("ci.yml"),
+        &forgejo_ci_yaml,
+        check,
+    )?;
 
-    // Generate installer script
+    // Generate installer script (same for both platforms)
     let installer_content = generate_installer_script();
     check_or_write(&repo_root.join("install.sh"), &installer_content, check)?;
 
