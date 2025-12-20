@@ -239,9 +239,13 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move
             );
 
+            // cref: pik_append_txt (pikchr.c:2407) - sw = pObj->sw>=0.0 ? pObj->sw : 0
+            // Use object's stroke width, clamped to 0 if negative
+            let obj_sw = obj.style().stroke_width.raw().max(0.0);
+
             let mut ha2: f64 = 0.0;
             let mut ha1: f64 = 0.0;
-            let mut hc: f64 = if is_line { thickness * 1.5 } else { 0.0 };
+            let mut hc: f64 = if is_line { obj_sw * 1.5 } else { 0.0 };
             let mut hb1: f64 = 0.0;
             let mut hb2: f64 = 0.0;
 
