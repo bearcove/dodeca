@@ -1447,7 +1447,6 @@ fn render_object_stmt(
                     layer = other.layer - 1;
                 }
             }
-            _ => {}
         }
     }
 
@@ -1779,9 +1778,6 @@ fn render_object_stmt(
                     points.clear();
                     for wpt in same_wpts {
                         points.push(*wpt + translation);
-                    }
-                    if let Some(last) = points.last() {
-                        current_pos = *last;
                     }
                     tracing::debug!(
                         source_start_x = source_start.x.raw(),
@@ -2397,76 +2393,6 @@ fn calculate_center_from_edge(
 /// Note: SVG Y increases downward, so Up subtracts and Down adds
 fn move_in_direction(pos: PointIn, dir: Direction, distance: Inches) -> PointIn {
     pos + dir.offset(distance)
-}
-
-/// Evaluate a then clause and return the next point and direction
-fn eval_then_clause(
-    ctx: &RenderContext,
-    clause: &ThenClause,
-    current_pos: PointIn,
-    current_dir: Direction,
-    default_distance: Inches,
-) -> Result<(PointIn, Direction), miette::Report> {
-    match clause {
-        ThenClause::To(pos) => {
-            let target = eval_position(ctx, pos)?;
-            Ok((target, current_dir))
-        }
-        ThenClause::DirectionMove(dir, dist) => {
-            let distance = if let Some(relexpr) = dist {
-                eval_len(ctx, &relexpr.expr)?
-            } else {
-                default_distance
-            };
-            let next = move_in_direction(current_pos, *dir, distance);
-            Ok((next, *dir))
-        }
-        ThenClause::DirectionEven(dir, pos) => {
-            // Move in direction until even with position
-            let target = eval_position(ctx, pos)?;
-            let next = match dir {
-                Direction::Right | Direction::Left => Point::new(target.x, current_pos.y),
-                Direction::Up | Direction::Down => Point::new(current_pos.x, target.y),
-            };
-            Ok((next, *dir))
-        }
-        ThenClause::DirectionUntilEven(dir, pos) => {
-            // Same as DirectionEven
-            let target = eval_position(ctx, pos)?;
-            let next = match dir {
-                Direction::Right | Direction::Left => Point::new(target.x, current_pos.y),
-                Direction::Up | Direction::Down => Point::new(current_pos.x, target.y),
-            };
-            Ok((next, *dir))
-        }
-        ThenClause::Heading(dist, angle_expr) => {
-            let distance = if let Some(relexpr) = dist {
-                eval_len(ctx, &relexpr.expr)?
-            } else {
-                default_distance
-            };
-            let angle = eval_scalar(ctx, angle_expr)?;
-            // Convert angle (degrees, 0 = north/up, clockwise) to radians
-            let rad = (90.0 - angle).to_radians();
-            let next = Point::new(
-                current_pos.x + Inches(distance.0 * rad.cos()),
-                current_pos.y - Inches(distance.0 * rad.sin()),
-            );
-            Ok((next, current_dir))
-        }
-        ThenClause::EdgePoint(dist, edge) => {
-            let distance = if let Some(relexpr) = dist {
-                eval_len(ctx, &relexpr.expr)?
-            } else {
-                default_distance
-            };
-            // Get direction from edge point and compute displacement
-            let dir = edge.to_unit_vec();
-            let displacement = dir * distance;
-            let next = current_pos + displacement;
-            Ok((next, current_dir))
-        }
-    }
 }
 
 /// Calculate start/end points for an object at a specific center position

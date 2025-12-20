@@ -2389,16 +2389,6 @@ fn build_svg_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> Svg
     build_svg_style_full(style, scaler, dashwid, false, true)
 }
 
-/// Build an SVG style with optional stroke-linejoin
-fn build_svg_style_ex(
-    style: &ObjectStyle,
-    scaler: &Scaler,
-    dashwid: Inches,
-    add_linejoin: bool,
-) -> SvgStyle {
-    build_svg_style_full(style, scaler, dashwid, add_linejoin, true)
-}
-
 /// Build an SVG style with optional stroke-linejoin and fill control
 /// For non-closed lines, fill should be "none" even if specified
 /// cref: lineRender (pikchr.c:4228) - lines without close can't be filled

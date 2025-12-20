@@ -2,7 +2,7 @@
 //!
 //! Run with: cargo test test32_debug -- --nocapture
 
-use pikru_compare::{extract_svg, parse_svg, run_c_pikchr};
+use pikru_compare::{extract_svg, run_c_pikchr};
 use camino::Utf8Path;
 
 const C_PIKCHR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/pikchr-c/pikchr");
