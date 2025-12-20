@@ -117,84 +117,31 @@ pub struct TestSite {
     test_id: u64,
 }
 
-fn resolve_fixture_source_dir(fixture_name: &str) -> PathBuf {
-    // Beware: `env!("CARGO_MANIFEST_DIR")` is baked into the binary at compile time.
-    // In CI with aggressive caching, it's possible to reuse an `integration-tests`
-    // binary that was built in a different checkout directory. That makes fixture
-    // resolution fail even though fixtures exist in the current workspace.
-    let mut candidates: Vec<PathBuf> = Vec::new();
-
+fn fixture_root_dir() -> PathBuf {
     if let Ok(base) = std::env::var("DODECA_TEST_FIXTURES_DIR") {
-        candidates.push(PathBuf::from(base).join(fixture_name));
+        return PathBuf::from(base);
     }
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures")
+}
 
-    candidates.push(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("fixtures")
-            .join(fixture_name),
-    );
-
-    if let Ok(cwd) = std::env::current_dir() {
-        candidates.push(
-            cwd.join("crates")
-                .join("integration-tests")
-                .join("fixtures")
-                .join(fixture_name),
+fn fixture_source_dir(fixture_name: &str) -> PathBuf {
+    let root = fixture_root_dir();
+    let dir = root.join(fixture_name);
+    if !dir.is_dir() {
+        panic!(
+            "fixture directory '{fixture_name}' not found at {} (fixtures root: {}).\n\
+Hint: set DODECA_TEST_FIXTURES_DIR to the fixtures root and rebuild the integration harness if needed.",
+            dir.display(),
+            root.display()
         );
-
-        let mut cur = cwd.as_path();
-        while let Some(parent) = cur.parent() {
-            candidates.push(
-                parent
-                    .join("crates")
-                    .join("integration-tests")
-                    .join("fixtures")
-                    .join(fixture_name),
-            );
-            cur = parent;
-        }
     }
-
-    if let Ok(exe) = std::env::current_exe() {
-        let mut cur = exe.as_path();
-        while let Some(parent) = cur.parent() {
-            candidates.push(
-                parent
-                    .join("crates")
-                    .join("integration-tests")
-                    .join("fixtures")
-                    .join(fixture_name),
-            );
-            cur = parent;
-        }
-    }
-
-    // De-duplicate while preserving order.
-    let mut seen = std::collections::HashSet::<PathBuf>::new();
-    candidates.retain(|p| seen.insert(p.clone()));
-
-    for candidate in &candidates {
-        if candidate.is_dir() {
-            return candidate.clone();
-        }
-    }
-
-    let mut msg = format!("fixture directory '{fixture_name}' not found. Tried:\n");
-    for candidate in candidates {
-        msg.push_str("  - ");
-        msg.push_str(&candidate.display().to_string());
-        msg.push('\n');
-    }
-    msg.push_str(
-        "Hint: set DODECA_TEST_FIXTURES_DIR to the directory containing the fixture folders.",
-    );
-    panic!("{msg}");
+    dir
 }
 
 impl TestSite {
     /// Create a new test site from a fixture directory name
     pub fn new(fixture_name: &str) -> Self {
-        let src = resolve_fixture_source_dir(fixture_name);
+        let src = fixture_source_dir(fixture_name);
         Self::from_source(&src)
     }
 
@@ -202,7 +149,7 @@ impl TestSite {
     /// This is useful for tests that need custom templates or content that should be
     /// loaded at server startup time rather than triggering livereload.
     pub fn with_files(fixture_name: &str, files: &[(&str, &str)]) -> Self {
-        let src = resolve_fixture_source_dir(fixture_name);
+        let src = fixture_source_dir(fixture_name);
         Self::from_source_with_files(&src, files)
     }
 
@@ -215,7 +162,7 @@ impl TestSite {
     /// This simulates the "missing cells" scenario for testing boot failure handling.
     /// The server should still accept connections and return HTTP 500 (not connection refused/reset).
     pub fn with_empty_cell_path(fixture_name: &str) -> Self {
-        let src = resolve_fixture_source_dir(fixture_name);
+        let src = fixture_source_dir(fixture_name);
         Self::from_source_with_config(&src, &[], Some(PathBuf::new()))
     }
 

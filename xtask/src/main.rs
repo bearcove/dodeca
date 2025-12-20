@@ -6,6 +6,7 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
+use std::time::SystemTime;
 
 use camino::Utf8PathBuf;
 use facet::Facet;
@@ -371,27 +372,43 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
     } else {
         eprintln!("Skipping build (--no-build), assuming binaries are already built");
 
-        // Even with --no-build, always rebuild the integration test harness.
+        // Strictness: refuse to run if the integration test harness looks stale.
         //
-        // Rationale: the harness binary embeds compile-time paths (e.g. CARGO_MANIFEST_DIR)
-        // and the harness itself evolves quickly as we harden boot/FD-passing behavior.
-        // In CI with caching, reusing a previously-built `target/release/integration-tests`
-        // can point at a stale checkout path or miss the latest handshake logic, causing
-        // misleading "fixture not found" or first-request connection failures.
-        eprintln!("Building integration-tests binary...");
-        let status = Command::new("cargo")
-            .args(["build", "--release", "-p", "integration-tests"])
-            .status();
-
-        match status {
-            Ok(s) if s.success() => {}
-            Ok(s) => {
-                eprintln!("cargo build failed with status: {s}");
+        // A stale harness tends to produce misleading failures and wastes time.
+        let bin_mtime = match fs::metadata(&integration_bin).and_then(|m| m.modified()) {
+            Ok(t) => t,
+            Err(_) => {
+                eprintln!(
+                    "{}: integration-tests binary not found at {}",
+                    "error".red().bold(),
+                    integration_bin.display()
+                );
+                eprintln!("Rebuild it with: cargo build --release -p integration-tests");
                 return false;
             }
-            Err(e) => {
-                eprintln!("Failed to run cargo: {e}");
-                return false;
+        };
+
+        fn src_mtime(path: &str) -> Option<SystemTime> {
+            std::fs::metadata(path).ok()?.modified().ok()
+        }
+
+        let watched_sources = [
+            "crates/integration-tests/src/harness.rs",
+            "crates/integration-tests/src/main.rs",
+            "crates/integration-tests/Cargo.toml",
+        ];
+
+        for src in watched_sources {
+            if let Some(src_mtime) = src_mtime(src) {
+                if src_mtime > bin_mtime {
+                    eprintln!(
+                        "{}: integration-tests binary is older than {}",
+                        "error".red().bold(),
+                        src
+                    );
+                    eprintln!("Rebuild it with: cargo build --release -p integration-tests");
+                    return false;
+                }
             }
         }
     }
@@ -447,6 +464,24 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
 
     eprintln!("  DODECA_BIN={}", ddc_bin_abs.display());
     eprintln!("  DODECA_CELL_PATH={}", cell_path_abs.display());
+
+    // Make fixture resolution independent of where `integration-tests` was built.
+    let fixtures_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("crates")
+        .join("integration-tests")
+        .join("fixtures");
+    if !fixtures_root.is_dir() {
+        eprintln!(
+            "{}: fixtures directory not found at {}",
+            "error".red().bold(),
+            fixtures_root.display()
+        );
+        return false;
+    }
+    cmd.env("DODECA_TEST_FIXTURES_DIR", &fixtures_root);
+    eprintln!("  DODECA_TEST_FIXTURES_DIR={}", fixtures_root.display());
 
     match cmd.status() {
         Ok(s) if s.success() => {

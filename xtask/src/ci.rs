@@ -805,6 +805,8 @@ pub mod common {
   rm -rf target 2>/dev/null || true
   ctree "{cache_dir}" target && echo "Cache restored via ctree from {cache_dir}" || echo "ctree failed, starting fresh"
   du -sh target 2>/dev/null || true
+  echo "=== Cache contents after restore ==="
+  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
   # CMake build directories are not relocatable - they contain absolute paths.
   # Nuke them to force a fresh CMake configure on path changes.
   find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
@@ -824,7 +826,10 @@ fi"#
         Step::run(
             "Save cache (ctree)",
             format!(
-                r#"mkdir -p "$(dirname "{cache_dir}")"
+                r#"echo "=== Cache contents before save ==="
+du -sh target 2>/dev/null || true
+tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+mkdir -p "$(dirname "{cache_dir}")"
 rm -rf "{cache_dir}" 2>/dev/null || true
 ctree target "{cache_dir}" && echo "Cache saved via ctree to {cache_dir}" || echo "ctree save failed (non-fatal)""#
             ),
@@ -1121,7 +1126,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                     Step::run(
                         "Build ddc",
                         format!(
-                            "cargo {} build --release -p dodeca",
+                            "cargo {} build --release -p dodeca --verbose",
                             CiPlatform::CARGO_NIGHTLY_FLAGS
                         ),
                     ),
@@ -1189,7 +1194,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                         Step::run(
                             "Build cells",
                             format!(
-                                "cargo {} build --release {build_args}",
+                                "cargo {} build --release {build_args} --verbose",
                                 CiPlatform::CARGO_NIGHTLY_FLAGS
                             ),
                         ),
@@ -1490,7 +1495,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                     checkout(platform),
                     install_rust(platform),
                     ctree_cache_restore(&format!("ddc-{short}"), cache_base),
-                    Step::run("Build ddc", format!("cargo {} build --release -p dodeca", CiPlatform::CARGO_NIGHTLY_FLAGS)),
+                    Step::run("Build ddc", format!("cargo {} build --release -p dodeca --verbose", CiPlatform::CARGO_NIGHTLY_FLAGS)),
                     // Save cache immediately after build (before tests/uploads that might fail)
                     ctree_cache_save(&format!("ddc-{short}"), cache_base),
                     Step::run("Test ddc", format!("cargo {} test --release -p dodeca --bins", CiPlatform::CARGO_NIGHTLY_FLAGS)),
@@ -1549,7 +1554,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                         Step::run(
                             "Build cells",
                             format!(
-                                "cargo {} build --release {build_args}",
+                                "cargo {} build --release {build_args} --verbose",
                                 CiPlatform::CARGO_NIGHTLY_FLAGS
                             ),
                         ),
