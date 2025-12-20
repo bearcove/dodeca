@@ -28,6 +28,10 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 name = "ddc"
 path = "src/main.rs"
 
+[[bin]]
+name = "ddc-acceptor"
+path = "src/acceptor.rs"
+
 [dependencies]
 # Facet (dogfooding!)
 facet.workspace = true
