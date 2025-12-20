@@ -1066,10 +1066,21 @@ pub async fn font_char_analysis<DB: Db>(db: &DB) -> PicanteResult<LocalFontAnaly
         .cloned()
         .collect::<Vec<_>>()
         .join("\n");
-    let inline_css = crate::cells::extract_css_from_html_cell(&combined_html).await;
+    // Missing cells are hard errors - this panic gives an actionable message.
+    let inline_css = crate::cells::extract_css_from_html_cell(&combined_html)
+        .await
+        .expect(
+            "fonts cell not available: ddc-cell-fonts binary missing or failed to start. \
+             Check DODECA_CELL_PATH and ensure all cell binaries are built.",
+        );
     let all_css = format!("{sass_str}\n{static_css}\n{inline_css}");
 
-    let analysis = crate::cells::analyze_fonts_cell(&combined_html, &all_css).await;
+    let analysis = crate::cells::analyze_fonts_cell(&combined_html, &all_css)
+        .await
+        .expect(
+            "fonts cell not available: ddc-cell-fonts binary missing or failed to start. \
+             Check DODECA_CELL_PATH and ensure all cell binaries are built.",
+        );
 
     let font_faces = analysis
         .font_faces

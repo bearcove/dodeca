@@ -852,6 +852,106 @@ fn init_hub() -> Option<(Arc<HubHost>, PathBuf)> {
     }
 }
 
+/// Cell path resolution source
+#[derive(Debug, Clone, Copy)]
+enum CellPathSource {
+    /// DODECA_CELL_PATH environment variable (highest priority, exclusive)
+    EnvVar,
+    /// Directory adjacent to the executable
+    AdjacentToExe,
+    /// "cells/" subdirectory next to executable
+    CellsSubdir,
+    /// Development fallback (target/debug or target/release)
+    DevFallback,
+}
+
+impl std::fmt::Display for CellPathSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::EnvVar => write!(f, "env:DODECA_CELL_PATH"),
+            Self::AdjacentToExe => write!(f, "adjacent"),
+            Self::CellsSubdir => write!(f, "cells_subdir"),
+            Self::DevFallback => write!(f, "dev_fallback"),
+        }
+    }
+}
+
+/// Resolve the cell directory path with clear precedence.
+///
+/// Precedence (DODECA_CELL_PATH is exclusive if set):
+/// 1. DODECA_CELL_PATH env var - if set, this is the ONLY source
+/// 2. Directory next to the executable
+/// 3. "cells/" subdirectory next to executable
+/// 4. Development fallback (target/debug or target/release)
+fn resolve_cell_directory() -> Option<(PathBuf, CellPathSource)> {
+    // If DODECA_CELL_PATH is set, use it exclusively - don't fall back
+    if let Ok(env_path) = std::env::var("DODECA_CELL_PATH") {
+        let path = PathBuf::from(&env_path);
+        info!(
+            cell_path = %path.display(),
+            source = %CellPathSource::EnvVar,
+            "Cell directory resolved (exclusive, no fallback)"
+        );
+        return Some((path, CellPathSource::EnvVar));
+    }
+
+    // Otherwise, search through fallback paths
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+    // Try adjacent to executable
+    if let Some(ref dir) = exe_dir {
+        // Check if ddc-cell-http exists here
+        let test_binary = dir.join("ddc-cell-http");
+        if test_binary.exists() {
+            info!(
+                cell_path = %dir.display(),
+                source = %CellPathSource::AdjacentToExe,
+                "Cell directory resolved"
+            );
+            return Some((dir.clone(), CellPathSource::AdjacentToExe));
+        }
+    }
+
+    // Try cells/ subdirectory
+    if let Some(ref dir) = exe_dir {
+        let cells_dir = dir.join("cells");
+        let test_binary = cells_dir.join("ddc-cell-http");
+        if test_binary.exists() {
+            info!(
+                cell_path = %cells_dir.display(),
+                source = %CellPathSource::CellsSubdir,
+                "Cell directory resolved"
+            );
+            return Some((cells_dir, CellPathSource::CellsSubdir));
+        }
+    }
+
+    // Development fallback
+    #[cfg(debug_assertions)]
+    let profile_dir = PathBuf::from("target/debug");
+    #[cfg(not(debug_assertions))]
+    let profile_dir = PathBuf::from("target/release");
+
+    let test_binary = profile_dir.join("ddc-cell-http");
+    if test_binary.exists() {
+        info!(
+            cell_path = %profile_dir.display(),
+            source = %CellPathSource::DevFallback,
+            "Cell directory resolved"
+        );
+        return Some((profile_dir, CellPathSource::DevFallback));
+    }
+
+    // No cells found anywhere
+    warn!(
+        exe_dir = ?exe_dir,
+        "No cell directory found in any search location"
+    );
+    None
+}
+
 /// Get the global cell registry, initializing it if needed.
 pub async fn all() -> &'static CellRegistry {
     CELLS
@@ -872,63 +972,57 @@ pub async fn all() -> &'static CellRegistry {
                 }
             };
 
-            // Look for cells in several locations:
-            // 1. DODECA_CELL_PATH environment variable (highest priority)
-            // 2. Next to the executable
-            // 3. In cells/ subdirectory next to executable (for installed releases)
-            // 4. In target/debug (for development)
-            // 5. In target/release
+            // Resolve cell directory with explicit precedence
+            let Some((cell_dir, source)) = resolve_cell_directory() else {
+                warn!("No cell directory resolved, cells will not be available");
+                return Default::default();
+            };
 
-            let env_cell_path = std::env::var("DODECA_CELL_PATH").ok().map(PathBuf::from);
+            // Load from the resolved directory
+            let registry = CellRegistry::load_from_dir(&cell_dir, &hub, &hub_path).await;
 
-            let exe_dir = std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+            // Log what was loaded
+            let loaded_count = [
+                registry.webp.is_some(),
+                registry.jxl.is_some(),
+                registry.minify.is_some(),
+                registry.svgo.is_some(),
+                registry.sass.is_some(),
+                registry.css.is_some(),
+                registry.js.is_some(),
+                registry.pagefind.is_some(),
+                registry.image.is_some(),
+                registry.fonts.is_some(),
+                registry.linkcheck.is_some(),
+                registry.code_execution.is_some(),
+                registry.html_diff.is_some(),
+                registry.html.is_some(),
+                registry.markdown.is_some(),
+                registry.syntax_highlight.is_some(),
+                registry.http.is_some(),
+            ]
+            .iter()
+            .filter(|&&b| b)
+            .count();
 
-            let cells_dir = exe_dir.as_ref().map(|p| p.join("cells"));
-
-            #[cfg(debug_assertions)]
-            let profile_dir = PathBuf::from("target/debug");
-            #[cfg(not(debug_assertions))]
-            let profile_dir = PathBuf::from("target/release");
-
-            let search_paths: Vec<PathBuf> = [env_cell_path, exe_dir, cells_dir, Some(profile_dir)]
-                .into_iter()
-                .flatten()
-                .collect();
-
-            for dir in &search_paths {
-                let registry = CellRegistry::load_from_dir(dir, &hub, &hub_path).await;
-                // Consider the directory "active" if at least one cell binary exists and loaded.
-                if !matches!(
-                    registry,
-                    CellRegistry {
-                        webp: None,
-                        jxl: None,
-                        minify: None,
-                        svgo: None,
-                        sass: None,
-                        css: None,
-                        js: None,
-                        pagefind: None,
-                        image: None,
-                        fonts: None,
-                        linkcheck: None,
-                        code_execution: None,
-                        html_diff: None,
-                        html: None,
-                        markdown: None,
-                        syntax_highlight: None,
-                        http: None,
-                    }
-                ) {
-                    info!("loaded cells from {}", dir.display());
-                    return registry;
-                }
+            if loaded_count > 0 {
+                info!(
+                    cell_dir = %cell_dir.display(),
+                    source = %source,
+                    loaded_count,
+                    http = registry.http.is_some(),
+                    markdown = registry.markdown.is_some(),
+                    "Cells loaded"
+                );
+            } else {
+                warn!(
+                    cell_dir = %cell_dir.display(),
+                    source = %source,
+                    "No cells found in resolved directory"
+                );
             }
 
-            debug!("no cells found in search paths: {:?}", search_paths);
-            Default::default()
+            registry
         })
         .await
 }
@@ -1068,14 +1162,12 @@ pub async fn decode_jxl_cell(data: &[u8]) -> Option<DecodedImage> {
 /// Minify HTML using the cell.
 ///
 /// # Panics
-/// Panics if the minify cell is not loaded.
+/// Returns an error if the minify cell is not loaded (graceful degradation).
 #[tracing::instrument(level = "debug", skip(html), fields(html_len = html.len()))]
 pub async fn minify_html_cell(html: &str) -> Result<String, String> {
-    let cell = all()
-        .await
-        .minify
-        .as_ref()
-        .expect("dodeca-minify cell not loaded");
+    let Some(cell) = all().await.minify.as_ref() else {
+        return Err("minify cell not loaded".to_string());
+    };
 
     match cell.minify_html(html.to_string()).await {
         Ok(MinifyResult::Success { content }) => Ok(content),
@@ -1086,15 +1178,12 @@ pub async fn minify_html_cell(html: &str) -> Result<String, String> {
 
 /// Optimize SVG using the cell.
 ///
-/// # Panics
-/// Panics if the svgo cell is not loaded.
+/// Returns an error if the svgo cell is not loaded (graceful degradation).
 #[tracing::instrument(level = "debug", skip(svg), fields(svg_len = svg.len()))]
 pub async fn optimize_svg_cell(svg: &str) -> Result<String, String> {
-    let cell = all()
-        .await
-        .svgo
-        .as_ref()
-        .expect("dodeca-svgo cell not loaded");
+    let Some(cell) = all().await.svgo.as_ref() else {
+        return Err("svgo cell not loaded".to_string());
+    };
 
     match cell.optimize_svg(svg.to_string()).await {
         Ok(SvgoResult::Success { svg }) => Ok(svg),
@@ -1105,17 +1194,14 @@ pub async fn optimize_svg_cell(svg: &str) -> Result<String, String> {
 
 /// Compile SASS/SCSS using the cell.
 ///
-/// # Panics
-/// Panics if the sass cell is not loaded.
+/// Returns an error if the sass cell is not loaded (graceful degradation).
 #[tracing::instrument(level = "debug", skip(files), fields(num_files = files.len()))]
 pub async fn compile_sass_cell(
     files: &std::collections::HashMap<String, String>,
 ) -> Result<String, String> {
-    let cell = all()
-        .await
-        .sass
-        .as_ref()
-        .expect("dodeca-sass cell not loaded");
+    let Some(cell) = all().await.sass.as_ref() else {
+        return Err("sass cell not loaded".to_string());
+    };
 
     let input = SassInput {
         files: files.clone(),
@@ -1130,18 +1216,15 @@ pub async fn compile_sass_cell(
 
 /// Rewrite URLs in CSS and minify using the cell.
 ///
-/// # Panics
-/// Panics if the css cell is not loaded.
+/// Returns an error if the css cell is not loaded (graceful degradation).
 #[tracing::instrument(level = "debug", skip(css, path_map), fields(css_len = css.len(), path_map_len = path_map.len()))]
 pub async fn rewrite_urls_in_css_cell(
     css: &str,
     path_map: &HashMap<String, String>,
 ) -> Result<String, String> {
-    let cell = all()
-        .await
-        .css
-        .as_ref()
-        .expect("dodeca-css cell not loaded");
+    let Some(cell) = all().await.css.as_ref() else {
+        return Err("css cell not loaded".to_string());
+    };
 
     match cell
         .rewrite_and_minify(css.to_string(), path_map.clone())
@@ -1155,14 +1238,15 @@ pub async fn rewrite_urls_in_css_cell(
 
 /// Rewrite string literals in JS using the cell.
 ///
-/// # Panics
-/// Panics if the js cell is not loaded.
+/// Returns an error if the js cell is not loaded (graceful degradation).
 #[tracing::instrument(level = "debug", skip(js, path_map), fields(js_len = js.len(), path_map_len = path_map.len()))]
 pub async fn rewrite_string_literals_in_js_cell(
     js: &str,
     path_map: &HashMap<String, String>,
 ) -> Result<String, String> {
-    let cell = all().await.js.as_ref().expect("dodeca-js cell not loaded");
+    let Some(cell) = all().await.js.as_ref() else {
+        return Err("js cell not loaded".to_string());
+    };
 
     let input = JsRewriteInput {
         js: js.to_string(),
@@ -1178,15 +1262,12 @@ pub async fn rewrite_string_literals_in_js_cell(
 
 /// Build a search index from HTML pages using the cell.
 ///
-/// # Panics
-/// Panics if the pagefind cell is not loaded.
+/// Returns an error if the pagefind cell is not loaded (graceful degradation).
 #[tracing::instrument(level = "debug", skip(pages), fields(num_pages = pages.len()))]
 pub async fn build_search_index_cell(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, String> {
-    let cell = all()
-        .await
-        .pagefind
-        .as_ref()
-        .expect("dodeca-pagefind cell not loaded");
+    let Some(cell) = all().await.pagefind.as_ref() else {
+        return Err("pagefind cell not loaded".to_string());
+    };
 
     let input = SearchIndexInput { pages };
 
@@ -1357,37 +1438,36 @@ pub async fn generate_thumbhash_cell(pixels: &[u8], width: u32, height: u32) -> 
 
 /// Analyze HTML and CSS to collect font usage information.
 ///
-/// # Panics
-/// Panics if the fonts cell is not loaded.
-pub async fn analyze_fonts_cell(html: &str, css: &str) -> FontAnalysis {
-    let cell = all()
-        .await
-        .fonts
-        .as_ref()
-        .expect("dodeca-fonts cell not loaded");
+/// Returns `None` if the fonts cell is not loaded or on error (graceful degradation).
+pub async fn analyze_fonts_cell(html: &str, css: &str) -> Option<FontAnalysis> {
+    let cell = all().await.fonts.as_ref()?;
 
     match cell.analyze_fonts(html.to_string(), css.to_string()).await {
-        Ok(FontResult::AnalysisSuccess { analysis }) => analysis,
-        Ok(FontResult::Error { message }) => panic!("font analysis cell error: {}", message),
-        Ok(_) => panic!("font analysis cell returned unexpected result type"),
-        Err(e) => panic!("font analysis cell call failed: {:?}", e),
+        Ok(FontResult::AnalysisSuccess { analysis }) => Some(analysis),
+        Ok(FontResult::Error { message }) => {
+            warn!("font analysis cell error: {}", message);
+            None
+        }
+        Ok(_) => {
+            warn!("font analysis cell returned unexpected result type");
+            None
+        }
+        Err(e) => {
+            warn!("font analysis cell call failed: {:?}", e);
+            None
+        }
     }
 }
 
 /// Extract inline CSS from HTML (from `<style>` tags).
 ///
-/// # Panics
-/// Panics if the fonts cell is not loaded.
-pub async fn extract_css_from_html_cell(html: &str) -> String {
+/// Returns `None` if the fonts cell is not loaded or on error (graceful degradation).
+pub async fn extract_css_from_html_cell(html: &str) -> Option<String> {
     tracing::debug!(
         "[HOST] extract_css_from_html_cell: START (html_len={})",
         html.len()
     );
-    let cell = all()
-        .await
-        .fonts
-        .as_ref()
-        .expect("dodeca-fonts cell not loaded");
+    let cell = all().await.fonts.as_ref()?;
 
     tracing::debug!("[HOST] extract_css_from_html_cell: calling RPC...");
     match cell.extract_css_from_html(html.to_string()).await {
@@ -1396,11 +1476,20 @@ pub async fn extract_css_from_html_cell(html: &str) -> String {
                 "[HOST] extract_css_from_html_cell: SUCCESS (css_len={})",
                 css.len()
             );
-            css
+            Some(css)
         }
-        Ok(FontResult::Error { message }) => panic!("extract css cell error: {}", message),
-        Ok(_) => panic!("extract css cell returned unexpected result type"),
-        Err(e) => panic!("extract css cell call failed: {:?}", e),
+        Ok(FontResult::Error { message }) => {
+            warn!("extract css cell error: {}", message);
+            None
+        }
+        Ok(_) => {
+            warn!("extract css cell returned unexpected result type");
+            None
+        }
+        Err(e) => {
+            warn!("extract css cell call failed: {:?}", e);
+            None
+        }
     }
 }
 

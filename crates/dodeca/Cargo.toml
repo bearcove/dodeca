@@ -131,6 +131,7 @@ serde = { version = "1", features = ["derive"] }
 
 # YAML parsing (for data files - facet-yaml doesn't support dynamic values)
 serde_yaml = "0.9"
+socket2 = "0.6"  # SO_LINGER inspection for connection debugging
 strid = "2.1"  # Strongly-typed string wrappers (like aliri_braid but without syn)
 tokio = { workspace = true, features = ["macros", "process", "rt", "rt-multi-thread", "sync", "time"] } #unified
 tokio-stream = { version = "0.1", features = ["net", "sync"] }

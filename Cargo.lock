@@ -2832,6 +2832,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_yaml 0.9.34+deprecated",
+ "socket2 0.6.1",
  "strid",
  "tokio",
  "tokio-stream",

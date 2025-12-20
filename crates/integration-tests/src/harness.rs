@@ -289,9 +289,10 @@ impl TestSite {
             );
             debug!("Sent TCP listener FD to server");
 
-            // IMPORTANT: Don't drop std_listener here - keep it alive!
-            // The FD is shared with the server now
-            std::mem::forget(std_listener);
+            // FD passing via SCM_RIGHTS duplicates the FD in the receiver; the sender
+            // does not need to keep it open. This prevents confusion from two processes
+            // holding the same listening socket and makes shutdown behavior less surprising.
+            drop(std_listener);
         });
         push_log(&logs, log_start, "[harness] log capture started");
 
@@ -359,6 +360,10 @@ impl TestSite {
     }
 
     /// Make a GET request to a path
+    ///
+    /// No retries - a failure fails the test immediately. The server contract
+    /// guarantees connections are never refused/reset during boot; they may
+    /// stall until ready, but connect+write must never fail.
     pub fn get(&self, path: &str) -> Response {
         let url = format!("http://127.0.0.1:{}{}", self.port, path);
         debug!(%url, "Issuing GET request");
@@ -375,69 +380,29 @@ impl TestSite {
             out
         }
 
-        // Retry connection reset errors (macOS flakiness).
-        fn is_connection_reset(err: &ureq::Error) -> bool {
-            match err {
-                ureq::Error::Io(io) => {
-                    io.kind() == std::io::ErrorKind::ConnectionReset
-                        || io.to_string().contains("Connection reset by peer")
-                        || io.to_string().contains("os error 54")
-                }
-                _ => false,
+        match ureq::get(&url).call() {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                let body = resp.into_body().read_to_string().unwrap_or_default();
+                debug!(%url, status, "Received response");
+                Response { status, body, url }
+            }
+            Err(ureq::Error::StatusCode(status)) => {
+                // ureq treats 4xx/5xx as errors, but we want to return them as responses
+                let body = String::new();
+                debug!(%url, status, "Received error status");
+                Response { status, body, url }
+            }
+            Err(e) => {
+                push_log(
+                    &self.logs,
+                    self.log_start,
+                    format!("[harness] GET error: {}", e),
+                );
+                error!(%url, error = ?e, "GET failed (no retries)");
+                panic!("GET {} failed:\n{:?}\n{}", url, e, format_error_chain(&e));
             }
         }
-
-        let max_retries = std::env::var("DODECA_RETRIES")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(5);
-        let max_retries = max_retries.max(1);
-        for attempt in 0..max_retries {
-            match ureq::get(&url).call() {
-                Ok(resp) => {
-                    let status = resp.status().as_u16();
-                    let body = resp.into_body().read_to_string().unwrap_or_default();
-                    debug!(%url, status, "Received response");
-                    return Response { status, body, url };
-                }
-                Err(ureq::Error::StatusCode(status)) => {
-                    // ureq treats 4xx/5xx as errors, but we want to return them as responses
-                    let body = String::new();
-                    debug!(%url, status, "Received error status");
-                    return Response { status, body, url };
-                }
-                Err(e) => {
-                    push_log(
-                        &self.logs,
-                        self.log_start,
-                        format!(
-                            "[harness] GET error attempt {}/{}: {}",
-                            attempt + 1,
-                            max_retries,
-                            e
-                        ),
-                    );
-                    if is_connection_reset(&e) && attempt + 1 < max_retries {
-                        push_log(
-                            &self.logs,
-                            self.log_start,
-                            format!(
-                                "[harness] retrying after connection reset attempt {}/{}",
-                                attempt + 1,
-                                max_retries
-                            ),
-                        );
-                        std::thread::sleep(Duration::from_millis(100));
-                        continue;
-                    }
-
-                    error!(%url, error = ?e, "GET failed");
-                    panic!("GET {} failed:\n{:?}\n{}", url, e, format_error_chain(&e));
-                }
-            }
-        }
-
-        unreachable!("retry loop should always return or panic");
     }
 
     /// Wait for a path to return 200, retrying until timeout

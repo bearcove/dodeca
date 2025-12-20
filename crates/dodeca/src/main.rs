@@ -1,5 +1,6 @@
 #![allow(clippy::collapsible_if)]
 
+mod boot_state;
 mod cache_bust;
 mod cas;
 mod cell_server;
