@@ -114,7 +114,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with: 
           name: ddc-linux-x64
-          path: "target/release/ddc\ntarget/release/ddc-acceptor"
+          path: target/release/ddc
 
 
   build-cells-linux-x64-1: 
@@ -311,7 +311,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with: 
           name: ddc-macos-arm64
-          path: "target/release/ddc\ntarget/release/ddc-acceptor"
+          path: target/release/ddc
 
 
   build-cells-macos-arm64-1: 

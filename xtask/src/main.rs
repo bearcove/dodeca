@@ -314,16 +314,6 @@ fn install_dev() -> bool {
     }
     eprintln!("  Installed ddc");
 
-    // Copy acceptor binary
-    let acceptor_src = release_dir.join("ddc-acceptor");
-    let acceptor_dst = cargo_bin.join("ddc-acceptor");
-    let _ = fs::remove_file(&acceptor_dst);
-    if let Err(e) = fs::copy(&acceptor_src, &acceptor_dst) {
-        eprintln!("Failed to copy ddc-acceptor: {e}");
-        return false;
-    }
-    eprintln!("  Installed ddc-acceptor");
-
     // Copy all dodeca-cell-* binaries
     if let Ok(entries) = fs::read_dir(&release_dir) {
         for entry in entries.flatten() {

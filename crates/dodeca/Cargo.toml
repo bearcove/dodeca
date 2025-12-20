@@ -28,10 +28,6 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 name = "ddc"
 path = "src/main.rs"
 
-[[bin]]
-name = "ddc-acceptor"
-path = "src/acceptor.rs"
-
 [dependencies]
 async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
 camino = { workspace = true } #unified

@@ -8,16 +8,15 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Instant;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use eyre::Result;
-use futures::stream::{self, StreamExt};
 use rapace::{Frame, RpcError, RpcSession};
 use rapace_tracing::{EventMeta, Field, SpanMeta, TracingSink};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream, UnixListener};
-use tokio::sync::watch;
-use tokio_stream::wrappers::TcpListenerStream;
+use tokio::net::TcpStream;
+use tokio::sync::{mpsc, watch};
 
 use cell_http_proto::{ContentServiceServer, TcpTunnelClient};
 use rapace_cell::CellLifecycleServer;
@@ -31,6 +30,8 @@ static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 const REQUIRED_CELLS: [&str; 2] = ["ddc-cell-http", "ddc-cell-markdown"];
 const REQUIRED_CELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const SESSION_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const ACCEPT_QUEUE_SIZE: usize = 128;
+const ACCEPT_POLL_SLEEP: Duration = Duration::from_millis(10);
 
 /// Find the cell binary path (for backwards compatibility).
 ///
@@ -45,7 +46,7 @@ pub fn find_cell_path() -> Result<std::path::PathBuf> {
 // Forwarding TracingSink - re-emits cell tracing events to host's tracing
 // ============================================================================
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 
 /// A TracingSink implementation that forwards events to the host's tracing subscriber.
 ///
@@ -185,15 +186,8 @@ pub async fn start_cell_server_with_shutdown(
     port: u16,
     shutdown_rx: Option<watch::Receiver<bool>>,
     port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
-    pre_bound_listener: Option<TcpListener>,
-    acceptor_listener: Option<UnixListener>,
+    pre_bound_listener: Option<std::net::TcpListener>,
 ) -> Result<()> {
-    if pre_bound_listener.is_some() && acceptor_listener.is_some() {
-        return Err(eyre::eyre!(
-            "Cannot use both a pre-bound listener and an acceptor listener"
-        ));
-    }
-
     // Start TCP listeners for browser connections
     let (listeners, bound_port) = if let Some(listener) = pre_bound_listener {
         // Use the pre-bound listener from FD passing (for testing)
@@ -201,20 +195,20 @@ pub async fn start_cell_server_with_shutdown(
             .local_addr()
             .map_err(|e| eyre::eyre!("Failed to get pre-bound listener address: {}", e))?
             .port();
+        if let Err(e) = listener.set_nonblocking(true) {
+            tracing::warn!("Failed to set pre-bound listener non-blocking: {}", e);
+        }
         tracing::info!("Using pre-bound listener on port {}", bound_port);
 
         (vec![listener], bound_port)
-    } else if acceptor_listener.is_some() {
-        // Accepting connections via acceptor; we don't bind locally.
-        tracing::info!(port, "Using acceptor for incoming connections");
-        (Vec::new(), port)
     } else {
         // Bind to requested IPs normally - one listener per IP
         let mut listeners = Vec::new();
         let mut actual_port: Option<u16> = None;
         for ip in &bind_ips {
-            let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(*ip), port);
-            match TcpListener::bind(addr).await {
+            let requested_port = actual_port.unwrap_or(port);
+            let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(*ip), requested_port);
+            match std::net::TcpListener::bind(addr) {
                 Ok(listener) => {
                     if let Ok(bound_addr) = listener.local_addr() {
                         let bound_port = bound_addr.port();
@@ -222,6 +216,9 @@ pub async fn start_cell_server_with_shutdown(
                             actual_port = Some(bound_port);
                         }
                         tracing::info!("Listening on {}:{}", ip, bound_port);
+                    }
+                    if let Err(e) = listener.set_nonblocking(true) {
+                        tracing::warn!("Failed to set non-blocking on {}: {}", ip, e);
                     }
                     listeners.push(listener);
                 }
@@ -250,17 +247,32 @@ pub async fn start_cell_server_with_shutdown(
 
     let (session_tx, session_rx) = watch::channel::<Option<Arc<RpcSession>>>(None);
 
+    let shutdown_flag = Arc::new(AtomicBool::new(false));
+    if let Some(mut shutdown_rx) = shutdown_rx.clone() {
+        let shutdown_flag = shutdown_flag.clone();
+        tokio::spawn(async move {
+            let _ = shutdown_rx.changed().await;
+            if *shutdown_rx.borrow() {
+                shutdown_flag.store(true, Ordering::Relaxed);
+            }
+        });
+    }
+
+    let (accept_tx, accept_rx) = mpsc::channel::<std::net::TcpStream>(ACCEPT_QUEUE_SIZE);
+    let _accept_thread = spawn_accept_thread(listeners, accept_tx, shutdown_flag.clone());
+
     // Start accepting connections immediately; readiness is gated per-connection.
     let accept_server = server.clone();
-    let accept_task = if let Some(acceptor_listener) = acceptor_listener {
-        tokio::spawn(async move {
-            run_acceptor_fd_loop(acceptor_listener, session_rx, accept_server, shutdown_rx).await
-        })
-    } else {
-        tokio::spawn(async move {
-            run_accept_loop(listeners, session_rx, accept_server, shutdown_rx).await
-        })
-    };
+    let accept_task = tokio::spawn(async move {
+        run_accept_channel_loop(
+            accept_rx,
+            session_rx,
+            accept_server,
+            shutdown_rx,
+            shutdown_flag,
+        )
+        .await
+    });
 
     // Ensure all cells are loaded (including http)
     let registry = all().await;
@@ -301,124 +313,52 @@ pub async fn start_cell_server_with_shutdown(
     }
 }
 
-async fn run_acceptor_fd_loop(
-    acceptor_listener: UnixListener,
-    session_rx: watch::Receiver<Option<Arc<RpcSession>>>,
-    server: Arc<SiteServer>,
-    mut shutdown_rx: Option<watch::Receiver<bool>>,
-) -> Result<()> {
-    use async_send_fd::AsyncRecvFd;
-    use std::os::unix::io::FromRawFd;
-    use tokio::io::AsyncWriteExt;
-
-    tracing::info!(
-        session_ready = session_rx.borrow().is_some(),
-        "Acceptor FD loop starting"
-    );
-
-    tracing::info!(
-        "Accepting connections via acceptor; readiness gated per connection (cells={:?})",
-        REQUIRED_CELLS
-    );
-
-    let accept_start = std::time::Instant::now();
-    let mut accept_seq: u64 = 0;
-    loop {
-        tracing::info!("Waiting for acceptor connection");
-        let accept_result = tokio::select! {
-            res = acceptor_listener.accept() => res.map_err(|e| eyre::eyre!("Acceptor socket accept failed: {}", e))?,
-            _ = async {
-                if let Some(ref mut rx) = shutdown_rx {
-                    rx.changed().await.ok();
-                    if *rx.borrow() {
-                        return;
-                    }
-                }
-                std::future::pending::<()>().await
-            } => {
-                tracing::info!("Shutdown signal received, stopping HTTP server");
+fn spawn_accept_thread(
+    listeners: Vec<std::net::TcpListener>,
+    tx: mpsc::Sender<std::net::TcpStream>,
+    shutdown_flag: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        tracing::info!("Accept loop thread starting");
+        loop {
+            if shutdown_flag.load(Ordering::Relaxed) {
                 break;
             }
-        };
 
-        let (mut unix_stream, _) = accept_result;
-        tracing::info!("Acceptor connected");
-
-        loop {
-            let fd = tokio::select! {
-                fd_result = unix_stream.recv_fd() => match fd_result {
-                    Ok(fd) => fd,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Acceptor connection lost, waiting for reconnect");
-                        break;
-                    }
-                },
-                _ = async {
-                    if let Some(ref mut rx) = shutdown_rx {
-                        rx.changed().await.ok();
-                        if *rx.borrow() {
-                            return;
+            let mut accepted_any = false;
+            for listener in &listeners {
+                loop {
+                    match listener.accept() {
+                        Ok((stream, _addr)) => {
+                            accepted_any = true;
+                            if tx.blocking_send(stream).is_err() {
+                                return;
+                            }
+                        }
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            break;
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = ?e, "Accept error");
+                            break;
                         }
                     }
-                    std::future::pending::<()>().await
-                } => {
-                    tracing::info!("Shutdown signal received, stopping HTTP server");
-                    return Ok(());
                 }
-            };
-
-            accept_seq = accept_seq.wrapping_add(1);
-            let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
-
-            // SAFETY: The acceptor sent a valid TcpStream FD.
-            let std_stream = unsafe { std::net::TcpStream::from_raw_fd(fd) };
-            if let Err(e) = std_stream.set_nonblocking(true) {
-                tracing::warn!(conn_id, error = %e, "Failed to set stream non-blocking");
-                continue;
             }
 
-            let stream = match TcpStream::from_std(std_stream) {
-                Ok(stream) => stream,
-                Err(e) => {
-                    tracing::warn!(conn_id, error = %e, "Failed to convert stream to tokio");
-                    continue;
-                }
-            };
-
-            if let Err(e) = unix_stream.write_all(&[0u8]).await {
-                tracing::warn!(error = %e, "Failed to send acceptor ack");
+            if !accepted_any {
+                std::thread::sleep(ACCEPT_POLL_SLEEP);
             }
-
-            let addr = stream.peer_addr().ok();
-            let local_addr = stream.local_addr().ok();
-            tracing::info!(
-                conn_id,
-                ?addr,
-                ?local_addr,
-                accept_seq,
-                elapsed_ms = accept_start.elapsed().as_millis(),
-                "Accepted browser connection (via acceptor)"
-            );
-
-            let session_rx = session_rx.clone();
-            let server = server.clone();
-            tokio::spawn(async move {
-                if let Err(e) = handle_browser_connection(conn_id, stream, session_rx, server).await
-                {
-                    tracing::warn!(conn_id, error = ?e, "Failed to handle browser connection");
-                }
-            });
         }
-    }
-
-    Ok(())
+    })
 }
 
-async fn run_accept_loop(
-    listeners: Vec<TcpListener>,
+async fn run_accept_channel_loop(
+    mut accept_rx: mpsc::Receiver<std::net::TcpStream>,
     session_rx: watch::Receiver<Option<Arc<RpcSession>>>,
     server: Arc<SiteServer>,
     mut shutdown_rx: Option<watch::Receiver<bool>>,
+    shutdown_flag: Arc<AtomicBool>,
 ) -> Result<()> {
     tracing::info!(
         session_ready = session_rx.borrow().is_some(),
@@ -430,80 +370,66 @@ async fn run_accept_loop(
         REQUIRED_CELLS
     );
 
-    // Merge all listeners into a single stream
-    let mut accept_stream = stream::select_all(listeners.into_iter().map(TcpListenerStream::new));
-
     // Accept browser connections and tunnel them to the cell
     tracing::info!("Accepting connections");
     let accept_start = std::time::Instant::now();
     let mut accept_seq: u64 = 0;
     loop {
-        tracing::debug!(
-            accept_seq,
-            elapsed_ms = accept_start.elapsed().as_millis(),
-            "Accept loop: waiting for connection..."
-        );
         tokio::select! {
-            accept_result = accept_stream.next() => {
-                tracing::debug!(
+            accept_result = accept_rx.recv() => {
+                accept_seq = accept_seq.wrapping_add(1);
+                let Some(std_stream) = accept_result else {
+                    tracing::info!(
+                        accept_seq,
+                        elapsed_ms = accept_start.elapsed().as_millis(),
+                        "All listeners closed"
+                    );
+                    break;
+                };
+
+                let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
+                if let Err(e) = std_stream.set_nonblocking(true) {
+                    tracing::warn!(conn_id, error = %e, "Failed to set stream non-blocking");
+                    continue;
+                }
+
+                let stream = match TcpStream::from_std(std_stream) {
+                    Ok(stream) => stream,
+                    Err(e) => {
+                        tracing::warn!(conn_id, error = %e, "Failed to convert stream to tokio");
+                        continue;
+                    }
+                };
+
+                let addr = stream.peer_addr().ok();
+                let local_addr = stream.local_addr().ok();
+                tracing::info!(
+                    conn_id,
+                    ?addr,
+                    ?local_addr,
                     accept_seq,
                     elapsed_ms = accept_start.elapsed().as_millis(),
-                    accept_result = ?accept_result.as_ref().map(|r| r.as_ref().map(|_| "stream").map_err(|e| e.to_string())),
-                    "Accept loop: got accept_result"
+                    "Accepted browser connection"
                 );
-                accept_seq = accept_seq.wrapping_add(1);
-                match accept_result {
-                    Some(Ok(stream)) => {
-                        let addr = stream.peer_addr().ok();
-                        let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
-                        let local_addr = stream.local_addr().ok();
-                        tracing::info!(
+                let session_rx = session_rx.clone();
+                let server = server.clone();
+                tokio::spawn(async move {
+                    if let Err(e) =
+                        handle_browser_connection(
                             conn_id,
-                            ?addr,
-                            ?local_addr,
-                            accept_seq,
-                            elapsed_ms = accept_start.elapsed().as_millis(),
-                            "Accepted browser connection"
-                        );
-                        let session_rx = session_rx.clone();
-                        let server = server.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) =
-                                handle_browser_connection(
-                                    conn_id,
-                                    stream,
-                                    session_rx,
-                                    server,
-                                )
-                                .await
-                            {
-                                tracing::warn!(
-                                    conn_id,
-                                    error = ?e,
-                                    "Failed to handle browser connection"
-                                );
-                            }
-                        });
-                    }
-                    Some(Err(e)) => {
-                        tracing::error!(
-                            accept_seq,
-                            elapsed_ms = accept_start.elapsed().as_millis(),
+                            stream,
+                            session_rx,
+                            server,
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            conn_id,
                             error = ?e,
-                            kind = ?e.kind(),
-                            raw_os_error = e.raw_os_error(),
-                            "Accept error"
+                            "Failed to handle browser connection"
                         );
                     }
-                    None => {
-                        tracing::info!(
-                            accept_seq,
-                            elapsed_ms = accept_start.elapsed().as_millis(),
-                            "All listeners closed"
-                        );
-                        break;
-                    }
-                }
+                });
             }
             _ = async {
                 if let Some(ref mut rx) = shutdown_rx {
@@ -520,8 +446,7 @@ async fn run_accept_loop(
         }
     }
 
-    // Cleanup: drop the stream to release listeners
-    drop(accept_stream);
+    shutdown_flag.store(true, Ordering::Relaxed);
     Ok(())
 }
 
@@ -533,7 +458,7 @@ pub async fn start_cell_server(
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
 ) -> Result<()> {
-    start_cell_server_with_shutdown(server, cell_path, bind_ips, port, None, None, None, None).await
+    start_cell_server_with_shutdown(server, cell_path, bind_ips, port, None, None, None).await
 }
 
 /// Handle a browser TCP connection by tunneling it through the cell

@@ -2,9 +2,9 @@
 //!
 //! Provides high-level APIs for testing the server without boilerplate.
 //!
-//! Uses Unix socket FD passing to hand the listening socket to the acceptor process.
+//! Uses Unix socket FD passing to hand the listening socket to the server process.
 //! The test harness binds the socket first, so connections queue in the TCP backlog
-//! until the acceptor starts accepting.
+//! until the server is ready to accept.
 //!
 //! # Environment Variables
 //!
@@ -91,24 +91,6 @@ fn ddc_binary() -> PathBuf {
         .expect("DODECA_BIN environment variable must be set")
 }
 
-/// Get the path to the acceptor binary
-fn acceptor_binary() -> PathBuf {
-    if let Ok(path) = std::env::var("DODECA_ACCEPTOR_BIN") {
-        return PathBuf::from(path);
-    }
-
-    let ddc = ddc_binary();
-    let parent = ddc.parent().expect("DODECA_BIN must have a parent dir");
-    let acceptor = parent.join("ddc-acceptor");
-    if !acceptor.exists() {
-        panic!(
-            "ddc-acceptor binary not found at {} (set DODECA_ACCEPTOR_BIN to override)",
-            acceptor.display()
-        );
-    }
-    acceptor
-}
-
 /// Get the path to the cell binaries directory
 fn cell_path() -> Option<PathBuf> {
     std::env::var("DODECA_CELL_PATH").map(PathBuf::from).ok()
@@ -124,7 +106,6 @@ fn test_wrapper() -> Option<Vec<String>> {
 /// A running test site with a server and isolated fixture directory
 pub struct TestSite {
     child: Child,
-    acceptor_child: Option<Child>,
     port: u16,
     fixture_dir: PathBuf,
     _temp_dir: tempfile::TempDir,
@@ -190,8 +171,7 @@ impl TestSite {
             .tempdir()
             .expect("create unix socket dir");
 
-        let fd_socket_path = unix_socket_dir.path().join("fd.sock");
-        let acceptor_socket_path = unix_socket_dir.path().join("acceptor.sock");
+        let unix_socket_path = unix_socket_dir.path().join("server.sock");
 
         // Create runtime for async socket operations
         let rt = tokio::runtime::Runtime::new().expect("create tokio runtime");
@@ -203,47 +183,20 @@ impl TestSite {
 
         // Create Unix socket listener
         let unix_listener =
-            rt.block_on(async { UnixListener::bind(&fd_socket_path).expect("bind Unix socket") });
+            rt.block_on(async { UnixListener::bind(&unix_socket_path).expect("bind Unix socket") });
 
         // Start server with Unix socket path
         let fixture_str = fixture_dir.to_string_lossy().to_string();
-        let fd_socket_str = fd_socket_path.to_string_lossy().to_string();
-        let acceptor_socket_str = acceptor_socket_path.to_string_lossy().to_string();
+        let unix_socket_str = unix_socket_path.to_string_lossy().to_string();
         let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
 
-        // Start acceptor with Unix socket paths
-        let acceptor = acceptor_binary();
-        let mut acceptor_cmd = StdCommand::new(&acceptor);
-        acceptor_cmd
-            .arg("--fd-socket")
-            .arg(&fd_socket_str)
-            .arg("--acceptor-socket")
-            .arg(&acceptor_socket_str)
-            .env("RUST_LOG", &rust_log)
-            .env("RUST_BACKTRACE", "1")
-            .env("DDC_LOG_TIME", "utc")
-            .env("DODECA_DIE_WITH_PARENT", "1")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        let mut acceptor_child = ur_taking_me_with_you::spawn_dying_with_parent(acceptor_cmd)
-            .expect("start acceptor process");
-        debug!(
-            acceptor_pid = acceptor_child.id(),
-            acceptor = %acceptor.display(),
-            "Spawned acceptor process"
-        );
-
         let ddc = ddc_binary();
-        let port_string = port.to_string();
         let ddc_args = [
             "serve",
             &fixture_str,
             "--no-tui",
-            "--acceptor-socket",
-            &acceptor_socket_str,
-            "--port",
-            &port_string,
+            "--fd-socket",
+            &unix_socket_str,
         ];
 
         // Build command, optionally wrapping with DODECA_TEST_WRAPPER
@@ -291,14 +244,6 @@ impl TestSite {
         // Take stdout/stderr before the async block
         let stdout = child.stdout.take().expect("capture stdout");
         let stderr = child.stderr.take().expect("capture stderr");
-        let acceptor_stdout = acceptor_child
-            .stdout
-            .take()
-            .expect("capture acceptor stdout");
-        let acceptor_stderr = acceptor_child
-            .stderr
-            .take()
-            .expect("capture acceptor stderr");
 
         // Capture logs (stdout/stderr + harness events). Only printed on test failure.
         let reader = BufReader::new(stdout);
@@ -310,20 +255,14 @@ impl TestSite {
             log_start,
             format!("[harness] spawned ddc pid={}", child.id()),
         );
-        push_log(
-            &logs,
-            log_start,
-            format!("[harness] spawned acceptor pid={}", acceptor_child.id()),
-        );
-
-        // Accept connection from acceptor on Unix socket and send FD
+        // Accept connection from server on Unix socket and send FD
         let child_id = child.id();
         let logs_for_fd = Arc::clone(&logs);
         rt.block_on(async {
             push_log(
                 &logs_for_fd,
                 log_start,
-                "[harness] waiting for acceptor unix socket accept",
+                "[harness] waiting for unix socket accept",
             );
             let accept_future = unix_listener.accept();
             let timeout_duration = tokio::time::Duration::from_secs(5);
@@ -332,13 +271,13 @@ impl TestSite {
                 .await
                 .unwrap_or_else(|_| {
                     panic!(
-                        "Timeout waiting for acceptor to connect to Unix socket within 5s (server PID {})",
+                        "Timeout waiting for server (PID {}) to connect to Unix socket within 5s",
                         child_id
                     )
                 })
                 .expect("Failed to accept Unix connection");
 
-            // Send the TCP listener FD to the acceptor
+            // Send the TCP listener FD to the server
             unix_stream
                 .send_fd(std_listener.as_raw_fd())
                 .await
@@ -346,12 +285,12 @@ impl TestSite {
             push_log(
                 &logs_for_fd,
                 log_start,
-                "[harness] sent TCP listener FD to acceptor",
+                "[harness] sent TCP listener FD to server",
             );
-            debug!("Sent TCP listener FD to acceptor");
+            debug!("Sent TCP listener FD to server");
 
             // IMPORTANT: Don't drop std_listener here - keep it alive!
-            // The FD is shared with the acceptor now
+            // The FD is shared with the server now
             std::mem::forget(std_listener);
         });
         push_log(&logs, log_start, "[harness] log capture started");
@@ -384,51 +323,12 @@ impl TestSite {
             }
         });
 
-        // Drain acceptor stdout in background
-        let acceptor_reader = BufReader::new(acceptor_stdout);
-        let logs_acceptor_stdout = Arc::clone(&logs);
-        let log_start_acceptor_stdout = log_start;
-        std::thread::spawn(move || {
-            for line in acceptor_reader.lines() {
-                match line {
-                    Ok(l) => {
-                        push_log(
-                            &logs_acceptor_stdout,
-                            log_start_acceptor_stdout,
-                            format!("[acceptor stdout] {l}"),
-                        );
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-
-        // Drain acceptor stderr in background
-        let acceptor_stderr_reader = BufReader::new(acceptor_stderr);
-        let logs_acceptor_stderr = Arc::clone(&logs);
-        let log_start_acceptor_stderr = log_start;
-        std::thread::spawn(move || {
-            for line in acceptor_stderr_reader.lines() {
-                match line {
-                    Ok(l) => {
-                        push_log(
-                            &logs_acceptor_stderr,
-                            log_start_acceptor_stderr,
-                            format!("[acceptor stderr] {l}"),
-                        );
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-
         let setup_elapsed = setup_start.elapsed();
         let setup = TEST_SETUP.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
         setup.lock().unwrap().insert(test_id, setup_elapsed);
 
         Self {
             child,
-            acceptor_child: Some(acceptor_child),
             port,
             fixture_dir,
             _temp_dir: temp_dir,
@@ -689,65 +589,6 @@ impl Drop for TestSite {
                     self.log_start,
                     format!("[harness] drop: try_wait failed: {err}"),
                 );
-            }
-        }
-
-        if let Some(mut acceptor_child) = self.acceptor_child.take() {
-            push_log(
-                &self.logs,
-                self.log_start,
-                format!(
-                    "[harness] drop: cleaning up acceptor pid={}",
-                    acceptor_child.id()
-                ),
-            );
-
-            match acceptor_child.try_wait() {
-                Ok(Some(status)) => {
-                    push_log(
-                        &self.logs,
-                        self.log_start,
-                        format!("[harness] drop: acceptor already exited status={status}"),
-                    );
-                }
-                Ok(None) => {
-                    push_log(
-                        &self.logs,
-                        self.log_start,
-                        "[harness] drop: killing acceptor",
-                    );
-                    if let Err(err) = acceptor_child.kill() {
-                        push_log(
-                            &self.logs,
-                            self.log_start,
-                            format!("[harness] drop: acceptor kill failed: {err}"),
-                        );
-                    }
-
-                    match acceptor_child.wait() {
-                        Ok(status) => {
-                            push_log(
-                                &self.logs,
-                                self.log_start,
-                                format!("[harness] drop: acceptor wait complete status={status}"),
-                            );
-                        }
-                        Err(err) => {
-                            push_log(
-                                &self.logs,
-                                self.log_start,
-                                format!("[harness] drop: acceptor wait failed: {err}"),
-                            );
-                        }
-                    }
-                }
-                Err(err) => {
-                    push_log(
-                        &self.logs,
-                        self.log_start,
-                        format!("[harness] drop: acceptor try_wait failed: {err}"),
-                    );
-                }
             }
         }
 

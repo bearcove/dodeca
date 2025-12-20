@@ -108,10 +108,6 @@ struct ServeArgs {
     /// Unix socket path to receive listening FD (for testing)
     #[facet(args::named, default)]
     fd_socket: Option<String>,
-
-    /// Unix socket path to receive accepted connection FDs (from acceptor)
-    #[facet(args::named, default)]
-    acceptor_socket: Option<String>,
 }
 
 /// Clean command arguments
@@ -154,7 +150,6 @@ fn print_usage() {
     eprintln!("    --open           Open browser after starting server");
     eprintln!("    --no-tui         Disable TUI (show plain output)");
     eprintln!("    -P, --public     Listen on all interfaces (LAN access)");
-    eprintln!("    --acceptor-socket  Unix socket path for accepted FDs (from acceptor)");
     eprintln!("\n{}", "CLEAN OPTIONS:".yellow());
     eprintln!("    [path]           Project directory");
 }
@@ -338,7 +333,7 @@ fn main() -> Result<()> {
                 let use_tui = args.force_tui || (!args.no_tui && std::io::stdout().is_terminal());
 
                 if use_tui {
-                    if args.fd_socket.is_some() || args.acceptor_socket.is_some() {
+                    if args.fd_socket.is_some() {
                         return Err(eyre!("FD passing is only supported in --no-tui mode"));
                     }
                     serve_with_tui(
@@ -361,7 +356,6 @@ fn main() -> Result<()> {
                         args.open,
                         cfg.stable_assets,
                         args.fd_socket,
-                        args.acceptor_socket,
                         args.public_access,
                     )
                     .await
@@ -1801,14 +1795,9 @@ async fn serve_plain(
     open: bool,
     stable_assets: Vec<String>,
     fd_socket: Option<String>,
-    acceptor_socket: Option<String>,
     public_access: bool,
 ) -> Result<()> {
     use std::sync::Arc;
-
-    if fd_socket.is_some() && acceptor_socket.is_some() {
-        return Err(eyre!("Cannot use both --fd-socket and --acceptor-socket"));
-    }
 
     // IMPORTANT: Receive listening FD FIRST if --fd-socket was provided (for testing)
     // This must happen before any other initialization so the test harness isn't blocked.
@@ -1837,24 +1826,8 @@ async fn serve_plain(
             .set_nonblocking(true)
             .map_err(|e| eyre!("Failed to set listener to non-blocking: {}", e))?;
 
-        let listener = tokio::net::TcpListener::from_std(std_listener)
-            .map_err(|e| eyre!("Failed to convert std TcpListener to tokio: {}", e))?;
-
         tracing::info!("Successfully received TCP listener FD");
-        Some(listener)
-    } else {
-        None
-    };
-
-    // If using acceptor mode, create the Unix socket listener early so the acceptor can connect.
-    let acceptor_listener = if let Some(ref socket_path) = acceptor_socket {
-        use tokio::net::UnixListener;
-
-        let _ = std::fs::remove_file(socket_path);
-        let listener = UnixListener::bind(socket_path)
-            .map_err(|e| eyre!("Failed to bind acceptor socket {}: {}", socket_path, e))?;
-        tracing::info!(socket_path = %socket_path, "Acceptor socket ready");
-        Some(listener)
+        Some(std_listener)
     } else {
         None
     };
@@ -1884,13 +1857,6 @@ async fn serve_plain(
 
     // Use the requested port (or default to 4000)
     let requested_port: u16 = port.unwrap_or(4000);
-    if acceptor_listener.is_some() && port.is_none() {
-        tracing::warn!(
-            requested_port,
-            "Acceptor mode without explicit --port; using default for display only"
-        );
-    }
-
     // Find the cell path
     let cell_path = cell_server::find_cell_path()?;
 
@@ -1924,7 +1890,6 @@ async fn serve_plain(
             None,
             Some(port_tx),
             pre_bound_listener,
-            acceptor_listener,
         )
         .await
         {
@@ -2646,7 +2611,6 @@ async fn serve_with_tui(
                     Some(shutdown_rx_clone),
                     Some(port_tx),
                     None, // No pre-bound listener for TUI mode
-                    None, // No acceptor listener for TUI mode
                 )
                 .await
                 {

@@ -79,21 +79,6 @@ BIN_FILES=()
 cp "${RELEASE_DIR}/${BINARY_NAME}" staging/
 BIN_FILES+=("${BINARY_NAME}")
 
-# Copy acceptor binary
-if [[ "$TARGET" == *windows* ]]; then
-    ACCEPTOR_NAME="ddc-acceptor.exe"
-else
-    ACCEPTOR_NAME="ddc-acceptor"
-fi
-ACCEPTOR_SRC="${RELEASE_DIR}/${ACCEPTOR_NAME}"
-if [[ -f "$ACCEPTOR_SRC" ]]; then
-    cp "$ACCEPTOR_SRC" staging/
-    BIN_FILES+=("${ACCEPTOR_NAME}")
-    echo "Copied acceptor: ${ACCEPTOR_NAME}"
-else
-    echo "Warning: acceptor not found: $ACCEPTOR_SRC"
-fi
-
 # Copy and strip rapace cell binaries
 for cell in "${RAPACE_CELLS[@]}"; do
     if [[ "$TARGET" == *windows* ]]; then
