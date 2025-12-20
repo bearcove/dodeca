@@ -823,33 +823,15 @@ pub mod common {
   # Backdate entire source tree to prevent mtime-based cache invalidation.
   # Fresh checkout creates files with mtime=NOW, but cached artifacts have old mtimes.
   # Cargo's build script outputs use mtime checks (not affected by -Z checksum-freshness).
-  # Build scripts can read ANY file, so backdate everything to be older than cache.
-  echo "Backdating source tree to prevent cache invalidation..."
+  # Build scripts can read ANY file, so backdate everything to epoch (Jan 1, 1970).
+  echo "Backdating source tree to epoch (Jan 1, 1970)..."
 
-  # Find oldest file in restored cache (use stat for cross-platform compatibility)
-  if [ "$(uname)" = "Darwin" ]; then
-    # macOS: stat -f %m
-    OLDEST_TIME=$(find target -type f -exec stat -f %m {{}} \; 2>/dev/null | sort -n | head -1)
-  else
-    # Linux: stat -c %Y
-    OLDEST_TIME=$(find target -type f -exec stat -c %Y {{}} \; 2>/dev/null | sort -n | head -1)
+  # Touch all source files to epoch time (exclude .git and target)
+  if ! find . -path ./target -prune -o -path ./.git -prune -o -type f -exec touch -t 197001010000.00 {{}} \; ; then
+    echo "ERROR: Failed to backdate source files"
+    exit 1
   fi
-
-  if [ -n "$OLDEST_TIME" ]; then
-    # Backdate to 1 day (86400s) before oldest cache file
-    TARGET_TIME=$((OLDEST_TIME - 86400))
-    echo "Oldest cache file: $(date -r $OLDEST_TIME 2>/dev/null || date -d @$OLDEST_TIME 2>/dev/null)"
-    echo "Backdating sources to: $(date -r $TARGET_TIME 2>/dev/null || date -d @$TARGET_TIME 2>/dev/null)"
-
-    # Touch all source files (exclude .git and target)
-    if ! find . -path ./target -prune -o -path ./.git -prune -o -type f -exec touch -t $(date -r $TARGET_TIME +%Y%m%d%H%M.%S 2>/dev/null || date -d @$TARGET_TIME +%Y%m%d%H%M.%S 2>/dev/null) {{}} \; ; then
-      echo "ERROR: Failed to backdate source files"
-      exit 1
-    fi
-    echo "Backdating complete"
-  else
-    echo "WARNING: Could not find cache baseline, skipping backdate"
-  fi
+  echo "Backdating complete"
 else
   echo "No cache found at {cache_dir}"
 fi"#
