@@ -3,27 +3,20 @@
 /**
  * Content-Addressed Storage batch upload for CI artifacts.
  *
- * Usage: cas-upload-batch.ts <pointer-prefix> <file1> [file2] ...
+ * Usage: cas-upload-batch.ts <manifest-key> <file1> [file2] ...
  *
  * This script:
  * 1. Computes SHA256 hashes in parallel
- * 2. Uploads to CAS in parallel (skipping existing)
- * 3. Writes pointer files in parallel
+ * 2. Uploads to CAS in parallel (atomically via SSH)
+ * 3. Writes a single manifest file with all files and their hashes
+ *
+ * Environment variables required:
+ * - CAS_SSH_KEY: Private SSH key for cas@golem.bearcove.cloud
  */
 
-import { createHash } from "node:crypto";
-import { readFile, stat, mkdir, rm, link, copyFile } from "node:fs/promises";
-import { spawn } from "node:child_process";
-import { basename, join } from "node:path";
-import { tmpdir } from "node:os";
-
-const S3_ENDPOINT = process.env.S3_ENDPOINT;
-const S3_BUCKET = process.env.S3_BUCKET;
-
-if (!S3_ENDPOINT || !S3_BUCKET) {
-  console.error("Error: S3_ENDPOINT and S3_BUCKET must be set");
-  process.exit(1);
-}
+import { basename } from "node:path";
+import { stat } from "node:fs/promises";
+import { createCasClient, type ManifestEntry, type PutResult } from "./cas-client.ts";
 
 const startTime = performance.now();
 let lastStep = startTime;
@@ -41,40 +34,12 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
 }
 
-async function run(cmd: string, args: string[], stdin?: string): Promise<{ code: number; stdout: string; stderr: string }> {
-  return new Promise((resolve) => {
-    const proc = spawn(cmd, args, { stdio: ["pipe", "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    proc.stdout.on("data", (d) => (stdout += d));
-    proc.stderr.on("data", (d) => (stderr += d));
-    if (stdin) {
-      proc.stdin.write(stdin);
-      proc.stdin.end();
-    }
-    proc.on("close", (code) => resolve({ code: code ?? 1, stdout, stderr }));
-  });
-}
-
-async function s3(...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  return run("aws", ["s3", "--endpoint-url", S3_ENDPOINT!, ...args]);
-}
-
-async function computeHash(filePath: string): Promise<string> {
-  const content = await readFile(filePath);
-  return createHash("sha256").update(content).digest("hex");
-}
-
-async function existsInCas(hash: string): Promise<boolean> {
-  const result = await s3("ls", `s3://${S3_BUCKET}/cas/${hash}`);
-  return result.code === 0;
-}
-
 async function main() {
-  const [pointerPrefix, ...files] = process.argv.slice(2);
+  const [manifestKey, ...files] = process.argv.slice(2);
 
-  if (!pointerPrefix || files.length === 0) {
-    console.error("Usage: cas-upload-batch.ts <pointer-prefix> <file1> [file2] ...");
+  if (!manifestKey || files.length === 0) {
+    console.error("Usage: cas-upload-batch.ts <manifest-key> <file1> [file2] ...");
+    console.error("Example: cas-upload-batch.ts ci/3410/cells-linux-x64 dist/ddc-cell-*");
     process.exit(1);
   }
 
@@ -93,67 +58,59 @@ async function main() {
   }
   console.log(`  Total: ${formatSize(totalSize)}`);
 
-  // Compute hashes in parallel
-  console.log("Computing SHA256 hashes...");
-  const hashResults = await Promise.all(
-    files.map(async (file) => ({
-      file,
-      hash: await computeHash(file),
-    }))
-  );
-  logStep(`hashing ${formatSize(totalSize)}`);
+  // Initialize CAS client
+  const knownHostsFile = new URL("./cas-known-hosts", import.meta.url).pathname;
+  const client = await createCasClient(knownHostsFile);
 
-  // Check which hashes exist in CAS (in parallel)
-  console.log("Checking CAS...");
-  const existsResults = await Promise.all(
-    hashResults.map(async ({ file, hash }) => ({
-      file,
-      hash,
-      exists: await existsInCas(hash),
-    }))
-  );
-  logStep("checking CAS");
-
-  // Upload missing files to CAS (in parallel)
-  const toUpload = existsResults.filter((r) => !r.exists);
-  if (toUpload.length > 0) {
-    console.log(`Uploading ${toUpload.length} new files to CAS...`);
-    await Promise.all(
-      toUpload.map(async ({ file, hash }) => {
-        const result = await s3("cp", file, `s3://${S3_BUCKET}/cas/${hash}`);
-        if (result.code !== 0) {
-          console.error(`Failed to upload ${file}: ${result.stderr}`);
-          process.exit(1);
-        }
+  try {
+    // Upload files in parallel
+    console.log("Uploading to CAS...");
+    const results = await Promise.all(
+      files.map(async (file) => {
+        const result = await client.put(file);
+        return { file, ...result };
       })
     );
-    logStep(`uploading ${toUpload.length} files`);
-  } else {
-    console.log("All files already in CAS");
-    logStep("(no uploads needed)");
-  }
+    logStep(`uploading ${formatSize(totalSize)}`);
 
-  // Write pointer files in parallel
-  console.log("Writing pointer files...");
-  await Promise.all(
-    hashResults.map(async ({ file, hash }) => {
-      const filename = basename(file);
-      const pointerKey = `${pointerPrefix}/${filename}`;
-      const result = await run(
-        "aws",
-        ["s3", "--endpoint-url", S3_ENDPOINT!, "cp", "-", `s3://${S3_BUCKET}/${pointerKey}`],
-        hash
-      );
-      if (result.code !== 0) {
-        console.error(`Failed to write pointer for ${filename}: ${result.stderr}`);
-        process.exit(1);
+    // Report results
+    const uploaded = results.filter((r) => r.status === "uploaded");
+    const existing = results.filter((r) => r.status === "exists");
+
+    if (uploaded.length > 0) {
+      console.log(`Uploaded ${uploaded.length} new files:`);
+      for (const { file, hash, bytes, durationMs } of uploaded) {
+        console.log(`  ${basename(file)}: ${formatSize(bytes)} in ${durationMs}ms`);
       }
-    })
-  );
-  logStep("pointer files");
+    }
 
-  const totalTime = Math.round(performance.now() - startTime);
-  console.log(`Done: ${files.length} files (${formatSize(totalSize)}) in ${totalTime}ms`);
+    if (existing.length > 0) {
+      console.log(`Cache hits (${existing.length} files already in CAS):`);
+      for (const { file, hash } of existing) {
+        console.log(`  ${basename(file)}: ${hash.slice(0, 12)}...`);
+      }
+    }
+
+    // Write manifest file
+    console.log("Writing manifest...");
+    const manifest: ManifestEntry[] = results.map(({ file, hash }) => ({
+      name: basename(file),
+      hash,
+    }));
+
+    await client.writeManifest(manifestKey, manifest);
+    logStep("manifest");
+
+    console.log(`Manifest written to ${manifestKey}`);
+
+    // Summary
+    const totalTime = Math.round(performance.now() - startTime);
+    const cacheHitRate = ((existing.length / files.length) * 100).toFixed(1);
+    console.log(`\nDone: ${files.length} files (${formatSize(totalSize)}) in ${totalTime}ms`);
+    console.log(`Cache hit rate: ${cacheHitRate}% (${existing.length}/${files.length})`);
+  } finally {
+    await client.cleanup();
+  }
 }
 
 main().catch((err) => {

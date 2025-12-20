@@ -41,9 +41,17 @@ struct InstallArgs {}
 #[derive(Facet, Debug)]
 struct WasmArgs {}
 
-/// CI command - generate release workflow
+/// CI GitHub command - generate GitHub workflow
 #[derive(Facet, Debug)]
-struct CiArgs {
+struct CiGithubArgs {
+    /// Check that generated files are up to date (don't write)
+    #[facet(args::named)]
+    check: bool,
+}
+
+/// CI Forgejo command - generate Forgejo workflow
+#[derive(Facet, Debug)]
+struct CiForgejoArgs {
     /// Check that generated files are up to date (don't write)
     #[facet(args::named)]
     check: bool,
@@ -80,8 +88,10 @@ enum XtaskCommand {
     Install(InstallArgs),
     /// Build WASM only
     Wasm(WasmArgs),
-    /// Generate release workflow
-    Ci(CiArgs),
+    /// Generate GitHub workflow
+    CiGithub(CiGithubArgs),
+    /// Generate Forgejo workflow
+    CiForgejo(CiForgejoArgs),
     /// Generate PowerShell installer
     GeneratePs1Installer(GeneratePs1InstallerArgs),
     /// Run integration tests
@@ -156,12 +166,25 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         }
-        XtaskCommand::Ci(args) => {
+        XtaskCommand::CiGithub(args) => {
             let repo_root = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .parent()
                 .unwrap()
                 .to_owned();
-            match ci::generate(&repo_root, args.check) {
+            match ci::generate_github(&repo_root, args.check) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{}: {e}", "error".red().bold());
+                    ExitCode::FAILURE
+                }
+            }
+        }
+        XtaskCommand::CiForgejo(args) => {
+            let repo_root = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap()
+                .to_owned();
+            match ci::generate_forgejo(&repo_root, args.check) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("{}: {e}", "error".red().bold());

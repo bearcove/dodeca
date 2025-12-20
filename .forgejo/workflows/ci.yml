@@ -59,10 +59,7 @@ jobs:
 
     timeout-minutes: 30
     env: 
-      AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
 
     steps: 
       - 
@@ -85,7 +82,7 @@ jobs:
         name: Save cache (ctree)
         run: "echo \"=== Cache contents before save ===\"\ndu -sh target 2>/dev/null || true\ntree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\nmkdir -p \"$(dirname \"/home/amos/.cache/dodeca-ci/wasm\")\"\nrm -rf \"/home/amos/.cache/dodeca-ci/wasm\" 2>/dev/null || true\nctree target \"/home/amos/.cache/dodeca-ci/wasm\" && echo \"Cache saved via ctree to /home/amos/.cache/dodeca-ci/wasm\" || echo \"ctree save failed (non-fatal)\""
       - 
-        name: Upload WASM to S3
+        name: Upload WASM to CAS
         run: "tar -czf /tmp/wasm.tar.gz -C crates/dodeca-devtools pkg\n./scripts/cas-upload.ts /tmp/wasm.tar.gz \"ci/${{ github.run_id }}/wasm.tar.gz\""
 
   build-ddc-linux-x64: 
@@ -95,10 +92,7 @@ jobs:
 
     timeout-minutes: 30
     env: 
-      AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
 
     steps: 
       - 
@@ -123,7 +117,7 @@ jobs:
         name: Test ddc
         run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p dodeca --bins
       - 
-        name: Upload ddc to S3
+        name: Upload ddc to CAS
         run: "./scripts/cas-upload.ts target/release/ddc \"ci/${{ github.run_id }}/ddc-linux-x64\""
 
   build-cells-linux-x64-1: 
@@ -133,10 +127,7 @@ jobs:
 
     timeout-minutes: 30
     env: 
-      AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
 
     steps: 
       - 
@@ -161,7 +152,7 @@ jobs:
         name: Test cells
         run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
       - 
-        name: Upload cells to S3
+        name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64\" target/release/ddc-cell-arborium target/release/ddc-cell-code-execution target/release/ddc-cell-css target/release/ddc-cell-fonts target/release/ddc-cell-html target/release/ddc-cell-html-diff target/release/ddc-cell-http target/release/ddc-cell-image target/release/ddc-cell-js"
 
   build-cells-linux-x64-2: 
@@ -171,10 +162,7 @@ jobs:
 
     timeout-minutes: 30
     env: 
-      AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
 
     steps: 
       - 
@@ -199,7 +187,7 @@ jobs:
         name: Test cells
         run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
       - 
-        name: Upload cells to S3
+        name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64\" target/release/ddc-cell-jxl target/release/ddc-cell-linkcheck target/release/ddc-cell-markdown target/release/ddc-cell-minify target/release/ddc-cell-pagefind target/release/ddc-cell-sass target/release/ddc-cell-svgo target/release/ddc-cell-tui target/release/ddc-cell-webp"
 
   integration-linux-x64: 
@@ -214,10 +202,7 @@ jobs:
       - build-cells-linux-x64-2
 
     env: 
-      AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
 
     steps: 
       - 
@@ -236,10 +221,10 @@ jobs:
         name: Build integration-tests
         run: cargo +nightly-2025-12-19 -Z checksum-freshness build -p integration-tests
       - 
-        name: Download ddc from S3
+        name: Download ddc from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-linux-x64\" dist/ddc"
       - 
-        name: Download cells from S3
+        name: Download cells from CAS
         run: "./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64\" dist/"
       - 
         name: List binaries
@@ -269,23 +254,20 @@ jobs:
       - build-wasm
 
     env: 
-      AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
 
     steps: 
       - 
         name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - 
-        name: Download ddc from S3
+        name: Download ddc from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-linux-x64\" target/release/ddc"
       - 
-        name: Download cells from S3
+        name: Download cells from CAS
         run: "./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64\" target/release/"
       - 
-        name: Download WASM from S3
+        name: Download WASM from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/wasm.tar.gz\" /tmp/wasm.tar.gz\nmkdir -p crates/dodeca-devtools\ntar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"
       - 
         name: Install xz (macOS)
@@ -297,7 +279,7 @@ jobs:
         name: Assemble archive
         run: bash scripts/assemble-archive.sh x86_64-unknown-linux-gnu
       - 
-        name: Upload archive to S3
+        name: Upload archive to CAS
         run: "./scripts/cas-upload.ts \"dodeca-x86_64-unknown-linux-gnu.tar.xz\" \"ci/${{ github.run_id }}/dodeca-x86_64-unknown-linux-gnu.tar.xz\""
 
   build-ddc-macos-arm64: 
@@ -307,10 +289,7 @@ jobs:
 
     timeout-minutes: 30
     env: 
-      AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
 
     steps: 
       - 
@@ -335,7 +314,7 @@ jobs:
         name: Test ddc
         run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p dodeca --bins
       - 
-        name: Upload ddc to S3
+        name: Upload ddc to CAS
         run: "./scripts/cas-upload.ts target/release/ddc \"ci/${{ github.run_id }}/ddc-macos-arm64\""
 
   build-cells-macos-arm64-1: 
@@ -345,10 +324,7 @@ jobs:
 
     timeout-minutes: 30
     env: 
-      AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
 
     steps: 
       - 
@@ -373,7 +349,7 @@ jobs:
         name: Test cells
         run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
       - 
-        name: Upload cells to S3
+        name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64\" target/release/ddc-cell-arborium target/release/ddc-cell-code-execution target/release/ddc-cell-css target/release/ddc-cell-fonts target/release/ddc-cell-html target/release/ddc-cell-html-diff target/release/ddc-cell-http target/release/ddc-cell-image target/release/ddc-cell-js"
 
   build-cells-macos-arm64-2: 
@@ -383,10 +359,7 @@ jobs:
 
     timeout-minutes: 30
     env: 
-      AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
 
     steps: 
       - 
@@ -411,7 +384,7 @@ jobs:
         name: Test cells
         run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
       - 
-        name: Upload cells to S3
+        name: Upload cells to CAS
         run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64\" target/release/ddc-cell-jxl target/release/ddc-cell-linkcheck target/release/ddc-cell-markdown target/release/ddc-cell-minify target/release/ddc-cell-pagefind target/release/ddc-cell-sass target/release/ddc-cell-svgo target/release/ddc-cell-tui target/release/ddc-cell-webp"
 
   integration-macos-arm64: 
@@ -426,10 +399,7 @@ jobs:
       - build-cells-macos-arm64-2
 
     env: 
-      AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
 
     steps: 
       - 
@@ -448,10 +418,10 @@ jobs:
         name: Build integration-tests
         run: cargo +nightly-2025-12-19 -Z checksum-freshness build -p integration-tests
       - 
-        name: Download ddc from S3
+        name: Download ddc from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-macos-arm64\" dist/ddc"
       - 
-        name: Download cells from S3
+        name: Download cells from CAS
         run: "./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64\" dist/"
       - 
         name: List binaries
@@ -481,23 +451,20 @@ jobs:
       - build-wasm
 
     env: 
-      AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
 
     steps: 
       - 
         name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - 
-        name: Download ddc from S3
+        name: Download ddc from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-macos-arm64\" target/release/ddc"
       - 
-        name: Download cells from S3
+        name: Download cells from CAS
         run: "./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64\" target/release/"
       - 
-        name: Download WASM from S3
+        name: Download WASM from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/wasm.tar.gz\" /tmp/wasm.tar.gz\nmkdir -p crates/dodeca-devtools\ntar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"
       - 
         name: Install xz (macOS)
@@ -509,7 +476,7 @@ jobs:
         name: Assemble archive
         run: bash scripts/assemble-archive.sh aarch64-apple-darwin
       - 
-        name: Upload archive to S3
+        name: Upload archive to CAS
         run: "./scripts/cas-upload.ts \"dodeca-aarch64-apple-darwin.tar.xz\" \"ci/${{ github.run_id }}/dodeca-aarch64-apple-darwin.tar.xz\""
 
   release: 
@@ -524,17 +491,14 @@ jobs:
 
     if: "startsWith(github.ref, 'refs/tags/')"
     env: 
-      AWS_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_KEY }}
-      S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
-      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
 
     steps: 
       - 
         name: Checkout
         uses: "https://github.com/actions/checkout@v4"
       - 
-        name: Download archives from S3
+        name: Download archives from CAS
         run: "mkdir -p dist\n./scripts/cas-download.ts \"ci/${{ github.run_id }}/dodeca-x86_64-unknown-linux-gnu.tar.xz\" dist/dodeca-x86_64-unknown-linux-gnu.tar.xz\n./scripts/cas-download.ts \"ci/${{ github.run_id }}/dodeca-aarch64-apple-darwin.tar.xz\" dist/dodeca-aarch64-apple-darwin.tar.xz\nls -la dist/"
       - 
         name: Show release info

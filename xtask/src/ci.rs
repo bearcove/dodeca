@@ -105,8 +105,8 @@ impl CiPlatform {
         matches!(self, CiPlatform::Forgejo)
     }
 
-    /// Check if this platform uses S3 for artifacts.
-    pub fn uses_s3_artifacts(&self) -> bool {
+    /// Check if this platform uses SSH-based CAS for artifacts.
+    pub fn uses_ssh_cas_artifacts(&self) -> bool {
         matches!(self, CiPlatform::Forgejo)
     }
 
@@ -848,12 +848,12 @@ ctree target "{cache_dir}" && echo "Cache saved via ctree to {cache_dir}" || ech
     }
 
     // =========================================================================
-    // S3-based artifact helpers (for Forgejo) - Content-Addressed Storage
+    // SSH-based artifact helpers (for Forgejo) - Content-Addressed Storage
     // =========================================================================
     //
-    // Artifacts are stored using content-addressed storage (CAS) for deduplication:
-    // - Actual files go to: s3://bucket/cas/<sha256>
-    // - Pointer files go to: s3://bucket/ci/<run_id>/<name> (contains just the hash)
+    // Artifacts are stored using content-addressed storage (CAS) over SSH for deduplication:
+    // - Actual files go to: /srv/cas/cas/sha256/<hash[0:2]>/<hash>
+    // - Pointer files go to: /srv/cas/cas/pointers/ci/<run_id>/<name> (contains just the hash)
     //
     // This means identical binaries across runs are only stored once.
 
@@ -948,8 +948,17 @@ done"#,
         )
     }
 
-    /// Generate S3 environment variables for a step.
+    /// Generate CAS environment variables for SSH-based content-addressed storage.
+    pub fn cas_env() -> IndexMap<String, String> {
+        [("CAS_SSH_KEY", "${{ secrets.CAS_SSH_KEY }}")]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    /// Generate S3 environment variables for a step (legacy, for reference).
     /// Supports S3-compatible storage (Hetzner, MinIO, etc.) via S3_ENDPOINT.
+    #[allow(dead_code)]
     pub fn s3_env() -> IndexMap<String, String> {
         [
             ("AWS_ACCESS_KEY_ID", "${{ secrets.S3_ACCESS_KEY }}"),
@@ -1414,14 +1423,14 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
 }
 
 // =============================================================================
-// Forgejo CI workflow builder (ctree cache + S3 artifacts)
+// Forgejo CI workflow builder (ctree cache + SSH CAS artifacts)
 // =============================================================================
 
-/// Build the Forgejo CI workflow with local ctree caching and S3 artifacts.
+/// Build the Forgejo CI workflow with local ctree caching and SSH-based CAS artifacts.
 ///
 /// This is completely separate from the GitHub workflow because:
 /// - Uses ctree for near-instant COW cache copies on local filesystems
-/// - Uses S3 for artifact storage instead of Forgejo's built-in (slow) artifacts
+/// - Uses SSH + rsync for artifact storage (content-addressed, deduplicated)
 /// - Simpler structure optimized for self-hosted runners
 pub fn build_forgejo_workflow() -> Workflow {
     use common::*;
@@ -1430,8 +1439,8 @@ pub fn build_forgejo_workflow() -> Workflow {
     let targets = targets_for_platform(platform);
     let groups = cell_groups(9);
 
-    // S3 env vars used by all artifact steps
-    let s3_env = s3_env();
+    // CAS env vars used by all artifact steps (SSH-based content-addressed storage)
+    let cas_env = cas_env();
 
     // Run ID for S3 artifact paths
     let run_id = "${{ github.run_id }}";
@@ -1476,7 +1485,7 @@ pub fn build_forgejo_workflow() -> Workflow {
         Job::with_runner(RunnerSpec::labels(FORGEJO_LINUX_LABELS).to_runs_on())
             .name("Build WASM")
             .timeout(30)
-            .env(s3_env.clone())
+            .env(cas_env.clone())
             .steps([
                 checkout(platform),
                 install_rust_with_target(platform, "wasm32-unknown-unknown"),
@@ -1484,9 +1493,9 @@ pub fn build_forgejo_workflow() -> Workflow {
                 Step::run("Build WASM", "cargo xtask wasm"),
                 // Save cache immediately after build (before uploads that might fail)
                 ctree_cache_save("wasm", "/home/amos/.cache"),
-                // Upload WASM to S3 as a tarball using CAS
+                // Upload WASM to CAS as a tarball
                 Step::run(
-                    "Upload WASM to S3",
+                    "Upload WASM to CAS",
                     format!(
                         r#"tar -czf /tmp/wasm.tar.gz -C crates/dodeca-devtools pkg
 ./scripts/cas-upload.ts /tmp/wasm.tar.gz "ci/{run_id}/wasm.tar.gz""#
@@ -1509,7 +1518,7 @@ pub fn build_forgejo_workflow() -> Workflow {
             Job::with_runner(target.runs_on())
                 .name(format!("Build ddc ({short})"))
                 .timeout(30)
-                .env(s3_env.clone())
+                .env(cas_env.clone())
                 .steps([
                     checkout(platform),
                     install_rust(platform),
@@ -1519,7 +1528,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                     ctree_cache_save(&format!("ddc-{short}"), cache_base),
                     Step::run("Test ddc", format!("cargo {} test --release -p dodeca --bins", CiPlatform::CARGO_NIGHTLY_FLAGS)),
                     Step::run(
-                        "Upload ddc to S3",
+                        "Upload ddc to CAS",
                         format!(
                             r#"./scripts/cas-upload.ts target/release/ddc "ci/{run_id}/ddc-{short}""#
                         ),
@@ -1565,7 +1574,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                 Job::with_runner(target.runs_on())
                     .name(format!("Build cells ({short}) [{cell_names}]"))
                     .timeout(30)
-                    .env(s3_env.clone())
+                    .env(cas_env.clone())
                     .steps([
                         checkout(platform),
                         install_rust(platform),
@@ -1586,7 +1595,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                                 CiPlatform::CARGO_NIGHTLY_FLAGS
                             ),
                         ),
-                        Step::run("Upload cells to S3", upload_script),
+                        Step::run("Upload cells to CAS", upload_script),
                     ]),
             );
 
@@ -1606,7 +1615,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                 .name(format!("Integration ({short})"))
                 .timeout(30)
                 .needs(integration_needs)
-                .env(s3_env.clone())
+                .env(cas_env.clone())
                 .steps([
                     checkout(platform),
                     install_rust(platform),
@@ -1619,14 +1628,14 @@ pub fn build_forgejo_workflow() -> Workflow {
                             CiPlatform::CARGO_NIGHTLY_FLAGS
                         ),
                     ),
-                    // Download ddc from S3 (CAS)
+                    // Download ddc from CAS
                     Step::run(
-                        "Download ddc from S3",
+                        "Download ddc from CAS",
                         format!(r#"./scripts/cas-download.ts "ci/{run_id}/ddc-{short}" dist/ddc"#),
                     ),
-                    // Download cells from S3 (CAS) - batch download for parallelism
+                    // Download cells from CAS - batch download for parallelism
                     Step::run(
-                        "Download cells from S3",
+                        "Download cells from CAS",
                         format!(
                             r#"./scripts/cas-download-batch.ts "ci/{run_id}/cells-{short}" dist/"#
                         ),
@@ -1655,26 +1664,26 @@ pub fn build_forgejo_workflow() -> Workflow {
                 .name(format!("Assemble ({short})"))
                 .timeout(30)
                 .needs(assemble_needs)
-                .env(s3_env.clone())
+                .env(cas_env.clone())
                 .steps([
                     checkout(platform),
-                    // Download ddc from S3 (CAS)
+                    // Download ddc from CAS
                     Step::run(
-                        "Download ddc from S3",
+                        "Download ddc from CAS",
                         format!(
                             r#"./scripts/cas-download.ts "ci/{run_id}/ddc-{short}" target/release/ddc"#
                         ),
                     ),
-                    // Download cells from S3 (CAS) - batch download for parallelism
+                    // Download cells from CAS - batch download for parallelism
                     Step::run(
-                        "Download cells from S3",
+                        "Download cells from CAS",
                         format!(
                             r#"./scripts/cas-download-batch.ts "ci/{run_id}/cells-{short}" target/release/"#
                         ),
                     ),
-                    // Download WASM from S3 (CAS)
+                    // Download WASM from CAS
                     Step::run(
-                        "Download WASM from S3",
+                        "Download WASM from CAS",
                         format!(
                             r#"./scripts/cas-download.ts "ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz
 mkdir -p crates/dodeca-devtools
@@ -1690,9 +1699,9 @@ tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"#
                         "Assemble archive",
                         format!("bash scripts/assemble-archive.sh {}", target.triple),
                     ),
-                    // Upload final archive to S3 (CAS)
+                    // Upload final archive to CAS
                     Step::run(
-                        "Upload archive to S3",
+                        "Upload archive to CAS",
                         format!(
                             r#"./scripts/cas-upload.ts "dodeca-{triple}.{ext}" "ci/{run_id}/dodeca-{triple}.{ext}""#,
                             triple = target.triple,
@@ -1716,12 +1725,12 @@ tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"#
             .timeout(30)
             .needs(all_release_needs)
             .if_condition("startsWith(github.ref, 'refs/tags/')")
-            .env(s3_env)
+            .env(cas_env)
             .steps([
                 checkout(platform),
-                // Download all archives from S3 (CAS)
+                // Download all archives from CAS
                 Step::run(
-                    "Download archives from S3",
+                    "Download archives from CAS",
                     format!(
                         r#"mkdir -p dist
 ./scripts/cas-download.ts "ci/{run_id}/dodeca-x86_64-unknown-linux-gnu.tar.xz" dist/dodeca-x86_64-unknown-linux-gnu.tar.xz
@@ -2031,14 +2040,23 @@ fn check_or_write(path: &Utf8Path, content: &str, check: bool) -> Result<()> {
     Ok(())
 }
 
-/// Generate CI workflows for all platforms and installer script.
-pub fn generate(repo_root: &Utf8Path, check: bool) -> Result<()> {
+/// Generate GitHub Actions workflow and installer script.
+pub fn generate_github(repo_root: &Utf8Path, check: bool) -> Result<()> {
     // Generate GitHub Actions workflow
     let github_workflows_dir = repo_root.join(CiPlatform::GitHub.workflows_dir());
     let github_ci_workflow = build_ci_workflow(CiPlatform::GitHub);
     let github_ci_yaml = workflow_to_yaml(&github_ci_workflow)?;
     check_or_write(&github_workflows_dir.join("ci.yml"), &github_ci_yaml, check)?;
 
+    // Generate installer script (for GitHub releases)
+    let installer_content = generate_installer_script();
+    check_or_write(&repo_root.join("install.sh"), &installer_content, check)?;
+
+    Ok(())
+}
+
+/// Generate Forgejo Actions workflow.
+pub fn generate_forgejo(repo_root: &Utf8Path, check: bool) -> Result<()> {
     // Generate Forgejo Actions workflow (completely separate implementation)
     let forgejo_workflows_dir = repo_root.join(CiPlatform::Forgejo.workflows_dir());
     let forgejo_ci_workflow = build_forgejo_workflow();
@@ -2048,10 +2066,6 @@ pub fn generate(repo_root: &Utf8Path, check: bool) -> Result<()> {
         &forgejo_ci_yaml,
         check,
     )?;
-
-    // Generate installer script (same for both platforms)
-    let installer_content = generate_installer_script();
-    check_or_write(&repo_root.join("install.sh"), &installer_content, check)?;
 
     Ok(())
 }
