@@ -307,7 +307,7 @@ jobs:
         uses: corca-ai/local-cache@35b8d1d836813b4fef25b954e3c6368ea98ef08d
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}"
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-ddc-macos-arm64"
           base: /Users/amos/.cache
 
       - 
@@ -340,7 +340,7 @@ jobs:
         uses: corca-ai/local-cache@35b8d1d836813b4fef25b954e3c6368ea98ef08d
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets"
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-macos-arm64-1"
           base: /Users/amos/.cache
 
       - 
@@ -373,7 +373,7 @@ jobs:
         uses: corca-ai/local-cache@35b8d1d836813b4fef25b954e3c6368ea98ef08d
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets"
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-macos-arm64-2"
           base: /Users/amos/.cache
 
       - 
@@ -465,7 +465,7 @@ jobs:
         uses: corca-ai/local-cache@35b8d1d836813b4fef25b954e3c6368ea98ef08d
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}"
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-integration-macos-arm64"
           base: /Users/amos/.cache
 
       - 

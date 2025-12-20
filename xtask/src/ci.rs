@@ -448,11 +448,17 @@ pub mod common {
         ])
     }
 
-    pub fn local_cache_with_targets(cache_targets: bool) -> Step {
+    pub fn local_cache_with_targets(cache_targets: bool, job_suffix: &str) -> Step {
         let key = if cache_targets {
-            "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets"
+            format!(
+                "${{{{ runner.os }}}}-cargo-${{{{ hashFiles('**/Cargo.lock') }}}}-targets-{}",
+                job_suffix
+            )
         } else {
-            "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}"
+            format!(
+                "${{{{ runner.os }}}}-cargo-${{{{ hashFiles('**/Cargo.lock') }}}}-{}",
+                job_suffix
+            )
         };
 
         Step::uses(
@@ -461,7 +467,7 @@ pub mod common {
         )
         .with_inputs([
             ("path", "target"),
-            ("key", key),
+            ("key", &key),
             ("base", "/Users/amos/.cache"),
         ])
     }
@@ -582,7 +588,7 @@ pub fn build_ci_workflow() -> Workflow {
                     checkout(),
                     Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
                     if target.os == "macos-15" {
-                        local_cache_with_targets(false)
+                        local_cache_with_targets(false, &format!("ddc-{}", short))
                     } else {
                         rust_cache_with_targets(false)
                     },
@@ -633,7 +639,10 @@ pub fn build_ci_workflow() -> Workflow {
                         checkout(),
                         install_rust(),
                         if target.os == "macos-15" {
-                            local_cache_with_targets(true)
+                            local_cache_with_targets(
+                                true,
+                                &format!("cells-{}-{}", short, group_num),
+                            )
                         } else {
                             rust_cache_with_targets(true)
                         },
@@ -706,7 +715,7 @@ pub fn build_ci_workflow() -> Workflow {
                     checkout(),
                     Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
                     if target.os == "macos-15" {
-                        local_cache_with_targets(false)
+                        local_cache_with_targets(false, &format!("integration-{}", short))
                     } else {
                         rust_cache_with_targets(false)
                     },
