@@ -77,14 +77,24 @@ impl CiPlatform {
     pub fn local_cache_action(&self) -> &'static str {
         match self {
             CiPlatform::GitHub => "bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794",
-            // Forgejo: use the standard cache action from data.forgejo.org
-            CiPlatform::Forgejo => "https://data.forgejo.org/actions/cache@v4",
+            // Forgejo: we use ctree-based local caching (shell scripts), not an action
+            CiPlatform::Forgejo => "unused",
         }
     }
 
     /// Check if this platform uses the local-cache action (with base path) or standard cache.
     pub fn uses_local_cache(&self) -> bool {
         matches!(self, CiPlatform::GitHub)
+    }
+
+    /// Check if this platform uses ctree for local caching (shell-based).
+    pub fn uses_ctree_cache(&self) -> bool {
+        matches!(self, CiPlatform::Forgejo)
+    }
+
+    /// Check if this platform uses S3 for artifacts.
+    pub fn uses_s3_artifacts(&self) -> bool {
+        matches!(self, CiPlatform::Forgejo)
     }
 
     /// Get the Swatinem rust-cache action for this platform (for non-self-hosted runners).
@@ -757,6 +767,125 @@ pub mod common {
         ])
     }
 
+    // =========================================================================
+    // ctree-based local cache helpers (for Forgejo self-hosted runners)
+    // =========================================================================
+
+    /// Generate a ctree-based cache restore step.
+    /// Uses reflinks for near-instant COW copies on supported filesystems.
+    pub fn ctree_cache_restore(cache_name: &str, base_path: &str) -> Step {
+        let cache_dir = format!("{}/dodeca-ci/{}", base_path, cache_name);
+        Step::run(
+            "Restore cache (ctree)",
+            format!(
+                r#"if [ -d "{cache_dir}" ]; then
+  rm -rf target 2>/dev/null || true
+  ctree "{cache_dir}" target && echo "Cache restored via ctree from {cache_dir}" || echo "ctree failed, starting fresh"
+else
+  echo "No cache found at {cache_dir}"
+fi"#
+            ),
+        )
+    }
+
+    /// Generate a ctree-based cache save step.
+    /// Runs at end of job to persist target/ directory.
+    pub fn ctree_cache_save(cache_name: &str, base_path: &str) -> Step {
+        let cache_dir = format!("{}/dodeca-ci/{}", base_path, cache_name);
+        Step::run(
+            "Save cache (ctree)",
+            format!(
+                r#"mkdir -p "$(dirname "{cache_dir}")"
+rm -rf "{cache_dir}" 2>/dev/null || true
+ctree target "{cache_dir}" && echo "Cache saved via ctree to {cache_dir}" || echo "ctree save failed (non-fatal)""#
+            ),
+        )
+    }
+
+    // =========================================================================
+    // S3-based artifact helpers (for Forgejo)
+    // =========================================================================
+
+    /// Generate an S3 artifact upload step.
+    /// Expects S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION as env/secrets.
+    pub fn s3_upload_artifact(name: &str, path: &str, run_id_var: &str) -> Step {
+        Step::run(
+            &format!("Upload {} to S3", name),
+            format!(
+                r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "{path}" "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{name}" --quiet
+echo "Uploaded {name} to S3""#,
+                run_id = run_id_var
+            ),
+        )
+    }
+
+    /// Generate an S3 artifact upload step for multiple files (e.g., cell binaries).
+    /// Takes a list of source paths and uploads each with its basename.
+    pub fn s3_upload_artifacts(name_prefix: &str, paths: &[String], run_id_var: &str) -> Step {
+        let mut script = String::new();
+        for path in paths {
+            let basename = std::path::Path::new(path)
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or(path);
+            script.push_str(&format!(
+                r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "{path}" "s3://${{S3_BUCKET}}/ci/{run_id}/{name_prefix}/{basename}" --quiet
+"#,
+                run_id = run_id_var
+            ));
+        }
+        script.push_str(&format!(
+            r#"echo "Uploaded {} files to S3 under {name_prefix}""#,
+            paths.len()
+        ));
+        Step::run(&format!("Upload {} to S3", name_prefix), script)
+    }
+
+    /// Generate an S3 artifact download step.
+    pub fn s3_download_artifact(name: &str, dest_path: &str, run_id_var: &str) -> Step {
+        Step::run(
+            &format!("Download {} from S3", name),
+            format!(
+                r#"mkdir -p "$(dirname "{dest_path}")"
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{name}" "{dest_path}" --quiet
+echo "Downloaded {name} from S3""#,
+                run_id = run_id_var
+            ),
+        )
+    }
+
+    /// Generate an S3 artifact download step for a prefix (downloads all files under that prefix).
+    pub fn s3_download_artifacts_prefix(prefix: &str, dest_dir: &str, run_id_var: &str) -> Step {
+        Step::run(
+            &format!("Download {} from S3", prefix),
+            format!(
+                r#"mkdir -p "{dest_dir}"
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{prefix}/" "{dest_dir}/" --recursive --quiet
+echo "Downloaded {prefix} from S3 to {dest_dir}""#,
+                run_id = run_id_var
+            ),
+        )
+    }
+
+    /// Generate S3 environment variables for a step.
+    /// Supports S3-compatible storage (Hetzner, MinIO, etc.) via S3_ENDPOINT.
+    pub fn s3_env() -> IndexMap<String, String> {
+        [
+            ("AWS_ACCESS_KEY_ID", "${{ secrets.S3_ACCESS_KEY }}"),
+            ("AWS_SECRET_ACCESS_KEY", "${{ secrets.S3_SECRET_KEY }}"),
+            ("S3_ENDPOINT", "${{ secrets.S3_ENDPOINT }}"),
+            ("S3_BUCKET", "${{ secrets.S3_BUCKET }}"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect()
+    }
+
+    /// Generate an aws s3 command with the endpoint URL.
+    pub fn s3_cmd(args: &str) -> String {
+        format!(r#"aws s3 --endpoint-url "${{S3_ENDPOINT}}" {args}"#)
+    }
+
     /// Generate a shell script to verify all expected artifacts exist.
     /// Fails CI if any binary is missing.
     pub fn verify_artifacts_script() -> String {
@@ -1100,76 +1229,383 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
         all_release_needs.push(assemble_job_id.clone());
     }
 
-    // Release job - platform specific
-    match platform {
-        CiPlatform::GitHub => {
-            // GitHub: use gh CLI for releases and Homebrew tap update
-            let ref_name_var = platform.context_var("ref_name");
-            jobs.insert(
-                "release".into(),
-                Job::new("ubuntu-latest")
-                    .name("Release")
-                    .timeout(30)
-                    .needs(all_release_needs)
-                    .if_condition("startsWith(github.ref, 'refs/tags/')")
-                    .permissions([("contents", "write")])
-                    .env([
-                        ("GH_TOKEN", "${{ secrets.GITHUB_TOKEN }}"),
-                        ("HOMEBREW_TAP_TOKEN", "${{ secrets.HOMEBREW_TAP_TOKEN }}"),
-                    ])
-                    .steps([
-                        checkout(platform),
-                        download_all_artifacts(platform, "dist"),
-                        Step::run("List artifacts", "ls -laR dist/"),
-                        Step::run(
-                            "Create GitHub Release",
-                            format!(
-                                r#"gh release create "{ref_name}" \
+    // Release job (GitHub only - Forgejo uses build_forgejo_workflow)
+    let ref_name_var = platform.context_var("ref_name");
+    jobs.insert(
+        "release".into(),
+        Job::new("ubuntu-latest")
+            .name("Release")
+            .timeout(30)
+            .needs(all_release_needs)
+            .if_condition("startsWith(github.ref, 'refs/tags/')")
+            .permissions([("contents", "write")])
+            .env([
+                ("GH_TOKEN", "${{ secrets.GITHUB_TOKEN }}"),
+                ("HOMEBREW_TAP_TOKEN", "${{ secrets.HOMEBREW_TAP_TOKEN }}"),
+            ])
+            .steps([
+                checkout(platform),
+                download_all_artifacts(platform, "dist"),
+                Step::run("List artifacts", "ls -laR dist/"),
+                Step::run(
+                    "Create GitHub Release",
+                    format!(
+                        r#"gh release create "{ref_name}" \
   --title "dodeca {ref_name}" \
   --generate-notes \
   dist/**/*.tar.xz dist/**/*.zip"#,
-                                ref_name = ref_name_var
-                            ),
-                        )
-                        .shell("bash"),
-                        Step::run(
-                            "Update Homebrew tap",
-                            format!(
-                                r#"bash scripts/update-homebrew.sh "{ref_name}""#,
-                                ref_name = ref_name_var
-                            ),
-                        )
-                        .shell("bash"),
-                    ]),
-            );
-        }
-        CiPlatform::Forgejo => {
-            // Forgejo: simpler release - just archive the artifacts
-            // (Can be extended later with Forgejo release API if needed)
-            let ref_name_var = platform.context_var("ref_name");
+                        ref_name = ref_name_var
+                    ),
+                )
+                .shell("bash"),
+                Step::run(
+                    "Update Homebrew tap",
+                    format!(
+                        r#"bash scripts/update-homebrew.sh "{ref_name}""#,
+                        ref_name = ref_name_var
+                    ),
+                )
+                .shell("bash"),
+            ]),
+    );
+
+    Workflow {
+        name: "CI".into(),
+        on: On {
+            push: Some(PushTrigger {
+                tags: Some(vec!["v*".into()]),
+                branches: Some(vec!["main".into()]),
+            }),
+            pull_request: Some(PullRequestTrigger {
+                branches: Some(vec!["main".into()]),
+            }),
+            workflow_dispatch: Some(WorkflowDispatchTrigger {}),
+        },
+        permissions: Some(
+            [("contents", "read")]
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        ),
+        env: Some(
+            [("CARGO_TERM_COLOR", "always")]
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        ),
+        jobs,
+    }
+}
+
+// =============================================================================
+// Forgejo CI workflow builder (ctree cache + S3 artifacts)
+// =============================================================================
+
+/// Build the Forgejo CI workflow with local ctree caching and S3 artifacts.
+///
+/// This is completely separate from the GitHub workflow because:
+/// - Uses ctree for near-instant COW cache copies on local filesystems
+/// - Uses S3 for artifact storage instead of Forgejo's built-in (slow) artifacts
+/// - Simpler structure optimized for self-hosted runners
+pub fn build_forgejo_workflow() -> Workflow {
+    use common::*;
+
+    let platform = CiPlatform::Forgejo;
+    let targets = targets_for_platform(platform);
+    let groups = cell_groups(9);
+
+    // S3 env vars used by all artifact steps
+    let s3_env = s3_env();
+
+    // Run ID for S3 artifact paths
+    let run_id = "${{ github.run_id }}";
+
+    let mut jobs = IndexMap::new();
+    let mut all_release_needs: Vec<String> = Vec::new();
+
+    // -------------------------------------------------------------------------
+    // Clippy job
+    // -------------------------------------------------------------------------
+    jobs.insert(
+        "clippy".to_string(),
+        Job::with_runner(RunnerSpec::labels(FORGEJO_LINUX_LABELS).to_runs_on())
+            .name("Clippy")
+            .timeout(30)
+            .continue_on_error(true)
+            .steps([
+                checkout(platform),
+                install_rust_with_components_and_target(
+                    platform,
+                    "clippy",
+                    "wasm32-unknown-unknown",
+                ),
+                ctree_cache_restore("clippy", "/home/amos/.cache"),
+                Step::run(
+                    "Clippy",
+                    "cargo clippy --all-features --all-targets -- -D warnings",
+                ),
+                ctree_cache_save("clippy", "/home/amos/.cache"),
+            ]),
+    );
+
+    // -------------------------------------------------------------------------
+    // Build WASM job
+    // -------------------------------------------------------------------------
+    let wasm_job_id = "build-wasm".to_string();
+    jobs.insert(
+        wasm_job_id.clone(),
+        Job::with_runner(RunnerSpec::labels(FORGEJO_LINUX_LABELS).to_runs_on())
+            .name("Build WASM")
+            .timeout(30)
+            .env(s3_env.clone())
+            .steps([
+                checkout(platform),
+                install_rust_with_target(platform, "wasm32-unknown-unknown"),
+                ctree_cache_restore("wasm", "/home/amos/.cache"),
+                Step::run("Build WASM", "cargo xtask wasm"),
+                // Upload WASM to S3 as a tarball
+                Step::run(
+                    "Upload WASM to S3",
+                    format!(
+                        r#"tar -czf /tmp/wasm.tar.gz -C crates/dodeca-devtools pkg
+aws s3 --endpoint-url "$S3_ENDPOINT" cp /tmp/wasm.tar.gz "s3://${{S3_BUCKET}}/ci/{run_id}/wasm.tar.gz" --quiet
+echo "Uploaded WASM bundle to S3""#
+                    ),
+                ),
+                ctree_cache_save("wasm", "/home/amos/.cache"),
+            ]),
+    );
+
+    // -------------------------------------------------------------------------
+    // Per-target jobs
+    // -------------------------------------------------------------------------
+    for target in &targets {
+        let short = target.short_name();
+        let cache_base = target.cache_base_path();
+
+        // Build ddc (main binary)
+        let ddc_job_id = format!("build-ddc-{short}");
+        jobs.insert(
+            ddc_job_id.clone(),
+            Job::with_runner(target.runs_on())
+                .name(format!("Build ddc ({short})"))
+                .timeout(30)
+                .env(s3_env.clone())
+                .steps([
+                    checkout(platform),
+                    install_rust(platform),
+                    ctree_cache_restore(&format!("ddc-{short}"), cache_base),
+                    Step::run("Build ddc", "cargo build --release -p dodeca"),
+                    Step::run("Test ddc", "cargo test --release -p dodeca --bins"),
+                    Step::run(
+                        "Upload ddc to S3",
+                        format!(
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp target/release/ddc "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" --quiet
+echo "Uploaded ddc to S3""#
+                        ),
+                    ),
+                    ctree_cache_save(&format!("ddc-{short}"), cache_base),
+                ]),
+        );
+
+        // Build cell groups in parallel
+        let mut cell_group_jobs: Vec<String> = Vec::new();
+        for (group_num, cells) in &groups {
+            let group_job_id = format!("build-cells-{short}-{group_num}");
+
+            let build_args: String = cells
+                .iter()
+                .map(|(pkg, bin)| format!("-p {pkg} --bin {bin}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            let test_args: String = cells
+                .iter()
+                .map(|(pkg, _)| format!("-p {pkg}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            let cell_names: String = cells
+                .iter()
+                .map(|(pkg, _)| *pkg)
+                .collect::<Vec<_>>()
+                .join(", ");
+
+            // Generate S3 upload commands for each cell binary
+            let mut upload_script = String::new();
+            for (_, bin) in cells {
+                upload_script.push_str(&format!(
+                    r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "target/release/{bin}" "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/{bin}" --quiet
+"#
+                ));
+            }
+            upload_script.push_str(&format!(
+                r#"echo "Uploaded {} cell binaries to S3""#,
+                cells.len()
+            ));
+
             jobs.insert(
-                "release".into(),
-                Job::with_runner(RunnerSpec::labels(FORGEJO_LINUX_LABELS).to_runs_on())
-                    .name("Release")
+                group_job_id.clone(),
+                Job::with_runner(target.runs_on())
+                    .name(format!("Build cells ({short}) [{cell_names}]"))
                     .timeout(30)
-                    .needs(all_release_needs)
-                    .if_condition("startsWith(github.ref, 'refs/tags/')")
-                    .permissions([("contents", "write")])
+                    .env(s3_env.clone())
                     .steps([
                         checkout(platform),
-                        download_all_artifacts(platform, "dist"),
-                        Step::run("List artifacts", "ls -laR dist/"),
-                        Step::run(
-                            "Show release info",
-                            format!(
-                                r#"echo "Release: {ref_name}"; ls -la dist/"#,
-                                ref_name = ref_name_var
-                            ),
-                        ),
+                        install_rust(platform),
+                        ctree_cache_restore(&format!("cells-{short}-{group_num}"), cache_base),
+                        Step::run("Build cells", format!("cargo build --release {build_args}")),
+                        Step::run("Test cells", format!("cargo test --release {test_args}")),
+                        Step::run("Upload cells to S3", upload_script),
+                        ctree_cache_save(&format!("cells-{short}-{group_num}"), cache_base),
                     ]),
             );
+
+            cell_group_jobs.push(group_job_id);
         }
+
+        // Integration tests
+        let integration_job_id = format!("integration-{short}");
+        let mut integration_needs = vec![ddc_job_id.clone()];
+        integration_needs.extend(cell_group_jobs.clone());
+
+        let workspace_var = platform.context_var("workspace");
+
+        jobs.insert(
+            integration_job_id.clone(),
+            Job::with_runner(target.runs_on())
+                .name(format!("Integration ({short})"))
+                .timeout(30)
+                .needs(integration_needs)
+                .env(s3_env.clone())
+                .steps([
+                    checkout(platform),
+                    install_rust(platform),
+                    ctree_cache_restore(&format!("integration-{short}"), cache_base),
+                    // Download ddc from S3
+                    Step::run(
+                        "Download ddc from S3",
+                        format!(
+                            r#"mkdir -p dist
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" dist/ddc --quiet
+chmod +x dist/ddc
+echo "Downloaded ddc from S3""#
+                        ),
+                    ),
+                    // Download cells from S3
+                    Step::run(
+                        "Download cells from S3",
+                        format!(
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/" dist/ --recursive --quiet
+chmod +x dist/ddc-cell-*
+echo "Downloaded cells from S3""#
+                        ),
+                    ),
+                    Step::run("List binaries", "ls -la dist/"),
+                    Step::run("Verify artifacts", verify_artifacts_script()),
+                    Step::run("Run integration tests", "cargo xtask integration --no-build")
+                        .with_env([
+                            ("DODECA_BIN", format!("{}/dist/ddc", workspace_var)),
+                            ("DODECA_CELL_PATH", format!("{}/dist", workspace_var)),
+                        ]),
+                    ctree_cache_save(&format!("integration-{short}"), cache_base),
+                ]),
+        );
+
+        // Assemble job
+        let assemble_job_id = format!("assemble-{short}");
+        let assemble_needs = vec![integration_job_id.clone(), wasm_job_id.clone()];
+
+        jobs.insert(
+            assemble_job_id.clone(),
+            Job::with_runner(target.runs_on())
+                .name(format!("Assemble ({short})"))
+                .timeout(30)
+                .needs(assemble_needs)
+                .env(s3_env.clone())
+                .steps([
+                    checkout(platform),
+                    // Download ddc from S3
+                    Step::run(
+                        "Download ddc from S3",
+                        format!(
+                            r#"mkdir -p target/release
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" target/release/ddc --quiet
+chmod +x target/release/ddc"#
+                        ),
+                    ),
+                    // Download cells from S3
+                    Step::run(
+                        "Download cells from S3",
+                        format!(
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/" target/release/ --recursive --quiet
+chmod +x target/release/ddc-cell-*"#
+                        ),
+                    ),
+                    // Download WASM from S3
+                    Step::run(
+                        "Download WASM from S3",
+                        format!(
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz --quiet
+mkdir -p crates/dodeca-devtools
+tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"#
+                        ),
+                    ),
+                    Step::run(
+                        "Install xz (macOS)",
+                        "if command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install xz; fi",
+                    ),
+                    Step::run("List binaries", "ls -la target/release/"),
+                    Step::run(
+                        "Assemble archive",
+                        format!("bash scripts/assemble-archive.sh {}", target.triple),
+                    ),
+                    // Upload final archive to S3
+                    Step::run(
+                        "Upload archive to S3",
+                        format!(
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "dodeca-{triple}.{ext}" "s3://${{S3_BUCKET}}/ci/{run_id}/dodeca-{triple}.{ext}" --quiet
+echo "Uploaded final archive to S3""#,
+                            triple = target.triple,
+                            ext = target.archive_ext
+                        ),
+                    ),
+                ]),
+        );
+
+        all_release_needs.push(assemble_job_id);
     }
+
+    // -------------------------------------------------------------------------
+    // Release job
+    // -------------------------------------------------------------------------
+    let ref_name_var = platform.context_var("ref_name");
+    jobs.insert(
+        "release".into(),
+        Job::with_runner(RunnerSpec::labels(FORGEJO_LINUX_LABELS).to_runs_on())
+            .name("Release")
+            .timeout(30)
+            .needs(all_release_needs)
+            .if_condition("startsWith(github.ref, 'refs/tags/')")
+            .env(s3_env)
+            .steps([
+                checkout(platform),
+                // Download all archives from S3
+                Step::run(
+                    "Download archives from S3",
+                    format!(
+                        r#"mkdir -p dist
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/" dist/ --recursive --exclude "*" --include "dodeca-*.tar.xz" --include "dodeca-*.zip" --quiet
+ls -la dist/"#
+                    ),
+                ),
+                Step::run(
+                    "Show release info",
+                    format!(r#"echo "Release: {ref_name}"; ls -la dist/"#, ref_name = ref_name_var),
+                ),
+                // TODO: Add Forgejo release API call here if needed
+            ]),
+    );
 
     Workflow {
         name: "CI".into(),
@@ -1473,9 +1909,9 @@ pub fn generate(repo_root: &Utf8Path, check: bool) -> Result<()> {
     let github_ci_yaml = workflow_to_yaml(&github_ci_workflow)?;
     check_or_write(&github_workflows_dir.join("ci.yml"), &github_ci_yaml, check)?;
 
-    // Generate Forgejo Actions workflow
+    // Generate Forgejo Actions workflow (completely separate implementation)
     let forgejo_workflows_dir = repo_root.join(CiPlatform::Forgejo.workflows_dir());
-    let forgejo_ci_workflow = build_ci_workflow(CiPlatform::Forgejo);
+    let forgejo_ci_workflow = build_forgejo_workflow();
     let forgejo_ci_yaml = workflow_to_yaml(&forgejo_ci_workflow)?;
     check_or_write(
         &forgejo_workflows_dir.join("ci.yml"),
