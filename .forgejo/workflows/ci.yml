@@ -79,7 +79,7 @@ jobs:
 
       - 
         name: Install wasm-pack
-        run: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
+        run: ""
       - 
         name: Build WASM
         run: cargo xtask wasm
@@ -244,8 +244,8 @@ jobs:
         name: Run integration tests
         run: cargo xtask integration --no-build
         env: 
-          DODECA_BIN: ${{ gitea.workspace }}/dist/ddc
-          DODECA_CELL_PATH: ${{ gitea.workspace }}/dist
+          DODECA_BIN: ${{ github.workspace }}/dist/ddc
+          DODECA_CELL_PATH: ${{ github.workspace }}/dist
 
 
   assemble-linux-x64: 
@@ -454,8 +454,8 @@ jobs:
         name: Run integration tests
         run: cargo xtask integration --no-build
         env: 
-          DODECA_BIN: ${{ gitea.workspace }}/dist/ddc
-          DODECA_CELL_PATH: ${{ gitea.workspace }}/dist
+          DODECA_BIN: ${{ github.workspace }}/dist/ddc
+          DODECA_CELL_PATH: ${{ github.workspace }}/dist
 
 
   assemble-macos-arm64: 
@@ -521,7 +521,7 @@ jobs:
       - assemble-linux-x64
       - assemble-macos-arm64
 
-    if: "startsWith(gitea.ref, 'refs/tags/')"
+    if: "startsWith(github.ref, 'refs/tags/')"
     steps: 
       - 
         name: Checkout
@@ -539,5 +539,5 @@ jobs:
         run: ls -laR dist/
       - 
         name: Show release info
-        run: "echo \"Release: ${{ gitea.ref_name }}\"; ls -la dist/"
+        run: "echo \"Release: ${{ github.ref_name }}\"; ls -la dist/"
 

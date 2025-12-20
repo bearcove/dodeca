@@ -28,12 +28,11 @@ impl CiPlatform {
         }
     }
 
-    /// Get the context variable prefix (e.g., "github" or "gitea").
+    /// Get the context variable prefix (e.g., "github").
+    /// Note: Forgejo uses "github" for compatibility with GitHub Actions.
     pub fn context_prefix(&self) -> &'static str {
-        match self {
-            CiPlatform::GitHub => "github",
-            CiPlatform::Forgejo => "gitea",
-        }
+        // Both platforms use "github" - Forgejo maintains compatibility
+        "github"
     }
 
     /// Format a context variable reference.
@@ -1082,7 +1081,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                     .name("Release")
                     .timeout(30)
                     .needs(all_release_needs)
-                    .if_condition("startsWith(gitea.ref, 'refs/tags/')")
+                    .if_condition("startsWith(github.ref, 'refs/tags/')")
                     .steps([
                         checkout(platform),
                         download_all_artifacts(platform, "dist"),
