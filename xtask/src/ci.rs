@@ -484,16 +484,22 @@ const CI_LINUX: CiRunner = CiRunner {
     wasm_install: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh",
 };
 
+// const CI_MACOS: CiRunner = CiRunner {
+//     os: "macos",
+//     runner: "depot-macos-15",
+//     wasm_install: "brew install wasm-pack xz",
+// };
+
 const CI_MACOS: CiRunner = CiRunner {
     os: "macos",
-    runner: "depot-macos-15",
+    runner: "self-hosted",
     wasm_install: "brew install wasm-pack xz",
 };
 
 /// Build the unified CI workflow (runs on PRs, main branch, and tags).
 ///
 /// Strategy:
-/// - Fan-out: Build ddc + cell groups (3 cells per job) for each target platform
+/// - Fan-out: Build ddc + cell groups for each target platform
 /// - Fan-in: Assemble archives after all cell groups complete
 /// - Integration: Run integration tests
 /// - Release: On tags, publish GitHub release
@@ -501,7 +507,7 @@ pub fn build_ci_workflow() -> Workflow {
     use common::*;
 
     let mut jobs = IndexMap::new();
-    let groups = cell_groups(3); // 3 cells per group
+    let groups = cell_groups(9);
 
     // Track jobs required before release (assemble + integration per target)
     let mut all_release_needs: Vec<String> = Vec::new();
