@@ -434,6 +434,10 @@ structstruck::strike! {
         #[facet(default, skip_serializing_if = Option::is_none, rename = "continue-on-error")]
         pub continue_on_error: Option<bool>,
 
+        /// Permissions for this job (overrides workflow-level permissions).
+        #[facet(default, skip_serializing_if = Option::is_none)]
+        pub permissions: Option<IndexMap<String, String>>,
+
         /// The steps to run.
         pub steps: Vec<Step>,
     }
@@ -554,6 +558,7 @@ impl Job {
             outputs: None,
             env: None,
             continue_on_error: None,
+            permissions: None,
             steps: Vec::new(),
         }
     }
@@ -569,6 +574,7 @@ impl Job {
             outputs: None,
             env: None,
             continue_on_error: None,
+            permissions: None,
             steps: Vec::new(),
         }
     }
@@ -623,6 +629,20 @@ impl Job {
     /// Allow this job to fail without failing the workflow.
     pub fn continue_on_error(mut self, enabled: bool) -> Self {
         self.continue_on_error = Some(enabled);
+        self
+    }
+
+    /// Set permissions for this job (overrides workflow-level permissions).
+    pub fn permissions(
+        mut self,
+        perms: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
+        self.permissions = Some(
+            perms
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        );
         self
     }
 
@@ -1041,6 +1061,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                     .timeout(30)
                     .needs(all_release_needs)
                     .if_condition("startsWith(github.ref, 'refs/tags/')")
+                    .permissions([("contents", "write")])
                     .env([
                         ("GH_TOKEN", "${{ secrets.GITHUB_TOKEN }}"),
                         ("HOMEBREW_TAP_TOKEN", "${{ secrets.HOMEBREW_TAP_TOKEN }}"),
@@ -1082,6 +1103,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                     .timeout(30)
                     .needs(all_release_needs)
                     .if_condition("startsWith(github.ref, 'refs/tags/')")
+                    .permissions([("contents", "write")])
                     .steps([
                         checkout(platform),
                         download_all_artifacts(platform, "dist"),
@@ -1111,7 +1133,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
             workflow_dispatch: Some(WorkflowDispatchTrigger {}),
         },
         permissions: Some(
-            [("contents", "write")]
+            [("contents", "read")]
                 .into_iter()
                 .map(|(k, v)| (k.into(), v.into()))
                 .collect(),

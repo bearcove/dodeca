@@ -17,7 +17,7 @@ name: CI
 
   workflow_dispatch: 
 permissions: 
-  contents: write
+  contents: read
 
 env: 
   CARGO_TERM_COLOR: always
@@ -549,6 +549,9 @@ jobs:
     env: 
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+    permissions: 
+      contents: write
 
     steps: 
       - 
