@@ -704,6 +704,12 @@ fn render_object_stmt(
         };
     }
 
+    // Apply global thickness to initial stroke_width
+    // cref: C pikchr uses pik_value(p,"thickness",...) for default stroke widths
+    if let Some(EvalValue::Length(thickness)) = ctx.variables.get("thickness") {
+        style.stroke_width = *thickness;
+    }
+
     // Initialize shape-specific radius values before processing attributes
     // cref: cylinderInit (pikchr.c:3974), boxInit (pikchr.c:3775), etc.
     if let Some(ref cn) = class_name {
@@ -981,10 +987,16 @@ fn render_object_stmt(
                         current_segment_direction = None;
                         in_then_segment = false;
                     }
+                    // cref: pik_reset_samepath (pikchr.c:5923-5928)
+                    // Explicit "to" position resets any path copied from "same"
+                    same_path_waypoints = None;
                 }
             }
             Attribute::DirectionMove(_go, dir, dist) => {
                 has_direction_move = true;
+                // cref: pik_reset_samepath (pikchr.c:5923-5928)
+                // Direction moves reset any path copied from "same"
+                same_path_waypoints = None;
                 // Update object's direction - this will become the new global direction
                 // cref: pik_after_adding_element sets p->eDir = pObj->outDir
                 object_direction = *dir;
@@ -1013,9 +1025,15 @@ fn render_object_stmt(
                 }
             }
             Attribute::DirectionEven(_go, dir, pos) => {
+                // cref: pik_reset_samepath (pikchr.c:5923-5928)
+                // Even-with clauses reset any path copied from "same"
+                same_path_waypoints = None;
                 even_clause = Some((*dir, pos.clone()));
             }
             Attribute::DirectionUntilEven(_go, dir, pos) => {
+                // cref: pik_reset_samepath (pikchr.c:5923-5928)
+                // Even-with clauses reset any path copied from "same"
+                same_path_waypoints = None;
                 even_clause = Some((*dir, pos.clone()));
             }
             Attribute::BareExpr(relexpr) => {
@@ -1028,6 +1046,9 @@ fn render_object_stmt(
                         d
                     };
                     has_direction_move = true;
+                    // cref: pik_reset_samepath (pikchr.c:5923-5928)
+                    // Direction moves reset any path copied from "same"
+                    same_path_waypoints = None;
                     // Apply in context direction or current segment
                     if in_then_segment {
                         current_segment_offset += ctx.direction.offset(val);
@@ -1039,6 +1060,9 @@ fn render_object_stmt(
             Attribute::Heading(opt_dist, angle_expr) => {
                 // cref: pik_move_hdg (pikchr.c:3323-3365)
                 // Heading is an arbitrary angle (degrees clockwise from north)
+                // cref: pik_reset_samepath (pikchr.c:5923-5928)
+                // Heading moves reset any path copied from "same"
+                same_path_waypoints = None;
                 let angle = eval_scalar(ctx, angle_expr).unwrap_or(0.0);
                 let distance = if let Some(relexpr) = opt_dist {
                     let d = eval_len(ctx, &relexpr.expr).unwrap_or(width);
@@ -2143,7 +2167,9 @@ fn render_object_stmt(
             center,
             width,
             height,
-            fold_radius: defaults::FILE_RAD,
+            // cref: fileInit (pikchr.c:1507) - pObj->rad = pik_value(p, "filerad", 7, 0)
+            // The rad attribute goes into corner_radius, clamping done at render time
+            fold_radius: style.corner_radius,
             style: style.clone(),
             text: text.clone(),
         }),

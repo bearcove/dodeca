@@ -158,6 +158,7 @@ pub trait Shape {
     }
 
     /// Render this shape to SVG nodes
+    /// cref: pik_draw_arrowhead (pikchr.c:4666-4667) - arrow dimensions scale with stroke width
     fn render_svg(
         &self,
         obj: &RenderedObject,
@@ -167,6 +168,7 @@ pub trait Shape {
         dashwid: Inches,
         arrow_len: Inches,
         arrow_wid: Inches,
+        thickness: Inches,
     ) -> Vec<SvgNode>;
 
     /// Get waypoints if this is a path-like shape (line, spline)
@@ -322,6 +324,7 @@ impl Shape for CircleShape {
         dashwid: Inches,
         _arrow_len: Inches,
         _arrow_wid: Inches,
+        _thickness: Inches,
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
@@ -409,6 +412,7 @@ impl Shape for BoxShape {
         dashwid: Inches,
         _arrow_len: Inches,
         _arrow_wid: Inches,
+        _thickness: Inches,
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
@@ -497,6 +501,7 @@ impl Shape for EllipseShape {
         dashwid: Inches,
         _arrow_len: Inches,
         _arrow_wid: Inches,
+        _thickness: Inches,
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
@@ -576,6 +581,7 @@ impl Shape for OvalShape {
         dashwid: Inches,
         _arrow_len: Inches,
         _arrow_wid: Inches,
+        _thickness: Inches,
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
@@ -656,6 +662,7 @@ impl Shape for DiamondShape {
         dashwid: Inches,
         _arrow_len: Inches,
         _arrow_wid: Inches,
+        _thickness: Inches,
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
@@ -752,6 +759,7 @@ impl Shape for CylinderShape {
         dashwid: Inches,
         _arrow_len: Inches,
         _arrow_wid: Inches,
+        _thickness: Inches,
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
@@ -862,6 +870,7 @@ impl Shape for FileShape {
         dashwid: Inches,
         _arrow_len: Inches,
         _arrow_wid: Inches,
+        _thickness: Inches,
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
@@ -873,7 +882,14 @@ impl Shape for FileShape {
         let center_svg = self.center.to_svg(scaler, offset_x, max_y);
         let w = scaler.px(self.width);
         let h = scaler.px(self.height);
-        let rad = scaler.px(self.fold_radius);
+
+        // cref: fileRender (pikchr.c:1546-1548) - clamp rad to fit and ensure minimum
+        // mn = min(w/2, h/2)
+        // rad clamped to: mn*0.25 <= rad <= mn
+        let w2 = w / 2.0;
+        let h2 = h / 2.0;
+        let mn = w2.min(h2);
+        let rad = scaler.px(self.fold_radius).min(mn).max(mn * 0.25);
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
 
@@ -1034,6 +1050,7 @@ impl Shape for LineShape {
         dashwid: Inches,
         arrow_len: Inches,
         arrow_wid: Inches,
+        thickness: Inches,
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
@@ -1051,8 +1068,17 @@ impl Shape for LineShape {
         let allow_fill = self.style.close_path;
         let svg_style = build_svg_style_full(&self.style, scaler, dashwid, add_linejoin, allow_fill);
 
-        let arrow_len_px = scaler.px(arrow_len);
-        let arrow_wid_px = scaler.px(arrow_wid);
+        // cref: pik_draw_arrowhead (pikchr.c:4666-4667)
+        // Arrow dimensions scale with object's stroke width relative to global thickness
+        // h = p->hArrow * pObj->sw, where p->hArrow = arrowht / thickness
+        // So: h = arrowht * (pObj->sw / thickness)
+        let arrow_scale = if thickness.raw() > 0.0 {
+            self.style.stroke_width.raw() / thickness.raw()
+        } else {
+            1.0
+        };
+        let arrow_len_px = scaler.px(arrow_len) * arrow_scale;
+        let arrow_wid_px = scaler.px(arrow_wid) * arrow_scale;
         let arrow_chop = arrow_len_px / 2.0;
 
         let mut svg_points: Vec<DVec2> = self
@@ -1536,6 +1562,7 @@ impl Shape for SplineShape {
         dashwid: Inches,
         arrow_len: Inches,
         arrow_wid: Inches,
+        thickness: Inches,
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
@@ -1545,8 +1572,16 @@ impl Shape for SplineShape {
         }
 
         let svg_style = build_svg_style(&self.style, scaler, dashwid);
-        let arrow_len_px = scaler.px(arrow_len);
-        let arrow_wid_px = scaler.px(arrow_wid);
+
+        // cref: pik_draw_arrowhead (pikchr.c:4666-4667)
+        // Arrow dimensions scale with object's stroke width relative to global thickness
+        let arrow_scale = if thickness.raw() > 0.0 {
+            self.style.stroke_width.raw() / thickness.raw()
+        } else {
+            1.0
+        };
+        let arrow_len_px = scaler.px(arrow_len) * arrow_scale;
+        let arrow_wid_px = scaler.px(arrow_wid) * arrow_scale;
 
         let n = self.waypoints.len();
 
@@ -1724,6 +1759,7 @@ impl Shape for DotShape {
         dashwid: Inches,
         _arrow_len: Inches,
         _arrow_wid: Inches,
+        _thickness: Inches,
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
@@ -1804,6 +1840,7 @@ impl Shape for TextShape {
         _dashwid: Inches,
         _arrow_len: Inches,
         _arrow_wid: Inches,
+        _thickness: Inches,
     ) -> Vec<SvgNode> {
         // Text rendering is handled by render_object_text in svg.rs
         // This ensures TextShape uses the same slot-based layout as other shapes
@@ -1955,6 +1992,7 @@ impl Shape for ArcShape {
         dashwid: Inches,
         arrow_len: Inches,
         arrow_wid: Inches,
+        thickness: Inches,
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
@@ -1971,8 +2009,15 @@ impl Shape for ArcShape {
         let control = arc_control_point(self.style.clockwise, start_svg, end_svg);
 
         // Calculate arrow dimensions
-        let arrow_len_px = scaler.px(arrow_len);
-        let arrow_wid_px = scaler.px(arrow_wid);
+        // cref: pik_draw_arrowhead (pikchr.c:4666-4667)
+        // Arrow dimensions scale with object's stroke width relative to global thickness
+        let arrow_scale = if thickness.raw() > 0.0 {
+            self.style.stroke_width.raw() / thickness.raw()
+        } else {
+            1.0
+        };
+        let arrow_len_px = scaler.px(arrow_len) * arrow_scale;
+        let arrow_wid_px = scaler.px(arrow_wid) * arrow_scale;
         let arrow_chop = arrow_len_px / 2.0;
 
         // cref: arcRender (pikchr.c:1071-1076) - render arrowheads first, which modifies endpoints
@@ -2131,6 +2176,7 @@ impl Shape for MoveShape {
         _dashwid: Inches,
         _arrow_len: Inches,
         _arrow_wid: Inches,
+        _thickness: Inches,
     ) -> Vec<SvgNode> {
         // Move shapes are invisible - render nothing
         Vec::new()
@@ -2196,13 +2242,14 @@ impl Shape for SublistShape {
         dashwid: Inches,
         arrow_len: Inches,
         arrow_wid: Inches,
+        thickness: Inches,
     ) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
         for child in &self.children {
             let child_shape = &child.shape;
             let child_nodes = child_shape.render_svg(
-                child, scaler, offset_x, max_y, dashwid, arrow_len, arrow_wid,
+                child, scaler, offset_x, max_y, dashwid, arrow_len, arrow_wid, thickness,
             );
             nodes.extend(child_nodes);
         }

@@ -114,6 +114,8 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     let top_margin = get_length(ctx, "topmargin", 0.0);
     let bottom_margin = get_length(ctx, "bottommargin", 0.0);
     let thickness = get_length(ctx, "thickness", defaults::STROKE_WIDTH.raw());
+    // cref: pik_render (pikchr.c:7282) - clamp thickness to minimum 0.01
+    let thickness = thickness.max(0.01);
 
     let margin = margin_base + thickness;
     let scale = get_scalar(ctx, "scale", 1.0);
@@ -417,7 +419,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             if !obj.style().invisible {
                 let shape = &obj.shape;
                 let shape_nodes =
-                    shape.render_svg(obj, scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid);
+                    shape.render_svg(obj, scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid, Inches(thickness));
                 svg_children.extend(shape_nodes);
             }
             // Render text for this object immediately after its shape
