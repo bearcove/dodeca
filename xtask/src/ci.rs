@@ -114,10 +114,10 @@ const GITHUB_MACOS_LABELS: &[&str] = &["self-hosted", "macOS", "ARM64"];
 const GITHUB_LINUX_LABELS: &[&str] = &["self-hosted", "Linux", "X64"];
 
 /// Self-hosted runner labels for Forgejo macOS.
-const FORGEJO_MACOS_LABELS: &[&str] = &["mac-arm64"];
+const FORGEJO_MACOS_LABELS: &[&str] = &["mac-arm64-metal"];
 
 /// Self-hosted runner labels for Forgejo Linux.
-const FORGEJO_LINUX_LABELS: &[&str] = &["linux-amd64"];
+const FORGEJO_LINUX_LABELS: &[&str] = &["linux-amd64-metal"];
 
 /// Get target platforms for a specific CI platform.
 pub fn targets_for_platform(platform: CiPlatform) -> Vec<Target> {
