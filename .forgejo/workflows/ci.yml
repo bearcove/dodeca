@@ -85,7 +85,7 @@ jobs:
         run: cargo xtask wasm
       - 
         name: Upload artifact
-        uses: "https://code.forgejo.org/actions/upload-artifact@v3"
+        uses: "https://data.forgejo.org/actions/upload-artifact@v3"
         with: 
           name: dodeca-devtools-wasm
           path: crates/dodeca-devtools/pkg
@@ -120,7 +120,7 @@ jobs:
         run: cargo test --release -p dodeca --bins
       - 
         name: Upload artifact
-        uses: "https://code.forgejo.org/actions/upload-artifact@v3"
+        uses: "https://data.forgejo.org/actions/upload-artifact@v3"
         with: 
           name: ddc-linux-x64
           path: target/release/ddc
@@ -155,7 +155,7 @@ jobs:
         run: cargo test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
       - 
         name: Upload artifact
-        uses: "https://code.forgejo.org/actions/upload-artifact@v3"
+        uses: "https://data.forgejo.org/actions/upload-artifact@v3"
         with: 
           name: cells-linux-x64-1
           path: "target/release/ddc-cell-arborium\ntarget/release/ddc-cell-code-execution\ntarget/release/ddc-cell-css\ntarget/release/ddc-cell-fonts\ntarget/release/ddc-cell-html\ntarget/release/ddc-cell-html-diff\ntarget/release/ddc-cell-http\ntarget/release/ddc-cell-image\ntarget/release/ddc-cell-js"
@@ -190,7 +190,7 @@ jobs:
         run: cargo test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
       - 
         name: Upload artifact
-        uses: "https://code.forgejo.org/actions/upload-artifact@v3"
+        uses: "https://data.forgejo.org/actions/upload-artifact@v3"
         with: 
           name: cells-linux-x64-2
           path: "target/release/ddc-cell-jxl\ntarget/release/ddc-cell-linkcheck\ntarget/release/ddc-cell-markdown\ntarget/release/ddc-cell-minify\ntarget/release/ddc-cell-pagefind\ntarget/release/ddc-cell-sass\ntarget/release/ddc-cell-svgo\ntarget/release/ddc-cell-tui\ntarget/release/ddc-cell-webp"
@@ -224,14 +224,14 @@ jobs:
 
       - 
         name: Download ddc
-        uses: "https://code.forgejo.org/actions/download-artifact@v3"
+        uses: "https://data.forgejo.org/actions/download-artifact@v3"
         with: 
           name: ddc-linux-x64
           path: dist
 
       - 
         name: Download cells
-        uses: "https://code.forgejo.org/actions/download-artifact@v3"
+        uses: "https://data.forgejo.org/actions/download-artifact@v3"
         with: 
           pattern: cells-linux-x64-*
           path: dist
@@ -264,14 +264,14 @@ jobs:
         uses: "https://github.com/actions/checkout@v4"
       - 
         name: Download ddc
-        uses: "https://code.forgejo.org/actions/download-artifact@v3"
+        uses: "https://data.forgejo.org/actions/download-artifact@v3"
         with: 
           name: ddc-linux-x64
           path: target/release
 
       - 
         name: Download cells
-        uses: "https://code.forgejo.org/actions/download-artifact@v3"
+        uses: "https://data.forgejo.org/actions/download-artifact@v3"
         with: 
           pattern: cells-linux-x64-*
           path: target/release
@@ -279,7 +279,7 @@ jobs:
 
       - 
         name: Download WASM
-        uses: "https://code.forgejo.org/actions/download-artifact@v3"
+        uses: "https://data.forgejo.org/actions/download-artifact@v3"
         with: 
           name: dodeca-devtools-wasm
           path: crates/dodeca-devtools/pkg
@@ -295,7 +295,7 @@ jobs:
         run: bash scripts/assemble-archive.sh x86_64-unknown-linux-gnu
       - 
         name: Upload artifact
-        uses: "https://code.forgejo.org/actions/upload-artifact@v3"
+        uses: "https://data.forgejo.org/actions/upload-artifact@v3"
         with: 
           name: build-linux-x64
           path: dodeca-x86_64-unknown-linux-gnu.tar.xz
@@ -330,7 +330,7 @@ jobs:
         run: cargo test --release -p dodeca --bins
       - 
         name: Upload artifact
-        uses: "https://code.forgejo.org/actions/upload-artifact@v3"
+        uses: "https://data.forgejo.org/actions/upload-artifact@v3"
         with: 
           name: ddc-macos-arm64
           path: target/release/ddc
@@ -365,7 +365,7 @@ jobs:
         run: cargo test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
       - 
         name: Upload artifact
-        uses: "https://code.forgejo.org/actions/upload-artifact@v3"
+        uses: "https://data.forgejo.org/actions/upload-artifact@v3"
         with: 
           name: cells-macos-arm64-1
           path: "target/release/ddc-cell-arborium\ntarget/release/ddc-cell-code-execution\ntarget/release/ddc-cell-css\ntarget/release/ddc-cell-fonts\ntarget/release/ddc-cell-html\ntarget/release/ddc-cell-html-diff\ntarget/release/ddc-cell-http\ntarget/release/ddc-cell-image\ntarget/release/ddc-cell-js"
@@ -400,7 +400,7 @@ jobs:
         run: cargo test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
       - 
         name: Upload artifact
-        uses: "https://code.forgejo.org/actions/upload-artifact@v3"
+        uses: "https://data.forgejo.org/actions/upload-artifact@v3"
         with: 
           name: cells-macos-arm64-2
           path: "target/release/ddc-cell-jxl\ntarget/release/ddc-cell-linkcheck\ntarget/release/ddc-cell-markdown\ntarget/release/ddc-cell-minify\ntarget/release/ddc-cell-pagefind\ntarget/release/ddc-cell-sass\ntarget/release/ddc-cell-svgo\ntarget/release/ddc-cell-tui\ntarget/release/ddc-cell-webp"
@@ -434,14 +434,14 @@ jobs:
 
       - 
         name: Download ddc
-        uses: "https://code.forgejo.org/actions/download-artifact@v3"
+        uses: "https://data.forgejo.org/actions/download-artifact@v3"
         with: 
           name: ddc-macos-arm64
           path: dist
 
       - 
         name: Download cells
-        uses: "https://code.forgejo.org/actions/download-artifact@v3"
+        uses: "https://data.forgejo.org/actions/download-artifact@v3"
         with: 
           pattern: cells-macos-arm64-*
           path: dist
@@ -474,14 +474,14 @@ jobs:
         uses: "https://github.com/actions/checkout@v4"
       - 
         name: Download ddc
-        uses: "https://code.forgejo.org/actions/download-artifact@v3"
+        uses: "https://data.forgejo.org/actions/download-artifact@v3"
         with: 
           name: ddc-macos-arm64
           path: target/release
 
       - 
         name: Download cells
-        uses: "https://code.forgejo.org/actions/download-artifact@v3"
+        uses: "https://data.forgejo.org/actions/download-artifact@v3"
         with: 
           pattern: cells-macos-arm64-*
           path: target/release
@@ -489,7 +489,7 @@ jobs:
 
       - 
         name: Download WASM
-        uses: "https://code.forgejo.org/actions/download-artifact@v3"
+        uses: "https://data.forgejo.org/actions/download-artifact@v3"
         with: 
           name: dodeca-devtools-wasm
           path: crates/dodeca-devtools/pkg
@@ -505,7 +505,7 @@ jobs:
         run: bash scripts/assemble-archive.sh aarch64-apple-darwin
       - 
         name: Upload artifact
-        uses: "https://code.forgejo.org/actions/upload-artifact@v3"
+        uses: "https://data.forgejo.org/actions/upload-artifact@v3"
         with: 
           name: build-macos-arm64
           path: dodeca-aarch64-apple-darwin.tar.xz
@@ -528,7 +528,7 @@ jobs:
         uses: "https://github.com/actions/checkout@v4"
       - 
         name: Download all artifacts
-        uses: "https://code.forgejo.org/actions/download-artifact@v3"
+        uses: "https://data.forgejo.org/actions/download-artifact@v3"
         with: 
           path: dist
           pattern: build-*
