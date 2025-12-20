@@ -10,6 +10,7 @@ mod content_service;
 mod data;
 mod db;
 mod error_pages;
+mod fd_passing;
 mod file_watcher;
 mod image;
 mod link_checker;
@@ -1803,7 +1804,6 @@ async fn serve_plain(
     // IMPORTANT: Receive listening FD FIRST if --fd-socket was provided (for testing)
     // This must happen before any other initialization so the test harness isn't blocked.
     let pre_bound_listener = if let Some(ref socket_path) = fd_socket {
-        use async_send_fd::AsyncRecvFd;
         use std::os::unix::io::FromRawFd;
         use tokio::io::AsyncWriteExt;
         use tokio::net::UnixStream;
@@ -1814,8 +1814,7 @@ async fn serve_plain(
             .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", socket_path, e))?;
 
         tracing::info!("Receiving TCP listener FD from test harness");
-        let fd = unix_stream
-            .recv_fd()
+        let fd = fd_passing::recv_fd(&unix_stream)
             .await
             .map_err(|e| eyre!("Failed to receive FD: {}", e))?;
 

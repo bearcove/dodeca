@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 
 # For Unix socket FD passing
-async-send-fd = { version = "1.2", features = ["tokio"] }
+passfd = "0.1"
 
 # Better filesystem errors (includes paths in IO errors)
 fs-err = "3"
@@ -28,3 +28,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Death-watch for child processes
 ur-taking-me-with-you.workspace = true
+
+[dev-dependencies]
+libc = "0.2"

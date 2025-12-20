@@ -29,8 +29,8 @@ name = "ddc"
 path = "src/main.rs"
 
 [dependencies]
-async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
 camino = { workspace = true } #unified
+passfd = "0.1" # For Unix socket FD passing (tests)
 
 # Syntax highlight service protocol
 cell-arborium-proto = { path = "../../cells/cell-arborium-proto" }
@@ -140,7 +140,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ur-taking-me-with-you.workspace = true
 
 [dev-dependencies]
-async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
 divan = "0.1"
 futures = { workspace = true } #unified
 minijinja = "2"  # For template engine benchmarks

@@ -15,18 +15,19 @@
 //! - `DODECA_HARNESS_RAW_TCP`: Set to "1" to enable raw TCP probe mode for
 //!   connection diagnostics (measures connect/write/read phases separately)
 
-use async_send_fd::AsyncSendFd;
 use fs_err as fs;
 use regex::Regex;
 use std::cell::Cell;
 use std::io::{BufRead, BufReader, Read as _, Write as _};
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::IntoRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as StdCommand, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UnixListener;
 use tracing::{debug, error};
+
+use crate::fd_passing;
 
 // Thread-local storage for the active test id (used to route logs).
 thread_local! {
@@ -225,6 +226,7 @@ impl TestSite {
         let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind TCP");
         let port = std_listener.local_addr().expect("get local addr").port();
         debug!(port, "Bound ephemeral TCP listener for test server");
+        let listener_fd = std_listener.into_raw_fd();
 
         // Create Unix socket listener
         let unix_listener =
@@ -327,8 +329,7 @@ impl TestSite {
                 .expect("Failed to accept Unix connection");
 
             // Send the TCP listener FD to the server
-            unix_stream
-                .send_fd(std_listener.as_raw_fd())
+            fd_passing::send_fd(&unix_stream, listener_fd)
                 .await
                 .expect("send FD");
             push_log(
@@ -366,10 +367,12 @@ impl TestSite {
                 "[harness] server acked listener FD",
             );
 
-            // FD passing via SCM_RIGHTS duplicates the FD in the receiver; the sender
-            // does not need to keep it open. This prevents confusion from two processes
-            // holding the same listening socket and makes shutdown behavior less surprising.
-            drop(std_listener);
+            // Close the local copy *after* the server has acked receipt. The receiver gets its
+            // own duplicate FD via SCM_RIGHTS.
+            use std::os::fd::FromRawFd;
+
+            // SAFETY: We created `listener_fd` from a freshly-bound listener and haven't closed it.
+            let _ = unsafe { std::os::fd::OwnedFd::from_raw_fd(listener_fd) };
         });
         push_log(&logs, log_start, "[harness] log capture started");
 
