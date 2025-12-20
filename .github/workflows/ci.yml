@@ -303,11 +303,12 @@ jobs:
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        name: Local cache
+        uses: corca-ai/local-cache@35b8d1d836813b4fef25b954e3c6368ea98ef08d
         with: 
-          cache-on-failure: "true"
-          cache-targets: "false"
+          path: target
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}"
+          base: /Users/runner/.cache
 
       - 
         name: Build ddc
@@ -335,11 +336,12 @@ jobs:
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        name: Local cache
+        uses: corca-ai/local-cache@35b8d1d836813b4fef25b954e3c6368ea98ef08d
         with: 
-          cache-on-failure: "true"
-          cache-targets: "true"
+          path: target
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets"
+          base: /Users/runner/.cache
 
       - 
         name: Build cells
@@ -367,11 +369,12 @@ jobs:
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        name: Local cache
+        uses: corca-ai/local-cache@35b8d1d836813b4fef25b954e3c6368ea98ef08d
         with: 
-          cache-on-failure: "true"
-          cache-targets: "true"
+          path: target
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets"
+          base: /Users/runner/.cache
 
       - 
         name: Build cells
@@ -458,11 +461,12 @@ jobs:
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        name: Local cache
+        uses: corca-ai/local-cache@35b8d1d836813b4fef25b954e3c6368ea98ef08d
         with: 
-          cache-on-failure: "true"
-          cache-targets: "false"
+          path: target
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}"
+          base: /Users/runner/.cache
 
       - 
         name: Download ddc

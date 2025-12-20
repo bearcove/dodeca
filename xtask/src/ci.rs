@@ -448,6 +448,24 @@ pub mod common {
         ])
     }
 
+    pub fn local_cache_with_targets(cache_targets: bool) -> Step {
+        let key = if cache_targets {
+            "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets"
+        } else {
+            "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}"
+        };
+
+        Step::uses(
+            "Local cache",
+            "corca-ai/local-cache@35b8d1d836813b4fef25b954e3c6368ea98ef08d",
+        )
+        .with_inputs([
+            ("path", "target"),
+            ("key", key),
+            ("base", "/Users/runner/.cache"),
+        ])
+    }
+
     pub fn upload_artifact(name: impl Into<String>, path: impl Into<String>) -> Step {
         Step::uses("Upload artifact", "actions/upload-artifact@v4")
             .with_inputs([("name", name.into()), ("path", path.into())])
@@ -563,7 +581,11 @@ pub fn build_ci_workflow() -> Workflow {
                 .steps([
                     checkout(),
                     Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
-                    rust_cache_with_targets(false),
+                    if target.os == "macos-15" {
+                        local_cache_with_targets(false)
+                    } else {
+                        rust_cache_with_targets(false)
+                    },
                     Step::run("Build ddc", "cargo build --release -p dodeca"),
                     // Only run binary unit tests here - integration tests (serve/) need cells
                     // and run in the integration phase after assembly
@@ -610,7 +632,11 @@ pub fn build_ci_workflow() -> Workflow {
                     .steps([
                         checkout(),
                         install_rust(),
-                        rust_cache_with_targets(true),
+                        if target.os == "macos-15" {
+                            local_cache_with_targets(true)
+                        } else {
+                            rust_cache_with_targets(true)
+                        },
                         Step::run("Build cells", format!("cargo build --release {build_args}")),
                         Step::run("Test cells", format!("cargo test --release {test_args}")),
                         upload_artifact(format!("cells-{short}-{group_num}"), binary_paths),
@@ -679,7 +705,11 @@ pub fn build_ci_workflow() -> Workflow {
                 .steps([
                     checkout(),
                     Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
-                    rust_cache_with_targets(false),
+                    if target.os == "macos-15" {
+                        local_cache_with_targets(false)
+                    } else {
+                        rust_cache_with_targets(false)
+                    },
                     Step::uses("Download ddc", "actions/download-artifact@v4")
                         .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
                     Step::uses("Download cells", "actions/download-artifact@v4").with_inputs([
