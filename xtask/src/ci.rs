@@ -793,6 +793,11 @@ pub mod common {
     /// Generate a ctree-based cache restore step.
     /// Uses reflinks for near-instant COW copies on supported filesystems.
     ///
+    /// CRITICAL: We backdate all source files before restoring cache to prevent
+    /// cargo from seeing "source newer than build output" and triggering rebuilds.
+    /// Even with -Z checksum-freshness, build script outputs still use mtime checks,
+    /// so we need source mtimes < cached output mtimes.
+    ///
     /// After restore, we nuke any CMake build directories because CMake caches
     /// are not relocatable - they contain absolute paths that break when the
     /// workspace path changes between CI runs.
@@ -801,7 +806,13 @@ pub mod common {
         Step::run(
             "Restore cache (ctree)",
             format!(
-                r#"if [ -d "{cache_dir}" ]; then
+                r#"# Backdate all source files to prevent mtime-based cache invalidation.
+# Fresh checkout creates files with mtime=NOW, but cached artifacts have old mtimes.
+# Cargo's build script outputs still use mtime checks (not affected by -Z checksum-freshness).
+# Set source mtimes to 1 day ago so cached outputs appear newer.
+echo "Backdating source files to prevent cache invalidation..."
+find . -type f \( -name '*.rs' -o -name '*.toml' -o -name 'build.rs' \) -exec touch -t $(date -d '1 day ago' +%Y%m%d%H%M.%S 2>/dev/null || date -v-1d +%Y%m%d%H%M.%S) {{}} +
+if [ -d "{cache_dir}" ]; then
   rm -rf target 2>/dev/null || true
   ctree "{cache_dir}" target && echo "Cache restored via ctree from {cache_dir}" || echo "ctree failed, starting fresh"
   du -sh target 2>/dev/null || true
