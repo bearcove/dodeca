@@ -182,7 +182,7 @@ pub async fn start_cell_server_with_shutdown(
     _cell_path: std::path::PathBuf, // No longer used - cells loaded via hub
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
-    mut shutdown_rx: Option<watch::Receiver<bool>>,
+    shutdown_rx: Option<watch::Receiver<bool>>,
     port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
     pre_bound_listener: Option<TcpListener>,
 ) -> Result<()> {
