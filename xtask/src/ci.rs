@@ -728,7 +728,7 @@ pub mod common {
             ])
         } else {
             // Forgejo: use standard cache action (no base path, different restore-keys format)
-            let restore_key = format!("${{{{ runner.os }}}}-cargo-");
+            let restore_key = "${{ runner.os }}-cargo-".to_string();
             Step::uses("Cache", action).with_inputs([
                 ("path", "target"),
                 ("key", &key),
@@ -810,10 +810,9 @@ ctree target "{cache_dir}" && echo "Cache saved via ctree to {cache_dir}" || ech
     /// Expects S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION as env/secrets.
     pub fn s3_upload_artifact(name: &str, path: &str, run_id_var: &str) -> Step {
         Step::run(
-            &format!("Upload {} to S3", name),
+            format!("Upload {} to S3", name),
             format!(
-                r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "{path}" "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{name}" --quiet
-echo "Uploaded {name} to S3""#,
+                r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "{path}" "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{name}" echo "Uploaded {name} to S3""#,
                 run_id = run_id_var
             ),
         )
@@ -829,8 +828,7 @@ echo "Uploaded {name} to S3""#,
                 .and_then(|s| s.to_str())
                 .unwrap_or(path);
             script.push_str(&format!(
-                r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "{path}" "s3://${{S3_BUCKET}}/ci/{run_id}/{name_prefix}/{basename}" --quiet
-"#,
+                r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "{path}" "s3://${{S3_BUCKET}}/ci/{run_id}/{name_prefix}/{basename}" "#,
                 run_id = run_id_var
             ));
         }
@@ -838,17 +836,16 @@ echo "Uploaded {name} to S3""#,
             r#"echo "Uploaded {} files to S3 under {name_prefix}""#,
             paths.len()
         ));
-        Step::run(&format!("Upload {} to S3", name_prefix), script)
+        Step::run(format!("Upload {} to S3", name_prefix), script)
     }
 
     /// Generate an S3 artifact download step.
     pub fn s3_download_artifact(name: &str, dest_path: &str, run_id_var: &str) -> Step {
         Step::run(
-            &format!("Download {} from S3", name),
+            format!("Download {} from S3", name),
             format!(
                 r#"mkdir -p "$(dirname "{dest_path}")"
-aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{name}" "{dest_path}" --quiet
-echo "Downloaded {name} from S3""#,
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{name}" "{dest_path}" echo "Downloaded {name} from S3""#,
                 run_id = run_id_var
             ),
         )
@@ -857,11 +854,10 @@ echo "Downloaded {name} from S3""#,
     /// Generate an S3 artifact download step for a prefix (downloads all files under that prefix).
     pub fn s3_download_artifacts_prefix(prefix: &str, dest_dir: &str, run_id_var: &str) -> Step {
         Step::run(
-            &format!("Download {} from S3", prefix),
+            format!("Download {} from S3", prefix),
             format!(
                 r#"mkdir -p "{dest_dir}"
-aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{prefix}/" "{dest_dir}/" --recursive --quiet
-echo "Downloaded {prefix} from S3 to {dest_dir}""#,
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{prefix}/" "{dest_dir}/" --recursive echo "Downloaded {prefix} from S3 to {dest_dir}""#,
                 run_id = run_id_var
             ),
         )
@@ -1368,8 +1364,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                     "Upload WASM to S3",
                     format!(
                         r#"tar -czf /tmp/wasm.tar.gz -C crates/dodeca-devtools pkg
-aws s3 --endpoint-url "$S3_ENDPOINT" cp /tmp/wasm.tar.gz "s3://${{S3_BUCKET}}/ci/{run_id}/wasm.tar.gz" --quiet
-echo "Uploaded WASM bundle to S3""#
+aws s3 --endpoint-url "$S3_ENDPOINT" cp /tmp/wasm.tar.gz "s3://${{S3_BUCKET}}/ci/{run_id}/wasm.tar.gz" echo "Uploaded WASM bundle to S3""#
                     ),
                 ),
                 ctree_cache_save("wasm", "/home/amos/.cache"),
@@ -1400,8 +1395,7 @@ echo "Uploaded WASM bundle to S3""#
                     Step::run(
                         "Upload ddc to S3",
                         format!(
-                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp target/release/ddc "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" --quiet
-echo "Uploaded ddc to S3""#
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp target/release/ddc "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" echo "Uploaded ddc to S3""#
                         ),
                     ),
                     ctree_cache_save(&format!("ddc-{short}"), cache_base),
@@ -1431,18 +1425,19 @@ echo "Uploaded ddc to S3""#
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            // Generate S3 upload commands for each cell binary
-            let mut upload_script = String::new();
+            // Stage cell binaries and sync to S3 (parallel upload)
+            let mut stage_commands: Vec<String> = vec!["mkdir -p /tmp/cells-upload".to_string()];
             for (_, bin) in cells {
-                upload_script.push_str(&format!(
-                    r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "target/release/{bin}" "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/{bin}" --quiet
-"#
-                ));
+                stage_commands.push(format!(r#"cp "target/release/{bin}" /tmp/cells-upload/"#));
             }
-            upload_script.push_str(&format!(
-                r#"echo "Uploaded {} cell binaries to S3""#,
+            let upload_script = format!(
+                r#"{}
+aws s3 --endpoint-url "$S3_ENDPOINT" sync /tmp/cells-upload/ "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/"
+rm -rf /tmp/cells-upload
+echo "Uploaded {} cell binaries to S3 (parallel sync)""#,
+                stage_commands.join("\n"),
                 cells.len()
-            ));
+            );
 
             jobs.insert(
                 group_job_id.clone(),
@@ -1487,8 +1482,7 @@ echo "Uploaded ddc to S3""#
                         "Download ddc from S3",
                         format!(
                             r#"mkdir -p dist
-aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" dist/ddc --quiet
-chmod +x dist/ddc
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" dist/ddc chmod +x dist/ddc
 echo "Downloaded ddc from S3""#
                         ),
                     ),
@@ -1496,8 +1490,7 @@ echo "Downloaded ddc from S3""#
                     Step::run(
                         "Download cells from S3",
                         format!(
-                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/" dist/ --recursive --quiet
-chmod +x dist/ddc-cell-*
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/" dist/ --recursive chmod +x dist/ddc-cell-*
 echo "Downloaded cells from S3""#
                         ),
                     ),
@@ -1530,24 +1523,21 @@ echo "Downloaded cells from S3""#
                         "Download ddc from S3",
                         format!(
                             r#"mkdir -p target/release
-aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" target/release/ddc --quiet
-chmod +x target/release/ddc"#
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" target/release/ddc chmod +x target/release/ddc"#
                         ),
                     ),
                     // Download cells from S3
                     Step::run(
                         "Download cells from S3",
                         format!(
-                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/" target/release/ --recursive --quiet
-chmod +x target/release/ddc-cell-*"#
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/" target/release/ --recursive chmod +x target/release/ddc-cell-*"#
                         ),
                     ),
                     // Download WASM from S3
                     Step::run(
                         "Download WASM from S3",
                         format!(
-                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz --quiet
-mkdir -p crates/dodeca-devtools
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz mkdir -p crates/dodeca-devtools
 tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"#
                         ),
                     ),
@@ -1564,8 +1554,7 @@ tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"#
                     Step::run(
                         "Upload archive to S3",
                         format!(
-                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "dodeca-{triple}.{ext}" "s3://${{S3_BUCKET}}/ci/{run_id}/dodeca-{triple}.{ext}" --quiet
-echo "Uploaded final archive to S3""#,
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "dodeca-{triple}.{ext}" "s3://${{S3_BUCKET}}/ci/{run_id}/dodeca-{triple}.{ext}" echo "Uploaded final archive to S3""#,
                             triple = target.triple,
                             ext = target.archive_ext
                         ),
@@ -1595,8 +1584,7 @@ echo "Uploaded final archive to S3""#,
                     "Download archives from S3",
                     format!(
                         r#"mkdir -p dist
-aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/" dist/ --recursive --exclude "*" --include "dodeca-*.tar.xz" --include "dodeca-*.zip" --quiet
-ls -la dist/"#
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/" dist/ --recursive --exclude "*" --include "dodeca-*.tar.xz" --include "dodeca-*.zip" ls -la dist/"#
                     ),
                 ),
                 Step::run(
