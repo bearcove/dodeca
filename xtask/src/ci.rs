@@ -766,7 +766,11 @@ fn ci_linux_runner(platform: CiPlatform) -> CiRunner {
         } else {
             RunnerSpec::single("depot-ubuntu-24.04-32")
         },
-        wasm_install: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh",
+        wasm_install: if LINUX_SELF_HOSTED {
+            ""
+        } else {
+            "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
+        },
     }
 }
 
