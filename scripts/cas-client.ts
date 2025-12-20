@@ -246,8 +246,8 @@ export class CasClient {
     try {
       const remotePath = `pointers/${pointerKey}`;
 
-      // Upload pointer file (rrsync will create parent dirs)
-      const result = await this.rsync(["-a", tmpFile, `${CAS_HOST}:${remotePath}`]);
+      // Upload pointer file with --mkpath to create parent dirs
+      const result = await this.rsync(["-a", "--mkpath", tmpFile, `${CAS_HOST}:${remotePath}`]);
 
       if (result.code !== 0) {
         throw new Error(`Failed to write pointer: ${result.stderr}`);
@@ -277,8 +277,8 @@ export class CasClient {
     try {
       const remotePath = `pointers/${manifestKey}`;
 
-      // Upload manifest file (rrsync will create parent dirs)
-      const result = await this.rsync(["-a", tmpFile, `${CAS_HOST}:${remotePath}`]);
+      // Upload manifest file with --mkpath to create parent dirs
+      const result = await this.rsync(["-a", "--mkpath", tmpFile, `${CAS_HOST}:${remotePath}`]);
 
       if (result.code !== 0) {
         throw new Error(`Failed to write manifest: ${result.stderr}`);
