@@ -54,7 +54,7 @@ impl CiPlatform {
     pub fn upload_artifact_action(&self) -> &'static str {
         match self {
             CiPlatform::GitHub => "actions/upload-artifact@v4",
-            CiPlatform::Forgejo => "https://github.com/actions/upload-artifact@v4",
+            CiPlatform::Forgejo => "https://code.forgejo.org/actions/upload-artifact@v3",
         }
     }
 
@@ -62,7 +62,7 @@ impl CiPlatform {
     pub fn download_artifact_action(&self) -> &'static str {
         match self {
             CiPlatform::GitHub => "actions/download-artifact@v4",
-            CiPlatform::Forgejo => "https://github.com/actions/download-artifact@v4",
+            CiPlatform::Forgejo => "https://code.forgejo.org/actions/download-artifact@v3",
         }
     }
 
