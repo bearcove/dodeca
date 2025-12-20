@@ -308,7 +308,7 @@ jobs:
         with: 
           path: target
           key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}"
-          base: /Users/runner/.cache
+          base: /Users/amos/.cache
 
       - 
         name: Build ddc
@@ -341,7 +341,7 @@ jobs:
         with: 
           path: target
           key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets"
-          base: /Users/runner/.cache
+          base: /Users/amos/.cache
 
       - 
         name: Build cells
@@ -374,7 +374,7 @@ jobs:
         with: 
           path: target
           key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets"
-          base: /Users/runner/.cache
+          base: /Users/amos/.cache
 
       - 
         name: Build cells
@@ -466,7 +466,7 @@ jobs:
         with: 
           path: target
           key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}"
-          base: /Users/runner/.cache
+          base: /Users/amos/.cache
 
       - 
         name: Download ddc

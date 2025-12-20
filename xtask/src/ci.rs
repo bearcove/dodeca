@@ -462,7 +462,7 @@ pub mod common {
         .with_inputs([
             ("path", "target"),
             ("key", key),
-            ("base", "/Users/runner/.cache"),
+            ("base", "/Users/amos/.cache"),
         ])
     }
 
