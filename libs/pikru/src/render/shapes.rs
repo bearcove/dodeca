@@ -1388,8 +1388,9 @@ impl Shape for LineShape {
     /// cref: pik_bbox_add_elist (pikchr.c:7243) - only if sw>=0
     /// cref: pik_bbox_add_elist (pikchr.c:7251-7260) - arrowheads always added as ellipses
     fn expand_bounds(&self, bounds: &mut BoundingBox) {
-        // Only expand by waypoints if stroke width is non-negative
-        if self.style.stroke_width.0 >= 0.0 {
+        // Only expand by waypoints if visible (not invisible and stroke width non-negative)
+        // cref: pikchr.y:693 - invis sets sw to negative in C, we use a separate flag
+        if !self.style.invisible && self.style.stroke_width.0 >= 0.0 {
             for pt in &self.waypoints {
                 bounds.expand_point(*pt);
             }
@@ -1517,8 +1518,8 @@ impl Shape for LineShape {
     /// cref: pikchr.y:1757-1761 - sublist bbox uses children's pObj->bbox (no arrowheads)
     /// cref: pikchr.y:4527 - pik_bbox_addbox adds pObj->bbox not arrowhead ellipses
     fn expand_core_bounds(&self, bounds: &mut BoundingBox) {
-        // Only expand by waypoints if stroke width is non-negative
-        if self.style.stroke_width.0 >= 0.0 {
+        // Only expand by waypoints if visible (not invisible and stroke width non-negative)
+        if !self.style.invisible && self.style.stroke_width.0 >= 0.0 {
             for pt in &self.waypoints {
                 bounds.expand_point(*pt);
             }
@@ -1726,8 +1727,8 @@ impl Shape for SplineShape {
     /// cref: pik_bbox_add_elist (pikchr.c:7243) - only if sw>=0
     /// cref: pik_bbox_add_elist (pikchr.c:7251-7260) - arrowheads always added as ellipses
     fn expand_bounds(&self, bounds: &mut BoundingBox) {
-        // Only expand by waypoints if stroke width is non-negative
-        if self.style.stroke_width.0 >= 0.0 {
+        // Only expand by waypoints if visible (not invisible and stroke width non-negative)
+        if !self.style.invisible && self.style.stroke_width.0 >= 0.0 {
             for pt in &self.waypoints {
                 bounds.expand_point(*pt);
             }
@@ -1763,8 +1764,8 @@ impl Shape for SplineShape {
     /// Expand bounds WITHOUT arrowheads - used for computing sublist width/height
     /// cref: pikchr.y:1757-1761 - sublist bbox uses children's pObj->bbox (no arrowheads)
     fn expand_core_bounds(&self, bounds: &mut BoundingBox) {
-        // Only expand by waypoints if stroke width is non-negative
-        if self.style.stroke_width.0 >= 0.0 {
+        // Only expand by waypoints if visible (not invisible and stroke width non-negative)
+        if !self.style.invisible && self.style.stroke_width.0 >= 0.0 {
             for pt in &self.waypoints {
                 bounds.expand_point(*pt);
             }
@@ -2147,6 +2148,11 @@ impl Shape for ArcShape {
 
     /// cref: arcCheck (pikchr.c:1040-1063) - arc bbox samples 16 points along the curve
     fn expand_bounds(&self, bounds: &mut BoundingBox) {
+        // Skip bounds expansion for invisible arcs
+        if self.style.invisible {
+            return;
+        }
+
         // cref: arcCheck (pikchr.c:1048-1062) - sample 16 points along the quadratic bezier
         let f = self.start;
         let t = self.end;
@@ -2199,6 +2205,11 @@ impl Shape for ArcShape {
     /// Expand bounds WITHOUT arrowheads - used for computing sublist width/height
     /// cref: pikchr.y:1757-1761 - sublist bbox uses children's pObj->bbox (no arrowheads)
     fn expand_core_bounds(&self, bounds: &mut BoundingBox) {
+        // Skip bounds expansion for invisible arcs
+        if self.style.invisible {
+            return;
+        }
+
         // Sample 16 points along the quadratic bezier (same as expand_bounds)
         let f = self.start;
         let t = self.end;

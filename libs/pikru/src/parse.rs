@@ -102,14 +102,25 @@ fn parse_lvalue(pair: Pair<Rule>) -> Result<LValue, miette::Report> {
 }
 
 fn parse_variable_name(pair: Pair<Rule>) -> Result<String, miette::Report> {
-    let mut name = String::new();
-    for inner in pair.into_inner() {
-        match inner.as_rule() {
-            Rule::IDENT | Rule::PLACENAME => name = inner.as_str().to_string(),
-            _ => {}
+    // cref: pik_value (pikchr.c) - variables can be "$foo" or "foo"
+    // The "$" prefix is part of the variable name - "$margin" is different from "margin"
+    // This is important because system variables like "margin", "thickness" etc. should not
+    // be confused with user-defined "$margin", "$thickness" etc.
+    let raw = pair.as_str();
+    if raw.starts_with('$') {
+        // Variable has $ prefix - include it in the name
+        Ok(raw.to_string())
+    } else {
+        // No $ prefix - just the bare identifier
+        let mut name = String::new();
+        for inner in pair.into_inner() {
+            match inner.as_rule() {
+                Rule::IDENT | Rule::PLACENAME => name = inner.as_str().to_string(),
+                _ => {}
+            }
         }
+        Ok(name)
     }
-    Ok(name)
 }
 
 fn parse_assign_op(pair: Pair<Rule>) -> Result<AssignOp, miette::Report> {
