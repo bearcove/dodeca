@@ -14,8 +14,12 @@ pub struct RenderContext {
     pub direction: Direction,
     /// Current position (where the next object will be placed)
     pub position: PointIn,
-    /// Named objects for reference
-    pub objects: HashMap<String, RenderedObject>,
+    /// Objects with explicit names (e.g., `C1: circle`)
+    /// cref: pik_find_byname (pikchr.c:4027-4032) - first pass looks for zName match
+    pub explicit_names: HashMap<String, RenderedObject>,
+    /// Objects with names derived from text content (e.g., `circle "C0"`)
+    /// cref: pik_find_byname (pikchr.c:4034-4044) - second pass looks for text match
+    pub text_names: HashMap<String, RenderedObject>,
     /// All objects in order
     pub object_list: Vec<RenderedObject>,
     /// Variables (typed: lengths, scalars, colors)
@@ -33,7 +37,8 @@ impl Default for RenderContext {
         let mut ctx = Self {
             direction: Direction::Right,
             position: pin(0.0, 0.0),
-            objects: HashMap::new(),
+            explicit_names: HashMap::new(),
+            text_names: HashMap::new(),
             object_list: Vec::new(),
             variables: HashMap::new(),
             bounds: BoundingBox::new(),
@@ -122,8 +127,17 @@ impl RenderContext {
     }
 
     /// Get an object by name
+    ///
+    /// cref: pik_find_byname (pikchr.c:4014-4047)
+    /// First looks for explicitly named objects (e.g., `C1: circle`)
+    /// Then falls back to objects with matching text content (e.g., `circle "C0"`)
     pub fn get_object(&self, name: &str) -> Option<&RenderedObject> {
-        self.objects.get(name)
+        // First pass: look for explicitly tagged objects
+        if let Some(obj) = self.explicit_names.get(name) {
+            return Some(obj);
+        }
+        // Second pass: look for objects with matching text content
+        self.text_names.get(name)
     }
 
     /// Get the nth object of a class (1-indexed)
@@ -244,9 +258,16 @@ impl RenderContext {
             exit_point.y.0,
         );
 
-        // Store named objects
+        // Store named objects in the appropriate lookup map
+        // cref: pik_find_byname (pikchr.c:4027-4044)
+        // Explicit names (from labels like `C1:`) go in explicit_names
+        // Text-derived names (from `circle "C0"`) go in text_names
         if let Some(ref name) = obj.name {
-            self.objects.insert(name.clone(), obj.clone());
+            if obj.name_is_explicit {
+                self.explicit_names.insert(name.clone(), obj.clone());
+            } else {
+                self.text_names.insert(name.clone(), obj.clone());
+            }
         }
 
         self.object_list.push(obj);

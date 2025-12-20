@@ -186,6 +186,10 @@ impl PositionedText {
 #[derive(Debug, Clone)]
 pub struct RenderedObject {
     pub name: Option<String>,
+    /// True if the name came from an explicit label (e.g., `C1: circle`),
+    /// false if derived from text content (e.g., `circle "C0"`).
+    /// cref: pik_find_byname (pikchr.c:4027-4044) - explicit names searched first
+    pub name_is_explicit: bool,
     pub shape: super::shapes::ShapeEnum,
     pub start_attachment: Option<EndpointObject>,
     pub end_attachment: Option<EndpointObject>,
