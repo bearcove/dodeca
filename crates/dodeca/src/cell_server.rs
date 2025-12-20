@@ -30,6 +30,7 @@ use crate::serve::SiteServer;
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
 const REQUIRED_CELLS: [&str; 2] = ["ddc-cell-http", "ddc-cell-markdown"];
 const REQUIRED_CELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const SESSION_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Find the cell binary path (for backwards compatibility).
 ///
@@ -426,62 +427,36 @@ async fn handle_browser_connection(
         tracing::warn!(conn_id, error = %err, "socket error present on accept");
     }
 
-    let mut pre_session_buf: Vec<u8> = Vec::new();
-    let mut pre_session_reads: u64 = 0;
-
     let session = if let Some(session) = session_rx.borrow().clone() {
         session
     } else {
-        tracing::info!(conn_id, "Waiting for HTTP cell session");
+        tracing::info!(conn_id, "Waiting for HTTP cell session (socket held open)");
         let wait_start = Instant::now();
-        loop {
-            tokio::select! {
-                _ = session_rx.changed() => {
-                    if let Some(session) = session_rx.borrow().clone() {
-                        tracing::info!(
-                            conn_id,
-                            elapsed_ms = wait_start.elapsed().as_millis(),
-                            pre_session_reads,
-                            pre_session_bytes = pre_session_buf.len(),
-                            "HTTP cell session ready (per-connection)"
-                        );
-                        break session;
-                    }
+        let session = tokio::time::timeout(SESSION_WAIT_TIMEOUT, async {
+            loop {
+                session_rx.changed().await.ok();
+                if let Some(session) = session_rx.borrow().clone() {
+                    break session;
                 }
-                ready = browser_stream.readable() => {
-                    if let Err(e) = ready {
-                        tracing::warn!(conn_id, error = %e, "browser stream readable error while waiting for session");
-                        continue;
-                    }
-                    let mut buf = [0u8; 4096];
-                    match browser_stream.try_read(&mut buf) {
-                        Ok(0) => {
-                            tracing::warn!(
-                                conn_id,
-                                elapsed_ms = wait_start.elapsed().as_millis(),
-                                pre_session_reads,
-                                pre_session_bytes = pre_session_buf.len(),
-                                "browser stream closed before session ready (read=0)"
-                            );
-                            return Ok(());
-                        }
-                        Ok(n) => {
-                            pre_session_reads = pre_session_reads.wrapping_add(1);
-                            pre_session_buf.extend_from_slice(&buf[..n]);
-                            tracing::info!(
-                                conn_id,
-                                n,
-                                pre_session_reads,
-                                pre_session_bytes = pre_session_buf.len(),
-                                "read bytes while waiting for session"
-                            );
-                        }
-                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-                        Err(e) => {
-                            return Err(e.into());
-                        }
-                    }
-                }
+            }
+        })
+        .await;
+        match session {
+            Ok(session) => {
+                tracing::info!(
+                    conn_id,
+                    elapsed_ms = wait_start.elapsed().as_millis(),
+                    "HTTP cell session ready (per-connection)"
+                );
+                session
+            }
+            Err(_) => {
+                tracing::warn!(
+                    conn_id,
+                    elapsed_ms = wait_start.elapsed().as_millis(),
+                    "HTTP cell session wait timed out; closing socket"
+                );
+                return Ok(());
             }
         }
     };
@@ -515,18 +490,15 @@ async fn handle_browser_connection(
         "Revision ready (per-connection)"
     );
 
-    if pre_session_buf.is_empty() {
-        // Read first byte before opening a tunnel.
-        let mut first_byte = [0u8; 1];
-        let first_read = browser_stream.read(&mut first_byte).await?;
-        if first_read == 0 {
-            tracing::warn!(
-                conn_id,
-                "browser stream closed before request (first_read=0)"
-            );
-            return Ok(());
-        }
-        pre_session_buf.extend_from_slice(&first_byte[..first_read]);
+    // Read first byte before opening a tunnel.
+    let mut first_byte = [0u8; 1];
+    let first_read = browser_stream.read(&mut first_byte).await?;
+    if first_read == 0 {
+        tracing::warn!(
+            conn_id,
+            "browser stream closed before request (first_read=0)"
+        );
+        return Ok(());
     }
 
     // Open a tunnel to the cell
@@ -541,15 +513,13 @@ async fn handle_browser_connection(
         conn_id,
         channel_id,
         open_elapsed_ms = open_started.elapsed().as_millis(),
-        initial_bytes = pre_session_buf.len(),
+        first_read,
         "Tunnel opened for browser connection"
     );
 
     // Bridge browser <-> tunnel with backpressure.
     let mut tunnel_stream = session.tunnel_stream(channel_id);
-    if !pre_session_buf.is_empty() {
-        tunnel_stream.write_all(&pre_session_buf).await?;
-    }
+    tunnel_stream.write_all(&first_byte[..first_read]).await?;
     tracing::info!(
         conn_id,
         channel_id,
