@@ -23,6 +23,18 @@ fi
 S3_ENDPOINT="${S3_ENDPOINT:?S3_ENDPOINT must be set}"
 S3_BUCKET="${S3_BUCKET:?S3_BUCKET must be set}"
 
+# Timing helper
+now_ms() { python3 -c 'import time; print(int(time.time() * 1000))'; }
+START_TIME=$(now_ms)
+last_step=$START_TIME
+
+log_step() {
+    local now=$(now_ms)
+    local elapsed=$((now - last_step))
+    echo "  ⏱ $1: ${elapsed}ms"
+    last_step=$now
+}
+
 STAGING_DIR=$(mktemp -d)
 trap "rm -rf '$STAGING_DIR'" EXIT
 
@@ -35,16 +47,16 @@ echo "Fetching pointer files from $POINTER_PREFIX..."
 aws s3 sync "s3://$S3_BUCKET/$POINTER_PREFIX/" "$STAGING_DIR/pointers/" \
     --endpoint-url "$S3_ENDPOINT" \
     --no-progress
+log_step "sync pointer files"
 
 # Check if we got any files
-POINTER_COUNT=$(find "$STAGING_DIR/pointers" -type f | wc -l)
+POINTER_COUNT=$(find "$STAGING_DIR/pointers" -type f | wc -l | tr -d ' ')
 if [[ "$POINTER_COUNT" -eq 0 ]]; then
     echo "Warning: No pointer files found under $POINTER_PREFIX"
     exit 0
 fi
 
 # Step 2: Read all hashes locally and collect unique ones
-echo "Found $POINTER_COUNT pointer files, reading hashes..."
 declare -A HASH_TO_FILES  # hash -> space-separated list of filenames
 
 for pointer_file in "$STAGING_DIR/pointers"/*; do
@@ -60,25 +72,34 @@ for pointer_file in "$STAGING_DIR/pointers"/*; do
 done
 
 UNIQUE_HASHES=${#HASH_TO_FILES[@]}
-echo "Need $UNIQUE_HASHES unique CAS objects..."
+echo "Found $POINTER_COUNT pointers → $UNIQUE_HASHES unique CAS objects"
+log_step "parse pointers"
 
 # Step 3: Download unique CAS files in parallel
+echo "Downloading from CAS..."
 for hash in "${!HASH_TO_FILES[@]}"; do
     aws s3 cp "s3://$S3_BUCKET/cas/$hash" "$STAGING_DIR/cas/$hash" \
         --endpoint-url "$S3_ENDPOINT" &
 done
 wait
+log_step "download CAS objects (parallel)"
 
-# Step 4: Copy/hardlink to destination with correct names, make executable
+# Step 4: Copy to destination with correct names, make executable
+total_size=0
 for hash in "${!HASH_TO_FILES[@]}"; do
     for filename in ${HASH_TO_FILES[$hash]}; do
         cp "$STAGING_DIR/cas/$hash" "$LOCAL_DIR/$filename"
+        size=$(stat -f%z "$LOCAL_DIR/$filename" 2>/dev/null || stat -c%s "$LOCAL_DIR/$filename" 2>/dev/null)
+        total_size=$((total_size + size))
         # Make binaries executable
         if [[ "$filename" == "ddc" || "$filename" == ddc-cell-* ]]; then
             chmod +x "$LOCAL_DIR/$filename"
         fi
-        echo "$filename: downloaded (${hash:0:12}...)"
     done
 done
+log_step "copy to destination"
 
-echo "Done: $POINTER_COUNT files downloaded"
+total_mb=$(echo "scale=1; $total_size / 1048576" | bc)
+END_TIME=$(now_ms)
+TOTAL=$((END_TIME - START_TIME))
+echo "Done: $POINTER_COUNT files (${total_mb}MB) in ${TOTAL}ms"

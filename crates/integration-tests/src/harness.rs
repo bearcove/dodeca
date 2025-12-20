@@ -169,7 +169,13 @@ impl TestSite {
             .expect("create temp dir");
 
         let fixture_dir = temp_dir.path().to_path_buf();
-        copy_dir_recursive(src, &fixture_dir).expect("copy fixture");
+        copy_dir_recursive(src, &fixture_dir).unwrap_or_else(|e| {
+            panic!(
+                "copy fixture {} -> {}: {e}",
+                src.display(),
+                fixture_dir.display()
+            )
+        });
 
         // Write any custom files before starting the server
         for (rel_path, content) in files {
@@ -857,18 +863,71 @@ impl Response {
 
 /// Recursively copy a directory
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(dst)?;
+    fs::create_dir_all(dst).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!(
+                "create_dir_all {}: {} (os={:?})",
+                dst.display(),
+                e,
+                e.raw_os_error()
+            ),
+        )
+    })?;
 
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let ty = entry.file_type()?;
+    let entries = fs::read_dir(src).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!(
+                "read_dir {}: {} (os={:?})",
+                src.display(),
+                e,
+                e.raw_os_error()
+            ),
+        )
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| {
+            std::io::Error::new(
+                e.kind(),
+                format!(
+                    "read_dir entry in {}: {} (os={:?})",
+                    src.display(),
+                    e,
+                    e.raw_os_error()
+                ),
+            )
+        })?;
+        let ty = entry.file_type().map_err(|e| {
+            std::io::Error::new(
+                e.kind(),
+                format!(
+                    "file_type {}: {} (os={:?})",
+                    entry.path().display(),
+                    e,
+                    e.raw_os_error()
+                ),
+            )
+        })?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
 
         if ty.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
         } else {
-            fs::copy(&src_path, &dst_path)?;
+            fs::copy(&src_path, &dst_path).map_err(|e| {
+                std::io::Error::new(
+                    e.kind(),
+                    format!(
+                        "copy {} -> {}: {} (os={:?})",
+                        src_path.display(),
+                        dst_path.display(),
+                        e,
+                        e.raw_os_error()
+                    ),
+                )
+            })?;
         }
     }
 
@@ -1003,7 +1062,13 @@ fn build_site_from_source_sync(src: &Path) -> BuildResult {
         .expect("create temp dir");
 
     let fixture_dir = temp_dir.path().to_path_buf();
-    copy_dir_recursive(src, &fixture_dir).expect("copy fixture");
+    copy_dir_recursive(src, &fixture_dir).unwrap_or_else(|e| {
+        panic!(
+            "copy fixture {} -> {}: {e}",
+            src.display(),
+            fixture_dir.display()
+        )
+    });
 
     // Ensure .cache exists and is empty
     let cache_dir = fixture_dir.join(".cache");
