@@ -17,8 +17,8 @@ async-send-fd = { version = "1.2", features = ["tokio"] }
 # Colorful output
 owo-colors = "4"
 regex = { workspace = true } #unified
-reqwest = { workspace = true, features = ["rustls-tls"] } #unified
 tempfile = { workspace = true } #unified
+ureq = { version = "3", default-features = false }
 tokio = { workspace = true, features = ["macros", "process", "rt", "rt-multi-thread", "sync", "time"] } #unified
 tracing = { workspace = true } #unified
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

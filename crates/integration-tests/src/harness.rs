@@ -15,7 +15,6 @@
 
 use async_send_fd::AsyncSendFd;
 use regex::Regex;
-use reqwest::blocking::Client;
 use std::cell::Cell;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -129,7 +128,6 @@ pub struct TestSite {
     port: u16,
     fixture_dir: PathBuf,
     _temp_dir: tempfile::TempDir,
-    client: Client,
     _unix_socket_dir: tempfile::TempDir,
     logs: Arc<Mutex<Vec<LogLine>>>,
     log_start: Instant,
@@ -424,16 +422,6 @@ impl TestSite {
             }
         });
 
-        let mut client_builder = Client::builder().timeout(Duration::from_secs(10));
-        if std::env::var("DODECA_REQWEST_POOL")
-            .as_deref()
-            .map(|v| v.eq_ignore_ascii_case("off") || v == "0")
-            .unwrap_or(false)
-        {
-            client_builder = client_builder.pool_max_idle_per_host(0);
-        }
-        let client = client_builder.build().expect("build http client");
-
         let setup_elapsed = setup_start.elapsed();
         let setup = TEST_SETUP.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
         setup.lock().unwrap().insert(test_id, setup_elapsed);
@@ -444,7 +432,6 @@ impl TestSite {
             port,
             fixture_dir,
             _temp_dir: temp_dir,
-            client,
             _unix_socket_dir: unix_socket_dir,
             logs,
             log_start,
@@ -488,22 +475,16 @@ impl TestSite {
             out
         }
 
-        // Retry connection reset errors (macOS flakiness) up to 20 times.
-        fn is_connection_reset(err: &reqwest::Error) -> bool {
-            let mut cur: Option<&(dyn std::error::Error + 'static)> = Some(err);
-            while let Some(e) = cur {
-                if let Some(io) = e.downcast_ref::<std::io::Error>()
-                    && io.kind() == std::io::ErrorKind::ConnectionReset
-                {
-                    return true;
+        // Retry connection reset errors (macOS flakiness).
+        fn is_connection_reset(err: &ureq::Error) -> bool {
+            match err {
+                ureq::Error::Io(io) => {
+                    io.kind() == std::io::ErrorKind::ConnectionReset
+                        || io.to_string().contains("Connection reset by peer")
+                        || io.to_string().contains("os error 54")
                 }
-                let msg = e.to_string();
-                if msg.contains("Connection reset by peer") || msg.contains("os error 54") {
-                    return true;
-                }
-                cur = std::error::Error::source(e);
+                _ => false,
             }
-            false
         }
 
         let max_retries = std::env::var("DODECA_RETRIES")
@@ -512,11 +493,17 @@ impl TestSite {
             .unwrap_or(5);
         let max_retries = max_retries.max(1);
         for attempt in 0..max_retries {
-            match self.client.get(&url).send() {
+            match ureq::get(&url).call() {
                 Ok(resp) => {
                     let status = resp.status().as_u16();
-                    let body = resp.text().unwrap_or_default();
+                    let body = resp.into_body().read_to_string().unwrap_or_default();
                     debug!(%url, status, "Received response");
+                    return Response { status, body, url };
+                }
+                Err(ureq::Error::StatusCode(status)) => {
+                    // ureq treats 4xx/5xx as errors, but we want to return them as responses
+                    let body = String::new();
+                    debug!(%url, status, "Received error status");
                     return Response { status, body, url };
                 }
                 Err(e) => {

@@ -4554,12 +4554,12 @@ dependencies = [
  "async-send-fd",
  "owo-colors",
  "regex",
- "reqwest",
  "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
  "ur-taking-me-with-you",
+ "ureq",
 ]
 
 [[package]]
@@ -9215,6 +9215,31 @@ dependencies = [
  "libc",
  "tokio",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "ureq"
+version = "3.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d39cb1dbab692d82a977c0392ffac19e188bd9186a9f32806f0aaa859d75585a"
+dependencies = [
+ "base64 0.22.1",
+ "log",
+ "percent-encoding",
+ "ureq-proto",
+ "utf-8",
+]
+
+[[package]]
+name = "ureq-proto"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d81f9efa9df032be5934a46a068815a10a042b494b6a58cb0a1a97bb5467ed6f"
+dependencies = [
+ "base64 0.22.1",
+ "http 1.4.0",
+ "httparse",
+ "log",
 ]
 
 [[package]]
