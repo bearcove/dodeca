@@ -233,6 +233,9 @@ jobs:
         name: Restore cache (ctree)
         run: "if [ -d \"/home/amos/.cache/dodeca-ci/integration-linux-x64\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/integration-linux-x64\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/integration-linux-x64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/integration-linux-x64\"\nfi"
       - 
+        name: Build integration-tests
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness build -p integration-tests
+      - 
         name: Download ddc from S3
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-linux-x64\" dist/ddc"
       - 
@@ -441,6 +444,9 @@ jobs:
       - 
         name: Restore cache (ctree)
         run: "if [ -d \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/integration-macos-arm64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/integration-macos-arm64\"\nfi"
+      - 
+        name: Build integration-tests
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness build -p integration-tests
       - 
         name: Download ddc from S3
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-macos-arm64\" dist/ddc"

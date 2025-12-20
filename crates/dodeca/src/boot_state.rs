@@ -11,12 +11,11 @@ use tokio::sync::watch;
 #[derive(Clone, Debug)]
 pub enum BootState {
     /// Server is booting - cells loading, revision building
-    Booting { since: Instant, phase: BootPhase },
+    Booting { phase: BootPhase },
     /// Server is ready to handle requests
-    Ready { since: Instant, generation: u64 },
+    Ready { generation: u64 },
     /// Fatal startup error - server will serve HTTP 500s
     Fatal {
-        since: Instant,
         error_kind: ErrorKind,
         message: String,
     },
@@ -29,8 +28,6 @@ pub enum BootPhase {
     LoadingCells,
     /// Waiting for cells to become ready
     WaitingCellsReady,
-    /// Building initial revision
-    BuildingRevision,
 }
 
 /// Error kind for fatal boot failures
@@ -40,52 +37,26 @@ pub enum ErrorKind {
     MissingCell,
     /// Cell failed to start or communicate
     CellStartupFailed,
-    /// Initial revision build failed
-    RevisionBuildFailed,
 }
 
 impl BootState {
     /// Create initial booting state
     pub fn booting() -> Self {
         Self::Booting {
-            since: Instant::now(),
             phase: BootPhase::LoadingCells,
         }
     }
 
     /// Transition to ready state
     pub fn ready(generation: u64) -> Self {
-        Self::Ready {
-            since: Instant::now(),
-            generation,
-        }
+        Self::Ready { generation }
     }
 
     /// Transition to fatal error state
     pub fn fatal(error_kind: ErrorKind, message: impl Into<String>) -> Self {
         Self::Fatal {
-            since: Instant::now(),
             error_kind,
             message: message.into(),
-        }
-    }
-
-    /// Check if the server is ready
-    pub fn is_ready(&self) -> bool {
-        matches!(self, Self::Ready { .. })
-    }
-
-    /// Check if the server has a fatal error
-    pub fn is_fatal(&self) -> bool {
-        matches!(self, Self::Fatal { .. })
-    }
-
-    /// Get elapsed time since this state was entered
-    pub fn elapsed(&self) -> std::time::Duration {
-        match self {
-            Self::Booting { since, .. } | Self::Ready { since, .. } | Self::Fatal { since, .. } => {
-                since.elapsed()
-            }
         }
     }
 }
@@ -118,10 +89,7 @@ impl BootStateManager {
             phase = ?phase,
             "Boot phase transition"
         );
-        let _ = self.tx.send(BootState::Booting {
-            since: Instant::now(),
-            phase,
-        });
+        let _ = self.tx.send(BootState::Booting { phase });
     }
 
     /// Mark the server as ready
@@ -142,11 +110,6 @@ impl BootStateManager {
             "Boot failed fatally"
         );
         let _ = self.tx.send(BootState::fatal(error_kind, message));
-    }
-
-    /// Get the current boot state
-    pub fn current(&self) -> BootState {
-        self.rx.borrow().clone()
     }
 }
 

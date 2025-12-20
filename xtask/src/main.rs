@@ -358,13 +358,59 @@ fn install_dev() -> bool {
 fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
     use std::env;
 
-    // Always use release mode for integration tests
-    let release = true;
-    let target_dir = PathBuf::from("target/release");
+    // Determine which profile to use for integration tests.
+    // Priority:
+    // 1. DODECA_INTEGRATION_PROFILE env var (for explicit CI control)
+    // 2. Auto-detect from xtask's own build profile
+    // 3. Default to release
+    let release = if let Ok(profile) = env::var("DODECA_INTEGRATION_PROFILE") {
+        match profile.as_str() {
+            "debug" | "dev" => {
+                eprintln!(
+                    "Using debug profile (DODECA_INTEGRATION_PROFILE={})",
+                    profile
+                );
+                false
+            }
+            "release" => {
+                eprintln!(
+                    "Using release profile (DODECA_INTEGRATION_PROFILE={})",
+                    profile
+                );
+                true
+            }
+            _ => {
+                eprintln!(
+                    "{}: invalid DODECA_INTEGRATION_PROFILE={}, expected 'debug' or 'release'",
+                    "warning".yellow().bold(),
+                    profile
+                );
+                true
+            }
+        }
+    } else if cfg!(debug_assertions) {
+        // xtask itself was built in debug mode, so look for debug integration-tests
+        eprintln!("Auto-detected debug profile (xtask built with debug_assertions)");
+        false
+    } else {
+        // xtask was built in release mode
+        eprintln!("Auto-detected release profile");
+        true
+    };
+
+    let target_dir = if release {
+        PathBuf::from("target/release")
+    } else {
+        PathBuf::from("target/debug")
+    };
     let integration_bin = target_dir.join("integration-tests");
 
     if !no_build {
-        eprintln!("Building release binaries for integration tests...");
+        let profile_name = if release { "release" } else { "debug" };
+        eprintln!(
+            "Building {} binaries for integration tests...",
+            profile_name
+        );
         // build_all builds everything: WASM, dodeca, all cells, and integration-tests
         if !build_all(release) {
             return false;
@@ -383,7 +429,12 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
                     "error".red().bold(),
                     integration_bin.display()
                 );
-                eprintln!("Rebuild it with: cargo build --release -p integration-tests");
+                let build_cmd = if release {
+                    "cargo build --release -p integration-tests"
+                } else {
+                    "cargo build -p integration-tests"
+                };
+                eprintln!("Rebuild it with: {}", build_cmd);
                 return false;
             }
         };
@@ -406,7 +457,12 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
                         "error".red().bold(),
                         src
                     );
-                    eprintln!("Rebuild it with: cargo build --release -p integration-tests");
+                    let build_cmd = if release {
+                        "cargo build --release -p integration-tests"
+                    } else {
+                        "cargo build -p integration-tests"
+                    };
+                    eprintln!("Rebuild it with: {}", build_cmd);
                     return false;
                 }
             }

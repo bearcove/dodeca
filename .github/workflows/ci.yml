@@ -249,6 +249,9 @@ jobs:
           base: /home/amos/.cache
 
       - 
+        name: Build integration-tests
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness build -p integration-tests
+      - 
         name: Download ddc
         uses: actions/download-artifact@v4
         with: 
@@ -489,6 +492,9 @@ jobs:
           key: ${{ runner.os }}-cargo-integration-macos-arm64
           base: /Users/amos/.cache
 
+      - 
+        name: Build integration-tests
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness build -p integration-tests
       - 
         name: Download ddc
         uses: actions/download-artifact@v4

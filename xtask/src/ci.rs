@@ -1245,6 +1245,14 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                     } else {
                         rust_cache_with_targets(platform, false)
                     },
+                    // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
+                    Step::run(
+                        "Build integration-tests",
+                        format!(
+                            "cargo {} build -p integration-tests",
+                            CiPlatform::CARGO_NIGHTLY_FLAGS
+                        ),
+                    ),
                     Step::uses("Download ddc", platform.download_artifact_action())
                         .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
                     Step::uses("Download cells", platform.download_artifact_action()).with_inputs(
@@ -1592,6 +1600,14 @@ pub fn build_forgejo_workflow() -> Workflow {
                     checkout(platform),
                     install_rust(platform),
                     ctree_cache_restore(&format!("integration-{short}"), cache_base),
+                    // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
+                    Step::run(
+                        "Build integration-tests",
+                        format!(
+                            "cargo {} build -p integration-tests",
+                            CiPlatform::CARGO_NIGHTLY_FLAGS
+                        ),
+                    ),
                     // Download ddc from S3 (CAS)
                     Step::run(
                         "Download ddc from S3",
