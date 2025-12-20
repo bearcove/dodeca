@@ -79,7 +79,7 @@ jobs:
 
       - 
         name: Install wasm-pack
-        run: ""
+        run: "true"
       - 
         name: Build WASM
         run: cargo xtask wasm
