@@ -1523,15 +1523,15 @@ pub fn build_forgejo_workflow() -> Workflow {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            // Upload cell binaries to CAS with pointer files (in parallel)
-            let mut upload_commands: Vec<String> = Vec::new();
-            for (_, bin) in cells {
-                upload_commands.push(format!(
-                    r#"./scripts/cas-upload.ts "target/release/{bin}" "ci/{run_id}/cells-{short}/{bin}" &"#
-                ));
-            }
-            upload_commands.push("wait".to_string());
-            let upload_script = upload_commands.join("\n");
+            // Upload cell binaries to CAS with pointer files (batch upload)
+            let binary_list: String = cells
+                .iter()
+                .map(|(_, bin)| format!("target/release/{bin}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            let upload_script = format!(
+                r#"./scripts/cas-upload-batch.sh "ci/{run_id}/cells-{short}" {binary_list}"#
+            );
 
             jobs.insert(
                 group_job_id.clone(),
@@ -1586,24 +1586,25 @@ pub fn build_forgejo_workflow() -> Workflow {
                     // Download ddc from S3 (CAS)
                     Step::run(
                         "Download ddc from S3",
-                        format!(
-                            r#"./scripts/cas-download.ts "ci/{run_id}/ddc-{short}" dist/ddc"#
-                        ),
+                        format!(r#"./scripts/cas-download.ts "ci/{run_id}/ddc-{short}" dist/ddc"#),
                     ),
-                    // Download cells from S3 (CAS)
+                    // Download cells from S3 (CAS) - batch download for parallelism
                     Step::run(
                         "Download cells from S3",
                         format!(
-                            r#"./scripts/cas-download.ts --prefix "ci/{run_id}/cells-{short}" dist/"#
+                            r#"./scripts/cas-download-batch.sh "ci/{run_id}/cells-{short}" dist/"#
                         ),
                     ),
                     Step::run("List binaries", "ls -la dist/"),
                     Step::run("Verify artifacts", verify_artifacts_script()),
-                    Step::run("Run integration tests", "cargo xtask integration --no-build")
-                        .with_env([
-                            ("DODECA_BIN", format!("{}/dist/ddc", workspace_var)),
-                            ("DODECA_CELL_PATH", format!("{}/dist", workspace_var)),
-                        ]),
+                    Step::run(
+                        "Run integration tests",
+                        "cargo xtask integration --no-build",
+                    )
+                    .with_env([
+                        ("DODECA_BIN", format!("{}/dist/ddc", workspace_var)),
+                        ("DODECA_CELL_PATH", format!("{}/dist", workspace_var)),
+                    ]),
                     ctree_cache_save(&format!("integration-{short}"), cache_base),
                 ]),
         );
@@ -1628,11 +1629,11 @@ pub fn build_forgejo_workflow() -> Workflow {
                             r#"./scripts/cas-download.ts "ci/{run_id}/ddc-{short}" target/release/ddc"#
                         ),
                     ),
-                    // Download cells from S3 (CAS)
+                    // Download cells from S3 (CAS) - batch download for parallelism
                     Step::run(
                         "Download cells from S3",
                         format!(
-                            r#"./scripts/cas-download.ts --prefix "ci/{run_id}/cells-{short}" target/release/"#
+                            r#"./scripts/cas-download-batch.sh "ci/{run_id}/cells-{short}" target/release/"#
                         ),
                     ),
                     // Download WASM from S3 (CAS)
