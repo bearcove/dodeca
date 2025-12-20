@@ -806,43 +806,50 @@ pub mod common {
         Step::run(
             "Restore cache (ctree)",
             format!(
-                r#"# Backdate entire source tree to prevent mtime-based cache invalidation.
-# Fresh checkout creates files with mtime=NOW, but cached artifacts have old mtimes.
-# Cargo's build script outputs still use mtime checks (not affected by -Z checksum-freshness).
-# Build scripts can read ANY file (*.proto, *.c, *.md, etc.), so we must backdate everything.
-if [ -d "{cache_dir}" ]; then
-  echo "Backdating entire source tree to prevent cache invalidation..."
-
-  # Simple approach: backdate everything to a fixed old date (7 days ago)
-  # This is more reliable than trying to determine cache baseline time
-  if date -v-7d +%Y%m%d%H%M.%S >/dev/null 2>&1; then
-    # macOS
-    TOUCH_TIME=$(date -v-7d +%Y%m%d%H%M.%S)
-    echo "Using macOS date format: $TOUCH_TIME"
-  else
-    # Linux
-    TOUCH_TIME=$(date -d '7 days ago' +%Y%m%d%H%M.%S)
-    echo "Using Linux date format: $TOUCH_TIME"
-  fi
-
-  echo "Backdating all source files to $TOUCH_TIME..."
-  if ! find . -path ./target -prune -o -path ./.git -prune -o -type f -exec touch -t "$TOUCH_TIME" {{}} \; ; then
-    echo "ERROR: Failed to backdate source files"
-    exit 1
-  fi
-  echo "Backdating complete"
-fi
-if [ -d "{cache_dir}" ]; then
+                r#"if [ -d "{cache_dir}" ]; then
+  echo "Restoring cache from {cache_dir}..."
   rm -rf target 2>/dev/null || true
   ctree "{cache_dir}" target && echo "Cache restored via ctree from {cache_dir}" || echo "ctree failed, starting fresh"
   du -sh target 2>/dev/null || true
   echo "=== Cache contents after restore ==="
   tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+
   # CMake build directories are not relocatable - they contain absolute paths.
   # Nuke them to force a fresh CMake configure on path changes.
   find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
   find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {{}} + 2>/dev/null || true
   echo "Cleaned CMake caches (non-relocatable)"
+
+  # Backdate entire source tree to prevent mtime-based cache invalidation.
+  # Fresh checkout creates files with mtime=NOW, but cached artifacts have old mtimes.
+  # Cargo's build script outputs use mtime checks (not affected by -Z checksum-freshness).
+  # Build scripts can read ANY file, so backdate everything to be older than cache.
+  echo "Backdating source tree to prevent cache invalidation..."
+
+  # Find oldest file in restored cache (use stat for cross-platform compatibility)
+  if [ "$(uname)" = "Darwin" ]; then
+    # macOS: stat -f %m
+    OLDEST_TIME=$(find target -type f -exec stat -f %m {{}} \; 2>/dev/null | sort -n | head -1)
+  else
+    # Linux: stat -c %Y
+    OLDEST_TIME=$(find target -type f -exec stat -c %Y {{}} \; 2>/dev/null | sort -n | head -1)
+  fi
+
+  if [ -n "$OLDEST_TIME" ]; then
+    # Backdate to 1 day (86400s) before oldest cache file
+    TARGET_TIME=$((OLDEST_TIME - 86400))
+    echo "Oldest cache file: $(date -r $OLDEST_TIME 2>/dev/null || date -d @$OLDEST_TIME 2>/dev/null)"
+    echo "Backdating sources to: $(date -r $TARGET_TIME 2>/dev/null || date -d @$TARGET_TIME 2>/dev/null)"
+
+    # Touch all source files (exclude .git and target)
+    if ! find . -path ./target -prune -o -path ./.git -prune -o -type f -exec touch -t $(date -r $TARGET_TIME +%Y%m%d%H%M.%S 2>/dev/null || date -d @$TARGET_TIME +%Y%m%d%H%M.%S 2>/dev/null) {{}} \; ; then
+      echo "ERROR: Failed to backdate source files"
+      exit 1
+    fi
+    echo "Backdating complete"
+  else
+    echo "WARNING: Could not find cache baseline, skipping backdate"
+  fi
 else
   echo "No cache found at {cache_dir}"
 fi"#

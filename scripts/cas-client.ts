@@ -153,8 +153,10 @@ export class CasClient {
     if (!exists) {
       // Upload directly to final location
       // Race condition is fine - content-addressed means identical bytes
+      // Use --mkpath to create parent directories (rsync 3.2.3+)
       const uploadResult = await this.rsync([
         "-a",
+        "--mkpath",
         "--chmod=Fu=rw,Fgo=r",
         filePath,
         `${CAS_HOST}:${finalPath}`,
