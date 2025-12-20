@@ -177,6 +177,7 @@ fn create_http_cell_dispatcher(
 /// If `shutdown_rx` is provided, the server will stop when the signal is received.
 ///
 /// The `bind_ips` parameter specifies which IP addresses to bind to.
+#[allow(clippy::too_many_arguments)]
 pub async fn start_cell_server_with_shutdown(
     server: Arc<SiteServer>,
     _cell_path: std::path::PathBuf, // No longer used - cells loaded via hub

@@ -1793,6 +1793,7 @@ async fn start_file_watcher(
 }
 
 /// Plain serve mode (no TUI) - serves directly from picante
+#[allow(clippy::too_many_arguments)]
 async fn serve_plain(
     content_dir: &Utf8PathBuf,
     address: &str,
