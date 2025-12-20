@@ -174,18 +174,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "facet-assert"
-version = "0.32.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3d15c7fa78a26183d640d49e15b678b69648c6418db427084b17d6ff2c584ed0"
-dependencies = [
- "facet-core",
- "facet-diff",
- "facet-diff-core",
- "facet-reflect",
-]
-
-[[package]]
 name = "facet-core"
 version = "0.32.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -663,7 +651,7 @@ dependencies = [
  "dashmap",
  "divan",
  "facet",
- "facet-assert",
+ "facet-diff",
  "facet-postcard",
  "futures",
  "im",
