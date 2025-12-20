@@ -920,6 +920,9 @@ fn render_object_stmt(
                 BoolProperty::Thick => style.stroke_width = style.stroke_width * 1.5,
                 BoolProperty::Thin => style.stroke_width = style.stroke_width * 0.67,
                 BoolProperty::Solid => {
+                    // cref: pikchr.y:693,696 - invis sets sw to negative, solid resets to positive
+                    // This effectively clears invisibility when solid is applied
+                    style.invisible = false;
                     style.stroke_width = ctx
                         .variables
                         .get("thickness")
