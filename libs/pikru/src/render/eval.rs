@@ -497,16 +497,17 @@ fn endpoint_object_from_place(ctx: &RenderContext, place: &Place) -> Option<Endp
         | Place::Vertex(_, obj) => {
             // cref: pik_position_from_place (pikchr.c)
             // When referencing objects inside sublists (dotted names like Ptr.A),
-            // C pikchr does NOT set pFrom/pTo for autochop. Only direct object
-            // references at the current level trigger autochop.
+            // C pikchr does NOT trigger implicit autochop (both endpoints present).
+            // However, explicit `chop` attribute DOES work for dotted names.
+            // We mark dotted names so the autochop logic can differentiate.
             if let Object::Named(name) = obj {
                 if !name.path.is_empty() {
-                    // Object is inside a sublist (e.g., Ptr.A) - no autochop
+                    // Object is inside a sublist (e.g., Ptr.A) - mark as dotted name
                     tracing::debug!(
                         ?name,
-                        "endpoint_object_from_place: skipping dotted name for autochop"
+                        "endpoint_object_from_place: dotted name (explicit chop works, implicit autochop disabled)"
                     );
-                    return None;
+                    return resolve_object(ctx, obj).map(EndpointObject::from_rendered_dotted);
                 }
             }
             resolve_object(ctx, obj).map(EndpointObject::from_rendered)

@@ -290,6 +290,11 @@ pub struct EndpointObject {
     pub width: Inches,
     pub height: Inches,
     pub corner_radius: Inches,
+    /// True if this object is inside a sublist (dotted name like Ptr.A)
+    /// C pikchr does NOT trigger implicit autochop for dotted names,
+    /// but explicit `chop` attribute still works.
+    /// cref: pik_position_from_place (pikchr.c) - doesn't set ppObj for dotted names
+    pub is_dotted_name: bool,
 }
 
 impl EndpointObject {
@@ -300,6 +305,19 @@ impl EndpointObject {
             width: obj.shape.width(),
             height: obj.shape.height(),
             corner_radius: obj.shape.style().corner_radius,
+            is_dotted_name: false,
+        }
+    }
+
+    /// Create from rendered object, marking it as a dotted name (object inside sublist)
+    pub fn from_rendered_dotted(obj: &RenderedObject) -> Self {
+        Self {
+            class: obj.shape.class(),
+            center: obj.shape.center(),
+            width: obj.shape.width(),
+            height: obj.shape.height(),
+            corner_radius: obj.shape.style().corner_radius,
+            is_dotted_name: true,
         }
     }
 }

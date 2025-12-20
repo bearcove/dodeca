@@ -2094,8 +2094,18 @@ fn render_object_stmt(
         class,
         ClassName::Line | ClassName::Arrow | ClassName::Spline
     );
-    let should_chop = style.chop
-        || (from_attachment.is_some() && to_attachment.is_some());
+    // Implicit autochop: triggered when BOTH endpoints are objects AND neither is a dotted name
+    // cref: pik_position_from_place (pikchr.c) - doesn't set ppObj for dotted names
+    // Explicit chop: always allowed via style.chop, even for dotted names
+    let implicit_autochop = from_attachment
+        .as_ref()
+        .map(|a| !a.is_dotted_name)
+        .unwrap_or(false)
+        && to_attachment
+            .as_ref()
+            .map(|a| !a.is_dotted_name)
+            .unwrap_or(false);
+    let should_chop = style.chop || implicit_autochop;
 
     if is_line_like && should_chop && waypoints.len() >= 2 {
         use geometry::autochop_inches;
