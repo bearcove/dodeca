@@ -139,7 +139,7 @@ echo "Creating archive: $ARCHIVE_NAME"
 if [[ "$ARCHIVE_EXT" == "zip" ]]; then
     cd staging && 7z a -tzip "../${ARCHIVE_NAME}" .
 else
-    tar -c -I 'xz -T0 -1' -f "${ARCHIVE_NAME}" -C staging .
+    tar -c -f - -C staging . | xz -T0 -1 > "${ARCHIVE_NAME}"
 fi
 
 # Cleanup

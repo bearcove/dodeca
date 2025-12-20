@@ -733,10 +733,7 @@ pub fn build_ci_workflow() -> Workflow {
                         ("name", wasm_artifact.clone()),
                         ("path", "crates/dodeca-devtools/pkg".into()),
                     ]),
-                    Step::run(
-                        "Prepare binaries",
-                        "chmod +x dist/ddc dist/ddc-acceptor dist/ddc-cell-* && ls -la dist/",
-                    ),
+                    Step::run("Prepare binaries", "chmod +x dist/ddc* && ls -la dist/"),
                     Step::run(
                         "Run integration tests",
                         "cargo xtask integration --no-build",
