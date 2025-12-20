@@ -81,7 +81,7 @@ jobs:
         run: cargo xtask wasm
       - 
         name: Upload WASM to S3
-        run: "tar -czf /tmp/wasm.tar.gz -C crates/dodeca-devtools pkg\naws s3 --endpoint-url \"$S3_ENDPOINT\" cp /tmp/wasm.tar.gz \"s3://${S3_BUCKET}/ci/${{ github.run_id }}/wasm.tar.gz\" echo \"Uploaded WASM bundle to S3\""
+        run: "tar -czf /tmp/wasm.tar.gz -C crates/dodeca-devtools pkg\naws s3 --endpoint-url \"$S3_ENDPOINT\" cp /tmp/wasm.tar.gz \"s3://${S3_BUCKET}/ci/${{ github.run_id }}/wasm.tar.gz\"\necho \"Uploaded WASM bundle to S3\""
       - 
         name: Save cache (ctree)
         run: "mkdir -p \"$(dirname \"/home/amos/.cache/dodeca-ci/wasm\")\"\nrm -rf \"/home/amos/.cache/dodeca-ci/wasm\" 2>/dev/null || true\nctree target \"/home/amos/.cache/dodeca-ci/wasm\" && echo \"Cache saved via ctree to /home/amos/.cache/dodeca-ci/wasm\" || echo \"ctree save failed (non-fatal)\""
@@ -116,7 +116,7 @@ jobs:
         run: cargo test --release -p dodeca --bins
       - 
         name: Upload ddc to S3
-        run: "aws s3 --endpoint-url \"$S3_ENDPOINT\" cp target/release/ddc \"s3://${S3_BUCKET}/ci/${{ github.run_id }}/ddc-linux-x64\" echo \"Uploaded ddc to S3\""
+        run: "aws s3 --endpoint-url \"$S3_ENDPOINT\" cp target/release/ddc \"s3://${S3_BUCKET}/ci/${{ github.run_id }}/ddc-linux-x64\"\necho \"Uploaded ddc to S3\""
       - 
         name: Save cache (ctree)
         run: "mkdir -p \"$(dirname \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\")\"\nrm -rf \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" 2>/dev/null || true\nctree target \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" && echo \"Cache saved via ctree to /home/amos/.cache/dodeca-ci/ddc-linux-x64\" || echo \"ctree save failed (non-fatal)\""
@@ -281,7 +281,7 @@ jobs:
         run: bash scripts/assemble-archive.sh x86_64-unknown-linux-gnu
       - 
         name: Upload archive to S3
-        run: "aws s3 --endpoint-url \"$S3_ENDPOINT\" cp \"dodeca-x86_64-unknown-linux-gnu.tar.xz\" \"s3://${S3_BUCKET}/ci/${{ github.run_id }}/dodeca-x86_64-unknown-linux-gnu.tar.xz\" echo \"Uploaded final archive to S3\""
+        run: "aws s3 --endpoint-url \"$S3_ENDPOINT\" cp \"dodeca-x86_64-unknown-linux-gnu.tar.xz\" \"s3://${S3_BUCKET}/ci/${{ github.run_id }}/dodeca-x86_64-unknown-linux-gnu.tar.xz\"\necho \"Uploaded final archive to S3\""
 
   build-ddc-macos-arm64: 
     name: Build ddc (macos-arm64)
@@ -313,7 +313,7 @@ jobs:
         run: cargo test --release -p dodeca --bins
       - 
         name: Upload ddc to S3
-        run: "aws s3 --endpoint-url \"$S3_ENDPOINT\" cp target/release/ddc \"s3://${S3_BUCKET}/ci/${{ github.run_id }}/ddc-macos-arm64\" echo \"Uploaded ddc to S3\""
+        run: "aws s3 --endpoint-url \"$S3_ENDPOINT\" cp target/release/ddc \"s3://${S3_BUCKET}/ci/${{ github.run_id }}/ddc-macos-arm64\"\necho \"Uploaded ddc to S3\""
       - 
         name: Save cache (ctree)
         run: "mkdir -p \"$(dirname \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\")\"\nrm -rf \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" 2>/dev/null || true\nctree target \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" && echo \"Cache saved via ctree to /Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" || echo \"ctree save failed (non-fatal)\""
@@ -478,7 +478,7 @@ jobs:
         run: bash scripts/assemble-archive.sh aarch64-apple-darwin
       - 
         name: Upload archive to S3
-        run: "aws s3 --endpoint-url \"$S3_ENDPOINT\" cp \"dodeca-aarch64-apple-darwin.tar.xz\" \"s3://${S3_BUCKET}/ci/${{ github.run_id }}/dodeca-aarch64-apple-darwin.tar.xz\" echo \"Uploaded final archive to S3\""
+        run: "aws s3 --endpoint-url \"$S3_ENDPOINT\" cp \"dodeca-aarch64-apple-darwin.tar.xz\" \"s3://${S3_BUCKET}/ci/${{ github.run_id }}/dodeca-aarch64-apple-darwin.tar.xz\"\necho \"Uploaded final archive to S3\""
 
   release: 
     name: Release

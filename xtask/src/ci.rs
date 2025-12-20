@@ -812,7 +812,8 @@ ctree target "{cache_dir}" && echo "Cache saved via ctree to {cache_dir}" || ech
         Step::run(
             format!("Upload {} to S3", name),
             format!(
-                r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "{path}" "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{name}" echo "Uploaded {name} to S3""#,
+                r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "{path}" "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{name}"
+echo "Uploaded {name} to S3""#,
                 run_id = run_id_var
             ),
         )
@@ -845,7 +846,8 @@ ctree target "{cache_dir}" && echo "Cache saved via ctree to {cache_dir}" || ech
             format!("Download {} from S3", name),
             format!(
                 r#"mkdir -p "$(dirname "{dest_path}")"
-aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{name}" "{dest_path}" echo "Downloaded {name} from S3""#,
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{name}" "{dest_path}"
+echo "Downloaded {name} from S3""#,
                 run_id = run_id_var
             ),
         )
@@ -857,7 +859,8 @@ aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{na
             format!("Download {} from S3", prefix),
             format!(
                 r#"mkdir -p "{dest_dir}"
-aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{prefix}/" "{dest_dir}/" --recursive echo "Downloaded {prefix} from S3 to {dest_dir}""#,
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{{{S3_BUCKET}}}}/ci/{run_id}/{prefix}/" "{dest_dir}/" --recursive
+echo "Downloaded {prefix} from S3 to {dest_dir}""#,
                 run_id = run_id_var
             ),
         )
@@ -1364,7 +1367,8 @@ pub fn build_forgejo_workflow() -> Workflow {
                     "Upload WASM to S3",
                     format!(
                         r#"tar -czf /tmp/wasm.tar.gz -C crates/dodeca-devtools pkg
-aws s3 --endpoint-url "$S3_ENDPOINT" cp /tmp/wasm.tar.gz "s3://${{S3_BUCKET}}/ci/{run_id}/wasm.tar.gz" echo "Uploaded WASM bundle to S3""#
+aws s3 --endpoint-url "$S3_ENDPOINT" cp /tmp/wasm.tar.gz "s3://${{S3_BUCKET}}/ci/{run_id}/wasm.tar.gz"
+echo "Uploaded WASM bundle to S3""#
                     ),
                 ),
                 ctree_cache_save("wasm", "/home/amos/.cache"),
@@ -1395,7 +1399,8 @@ aws s3 --endpoint-url "$S3_ENDPOINT" cp /tmp/wasm.tar.gz "s3://${{S3_BUCKET}}/ci
                     Step::run(
                         "Upload ddc to S3",
                         format!(
-                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp target/release/ddc "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" echo "Uploaded ddc to S3""#
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp target/release/ddc "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}"
+echo "Uploaded ddc to S3""#
                         ),
                     ),
                     ctree_cache_save(&format!("ddc-{short}"), cache_base),
@@ -1554,7 +1559,8 @@ tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"#
                     Step::run(
                         "Upload archive to S3",
                         format!(
-                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "dodeca-{triple}.{ext}" "s3://${{S3_BUCKET}}/ci/{run_id}/dodeca-{triple}.{ext}" echo "Uploaded final archive to S3""#,
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "dodeca-{triple}.{ext}" "s3://${{S3_BUCKET}}/ci/{run_id}/dodeca-{triple}.{ext}"
+echo "Uploaded final archive to S3""#,
                             triple = target.triple,
                             ext = target.archive_ext
                         ),

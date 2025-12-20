@@ -1805,10 +1805,11 @@ async fn serve_plain(
     let pre_bound_listener = if let Some(ref socket_path) = fd_socket {
         use async_send_fd::AsyncRecvFd;
         use std::os::unix::io::FromRawFd;
+        use tokio::io::AsyncWriteExt;
         use tokio::net::UnixStream;
 
         tracing::info!("Connecting to Unix socket for FD passing: {}", socket_path);
-        let unix_stream = UnixStream::connect(socket_path)
+        let mut unix_stream = UnixStream::connect(socket_path)
             .await
             .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", socket_path, e))?;
 
@@ -1828,6 +1829,14 @@ async fn serve_plain(
             .map_err(|e| eyre!("Failed to set listener to non-blocking: {}", e))?;
 
         tracing::info!("Successfully received TCP listener FD");
+
+        // Ack FD receipt to the harness. This avoids any OS-specific edge cases where the
+        // harness closing its copy "immediately after send_fd returns" could still lead to
+        // transient flakiness for the first connection (observed on macOS).
+        unix_stream
+            .write_all(&[0xAC])
+            .await
+            .map_err(|e| eyre!("Failed to send FD ack: {}", e))?;
         Some(std_listener)
     } else {
         None

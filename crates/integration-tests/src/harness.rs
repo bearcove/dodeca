@@ -282,6 +282,8 @@ impl TestSite {
         let child_id = child.id();
         let logs_for_fd = Arc::clone(&logs);
         rt.block_on(async {
+            use tokio::io::AsyncReadExt;
+
             push_log(
                 &logs_for_fd,
                 log_start,
@@ -290,7 +292,7 @@ impl TestSite {
             let accept_future = unix_listener.accept();
             let timeout_duration = tokio::time::Duration::from_secs(5);
 
-            let (unix_stream, _) = tokio::time::timeout(timeout_duration, accept_future)
+            let (mut unix_stream, _) = tokio::time::timeout(timeout_duration, accept_future)
                 .await
                 .unwrap_or_else(|_| {
                     panic!(
@@ -311,6 +313,34 @@ impl TestSite {
                 "[harness] sent TCP listener FD to server",
             );
             debug!("Sent TCP listener FD to server");
+
+            // FD passing ack:
+            //
+            // The server must confirm it has received and adopted the listening FD before the
+            // harness closes its copy. This eliminates OS-specific edge cases (notably on macOS)
+            // where closing too early can lead to transient ECONNRESET/ECONNREFUSED for the very
+            // first test request.
+            let mut ack_buf = [0u8; 1];
+            tokio::time::timeout(timeout_duration, unix_stream.read_exact(&mut ack_buf))
+                .await
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "Timeout waiting for server (PID {}) to ack FD receipt within 5s",
+                        child_id
+                    )
+                })
+                .expect("Failed to read FD ack from server");
+            if ack_buf != [0xAC] {
+                panic!(
+                    "Unexpected FD ack byte from server (PID {}): got 0x{:02x}, expected 0xAC",
+                    child_id, ack_buf[0]
+                );
+            }
+            push_log(
+                &logs_for_fd,
+                log_start,
+                "[harness] server acked listener FD",
+            );
 
             // FD passing via SCM_RIGHTS duplicates the FD in the receiver; the sender
             // does not need to keep it open. This prevents confusion from two processes
