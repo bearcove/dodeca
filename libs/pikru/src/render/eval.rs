@@ -77,10 +77,14 @@ fn get_nth_vertex(obj: &RenderedObject, nth: &Nth) -> PointIn {
 pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Report> {
     match expr {
         Expr::Number(n) => {
-            // Validate user-provided numbers at entry point
-            let len = Inches::try_new(*n)
-                .map_err(|e| miette::miette!("Invalid numeric literal: {}", e))?;
-            Ok(Value::Len(len))
+            // cref: pik_expr (pikchr.c) - bare numbers are unitless scalars
+            // When used in length contexts (assignments to boxwid, etc.), they're
+            // interpreted as inches. But in expressions like "2*dw", the 2 is a scalar
+            // multiplier, so Scalar * Length = Length works correctly.
+            if !n.is_finite() {
+                return Err(miette::miette!("Invalid numeric literal: not finite"));
+            }
+            Ok(Value::Scalar(*n))
         }
         Expr::Variable(name) => {
             // cref: pik_get_var (pikchr.c:6625) - falls back to color lookup
@@ -490,7 +494,23 @@ fn endpoint_object_from_place(ctx: &RenderContext, place: &Place) -> Option<Endp
         Place::Object(obj)
         | Place::ObjectEdge(obj, _)
         | Place::EdgePointOf(_, obj)
-        | Place::Vertex(_, obj) => resolve_object(ctx, obj).map(EndpointObject::from_rendered),
+        | Place::Vertex(_, obj) => {
+            // cref: pik_position_from_place (pikchr.c)
+            // When referencing objects inside sublists (dotted names like Ptr.A),
+            // C pikchr does NOT set pFrom/pTo for autochop. Only direct object
+            // references at the current level trigger autochop.
+            if let Object::Named(name) = obj {
+                if !name.path.is_empty() {
+                    // Object is inside a sublist (e.g., Ptr.A) - no autochop
+                    tracing::debug!(
+                        ?name,
+                        "endpoint_object_from_place: skipping dotted name for autochop"
+                    );
+                    return None;
+                }
+            }
+            resolve_object(ctx, obj).map(EndpointObject::from_rendered)
+        }
     }
 }
 
@@ -590,6 +610,16 @@ fn resolve_path_in_object<'a>(
     let child = children
         .iter()
         .find(|child| child.name.as_deref() == Some(next_name.as_str()))?;
+
+    tracing::debug!(
+        parent_name = ?obj.name,
+        child_name = next_name,
+        child_center_x = child.center().x.raw(),
+        child_center_y = child.center().y.raw(),
+        child_start_x = child.start().x.raw(),
+        child_start_y = child.start().y.raw(),
+        "resolve_path_in_object: found child"
+    );
 
     resolve_path_in_object(child, remaining)
 }
@@ -696,11 +726,15 @@ pub fn eval_color(ctx: &RenderContext, rvalue: &RValue) -> String {
 }
 
 /// Helper to extract a length from an EvalValue, with fallback
+/// Accepts both Length and Scalar values - scalars are interpreted as inches
 pub fn get_length(ctx: &RenderContext, name: &str, default: f64) -> f64 {
     ctx.variables
         .get(name)
-        .and_then(|v| v.as_length())
-        .map(|l| l.raw())
+        .map(|v| match v {
+            EvalValue::Length(l) => l.raw(),
+            EvalValue::Scalar(s) => *s,
+            EvalValue::Color(_) => default,
+        })
         .unwrap_or(default)
 }
 

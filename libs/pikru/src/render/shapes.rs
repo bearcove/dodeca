@@ -180,7 +180,16 @@ pub trait Shape {
     /// Translate this shape by an offset
     fn translate(&mut self, offset: OffsetIn);
 
-    /// Expand a bounding box to include this shape
+    /// Expand a bounding box to include this shape's "core" bounds (without arrowheads).
+    /// Used for computing sublist width/height (pObj->w/h in C).
+    /// cref: pikchr.y:1757-1761 - sublist bbox computed from children's bbox (no arrowheads)
+    /// Default implementation calls expand_bounds; LineShape overrides to exclude arrowheads.
+    fn expand_core_bounds(&self, bounds: &mut BoundingBox) {
+        self.expand_bounds(bounds);
+    }
+
+    /// Expand a bounding box to include this shape (including arrowheads for lines).
+    /// Used for final SVG bounding box computation.
     /// cref: pik_bbox_add_elist (pikchr.c:7206)
     /// Default implementation for box-like shapes
     fn expand_bounds(&self, bounds: &mut BoundingBox) {
@@ -1345,8 +1354,6 @@ impl Shape for LineShape {
     /// cref: pik_bbox_add_elist (pikchr.c:7243) - only if sw>=0
     /// cref: pik_bbox_add_elist (pikchr.c:7251-7260) - arrowheads always added as ellipses
     fn expand_bounds(&self, bounds: &mut BoundingBox) {
-        let old_min_x = bounds.min.x.0;
-
         // Only expand by waypoints if stroke width is non-negative
         if self.style.stroke_width.0 >= 0.0 {
             for pt in &self.waypoints {
@@ -1372,13 +1379,6 @@ impl Shape for LineShape {
             }
         }
 
-        tracing::debug!(
-            old_min_x,
-            new_min_x = bounds.min.x.0,
-            num_waypoints = self.waypoints.len(),
-            sw = self.style.stroke_width.0,
-            "[BBOX Line]"
-        );
 
         // Include text labels with full horizontal and vertical extent
         // cref: pik_append_txt (pikchr.c:5169-5218) - text bbox expansion with justification
@@ -1477,6 +1477,20 @@ impl Shape for LineShape {
                 bounds.expand_point(Point::new(center.x + rx1, center.y + ry1));
             }
         }
+    }
+
+    /// Expand bounds WITHOUT arrowheads - used for computing sublist width/height
+    /// cref: pikchr.y:1757-1761 - sublist bbox uses children's pObj->bbox (no arrowheads)
+    /// cref: pikchr.y:4527 - pik_bbox_addbox adds pObj->bbox not arrowhead ellipses
+    fn expand_core_bounds(&self, bounds: &mut BoundingBox) {
+        // Only expand by waypoints if stroke width is non-negative
+        if self.style.stroke_width.0 >= 0.0 {
+            for pt in &self.waypoints {
+                bounds.expand_point(*pt);
+            }
+        }
+        // NOTE: Arrowhead expansion is intentionally omitted here
+        // It gets added during final SVG bbox computation via expand_bounds()
     }
 }
 
@@ -1710,6 +1724,18 @@ impl Shape for SplineShape {
             bounds.expand_point(Point::new(center.x, center.y + Inches(text_above)));
             bounds.expand_point(Point::new(center.x, center.y - Inches(text_below)));
         }
+    }
+
+    /// Expand bounds WITHOUT arrowheads - used for computing sublist width/height
+    /// cref: pikchr.y:1757-1761 - sublist bbox uses children's pObj->bbox (no arrowheads)
+    fn expand_core_bounds(&self, bounds: &mut BoundingBox) {
+        // Only expand by waypoints if stroke width is non-negative
+        if self.style.stroke_width.0 >= 0.0 {
+            for pt in &self.waypoints {
+                bounds.expand_point(*pt);
+            }
+        }
+        // NOTE: Arrowhead expansion is intentionally omitted here
     }
 }
 
@@ -2135,6 +2161,36 @@ impl Shape for ArcShape {
             bounds.expand_point(Point::new(center.x, center.y - Inches(text_below)));
         }
     }
+
+    /// Expand bounds WITHOUT arrowheads - used for computing sublist width/height
+    /// cref: pikchr.y:1757-1761 - sublist bbox uses children's pObj->bbox (no arrowheads)
+    fn expand_core_bounds(&self, bounds: &mut BoundingBox) {
+        // Sample 16 points along the quadratic bezier (same as expand_bounds)
+        let f = self.start;
+        let t = self.end;
+        let mid = f.midpoint(t);
+        let dx = t.x - f.x;
+        let dy = t.y - f.y;
+        let m = if self.clockwise {
+            Point::new(mid.x - dy * 0.5, mid.y + dx * 0.5)
+        } else {
+            Point::new(mid.x + dy * 0.5, mid.y - dx * 0.5)
+        };
+
+        let sw = self.style.stroke_width;
+        for i in 1..16 {
+            let t1 = 0.0625 * i as f64;
+            let t2 = 1.0 - t1;
+            let a = t2 * t2;
+            let b = 2.0 * t1 * t2;
+            let c = t1 * t1;
+            let x = Inches(a * f.x.0 + b * m.x.0 + c * t.x.0);
+            let y = Inches(a * f.y.0 + b * m.y.0 + c * t.y.0);
+            bounds.expand_point(Point::new(x - sw, y - sw));
+            bounds.expand_point(Point::new(x + sw, y + sw));
+        }
+        // NOTE: Arrowhead expansion is intentionally omitted here
+    }
 }
 
 /// A move shape - invisible positioning, renders nothing
@@ -2285,11 +2341,20 @@ impl Shape for SublistShape {
         }
     }
 
-    /// cref: pik_bbox_add_elist (pikchr.c:7206) - sublist bbox from children
+    /// cref: pik_bbox_add_elist (pikchr.c:7206) - sublist bbox from children (with arrowheads)
     fn expand_bounds(&self, bounds: &mut BoundingBox) {
         for child in &self.children {
             let shape = &child.shape;
             shape.expand_bounds(bounds);
+        }
+    }
+
+    /// Expand bounds WITHOUT arrowheads - used for computing sublist width/height
+    /// cref: pikchr.y:1757-1761 - sublist bbox uses children's pObj->bbox (no arrowheads)
+    fn expand_core_bounds(&self, bounds: &mut BoundingBox) {
+        for child in &self.children {
+            let shape = &child.shape;
+            shape.expand_core_bounds(bounds);
         }
     }
 }

@@ -300,6 +300,13 @@ pub fn expand_object_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
     obj.shape.expand_bounds(bounds);
 }
 
+/// Expand a bounding box to include a rendered object's "core" bounds (no arrowheads).
+/// Used for computing sublist width/height.
+/// cref: pikchr.y:1757-1761 - sublist bbox from children's pObj->bbox (no arrowheads)
+fn expand_object_core_bounds(bounds: &mut BoundingBox, obj: &RenderedObject) {
+    obj.shape.expand_core_bounds(bounds);
+}
+
 /// Vertical slot assignment for text
 /// cref: pik_txt_vertical_layout (pikchr.c:4984)
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -495,10 +502,13 @@ pub fn sum_text_heights_above_below(texts: &[PositionedText], charht: f64) -> (f
 }
 
 /// Compute the bounding box of a list of rendered objects (in local coordinates)
+/// Uses "core" bounds (without arrowheads) to match C's sublist bbox computation.
+/// cref: pikchr.y:1757-1761 - sublist bbox from children's pObj->bbox (no arrowheads)
 fn compute_children_bounds(children: &[RenderedObject]) -> BoundingBox {
     let mut bounds = BoundingBox::new();
     for child in children {
-        expand_object_bounds(&mut bounds, child);
+        // Use core bounds (no arrowheads) for sublist width/height calculation
+        expand_object_core_bounds(&mut bounds, child);
     }
     bounds
 }
@@ -2319,8 +2329,82 @@ fn render_sublist(
                     }
                 }
             }
+            Statement::Assignment(assign) => {
+                // cref: pik_set_var (pikchr.c:6479-6511)
+                // Variable assignments inside sublists should be processed locally
+                let rhs_val = eval_rvalue(&ctx, &assign.rvalue)?;
+
+                let var_name = match &assign.lvalue {
+                    LValue::Variable(name) => name.clone(),
+                    LValue::Fill => "fill".to_string(),
+                    LValue::Color => "color".to_string(),
+                    LValue::Thickness => "thickness".to_string(),
+                };
+
+                let eval_val = match assign.op {
+                    AssignOp::Assign => rhs_val,
+                    AssignOp::AddAssign
+                    | AssignOp::SubAssign
+                    | AssignOp::MulAssign
+                    | AssignOp::DivAssign => {
+                        let current = ctx
+                            .variables
+                            .get(&var_name)
+                            .cloned()
+                            .unwrap_or(EvalValue::Scalar(0.0));
+
+                        match (current, rhs_val) {
+                            (EvalValue::Length(lhs), EvalValue::Scalar(rhs)) => {
+                                let result = match assign.op {
+                                    AssignOp::AddAssign => lhs + Inches(rhs),
+                                    AssignOp::SubAssign => lhs - Inches(rhs),
+                                    AssignOp::MulAssign => lhs * rhs,
+                                    AssignOp::DivAssign => lhs / rhs,
+                                    _ => unreachable!(),
+                                };
+                                EvalValue::Length(result)
+                            }
+                            (EvalValue::Scalar(lhs), EvalValue::Scalar(rhs)) => {
+                                let result = match assign.op {
+                                    AssignOp::AddAssign => lhs + rhs,
+                                    AssignOp::SubAssign => lhs - rhs,
+                                    AssignOp::MulAssign => lhs * rhs,
+                                    AssignOp::DivAssign => {
+                                        if rhs == 0.0 {
+                                            lhs
+                                        } else {
+                                            lhs / rhs
+                                        }
+                                    }
+                                    _ => unreachable!(),
+                                };
+                                EvalValue::Scalar(result)
+                            }
+                            (EvalValue::Length(lhs), EvalValue::Length(rhs)) => {
+                                let result = match assign.op {
+                                    AssignOp::AddAssign => lhs + rhs,
+                                    AssignOp::SubAssign => lhs - rhs,
+                                    AssignOp::MulAssign => lhs * rhs.raw(),
+                                    AssignOp::DivAssign => lhs / rhs.raw(),
+                                    _ => lhs,
+                                };
+                                EvalValue::Length(result)
+                            }
+                            _ => rhs_val,
+                        }
+                    }
+                };
+
+                tracing::debug!(
+                    op = ?assign.op,
+                    "Sublist: Setting variable {} to {:?}",
+                    var_name,
+                    eval_val
+                );
+                ctx.variables.insert(var_name, eval_val);
+            }
             _ => {
-                // Skip other statement types in sublists (assignments, macros, etc.)
+                // Skip other statement types in sublists (macros, etc.)
             }
         }
     }

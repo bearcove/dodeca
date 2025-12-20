@@ -154,11 +154,16 @@ impl RenderContext {
     }
 
     /// Get a length value from variables, with fallback
-    // cref: pik_value (pikchr.c:6102)
+    /// cref: pik_value (pikchr.c:6102)
+    /// Accepts both Length and Scalar values - scalars are interpreted as inches
     pub fn get_length(&self, name: &str, default: f64) -> Inches {
         self.variables
             .get(name)
-            .and_then(|v| v.as_length())
+            .map(|v| match v {
+                EvalValue::Length(l) => *l,
+                EvalValue::Scalar(s) => Inches(*s),
+                EvalValue::Color(_) => Inches(default),
+            })
             .unwrap_or(Inches(default))
     }
 
