@@ -792,6 +792,10 @@ pub mod common {
 
     /// Generate a ctree-based cache restore step.
     /// Uses reflinks for near-instant COW copies on supported filesystems.
+    ///
+    /// After restore, we nuke any CMake build directories because CMake caches
+    /// are not relocatable - they contain absolute paths that break when the
+    /// workspace path changes between CI runs.
     pub fn ctree_cache_restore(cache_name: &str, base_path: &str) -> Step {
         let cache_dir = format!("{}/dodeca-ci/{}", base_path, cache_name);
         Step::run(
@@ -800,6 +804,11 @@ pub mod common {
                 r#"if [ -d "{cache_dir}" ]; then
   rm -rf target 2>/dev/null || true
   ctree "{cache_dir}" target && echo "Cache restored via ctree from {cache_dir}" || echo "ctree failed, starting fresh"
+  # CMake build directories are not relocatable - they contain absolute paths.
+  # Nuke them to force a fresh CMake configure on path changes.
+  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {{}} + 2>/dev/null || true
+  echo "Cleaned CMake caches (non-relocatable)"
 else
   echo "No cache found at {cache_dir}"
 fi"#
