@@ -10,27 +10,18 @@ name = "integration-tests"
 path = "src/main.rs"
 
 [dependencies]
-# HTTP client for test requests
-reqwest = { version = "0.12", features = ["blocking"] }
-
-# Async runtime (for FD passing setup)
-tokio = { version = "1", features = ["full"] }
 
 # For Unix socket FD passing
 async-send-fd = { version = "1.2", features = ["tokio"] }
 
-# Temp directories for test fixtures
-tempfile = "3"
-
-# Regex for response parsing
-regex = "1"
-
-# Logging
-tracing = "0.1"
+# Colorful output
+owo-colors = "4"
+regex = { workspace = true } #unified
+reqwest = { workspace = true, features = ["rustls-tls"] } #unified
+tempfile = { workspace = true } #unified
+tokio = { workspace = true, features = ["macros", "process", "rt", "rt-multi-thread", "sync", "time"] } #unified
+tracing = { workspace = true } #unified
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Death-watch for child processes
 ur-taking-me-with-you.workspace = true
-
-# Colorful output
-owo-colors = "4"

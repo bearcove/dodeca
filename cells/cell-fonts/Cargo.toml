@@ -13,12 +13,10 @@ name = "ddc-cell-fonts"
 path = "src/main.rs"
 
 [dependencies]
-# Font processing
-fontcull = { version = "2.0", default-features = false, features = ["static-analysis"] }
-
-# Async runtime
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
-rapace-cell.workspace = true
 
 # Local protocol definitions
 cell-fonts-proto = { path = "../cell-fonts-proto" }
+# Font processing
+fontcull = { version = "2.0", default-features = false, features = ["static-analysis"] }
+rapace-cell.workspace = true
+tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified

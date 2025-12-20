@@ -7,10 +7,7 @@ members = [
 resolver = "3"
 
 [workspace.dependencies]
-rapace = { git = "https://github.com/bearcove/rapace", branch = "main", default-features = false }
-rapace-cell = { git = "https://github.com/bearcove/rapace", branch = "main" }
-rapace-tracing = { git = "https://github.com/bearcove/rapace", branch = "main" }
-ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", branch = "main", features = ["tokio"] }
+camino = "^1.2.2" #unified
 
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -20,6 +17,21 @@ facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+futures = "^0.3.31" #unified
+miette = { version = "^7.6.0", features = ["fancy", "fancy-no-backtrace"] } #unified
+rapace = { git = "https://github.com/bearcove/rapace", branch = "main", default-features = false }
+rapace-cell = { git = "https://github.com/bearcove/rapace", branch = "main" }
+rapace-tracing = { git = "https://github.com/bearcove/rapace", branch = "main" }
+regex = "^1.12.2" #unified
+reqwest = { version = "^0.12.26", features = ["blocking", "rustls-tls"] } #unified
+tempfile = "^3.23.0" #unified
+thiserror = "^2.0.17" #unified
+tokio = { version = "^1.48.0", features = ["full", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] } #unified
+tracing = "^0.1.44" #unified
+ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", branch = "main", features = ["tokio"] }
+
+[workspace.package]
+rust-version = "1.91"
 
 # Force all transitive facet dependencies to use git version
 [patch.crates-io]

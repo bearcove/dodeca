@@ -13,16 +13,14 @@ name = "ddc-cell-image"
 path = "src/main.rs"
 
 [dependencies]
-# Image processing
-image = { version = "0.25", features = ["png", "jpeg", "gif"] }
-thumbhash = "0.1"
 
 # Base64 encoding
 base64 = "0.22"
 
-# Async runtime
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
-rapace-cell = { workspace = true }
-
 # Local protocol definitions
 cell-image-proto = { path = "../cell-image-proto" }
+# Image processing
+image = { version = "0.25", features = ["png", "jpeg", "gif"] }
+rapace-cell = { workspace = true }
+thumbhash = "0.1"
+tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified

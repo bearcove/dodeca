@@ -13,12 +13,10 @@ name = "ddc-cell-html-diff"
 path = "src/main.rs"
 
 [dependencies]
-# Protocol types
-dodeca-protocol = { path = "../../crates/dodeca-protocol" }
-
-# Async runtime
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
-rapace-cell.workspace = true
 
 # Local protocol definitions
 cell-html-diff-proto = { path = "../cell-html-diff-proto" }
+# Protocol types
+dodeca-protocol = { path = "../../crates/dodeca-protocol" }
+rapace-cell.workspace = true
+tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified

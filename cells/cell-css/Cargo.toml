@@ -13,12 +13,10 @@ name = "ddc-cell-css"
 path = "src/main.rs"
 
 [dependencies]
-# CSS processing
-lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }
-
-# Async runtime
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
-rapace-cell.workspace = true
 
 # Local protocol definitions
 cell-css-proto = { path = "../cell-css-proto" }
+# CSS processing
+lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }
+rapace-cell.workspace = true
+tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified

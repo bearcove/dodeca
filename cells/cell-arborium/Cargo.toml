@@ -18,7 +18,6 @@ name = "ddc-cell-arborium"
 path = "src/main.rs"
 
 [dependencies]
-rapace-cell.workspace = true
 
 # Syntax highlighting with tree-sitter
 arborium = { version = "2", features = [
@@ -51,6 +50,5 @@ arborium = { version = "2", features = [
 
 # Protocol definition
 cell-arborium-proto = { path = "../cell-arborium-proto" }
-
-# Async runtime
-tokio = { version = "1", features = ["full"] }
+rapace-cell.workspace = true
+tokio = { workspace = true, features = ["macros", "process", "rt", "rt-multi-thread", "sync", "time"] } #unified

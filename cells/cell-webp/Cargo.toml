@@ -13,12 +13,10 @@ name = "ddc-cell-webp"
 path = "src/main.rs"
 
 [dependencies]
-# WebP processing
-webp = "0.3"
-
-# Async runtime
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
-rapace-cell.workspace = true
 
 # Local protocol definitions
 cell-webp-proto = { path = "../cell-webp-proto" }
+rapace-cell.workspace = true
+tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified
+# WebP processing
+webp = "0.3"

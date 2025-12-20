@@ -13,12 +13,10 @@ name = "ddc-cell-svgo"
 path = "src/main.rs"
 
 [dependencies]
-# SVG optimization
-svag = { git = "https://github.com/bearcove/svag" }
-
-# Async runtime
-tokio = { version = "1", features = ["rt-multi-thread", "time"] }
-rapace-cell.workspace = true
 
 # Local protocol definitions
 cell-svgo-proto = { path = "../cell-svgo-proto" }
+rapace-cell.workspace = true
+# SVG optimization
+svag = { git = "https://github.com/bearcove/svag" }
+tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified
