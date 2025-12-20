@@ -6,6 +6,7 @@ use std::os::unix::io::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+use tokio::io::AsyncReadExt;
 use tokio::net::{TcpListener, UnixStream};
 use tokio::sync::mpsc;
 use tracing_subscriber::prelude::*;
@@ -120,7 +121,7 @@ async fn send_loop(
 ) -> Result<()> {
     let mut pending: Option<OwnedFd> = None;
     loop {
-        let stream = connect_with_retry(&acceptor_socket).await;
+        let mut stream = connect_with_retry(&acceptor_socket).await;
 
         loop {
             let fd = if let Some(fd) = pending.take() {
@@ -136,6 +137,18 @@ async fn send_loop(
                 tracing::warn!(error = %e, "Failed to send FD to host, reconnecting");
                 pending = Some(fd);
                 break;
+            }
+
+            let mut ack = [0u8; 1];
+            match tokio::time::timeout(Duration::from_secs(2), stream.read_exact(&mut ack)).await {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    tracing::warn!(error = %e, "Failed to read ack from host");
+                    break;
+                }
+                Err(_) => {
+                    tracing::warn!("Timed out waiting for host ack");
+                }
             }
 
             let prev = queue_depth.fetch_sub(1, Ordering::Relaxed);

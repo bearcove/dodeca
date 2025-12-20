@@ -308,6 +308,7 @@ async fn run_acceptor_fd_loop(
 ) -> Result<()> {
     use async_send_fd::AsyncRecvFd;
     use std::os::unix::io::FromRawFd;
+    use tokio::io::AsyncWriteExt;
 
     tracing::info!(
         session_ready = session_rx.borrow().is_some(),
@@ -339,7 +340,7 @@ async fn run_acceptor_fd_loop(
             }
         };
 
-        let (unix_stream, _) = accept_result;
+        let (mut unix_stream, _) = accept_result;
         tracing::info!("Acceptor connected");
 
         loop {
@@ -382,6 +383,10 @@ async fn run_acceptor_fd_loop(
                     continue;
                 }
             };
+
+            if let Err(e) = unix_stream.write_all(&[0u8]).await {
+                tracing::warn!(error = %e, "Failed to send acceptor ack");
+            }
 
             let addr = stream.peer_addr().ok();
             let local_addr = stream.local_addr().ok();
