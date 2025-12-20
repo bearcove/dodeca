@@ -12,12 +12,14 @@
 //! - `DODECA_CELL_PATH`: Path to cell binaries (defaults to same dir as ddc)
 //! - `DODECA_TEST_WRAPPER`: Optional wrapper script/command to run ddc under
 //!   (e.g., "valgrind --leak-check=full" or "strace -f -o /tmp/trace.out")
+//! - `DODECA_HARNESS_RAW_TCP`: Set to "1" to enable raw TCP probe mode for
+//!   connection diagnostics (measures connect/write/read phases separately)
 
 use async_send_fd::AsyncSendFd;
 use regex::Regex;
 use std::cell::Cell;
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read as _, Write as _};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as StdCommand, Stdio};
@@ -106,7 +108,7 @@ fn test_wrapper() -> Option<Vec<String>> {
 /// A running test site with a server and isolated fixture directory
 pub struct TestSite {
     child: Child,
-    port: u16,
+    pub port: u16,
     fixture_dir: PathBuf,
     _temp_dir: tempfile::TempDir,
     _unix_socket_dir: tempfile::TempDir,
@@ -137,8 +139,27 @@ impl TestSite {
         Self::from_source_with_files(src, &[])
     }
 
+    /// Create a new test site with a deliberately empty cell path.
+    /// This simulates the "missing cells" scenario for testing boot failure handling.
+    /// The server should still accept connections and return HTTP 500 (not connection refused/reset).
+    pub fn with_empty_cell_path(fixture_name: &str) -> Self {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let src = manifest_dir.join("fixtures").join(fixture_name);
+        Self::from_source_with_config(&src, &[], Some(PathBuf::new()))
+    }
+
     /// Create a new test site from an arbitrary source directory with custom files
     pub fn from_source_with_files(src: &Path, files: &[(&str, &str)]) -> Self {
+        Self::from_source_with_config(src, files, None)
+    }
+
+    /// Internal: Create a test site with full configuration options.
+    /// If `custom_cell_path` is Some, it overrides the DODECA_CELL_PATH env var.
+    fn from_source_with_config(
+        src: &Path,
+        files: &[(&str, &str)],
+        custom_cell_path: Option<PathBuf>,
+    ) -> Self {
         let setup_start = Instant::now();
         let test_id = CURRENT_TEST_ID.with(|cell| cell.get());
         // Create isolated temp directory
@@ -228,8 +249,10 @@ impl TestSite {
         let _ = std::fs::create_dir_all(&code_exec_target_dir);
         cmd.env("DDC_CODE_EXEC_TARGET_DIR", &code_exec_target_dir);
 
-        // Set cell path if provided via env var
-        if let Some(cell_dir) = cell_path() {
+        // Set cell path: explicit override takes precedence, then env var
+        if let Some(cell_dir) = &custom_cell_path {
+            cmd.env("DODECA_CELL_PATH", cell_dir);
+        } else if let Some(cell_dir) = cell_path() {
             cmd.env("DODECA_CELL_PATH", &cell_dir);
         }
 
@@ -403,6 +426,136 @@ impl TestSite {
                 panic!("GET {} failed:\n{:?}\n{}", url, e, format_error_chain(&e));
             }
         }
+    }
+
+    /// Raw TCP probe for instrumentation. Measures connect, write, and read phases
+    /// separately to diagnose where failures occur.
+    ///
+    /// Enable with `DODECA_HARNESS_RAW_TCP=1` env var.
+    ///
+    /// Returns timing info as a log message; does not parse the response.
+    pub fn probe_tcp(&self, path: &str) {
+        use std::net::TcpStream;
+
+        let addr = format!("127.0.0.1:{}", self.port);
+        push_log(
+            &self.logs,
+            self.log_start,
+            format!("[probe] Starting raw TCP probe to {}{}", addr, path),
+        );
+
+        // Phase 1: Connect
+        let connect_start = Instant::now();
+        let mut stream = match TcpStream::connect(&addr) {
+            Ok(s) => s,
+            Err(e) => {
+                let elapsed = connect_start.elapsed();
+                let msg = format!(
+                    "[probe] CONNECT FAILED after {:?}: {} (kind={:?})",
+                    elapsed,
+                    e,
+                    e.kind()
+                );
+                push_log(&self.logs, self.log_start, &msg);
+                error!("{}", msg);
+                panic!("{}", msg);
+            }
+        };
+        let connect_elapsed = connect_start.elapsed();
+        push_log(
+            &self.logs,
+            self.log_start,
+            format!("[probe] CONNECT OK in {:?}", connect_elapsed),
+        );
+
+        // Phase 2: Write HTTP request
+        let request = format!(
+            "GET {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+            path, self.port
+        );
+        let write_start = Instant::now();
+        if let Err(e) = stream.write_all(request.as_bytes()) {
+            let elapsed = write_start.elapsed();
+            let msg = format!(
+                "[probe] WRITE FAILED after {:?}: {} (kind={:?})",
+                elapsed,
+                e,
+                e.kind()
+            );
+            push_log(&self.logs, self.log_start, &msg);
+            error!("{}", msg);
+            panic!("{}", msg);
+        }
+        let write_elapsed = write_start.elapsed();
+        push_log(
+            &self.logs,
+            self.log_start,
+            format!(
+                "[probe] WRITE OK in {:?} ({} bytes)",
+                write_elapsed,
+                request.len()
+            ),
+        );
+
+        // Phase 3: Read first byte (with timeout)
+        stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
+        let read_start = Instant::now();
+        let mut buf = [0u8; 1];
+        match stream.read(&mut buf) {
+            Ok(0) => {
+                let elapsed = read_start.elapsed();
+                let msg = format!(
+                    "[probe] READ EOF after {:?} (server closed without response)",
+                    elapsed
+                );
+                push_log(&self.logs, self.log_start, &msg);
+                debug!("{}", msg);
+            }
+            Ok(_) => {
+                let elapsed = read_start.elapsed();
+                let msg = format!(
+                    "[probe] READ OK in {:?} (first byte: 0x{:02x} '{}')",
+                    elapsed,
+                    buf[0],
+                    if buf[0].is_ascii_graphic() || buf[0] == b' ' {
+                        buf[0] as char
+                    } else {
+                        '.'
+                    }
+                );
+                push_log(&self.logs, self.log_start, &msg);
+                debug!("{}", msg);
+            }
+            Err(e) => {
+                let elapsed = read_start.elapsed();
+                let msg = format!(
+                    "[probe] READ FAILED after {:?}: {} (kind={:?})",
+                    elapsed,
+                    e,
+                    e.kind()
+                );
+                push_log(&self.logs, self.log_start, &msg);
+                // Read failures during probe are logged but not fatal
+                debug!("{}", msg);
+            }
+        }
+
+        let total = connect_start.elapsed();
+        push_log(
+            &self.logs,
+            self.log_start,
+            format!(
+                "[probe] COMPLETE: connect={:?} write={:?} total={:?}",
+                connect_elapsed, write_elapsed, total
+            ),
+        );
+    }
+
+    /// Check if raw TCP probe mode is enabled via DODECA_HARNESS_RAW_TCP=1
+    pub fn raw_tcp_enabled() -> bool {
+        std::env::var("DODECA_HARNESS_RAW_TCP")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
     }
 
     /// Wait for a path to return 200, retrying until timeout

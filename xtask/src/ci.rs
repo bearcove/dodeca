@@ -760,6 +760,47 @@ pub mod common {
             ("merge-multiple", "true".to_string()),
         ])
     }
+
+    /// Generate a shell script to verify all expected artifacts exist.
+    /// Fails CI if any binary is missing.
+    pub fn verify_artifacts_script() -> String {
+        let mut script = String::new();
+        script.push_str("#!/bin/bash\nset -euo pipefail\n\n");
+        script.push_str("echo 'Verifying all required binaries exist in dist/'\n");
+        script.push_str("missing=0\n\n");
+
+        // Check main binary
+        script.push_str("if [[ ! -x dist/ddc ]]; then\n");
+        script.push_str("  echo '❌ MISSING: ddc'\n");
+        script.push_str("  missing=1\n");
+        script.push_str("else\n");
+        script.push_str("  echo '✓ ddc'\n");
+        script.push_str("fi\n\n");
+
+        // Check all cell binaries
+        for (_, bin) in super::ALL_CELLS {
+            script.push_str(&format!("if [[ ! -x dist/{bin} ]]; then\n"));
+            script.push_str(&format!("  echo '❌ MISSING: {bin}'\n"));
+            script.push_str("  missing=1\n");
+            script.push_str("else\n");
+            script.push_str(&format!("  echo '✓ {bin}'\n"));
+            script.push_str("fi\n\n");
+        }
+
+        script.push_str("if [[ $missing -eq 1 ]]; then\n");
+        script.push_str("  echo ''\n");
+        script.push_str("  echo 'ERROR: Some required binaries are missing!'\n");
+        script.push_str("  echo 'This usually means a cell build job failed or artifact upload was incomplete.'\n");
+        script.push_str("  exit 1\n");
+        script.push_str("fi\n\n");
+        script.push_str("echo ''\n");
+        script.push_str(&format!(
+            "echo 'All {} binaries verified.'\n",
+            super::ALL_CELLS.len() + 1
+        ));
+
+        script
+    }
 }
 
 // =============================================================================
@@ -992,6 +1033,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                         ],
                     ),
                     Step::run("Prepare binaries", "chmod +x dist/ddc* && ls -la dist/"),
+                    Step::run("Verify artifacts", verify_artifacts_script()),
                     Step::run(
                         "Run integration tests",
                         "cargo xtask integration --no-build",
