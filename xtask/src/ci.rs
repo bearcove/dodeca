@@ -1458,6 +1458,8 @@ pub fn build_forgejo_workflow() -> Workflow {
                 install_rust_with_target(platform, "wasm32-unknown-unknown"),
                 ctree_cache_restore("wasm", "/home/amos/.cache"),
                 Step::run("Build WASM", "cargo xtask wasm"),
+                // Save cache immediately after build (before uploads that might fail)
+                ctree_cache_save("wasm", "/home/amos/.cache"),
                 // Upload WASM to S3 as a tarball using CAS
                 Step::run(
                     "Upload WASM to S3",
@@ -1466,7 +1468,6 @@ pub fn build_forgejo_workflow() -> Workflow {
 ./scripts/cas-upload.ts /tmp/wasm.tar.gz "ci/{run_id}/wasm.tar.gz""#
                     ),
                 ),
-                ctree_cache_save("wasm", "/home/amos/.cache"),
             ]),
     );
 
@@ -1490,6 +1491,8 @@ pub fn build_forgejo_workflow() -> Workflow {
                     install_rust(platform),
                     ctree_cache_restore(&format!("ddc-{short}"), cache_base),
                     Step::run("Build ddc", format!("cargo {} build --release -p dodeca", CiPlatform::CARGO_NIGHTLY_FLAGS)),
+                    // Save cache immediately after build (before tests/uploads that might fail)
+                    ctree_cache_save(&format!("ddc-{short}"), cache_base),
                     Step::run("Test ddc", format!("cargo {} test --release -p dodeca --bins", CiPlatform::CARGO_NIGHTLY_FLAGS)),
                     Step::run(
                         "Upload ddc to S3",
@@ -1497,7 +1500,6 @@ pub fn build_forgejo_workflow() -> Workflow {
                             r#"./scripts/cas-upload.ts target/release/ddc "ci/{run_id}/ddc-{short}""#
                         ),
                     ),
-                    ctree_cache_save(&format!("ddc-{short}"), cache_base),
                 ]),
         );
 
@@ -1551,6 +1553,8 @@ pub fn build_forgejo_workflow() -> Workflow {
                                 CiPlatform::CARGO_NIGHTLY_FLAGS
                             ),
                         ),
+                        // Save cache immediately after build (before tests/uploads that might fail)
+                        ctree_cache_save(&format!("cells-{short}-{group_num}"), cache_base),
                         Step::run(
                             "Test cells",
                             format!(
@@ -1559,7 +1563,6 @@ pub fn build_forgejo_workflow() -> Workflow {
                             ),
                         ),
                         Step::run("Upload cells to S3", upload_script),
-                        ctree_cache_save(&format!("cells-{short}-{group_num}"), cache_base),
                     ]),
             );
 
