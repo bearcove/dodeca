@@ -1523,13 +1523,14 @@ pub fn build_forgejo_workflow() -> Workflow {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            // Upload cell binaries to CAS with pointer files
+            // Upload cell binaries to CAS with pointer files (in parallel)
             let mut upload_commands: Vec<String> = Vec::new();
             for (_, bin) in cells {
                 upload_commands.push(format!(
-                    r#"./scripts/cas-upload.ts "target/release/{bin}" "ci/{run_id}/cells-{short}/{bin}""#
+                    r#"./scripts/cas-upload.ts "target/release/{bin}" "ci/{run_id}/cells-{short}/{bin}" &"#
                 ));
             }
+            upload_commands.push("wait".to_string());
             let upload_script = upload_commands.join("\n");
 
             jobs.insert(

@@ -2773,7 +2773,7 @@ checksum = "6738d2e996274e499bc7b0d693c858b7720b9cd2543a0643a3087e6cb0a4fa16"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3049,7 +3049,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -4683,7 +4683,7 @@ dependencies = [
  "portable-atomic-util",
  "serde_core",
  "wasm-bindgen",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7032,7 +7032,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7187,7 +7187,7 @@ dependencies = [
 [[package]]
 name = "rapace"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
+source = "git+https://github.com/bearcove/rapace?branch=main#7b9e682f8c8c1b28410f71d64f0a33f848564422"
 dependencies = [
  "facet",
  "facet-core",
@@ -7205,7 +7205,7 @@ dependencies = [
 [[package]]
 name = "rapace-cell"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
+source = "git+https://github.com/bearcove/rapace?branch=main#7b9e682f8c8c1b28410f71d64f0a33f848564422"
 dependencies = [
  "facet",
  "libc",
@@ -7221,7 +7221,7 @@ dependencies = [
 [[package]]
 name = "rapace-core"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
+source = "git+https://github.com/bearcove/rapace?branch=main#7b9e682f8c8c1b28410f71d64f0a33f848564422"
 dependencies = [
  "allocator-api2",
  "async-stream",
@@ -7246,7 +7246,7 @@ dependencies = [
 [[package]]
 name = "rapace-macros"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
+source = "git+https://github.com/bearcove/rapace?branch=main#7b9e682f8c8c1b28410f71d64f0a33f848564422"
 dependencies = [
  "heck 0.4.1",
  "proc-macro-crate",
@@ -7258,7 +7258,7 @@ dependencies = [
 [[package]]
 name = "rapace-registry"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
+source = "git+https://github.com/bearcove/rapace?branch=main#7b9e682f8c8c1b28410f71d64f0a33f848564422"
 dependencies = [
  "facet",
  "facet-core",
@@ -7268,7 +7268,7 @@ dependencies = [
 [[package]]
 name = "rapace-tracing"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
+source = "git+https://github.com/bearcove/rapace?branch=main#7b9e682f8c8c1b28410f71d64f0a33f848564422"
 dependencies = [
  "facet",
  "parking_lot",
@@ -7627,7 +7627,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7640,7 +7640,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8044,7 +8044,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shm-primitives"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
+source = "git+https://github.com/bearcove/rapace?branch=main#7b9e682f8c8c1b28410f71d64f0a33f848564422"
 
 [[package]]
 name = "signal-hook"
@@ -8549,7 +8549,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9211,7 +9211,7 @@ checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 [[package]]
 name = "ur-taking-me-with-you"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
+source = "git+https://github.com/bearcove/rapace?branch=main#7b9e682f8c8c1b28410f71d64f0a33f848564422"
 dependencies = [
  "libc",
  "tokio",
@@ -9594,7 +9594,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
