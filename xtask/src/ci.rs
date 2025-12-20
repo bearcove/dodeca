@@ -1453,14 +1453,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                     "Upload WASM to S3",
                     format!(
                         r#"tar -czf /tmp/wasm.tar.gz -C crates/dodeca-devtools pkg
-HASH=$(sha256sum /tmp/wasm.tar.gz | cut -d' ' -f1)
-if ! aws s3 --endpoint-url "$S3_ENDPOINT" ls "s3://${{S3_BUCKET}}/cas/$HASH" > /dev/null 2>&1; then
-  aws s3 --endpoint-url "$S3_ENDPOINT" cp /tmp/wasm.tar.gz "s3://${{S3_BUCKET}}/cas/$HASH"
-  echo "Uploaded WASM to CAS ($HASH)"
-else
-  echo "WASM already in CAS ($HASH)"
-fi
-echo "$HASH" | aws s3 --endpoint-url "$S3_ENDPOINT" cp - "s3://${{S3_BUCKET}}/ci/{run_id}/wasm.tar.gz""#
+./scripts/cas-upload.ts /tmp/wasm.tar.gz "ci/{run_id}/wasm.tar.gz""#
                     ),
                 ),
                 ctree_cache_save("wasm", "/home/amos/.cache"),
@@ -1491,14 +1484,7 @@ echo "$HASH" | aws s3 --endpoint-url "$S3_ENDPOINT" cp - "s3://${{S3_BUCKET}}/ci
                     Step::run(
                         "Upload ddc to S3",
                         format!(
-                            r#"HASH=$(sha256sum target/release/ddc | cut -d' ' -f1)
-if ! aws s3 --endpoint-url "$S3_ENDPOINT" ls "s3://${{S3_BUCKET}}/cas/$HASH" > /dev/null 2>&1; then
-  aws s3 --endpoint-url "$S3_ENDPOINT" cp target/release/ddc "s3://${{S3_BUCKET}}/cas/$HASH"
-  echo "Uploaded ddc to CAS ($HASH)"
-else
-  echo "ddc already in CAS ($HASH)"
-fi
-echo "$HASH" | aws s3 --endpoint-url "$S3_ENDPOINT" cp - "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}""#
+                            r#"./scripts/cas-upload.ts target/release/ddc "ci/{run_id}/ddc-{short}""#
                         ),
                     ),
                     ctree_cache_save(&format!("ddc-{short}"), cache_base),
@@ -1532,17 +1518,9 @@ echo "$HASH" | aws s3 --endpoint-url "$S3_ENDPOINT" cp - "s3://${{S3_BUCKET}}/ci
             let mut upload_commands: Vec<String> = Vec::new();
             for (_, bin) in cells {
                 upload_commands.push(format!(
-                    r#"HASH=$(sha256sum "target/release/{bin}" | cut -d' ' -f1)
-if ! aws s3 --endpoint-url "$S3_ENDPOINT" ls "s3://${{S3_BUCKET}}/cas/$HASH" > /dev/null 2>&1; then
-  aws s3 --endpoint-url "$S3_ENDPOINT" cp "target/release/{bin}" "s3://${{S3_BUCKET}}/cas/$HASH"
-  echo "Uploaded {bin} to CAS ($HASH)"
-else
-  echo "{bin} already in CAS ($HASH)"
-fi
-echo "$HASH" | aws s3 --endpoint-url "$S3_ENDPOINT" cp - "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/{bin}""#
+                    r#"./scripts/cas-upload.ts "target/release/{bin}" "ci/{run_id}/cells-{short}/{bin}""#
                 ));
             }
-            upload_commands.push(format!(r#"echo "Processed {} cell binaries""#, cells.len()));
             let upload_script = upload_commands.join("\n");
 
             jobs.insert(
@@ -1599,27 +1577,14 @@ echo "$HASH" | aws s3 --endpoint-url "$S3_ENDPOINT" cp - "s3://${{S3_BUCKET}}/ci
                     Step::run(
                         "Download ddc from S3",
                         format!(
-                            r#"mkdir -p dist
-HASH=$(aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" -)
-aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/cas/$HASH" dist/ddc
-chmod +x dist/ddc
-echo "Downloaded ddc from CAS ($HASH)""#
+                            r#"./scripts/cas-download.ts "ci/{run_id}/ddc-{short}" dist/ddc"#
                         ),
                     ),
                     // Download cells from S3 (CAS)
                     Step::run(
                         "Download cells from S3",
                         format!(
-                            r#"mkdir -p dist
-aws s3 --endpoint-url "$S3_ENDPOINT" ls "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/" | while read -r line; do
-  FILENAME=$(echo "$line" | awk '{{print $4}}')
-  if [ -n "$FILENAME" ]; then
-    HASH=$(aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/$FILENAME" -)
-    aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/cas/$HASH" "dist/$FILENAME"
-    echo "Downloaded $FILENAME from CAS ($HASH)"
-  fi
-done
-chmod +x dist/ddc-cell-*"#
+                            r#"./scripts/cas-download.ts --prefix "ci/{run_id}/cells-{short}" dist/"#
                         ),
                     ),
                     Step::run("List binaries", "ls -la dist/"),
@@ -1650,38 +1615,23 @@ chmod +x dist/ddc-cell-*"#
                     Step::run(
                         "Download ddc from S3",
                         format!(
-                            r#"mkdir -p target/release
-HASH=$(aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" -)
-aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/cas/$HASH" target/release/ddc
-chmod +x target/release/ddc
-echo "Downloaded ddc from CAS ($HASH)""#
+                            r#"./scripts/cas-download.ts "ci/{run_id}/ddc-{short}" target/release/ddc"#
                         ),
                     ),
                     // Download cells from S3 (CAS)
                     Step::run(
                         "Download cells from S3",
                         format!(
-                            r#"mkdir -p target/release
-aws s3 --endpoint-url "$S3_ENDPOINT" ls "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/" | while read -r line; do
-  FILENAME=$(echo "$line" | awk '{{print $4}}')
-  if [ -n "$FILENAME" ]; then
-    HASH=$(aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/$FILENAME" -)
-    aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/cas/$HASH" "target/release/$FILENAME"
-    echo "Downloaded $FILENAME from CAS ($HASH)"
-  fi
-done
-chmod +x target/release/ddc-cell-*"#
+                            r#"./scripts/cas-download.ts --prefix "ci/{run_id}/cells-{short}" target/release/"#
                         ),
                     ),
                     // Download WASM from S3 (CAS)
                     Step::run(
                         "Download WASM from S3",
                         format!(
-                            r#"HASH=$(aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/wasm.tar.gz" -)
-aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/cas/$HASH" /tmp/wasm.tar.gz
+                            r#"./scripts/cas-download.ts "ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz
 mkdir -p crates/dodeca-devtools
-tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools
-echo "Downloaded WASM from CAS ($HASH)""#
+tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"#
                         ),
                     ),
                     Step::run(
@@ -1697,14 +1647,7 @@ echo "Downloaded WASM from CAS ($HASH)""#
                     Step::run(
                         "Upload archive to S3",
                         format!(
-                            r#"HASH=$(sha256sum "dodeca-{triple}.{ext}" | cut -d' ' -f1)
-if ! aws s3 --endpoint-url "$S3_ENDPOINT" ls "s3://${{S3_BUCKET}}/cas/$HASH" > /dev/null 2>&1; then
-  aws s3 --endpoint-url "$S3_ENDPOINT" cp "dodeca-{triple}.{ext}" "s3://${{S3_BUCKET}}/cas/$HASH"
-  echo "Uploaded archive to CAS ($HASH)"
-else
-  echo "Archive already in CAS ($HASH)"
-fi
-echo "$HASH" | aws s3 --endpoint-url "$S3_ENDPOINT" cp - "s3://${{S3_BUCKET}}/ci/{run_id}/dodeca-{triple}.{ext}""#,
+                            r#"./scripts/cas-upload.ts "dodeca-{triple}.{ext}" "ci/{run_id}/dodeca-{triple}.{ext}""#,
                             triple = target.triple,
                             ext = target.archive_ext
                         ),
@@ -1734,17 +1677,8 @@ echo "$HASH" | aws s3 --endpoint-url "$S3_ENDPOINT" cp - "s3://${{S3_BUCKET}}/ci
                     "Download archives from S3",
                     format!(
                         r#"mkdir -p dist
-# List archive pointer files and download from CAS
-for pattern in "dodeca-*.tar.xz" "dodeca-*.zip"; do
-  aws s3 --endpoint-url "$S3_ENDPOINT" ls "s3://${{S3_BUCKET}}/ci/{run_id}/" | grep "$pattern" | while read -r line; do
-    FILENAME=$(echo "$line" | awk '{{print $4}}')
-    if [ -n "$FILENAME" ]; then
-      HASH=$(aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/$FILENAME" -)
-      aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/cas/$HASH" "dist/$FILENAME"
-      echo "Downloaded $FILENAME from CAS ($HASH)"
-    fi
-  done
-done
+./scripts/cas-download.ts "ci/{run_id}/dodeca-x86_64-unknown-linux-gnu.tar.xz" dist/dodeca-x86_64-unknown-linux-gnu.tar.xz
+./scripts/cas-download.ts "ci/{run_id}/dodeca-aarch64-apple-darwin.tar.xz" dist/dodeca-aarch64-apple-darwin.tar.xz
 ls -la dist/"#
                     ),
                 ),
