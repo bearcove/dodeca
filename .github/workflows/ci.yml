@@ -181,15 +181,62 @@ jobs:
           path: "target/release/ddc-cell-jxl\ntarget/release/ddc-cell-linkcheck\ntarget/release/ddc-cell-markdown\ntarget/release/ddc-cell-minify\ntarget/release/ddc-cell-pagefind\ntarget/release/ddc-cell-sass\ntarget/release/ddc-cell-svgo\ntarget/release/ddc-cell-tui\ntarget/release/ddc-cell-webp"
 
 
+  integration-linux-x64: 
+    name: Integration (linux-x64)
+    runs-on: depot-ubuntu-24.04-32
+    timeout-minutes: 30
+    needs: 
+      - build-ddc-linux-x64
+      - build-cells-linux-x64-1
+      - build-cells-linux-x64-2
+
+    steps: 
+      - 
+        name: Checkout
+        uses: actions/checkout@v4
+      - 
+        name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - 
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with: 
+          cache-on-failure: "true"
+          cache-targets: "false"
+
+      - 
+        name: Download ddc
+        uses: actions/download-artifact@v4
+        with: 
+          name: ddc-linux-x64
+          path: dist
+
+      - 
+        name: Download cells
+        uses: actions/download-artifact@v4
+        with: 
+          pattern: cells-linux-x64-*
+          path: dist
+          merge-multiple: "true"
+
+      - 
+        name: Prepare binaries
+        run: chmod +x dist/ddc* && ls -la dist/
+      - 
+        name: Run integration tests
+        run: cargo xtask integration --no-build
+        env: 
+          DODECA_BIN: ${{ github.workspace }}/dist/ddc
+          DODECA_CELL_PATH: ${{ github.workspace }}/dist
+
+
   assemble-linux-x64: 
     name: Assemble (linux-x64)
     runs-on: depot-ubuntu-24.04-32
     timeout-minutes: 30
     needs: 
-      - build-ddc-linux-x64
+      - integration-linux-x64
       - build-wasm
-      - build-cells-linux-x64-1
-      - build-cells-linux-x64-2
 
     steps: 
       - 
@@ -232,63 +279,6 @@ jobs:
         with: 
           name: build-linux-x64
           path: dodeca-x86_64-unknown-linux-gnu.tar.xz
-
-
-  integration-linux-x64: 
-    name: Integration (linux-x64)
-    runs-on: depot-ubuntu-24.04-32
-    timeout-minutes: 30
-    needs: 
-      - build-ddc-linux-x64
-      - build-wasm
-      - build-cells-linux-x64-1
-      - build-cells-linux-x64-2
-
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-          cache-targets: "false"
-
-      - 
-        name: Download ddc
-        uses: actions/download-artifact@v4
-        with: 
-          name: ddc-linux-x64
-          path: dist
-
-      - 
-        name: Download cells
-        uses: actions/download-artifact@v4
-        with: 
-          pattern: cells-linux-x64-*
-          path: dist
-          merge-multiple: "true"
-
-      - 
-        name: Download WASM
-        uses: actions/download-artifact@v4
-        with: 
-          name: dodeca-devtools-wasm
-          path: crates/dodeca-devtools/pkg
-
-      - 
-        name: Prepare binaries
-        run: chmod +x dist/ddc* && ls -la dist/
-      - 
-        name: Run integration tests
-        run: cargo xtask integration --no-build
-        env: 
-          DODECA_BIN: ${{ github.workspace }}/dist/ddc
-          DODECA_CELL_PATH: ${{ github.workspace }}/dist
 
 
   build-ddc-macos-arm64: 
@@ -390,15 +380,63 @@ jobs:
           path: "target/release/ddc-cell-jxl\ntarget/release/ddc-cell-linkcheck\ntarget/release/ddc-cell-markdown\ntarget/release/ddc-cell-minify\ntarget/release/ddc-cell-pagefind\ntarget/release/ddc-cell-sass\ntarget/release/ddc-cell-svgo\ntarget/release/ddc-cell-tui\ntarget/release/ddc-cell-webp"
 
 
+  integration-macos-arm64: 
+    name: Integration (macos-arm64)
+    runs-on: self-hosted
+    timeout-minutes: 30
+    needs: 
+      - build-ddc-macos-arm64
+      - build-cells-macos-arm64-1
+      - build-cells-macos-arm64-2
+
+    steps: 
+      - 
+        name: Checkout
+        uses: actions/checkout@v4
+      - 
+        name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - 
+        name: Local cache
+        uses: corca-ai/local-cache@35b8d1d836813b4fef25b954e3c6368ea98ef08d
+        with: 
+          path: target
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-integration-macos-arm64"
+          base: /Users/amos/.cache
+
+      - 
+        name: Download ddc
+        uses: actions/download-artifact@v4
+        with: 
+          name: ddc-macos-arm64
+          path: dist
+
+      - 
+        name: Download cells
+        uses: actions/download-artifact@v4
+        with: 
+          pattern: cells-macos-arm64-*
+          path: dist
+          merge-multiple: "true"
+
+      - 
+        name: Prepare binaries
+        run: chmod +x dist/ddc* && ls -la dist/
+      - 
+        name: Run integration tests
+        run: cargo xtask integration --no-build
+        env: 
+          DODECA_BIN: ${{ github.workspace }}/dist/ddc
+          DODECA_CELL_PATH: ${{ github.workspace }}/dist
+
+
   assemble-macos-arm64: 
     name: Assemble (macos-arm64)
     runs-on: self-hosted
     timeout-minutes: 30
     needs: 
-      - build-ddc-macos-arm64
+      - integration-macos-arm64
       - build-wasm
-      - build-cells-macos-arm64-1
-      - build-cells-macos-arm64-2
 
     steps: 
       - 
@@ -443,73 +481,13 @@ jobs:
           path: dodeca-aarch64-apple-darwin.tar.xz
 
 
-  integration-macos-arm64: 
-    name: Integration (macos-arm64)
-    runs-on: self-hosted
-    timeout-minutes: 30
-    needs: 
-      - build-ddc-macos-arm64
-      - build-wasm
-      - build-cells-macos-arm64-1
-      - build-cells-macos-arm64-2
-
-    steps: 
-      - 
-        name: Checkout
-        uses: actions/checkout@v4
-      - 
-        name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      - 
-        name: Local cache
-        uses: corca-ai/local-cache@35b8d1d836813b4fef25b954e3c6368ea98ef08d
-        with: 
-          path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-integration-macos-arm64"
-          base: /Users/amos/.cache
-
-      - 
-        name: Download ddc
-        uses: actions/download-artifact@v4
-        with: 
-          name: ddc-macos-arm64
-          path: dist
-
-      - 
-        name: Download cells
-        uses: actions/download-artifact@v4
-        with: 
-          pattern: cells-macos-arm64-*
-          path: dist
-          merge-multiple: "true"
-
-      - 
-        name: Download WASM
-        uses: actions/download-artifact@v4
-        with: 
-          name: dodeca-devtools-wasm
-          path: crates/dodeca-devtools/pkg
-
-      - 
-        name: Prepare binaries
-        run: chmod +x dist/ddc* && ls -la dist/
-      - 
-        name: Run integration tests
-        run: cargo xtask integration --no-build
-        env: 
-          DODECA_BIN: ${{ github.workspace }}/dist/ddc
-          DODECA_CELL_PATH: ${{ github.workspace }}/dist
-
-
   release: 
     name: Release
     runs-on: ubuntu-latest
     timeout-minutes: 30
     needs: 
       - assemble-linux-x64
-      - integration-linux-x64
       - assemble-macos-arm64
-      - integration-macos-arm64
 
     if: "startsWith(github.ref, 'refs/tags/')"
     env: 

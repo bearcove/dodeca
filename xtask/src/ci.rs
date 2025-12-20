@@ -12,6 +12,9 @@ use indexmap::IndexMap;
 // Configuration
 // =============================================================================
 
+/// Use self-hosted runner for macOS (true) or Depot (false).
+const MACOS_SELF_HOSTED: bool = true;
+
 /// Target platforms for CI and releases.
 pub const TARGETS: &[Target] = &[
     Target {
@@ -25,7 +28,11 @@ pub const TARGETS: &[Target] = &[
     Target {
         triple: "aarch64-apple-darwin",
         os: "macos-15",
-        runner: "self-hosted",
+        runner: if MACOS_SELF_HOSTED {
+            "self-hosted"
+        } else {
+            "depot-macos-15"
+        },
         lib_ext: "dylib",
         lib_prefix: "lib",
         archive_ext: "tar.xz",
@@ -508,18 +515,6 @@ const CI_LINUX: CiRunner = CiRunner {
     wasm_install: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh",
 };
 
-// const CI_MACOS: CiRunner = CiRunner {
-//     os: "macos",
-//     runner: "depot-macos-15",
-//     wasm_install: "brew install wasm-pack xz",
-// };
-
-const CI_MACOS: CiRunner = CiRunner {
-    os: "macos",
-    runner: "self-hosted",
-    wasm_install: "HOMEBREW_NO_AUTO_UPDATE=1 brew install wasm-pack xz",
-};
-
 /// Build the unified CI workflow (runs on PRs, main branch, and tags).
 ///
 /// Strategy:
@@ -587,7 +582,7 @@ pub fn build_ci_workflow() -> Workflow {
                 .steps([
                     checkout(),
                     Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
-                    if target.os == "macos-15" {
+                    if MACOS_SELF_HOSTED && target.os == "macos-15" {
                         local_cache_with_targets(false, &format!("ddc-{}", short))
                     } else {
                         rust_cache_with_targets(false)
@@ -641,7 +636,7 @@ pub fn build_ci_workflow() -> Workflow {
                     .steps([
                         checkout(),
                         install_rust(),
-                        if target.os == "macos-15" {
+                        if MACOS_SELF_HOSTED && target.os == "macos-15" {
                             local_cache_with_targets(
                                 true,
                                 &format!("cells-{}-{}", short, group_num),
@@ -658,11 +653,48 @@ pub fn build_ci_workflow() -> Workflow {
             cell_group_jobs.push(group_job_id);
         }
 
-        // Assembly job: download all artifacts and create archive
-        let assemble_job_id = format!("assemble-{short}");
         let cell_group_needs = cell_group_jobs.clone();
-        let mut assemble_needs = vec![ddc_job_id.clone(), wasm_job_id.clone()];
-        assemble_needs.extend(cell_group_needs.clone());
+
+        // Integration tests (no wasm dependency - runs before assemble)
+        let integration_job_id = format!("integration-{short}");
+        let mut integration_needs = vec![ddc_job_id.clone()];
+        integration_needs.extend(cell_group_needs.clone());
+        jobs.insert(
+            integration_job_id.clone(),
+            Job::new(target.runner)
+                .name(format!("Integration ({short})"))
+                .timeout(30)
+                .needs(integration_needs)
+                .steps([
+                    checkout(),
+                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
+                    if MACOS_SELF_HOSTED && target.os == "macos-15" {
+                        local_cache_with_targets(false, &format!("integration-{}", short))
+                    } else {
+                        rust_cache_with_targets(false)
+                    },
+                    Step::uses("Download ddc", "actions/download-artifact@v4")
+                        .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
+                    Step::uses("Download cells", "actions/download-artifact@v4").with_inputs([
+                        ("pattern", format!("cells-{short}-*")),
+                        ("path", "dist".into()),
+                        ("merge-multiple", "true".into()),
+                    ]),
+                    Step::run("Prepare binaries", "chmod +x dist/ddc* && ls -la dist/"),
+                    Step::run(
+                        "Run integration tests",
+                        "cargo xtask integration --no-build",
+                    )
+                    .with_env([
+                        ("DODECA_BIN", "${{ github.workspace }}/dist/ddc"),
+                        ("DODECA_CELL_PATH", "${{ github.workspace }}/dist"),
+                    ]),
+                ]),
+        );
+
+        // Assembly job: runs after integration, downloads all artifacts and creates archive
+        let assemble_job_id = format!("assemble-{short}");
+        let assemble_needs = vec![integration_job_id.clone(), wasm_job_id.clone()];
 
         jobs.insert(
             assemble_job_id.clone(),
@@ -703,49 +735,6 @@ pub fn build_ci_workflow() -> Workflow {
                 ]),
         );
         all_release_needs.push(assemble_job_id.clone());
-
-        // Integration tests
-        let integration_job_id = format!("integration-{short}");
-        let mut integration_needs = vec![ddc_job_id.clone(), wasm_job_id.clone()];
-        integration_needs.extend(cell_group_needs);
-        jobs.insert(
-            integration_job_id.clone(),
-            Job::new(target.runner)
-                .name(format!("Integration ({short})"))
-                .timeout(30)
-                .needs(integration_needs)
-                .steps([
-                    checkout(),
-                    Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
-                    if target.os == "macos-15" {
-                        local_cache_with_targets(false, &format!("integration-{}", short))
-                    } else {
-                        rust_cache_with_targets(false)
-                    },
-                    Step::uses("Download ddc", "actions/download-artifact@v4")
-                        .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
-                    Step::uses("Download cells", "actions/download-artifact@v4").with_inputs([
-                        ("pattern", format!("cells-{short}-*")),
-                        ("path", "dist".into()),
-                        ("merge-multiple", "true".into()),
-                    ]),
-                    Step::uses("Download WASM", "actions/download-artifact@v4").with_inputs([
-                        ("name", wasm_artifact.clone()),
-                        ("path", "crates/dodeca-devtools/pkg".into()),
-                    ]),
-                    Step::run("Prepare binaries", "chmod +x dist/ddc* && ls -la dist/"),
-                    Step::run(
-                        "Run integration tests",
-                        "cargo xtask integration --no-build",
-                    )
-                    .with_env([
-                        ("DODECA_BIN", "${{ github.workspace }}/dist/ddc"),
-                        ("DODECA_CELL_PATH", "${{ github.workspace }}/dist"),
-                    ]),
-                ]),
-        );
-
-        all_release_needs.push(integration_job_id);
     }
 
     // Release job (only on tags, after integration tests pass)
