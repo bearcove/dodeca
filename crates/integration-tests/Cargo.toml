@@ -14,6 +14,9 @@ path = "src/main.rs"
 # For Unix socket FD passing
 async-send-fd = { version = "1.2", features = ["tokio"] }
 
+# Better filesystem errors (includes paths in IO errors)
+fs-err = "3"
+
 # Colorful output
 owo-colors = "4"
 regex = { workspace = true } #unified

@@ -804,6 +804,7 @@ pub mod common {
                 r#"if [ -d "{cache_dir}" ]; then
   rm -rf target 2>/dev/null || true
   ctree "{cache_dir}" target && echo "Cache restored via ctree from {cache_dir}" || echo "ctree failed, starting fresh"
+  du -sh target 2>/dev/null || true
   # CMake build directories are not relocatable - they contain absolute paths.
   # Nuke them to force a fresh CMake configure on path changes.
   find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
@@ -1530,7 +1531,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                 .collect::<Vec<_>>()
                 .join(" ");
             let upload_script = format!(
-                r#"./scripts/cas-upload-batch.sh "ci/{run_id}/cells-{short}" {binary_list}"#
+                r#"./scripts/cas-upload-batch.ts "ci/{run_id}/cells-{short}" {binary_list}"#
             );
 
             jobs.insert(
@@ -1592,7 +1593,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                     Step::run(
                         "Download cells from S3",
                         format!(
-                            r#"./scripts/cas-download-batch.sh "ci/{run_id}/cells-{short}" dist/"#
+                            r#"./scripts/cas-download-batch.ts "ci/{run_id}/cells-{short}" dist/"#
                         ),
                     ),
                     Step::run("List binaries", "ls -la dist/"),
@@ -1633,7 +1634,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                     Step::run(
                         "Download cells from S3",
                         format!(
-                            r#"./scripts/cas-download-batch.sh "ci/{run_id}/cells-{short}" target/release/"#
+                            r#"./scripts/cas-download-batch.ts "ci/{run_id}/cells-{short}" target/release/"#
                         ),
                     ),
                     // Download WASM from S3 (CAS)

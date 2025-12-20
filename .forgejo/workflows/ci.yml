@@ -44,7 +44,7 @@ jobs:
 
       - 
         name: Restore cache (ctree)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/clippy\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/clippy\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/clippy\" || echo \"ctree failed, starting fresh\"\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/clippy\"\nfi"
+        run: "if [ -d \"/home/amos/.cache/dodeca-ci/clippy\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/clippy\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/clippy\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/clippy\"\nfi"
       - 
         name: Clippy
         run: cargo +nightly-2025-12-19 -Z checksum-freshness clippy --all-features --all-targets -- -D warnings
@@ -77,7 +77,7 @@ jobs:
 
       - 
         name: Restore cache (ctree)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/wasm\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/wasm\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/wasm\" || echo \"ctree failed, starting fresh\"\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/wasm\"\nfi"
+        run: "if [ -d \"/home/amos/.cache/dodeca-ci/wasm\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/wasm\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/wasm\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/wasm\"\nfi"
       - 
         name: Build WASM
         run: cargo xtask wasm
@@ -112,7 +112,7 @@ jobs:
 
       - 
         name: Restore cache (ctree)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/ddc-linux-x64\" || echo \"ctree failed, starting fresh\"\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/ddc-linux-x64\"\nfi"
+        run: "if [ -d \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/ddc-linux-x64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/ddc-linux-x64\"\nfi"
       - 
         name: Build ddc
         run: cargo +nightly-2025-12-19 -Z checksum-freshness build --release -p dodeca
@@ -150,7 +150,7 @@ jobs:
 
       - 
         name: Restore cache (ctree)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-1\" || echo \"ctree failed, starting fresh\"\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-1\"\nfi"
+        run: "if [ -d \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-1\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-1\"\nfi"
       - 
         name: Build cells
         run: cargo +nightly-2025-12-19 -Z checksum-freshness build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js
@@ -159,7 +159,7 @@ jobs:
         run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
       - 
         name: Upload cells to S3
-        run: "./scripts/cas-upload-batch.sh \"ci/${{ github.run_id }}/cells-linux-x64\" target/release/ddc-cell-arborium target/release/ddc-cell-code-execution target/release/ddc-cell-css target/release/ddc-cell-fonts target/release/ddc-cell-html target/release/ddc-cell-html-diff target/release/ddc-cell-http target/release/ddc-cell-image target/release/ddc-cell-js"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64\" target/release/ddc-cell-arborium target/release/ddc-cell-code-execution target/release/ddc-cell-css target/release/ddc-cell-fonts target/release/ddc-cell-html target/release/ddc-cell-html-diff target/release/ddc-cell-http target/release/ddc-cell-image target/release/ddc-cell-js"
       - 
         name: Save cache (ctree)
         run: "mkdir -p \"$(dirname \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\")\"\nrm -rf \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" 2>/dev/null || true\nctree target \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" && echo \"Cache saved via ctree to /home/amos/.cache/dodeca-ci/cells-linux-x64-1\" || echo \"ctree save failed (non-fatal)\""
@@ -188,7 +188,7 @@ jobs:
 
       - 
         name: Restore cache (ctree)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-2\" || echo \"ctree failed, starting fresh\"\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-2\"\nfi"
+        run: "if [ -d \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-2\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-2\"\nfi"
       - 
         name: Build cells
         run: cargo +nightly-2025-12-19 -Z checksum-freshness build --release -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp
@@ -197,7 +197,7 @@ jobs:
         run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
       - 
         name: Upload cells to S3
-        run: "./scripts/cas-upload-batch.sh \"ci/${{ github.run_id }}/cells-linux-x64\" target/release/ddc-cell-jxl target/release/ddc-cell-linkcheck target/release/ddc-cell-markdown target/release/ddc-cell-minify target/release/ddc-cell-pagefind target/release/ddc-cell-sass target/release/ddc-cell-svgo target/release/ddc-cell-tui target/release/ddc-cell-webp"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64\" target/release/ddc-cell-jxl target/release/ddc-cell-linkcheck target/release/ddc-cell-markdown target/release/ddc-cell-minify target/release/ddc-cell-pagefind target/release/ddc-cell-sass target/release/ddc-cell-svgo target/release/ddc-cell-tui target/release/ddc-cell-webp"
       - 
         name: Save cache (ctree)
         run: "mkdir -p \"$(dirname \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\")\"\nrm -rf \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" 2>/dev/null || true\nctree target \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" && echo \"Cache saved via ctree to /home/amos/.cache/dodeca-ci/cells-linux-x64-2\" || echo \"ctree save failed (non-fatal)\""
@@ -231,13 +231,13 @@ jobs:
 
       - 
         name: Restore cache (ctree)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/integration-linux-x64\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/integration-linux-x64\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/integration-linux-x64\" || echo \"ctree failed, starting fresh\"\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/integration-linux-x64\"\nfi"
+        run: "if [ -d \"/home/amos/.cache/dodeca-ci/integration-linux-x64\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/integration-linux-x64\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/integration-linux-x64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/integration-linux-x64\"\nfi"
       - 
         name: Download ddc from S3
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-linux-x64\" dist/ddc"
       - 
         name: Download cells from S3
-        run: "./scripts/cas-download-batch.sh \"ci/${{ github.run_id }}/cells-linux-x64\" dist/"
+        run: "./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64\" dist/"
       - 
         name: List binaries
         run: ls -la dist/
@@ -280,7 +280,7 @@ jobs:
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-linux-x64\" target/release/ddc"
       - 
         name: Download cells from S3
-        run: "./scripts/cas-download-batch.sh \"ci/${{ github.run_id }}/cells-linux-x64\" target/release/"
+        run: "./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64\" target/release/"
       - 
         name: Download WASM from S3
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/wasm.tar.gz\" /tmp/wasm.tar.gz\nmkdir -p crates/dodeca-devtools\ntar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"
@@ -321,7 +321,7 @@ jobs:
 
       - 
         name: Restore cache (ctree)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" || echo \"ctree failed, starting fresh\"\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/ddc-macos-arm64\"\nfi"
+        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/ddc-macos-arm64\"\nfi"
       - 
         name: Build ddc
         run: cargo +nightly-2025-12-19 -Z checksum-freshness build --release -p dodeca
@@ -359,7 +359,7 @@ jobs:
 
       - 
         name: Restore cache (ctree)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" || echo \"ctree failed, starting fresh\"\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\"\nfi"
+        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\"\nfi"
       - 
         name: Build cells
         run: cargo +nightly-2025-12-19 -Z checksum-freshness build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js
@@ -368,7 +368,7 @@ jobs:
         run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
       - 
         name: Upload cells to S3
-        run: "./scripts/cas-upload-batch.sh \"ci/${{ github.run_id }}/cells-macos-arm64\" target/release/ddc-cell-arborium target/release/ddc-cell-code-execution target/release/ddc-cell-css target/release/ddc-cell-fonts target/release/ddc-cell-html target/release/ddc-cell-html-diff target/release/ddc-cell-http target/release/ddc-cell-image target/release/ddc-cell-js"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64\" target/release/ddc-cell-arborium target/release/ddc-cell-code-execution target/release/ddc-cell-css target/release/ddc-cell-fonts target/release/ddc-cell-html target/release/ddc-cell-html-diff target/release/ddc-cell-http target/release/ddc-cell-image target/release/ddc-cell-js"
       - 
         name: Save cache (ctree)
         run: "mkdir -p \"$(dirname \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\")\"\nrm -rf \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" 2>/dev/null || true\nctree target \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" && echo \"Cache saved via ctree to /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" || echo \"ctree save failed (non-fatal)\""
@@ -397,7 +397,7 @@ jobs:
 
       - 
         name: Restore cache (ctree)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" || echo \"ctree failed, starting fresh\"\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\"\nfi"
+        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\"\nfi"
       - 
         name: Build cells
         run: cargo +nightly-2025-12-19 -Z checksum-freshness build --release -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp
@@ -406,7 +406,7 @@ jobs:
         run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
       - 
         name: Upload cells to S3
-        run: "./scripts/cas-upload-batch.sh \"ci/${{ github.run_id }}/cells-macos-arm64\" target/release/ddc-cell-jxl target/release/ddc-cell-linkcheck target/release/ddc-cell-markdown target/release/ddc-cell-minify target/release/ddc-cell-pagefind target/release/ddc-cell-sass target/release/ddc-cell-svgo target/release/ddc-cell-tui target/release/ddc-cell-webp"
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64\" target/release/ddc-cell-jxl target/release/ddc-cell-linkcheck target/release/ddc-cell-markdown target/release/ddc-cell-minify target/release/ddc-cell-pagefind target/release/ddc-cell-sass target/release/ddc-cell-svgo target/release/ddc-cell-tui target/release/ddc-cell-webp"
       - 
         name: Save cache (ctree)
         run: "mkdir -p \"$(dirname \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\")\"\nrm -rf \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" 2>/dev/null || true\nctree target \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" && echo \"Cache saved via ctree to /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" || echo \"ctree save failed (non-fatal)\""
@@ -440,13 +440,13 @@ jobs:
 
       - 
         name: Restore cache (ctree)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/integration-macos-arm64\" || echo \"ctree failed, starting fresh\"\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/integration-macos-arm64\"\nfi"
+        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" ]; then\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/integration-macos-arm64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/integration-macos-arm64\"\nfi"
       - 
         name: Download ddc from S3
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-macos-arm64\" dist/ddc"
       - 
         name: Download cells from S3
-        run: "./scripts/cas-download-batch.sh \"ci/${{ github.run_id }}/cells-macos-arm64\" dist/"
+        run: "./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64\" dist/"
       - 
         name: List binaries
         run: ls -la dist/
@@ -489,7 +489,7 @@ jobs:
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-macos-arm64\" target/release/ddc"
       - 
         name: Download cells from S3
-        run: "./scripts/cas-download-batch.sh \"ci/${{ github.run_id }}/cells-macos-arm64\" target/release/"
+        run: "./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64\" target/release/"
       - 
         name: Download WASM from S3
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/wasm.tar.gz\" /tmp/wasm.tar.gz\nmkdir -p crates/dodeca-devtools\ntar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"

@@ -4553,6 +4553,7 @@ name = "integration-tests"
 version = "0.1.0"
 dependencies = [
  "async-send-fd",
+ "fs-err",
  "owo-colors",
  "regex",
  "tempfile",

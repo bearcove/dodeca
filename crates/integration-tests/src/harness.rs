@@ -16,9 +16,9 @@
 //!   connection diagnostics (measures connect/write/read phases separately)
 
 use async_send_fd::AsyncSendFd;
+use fs_err as fs;
 use regex::Regex;
 use std::cell::Cell;
-use std::fs;
 use std::io::{BufRead, BufReader, Read as _, Write as _};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -117,11 +117,84 @@ pub struct TestSite {
     test_id: u64,
 }
 
+fn resolve_fixture_source_dir(fixture_name: &str) -> PathBuf {
+    // Beware: `env!("CARGO_MANIFEST_DIR")` is baked into the binary at compile time.
+    // In CI with aggressive caching, it's possible to reuse an `integration-tests`
+    // binary that was built in a different checkout directory. That makes fixture
+    // resolution fail even though fixtures exist in the current workspace.
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    if let Ok(base) = std::env::var("DODECA_TEST_FIXTURES_DIR") {
+        candidates.push(PathBuf::from(base).join(fixture_name));
+    }
+
+    candidates.push(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join(fixture_name),
+    );
+
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(
+            cwd.join("crates")
+                .join("integration-tests")
+                .join("fixtures")
+                .join(fixture_name),
+        );
+
+        let mut cur = cwd.as_path();
+        while let Some(parent) = cur.parent() {
+            candidates.push(
+                parent
+                    .join("crates")
+                    .join("integration-tests")
+                    .join("fixtures")
+                    .join(fixture_name),
+            );
+            cur = parent;
+        }
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        let mut cur = exe.as_path();
+        while let Some(parent) = cur.parent() {
+            candidates.push(
+                parent
+                    .join("crates")
+                    .join("integration-tests")
+                    .join("fixtures")
+                    .join(fixture_name),
+            );
+            cur = parent;
+        }
+    }
+
+    // De-duplicate while preserving order.
+    let mut seen = std::collections::HashSet::<PathBuf>::new();
+    candidates.retain(|p| seen.insert(p.clone()));
+
+    for candidate in &candidates {
+        if candidate.is_dir() {
+            return candidate.clone();
+        }
+    }
+
+    let mut msg = format!("fixture directory '{fixture_name}' not found. Tried:\n");
+    for candidate in candidates {
+        msg.push_str("  - ");
+        msg.push_str(&candidate.display().to_string());
+        msg.push('\n');
+    }
+    msg.push_str(
+        "Hint: set DODECA_TEST_FIXTURES_DIR to the directory containing the fixture folders.",
+    );
+    panic!("{msg}");
+}
+
 impl TestSite {
     /// Create a new test site from a fixture directory name
     pub fn new(fixture_name: &str) -> Self {
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let src = manifest_dir.join("fixtures").join(fixture_name);
+        let src = resolve_fixture_source_dir(fixture_name);
         Self::from_source(&src)
     }
 
@@ -129,8 +202,7 @@ impl TestSite {
     /// This is useful for tests that need custom templates or content that should be
     /// loaded at server startup time rather than triggering livereload.
     pub fn with_files(fixture_name: &str, files: &[(&str, &str)]) -> Self {
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let src = manifest_dir.join("fixtures").join(fixture_name);
+        let src = resolve_fixture_source_dir(fixture_name);
         Self::from_source_with_files(&src, files)
     }
 
@@ -143,8 +215,7 @@ impl TestSite {
     /// This simulates the "missing cells" scenario for testing boot failure handling.
     /// The server should still accept connections and return HTTP 500 (not connection refused/reset).
     pub fn with_empty_cell_path(fixture_name: &str) -> Self {
-        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let src = manifest_dir.join("fixtures").join(fixture_name);
+        let src = resolve_fixture_source_dir(fixture_name);
         Self::from_source_with_config(&src, &[], Some(PathBuf::new()))
     }
 
@@ -252,7 +323,7 @@ impl TestSite {
         // Keep code-exec builds fast and isolated per test (avoids cross-test contention under
         // nextest parallelism).
         let code_exec_target_dir = temp_dir.path().join("code-exec-target");
-        let _ = std::fs::create_dir_all(&code_exec_target_dir);
+        let _ = fs::create_dir_all(&code_exec_target_dir);
         cmd.env("DDC_CODE_EXEC_TARGET_DIR", &code_exec_target_dir);
 
         // Set cell path: explicit override takes precedence, then env var
@@ -863,71 +934,19 @@ impl Response {
 
 /// Recursively copy a directory
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(dst).map_err(|e| {
-        std::io::Error::new(
-            e.kind(),
-            format!(
-                "create_dir_all {}: {} (os={:?})",
-                dst.display(),
-                e,
-                e.raw_os_error()
-            ),
-        )
-    })?;
-
-    let entries = fs::read_dir(src).map_err(|e| {
-        std::io::Error::new(
-            e.kind(),
-            format!(
-                "read_dir {}: {} (os={:?})",
-                src.display(),
-                e,
-                e.raw_os_error()
-            ),
-        )
-    })?;
+    fs::create_dir_all(dst)?;
+    let entries = fs::read_dir(src)?;
 
     for entry in entries {
-        let entry = entry.map_err(|e| {
-            std::io::Error::new(
-                e.kind(),
-                format!(
-                    "read_dir entry in {}: {} (os={:?})",
-                    src.display(),
-                    e,
-                    e.raw_os_error()
-                ),
-            )
-        })?;
-        let ty = entry.file_type().map_err(|e| {
-            std::io::Error::new(
-                e.kind(),
-                format!(
-                    "file_type {}: {} (os={:?})",
-                    entry.path().display(),
-                    e,
-                    e.raw_os_error()
-                ),
-            )
-        })?;
+        let entry = entry?;
+        let ty = entry.file_type()?;
         let src_path = entry.path();
         let dst_path = dst.join(entry.file_name());
 
         if ty.is_dir() {
             copy_dir_recursive(&src_path, &dst_path)?;
         } else {
-            fs::copy(&src_path, &dst_path).map_err(|e| {
-                std::io::Error::new(
-                    e.kind(),
-                    format!(
-                        "copy {} -> {}: {} (os={:?})",
-                        src_path.display(),
-                        dst_path.display(),
-                        e,
-                        e.raw_os_error()
-                    ),
-                )
-            })?;
+            fs::copy(&src_path, &dst_path)?;
         }
     }
 

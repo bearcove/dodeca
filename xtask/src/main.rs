@@ -371,24 +371,27 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
     } else {
         eprintln!("Skipping build (--no-build), assuming binaries are already built");
 
-        // When --no-build is used, we still need the integration-tests binary
-        // Build just the integration-tests binary if it doesn't exist
-        if !integration_bin.exists() {
-            eprintln!("Building integration-tests binary...");
-            let status = Command::new("cargo")
-                .args(["build", "--release", "-p", "integration-tests"])
-                .status();
+        // Even with --no-build, always rebuild the integration test harness.
+        //
+        // Rationale: the harness binary embeds compile-time paths (e.g. CARGO_MANIFEST_DIR)
+        // and the harness itself evolves quickly as we harden boot/FD-passing behavior.
+        // In CI with caching, reusing a previously-built `target/release/integration-tests`
+        // can point at a stale checkout path or miss the latest handshake logic, causing
+        // misleading "fixture not found" or first-request connection failures.
+        eprintln!("Building integration-tests binary...");
+        let status = Command::new("cargo")
+            .args(["build", "--release", "-p", "integration-tests"])
+            .status();
 
-            match status {
-                Ok(s) if s.success() => {}
-                Ok(s) => {
-                    eprintln!("cargo build failed with status: {s}");
-                    return false;
-                }
-                Err(e) => {
-                    eprintln!("Failed to run cargo: {e}");
-                    return false;
-                }
+        match status {
+            Ok(s) if s.success() => {}
+            Ok(s) => {
+                eprintln!("cargo build failed with status: {s}");
+                return false;
+            }
+            Err(e) => {
+                eprintln!("Failed to run cargo: {e}");
+                return false;
             }
         }
     }
