@@ -209,6 +209,27 @@ pub trait Shape {
                     h: self.height(),
                 },
             );
+
+            // cref: pik_append_txt (pikchr.c:2484-2528) - text bounds are always added
+            // Include text labels for visible objects too
+            if !text.is_empty() {
+                let charht = defaults::FONT_SIZE;
+                let charwid = defaults::CHARWID;
+                let (text_above, text_below) = sum_text_heights_above_below(text, charht);
+                // Compute max text half-width (centered text extends +/- hw from center.x)
+                let max_hw = text
+                    .iter()
+                    .map(|t| Inches(t.width_inches(charwid)) / 2.0)
+                    .fold(Inches::ZERO, |acc, hw| if hw > acc { hw } else { acc });
+                bounds.expand_point(Point::new(
+                    center.x - max_hw,
+                    center.y - Inches(text_below),
+                ));
+                bounds.expand_point(Point::new(
+                    center.x + max_hw,
+                    center.y + Inches(text_above),
+                ));
+            }
         }
 
         tracing::debug!(
