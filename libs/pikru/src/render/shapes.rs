@@ -844,6 +844,40 @@ impl Shape for CylinderShape {
     fn translate(&mut self, offset: OffsetIn) {
         self.center += offset;
     }
+
+    /// Cylinder edge points: diagonal corners are inset by the ellipse radius.
+    /// cref: cylinderOffset (pikchr.c:1378-1417)
+    fn edge_point(&self, direction: EdgeDirection) -> PointIn {
+        match direction {
+            EdgeDirection::Center => return self.center(),
+            EdgeDirection::Start => return self.start(),
+            EdgeDirection::End => return self.end(),
+            _ => {}
+        }
+
+        let hw = self.width / 2.0;
+        let hh = self.height / 2.0;
+
+        // Diagonal corners are inset by the ellipse radius
+        // cref: cylinderOffset - h2 = h1 - rad
+        let hh_inner = hh - self.ellipse_rad;
+
+        let offset = match direction {
+            EdgeDirection::North => OffsetIn::new(Inches::ZERO, hh),
+            EdgeDirection::NorthEast => OffsetIn::new(hw, hh_inner),
+            EdgeDirection::East => OffsetIn::new(hw, Inches::ZERO),
+            EdgeDirection::SouthEast => OffsetIn::new(hw, -hh_inner),
+            EdgeDirection::South => OffsetIn::new(Inches::ZERO, -hh),
+            EdgeDirection::SouthWest => OffsetIn::new(-hw, -hh_inner),
+            EdgeDirection::West => OffsetIn::new(-hw, Inches::ZERO),
+            EdgeDirection::NorthWest => OffsetIn::new(-hw, hh_inner),
+            EdgeDirection::Center | EdgeDirection::Start | EdgeDirection::End => {
+                unreachable!("handled above")
+            }
+        };
+
+        self.center + offset
+    }
 }
 
 /// A file shape (document with folded corner)

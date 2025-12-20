@@ -932,8 +932,16 @@ fn render_object_stmt(
             }
             Attribute::BoolProperty(prop) => match prop {
                 BoolProperty::Invisible => style.invisible = true,
+                // cref: pikchr.y:675-677 - -> sets rarrow, <- sets larrow
+                // When <- is used on an arrow (which defaults to ->), it replaces the default
                 BoolProperty::ArrowRight => style.arrow_end = true,
-                BoolProperty::ArrowLeft => style.arrow_start = true,
+                BoolProperty::ArrowLeft => {
+                    style.arrow_start = true;
+                    // cref: pikchr.y:676 - <- on arrow replaces the default ->
+                    if class_name == Some(ClassName::Arrow) {
+                        style.arrow_end = false;
+                    }
+                }
                 BoolProperty::ArrowBoth => {
                     style.arrow_start = true;
                     style.arrow_end = true;
@@ -2195,13 +2203,12 @@ fn render_object_stmt(
             text: text.clone(),
         }),
         ClassName::Line | ClassName::Arrow => {
-            let mut line_style = style.clone();
-            if class == ClassName::Arrow {
-                line_style.arrow_end = true;
-            }
+            // Note: arrow_end default is already set during attribute processing
+            // (line 789-791). We don't override it here because explicit <- or ->
+            // attributes should take precedence.
             ShapeEnum::Line(LineShape {
                 waypoints: waypoints.clone(),
-                style: line_style,
+                style: style.clone(),
                 text: text.clone(),
             })
         }
