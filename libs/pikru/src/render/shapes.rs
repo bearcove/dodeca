@@ -1647,9 +1647,9 @@ impl Shape for SplineShape {
         // Clone waypoints and shorten endpoints where arrows exist
         // cref: pik_chop shortens by h/2 where h = p->hArrow * pObj->sw
         // Since hArrow = arrowht/thickness and we multiply by sw (stroke width),
-        // and typically sw = thickness, the result is arrowht/2
+        // the chop amount is: (arrowht/thickness) * sw / 2 = arrowht * arrow_scale / 2
         let mut waypoints = self.waypoints.clone();
-        let chop_amount = arrow_len / 2.0;
+        let chop_amount = Inches(arrow_len.raw() * arrow_scale / 2.0);
 
         if self.style.arrow_start && waypoints.len() >= 2 {
             chop_waypoint_start(&mut waypoints, chop_amount);
