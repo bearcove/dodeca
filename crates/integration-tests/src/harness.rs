@@ -434,6 +434,7 @@ impl TestSite {
     /// Enable with `DODECA_HARNESS_RAW_TCP=1` env var.
     ///
     /// Returns timing info as a log message; does not parse the response.
+    #[allow(dead_code)]
     pub fn probe_tcp(&self, path: &str) {
         use std::net::TcpStream;
 
@@ -552,6 +553,7 @@ impl TestSite {
     }
 
     /// Check if raw TCP probe mode is enabled via DODECA_HARNESS_RAW_TCP=1
+    #[allow(dead_code)]
     pub fn raw_tcp_enabled() -> bool {
         std::env::var("DODECA_HARNESS_RAW_TCP")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
