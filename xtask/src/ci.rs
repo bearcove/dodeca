@@ -468,7 +468,11 @@ pub mod common {
             )
         };
 
-        Step::uses("Local cache", "bearcove/local-cache@a3ee51e").with_inputs([
+        Step::uses(
+            "Local cache",
+            "bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794",
+        )
+        .with_inputs([
             ("path", "target"),
             ("key", &key),
             ("base", "/Users/amos/.cache"),

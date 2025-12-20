@@ -294,7 +294,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - 
         name: Local cache
-        uses: bearcove/local-cache@a3ee51e
+        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
           key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-ddc-macos-arm64"
@@ -327,7 +327,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - 
         name: Local cache
-        uses: bearcove/local-cache@a3ee51e
+        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
           key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-macos-arm64-1"
@@ -360,7 +360,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - 
         name: Local cache
-        uses: bearcove/local-cache@a3ee51e
+        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
           key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-macos-arm64-2"
@@ -398,7 +398,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - 
         name: Local cache
-        uses: bearcove/local-cache@a3ee51e
+        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
           key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-integration-macos-arm64"
