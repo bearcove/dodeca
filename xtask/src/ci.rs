@@ -806,12 +806,24 @@ pub mod common {
         Step::run(
             "Restore cache (ctree)",
             format!(
-                r#"# Backdate all source files to prevent mtime-based cache invalidation.
+                r#"# Backdate entire source tree to prevent mtime-based cache invalidation.
 # Fresh checkout creates files with mtime=NOW, but cached artifacts have old mtimes.
 # Cargo's build script outputs still use mtime checks (not affected by -Z checksum-freshness).
-# Set source mtimes to 1 day ago so cached outputs appear newer.
-echo "Backdating source files to prevent cache invalidation..."
-find . -type f \( -name '*.rs' -o -name '*.toml' -o -name 'build.rs' \) -exec touch -t $(date -d '1 day ago' +%Y%m%d%H%M.%S 2>/dev/null || date -v-1d +%Y%m%d%H%M.%S) {{}} +
+# Build scripts can read ANY file (*.proto, *.c, *.md, etc.), so we must backdate everything.
+if [ -d "{cache_dir}" ]; then
+  echo "Backdating entire source tree to prevent cache invalidation..."
+  # Get the oldest mtime from cached target/ (use as baseline)
+  CACHE_TIME=$(find "{cache_dir}" -type f -printf '%T@\n' 2>/dev/null | sort -n | head -1 | cut -d. -f1)
+  if [ -n "$CACHE_TIME" ]; then
+    # Backdate to 1 day before oldest cache file
+    TARGET_TIME=$((CACHE_TIME - 86400))
+    echo "Setting source tree mtime to $(date -d @$TARGET_TIME 2>/dev/null || date -r $TARGET_TIME)"
+    find . -path ./target -prune -o -path ./.git -prune -o -type f -exec touch -t $(date -d @$TARGET_TIME +%Y%m%d%H%M.%S 2>/dev/null || date -r $TARGET_TIME +%Y%m%d%H%M.%S) {{}} \; 2>/dev/null || true
+  else
+    echo "Warning: Could not determine cache baseline time, using 7 days ago"
+    find . -path ./target -prune -o -path ./.git -prune -o -type f -exec touch -t $(date -d '7 days ago' +%Y%m%d%H%M.%S 2>/dev/null || date -v-7d +%Y%m%d%H%M.%S) {{}} \; 2>/dev/null || true
+  fi
+fi
 if [ -d "{cache_dir}" ]; then
   rm -rf target 2>/dev/null || true
   ctree "{cache_dir}" target && echo "Cache restored via ctree from {cache_dir}" || echo "ctree failed, starting fresh"

@@ -23,10 +23,29 @@ fi
 
 # Case 1: rsync server mode
 if [[ "$CMD" =~ ^rsync\ --server ]]; then
-  # Only allow access to CAS_ROOT
-  # rrsync would do more sophisticated path validation, but for our use case
-  # we just ensure rsync is operating within CAS_ROOT
-  exec rsync --server --daemon --config=/dev/null .
+  # Extract the last argument (destination path)
+  if [[ "$CMD" =~ \  ([^\ ]+)$ ]]; then
+    DEST_PATH="${BASH_REMATCH[1]}"
+
+    # Only allow paths under CAS_ROOT
+    # Normalize path to absolute
+    if [[ "$DEST_PATH" = /* ]]; then
+      # Absolute path - must start with CAS_ROOT
+      if [[ "$DEST_PATH" != "$CAS_ROOT"/* ]]; then
+        echo "Error: rsync path must be under $CAS_ROOT" >&2
+        exit 1
+      fi
+    else
+      # Relative path - resolve relative to CAS_ROOT
+      DEST_PATH="$CAS_ROOT/$DEST_PATH"
+    fi
+
+    # Ensure parent directory exists (for uploads)
+    mkdir -p "$(dirname "$DEST_PATH")" 2>/dev/null || true
+  fi
+
+  # Execute rsync in server mode
+  exec $CMD
 fi
 
 # Case 2: cas-install <tmpPath> <hash>
