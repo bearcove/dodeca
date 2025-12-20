@@ -1303,9 +1303,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.49"
+version = "1.2.50"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "90583009037521a116abf44494efecd645ba48b6622457080f080b85544e2215"
+checksum = "9f50d563227a1c37cc0a263f64eca3334388c01c5e4c4861a9def205c614383c"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -2167,7 +2167,7 @@ dependencies = [
  "cssparser-macros",
  "dtoa-short",
  "itoa 1.0.15",
- "phf 0.8.0",
+ "phf 0.11.3",
  "smallvec",
 ]
 
@@ -2773,7 +2773,7 @@ checksum = "6738d2e996274e499bc7b0d693c858b7720b9cd2543a0643a3087e6cb0a4fa16"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3048,7 +3048,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4185,7 +4185,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -4682,7 +4682,7 @@ dependencies = [
  "portable-atomic-util",
  "serde_core",
  "wasm-bindgen",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5643,7 +5643,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6725,9 +6725,9 @@ dependencies = [
 
 [[package]]
 name = "portable-atomic"
-version = "1.11.1"
+version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f84267b20a16ea918e43c6a88433c2d54fa145c92a811b5b047ccbe153674483"
+checksum = "f59e70c4aef1e55797c2e8fd94a4f2a973fc972cfde0e0b05f683667b0cd39dd"
 
 [[package]]
 name = "portable-atomic-util"
@@ -6992,7 +6992,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.1",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -7029,9 +7029,9 @@ dependencies = [
  "cfg_aliases 0.2.1",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.1",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7186,7 +7186,7 @@ dependencies = [
 [[package]]
 name = "rapace"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=debug%2Ftunnel-logging#ad44826bb9cbc183e3d0a4908d053b447e48bf0d"
+source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
 dependencies = [
  "facet",
  "facet-core",
@@ -7204,7 +7204,7 @@ dependencies = [
 [[package]]
 name = "rapace-cell"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=debug%2Ftunnel-logging#ad44826bb9cbc183e3d0a4908d053b447e48bf0d"
+source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
 dependencies = [
  "facet",
  "libc",
@@ -7220,7 +7220,7 @@ dependencies = [
 [[package]]
 name = "rapace-core"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=debug%2Ftunnel-logging#ad44826bb9cbc183e3d0a4908d053b447e48bf0d"
+source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
 dependencies = [
  "allocator-api2",
  "async-stream",
@@ -7234,6 +7234,7 @@ dependencies = [
  "js-sys",
  "libc",
  "parking_lot",
+ "shm-primitives",
  "static_assertions",
  "tokio",
  "tracing",
@@ -7244,7 +7245,7 @@ dependencies = [
 [[package]]
 name = "rapace-macros"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=debug%2Ftunnel-logging#ad44826bb9cbc183e3d0a4908d053b447e48bf0d"
+source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
 dependencies = [
  "heck 0.4.1",
  "proc-macro-crate",
@@ -7256,7 +7257,7 @@ dependencies = [
 [[package]]
 name = "rapace-registry"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=debug%2Ftunnel-logging#ad44826bb9cbc183e3d0a4908d053b447e48bf0d"
+source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
 dependencies = [
  "facet",
  "facet-core",
@@ -7266,7 +7267,7 @@ dependencies = [
 [[package]]
 name = "rapace-tracing"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=debug%2Ftunnel-logging#ad44826bb9cbc183e3d0a4908d053b447e48bf0d"
+source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
 dependencies = [
  "facet",
  "parking_lot",
@@ -7638,7 +7639,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8038,6 +8039,11 @@ name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
+
+[[package]]
+name = "shm-primitives"
+version = "0.4.0"
+source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
 
 [[package]]
 name = "signal-hook"
@@ -8542,7 +8548,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9204,7 +9210,7 @@ checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 [[package]]
 name = "ur-taking-me-with-you"
 version = "0.4.0"
-source = "git+https://github.com/bearcove/rapace?branch=debug%2Ftunnel-logging#ad44826bb9cbc183e3d0a4908d053b447e48bf0d"
+source = "git+https://github.com/bearcove/rapace?branch=main#7308a3577c842fc64db09a24a97e8ccb5b3b0972"
 dependencies = [
  "libc",
  "tokio",
@@ -9562,7 +9568,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

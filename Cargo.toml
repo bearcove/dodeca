@@ -7,10 +7,10 @@ members = [
 resolver = "3"
 
 [workspace.dependencies]
-rapace = { git = "https://github.com/bearcove/rapace", branch = "debug/tunnel-logging", default-features = false }
-rapace-cell = { git = "https://github.com/bearcove/rapace", branch = "debug/tunnel-logging" }
-rapace-tracing = { git = "https://github.com/bearcove/rapace", branch = "debug/tunnel-logging" }
-ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", branch = "debug/tunnel-logging", features = ["tokio"] }
+rapace = { git = "https://github.com/bearcove/rapace", branch = "main", default-features = false }
+rapace-cell = { git = "https://github.com/bearcove/rapace", branch = "main" }
+rapace-tracing = { git = "https://github.com/bearcove/rapace", branch = "main" }
+ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", branch = "main", features = ["tokio"] }
 
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
