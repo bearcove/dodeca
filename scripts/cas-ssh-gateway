@@ -40,11 +40,11 @@ if [[ "$CMD" =~ ^rsync\ --server ]]; then
       DEST_PATH="$CAS_ROOT/$DEST_PATH"
     fi
 
-    # Ensure parent directory exists (for uploads)
-    mkdir -p "$(dirname "$DEST_PATH")" 2>/dev/null || true
+    # Ensure parent directory exists (for uploads) - redirect ALL output
+    mkdir -p "$(dirname "$DEST_PATH")" >/dev/null 2>&1 || true
   fi
 
-  # Execute rsync in server mode
+  # Execute rsync in server mode - CRITICAL: no output before this
   exec $CMD
 fi
 

@@ -10,7 +10,7 @@ pub use dodeca_protocol::ansi_to_html;
 pub const RENDER_ERROR_MARKER: &str = "<!-- DODECA_RENDER_ERROR -->";
 
 /// Dodeca logo SVG for error pages
-const DODECA_LOGO_SVG: &str = include_str!("../../../docs/static/logo.svg");
+const DODECA_LOGO_SVG: &str = include_str!("../logo.svg");
 
 /// Shared CSS styles for all error pages
 const ERROR_PAGE_STYLES: &str = r#"
