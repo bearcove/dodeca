@@ -190,6 +190,10 @@ pub struct RenderedObject {
     /// false if derived from text content (e.g., `circle "C0"`).
     /// cref: pik_find_byname (pikchr.c:4027-4044) - explicit names searched first
     pub name_is_explicit: bool,
+    /// Text-derived name for lookup (first text content)
+    /// Separate from explicit name so `B1: box "One"` can be found by either "B1" or "One"
+    /// cref: pik_find_byname (pikchr.c:4027-4044) - searches text content if explicit not found
+    pub text_name: Option<String>,
     pub shape: super::shapes::ShapeEnum,
     pub start_attachment: Option<EndpointObject>,
     pub end_attachment: Option<EndpointObject>,

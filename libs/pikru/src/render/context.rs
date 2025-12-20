@@ -262,12 +262,17 @@ impl RenderContext {
         // cref: pik_find_byname (pikchr.c:4027-4044)
         // Explicit names (from labels like `C1:`) go in explicit_names
         // Text-derived names (from `circle "C0"`) go in text_names
+        // An object can have BOTH - e.g., `B1: box "One"` is findable by "B1" and "One"
         if let Some(ref name) = obj.name {
             if obj.name_is_explicit {
                 self.explicit_names.insert(name.clone(), obj.clone());
             } else {
                 self.text_names.insert(name.clone(), obj.clone());
             }
+        }
+        // Also store text-derived name separately if it exists (for objects like `B1: box "One"`)
+        if let Some(ref text_name) = obj.text_name {
+            self.text_names.insert(text_name.clone(), obj.clone());
         }
 
         self.object_list.push(obj);

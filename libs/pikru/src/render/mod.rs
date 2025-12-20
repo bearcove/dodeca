@@ -552,6 +552,7 @@ fn make_partial_object(
     RenderedObject {
         name: None,
         name_is_explicit: false,
+        text_name: None,
         shape,
         start_attachment: None,
         end_attachment: None,
@@ -2086,14 +2087,18 @@ fn render_object_stmt(
         }
     }
 
-    // If no explicit name and there's text, use the first text value as implicit name
-    // This matches C pikchr behavior where `circle "C2"` can be referenced as C2
-    // cref: pik_find_byname (pikchr.c:4027-4044)
+    // Objects can be looked up by EITHER explicit name OR text content
+    // cref: pik_find_byname (pikchr.c:4027-4044) - searches explicit names then text names
     // Explicit names take precedence over text-derived names when looking up objects.
-    let (final_name, name_is_explicit) = if let Some(n) = name {
-        (Some(n), true)
-    } else if let Some(t) = text.first() {
-        (Some(t.value.clone()), false)
+    // We store both so objects like `B1: box "One"` can be found by either "B1" or "One"
+    let explicit_name = name;
+    let text_name = text.first().map(|t| t.value.clone());
+
+    // For RenderedObject.name, prefer explicit name, fall back to text name
+    let (final_name, name_is_explicit) = if let Some(ref n) = explicit_name {
+        (Some(n.clone()), true)
+    } else if let Some(ref t) = text_name {
+        (Some(t.clone()), false)
     } else {
         (None, false)
     };
@@ -2301,6 +2306,7 @@ fn render_object_stmt(
     Ok(RenderedObject {
         name: final_name,
         name_is_explicit,
+        text_name,
         shape,
         start_attachment: from_attachment,
         end_attachment: to_attachment,
