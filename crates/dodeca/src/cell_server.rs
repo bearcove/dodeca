@@ -248,7 +248,6 @@ pub async fn start_cell_server_with_shutdown(
     let (session_tx, session_rx) = watch::channel::<Option<Arc<RpcSession>>>(None);
 
     let shutdown_flag = Arc::new(AtomicBool::new(false));
-    let accept_enabled = Arc::new(AtomicBool::new(false));
     if let Some(mut shutdown_rx) = shutdown_rx.clone() {
         let shutdown_flag = shutdown_flag.clone();
         tokio::spawn(async move {
@@ -260,12 +259,7 @@ pub async fn start_cell_server_with_shutdown(
     }
 
     let (accept_tx, accept_rx) = mpsc::channel::<std::net::TcpStream>(ACCEPT_QUEUE_SIZE);
-    let _accept_thread = spawn_accept_thread(
-        listeners,
-        accept_tx,
-        shutdown_flag.clone(),
-        accept_enabled.clone(),
-    );
+    let _accept_thread = spawn_accept_thread(listeners, accept_tx, shutdown_flag.clone());
 
     // Start accepting connections immediately; readiness is gated per-connection.
     let accept_server = server.clone();
@@ -310,7 +304,6 @@ pub async fn start_cell_server_with_shutdown(
     session.set_dispatcher(create_http_cell_dispatcher(content_service));
 
     let _ = session_tx.send(Some(session.clone()));
-    accept_enabled.store(true, Ordering::Relaxed);
     tracing::info!("HTTP cell session ready (accept loop can proceed)");
 
     match accept_task.await {
@@ -324,18 +317,12 @@ fn spawn_accept_thread(
     listeners: Vec<std::net::TcpListener>,
     tx: mpsc::Sender<std::net::TcpStream>,
     shutdown_flag: Arc<AtomicBool>,
-    accept_enabled: Arc<AtomicBool>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         tracing::info!("Accept loop thread starting");
         loop {
             if shutdown_flag.load(Ordering::Relaxed) {
                 break;
-            }
-
-            if !accept_enabled.load(Ordering::Relaxed) {
-                std::thread::sleep(ACCEPT_POLL_SLEEP);
-                continue;
             }
 
             let mut accepted_any = false;
@@ -496,6 +483,17 @@ async fn handle_browser_connection(
         tracing::warn!(conn_id, error = %err, "socket error present on accept");
     }
 
+    // Read first byte before waiting for session/cells to avoid client-side resets.
+    let mut first_byte = [0u8; 1];
+    let first_read = browser_stream.read(&mut first_byte).await?;
+    if first_read == 0 {
+        tracing::warn!(
+            conn_id,
+            "browser stream closed before request (first_read=0)"
+        );
+        return Ok(());
+    }
+
     let session = if let Some(session) = session_rx.borrow().clone() {
         session
     } else {
@@ -558,17 +556,6 @@ async fn handle_browser_connection(
         elapsed_ms = revision_start.elapsed().as_millis(),
         "Revision ready (per-connection)"
     );
-
-    // Read first byte before opening a tunnel.
-    let mut first_byte = [0u8; 1];
-    let first_read = browser_stream.read(&mut first_byte).await?;
-    if first_read == 0 {
-        tracing::warn!(
-            conn_id,
-            "browser stream closed before request (first_read=0)"
-        );
-        return Ok(());
-    }
 
     // Open a tunnel to the cell
     let open_started = Instant::now();
