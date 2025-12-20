@@ -304,7 +304,7 @@ jobs:
   build-ddc-macos-arm64: 
     name: Build ddc (macos-arm64)
     runs-on: 
-      - "macos-arm64:host"
+      - "mac-arm64:host"
 
     timeout-minutes: 30
     steps: 
@@ -339,7 +339,7 @@ jobs:
   build-cells-macos-arm64-1: 
     name: Build cells (macos-arm64) [cell-arborium, cell-code-execution, cell-css, cell-fonts, cell-html, cell-html-diff, cell-http, cell-image, cell-js]
     runs-on: 
-      - "macos-arm64:host"
+      - "mac-arm64:host"
 
     timeout-minutes: 30
     steps: 
@@ -374,7 +374,7 @@ jobs:
   build-cells-macos-arm64-2: 
     name: Build cells (macos-arm64) [cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-pagefind, cell-sass, cell-svgo, cell-tui, cell-webp]
     runs-on: 
-      - "macos-arm64:host"
+      - "mac-arm64:host"
 
     timeout-minutes: 30
     steps: 
@@ -409,7 +409,7 @@ jobs:
   integration-macos-arm64: 
     name: Integration (macos-arm64)
     runs-on: 
-      - "macos-arm64:host"
+      - "mac-arm64:host"
 
     timeout-minutes: 30
     needs: 
@@ -461,7 +461,7 @@ jobs:
   assemble-macos-arm64: 
     name: Assemble (macos-arm64)
     runs-on: 
-      - "macos-arm64:host"
+      - "mac-arm64:host"
 
     timeout-minutes: 30
     needs: 

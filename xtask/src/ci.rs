@@ -114,7 +114,7 @@ const GITHUB_MACOS_LABELS: &[&str] = &["self-hosted", "macOS", "ARM64"];
 const GITHUB_LINUX_LABELS: &[&str] = &["self-hosted", "Linux", "X64"];
 
 /// Self-hosted runner labels for Forgejo macOS.
-const FORGEJO_MACOS_LABELS: &[&str] = &["macos-arm64:host"];
+const FORGEJO_MACOS_LABELS: &[&str] = &["mac-arm64:host"];
 
 /// Self-hosted runner labels for Forgejo Linux.
 const FORGEJO_LINUX_LABELS: &[&str] = &["linux-amd64:host"];
