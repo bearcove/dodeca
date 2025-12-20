@@ -114,6 +114,11 @@ async fn connect_with_retry(path: &str) -> UnixStream {
     }
 }
 
+async fn wait_for_host_socket(path: &str) {
+    let stream = connect_with_retry(path).await;
+    drop(stream);
+}
+
 async fn send_loop(
     acceptor_socket: String,
     mut rx: mpsc::Receiver<OwnedFd>,
@@ -202,6 +207,7 @@ async fn main() -> Result<()> {
     );
 
     let listener = receive_listener(&args.fd_socket).await?;
+    wait_for_host_socket(&args.acceptor_socket).await;
 
     let (tx, rx) = mpsc::channel::<OwnedFd>(args.queue_size);
     let queue_depth = Arc::new(AtomicUsize::new(0));
