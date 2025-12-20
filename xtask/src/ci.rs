@@ -25,7 +25,7 @@ pub const TARGETS: &[Target] = &[
     Target {
         triple: "aarch64-apple-darwin",
         os: "macos-15",
-        runner: "depot-macos-15",
+        runner: "self-hosted",
         lib_ext: "dylib",
         lib_prefix: "lib",
         archive_ext: "tar.xz",
@@ -493,7 +493,7 @@ const CI_LINUX: CiRunner = CiRunner {
 const CI_MACOS: CiRunner = CiRunner {
     os: "macos",
     runner: "self-hosted",
-    wasm_install: "brew install wasm-pack xz",
+    wasm_install: "HOMEBREW_NO_AUTO_UPDATE=1 brew install wasm-pack xz",
 };
 
 /// Build the unified CI workflow (runs on PRs, main branch, and tags).
@@ -651,7 +651,7 @@ pub fn build_ci_workflow() -> Workflow {
                     ]),
                     Step::run(
                         "Install xz (macOS)",
-                        "if command -v brew >/dev/null 2>&1; then brew install xz; fi",
+                        "if command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install xz; fi",
                     ),
                     Step::run("List binaries", "ls -la target/release/"),
                     Step::run(

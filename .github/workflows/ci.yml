@@ -219,7 +219,7 @@ jobs:
 
       - 
         name: Install xz (macOS)
-        run: if command -v brew >/dev/null 2>&1; then brew install xz; fi
+        run: if command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install xz; fi
       - 
         name: List binaries
         run: ls -la target/release/
@@ -293,7 +293,7 @@ jobs:
 
   build-ddc-macos-arm64: 
     name: Build ddc (macos-arm64)
-    runs-on: depot-macos-15
+    runs-on: self-hosted
     timeout-minutes: 30
     steps: 
       - 
@@ -325,7 +325,7 @@ jobs:
 
   build-cells-macos-arm64-1: 
     name: Build cells (macos-arm64) [cell-arborium, cell-code-execution, cell-css, cell-fonts, cell-html, cell-html-diff, cell-http, cell-image, cell-js]
-    runs-on: depot-macos-15
+    runs-on: self-hosted
     timeout-minutes: 30
     steps: 
       - 
@@ -357,7 +357,7 @@ jobs:
 
   build-cells-macos-arm64-2: 
     name: Build cells (macos-arm64) [cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-pagefind, cell-sass, cell-svgo, cell-tui, cell-webp]
-    runs-on: depot-macos-15
+    runs-on: self-hosted
     timeout-minutes: 30
     steps: 
       - 
@@ -389,7 +389,7 @@ jobs:
 
   assemble-macos-arm64: 
     name: Assemble (macos-arm64)
-    runs-on: depot-macos-15
+    runs-on: self-hosted
     timeout-minutes: 30
     needs: 
       - build-ddc-macos-arm64
@@ -425,7 +425,7 @@ jobs:
 
       - 
         name: Install xz (macOS)
-        run: if command -v brew >/dev/null 2>&1; then brew install xz; fi
+        run: if command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install xz; fi
       - 
         name: List binaries
         run: ls -la target/release/
@@ -442,7 +442,7 @@ jobs:
 
   integration-macos-arm64: 
     name: Integration (macos-arm64)
-    runs-on: depot-macos-15
+    runs-on: self-hosted
     timeout-minutes: 30
     needs: 
       - build-ddc-macos-arm64
