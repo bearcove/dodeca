@@ -468,11 +468,7 @@ pub mod common {
             )
         };
 
-        Step::uses(
-            "Local cache",
-            "corca-ai/local-cache@35b8d1d836813b4fef25b954e3c6368ea98ef08d",
-        )
-        .with_inputs([
+        Step::uses("Local cache", "bearcove/local-cache@a3ee51e").with_inputs([
             ("path", "target"),
             ("key", &key),
             ("base", "/Users/amos/.cache"),
