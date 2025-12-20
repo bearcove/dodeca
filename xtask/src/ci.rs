@@ -81,9 +81,10 @@ impl CiPlatform {
     pub const RUST_TOOLCHAIN: &'static str = "nightly-2025-12-19";
 
     /// Cargo flags for nightly features we rely on.
+    /// +nightly: Explicitly use nightly toolchain (runner default may be stable).
     /// -Z checksum-freshness: Use file checksums instead of mtimes for freshness checks.
     /// This allows caching to work properly even when git checkout changes file mtimes.
-    pub const CARGO_NIGHTLY_FLAGS: &'static str = "-Z checksum-freshness";
+    pub const CARGO_NIGHTLY_FLAGS: &'static str = "+nightly-2025-12-19 -Z checksum-freshness";
 
     /// Get the local cache action for this platform (for self-hosted runners).
     pub fn local_cache_action(&self) -> &'static str {
@@ -1547,7 +1548,8 @@ echo "Uploaded {} cell binaries to S3 (parallel sync)""#,
                         "Download ddc from S3",
                         format!(
                             r#"mkdir -p dist
-aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" dist/ddc chmod +x dist/ddc
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" dist/ddc
+chmod +x dist/ddc
 echo "Downloaded ddc from S3""#
                         ),
                     ),
@@ -1555,7 +1557,8 @@ echo "Downloaded ddc from S3""#
                     Step::run(
                         "Download cells from S3",
                         format!(
-                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/" dist/ --recursive chmod +x dist/ddc-cell-*
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/" dist/ --recursive
+chmod +x dist/ddc-cell-*
 echo "Downloaded cells from S3""#
                         ),
                     ),
@@ -1588,21 +1591,24 @@ echo "Downloaded cells from S3""#
                         "Download ddc from S3",
                         format!(
                             r#"mkdir -p target/release
-aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" target/release/ddc chmod +x target/release/ddc"#
+aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/ddc-{short}" target/release/ddc
+chmod +x target/release/ddc"#
                         ),
                     ),
                     // Download cells from S3
                     Step::run(
                         "Download cells from S3",
                         format!(
-                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/" target/release/ --recursive chmod +x target/release/ddc-cell-*"#
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/cells-{short}/" target/release/ --recursive
+chmod +x target/release/ddc-cell-*"#
                         ),
                     ),
                     // Download WASM from S3
                     Step::run(
                         "Download WASM from S3",
                         format!(
-                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz mkdir -p crates/dodeca-devtools
+                            r#"aws s3 --endpoint-url "$S3_ENDPOINT" cp "s3://${{S3_BUCKET}}/ci/{run_id}/wasm.tar.gz" /tmp/wasm.tar.gz
+mkdir -p crates/dodeca-devtools
 tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"#
                         ),
                     ),
