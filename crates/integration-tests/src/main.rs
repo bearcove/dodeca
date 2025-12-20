@@ -1176,7 +1176,14 @@ This is a newly added page.
 "#,
         );
 
-        site.wait_debounce();
+        site.wait_until(Duration::from_secs(5), || {
+            let html = site.get("/guide/");
+            if html.body.contains("section-pages") {
+                Some(html)
+            } else {
+                None
+            }
+        });
 
         let html = site.get("/guide/");
         html.assert_ok();
