@@ -410,9 +410,13 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         fontscale: f64,
         svg_children: &mut Vec<SvgNode>,
     ) {
-        // For sublists, render each child (shape + text) in order
+        // For sublists, render each child (shape + text) sorted by layer
+        // cref: pik_render (pikchr.c:5619) - renders by layer, applies to sublist children too
         if let Some(children) = obj.children() {
-            for child in children {
+            // Sort children by layer so "behind" attribute works correctly
+            let mut sorted_children: Vec<_> = children.iter().collect();
+            sorted_children.sort_by_key(|c| c.layer);
+            for child in sorted_children {
                 render_object_full(
                     child, scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid,
                     charht, charwid, thickness, fontscale, svg_children,

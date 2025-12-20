@@ -1458,6 +1458,10 @@ fn render_object_stmt(
                     // Always copy style properties
                     // cref: pik_same (pikchr.c:6792-6803)
                     style = source.style().clone();
+
+                    // Copy layer for z-ordering
+                    // This ensures "box same" after "box behind X" inherits the layer
+                    layer = source.layer;
                 }
             }
             Attribute::Close => {
@@ -2075,12 +2079,9 @@ fn render_object_stmt(
 
     // If no explicit name and there's text, use the first text value as implicit name
     // This matches C pikchr behavior where `circle "C2"` can be referenced as C2
-    // BUT: don't overwrite an existing named object - C pikchr doesn't allow that
-    let final_name = name.or_else(|| {
-        text.first()
-            .map(|t| t.value.clone())
-            .filter(|n| ctx.get_object(n).is_none())
-    });
+    // Text-derived names CAN overwrite existing objects (shadowing), which is important
+    // for test cases like test58 where the same names are reused in different sections.
+    let final_name = name.or_else(|| text.first().map(|t| t.value.clone()));
 
     // Clear current_object now that we're done building this object
     ctx.current_object = None;
