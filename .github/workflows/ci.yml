@@ -38,8 +38,9 @@ jobs:
         uses: actions/checkout@v4
       - 
         name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with: 
+          toolchain: nightly-2025-12-19
           components: clippy
           targets: wasm32-unknown-unknown
 
@@ -53,7 +54,7 @@ jobs:
 
       - 
         name: Clippy
-        run: cargo clippy --all-features --all-targets -- -D warnings
+        run: cargo -Z checksum-freshness clippy --all-features --all-targets -- -D warnings
 
   build-wasm: 
     name: Build WASM
@@ -69,8 +70,9 @@ jobs:
         uses: actions/checkout@v4
       - 
         name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with: 
+          toolchain: nightly-2025-12-19
           targets: wasm32-unknown-unknown
 
       - 
@@ -109,7 +111,10 @@ jobs:
         uses: actions/checkout@v4
       - 
         name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with: 
+          toolchain: nightly-2025-12-19
+
       - 
         name: Local cache
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
@@ -120,10 +125,10 @@ jobs:
 
       - 
         name: Build ddc
-        run: cargo build --release -p dodeca
+        run: cargo -Z checksum-freshness build --release -p dodeca
       - 
         name: Test ddc
-        run: cargo test --release -p dodeca --bins
+        run: cargo -Z checksum-freshness test --release -p dodeca --bins
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -146,7 +151,10 @@ jobs:
         uses: actions/checkout@v4
       - 
         name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with: 
+          toolchain: nightly-2025-12-19
+
       - 
         name: Local cache
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
@@ -157,10 +165,10 @@ jobs:
 
       - 
         name: Build cells
-        run: cargo build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js
+        run: cargo -Z checksum-freshness build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js
       - 
         name: Test cells
-        run: cargo test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
+        run: cargo -Z checksum-freshness test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -183,7 +191,10 @@ jobs:
         uses: actions/checkout@v4
       - 
         name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with: 
+          toolchain: nightly-2025-12-19
+
       - 
         name: Local cache
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
@@ -194,10 +205,10 @@ jobs:
 
       - 
         name: Build cells
-        run: cargo build --release -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp
+        run: cargo -Z checksum-freshness build --release -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp
       - 
         name: Test cells
-        run: cargo test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
+        run: cargo -Z checksum-freshness test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -225,7 +236,10 @@ jobs:
         uses: actions/checkout@v4
       - 
         name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with: 
+          toolchain: nightly-2025-12-19
+
       - 
         name: Local cache
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
@@ -338,7 +352,10 @@ jobs:
         uses: actions/checkout@v4
       - 
         name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with: 
+          toolchain: nightly-2025-12-19
+
       - 
         name: Local cache
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
@@ -349,10 +366,10 @@ jobs:
 
       - 
         name: Build ddc
-        run: cargo build --release -p dodeca
+        run: cargo -Z checksum-freshness build --release -p dodeca
       - 
         name: Test ddc
-        run: cargo test --release -p dodeca --bins
+        run: cargo -Z checksum-freshness test --release -p dodeca --bins
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -375,7 +392,10 @@ jobs:
         uses: actions/checkout@v4
       - 
         name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with: 
+          toolchain: nightly-2025-12-19
+
       - 
         name: Local cache
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
@@ -386,10 +406,10 @@ jobs:
 
       - 
         name: Build cells
-        run: cargo build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js
+        run: cargo -Z checksum-freshness build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js
       - 
         name: Test cells
-        run: cargo test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
+        run: cargo -Z checksum-freshness test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -412,7 +432,10 @@ jobs:
         uses: actions/checkout@v4
       - 
         name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with: 
+          toolchain: nightly-2025-12-19
+
       - 
         name: Local cache
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
@@ -423,10 +446,10 @@ jobs:
 
       - 
         name: Build cells
-        run: cargo build --release -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp
+        run: cargo -Z checksum-freshness build --release -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp
       - 
         name: Test cells
-        run: cargo test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
+        run: cargo -Z checksum-freshness test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -454,7 +477,10 @@ jobs:
         uses: actions/checkout@v4
       - 
         name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with: 
+          toolchain: nightly-2025-12-19
+
       - 
         name: Local cache
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794

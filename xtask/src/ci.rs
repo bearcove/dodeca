@@ -66,12 +66,24 @@ impl CiPlatform {
     }
 
     /// Get the rust-toolchain action for this platform.
+    /// Uses nightly for -Z checksum-freshness support (better caching).
     pub fn rust_toolchain_action(&self) -> &'static str {
         match self {
-            CiPlatform::GitHub => "dtolnay/rust-toolchain@stable",
-            CiPlatform::Forgejo => "https://github.com/dtolnay/rust-toolchain@stable",
+            // Note: This specifies the action, not the toolchain version.
+            // The toolchain version is set via the "toolchain" input parameter.
+            CiPlatform::GitHub => "dtolnay/rust-toolchain@master",
+            CiPlatform::Forgejo => "https://github.com/dtolnay/rust-toolchain@master",
         }
     }
+
+    /// The pinned nightly toolchain version to use.
+    /// Using nightly for -Z checksum-freshness support (mtime-independent caching).
+    pub const RUST_TOOLCHAIN: &'static str = "nightly-2025-12-19";
+
+    /// Cargo flags for nightly features we rely on.
+    /// -Z checksum-freshness: Use file checksums instead of mtimes for freshness checks.
+    /// This allows caching to work properly even when git checkout changes file mtimes.
+    pub const CARGO_NIGHTLY_FLAGS: &'static str = "-Z checksum-freshness";
 
     /// Get the local cache action for this platform (for self-hosted runners).
     pub fn local_cache_action(&self) -> &'static str {
@@ -676,11 +688,14 @@ pub mod common {
 
     pub fn install_rust(platform: CiPlatform) -> Step {
         Step::uses("Install Rust", platform.rust_toolchain_action())
+            .with_inputs([("toolchain", CiPlatform::RUST_TOOLCHAIN)])
     }
 
     pub fn install_rust_with_target(platform: CiPlatform, target: &str) -> Step {
-        Step::uses("Install Rust", platform.rust_toolchain_action())
-            .with_inputs([("targets", target)])
+        Step::uses("Install Rust", platform.rust_toolchain_action()).with_inputs([
+            ("toolchain", CiPlatform::RUST_TOOLCHAIN),
+            ("targets", target),
+        ])
     }
 
     pub fn install_rust_with_components_and_target(
@@ -688,8 +703,11 @@ pub mod common {
         components: &str,
         target: &str,
     ) -> Step {
-        Step::uses("Install Rust", platform.rust_toolchain_action())
-            .with_inputs([("components", components), ("targets", target)])
+        Step::uses("Install Rust", platform.rust_toolchain_action()).with_inputs([
+            ("toolchain", CiPlatform::RUST_TOOLCHAIN),
+            ("components", components),
+            ("targets", target),
+        ])
     }
 
     pub fn rust_cache_with_targets(platform: CiPlatform, cache_targets: bool) -> Step {
@@ -1000,7 +1018,10 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                 ci_linux_cache.clone(),
                 Step::run(
                     "Clippy",
-                    "cargo clippy --all-features --all-targets -- -D warnings",
+                    format!(
+                        "cargo {} clippy --all-features --all-targets -- -D warnings",
+                        CiPlatform::CARGO_NIGHTLY_FLAGS
+                    ),
                 ),
             ]),
     );
@@ -1049,10 +1070,22 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                     } else {
                         rust_cache_with_targets(platform, false)
                     },
-                    Step::run("Build ddc", "cargo build --release -p dodeca"),
+                    Step::run(
+                        "Build ddc",
+                        format!(
+                            "cargo {} build --release -p dodeca",
+                            CiPlatform::CARGO_NIGHTLY_FLAGS
+                        ),
+                    ),
                     // Only run binary unit tests here - integration tests (serve/) need cells
                     // and run in the integration phase after assembly
-                    Step::run("Test ddc", "cargo test --release -p dodeca --bins"),
+                    Step::run(
+                        "Test ddc",
+                        format!(
+                            "cargo {} test --release -p dodeca --bins",
+                            CiPlatform::CARGO_NIGHTLY_FLAGS
+                        ),
+                    ),
                     upload_artifact(platform, format!("ddc-{short}"), "target/release/ddc"),
                 ]),
         );
@@ -1105,8 +1138,20 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                         } else {
                             rust_cache_with_targets(platform, true)
                         },
-                        Step::run("Build cells", format!("cargo build --release {build_args}")),
-                        Step::run("Test cells", format!("cargo test --release {test_args}")),
+                        Step::run(
+                            "Build cells",
+                            format!(
+                                "cargo {} build --release {build_args}",
+                                CiPlatform::CARGO_NIGHTLY_FLAGS
+                            ),
+                        ),
+                        Step::run(
+                            "Test cells",
+                            format!(
+                                "cargo {} test --release {test_args}",
+                                CiPlatform::CARGO_NIGHTLY_FLAGS
+                            ),
+                        ),
                         upload_artifact(
                             platform,
                             format!("cells-{short}-{group_num}"),
@@ -1341,7 +1386,10 @@ pub fn build_forgejo_workflow() -> Workflow {
                 ctree_cache_restore("clippy", "/home/amos/.cache"),
                 Step::run(
                     "Clippy",
-                    "cargo clippy --all-features --all-targets -- -D warnings",
+                    format!(
+                        "cargo {} clippy --all-features --all-targets -- -D warnings",
+                        CiPlatform::CARGO_NIGHTLY_FLAGS
+                    ),
                 ),
                 ctree_cache_save("clippy", "/home/amos/.cache"),
             ]),
@@ -1394,8 +1442,8 @@ echo "Uploaded WASM bundle to S3""#
                     checkout(platform),
                     install_rust(platform),
                     ctree_cache_restore(&format!("ddc-{short}"), cache_base),
-                    Step::run("Build ddc", "cargo build --release -p dodeca"),
-                    Step::run("Test ddc", "cargo test --release -p dodeca --bins"),
+                    Step::run("Build ddc", format!("cargo {} build --release -p dodeca", CiPlatform::CARGO_NIGHTLY_FLAGS)),
+                    Step::run("Test ddc", format!("cargo {} test --release -p dodeca --bins", CiPlatform::CARGO_NIGHTLY_FLAGS)),
                     Step::run(
                         "Upload ddc to S3",
                         format!(
@@ -1454,8 +1502,20 @@ echo "Uploaded {} cell binaries to S3 (parallel sync)""#,
                         checkout(platform),
                         install_rust(platform),
                         ctree_cache_restore(&format!("cells-{short}-{group_num}"), cache_base),
-                        Step::run("Build cells", format!("cargo build --release {build_args}")),
-                        Step::run("Test cells", format!("cargo test --release {test_args}")),
+                        Step::run(
+                            "Build cells",
+                            format!(
+                                "cargo {} build --release {build_args}",
+                                CiPlatform::CARGO_NIGHTLY_FLAGS
+                            ),
+                        ),
+                        Step::run(
+                            "Test cells",
+                            format!(
+                                "cargo {} test --release {test_args}",
+                                CiPlatform::CARGO_NIGHTLY_FLAGS
+                            ),
+                        ),
                         Step::run("Upload cells to S3", upload_script),
                         ctree_cache_save(&format!("cells-{short}-{group_num}"), cache_base),
                     ]),

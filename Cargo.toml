@@ -71,6 +71,10 @@ opt-level = 1
 inherits = "dev"
 debug = true
 
+# Release profile with reduced debug info for smaller binaries
+[profile.release]
+debug = "line-tables-only"
+
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
