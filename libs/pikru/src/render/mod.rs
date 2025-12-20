@@ -751,7 +751,13 @@ fn render_object_stmt(
     let mut current_segment_direction: Option<Direction> = None;
     let mut in_then_segment = false;
     let mut with_clause: Option<(EdgePoint, PointIn)> = None; // (edge, target_position)
-    // The object's direction - starts as ctx.direction, updated by DirectionMove attributes
+    // Waypoints copied from "same as" source object (for line-like objects)
+    // cref: pik_same (pikchr.c:6775-6787) - copies aTPath with translation
+    let mut same_path_waypoints: Option<Vec<PointIn>> = None;
+    // The object's entry direction (direction when object starts)
+    // cref: pObj->inDir in C pikchr
+    let in_direction = ctx.direction;
+    // The object's exit direction - starts as ctx.direction, updated by DirectionMove attributes
     // cref: pObj->outDir in C pikchr
     let mut object_direction = ctx.direction;
 
@@ -1372,23 +1378,51 @@ fn render_object_stmt(
             }
             Attribute::Same(obj_ref) => {
                 // Copy properties from referenced object
+                // cref: pik_same (pikchr.c:6761-6804)
                 let source = match obj_ref {
                     Some(obj) => resolve_object(ctx, obj),
                     None => ctx.get_last_object(Some(class)),
                 };
                 if let Some(source) = source {
-                    // For dots, we need to convert from visual width to internal width
-                    // DotShape::width() returns radius * 2 (diameter)
-                    // But rendering expects width = radius * 6
-                    // cref: dotInit - dot stores w = rad * 6
-                    if source.class_name == ClassName::Dot {
-                        // source.width() = radius * 2, we need radius * 6 = source.width() * 3
-                        width = source.width() * 3.0;
-                        height = source.height() * 3.0;
-                    } else {
-                        width = source.width();
-                        height = source.height();
+                    // For line-like objects, copy the path (waypoints)
+                    // cref: pik_same (pikchr.c:6775-6787)
+                    let source_is_line = matches!(
+                        source.class_name,
+                        ClassName::Line | ClassName::Arrow | ClassName::Spline
+                    );
+                    let current_is_line = matches!(
+                        class,
+                        ClassName::Line | ClassName::Arrow | ClassName::Spline
+                    );
+                    if source_is_line && current_is_line {
+                        if let Some(wpts) = source.waypoints() {
+                            // Store the waypoints; they'll be translated to start position later
+                            same_path_waypoints = Some(wpts.to_vec());
+                            tracing::debug!(
+                                num_waypoints = wpts.len(),
+                                "same as: copied waypoints from source line"
+                            );
+                        }
                     }
+
+                    // For non-line objects, copy width/height
+                    // cref: pik_same (pikchr.c:6788-6791)
+                    if !current_is_line {
+                        // For dots, we need to convert from visual width to internal width
+                        // DotShape::width() returns radius * 2 (diameter)
+                        // But rendering expects width = radius * 6
+                        // cref: dotInit - dot stores w = rad * 6
+                        if source.class_name == ClassName::Dot {
+                            // source.width() = radius * 2, we need radius * 6 = source.width() * 3
+                            width = source.width() * 3.0;
+                            height = source.height() * 3.0;
+                        } else {
+                            width = source.width();
+                            height = source.height();
+                        }
+                    }
+                    // Always copy style properties
+                    // cref: pik_same (pikchr.c:6792-6803)
                     style = source.style().clone();
                 }
             }
@@ -1636,6 +1670,7 @@ fn render_object_stmt(
         segments_count = segments.len(),
         even_clause = even_clause.is_some(),
         with_clause = with_clause.is_some(),
+        same_path = same_path_waypoints.is_some(),
         "position branch conditions"
     );
     let (center, start, end, waypoints) = if from_position.is_some()
@@ -1643,6 +1678,7 @@ fn render_object_stmt(
         || has_direction_move
         || !segments.is_empty()
         || even_clause.is_some()
+        || same_path_waypoints.is_some()
     {
         // Line-like objects with explicit from/to, direction moves, or then clauses
         // Determine start position based on direction of movement
@@ -1730,7 +1766,33 @@ fn render_object_stmt(
                 current_pos = even_point;
             }
 
-            if !to_positions.is_empty() && segments.is_empty() && !has_direction_move && even_clause.is_none() {
+            if let Some(ref same_wpts) = same_path_waypoints {
+                // Use waypoints from "same as" source, translated to start position
+                // cref: pik_same (pikchr.c:6775-6787) - copies path with translation
+                if !same_wpts.is_empty() {
+                    let source_start = same_wpts[0];
+                    let translation = OffsetIn {
+                        dx: start.x - source_start.x,
+                        dy: start.y - source_start.y,
+                    };
+                    // Clear the default start point and use translated path
+                    points.clear();
+                    for wpt in same_wpts {
+                        points.push(*wpt + translation);
+                    }
+                    if let Some(last) = points.last() {
+                        current_pos = *last;
+                    }
+                    tracing::debug!(
+                        source_start_x = source_start.x.raw(),
+                        source_start_y = source_start.y.raw(),
+                        translation_dx = translation.dx.raw(),
+                        translation_dy = translation.dy.raw(),
+                        num_points = points.len(),
+                        "same as: translated waypoints to start position"
+                    );
+                }
+            } else if !to_positions.is_empty() && segments.is_empty() && !has_direction_move && even_clause.is_none() {
                 // from X to Y [to Z...] - add all to_positions as waypoints
                 for pos in &to_positions {
                     points.push(*pos);
@@ -2155,10 +2217,27 @@ fn render_object_stmt(
         }),
     };
 
+    // For closed line-like objects, use the entry direction (inDir) as the exit direction
+    // cref: pikchr.c:7122-7126 - pik_elem_set_exit(pObj, pObj->inDir) for bClose
+    let is_closed_line = style.close_path
+        && matches!(
+            class,
+            ClassName::Line | ClassName::Arrow | ClassName::Spline
+        );
+    let final_direction = if is_closed_line {
+        in_direction
+    } else {
+        object_direction
+    };
+
     tracing::debug!(
         name = ?final_name,
         class = ?class,
         layer = layer,
+        is_closed_line = is_closed_line,
+        in_direction = ?in_direction,
+        object_direction = ?object_direction,
+        final_direction = ?final_direction,
         "creating RenderedObject"
     );
 
@@ -2168,7 +2247,7 @@ fn render_object_stmt(
         start_attachment: from_attachment,
         end_attachment: to_attachment,
         layer,
-        direction: object_direction,
+        direction: final_direction,
         class_name: class,
     })
 }

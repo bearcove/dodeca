@@ -948,30 +948,65 @@ impl Shape for LineShape {
         if self.waypoints.is_empty() {
             return Point::ORIGIN;
         }
-        // Center is midpoint between start and end
-        let start = *self.waypoints.first().unwrap();
-        let end = *self.waypoints.last().unwrap();
-        start.midpoint(end)
+        // For closed polygons, center should be the center of the bounding box
+        // cref: pik_bbox_add_elist (pikchr.c:7206)
+        let mut min_x = self.waypoints[0].x;
+        let mut max_x = self.waypoints[0].x;
+        let mut min_y = self.waypoints[0].y;
+        let mut max_y = self.waypoints[0].y;
+        for pt in &self.waypoints {
+            if pt.x < min_x {
+                min_x = pt.x;
+            }
+            if pt.x > max_x {
+                max_x = pt.x;
+            }
+            if pt.y < min_y {
+                min_y = pt.y;
+            }
+            if pt.y > max_y {
+                max_y = pt.y;
+            }
+        }
+        Point::new((min_x + max_x) / 2.0, (min_y + max_y) / 2.0)
     }
 
     fn width(&self) -> Inches {
-        if self.waypoints.len() < 2 {
+        if self.waypoints.is_empty() {
             return Inches::ZERO;
         }
-        let start = *self.waypoints.first().unwrap();
-        let end = *self.waypoints.last().unwrap();
-        let delta = end - start;
-        delta.dx.abs()
+        // Compute bounding box width from all waypoints
+        // cref: pik_bbox_add_elist (pikchr.c:7206) - line bbox from all waypoints
+        let mut min_x = self.waypoints[0].x;
+        let mut max_x = self.waypoints[0].x;
+        for pt in &self.waypoints {
+            if pt.x < min_x {
+                min_x = pt.x;
+            }
+            if pt.x > max_x {
+                max_x = pt.x;
+            }
+        }
+        max_x - min_x
     }
 
     fn height(&self) -> Inches {
-        if self.waypoints.len() < 2 {
+        if self.waypoints.is_empty() {
             return Inches::ZERO;
         }
-        let start = *self.waypoints.first().unwrap();
-        let end = *self.waypoints.last().unwrap();
-        let delta = end - start;
-        delta.dy.abs()
+        // Compute bounding box height from all waypoints
+        // cref: pik_bbox_add_elist (pikchr.c:7206) - line bbox from all waypoints
+        let mut min_y = self.waypoints[0].y;
+        let mut max_y = self.waypoints[0].y;
+        for pt in &self.waypoints {
+            if pt.y < min_y {
+                min_y = pt.y;
+            }
+            if pt.y > max_y {
+                max_y = pt.y;
+            }
+        }
+        max_y - min_y
     }
 
     fn style(&self) -> &ObjectStyle {
@@ -1011,7 +1046,10 @@ impl Shape for LineShape {
         // This applies to closed paths or multi-segment open paths with no corner radius
         let add_linejoin = (self.style.close_path || self.waypoints.len() > 2)
             && self.style.corner_radius.raw() == 0.0;
-        let svg_style = build_svg_style_ex(&self.style, scaler, dashwid, add_linejoin);
+        // For non-closed lines, fill should be "none" even if specified
+        // cref: lineRender (pikchr.c:4228) - only closed paths can be filled
+        let allow_fill = self.style.close_path;
+        let svg_style = build_svg_style_full(&self.style, scaler, dashwid, add_linejoin, allow_fill);
 
         let arrow_len_px = scaler.px(arrow_len);
         let arrow_wid_px = scaler.px(arrow_wid);
@@ -1412,29 +1450,65 @@ impl Shape for SplineShape {
         if self.waypoints.is_empty() {
             return Point::ORIGIN;
         }
-        let start = *self.waypoints.first().unwrap();
-        let end = *self.waypoints.last().unwrap();
-        start.midpoint(end)
+        // For splines with multiple waypoints, use bounding box center
+        // cref: pik_bbox_add_elist (pikchr.c:7206)
+        let mut min_x = self.waypoints[0].x;
+        let mut max_x = self.waypoints[0].x;
+        let mut min_y = self.waypoints[0].y;
+        let mut max_y = self.waypoints[0].y;
+        for pt in &self.waypoints {
+            if pt.x < min_x {
+                min_x = pt.x;
+            }
+            if pt.x > max_x {
+                max_x = pt.x;
+            }
+            if pt.y < min_y {
+                min_y = pt.y;
+            }
+            if pt.y > max_y {
+                max_y = pt.y;
+            }
+        }
+        Point::new((min_x + max_x) / 2.0, (min_y + max_y) / 2.0)
     }
 
     fn width(&self) -> Inches {
-        if self.waypoints.len() < 2 {
+        if self.waypoints.is_empty() {
             return Inches::ZERO;
         }
-        let start = *self.waypoints.first().unwrap();
-        let end = *self.waypoints.last().unwrap();
-        let delta = end - start;
-        delta.dx.abs()
+        // Compute bounding box width from all waypoints
+        // cref: pik_bbox_add_elist (pikchr.c:7206)
+        let mut min_x = self.waypoints[0].x;
+        let mut max_x = self.waypoints[0].x;
+        for pt in &self.waypoints {
+            if pt.x < min_x {
+                min_x = pt.x;
+            }
+            if pt.x > max_x {
+                max_x = pt.x;
+            }
+        }
+        max_x - min_x
     }
 
     fn height(&self) -> Inches {
-        if self.waypoints.len() < 2 {
+        if self.waypoints.is_empty() {
             return Inches::ZERO;
         }
-        let start = *self.waypoints.first().unwrap();
-        let end = *self.waypoints.last().unwrap();
-        let delta = end - start;
-        delta.dy.abs()
+        // Compute bounding box height from all waypoints
+        // cref: pik_bbox_add_elist (pikchr.c:7206)
+        let mut min_y = self.waypoints[0].y;
+        let mut max_y = self.waypoints[0].y;
+        for pt in &self.waypoints {
+            if pt.y < min_y {
+                min_y = pt.y;
+            }
+            if pt.y > max_y {
+                max_y = pt.y;
+            }
+        }
+        max_y - min_y
     }
 
     fn style(&self) -> &ObjectStyle {
@@ -2263,6 +2337,16 @@ impl ShapeEnum {
         }
     }
 
+    /// Get reference to waypoints (for Line and Spline)
+    /// cref: pik_same (pikchr.c:6775-6787) - used for "same as" path copying
+    pub fn waypoints(&self) -> Option<&[PointIn]> {
+        match self {
+            ShapeEnum::Line(s) => Some(&s.waypoints),
+            ShapeEnum::Spline(s) => Some(&s.waypoints),
+            _ => None,
+        }
+    }
+
     /// Get mutable reference to waypoints (for Line and Spline)
     pub fn waypoints_mut(&mut self) -> Option<&mut Vec<PointIn>> {
         match self {
@@ -2302,7 +2386,7 @@ impl ShapeEnum {
 /// Build an SVG style from an ObjectStyle
 /// cref: pik_append_style (pikchr.c:2277)
 fn build_svg_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches) -> SvgStyle {
-    build_svg_style_ex(style, scaler, dashwid, false)
+    build_svg_style_full(style, scaler, dashwid, false, true)
 }
 
 /// Build an SVG style with optional stroke-linejoin
@@ -2312,7 +2396,25 @@ fn build_svg_style_ex(
     dashwid: Inches,
     add_linejoin: bool,
 ) -> SvgStyle {
-    let fill_rgb = color_to_rgb(&style.fill);
+    build_svg_style_full(style, scaler, dashwid, add_linejoin, true)
+}
+
+/// Build an SVG style with optional stroke-linejoin and fill control
+/// For non-closed lines, fill should be "none" even if specified
+/// cref: lineRender (pikchr.c:4228) - lines without close can't be filled
+fn build_svg_style_full(
+    style: &ObjectStyle,
+    scaler: &Scaler,
+    dashwid: Inches,
+    add_linejoin: bool,
+    allow_fill: bool,
+) -> SvgStyle {
+    // For non-closed lines, force fill to "none"
+    let fill_rgb = if allow_fill {
+        color_to_rgb(&style.fill)
+    } else {
+        "none".to_string()
+    };
     let stroke_rgb = color_to_rgb(&style.stroke);
 
     tracing::debug!(

@@ -185,8 +185,29 @@ impl RenderContext {
         // For line-like objects, this is already handled correctly by their end()
         let exit_point = match obj.class() {
             ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move | ClassName::Arc => {
-                // For line-like objects (including arcs), end() is correct
-                obj.end()
+                // Check if this is a closed line (polygon)
+                // cref: pikchr.c:7122-7126 - closed lines use bbox edge as exit
+                let is_closed = obj.style().close_path;
+                if is_closed
+                    && matches!(
+                        obj.class(),
+                        ClassName::Line | ClassName::Arrow | ClassName::Spline
+                    )
+                {
+                    // For closed lines, exit point is edge of bounding box in object's direction
+                    // cref: pik_elem_set_exit (pikchr.c:5740-5747)
+                    use crate::types::UnitVec;
+                    let unit_dir = match self.direction {
+                        crate::ast::Direction::Right => UnitVec::EAST,
+                        crate::ast::Direction::Left => UnitVec::WEST,
+                        crate::ast::Direction::Up => UnitVec::NORTH,
+                        crate::ast::Direction::Down => UnitVec::SOUTH,
+                    };
+                    obj.edge_point(unit_dir)
+                } else {
+                    // For open lines, exit point is last waypoint
+                    obj.end()
+                }
             }
             ClassName::Dot => {
                 // cref: dotCheck (pikchr.c:4042-4047)
