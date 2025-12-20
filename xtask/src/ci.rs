@@ -703,7 +703,7 @@ pub mod common {
         } else {
             // Forgejo: use standard cache action (no base path, different restore-keys format)
             let restore_key =
-                format!("${{{{ runner.os }}}}-cargo-${{{{ hashFiles('**/Cargo.lock') }}}}-");
+                "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-".to_string();
             Step::uses("Cache", action).with_inputs([
                 ("path", "target"),
                 ("key", &key),
