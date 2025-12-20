@@ -15,12 +15,25 @@ use indexmap::IndexMap;
 /// Use self-hosted runner for macOS (true) or Depot (false).
 const MACOS_SELF_HOSTED: bool = true;
 
+/// Use self-hosted runner for Linux (true) or Depot (false).
+const LINUX_SELF_HOSTED: bool = true;
+
+/// Self-hosted runner labels for macOS.
+const MACOS_SELF_HOSTED_LABELS: &[&str] = &["self-hosted", "macOS", "ARM64"];
+
+/// Self-hosted runner labels for Linux.
+const LINUX_SELF_HOSTED_LABELS: &[&str] = &["self-hosted", "Linux", "X64"];
+
 /// Target platforms for CI and releases.
 pub const TARGETS: &[Target] = &[
     Target {
         triple: "x86_64-unknown-linux-gnu",
         os: "ubuntu-24.04",
-        runner: "depot-ubuntu-24.04-32",
+        runner: if LINUX_SELF_HOSTED {
+            RunnerSpec::Labels(LINUX_SELF_HOSTED_LABELS)
+        } else {
+            RunnerSpec::Single("depot-ubuntu-24.04-32")
+        },
         lib_ext: "so",
         lib_prefix: "lib",
         archive_ext: "tar.xz",
@@ -29,9 +42,9 @@ pub const TARGETS: &[Target] = &[
         triple: "aarch64-apple-darwin",
         os: "macos-15",
         runner: if MACOS_SELF_HOSTED {
-            "self-hosted"
+            RunnerSpec::Labels(MACOS_SELF_HOSTED_LABELS)
         } else {
-            "depot-macos-15"
+            RunnerSpec::Single("depot-macos-15")
         },
         lib_ext: "dylib",
         lib_prefix: "lib",
@@ -124,11 +137,35 @@ pub fn cell_groups(chunk_size: usize) -> Vec<(String, Vec<(&'static str, &'stati
         .collect()
 }
 
+/// Runner specification - can be a single string or a list of labels.
+#[derive(Debug, Clone)]
+pub enum RunnerSpec {
+    /// A single runner name (e.g., "ubuntu-latest")
+    Single(&'static str),
+    /// Multiple labels for self-hosted runners (e.g., ["self-hosted", "Linux", "X64"])
+    Labels(&'static [&'static str]),
+}
+
+impl RunnerSpec {
+    /// Convert to the Job's runs_on field.
+    pub fn to_runs_on(&self) -> RunsOn {
+        match self {
+            RunnerSpec::Single(s) => RunsOn::single(*s),
+            RunnerSpec::Labels(labels) => RunsOn::multiple(labels.iter().copied()),
+        }
+    }
+
+    /// Check if this is a self-hosted runner.
+    pub const fn is_self_hosted(&self) -> bool {
+        matches!(self, RunnerSpec::Labels(_))
+    }
+}
+
 /// A target platform configuration.
 pub struct Target {
     pub triple: &'static str,
     pub os: &'static str,
-    pub runner: &'static str,
+    pub runner: RunnerSpec,
     pub lib_ext: &'static str,
     pub lib_prefix: &'static str,
     pub archive_ext: &'static str,
@@ -143,6 +180,25 @@ impl Target {
             "aarch64-apple-darwin" => "macos-arm64",
             "x86_64-pc-windows-msvc" => "windows-x64",
             _ => self.triple,
+        }
+    }
+
+    /// Check if this target uses a self-hosted runner.
+    pub const fn is_self_hosted(&self) -> bool {
+        self.runner.is_self_hosted()
+    }
+
+    /// Get the RunsOn configuration for this target.
+    pub fn runs_on(&self) -> RunsOn {
+        self.runner.to_runs_on()
+    }
+
+    /// Get the local cache base path for self-hosted runners.
+    pub fn cache_base_path(&self) -> &'static str {
+        match self.triple {
+            "aarch64-apple-darwin" => "/Users/amos/.cache",
+            "x86_64-unknown-linux-gnu" => "/home/amos/.cache",
+            _ => "/tmp/.cache",
         }
     }
 }
@@ -205,6 +261,27 @@ structstruck::strike! {
     }
 }
 
+/// Runner specification for GitHub Actions.
+///
+/// Always serialized as an array of labels, which GitHub Actions accepts for both
+/// single runners (e.g., ["ubuntu-latest"]) and multi-label self-hosted runners
+/// (e.g., ["self-hosted", "Linux", "X64"]).
+#[derive(Debug, Clone, Facet)]
+#[facet(transparent)]
+pub struct RunsOn(pub Vec<String>);
+
+impl RunsOn {
+    /// Create a single runner.
+    pub fn single(s: impl Into<String>) -> Self {
+        RunsOn(vec![s.into()])
+    }
+
+    /// Create multiple runner labels.
+    pub fn multiple(labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        RunsOn(labels.into_iter().map(Into::into).collect())
+    }
+}
+
 structstruck::strike! {
     /// A job in a workflow.
     #[strikethrough[derive(Debug, Clone, Facet)]]
@@ -215,7 +292,7 @@ structstruck::strike! {
         pub name: Option<String>,
 
         /// The runner to use.
-        pub runs_on: String,
+        pub runs_on: RunsOn,
 
         /// Maximum time in minutes for the job to run.
         #[facet(default, skip_serializing_if = Option::is_none)]
@@ -350,11 +427,26 @@ impl Step {
 }
 
 impl Job {
-    /// Create a new job.
+    /// Create a new job with a single runner.
     pub fn new(runs_on: impl Into<String>) -> Self {
         Self {
             name: None,
-            runs_on: runs_on.into(),
+            runs_on: RunsOn::single(runs_on),
+            timeout_minutes: None,
+            needs: None,
+            if_condition: None,
+            outputs: None,
+            env: None,
+            continue_on_error: None,
+            steps: Vec::new(),
+        }
+    }
+
+    /// Create a new job with a specific runner configuration.
+    pub fn with_runner(runs_on: RunsOn) -> Self {
+        Self {
+            name: None,
+            runs_on,
             timeout_minutes: None,
             needs: None,
             if_condition: None,
@@ -455,7 +547,11 @@ pub mod common {
         ])
     }
 
-    pub fn local_cache_with_targets(cache_targets: bool, job_suffix: &str) -> Step {
+    pub fn local_cache_with_targets(
+        cache_targets: bool,
+        job_suffix: &str,
+        base_path: &str,
+    ) -> Step {
         let key = if cache_targets {
             format!(
                 "${{{{ runner.os }}}}-cargo-${{{{ hashFiles('**/Cargo.lock') }}}}-targets-{}",
@@ -472,11 +568,7 @@ pub mod common {
             "Local cache",
             "bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794",
         )
-        .with_inputs([
-            ("path", "target"),
-            ("key", &key),
-            ("base", "/Users/amos/.cache"),
-        ])
+        .with_inputs([("path", "target"), ("key", &key), ("base", base_path)])
     }
 
     pub fn upload_artifact(name: impl Into<String>, path: impl Into<String>) -> Step {
@@ -505,13 +597,17 @@ pub mod common {
 /// CI runner configuration.
 struct CiRunner {
     os: &'static str,
-    runner: &'static str,
+    runner: RunnerSpec,
     wasm_install: &'static str,
 }
 
 const CI_LINUX: CiRunner = CiRunner {
     os: "linux",
-    runner: "depot-ubuntu-24.04-32",
+    runner: if LINUX_SELF_HOSTED {
+        RunnerSpec::Labels(LINUX_SELF_HOSTED_LABELS)
+    } else {
+        RunnerSpec::Single("depot-ubuntu-24.04-32")
+    },
     wasm_install: "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh",
 };
 
@@ -531,9 +627,16 @@ pub fn build_ci_workflow() -> Workflow {
     // Track jobs required before release (assemble + integration per target)
     let mut all_release_needs: Vec<String> = Vec::new();
 
+    // Cache step for CI_LINUX jobs
+    let ci_linux_cache = if CI_LINUX.runner.is_self_hosted() {
+        local_cache_with_targets(false, "ci-linux", "/home/amos/.cache")
+    } else {
+        rust_cache_with_targets(false)
+    };
+
     jobs.insert(
         "clippy".to_string(),
-        Job::new(CI_LINUX.runner)
+        Job::with_runner(CI_LINUX.runner.to_runs_on())
             .name("Clippy")
             .timeout(30)
             .continue_on_error(true)
@@ -543,7 +646,7 @@ pub fn build_ci_workflow() -> Workflow {
                     ("components", "clippy"),
                     ("targets", "wasm32-unknown-unknown"),
                 ]),
-                rust_cache_with_targets(false),
+                ci_linux_cache.clone(),
                 Step::run(
                     "Clippy",
                     "cargo clippy --all-features --all-targets -- -D warnings",
@@ -555,14 +658,14 @@ pub fn build_ci_workflow() -> Workflow {
     let wasm_artifact = "dodeca-devtools-wasm".to_string();
     jobs.insert(
         wasm_job_id.clone(),
-        Job::new(CI_LINUX.runner)
+        Job::with_runner(CI_LINUX.runner.to_runs_on())
             .name("Build WASM")
             .timeout(30)
             .steps([
                 checkout(),
                 Step::uses("Install Rust", "dtolnay/rust-toolchain@stable")
                     .with_inputs([("targets", "wasm32-unknown-unknown")]),
-                rust_cache_with_targets(false),
+                ci_linux_cache.clone(),
                 Step::run("Install wasm-pack", CI_LINUX.wasm_install),
                 Step::run("Build WASM", "cargo xtask wasm"),
                 upload_artifact(wasm_artifact.clone(), "crates/dodeca-devtools/pkg"),
@@ -576,14 +679,18 @@ pub fn build_ci_workflow() -> Workflow {
         let ddc_job_id = format!("build-ddc-{short}");
         jobs.insert(
             ddc_job_id.clone(),
-            Job::new(target.runner)
+            Job::with_runner(target.runs_on())
                 .name(format!("Build ddc ({short})"))
                 .timeout(30)
                 .steps([
                     checkout(),
                     Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
-                    if MACOS_SELF_HOSTED && target.os == "macos-15" {
-                        local_cache_with_targets(false, &format!("ddc-{}", short))
+                    if target.is_self_hosted() {
+                        local_cache_with_targets(
+                            false,
+                            &format!("ddc-{}", short),
+                            target.cache_base_path(),
+                        )
                     } else {
                         rust_cache_with_targets(false)
                     },
@@ -627,16 +734,17 @@ pub fn build_ci_workflow() -> Workflow {
 
             jobs.insert(
                 group_job_id.clone(),
-                Job::new(target.runner)
+                Job::with_runner(target.runs_on())
                     .name(format!("Build cells ({short}) [{cell_names}]"))
                     .timeout(30)
                     .steps([
                         checkout(),
                         install_rust(),
-                        if MACOS_SELF_HOSTED && target.os == "macos-15" {
+                        if target.is_self_hosted() {
                             local_cache_with_targets(
                                 true,
                                 &format!("cells-{}-{}", short, group_num),
+                                target.cache_base_path(),
                             )
                         } else {
                             rust_cache_with_targets(true)
@@ -658,15 +766,19 @@ pub fn build_ci_workflow() -> Workflow {
         integration_needs.extend(cell_group_needs.clone());
         jobs.insert(
             integration_job_id.clone(),
-            Job::new(target.runner)
+            Job::with_runner(target.runs_on())
                 .name(format!("Integration ({short})"))
                 .timeout(30)
                 .needs(integration_needs)
                 .steps([
                     checkout(),
                     Step::uses("Install Rust", "dtolnay/rust-toolchain@stable"),
-                    if MACOS_SELF_HOSTED && target.os == "macos-15" {
-                        local_cache_with_targets(false, &format!("integration-{}", short))
+                    if target.is_self_hosted() {
+                        local_cache_with_targets(
+                            false,
+                            &format!("integration-{}", short),
+                            target.cache_base_path(),
+                        )
                     } else {
                         rust_cache_with_targets(false)
                     },
@@ -695,7 +807,7 @@ pub fn build_ci_workflow() -> Workflow {
 
         jobs.insert(
             assemble_job_id.clone(),
-            Job::new(target.runner)
+            Job::with_runner(target.runs_on())
                 .name(format!("Assemble ({short})"))
                 .timeout(30)
                 .needs(assemble_needs)

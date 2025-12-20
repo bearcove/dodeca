@@ -25,7 +25,11 @@ env:
 jobs: 
   clippy: 
     name: Clippy
-    runs-on: depot-ubuntu-24.04-32
+    runs-on: 
+      - self-hosted
+      - Linux
+      - X64
+
     timeout-minutes: 30
     continue-on-error: true
     steps: 
@@ -40,11 +44,12 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        name: Local cache
+        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
-          cache-on-failure: "true"
-          cache-targets: "false"
+          path: target
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-ci-linux"
+          base: /home/amos/.cache
 
       - 
         name: Clippy
@@ -52,7 +57,11 @@ jobs:
 
   build-wasm: 
     name: Build WASM
-    runs-on: depot-ubuntu-24.04-32
+    runs-on: 
+      - self-hosted
+      - Linux
+      - X64
+
     timeout-minutes: 30
     steps: 
       - 
@@ -65,11 +74,12 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        name: Local cache
+        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
-          cache-on-failure: "true"
-          cache-targets: "false"
+          path: target
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-ci-linux"
+          base: /home/amos/.cache
 
       - 
         name: Install wasm-pack
@@ -87,7 +97,11 @@ jobs:
 
   build-ddc-linux-x64: 
     name: Build ddc (linux-x64)
-    runs-on: depot-ubuntu-24.04-32
+    runs-on: 
+      - self-hosted
+      - Linux
+      - X64
+
     timeout-minutes: 30
     steps: 
       - 
@@ -97,11 +111,12 @@ jobs:
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        name: Local cache
+        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
-          cache-on-failure: "true"
-          cache-targets: "false"
+          path: target
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-ddc-linux-x64"
+          base: /home/amos/.cache
 
       - 
         name: Build ddc
@@ -119,7 +134,11 @@ jobs:
 
   build-cells-linux-x64-1: 
     name: Build cells (linux-x64) [cell-arborium, cell-code-execution, cell-css, cell-fonts, cell-html, cell-html-diff, cell-http, cell-image, cell-js]
-    runs-on: depot-ubuntu-24.04-32
+    runs-on: 
+      - self-hosted
+      - Linux
+      - X64
+
     timeout-minutes: 30
     steps: 
       - 
@@ -129,11 +148,12 @@ jobs:
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        name: Local cache
+        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
-          cache-on-failure: "true"
-          cache-targets: "true"
+          path: target
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-linux-x64-1"
+          base: /home/amos/.cache
 
       - 
         name: Build cells
@@ -151,7 +171,11 @@ jobs:
 
   build-cells-linux-x64-2: 
     name: Build cells (linux-x64) [cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-pagefind, cell-sass, cell-svgo, cell-tui, cell-webp]
-    runs-on: depot-ubuntu-24.04-32
+    runs-on: 
+      - self-hosted
+      - Linux
+      - X64
+
     timeout-minutes: 30
     steps: 
       - 
@@ -161,11 +185,12 @@ jobs:
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        name: Local cache
+        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
-          cache-on-failure: "true"
-          cache-targets: "true"
+          path: target
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-linux-x64-2"
+          base: /home/amos/.cache
 
       - 
         name: Build cells
@@ -183,7 +208,11 @@ jobs:
 
   integration-linux-x64: 
     name: Integration (linux-x64)
-    runs-on: depot-ubuntu-24.04-32
+    runs-on: 
+      - self-hosted
+      - Linux
+      - X64
+
     timeout-minutes: 30
     needs: 
       - build-ddc-linux-x64
@@ -198,11 +227,12 @@ jobs:
         name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - 
-        name: Rust cache
-        uses: Swatinem/rust-cache@v2
+        name: Local cache
+        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
-          cache-on-failure: "true"
-          cache-targets: "false"
+          path: target
+          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-integration-linux-x64"
+          base: /home/amos/.cache
 
       - 
         name: Download ddc
@@ -232,7 +262,11 @@ jobs:
 
   assemble-linux-x64: 
     name: Assemble (linux-x64)
-    runs-on: depot-ubuntu-24.04-32
+    runs-on: 
+      - self-hosted
+      - Linux
+      - X64
+
     timeout-minutes: 30
     needs: 
       - integration-linux-x64
@@ -283,7 +317,11 @@ jobs:
 
   build-ddc-macos-arm64: 
     name: Build ddc (macos-arm64)
-    runs-on: self-hosted
+    runs-on: 
+      - self-hosted
+      - macOS
+      - ARM64
+
     timeout-minutes: 30
     steps: 
       - 
@@ -316,7 +354,11 @@ jobs:
 
   build-cells-macos-arm64-1: 
     name: Build cells (macos-arm64) [cell-arborium, cell-code-execution, cell-css, cell-fonts, cell-html, cell-html-diff, cell-http, cell-image, cell-js]
-    runs-on: self-hosted
+    runs-on: 
+      - self-hosted
+      - macOS
+      - ARM64
+
     timeout-minutes: 30
     steps: 
       - 
@@ -349,7 +391,11 @@ jobs:
 
   build-cells-macos-arm64-2: 
     name: Build cells (macos-arm64) [cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-pagefind, cell-sass, cell-svgo, cell-tui, cell-webp]
-    runs-on: self-hosted
+    runs-on: 
+      - self-hosted
+      - macOS
+      - ARM64
+
     timeout-minutes: 30
     steps: 
       - 
@@ -382,7 +428,11 @@ jobs:
 
   integration-macos-arm64: 
     name: Integration (macos-arm64)
-    runs-on: self-hosted
+    runs-on: 
+      - self-hosted
+      - macOS
+      - ARM64
+
     timeout-minutes: 30
     needs: 
       - build-ddc-macos-arm64
@@ -432,7 +482,11 @@ jobs:
 
   assemble-macos-arm64: 
     name: Assemble (macos-arm64)
-    runs-on: self-hosted
+    runs-on: 
+      - self-hosted
+      - macOS
+      - ARM64
+
     timeout-minutes: 30
     needs: 
       - integration-macos-arm64
@@ -483,7 +537,9 @@ jobs:
 
   release: 
     name: Release
-    runs-on: ubuntu-latest
+    runs-on: 
+      - ubuntu-latest
+
     timeout-minutes: 30
     needs: 
       - assemble-linux-x64
