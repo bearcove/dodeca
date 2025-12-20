@@ -596,7 +596,10 @@ pub fn build_ci_workflow() -> Workflow {
                     // Only run binary unit tests here - integration tests (serve/) need cells
                     // and run in the integration phase after assembly
                     Step::run("Test ddc", "cargo test --release -p dodeca --bins"),
-                    upload_artifact(format!("ddc-{short}"), "target/release/ddc"),
+                    upload_artifact(
+                        format!("ddc-{short}"),
+                        "target/release/ddc\ntarget/release/ddc-acceptor",
+                    ),
                 ]),
         );
 
@@ -732,7 +735,7 @@ pub fn build_ci_workflow() -> Workflow {
                     ]),
                     Step::run(
                         "Prepare binaries",
-                        "chmod +x dist/ddc dist/ddc-cell-* && ls -la dist/",
+                        "chmod +x dist/ddc dist/ddc-acceptor dist/ddc-cell-* && ls -la dist/",
                     ),
                     Step::run(
                         "Run integration tests",
