@@ -698,16 +698,13 @@ pub mod common {
         job_suffix: &str,
         base_path: &str,
     ) -> Step {
+        // Use a stable key based on OS and job type, not Cargo.lock hash.
+        // This maximizes cache reuse - Cargo's incremental compilation handles
+        // dependency changes well, and a stale cache is better than no cache.
         let key = if cache_targets {
-            format!(
-                "${{{{ runner.os }}}}-cargo-${{{{ hashFiles('**/Cargo.lock') }}}}-targets-{}",
-                job_suffix
-            )
+            format!("${{{{ runner.os }}}}-cargo-targets-{}", job_suffix)
         } else {
-            format!(
-                "${{{{ runner.os }}}}-cargo-${{{{ hashFiles('**/Cargo.lock') }}}}-{}",
-                job_suffix
-            )
+            format!("${{{{ runner.os }}}}-cargo-{}", job_suffix)
         };
 
         let action = platform.local_cache_action();
@@ -721,8 +718,7 @@ pub mod common {
             ])
         } else {
             // Forgejo: use standard cache action (no base path, different restore-keys format)
-            let restore_key =
-                "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-".to_string();
+            let restore_key = format!("${{{{ runner.os }}}}-cargo-");
             Step::uses("Cache", action).with_inputs([
                 ("path", "target"),
                 ("key", &key),

@@ -46,8 +46,8 @@ jobs:
         uses: "https://data.forgejo.org/actions/cache@v4"
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-ci-linux"
-          restore-keys: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-"
+          key: ${{ runner.os }}-cargo-ci-linux
+          restore-keys: ${{ runner.os }}-cargo-
 
       - 
         name: Clippy
@@ -74,8 +74,8 @@ jobs:
         uses: "https://data.forgejo.org/actions/cache@v4"
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-ci-linux"
-          restore-keys: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-"
+          key: ${{ runner.os }}-cargo-ci-linux
+          restore-keys: ${{ runner.os }}-cargo-
 
       - 
         name: Install wasm-pack
@@ -109,8 +109,8 @@ jobs:
         uses: "https://data.forgejo.org/actions/cache@v4"
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-ddc-linux-x64"
-          restore-keys: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-"
+          key: ${{ runner.os }}-cargo-ddc-linux-x64
+          restore-keys: ${{ runner.os }}-cargo-
 
       - 
         name: Build ddc
@@ -144,8 +144,8 @@ jobs:
         uses: "https://data.forgejo.org/actions/cache@v4"
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-linux-x64-1"
-          restore-keys: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-"
+          key: ${{ runner.os }}-cargo-targets-cells-linux-x64-1
+          restore-keys: ${{ runner.os }}-cargo-
 
       - 
         name: Build cells
@@ -179,8 +179,8 @@ jobs:
         uses: "https://data.forgejo.org/actions/cache@v4"
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-linux-x64-2"
-          restore-keys: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-"
+          key: ${{ runner.os }}-cargo-targets-cells-linux-x64-2
+          restore-keys: ${{ runner.os }}-cargo-
 
       - 
         name: Build cells
@@ -219,8 +219,8 @@ jobs:
         uses: "https://data.forgejo.org/actions/cache@v4"
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-integration-linux-x64"
-          restore-keys: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-"
+          key: ${{ runner.os }}-cargo-integration-linux-x64
+          restore-keys: ${{ runner.os }}-cargo-
 
       - 
         name: Download ddc
@@ -322,8 +322,8 @@ jobs:
         uses: "https://data.forgejo.org/actions/cache@v4"
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-ddc-macos-arm64"
-          restore-keys: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-"
+          key: ${{ runner.os }}-cargo-ddc-macos-arm64
+          restore-keys: ${{ runner.os }}-cargo-
 
       - 
         name: Build ddc
@@ -357,8 +357,8 @@ jobs:
         uses: "https://data.forgejo.org/actions/cache@v4"
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-macos-arm64-1"
-          restore-keys: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-"
+          key: ${{ runner.os }}-cargo-targets-cells-macos-arm64-1
+          restore-keys: ${{ runner.os }}-cargo-
 
       - 
         name: Build cells
@@ -392,8 +392,8 @@ jobs:
         uses: "https://data.forgejo.org/actions/cache@v4"
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-macos-arm64-2"
-          restore-keys: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-"
+          key: ${{ runner.os }}-cargo-targets-cells-macos-arm64-2
+          restore-keys: ${{ runner.os }}-cargo-
 
       - 
         name: Build cells
@@ -432,8 +432,8 @@ jobs:
         uses: "https://data.forgejo.org/actions/cache@v4"
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-integration-macos-arm64"
-          restore-keys: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-"
+          key: ${{ runner.os }}-cargo-integration-macos-arm64
+          restore-keys: ${{ runner.os }}-cargo-
 
       - 
         name: Download ddc

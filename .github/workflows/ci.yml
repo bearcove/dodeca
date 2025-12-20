@@ -48,7 +48,7 @@ jobs:
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-ci-linux"
+          key: ${{ runner.os }}-cargo-ci-linux
           base: /home/amos/.cache
 
       - 
@@ -78,7 +78,7 @@ jobs:
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-ci-linux"
+          key: ${{ runner.os }}-cargo-ci-linux
           base: /home/amos/.cache
 
       - 
@@ -115,7 +115,7 @@ jobs:
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-ddc-linux-x64"
+          key: ${{ runner.os }}-cargo-ddc-linux-x64
           base: /home/amos/.cache
 
       - 
@@ -152,7 +152,7 @@ jobs:
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-linux-x64-1"
+          key: ${{ runner.os }}-cargo-targets-cells-linux-x64-1
           base: /home/amos/.cache
 
       - 
@@ -189,7 +189,7 @@ jobs:
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-linux-x64-2"
+          key: ${{ runner.os }}-cargo-targets-cells-linux-x64-2
           base: /home/amos/.cache
 
       - 
@@ -231,7 +231,7 @@ jobs:
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-integration-linux-x64"
+          key: ${{ runner.os }}-cargo-integration-linux-x64
           base: /home/amos/.cache
 
       - 
@@ -338,7 +338,7 @@ jobs:
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-ddc-macos-arm64"
+          key: ${{ runner.os }}-cargo-ddc-macos-arm64
           base: /Users/amos/.cache
 
       - 
@@ -375,7 +375,7 @@ jobs:
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-macos-arm64-1"
+          key: ${{ runner.os }}-cargo-targets-cells-macos-arm64-1
           base: /Users/amos/.cache
 
       - 
@@ -412,7 +412,7 @@ jobs:
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-targets-cells-macos-arm64-2"
+          key: ${{ runner.os }}-cargo-targets-cells-macos-arm64-2
           base: /Users/amos/.cache
 
       - 
@@ -454,7 +454,7 @@ jobs:
         uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
         with: 
           path: target
-          key: "${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-integration-macos-arm64"
+          key: ${{ runner.os }}-cargo-integration-macos-arm64
           base: /Users/amos/.cache
 
       - 
