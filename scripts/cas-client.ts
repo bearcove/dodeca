@@ -4,15 +4,18 @@
  * CAS Client Library - Content-Addressed Storage over SSH
  *
  * Provides put/get/has operations for a content-addressed store
- * backed by SSH + rsync to cas@golem.bearcove.cloud.
+ * backed by rsync over SSH to cas@golem.bearcove.cloud.
+ *
+ * Server uses rrsync (restricted rsync) to limit access to /srv/cas/cas.
  *
  * Environment variables required:
  * - CAS_SSH_KEY: Private SSH key (ed25519 PEM/OpenSSH format)
  *
  * Server layout:
- * - /srv/cas/cas/sha256/<hash[0:2]>/<hash> - CAS objects
- * - /srv/cas/cas/pointers/<key> - Pointer files
- * - /srv/cas/cas/tmp/ - Temporary upload staging
+ * - sha256/<hash[0:2]>/<hash> - CAS objects (relative to /srv/cas/cas)
+ * - pointers/<key> - Pointer files
+ *
+ * Race-safe: Multiple concurrent uploads of same hash write identical bytes.
  */
 
 import { createHash, randomBytes } from "node:crypto";
@@ -22,7 +25,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const CAS_HOST = "cas@golem.bearcove.cloud";
-const CAS_ROOT = "/srv/cas/cas";
 
 export interface PutResult {
   hash: string;
@@ -68,7 +70,7 @@ export class CasClient {
   }
 
   /**
-   * Clean up ephemeral key file and control socket
+   * Clean up ephemeral key file (control socket will auto-expire after ControlPersist)
    */
   async cleanup(): Promise<void> {
     if (this.keyFile) {
@@ -79,43 +81,8 @@ export class CasClient {
       }
       this.keyFile = null;
     }
-
-    // Close control socket if it exists
-    if (this.controlPath) {
-      try {
-        await this.run("ssh", [
-          "-o", `ControlPath=${this.controlPath}`,
-          "-O", "exit",
-          CAS_HOST,
-        ]);
-      } catch {
-        // Ignore cleanup errors
-      }
-      this.controlPath = null;
-    }
-  }
-
-  /**
-   * Run SSH command
-   */
-  private async ssh(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-    if (!this.keyFile || !this.controlPath) {
-      throw new Error("CasClient not initialized - call init() first");
-    }
-
-    const fullArgs = [
-      "-i", this.keyFile,
-      "-o", "IdentitiesOnly=yes",
-      "-o", "StrictHostKeyChecking=yes",
-      "-o", `UserKnownHostsFile=${this.knownHostsFile}`,
-      "-o", "ControlMaster=auto",
-      "-o", `ControlPath=${this.controlPath}`,
-      "-o", "ControlPersist=60",
-      CAS_HOST,
-      ...args,
-    ];
-
-    return this.run("ssh", fullArgs);
+    // Control socket will auto-cleanup after ControlPersist timeout (60s)
+    this.controlPath = null;
   }
 
   /**
@@ -177,44 +144,27 @@ export class CasClient {
     // Get file size
     const { size: bytes } = await stat(filePath);
 
-    // Generate unique temp path
-    const tmpPath = `tmp/${hash}.${randomBytes(4).toString("hex")}.${randomBytes(4).toString("hex")}.part`;
-    const remoteTmpPath = `${CAS_ROOT}/${tmpPath}`;
+    // Check if already exists (optional optimization)
+    const finalPath = `sha256/${hashPrefix}/${hash}`;
+    const exists = await this.has(hash);
 
-    // Upload to temp location
-    const uploadResult = await this.rsync([
-      "-a",
-      "--chmod=Fu=rw,Fgo=r",
-      filePath,
-      `${CAS_HOST}:${remoteTmpPath}`,
-    ]);
+    let status: "uploaded" | "exists" = "uploaded";
 
-    if (uploadResult.code !== 0) {
-      throw new Error(`rsync upload failed: ${uploadResult.stderr}`);
-    }
+    if (!exists) {
+      // Upload directly to final location
+      // Race condition is fine - content-addressed means identical bytes
+      const uploadResult = await this.rsync([
+        "-a",
+        "--chmod=Fu=rw,Fgo=r",
+        filePath,
+        `${CAS_HOST}:${finalPath}`,
+      ]);
 
-    // Atomic install
-    const installResult = await this.ssh([`cas-install ${tmpPath} ${hash}`]);
-
-    if (installResult.code !== 0) {
-      throw new Error(`cas-install failed: ${installResult.stderr}`);
-    }
-
-    const status = installResult.stdout.trim() === "EXISTS" ? "exists" : "uploaded";
-
-    // Integrity check: verify remote file size matches local
-    if (status === "uploaded") {
-      const finalPath = `${CAS_ROOT}/sha256/${hashPrefix}/${hash}`;
-      const statResult = await this.ssh([`stat -c %s ${finalPath}`]);
-
-      if (statResult.code !== 0) {
-        throw new Error(`Failed to verify uploaded file: ${statResult.stderr}`);
+      if (uploadResult.code !== 0) {
+        throw new Error(`rsync upload failed: ${uploadResult.stderr}`);
       }
-
-      const remoteSize = parseInt(statResult.stdout.trim(), 10);
-      if (remoteSize !== bytes) {
-        throw new Error(`Size mismatch: local=${bytes} remote=${remoteSize}`);
-      }
+    } else {
+      status = "exists";
     }
 
     const durationMs = Math.round(performance.now() - startTime);
@@ -231,9 +181,10 @@ export class CasClient {
     }
 
     const hashPrefix = hash.slice(0, 2);
-    const finalPath = `${CAS_ROOT}/sha256/${hashPrefix}/${hash}`;
+    const finalPath = `sha256/${hashPrefix}/${hash}`;
 
-    const result = await this.ssh([`test -f ${finalPath}`]);
+    // Use rsync --list-only to check if file exists (no gateway needed)
+    const result = await this.rsync(["--list-only", `${CAS_HOST}:${finalPath}`]);
     return result.code === 0;
   }
 
@@ -248,7 +199,7 @@ export class CasClient {
     const startTime = performance.now();
 
     const hashPrefix = hash.slice(0, 2);
-    const finalPath = `${CAS_ROOT}/sha256/${hashPrefix}/${hash}`;
+    const finalPath = `sha256/${hashPrefix}/${hash}`;
     const tmpDest = `${destPath}.tmp`;
 
     // Download to temp location
@@ -291,13 +242,9 @@ export class CasClient {
     await writeFile(tmpFile, hash + "\n");
 
     try {
-      const remotePath = `${CAS_ROOT}/pointers/${pointerKey}`;
-      const remoteDir = remotePath.substring(0, remotePath.lastIndexOf("/"));
+      const remotePath = `pointers/${pointerKey}`;
 
-      // Ensure remote directory exists
-      await this.ssh([`mkdir -p ${remoteDir}`]);
-
-      // Upload pointer file
+      // Upload pointer file (rrsync will create parent dirs)
       const result = await this.rsync(["-a", tmpFile, `${CAS_HOST}:${remotePath}`]);
 
       if (result.code !== 0) {
@@ -326,13 +273,9 @@ export class CasClient {
     await writeFile(tmpFile, manifestContent);
 
     try {
-      const remotePath = `${CAS_ROOT}/pointers/${manifestKey}`;
-      const remoteDir = remotePath.substring(0, remotePath.lastIndexOf("/"));
+      const remotePath = `pointers/${manifestKey}`;
 
-      // Ensure remote directory exists
-      await this.ssh([`mkdir -p ${remoteDir}`]);
-
-      // Upload manifest file
+      // Upload manifest file (rrsync will create parent dirs)
       const result = await this.rsync(["-a", tmpFile, `${CAS_HOST}:${remotePath}`]);
 
       if (result.code !== 0) {
@@ -347,7 +290,7 @@ export class CasClient {
    * Read a single pointer file
    */
   async readPointer(pointerKey: string): Promise<string> {
-    const remotePath = `${CAS_ROOT}/pointers/${pointerKey}`;
+    const remotePath = `pointers/${pointerKey}`;
     const tmpFile = join(tmpdir(), `pointer-${randomBytes(8).toString("hex")}`);
 
     try {
@@ -379,7 +322,7 @@ export class CasClient {
    * Returns array of { name, hash } entries
    */
   async readManifest(manifestKey: string): Promise<ManifestEntry[]> {
-    const remotePath = `${CAS_ROOT}/pointers/${manifestKey}`;
+    const remotePath = `pointers/${manifestKey}`;
     const tmpFile = join(tmpdir(), `manifest-${randomBytes(8).toString("hex")}`);
 
     try {
