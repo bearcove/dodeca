@@ -17,10 +17,14 @@ title = "New Section"
 This is a dynamically created section."#,
     );
 
-    let _resp = site.wait_until(Duration::from_secs(10), || {
-        let resp = site.get("/new-section/");
-        if resp.status == 200 { Some(resp) } else { None }
-    });
+    let _resp = site.wait_until(
+        "new section page to be accessible",
+        Duration::from_secs(10),
+        || {
+            let resp = site.get("/new-section/");
+            if resp.status == 200 { Some(resp) } else { None }
+        },
+    );
 
     let resp = site.get("/new-section/");
     resp.assert_ok();
@@ -47,10 +51,14 @@ title = "Deeply Nested"
 This is a deeply nested section at level 3."#,
     );
 
-    let _resp = site.wait_until(Duration::from_secs(10), || {
-        let resp = site.get("/level1/level2/level3/");
-        if resp.status == 200 { Some(resp) } else { None }
-    });
+    let _resp = site.wait_until(
+        "deeply nested section page to be accessible",
+        Duration::from_secs(10),
+        || {
+            let resp = site.get("/level1/level2/level3/");
+            if resp.status == 200 { Some(resp) } else { None }
+        },
+    );
 
     let resp = site.get("/level1/level2/level3/");
     resp.assert_ok();
@@ -70,10 +78,14 @@ title = "Moveable Page"
 This page will be moved."#,
     );
 
-    site.wait_until(Duration::from_secs(10), || {
-        let resp = site.get("/guide/moveable/");
-        if resp.status == 200 { Some(resp) } else { None }
-    });
+    site.wait_until(
+        "moved page to be accessible at new location",
+        Duration::from_secs(10),
+        || {
+            let resp = site.get("/guide/moveable/");
+            if resp.status == 200 { Some(resp) } else { None }
+        },
+    );
 
     site.wait_debounce();
 
@@ -81,16 +93,20 @@ This page will be moved."#,
     site.delete_file("content/guide/moveable.md");
     site.write_file("content/moved-page.md", &original_content);
 
-    let result = site.wait_until(Duration::from_secs(10), || {
-        let old_resp = site.get("/guide/moveable/");
-        let new_resp = site.get("/moved-page/");
+    let result = site.wait_until(
+        "old page to return 404 and new page to return 200",
+        Duration::from_secs(10),
+        || {
+            let old_resp = site.get("/guide/moveable/");
+            let new_resp = site.get("/moved-page/");
 
-        if old_resp.status == 404 && new_resp.status == 200 {
-            Some((old_resp, new_resp))
-        } else {
-            None
-        }
-    });
+            if old_resp.status == 404 && new_resp.status == 200 {
+                Some((old_resp, new_resp))
+            } else {
+                None
+            }
+        },
+    );
 
     let (old_resp, new_resp) = result;
     assert_eq!(
@@ -135,14 +151,18 @@ body {
         css.replace("font-weight: 400", "font-weight: 700")
     });
 
-    let css_url_2 = site.wait_until(Duration::from_secs(10), || {
-        let new_url = site.get("/").css_link("/css/style.*.css")?;
-        if new_url != css_url_1 {
-            Some(new_url)
-        } else {
-            None
-        }
-    });
+    let css_url_2 = site.wait_until(
+        "CSS URL to change for livereload",
+        Duration::from_secs(10),
+        || {
+            let new_url = site.get("/").css_link("/css/style.*.css")?;
+            if new_url != css_url_1 {
+                Some(new_url)
+            } else {
+                None
+            }
+        },
+    );
 
     let css_2 = site.get(&css_url_2);
     css_2.assert_contains("font-weight:700");

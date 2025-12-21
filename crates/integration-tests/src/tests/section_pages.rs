@@ -28,17 +28,21 @@ pub fn adding_page_updates_section_pages_list() {
 
     tracing::info!("Checking initial section pages");
 
-    let html = site.wait_until(Duration::from_secs(5), || {
-        let html = site.get("/guide/");
-        html.assert_ok();
+    let html = site.wait_until(
+        "initial section pages list to be generated",
+        Duration::from_secs(5),
+        || {
+            let html = site.get("/guide/");
+            html.assert_ok();
 
-        let nav_re = regex::Regex::new(r#"<nav id="page-list">(.*?)</nav>"#).unwrap();
-        if nav_re.is_match(&html.body) {
-            Some(html)
-        } else {
-            None
-        }
-    });
+            let nav_re = regex::Regex::new(r#"<nav id="page-list">(.*?)</nav>"#).unwrap();
+            if nav_re.is_match(&html.body) {
+                Some(html)
+            } else {
+                None
+            }
+        },
+    );
 
     // Extract page titles from the navigation
     let nav_re = regex::Regex::new(r#"<nav id="page-list">(.*?)</nav>"#).unwrap();
@@ -74,35 +78,39 @@ This is a newly added page.
     site.wait_debounce();
 
     tracing::info!("Waiting for section.pages to update with new page");
-    site.wait_until(Duration::from_secs(5), || {
-        tracing::debug!("Getting...");
-        let html = site.get("/guide/");
+    site.wait_until(
+        "section pages list to include new topic",
+        Duration::from_secs(5),
+        || {
+            tracing::debug!("Getting...");
+            let html = site.get("/guide/");
 
-        // Show what we found
-        tracing::debug!("Applying RE...");
-        let nav_re = regex::Regex::new(r#"<nav id="page-list">(.*?)</nav>"#).unwrap();
-        if let Some(caps) = nav_re.captures(&html.body) {
-            let nav_html = &caps[1];
-            let title_re = regex::Regex::new(r#">([^<]+)</a>"#).unwrap();
-            let titles: Vec<&str> = title_re
-                .captures_iter(nav_html)
-                .map(|c| c.get(1).unwrap().as_str())
-                .collect();
-            tracing::debug!("Poll: Found {} pages: {:?}", titles.len(), titles);
-        } else {
-            tracing::error!(
-                "Poll: Did not find nav section. Entire markup: {}",
-                html.body
-            );
-            panic!("Markup did not have page-list");
-        }
+            // Show what we found
+            tracing::debug!("Applying RE...");
+            let nav_re = regex::Regex::new(r#"<nav id="page-list">(.*?)</nav>"#).unwrap();
+            if let Some(caps) = nav_re.captures(&html.body) {
+                let nav_html = &caps[1];
+                let title_re = regex::Regex::new(r#">([^<]+)</a>"#).unwrap();
+                let titles: Vec<&str> = title_re
+                    .captures_iter(nav_html)
+                    .map(|c| c.get(1).unwrap().as_str())
+                    .collect();
+                tracing::debug!("Poll: Found {} pages: {:?}", titles.len(), titles);
+            } else {
+                tracing::error!(
+                    "Poll: Did not find nav section. Entire markup: {}",
+                    html.body
+                );
+                panic!("Markup did not have page-list");
+            }
 
-        if html.body.contains("New Topic") {
-            Some(html)
-        } else {
-            None
-        }
-    });
+            if html.body.contains("New Topic") {
+                Some(html)
+            } else {
+                None
+            }
+        },
+    );
 
     tracing::info!("Final check: all pages should be present");
     let html = site.get("/guide/");
@@ -160,14 +168,18 @@ pub fn adding_page_updates_via_get_section_macro() {
 "#,
     );
 
-    site.wait_until(Duration::from_secs(5), || {
-        let html = site.get("/guide/");
-        if html.body.contains("section-pages") {
-            Some(html)
-        } else {
-            None
-        }
-    });
+    site.wait_until(
+        "get_section macro to show section-pages",
+        Duration::from_secs(5),
+        || {
+            let html = site.get("/guide/");
+            if html.body.contains("section-pages") {
+                Some(html)
+            } else {
+                None
+            }
+        },
+    );
 
     let html = site.get("/guide/");
     html.assert_ok();
@@ -190,14 +202,18 @@ Testing get_section in macros.
 
     site.wait_debounce();
 
-    site.wait_until(Duration::from_secs(5), || {
-        let html = site.get("/guide/");
-        if html.body.contains("Macro Test Page") {
-            Some(html)
-        } else {
-            None
-        }
-    });
+    site.wait_until(
+        "get_section macro to include new macro test page",
+        Duration::from_secs(5),
+        || {
+            let html = site.get("/guide/");
+            if html.body.contains("Macro Test Page") {
+                Some(html)
+            } else {
+                None
+            }
+        },
+    );
 
     let html = site.get("/guide/");
     html.assert_ok();

@@ -764,7 +764,7 @@ impl TestSite {
 
     /// Wait until a condition is true, retrying until timeout
     /// Returns the value produced by the condition, or panics on timeout
-    pub fn wait_until<T, F>(&self, timeout: Duration, mut condition: F) -> T
+    pub fn wait_until<T, F>(&self, desc: &str, timeout: Duration, mut condition: F) -> T
     where
         F: FnMut() -> Option<T>,
     {
@@ -779,10 +779,10 @@ impl TestSite {
                 break;
             }
 
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(Duration::from_millis(250));
         }
 
-        panic!("Condition not met within {:?}", timeout);
+        panic!("Condition '{}' not met within {:?}", desc, timeout);
     }
 
     /// Get the fixture directory path

@@ -39,10 +39,14 @@ pub fn scss_change_triggers_rebuild() {
 
     site.modify_file("sass/main.scss", |scss| scss.replace("#3498db", "#ff0000"));
 
-    let css_url_2 = site.wait_until(Duration::from_secs(10), || {
-        let url = site.get("/").css_link("/main.*.css")?;
-        if url != css_url_1 { Some(url) } else { None }
-    });
+    let css_url_2 = site.wait_until(
+        "SCSS change to trigger CSS rebuild and URL change",
+        Duration::from_secs(10),
+        || {
+            let url = site.get("/").css_link("/main.*.css")?;
+            if url != css_url_1 { Some(url) } else { None }
+        },
+    );
 
     let css = site.get(&css_url_2);
     assert!(

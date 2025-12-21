@@ -34,10 +34,14 @@ pub fn css_change_updates_hash() {
     site.modify_file("static/css/style.css", |css| {
         css.replace("font-weight: 400", "font-weight: 700")
     });
-    let css_url_2 = site.wait_until(Duration::from_secs(10), || {
-        let url = site.get("/").css_link("/css/style.*.css")?;
-        if url != css_url_1 { Some(url) } else { None }
-    });
+    let css_url_2 = site.wait_until(
+        "CSS URL to change after style modification",
+        Duration::from_secs(10),
+        || {
+            let url = site.get("/").css_link("/css/style.*.css")?;
+            if url != css_url_1 { Some(url) } else { None }
+        },
+    );
     let css = site.get(&css_url_2);
     assert!(
         css.text().contains("font-weight: 700") || css.text().contains("font-weight:700"),
