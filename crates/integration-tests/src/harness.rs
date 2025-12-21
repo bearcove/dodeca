@@ -66,30 +66,6 @@ fn abbreviate_target(target: &str) -> String {
         return format!("i_t::{}", suffix);
     }
 
-    // Handle other common long targets
-    if target.len() > 25 {
-        // Split by :: and abbreviate each part except the last
-        let parts: Vec<&str> = target.split("::").collect();
-        if parts.len() > 2 {
-            let mut abbreviated = Vec::new();
-            // Abbreviate all parts except the last
-            for (i, part) in parts.iter().enumerate() {
-                if i == parts.len() - 1 {
-                    abbreviated.push(part.to_string());
-                } else {
-                    // Take first character or first few characters for abbreviation
-                    let abbrev = if part.len() > 3 {
-                        format!("{}...", &part[..2])
-                    } else {
-                        part.to_string()
-                    };
-                    abbreviated.push(abbrev);
-                }
-            }
-            return abbreviated.join("::");
-        }
-    }
-
     target.to_string()
 }
 
@@ -116,35 +92,36 @@ impl LogLevel {
 
     fn format_colored(&self, target: &str, message: &str) -> String {
         let abbreviated_target = abbreviate_target(target);
+        let colored_target = abbreviated_target.truecolor(169, 177, 214);
         match self {
             LogLevel::Error => format!(
                 "{} {}: {}",
                 "ERROR".truecolor(247, 118, 142).bold(),
-                abbreviated_target.truecolor(115, 218, 202),
+                colored_target,
                 message
             ),
             LogLevel::Warn => format!(
                 "{:5} {}: {}",
                 "WARN".truecolor(255, 158, 100).bold(),
-                abbreviated_target.truecolor(115, 218, 202),
+                colored_target,
                 message
             ),
             LogLevel::Info => format!(
                 "{:5} {}: {}",
                 "INFO".truecolor(122, 162, 247).bold(),
-                abbreviated_target.truecolor(115, 218, 202),
+                colored_target,
                 message
             ),
             LogLevel::Debug => format!(
                 "{} {}: {}",
                 "DEBUG".truecolor(187, 154, 247).bold(),
-                abbreviated_target.truecolor(115, 218, 202),
+                colored_target,
                 message
             ),
             LogLevel::Trace => format!(
                 "{} {}: {}",
                 "TRACE".truecolor(86, 95, 137).bold(),
-                abbreviated_target.truecolor(115, 218, 202),
+                colored_target,
                 message
             ),
         }
@@ -366,8 +343,8 @@ impl TestSite {
         let fixture_str = fixture_dir.to_string_lossy().to_string();
         let unix_socket_str = unix_socket_path.to_string_lossy().to_string();
         let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| {
-            // Default to info, but enable debug for file watching, rendering, and queries
-            "info,ddc::file_watcher=debug,ddc::queries=debug,ddc::render=debug".to_string()
+            // Default to debug for everything, but turn off specific noisy modules
+            "debug,ureq=warn,hyper=warn,h2=warn,tower=warn,tonic=warn".to_string()
         });
 
         let ddc = ddc_binary();
@@ -496,7 +473,7 @@ impl TestSite {
             for line in stdout_reader.lines() {
                 match line {
                     Ok(l) => {
-                        process_ddc_log_line(&l, "stdout");
+                        process_ddc_log_line(&l, "stdout", test_id);
                     }
                     Err(_) => break,
                 }
@@ -508,7 +485,7 @@ impl TestSite {
             for line in stderr_reader.lines() {
                 match line {
                     Ok(l) => {
-                        process_ddc_log_line(&l, "stderr");
+                        process_ddc_log_line(&l, "stderr", test_id);
                     }
                     Err(_) => break,
                 }
@@ -1154,7 +1131,7 @@ fn build_site_from_source_sync(src: &Path) -> BuildResult {
 }
 
 /// Process a log line from ddc, attempting JSON parsing first, then falling back to text
-fn process_ddc_log_line(line: &str, stream: &str) {
+fn process_ddc_log_line(line: &str, stream: &str, test_id: u64) {
     let trimmed = line.trim();
 
     // Try to parse as JSON first
@@ -1162,7 +1139,6 @@ fn process_ddc_log_line(line: &str, stream: &str) {
         && let Some(parsed) = parse_json_log(&json_value)
     {
         // Successfully parsed JSON log - push structured data to test log
-        let test_id = CURRENT_TEST_ID.with(|id| id.get());
         push_test_log(test_id, &parsed.level, &parsed.target, &parsed.message);
         return;
     }
@@ -1175,7 +1151,6 @@ fn process_ddc_log_line(line: &str, stream: &str) {
         || trimmed.starts_with("TRACE ")
     {
         // Parse pre-formatted logs to extract level, target, and message
-        let test_id = CURRENT_TEST_ID.with(|id| id.get());
         if let Some(space_pos) = trimmed.find(' ') {
             let level = &trimmed[..space_pos];
             if let Some(colon_pos) = trimmed.find(": ") {
@@ -1193,7 +1168,6 @@ fn process_ddc_log_line(line: &str, stream: &str) {
         }
     } else {
         // Regular output without log formatting - push directly to avoid harness prefix
-        let test_id = CURRENT_TEST_ID.with(|id| id.get());
         let target = match stream {
             "stdout" => "stdout",
             "stderr" => "stderr",
