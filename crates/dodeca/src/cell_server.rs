@@ -360,7 +360,7 @@ pub async fn start_cell_server_with_shutdown(
     }
 
     // Mark boot as complete - connections can now be fully handled
-    boot_state.set_ready(1);
+    boot_state.set_ready();
 
     match accept_task.await {
         Ok(Ok(())) => Ok(()),
@@ -530,10 +530,9 @@ async fn handle_browser_connection(
     loop {
         let state = boot_state_rx.borrow().clone();
         match state {
-            BootState::Ready { generation, .. } => {
-                tracing::info!(
+            BootState::Ready => {
+                tracing::debug!(
                     conn_id,
-                    generation,
                     elapsed_ms = boot_wait_start.elapsed().as_millis(),
                     "Boot ready, proceeding with connection"
                 );

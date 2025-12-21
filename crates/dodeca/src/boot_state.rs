@@ -13,7 +13,7 @@ pub enum BootState {
     /// Server is booting - cells loading, revision building
     Booting { phase: BootPhase },
     /// Server is ready to handle requests
-    Ready { generation: u64 },
+    Ready,
     /// Fatal startup error - server will serve HTTP 500s
     Fatal {
         error_kind: ErrorKind,
@@ -48,8 +48,8 @@ impl BootState {
     }
 
     /// Transition to ready state
-    pub fn ready(generation: u64) -> Self {
-        Self::Ready { generation }
+    pub fn ready() -> Self {
+        Self::Ready
     }
 
     /// Transition to fatal error state
@@ -93,10 +93,10 @@ impl BootStateManager {
     }
 
     /// Mark the server as ready
-    pub fn set_ready(&self, generation: u64) {
+    pub fn set_ready(&self) {
         let elapsed_ms = self.start_time.elapsed().as_millis();
-        tracing::info!(elapsed_ms, generation, "Boot complete - server ready");
-        let _ = self.tx.send(BootState::ready(generation));
+        tracing::info!(elapsed_ms, "Boot complete - server ready");
+        let _ = self.tx.send(BootState::ready());
     }
 
     /// Mark the server as fatally failed
