@@ -19,9 +19,7 @@ use harness::{
 };
 use owo_colors::OwoColorize;
 use std::panic::{self, AssertUnwindSafe};
-
 use std::time::{Duration, Instant};
-use tracing_subscriber::Layer;
 use tracing_subscriber::layer::SubscriberExt;
 
 /// A test case
@@ -32,21 +30,20 @@ struct Test {
     ignored: bool,
 }
 
+/// Shared test ID for tracing layer
+static CURRENT_TRACING_TEST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Custom tracing layer that captures logs for the current test
 #[derive(Debug)]
-struct TestTracingLayer {
-    test_id: std::sync::atomic::AtomicU64,
-}
+struct TestTracingLayer;
 
 impl TestTracingLayer {
     fn new() -> Self {
-        Self {
-            test_id: std::sync::atomic::AtomicU64::new(0),
-        }
+        Self
     }
 
-    fn set_test_id(&self, id: u64) {
-        self.test_id.store(id, std::sync::atomic::Ordering::Relaxed);
+    fn set_test_id(id: u64) {
+        CURRENT_TRACING_TEST_ID.store(id, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -54,12 +51,26 @@ impl<S> tracing_subscriber::Layer<S> for TestTracingLayer
 where
     S: tracing::Subscriber,
 {
+    fn enabled(
+        &self,
+        metadata: &tracing::Metadata<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) -> bool {
+        let test_id = CURRENT_TRACING_TEST_ID.load(std::sync::atomic::Ordering::Relaxed);
+        if test_id > 0 {
+            // During tests, capture everything at DEBUG level and above
+            *metadata.level() <= tracing::Level::DEBUG
+        } else {
+            false
+        }
+    }
+
     fn on_event(
         &self,
         event: &tracing::Event<'_>,
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
-        let test_id = self.test_id.load(std::sync::atomic::Ordering::Relaxed);
+        let test_id = CURRENT_TRACING_TEST_ID.load(std::sync::atomic::Ordering::Relaxed);
         if test_id == 0 {
             return; // No test currently running
         }
@@ -116,8 +127,6 @@ fn push_test_log(test_id: u64, message: String) {
 }
 
 /// Run all tests and return (passed, failed, skipped)
-// Global reference to the test tracing layer
-static GLOBAL_TEST_LAYER: std::sync::OnceLock<TestTracingLayer> = std::sync::OnceLock::new();
 
 fn run_tests(tests: Vec<Test>, filter: Option<&str>) -> (usize, usize, usize) {
     let mut passed = 0;
@@ -160,9 +169,7 @@ fn run_tests(tests: Vec<Test>, filter: Option<&str>) -> (usize, usize, usize) {
         next_test_id = next_test_id.saturating_add(1);
 
         // Set test ID in the tracing layer FIRST
-        if let Some(layer) = GLOBAL_TEST_LAYER.get() {
-            layer.set_test_id(test_id);
-        }
+        TestTracingLayer::set_test_id(test_id);
 
         set_current_test_id(test_id);
         clear_test_state(test_id);
@@ -181,9 +188,7 @@ fn run_tests(tests: Vec<Test>, filter: Option<&str>) -> (usize, usize, usize) {
         panic::set_hook(prev_hook);
 
         // Reset tracing layer test ID
-        if let Some(layer) = GLOBAL_TEST_LAYER.get() {
-            layer.set_test_id(0);
-        }
+        TestTracingLayer::set_test_id(0);
 
         match result {
             Ok(()) => {
@@ -274,9 +279,6 @@ fn main() {
 
     use tracing_subscriber::util::SubscriberInitExt;
     tracing_subscriber::registry().with(test_layer).init();
-
-    // Store the test layer globally so we can update the test ID
-    GLOBAL_TEST_LAYER.set(TestTracingLayer::new()).ok();
 
     // Check required environment variables
     if std::env::var("DODECA_BIN").is_err() {

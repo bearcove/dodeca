@@ -282,7 +282,7 @@ impl TestSite {
 
         cmd.env("RUST_LOG", &rust_log)
             .env("RUST_BACKTRACE", "1")
-            .env("DDC_LOG_TIME", "utc")
+            .env("DDC_LOG_TIME", "none")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -841,19 +841,7 @@ fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {
     });
     lines
         .into_iter()
-        .map(|l| {
-            let abs = l
-                .abs
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_else(|_| Duration::from_secs(0));
-            format!(
-                "{:>10}.{:03}Z {:>8.3}s {}",
-                abs.as_secs(),
-                abs.subsec_millis(),
-                l.ts.as_secs_f64(),
-                l.line
-            )
-        })
+        .map(|l| format!("{:>8.3}s {}", l.ts.as_secs_f64(), l.line))
         .collect()
 }
 

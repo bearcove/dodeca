@@ -344,26 +344,34 @@ pub fn init_tui_tracing(event_tx: Sender<LogEvent>) -> FilterHandle {
 /// Initialize tracing for non-TUI mode (uses RUST_LOG env var)
 pub fn init_standard_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let use_utc = std::env::var("DDC_LOG_TIME")
-        .map(|v| v.eq_ignore_ascii_case("utc"))
-        .unwrap_or(false);
+    let log_time = std::env::var("DDC_LOG_TIME")
+        .unwrap_or_default()
+        .to_lowercase();
 
     let fmt_layer = tracing_subscriber::fmt::layer().with_target(true).compact();
-    if use_utc {
-        tracing_subscriber::registry()
-            .with(
-                fmt_layer
-                    .with_timer(tracing_subscriber::fmt::time::SystemTime)
-                    .with_filter(filter),
-            )
-            .init();
-    } else {
-        tracing_subscriber::registry()
-            .with(
-                fmt_layer
-                    .with_timer(tracing_subscriber::fmt::time::uptime())
-                    .with_filter(filter),
-            )
-            .init();
+    match log_time.as_str() {
+        "utc" => {
+            tracing_subscriber::registry()
+                .with(
+                    fmt_layer
+                        .with_timer(tracing_subscriber::fmt::time::SystemTime)
+                        .with_filter(filter),
+                )
+                .init();
+        }
+        "none" => {
+            tracing_subscriber::registry()
+                .with(fmt_layer.without_time().with_filter(filter))
+                .init();
+        }
+        _ => {
+            tracing_subscriber::registry()
+                .with(
+                    fmt_layer
+                        .with_timer(tracing_subscriber::fmt::time::uptime())
+                        .with_filter(filter),
+                )
+                .init();
+        }
     }
 }
