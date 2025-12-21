@@ -58,6 +58,41 @@ impl TestState {
 /// Global test state storage (consolidated from 4 separate statics)
 static TEST_STATES: OnceLock<Mutex<std::collections::HashMap<u64, TestState>>> = OnceLock::new();
 
+/// Abbreviates long target paths to make logs more readable
+fn abbreviate_target(target: &str) -> String {
+    // Handle integration_tests targets
+    if target.starts_with("integration_tests::") {
+        let suffix = &target[19..]; // Remove "integration_tests::"
+        return format!("i_t::{}", suffix);
+    }
+
+    // Handle other common long targets
+    if target.len() > 25 {
+        // Split by :: and abbreviate each part except the last
+        let parts: Vec<&str> = target.split("::").collect();
+        if parts.len() > 2 {
+            let mut abbreviated = Vec::new();
+            // Abbreviate all parts except the last
+            for (i, part) in parts.iter().enumerate() {
+                if i == parts.len() - 1 {
+                    abbreviated.push(part.to_string());
+                } else {
+                    // Take first character or first few characters for abbreviation
+                    let abbrev = if part.len() > 3 {
+                        format!("{}...", &part[..2])
+                    } else {
+                        part.to_string()
+                    };
+                    abbreviated.push(abbrev);
+                }
+            }
+            return abbreviated.join("::");
+        }
+    }
+
+    target.to_string()
+}
+
 #[derive(Clone, Debug)]
 enum LogLevel {
     Error,
@@ -80,15 +115,36 @@ impl LogLevel {
     }
 
     fn format_colored(&self, target: &str, message: &str) -> String {
+        let abbreviated_target = abbreviate_target(target);
         match self {
-            LogLevel::Error => format!("{} {}: {}", "ERROR".red().bold(), target.green(), message),
-            LogLevel::Warn => format!("{} {}: {}", "WARN".yellow().bold(), target.green(), message),
-            LogLevel::Info => format!("{} {}: {}", "INFO".blue().bold(), target.green(), message),
-            LogLevel::Debug => format!("{} {}: {}", "DEBUG".cyan().bold(), target.green(), message),
+            LogLevel::Error => format!(
+                "{} {}: {}",
+                "ERROR".truecolor(247, 118, 142).bold(),
+                abbreviated_target.truecolor(115, 218, 202),
+                message
+            ),
+            LogLevel::Warn => format!(
+                "{:5} {}: {}",
+                "WARN".truecolor(255, 158, 100).bold(),
+                abbreviated_target.truecolor(115, 218, 202),
+                message
+            ),
+            LogLevel::Info => format!(
+                "{:5} {}: {}",
+                "INFO".truecolor(122, 162, 247).bold(),
+                abbreviated_target.truecolor(115, 218, 202),
+                message
+            ),
+            LogLevel::Debug => format!(
+                "{} {}: {}",
+                "DEBUG".truecolor(187, 154, 247).bold(),
+                abbreviated_target.truecolor(115, 218, 202),
+                message
+            ),
             LogLevel::Trace => format!(
                 "{} {}: {}",
-                "TRACE".magenta().bold(),
-                target.green(),
+                "TRACE".truecolor(86, 95, 137).bold(),
+                abbreviated_target.truecolor(115, 218, 202),
                 message
             ),
         }
@@ -811,7 +867,9 @@ fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {
     lines
         .into_iter()
         .map(|l| {
-            let timestamp = format!("{:>5.3}s", l.ts.as_secs_f64()).dimmed().to_string();
+            let timestamp = format!("{:>5.3}s", l.ts.as_secs_f64())
+                .truecolor(65, 72, 104)
+                .to_string();
 
             // Use structured data for consistent coloring
             let colored_message = l.level.format_colored(&l.target, &l.line);
