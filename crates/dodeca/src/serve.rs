@@ -698,7 +698,7 @@ impl SiteServer {
         let route = Route::new(route_path.clone());
         tracing::debug!(route = %route.as_str(), "find_content: calling serve_html");
         let serve_html_result = serve_html(&snapshot, route).await;
-        tracing::debug!(route = %route.as_str(), has_result = serve_html_result.is_ok(), "find_content: serve_html returned");
+        tracing::debug!(route = %route_path, has_result = serve_html_result.is_ok(), "find_content: serve_html returned");
         if let Some(html) = serve_html_result.ok().flatten() {
             // Check if this is an error page and notify devtools
             if html.contains(crate::render::RENDER_ERROR_MARKER) {
