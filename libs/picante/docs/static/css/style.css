@@ -4,32 +4,32 @@
 
 /* Fonts */
 @font-face {
-    font-family: 'Public Sans';
-    src: url('/fonts/PublicSans-Regular.woff2') format('woff2');
+    font-family: "Public Sans";
+    src: url("/fonts/PublicSans-Regular.woff2") format("woff2");
     font-weight: 400;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: 'Public Sans';
-    src: url('/fonts/PublicSans-Bold.woff2') format('woff2');
+    font-family: "Public Sans";
+    src: url("/fonts/PublicSans-Bold.woff2") format("woff2");
     font-weight: 700;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: 'Iosevka';
-    src: url('/fonts/Iosevka-Regular.woff2') format('woff2');
+    font-family: "Iosevka";
+    src: url("/fonts/Iosevka-Regular.woff2") format("woff2");
     font-weight: 400;
     font-style: normal;
     font-display: swap;
 }
 
 @font-face {
-    font-family: 'Iosevka';
-    src: url('/fonts/Iosevka-Bold.woff2') format('woff2');
+    font-family: "Iosevka";
+    src: url("/fonts/Iosevka-Bold.woff2") format("woff2");
     font-weight: 700;
     font-style: normal;
     font-display: swap;
@@ -49,8 +49,8 @@
     --code-bg: #1a1412;
     --border: #2d2320;
     --border-warm: #3d2a20;
-    --font-sans: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-mono: 'Iosevka', 'SF Mono', Consolas, monospace;
+    --font-sans: "Public Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: "Iosevka", "SF Mono", Consolas, monospace;
     --sidebar-width: 220px;
     --content-max: 900px;
     --toc-width: 220px;
@@ -204,7 +204,8 @@ body {
 }
 
 @keyframes flicker {
-    0%, 100% {
+    0%,
+    100% {
         transform: translateX(-50%) scaleY(1) scaleX(1);
         opacity: 0.4;
     }
@@ -233,8 +234,29 @@ body {
     margin-bottom: 1rem;
 }
 
-.hero-logo svg {
+.hero-logo img {
     filter: drop-shadow(0 0 20px rgba(255, 109, 0, 0.5));
+}
+
+.hero-logo-credit {
+    font-size: 0.75rem;
+    color: var(--fg-muted);
+    margin-top: 0.5rem;
+}
+
+.hero-logo-credit a {
+    color: var(--fg-muted);
+    text-decoration: underline;
+    text-decoration-color: var(--border-warm);
+    text-underline-offset: 2px;
+    transition:
+        color 0.15s,
+        text-decoration-color 0.15s;
+}
+
+.hero-logo-credit a:hover {
+    color: var(--accent);
+    text-decoration-color: var(--accent);
 }
 
 .hero-title {
@@ -266,7 +288,9 @@ body {
     text-decoration: underline;
     text-decoration-color: var(--accent-dim);
     text-underline-offset: 2px;
-    transition: color 0.15s, text-decoration-color 0.15s;
+    transition:
+        color 0.15s,
+        text-decoration-color 0.15s;
 }
 
 .hero-sub a:hover {
@@ -536,7 +560,9 @@ body {
 }
 
 /* Override visited link colors in sidebar */
-.sidebar a:visited, .sidebar-nav a:visited, .sidebar-section a:visited {
+.sidebar a:visited,
+.sidebar-nav a:visited,
+.sidebar-section a:visited {
     color: inherit;
 }
 
@@ -645,7 +671,8 @@ article p {
     margin-bottom: 1rem;
 }
 
-article ul, article ol {
+article ul,
+article ol {
     margin-bottom: 1rem;
     padding-left: 1.5rem;
 }
@@ -714,7 +741,8 @@ article table {
     font-size: 0.9rem;
 }
 
-article th, article td {
+article th,
+article td {
     padding: 0.75rem 1rem;
     text-align: left;
     border-bottom: 1px solid var(--border);
@@ -921,7 +949,8 @@ footer a:hover {
         height: 120px;
     }
 
-    .flame-2, .flame-3 {
+    .flame-2,
+    .flame-3 {
         width: 60px;
         height: 90px;
     }
@@ -946,7 +975,8 @@ footer a:hover {
         grid-template-columns: 1fr;
     }
 
-    .quickstart, .cta {
+    .quickstart,
+    .cta {
         padding: 3rem 1.5rem;
     }
 }
@@ -954,20 +984,38 @@ footer a:hover {
 /* ============================================
    Page Transitions
    ============================================ */
-@view-transition { navigation: auto; }
+@view-transition {
+    navigation: auto;
+}
 ::view-transition-old(root) {
     animation: fade-out 0.15s ease-out;
 }
 ::view-transition-new(root) {
     animation: fade-in 0.15s ease-in;
 }
-@keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
-@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fade-out {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+@keyframes fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
 
 /* ============================================
    Copy Button for Code Blocks
    ============================================ */
-pre { position: relative; }
+pre {
+    position: relative;
+}
 pre .copy-btn {
     position: absolute;
     top: 0.5rem;
@@ -980,9 +1028,13 @@ pre .copy-btn {
     color: var(--fg-muted);
     cursor: pointer;
     opacity: 0;
-    transition: opacity 0.15s, background 0.15s;
+    transition:
+        opacity 0.15s,
+        background 0.15s;
 }
-pre:hover .copy-btn { opacity: 1; }
+pre:hover .copy-btn {
+    opacity: 1;
+}
 pre .copy-btn:hover {
     background: rgba(80, 60, 50, 0.95);
     color: var(--fg);
@@ -995,11 +1047,37 @@ pre .copy-btn.copied {
 /* ============================================
    Syntax Highlighting Overrides (warm tones)
    ============================================ */
-.highlight .k, .highlight .kd, .highlight .kn, .highlight .kp,
-.highlight .kr, .highlight .kt { color: #ff8a65; } /* keywords */
-.highlight .s, .highlight .s1, .highlight .s2 { color: #ffcc80; } /* strings */
-.highlight .c, .highlight .c1, .highlight .cm { color: #8a7a72; } /* comments */
-.highlight .n, .highlight .na, .highlight .nb { color: #e8e0dc; } /* names */
-.highlight .nf, .highlight .nc { color: #ffab00; } /* functions/classes */
-.highlight .mi, .highlight .mf { color: #ff6d00; } /* numbers */
-.highlight .o { color: #e8e0dc; } /* operators */
+.highlight .k,
+.highlight .kd,
+.highlight .kn,
+.highlight .kp,
+.highlight .kr,
+.highlight .kt {
+    color: #ff8a65;
+} /* keywords */
+.highlight .s,
+.highlight .s1,
+.highlight .s2 {
+    color: #ffcc80;
+} /* strings */
+.highlight .c,
+.highlight .c1,
+.highlight .cm {
+    color: #8a7a72;
+} /* comments */
+.highlight .n,
+.highlight .na,
+.highlight .nb {
+    color: #e8e0dc;
+} /* names */
+.highlight .nf,
+.highlight .nc {
+    color: #ffab00;
+} /* functions/classes */
+.highlight .mi,
+.highlight .mf {
+    color: #ff6d00;
+} /* numbers */
+.highlight .o {
+    color: #e8e0dc;
+} /* operators */

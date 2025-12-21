@@ -59,21 +59,7 @@
                         <h3><a href="{{ sub.permalink }}">{{ sub.title }}</a></h3>
                         <ul>
                             {% for page in sub.pages %}
-                            <li>
-                                <a
-                                    href="{{ page.permalink }}"
-                                    {%
-                                    if
-                                    page.permalink=""
-                                    ="current_path"
-                                    %}
-                                    class="active"
-                                    {%
-                                    endif
-                                    %}
-                                    >{{ page.title }}</a
-                                >
-                            </li>
+                            <li><a href="{{ page.permalink }}"{% if page.permalink == current_path %} class="active"{% endif %}>{{ page.title }}</a></li>
                             {% endfor %}
                         </ul>
                     </div>
