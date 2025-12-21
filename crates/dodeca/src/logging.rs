@@ -344,34 +344,73 @@ pub fn init_tui_tracing(event_tx: Sender<LogEvent>) -> FilterHandle {
 /// Initialize tracing for non-TUI mode (uses RUST_LOG env var)
 pub fn init_standard_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let log_format = std::env::var("DDC_LOG_FORMAT")
+        .unwrap_or_default()
+        .to_lowercase();
     let log_time = std::env::var("DDC_LOG_TIME")
         .unwrap_or_default()
         .to_lowercase();
 
-    let fmt_layer = tracing_subscriber::fmt::layer().with_target(true).compact();
-    match log_time.as_str() {
-        "utc" => {
-            tracing_subscriber::registry()
-                .with(
-                    fmt_layer
-                        .with_timer(tracing_subscriber::fmt::time::SystemTime)
-                        .with_filter(filter),
-                )
-                .init();
+    if log_format == "json" {
+        // JSON format - structured logging
+        let json_layer = tracing_subscriber::fmt::layer()
+            .json()
+            .with_target(true)
+            .with_current_span(false)
+            .with_span_list(false);
+
+        match log_time.as_str() {
+            "utc" => {
+                tracing_subscriber::registry()
+                    .with(
+                        json_layer
+                            .with_timer(tracing_subscriber::fmt::time::SystemTime)
+                            .with_filter(filter),
+                    )
+                    .init();
+            }
+            "none" => {
+                tracing_subscriber::registry()
+                    .with(json_layer.without_time().with_filter(filter))
+                    .init();
+            }
+            _ => {
+                tracing_subscriber::registry()
+                    .with(
+                        json_layer
+                            .with_timer(tracing_subscriber::fmt::time::uptime())
+                            .with_filter(filter),
+                    )
+                    .init();
+            }
         }
-        "none" => {
-            tracing_subscriber::registry()
-                .with(fmt_layer.without_time().with_filter(filter))
-                .init();
-        }
-        _ => {
-            tracing_subscriber::registry()
-                .with(
-                    fmt_layer
-                        .with_timer(tracing_subscriber::fmt::time::uptime())
-                        .with_filter(filter),
-                )
-                .init();
+    } else {
+        // Standard format - human readable
+        let fmt_layer = tracing_subscriber::fmt::layer().with_target(true).compact();
+        match log_time.as_str() {
+            "utc" => {
+                tracing_subscriber::registry()
+                    .with(
+                        fmt_layer
+                            .with_timer(tracing_subscriber::fmt::time::SystemTime)
+                            .with_filter(filter),
+                    )
+                    .init();
+            }
+            "none" => {
+                tracing_subscriber::registry()
+                    .with(fmt_layer.without_time().with_filter(filter))
+                    .init();
+            }
+            _ => {
+                tracing_subscriber::registry()
+                    .with(
+                        fmt_layer
+                            .with_timer(tracing_subscriber::fmt::time::uptime())
+                            .with_filter(filter),
+                    )
+                    .init();
+            }
         }
     }
 }

@@ -136,7 +136,7 @@ strid = "2.1"  # Strongly-typed string wrappers (like aliri_braid but without sy
 tokio = { workspace = true, features = ["macros", "process", "rt", "rt-multi-thread", "sync", "time"] } #unified
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tracing = { workspace = true } #unified
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 ur-taking-me-with-you.workspace = true
 
 [dev-dependencies]

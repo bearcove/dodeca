@@ -57,19 +57,10 @@ where
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) -> bool {
         let test_id = CURRENT_TRACING_TEST_ID.load(std::sync::atomic::Ordering::Relaxed);
-        eprintln!(
-            "DEBUG: enabled() called with test_id={}, level={}, target={}",
-            test_id,
-            metadata.level(),
-            metadata.target()
-        );
         if test_id > 0 {
             // During tests, capture everything at DEBUG level and above
-            let enabled = *metadata.level() <= tracing::Level::DEBUG;
-            eprintln!("DEBUG: enabled() returning {}", enabled);
-            enabled
+            *metadata.level() <= tracing::Level::DEBUG
         } else {
-            eprintln!("DEBUG: enabled() returning false (no test running)");
             false
         }
     }
@@ -80,9 +71,7 @@ where
         _ctx: tracing_subscriber::layer::Context<'_, S>,
     ) {
         let test_id = CURRENT_TRACING_TEST_ID.load(std::sync::atomic::Ordering::Relaxed);
-        eprintln!("DEBUG: on_event() called with test_id={}", test_id);
         if test_id == 0 {
-            eprintln!("DEBUG: on_event() returning early (no test running)");
             return; // No test currently running
         }
 
@@ -100,7 +89,6 @@ where
         };
 
         let formatted = format!("[{}] {}: {}", level, metadata.target(), visitor.message);
-        eprintln!("DEBUG: on_event() pushing log: {}", formatted);
 
         // Push to the test logs using the existing system
         push_test_log(test_id, formatted);
@@ -224,18 +212,11 @@ fn run_tests(tests: Vec<Test>, filter: Option<&str>) -> (usize, usize, usize) {
                     .unwrap_or(false);
                 if show_logs {
                     let logs = get_logs_for(test_id);
-                    println!(
-                        "  DEBUG: show_logs=true, got {} log lines for test_id={}",
-                        logs.len(),
-                        test_id
-                    );
                     if !logs.is_empty() {
                         println!("  {} ({} lines):", "Server logs".yellow(), logs.len());
                         for line in &logs {
                             println!("    {}", line);
                         }
-                    } else {
-                        println!("  No logs captured for test_id={}", test_id);
                     }
                 }
                 passed += 1;

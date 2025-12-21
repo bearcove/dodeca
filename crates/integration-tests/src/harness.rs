@@ -15,7 +15,9 @@
 //! - `DODECA_HARNESS_RAW_TCP`: Set to "1" to enable raw TCP probe mode for
 //!   connection diagnostics (measures connect/write/read phases separately)
 
+use facet_value::Value;
 use fs_err as fs;
+use owo_colors::OwoColorize;
 use regex::Regex;
 use std::cell::Cell;
 use std::io::{BufRead, BufReader, Read as _, Write as _};
@@ -99,20 +101,9 @@ pub fn clear_test_state(id: u64) {
 pub fn get_logs_for(id: u64) -> Vec<String> {
     let states = TEST_STATES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
     let states_map = states.lock().unwrap();
-    eprintln!(
-        "DEBUG: get_logs_for({}) - found {} test states",
-        id,
-        states_map.len()
-    );
     if let Some(state) = states_map.get(&id) {
-        eprintln!(
-            "DEBUG: get_logs_for({}) - found state with {} logs",
-            id,
-            state.logs.len()
-        );
         render_logs(state.logs.clone())
     } else {
-        eprintln!("DEBUG: get_logs_for({}) - no state found for test id", id);
         Vec::new()
     }
 }
@@ -311,6 +302,7 @@ impl TestSite {
         cmd.env("RUST_LOG", &rust_log)
             .env("RUST_BACKTRACE", "1")
             .env("DDC_LOG_TIME", "none")
+            .env("DDC_LOG_FORMAT", "json")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -407,7 +399,7 @@ impl TestSite {
             for line in stdout_reader.lines() {
                 match line {
                     Ok(l) => {
-                        debug!(target: "stdout", "{}", l);
+                        process_ddc_log_line(&l, "stdout");
                     }
                     Err(_) => break,
                 }
@@ -419,7 +411,7 @@ impl TestSite {
             for line in stderr_reader.lines() {
                 match line {
                     Ok(l) => {
-                        debug!(target: "stderr", "{}", l);
+                        process_ddc_log_line(&l, "stderr");
                     }
                     Err(_) => break,
                 }
@@ -777,7 +769,38 @@ fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {
     });
     lines
         .into_iter()
-        .map(|l| format!("{:>8.3}s {}", l.ts.as_secs_f64(), l.line))
+        .map(|l| {
+            let timestamp = format!("{:>5.3}s", l.ts.as_secs_f64()).dimmed().to_string();
+
+            // Parse the log line to extract level and target for coloring
+            if let Some(captures) = regex::Regex::new(r"^\[(\w+)\] ([^:]+): (.+)$")
+                .unwrap()
+                .captures(&l.line)
+            {
+                let level = &captures[1];
+                let target = &captures[2];
+                let message = &captures[3];
+
+                let colored_level = match level {
+                    "ERROR" => level.red().bold().to_string(),
+                    "WARN" => level.yellow().bold().to_string(),
+                    "INFO" => level.blue().bold().to_string(),
+                    "DEBUG" => level.cyan().to_string(),
+                    "TRACE" => level.magenta().to_string(),
+                    _ => level.white().to_string(),
+                };
+
+                let colored_target = target.green().to_string();
+
+                format!(
+                    "{} [{}] {}: {}",
+                    timestamp, colored_level, colored_target, message
+                )
+            } else {
+                // Fallback for lines that don't match the expected format
+                format!("{} {}", timestamp, l.line)
+            }
+        })
         .collect()
 }
 
@@ -1054,4 +1077,166 @@ fn build_site_from_source_sync(src: &Path) -> BuildResult {
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
     }
+}
+
+/// Process a log line from ddc, attempting JSON parsing first, then falling back to text
+fn process_ddc_log_line(line: &str, stream: &str) {
+    let trimmed = line.trim();
+
+    // Try to parse as JSON first
+    if let Ok(json_value) = facet_json::from_str::<Value>(trimmed) {
+        if let Some(parsed) = parse_json_log(&json_value) {
+            // Successfully parsed JSON log - emit as structured log with colors
+            let colored_message = match parsed.level.as_str() {
+                "ERROR" => format!(
+                    "{} {}: {}",
+                    parsed.level.red().bold(),
+                    parsed.target.green(),
+                    parsed.message
+                ),
+                "WARN" => format!(
+                    "{} {}: {}",
+                    parsed.level.yellow().bold(),
+                    parsed.target.green(),
+                    parsed.message
+                ),
+                "INFO" => format!(
+                    "{} {}: {}",
+                    parsed.level.blue().bold(),
+                    parsed.target.green(),
+                    parsed.message
+                ),
+                "DEBUG" => format!(
+                    "{} {}: {}",
+                    parsed.level.cyan().bold(),
+                    parsed.target.green(),
+                    parsed.message
+                ),
+                "TRACE" => format!(
+                    "{} {}: {}",
+                    parsed.level.magenta().bold(),
+                    parsed.target.green(),
+                    parsed.message
+                ),
+                _ => format!(
+                    "{} {}: {}",
+                    parsed.level.blue().bold(),
+                    parsed.target.green(),
+                    parsed.message
+                ),
+            };
+
+            // Use info! for all to avoid duplication
+            info!("{}", colored_message);
+            return;
+        }
+    }
+
+    // Fallback to text parsing
+    if trimmed.starts_with("INFO ")
+        || trimmed.starts_with("DEBUG ")
+        || trimmed.starts_with("WARN ")
+        || trimmed.starts_with("ERROR ")
+        || trimmed.starts_with("TRACE ")
+    {
+        // Pass through pre-formatted logs without wrapping
+        info!(target: "ddc", "{}", trimmed);
+    } else {
+        // Regular output without log formatting
+        match stream {
+            "stdout" => debug!("[stdout] {}", line),
+            "stderr" => debug!("[stderr] {}", line),
+            _ => debug!("[unknown] {}", line),
+        }
+    }
+}
+
+/// Parsed JSON log entry
+struct ParsedJsonLog {
+    level: String,
+    target: String,
+    message: String,
+}
+
+/// Parse a JSON log entry from tracing-subscriber
+fn parse_json_log(json: &Value) -> Option<ParsedJsonLog> {
+    use facet_value::DestructuredRef;
+
+    // Destructure the value to access object fields
+    let obj = match json.destructure_ref() {
+        DestructuredRef::Object(obj) => obj,
+        _ => return None, // Not an object
+    };
+
+    // Extract level
+    let level = obj.get("level")?.destructure_ref();
+    let level = match level {
+        DestructuredRef::String(s) => s.to_string().to_uppercase(),
+        _ => return None,
+    };
+
+    // Extract target
+    let target = obj.get("target")?.destructure_ref();
+    let target = match target {
+        DestructuredRef::String(s) => s.to_string(),
+        _ => return None,
+    };
+
+    // Extract message - tracing-subscriber JSON uses different field structures
+    let message = if let Some(fields_value) = obj.get("fields") {
+        // Check if fields is an object with message
+        match fields_value.destructure_ref() {
+            DestructuredRef::Object(fields_obj) => {
+                if let Some(msg_field) = fields_obj.get("message") {
+                    match msg_field.destructure_ref() {
+                        DestructuredRef::String(s) => s.to_string(),
+                        _ => format!("fields: {}", facet_value::format_value(fields_value)),
+                    }
+                } else {
+                    // Build message from all fields
+                    let mut parts = Vec::new();
+                    for (key, value) in fields_obj.iter() {
+                        if key.as_str() != "message" {
+                            match value.destructure_ref() {
+                                DestructuredRef::String(s) => {
+                                    parts.push(format!("{}={}", key.as_str(), s))
+                                }
+                                _ => parts.push(format!(
+                                    "{}={}",
+                                    key.as_str(),
+                                    facet_value::format_value(value)
+                                )),
+                            }
+                        }
+                    }
+                    if parts.is_empty() {
+                        target.clone()
+                    } else {
+                        parts.join(" ")
+                    }
+                }
+            }
+            _ => format!("fields: {}", facet_value::format_value(fields_value)),
+        }
+    } else if let Some(msg_value) = obj.get("message") {
+        // Direct message field
+        match msg_value.destructure_ref() {
+            DestructuredRef::String(s) => s.to_string(),
+            _ => target.clone(),
+        }
+    } else if let Some(msg_value) = obj.get("msg") {
+        // Alternative message field name
+        match msg_value.destructure_ref() {
+            DestructuredRef::String(s) => s.to_string(),
+            _ => target.clone(),
+        }
+    } else {
+        target.clone() // fallback to target if no message found
+    };
+
+    Some(ParsedJsonLog {
+        level,
+        target,
+        message,
+    })
 }
