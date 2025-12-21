@@ -425,7 +425,7 @@ async fn run_async_accept_loop(
                     sock_ref.linger().ok()
                 };
 
-                tracing::info!(
+                tracing::trace!(
                     conn_id,
                     peer_addr = ?addr,
                     ?local_addr,
@@ -512,7 +512,7 @@ async fn handle_browser_connection(
     let started_at = Instant::now();
     let peer_addr = browser_stream.peer_addr().ok();
     let local_addr = browser_stream.local_addr().ok();
-    tracing::info!(
+    tracing::trace!(
         conn_id,
         ?peer_addr,
         ?local_addr,
@@ -614,10 +614,10 @@ async fn handle_browser_connection(
     let tunnel_client = TcpTunnelClient::new(session.clone());
 
     // Wait for revision readiness (site content built)
-    tracing::info!(conn_id, "Waiting for revision readiness (per-connection)");
+    tracing::trace!(conn_id, "Waiting for revision readiness (per-connection)");
     let revision_start = Instant::now();
     server.wait_revision_ready().await;
-    tracing::info!(
+    tracing::trace!(
         conn_id,
         elapsed_ms = revision_start.elapsed().as_millis(),
         "Revision ready (per-connection)"
@@ -631,7 +631,7 @@ async fn handle_browser_connection(
         .map_err(|e| eyre::eyre!("Failed to open tunnel: {:?}", e))?;
 
     let channel_id = handle.channel_id;
-    tracing::info!(
+    tracing::trace!(
         conn_id,
         channel_id,
         open_elapsed_ms = open_started.elapsed().as_millis(),
@@ -641,17 +641,17 @@ async fn handle_browser_connection(
     // Bridge browser <-> tunnel with backpressure.
     // No need to pre-read bytes - the request is in the kernel buffer.
     let mut tunnel_stream = session.tunnel_stream(channel_id);
-    tracing::info!(
+    tracing::trace!(
         conn_id,
         channel_id,
         "Starting browser <-> tunnel bridge task"
     );
     tokio::spawn(async move {
         let bridge_started = Instant::now();
-        tracing::info!(conn_id, channel_id, "browser <-> tunnel bridge: start");
+        tracing::trace!(conn_id, channel_id, "browser <-> tunnel bridge: start");
         match tokio::io::copy_bidirectional(&mut browser_stream, &mut tunnel_stream).await {
             Ok((to_tunnel, to_browser)) => {
-                tracing::info!(
+                tracing::trace!(
                     conn_id,
                     channel_id,
                     to_tunnel,
@@ -670,7 +670,7 @@ async fn handle_browser_connection(
                 );
             }
         }
-        tracing::info!(
+        tracing::trace!(
             conn_id,
             channel_id,
             elapsed_ms = bridge_started.elapsed().as_millis(),
@@ -678,7 +678,7 @@ async fn handle_browser_connection(
         );
     });
 
-    tracing::info!(
+    tracing::trace!(
         conn_id,
         channel_id,
         elapsed_ms = started_at.elapsed().as_millis(),

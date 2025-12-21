@@ -446,8 +446,11 @@ impl TestSite {
     /// stall until ready, but connect+write must never fail.
     pub fn get(&self, path: &str) -> Response {
         let url = format!("http://127.0.0.1:{}{}", self.port, path);
-        debug!(%url, "Issuing GET request");
-        push_log(&self.logs, self.log_start, format!("[harness] GET {url}"));
+        push_log(
+            &self.logs,
+            self.log_start,
+            format!("[harness] → GET {}", path),
+        );
 
         fn format_error_chain(err: &dyn std::error::Error) -> String {
             let mut out = err.to_string();
@@ -460,24 +463,56 @@ impl TestSite {
             out
         }
 
+        let request_start = Instant::now();
         match ureq::get(&url).call() {
             Ok(resp) => {
                 let status = resp.status().as_u16();
+                let elapsed_ms = request_start.elapsed().as_millis();
+
+                // Extract interesting headers
+                let content_type = resp.header("content-type").unwrap_or("(none)");
+                let content_length = resp
+                    .header("content-length")
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| "(chunked)".to_string());
+
                 let body = resp.into_body().read_to_string().unwrap_or_default();
-                debug!(%url, status, "Received response");
+                let body_len = body.len();
+
+                push_log(
+                    &self.logs,
+                    self.log_start,
+                    format!(
+                        "[harness] ← {} {} ({} ms, {} bytes, content-type: {})",
+                        status, path, elapsed_ms, body_len, content_type
+                    ),
+                );
+
                 Response { status, body, url }
             }
             Err(ureq::Error::StatusCode(status)) => {
                 // ureq treats 4xx/5xx as errors, but we want to return them as responses
+                let elapsed_ms = request_start.elapsed().as_millis();
                 let body = String::new();
-                debug!(%url, status, "Received error status");
-                Response { status, body, url }
-            }
-            Err(e) => {
                 push_log(
                     &self.logs,
                     self.log_start,
-                    format!("[harness] GET error: {}", e),
+                    format!(
+                        "[harness] ← {} {} ({} ms, error status)",
+                        status, path, elapsed_ms
+                    ),
+                );
+                Response { status, body, url }
+            }
+            Err(e) => {
+                let elapsed_ms = request_start.elapsed().as_millis();
+                push_log(
+                    &self.logs,
+                    self.log_start,
+                    format!(
+                        "[harness] ✗ GET {} failed after {} ms: {}",
+                        path, elapsed_ms, e
+                    ),
                 );
                 error!(%url, error = ?e, "GET failed (no retries)");
                 panic!("GET {} failed:\n{:?}\n{}", url, e, format_error_chain(&e));

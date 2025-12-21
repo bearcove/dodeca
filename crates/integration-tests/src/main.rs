@@ -1084,6 +1084,7 @@ mod section_pages {
     pub fn adding_page_updates_section_pages_list() {
         let site = TestSite::new("sample-site");
 
+        eprintln!("[test] Setting up section template with page list");
         site.write_file(
             "templates/section.html",
             r#"<!DOCTYPE html>
@@ -1106,11 +1107,32 @@ mod section_pages {
 
         site.wait_debounce();
 
+        eprintln!("[test] Checking initial section pages");
         let html = site.get("/guide/");
         html.assert_ok();
+
+        // Extract page titles from the navigation
+        let nav_re = regex::Regex::new(r#"<nav id="page-list">(.*?)</nav>"#).unwrap();
+        if let Some(caps) = nav_re.captures(&html.body) {
+            let nav_html = &caps[1];
+            let title_re = regex::Regex::new(r#">([^<]+)</a>"#).unwrap();
+            let titles: Vec<&str> = title_re
+                .captures_iter(nav_html)
+                .map(|c| c.get(1).unwrap().as_str())
+                .collect();
+            eprintln!(
+                "[test] Found {} pages in section: {:?}",
+                titles.len(),
+                titles
+            );
+        } else {
+            eprintln!("[test] WARNING: Could not find page-list nav in HTML");
+        }
+
         html.assert_contains("Getting Started");
         html.assert_contains("Advanced");
 
+        eprintln!("[test] Adding new page: new-topic.md");
         site.write_file(
             "content/guide/new-topic.md",
             r#"+++
@@ -1126,8 +1148,22 @@ This is a newly added page.
 
         site.wait_debounce();
 
+        eprintln!("[test] Waiting for section.pages to update with new page");
         site.wait_until(Duration::from_secs(5), || {
             let html = site.get("/guide/");
+
+            // Show what we found
+            let nav_re = regex::Regex::new(r#"<nav id="page-list">(.*?)</nav>"#).unwrap();
+            if let Some(caps) = nav_re.captures(&html.body) {
+                let nav_html = &caps[1];
+                let title_re = regex::Regex::new(r#">([^<]+)</a>"#).unwrap();
+                let titles: Vec<&str> = title_re
+                    .captures_iter(nav_html)
+                    .map(|c| c.get(1).unwrap().as_str())
+                    .collect();
+                eprintln!("[test]   Poll: Found {} pages: {:?}", titles.len(), titles);
+            }
+
             if html.body.contains("New Topic") {
                 Some(html)
             } else {
@@ -1135,8 +1171,22 @@ This is a newly added page.
             }
         });
 
+        eprintln!("[test] Final check: all pages should be present");
         let html = site.get("/guide/");
         html.assert_ok();
+
+        // Show final state
+        let nav_re = regex::Regex::new(r#"<nav id="page-list">(.*?)</nav>"#).unwrap();
+        if let Some(caps) = nav_re.captures(&html.body) {
+            let nav_html = &caps[1];
+            let title_re = regex::Regex::new(r#">([^<]+)</a>"#).unwrap();
+            let titles: Vec<&str> = title_re
+                .captures_iter(nav_html)
+                .map(|c| c.get(1).unwrap().as_str())
+                .collect();
+            eprintln!("[test] Final state: {} pages: {:?}", titles.len(), titles);
+        }
+
         html.assert_contains("Getting Started");
         html.assert_contains("Advanced");
         html.assert_contains("New Topic");

@@ -14,6 +14,7 @@ pub async fn send_fd(stream: &UnixStream, fd: RawFd) -> io::Result<()> {
     }
 }
 
+#[allow(dead_code)]
 pub async fn recv_fd(stream: &UnixStream) -> io::Result<RawFd> {
     loop {
         stream.readable().await?;
