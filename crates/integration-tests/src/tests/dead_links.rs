@@ -14,7 +14,6 @@ Check out [this broken link](/nonexistent-page/).
     );
 
     site.wait_debounce();
-    std::thread::sleep(Duration::from_secs(2));
 
     let html = site.get("/dead-link-test/");
     html.assert_ok();

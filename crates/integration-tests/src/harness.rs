@@ -419,6 +419,7 @@ impl TestSite {
         cmd.env("RUST_LOG", &rust_log)
             .env("RUST_BACKTRACE", "1")
             .env("DDC_LOG_TIME", "none")
+            .env("DODECA_QUIET", "1")
             .env("DDC_LOG_FORMAT", "json")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -541,14 +542,21 @@ impl TestSite {
             state.setup_duration = Some(setup_elapsed);
         }
 
-        Self {
+        let site = Self {
             child,
             port,
             fixture_dir,
             _temp_dir: temp_dir,
             _unix_socket_dir: unix_socket_dir,
             test_id,
-        }
+        };
+
+        // Make an initial request to ensure the server is fully ready to serve requests
+        // This prevents flakiness where tests make requests before the server has finished
+        // loading content, building search index, etc.
+        let _ = site.get("/");
+
+        site
     }
 
     /// Clear captured logs for this test
@@ -578,7 +586,7 @@ impl TestSite {
     /// stall until ready, but connect+write must never fail.
     pub fn get(&self, path: &str) -> Response {
         let url = format!("http://127.0.0.1:{}{}", self.port, path);
-        info!("→ GET {}", path);
+        debug!("→ GET {}", path);
 
         fn format_error_chain(err: &dyn std::error::Error) -> String {
             let mut out = err.to_string();
@@ -613,7 +621,7 @@ impl TestSite {
                 let body = resp.into_body().read_to_string().unwrap_or_default();
                 let body_len = body.len();
 
-                info!(
+                debug!(
                     "← {} {} ({} ms, {} bytes, gen={}, content-type: {})",
                     status, path, elapsed_ms, body_len, generation, content_type
                 );
@@ -831,7 +839,7 @@ impl TestSite {
 
     /// Wait for the file watcher debounce window
     pub fn wait_debounce(&self) {
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(300));
     }
 }
 
@@ -1259,7 +1267,13 @@ fn process_ddc_log_line(line: &str, stream: &str, test_id: u64) {
             "stderr" => "stderr",
             _ => "unknown",
         };
-        push_test_log(test_id, "INFO", target, line);
+        // Use DEBUG level for unstructured stderr (like cell ready signals)
+        // and INFO for stdout (like user-facing messages)
+        let level = match stream {
+            "stderr" => "DEBUG",
+            _ => "INFO",
+        };
+        push_test_log(test_id, level, target, line);
     }
 }
 

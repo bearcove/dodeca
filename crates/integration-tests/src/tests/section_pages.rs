@@ -13,31 +13,24 @@ pub fn adding_page_updates_section_pages_list() {
                 .captures_iter(nav_html)
                 .map(|c| c.get(1).unwrap().as_str().to_string())
                 .collect();
-            tracing::info!("{}: Found {} pages: {:?}", context, titles.len(), titles);
+            tracing::debug!("{}: Found {} pages: {:?}", context, titles.len(), titles);
             titles
         } else {
-            tracing::error!("{}: No page-list nav found in HTML: {}", context, html);
+            tracing::debug!("{}: No page-list nav found in HTML", context);
             Vec::new()
         }
     };
 
     // First, do an initial request to make sure the site is responding
-    tracing::info!("Doing initial request to establish baseline");
+    tracing::debug!("Doing initial request to establish baseline");
     let initial_response = site.get("/guide/");
     initial_response.assert_ok();
-    tracing::info!("Site is responding with status {}", initial_response.status);
+    tracing::debug!("Site is responding with status {}", initial_response.status);
 
-    // Check if we already have the expected default pages
-    let initial_titles = extract_page_titles(&initial_response.body, "Initial state");
-    if !initial_titles.contains(&"Getting Started".to_string())
-        || !initial_titles.contains(&"Advanced".to_string())
-    {
-        tracing::warn!(
-            "Expected default pages not found in initial state, this may indicate a problem with the test setup"
-        );
-    }
+    // Check initial state
+    let _initial_titles = extract_page_titles(&initial_response.body, "Initial state");
 
-    tracing::info!("Setting up section template with page list");
+    tracing::debug!("Setting up section template with page list");
     site.write_file(
         "templates/section.html",
         r#"<!DOCTYPE html>
@@ -60,7 +53,7 @@ pub fn adding_page_updates_section_pages_list() {
 
     site.wait_debounce();
 
-    tracing::info!("Verifying template is applied and section pages are generated");
+    tracing::debug!("Verifying template is applied and section pages are generated");
     let html = site.wait_until(
         "template to be applied and page list to be generated",
         Duration::from_secs(2),
@@ -88,7 +81,7 @@ pub fn adding_page_updates_section_pages_list() {
     html.assert_contains("Getting Started");
     html.assert_contains("Advanced");
 
-    tracing::info!("Adding new page: new-topic.md");
+    tracing::debug!("Adding new page: new-topic.md");
     site.write_file(
         "content/guide/new-topic.md",
         r#"+++
@@ -104,7 +97,7 @@ This is a newly added page.
 
     site.wait_debounce();
 
-    tracing::info!("Waiting for section pages list to update with new page");
+    tracing::debug!("Waiting for section pages list to update with new page");
     let updated_html = site.wait_until(
         "new page to appear in section pages list",
         Duration::from_secs(2),
@@ -129,7 +122,7 @@ This is a newly added page.
         },
     );
 
-    tracing::info!("Final verification: all pages should be present");
+    tracing::debug!("Final verification: all pages should be present");
     updated_html.assert_contains("Getting Started");
     updated_html.assert_contains("Advanced");
     updated_html.assert_contains("New Topic");
@@ -139,12 +132,12 @@ pub fn adding_page_updates_via_get_section_macro() {
     let site = TestSite::new("sample-site");
 
     // First, do an initial request to make sure the site is responding
-    tracing::info!("Doing initial request to establish baseline");
+    tracing::debug!("Doing initial request to establish baseline");
     let initial_response = site.get("/guide/");
     initial_response.assert_ok();
-    tracing::info!("Site is responding with status {}", initial_response.status);
+    tracing::debug!("Site is responding with status {}", initial_response.status);
 
-    tracing::info!("Setting up macro template");
+    tracing::debug!("Setting up macro template");
     site.write_file(
         "templates/macros.html",
         r#"{% macro render_section_pages(section_path) %}
@@ -158,7 +151,7 @@ pub fn adding_page_updates_via_get_section_macro() {
 "#,
     );
 
-    tracing::info!("Setting up section template with macro import");
+    tracing::debug!("Setting up section template with macro import");
     site.write_file(
         "templates/section.html",
         r#"{% import "macros.html" as macros %}
@@ -180,7 +173,7 @@ pub fn adding_page_updates_via_get_section_macro() {
 
     site.wait_debounce();
 
-    tracing::info!("Waiting for templates to be applied and macro to render");
+    tracing::debug!("Waiting for templates to be applied and macro to render");
     let html = site.wait_until(
         "get_section macro to show section-pages",
         Duration::from_secs(2),
@@ -208,7 +201,7 @@ pub fn adding_page_updates_via_get_section_macro() {
     html.assert_contains("Advanced");
     html.assert_contains("section-pages");
 
-    tracing::info!("Adding new page to test macro update");
+    tracing::debug!("Adding new page to test macro update");
     site.write_file(
         "content/guide/macro-test-page.md",
         r#"+++
@@ -224,7 +217,7 @@ Testing get_section in macros.
 
     site.wait_debounce();
 
-    tracing::info!("Waiting for macro to include new page");
+    tracing::debug!("Waiting for macro to include new page");
     let updated_html = site.wait_until(
         "get_section macro to include new macro test page",
         Duration::from_secs(2),
@@ -247,7 +240,7 @@ Testing get_section in macros.
         },
     );
 
-    tracing::info!("Final verification: macro test page should be present");
+    tracing::debug!("Final verification: macro test page should be present");
     updated_html.assert_ok();
     updated_html.assert_contains("Macro Test Page");
 }
