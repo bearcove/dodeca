@@ -507,21 +507,21 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
         ];
 
         for src in watched_sources {
-            if let Some(src_mtime) = src_mtime(src) {
-                if src_mtime > bin_mtime {
-                    eprintln!(
-                        "{}: integration-tests binary is older than {}",
-                        "error".red().bold(),
-                        src
-                    );
-                    let build_cmd = if release {
-                        "cargo build --release -p integration-tests"
-                    } else {
-                        "cargo build -p integration-tests"
-                    };
-                    eprintln!("Rebuild it with: {}", build_cmd);
-                    return false;
-                }
+            if let Some(src_mtime) = src_mtime(src)
+                && src_mtime > bin_mtime
+            {
+                eprintln!(
+                    "{}: integration-tests binary is older than {}",
+                    "error".red().bold(),
+                    src
+                );
+                let build_cmd = if release {
+                    "cargo build --release -p integration-tests"
+                } else {
+                    "cargo build -p integration-tests"
+                };
+                eprintln!("Rebuild it with: {}", build_cmd);
+                return false;
             }
         }
     }

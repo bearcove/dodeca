@@ -596,13 +596,15 @@ pub fn try_render_section_with_loader<L: TemplateLoader>(
     let section_value = section_to_value(section, site_tree);
 
     // Log section.pages array length
-    if let Value::Object(ref obj) = section_value {
-        if let Some(Value::Array(ref pages)) = obj.get(&VString::from("pages")) {
-            tracing::debug!(
-                route = %section.route.as_str(),
-                pages_in_context = pages.len(),
-                "render: section.pages set in context"
-            );
+    if let facet_value::DestructuredRef::Object(obj) = section_value.destructure_ref() {
+        if let Some(pages_value) = obj.get(&VString::from("pages")) {
+            if let facet_value::DestructuredRef::Array(pages) = pages_value.destructure_ref() {
+                tracing::debug!(
+                    route = %section.route.as_str(),
+                    pages_in_context = pages.len(),
+                    "render: section.pages set in context"
+                );
+            }
         }
     }
 

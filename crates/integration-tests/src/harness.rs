@@ -472,17 +472,13 @@ impl TestSite {
                 let status = resp.status().as_u16();
                 let elapsed_ms = request_start.elapsed().as_millis();
 
-                // Extract interesting headers
+                // Extract interesting headers (clone strings before consuming resp)
                 let headers = resp.headers();
                 let content_type = headers
                     .get("content-type")
                     .and_then(|v| v.to_str().ok())
-                    .unwrap_or("(none)");
-                let content_length = headers
-                    .get("content-length")
-                    .and_then(|v| v.to_str().ok())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "(chunked)".to_string());
+                    .unwrap_or("(none)")
+                    .to_string();
 
                 let body = resp.into_body().read_to_string().unwrap_or_default();
                 let body_len = body.len();
