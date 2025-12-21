@@ -26,9 +26,7 @@ jobs:
   clippy: 
     name: Clippy
     runs-on: 
-      - self-hosted
-      - Linux
-      - X64
+      - depot-ubuntu-24.04-32
 
     timeout-minutes: 30
     continue-on-error: true
@@ -45,23 +43,20 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - 
-        name: Local cache
-        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with: 
-          path: target
-          key: ${{ runner.os }}-cargo-ci-linux
-          base: /home/amos/.cache
+          cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Clippy
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness clippy --all-features --all-targets -- -D warnings
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use clippy --all-features --all-targets -- -D warnings
 
   build-wasm: 
     name: Build WASM
     runs-on: 
-      - self-hosted
-      - Linux
-      - X64
+      - depot-ubuntu-24.04-32
 
     timeout-minutes: 30
     steps: 
@@ -76,16 +71,15 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - 
-        name: Local cache
-        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with: 
-          path: target
-          key: ${{ runner.os }}-cargo-ci-linux
-          base: /home/amos/.cache
+          cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Install wasm-bindgen-cli
-        run: "true"
+        run: cargo install wasm-bindgen-cli --locked
       - 
         name: Build WASM
         run: cargo xtask wasm
@@ -100,9 +94,7 @@ jobs:
   build-ddc-linux-x64: 
     name: Build ddc (linux-x64)
     runs-on: 
-      - self-hosted
-      - Linux
-      - X64
+      - depot-ubuntu-24.04-32
 
     timeout-minutes: 30
     steps: 
@@ -116,19 +108,18 @@ jobs:
           toolchain: nightly-2025-12-19
 
       - 
-        name: Local cache
-        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with: 
-          path: target
-          key: ${{ runner.os }}-cargo-ddc-linux-x64
-          base: /home/amos/.cache
+          cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build ddc
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness build --release -p dodeca --verbose
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p dodeca --verbose
       - 
         name: Test ddc
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p dodeca --bins
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p dodeca --bins
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -140,9 +131,7 @@ jobs:
   build-cells-linux-x64-1: 
     name: Build cells (linux-x64) [cell-arborium, cell-code-execution, cell-css, cell-fonts, cell-html, cell-html-diff, cell-http, cell-image, cell-js]
     runs-on: 
-      - self-hosted
-      - Linux
-      - X64
+      - depot-ubuntu-24.04-32
 
     timeout-minutes: 30
     steps: 
@@ -156,19 +145,18 @@ jobs:
           toolchain: nightly-2025-12-19
 
       - 
-        name: Local cache
-        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with: 
-          path: target
-          key: ${{ runner.os }}-cargo-targets-cells-linux-x64-1
-          base: /home/amos/.cache
+          cache-on-failure: "true"
+          cache-targets: "true"
 
       - 
         name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js --verbose
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js --verbose
       - 
         name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -180,9 +168,7 @@ jobs:
   build-cells-linux-x64-2: 
     name: Build cells (linux-x64) [cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-pagefind, cell-sass, cell-svgo, cell-tui, cell-webp]
     runs-on: 
-      - self-hosted
-      - Linux
-      - X64
+      - depot-ubuntu-24.04-32
 
     timeout-minutes: 30
     steps: 
@@ -196,19 +182,18 @@ jobs:
           toolchain: nightly-2025-12-19
 
       - 
-        name: Local cache
-        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with: 
-          path: target
-          key: ${{ runner.os }}-cargo-targets-cells-linux-x64-2
-          base: /home/amos/.cache
+          cache-on-failure: "true"
+          cache-targets: "true"
 
       - 
         name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness build --release -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
       - 
         name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -220,9 +205,7 @@ jobs:
   integration-linux-x64: 
     name: Integration (linux-x64)
     runs-on: 
-      - self-hosted
-      - Linux
-      - X64
+      - depot-ubuntu-24.04-32
 
     timeout-minutes: 30
     needs: 
@@ -241,16 +224,15 @@ jobs:
           toolchain: nightly-2025-12-19
 
       - 
-        name: Local cache
-        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with: 
-          path: target
-          key: ${{ runner.os }}-cargo-integration-linux-x64
-          base: /home/amos/.cache
+          cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build integration-tests
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness build -p integration-tests
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build -p integration-tests
       - 
         name: Download ddc
         uses: actions/download-artifact@v4
@@ -287,9 +269,7 @@ jobs:
   assemble-linux-x64: 
     name: Assemble (linux-x64)
     runs-on: 
-      - self-hosted
-      - Linux
-      - X64
+      - depot-ubuntu-24.04-32
 
     timeout-minutes: 30
     needs: 
@@ -345,9 +325,7 @@ jobs:
   build-ddc-macos-arm64: 
     name: Build ddc (macos-arm64)
     runs-on: 
-      - self-hosted
-      - macOS
-      - ARM64
+      - depot-macos-15
 
     timeout-minutes: 30
     steps: 
@@ -361,19 +339,18 @@ jobs:
           toolchain: nightly-2025-12-19
 
       - 
-        name: Local cache
-        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with: 
-          path: target
-          key: ${{ runner.os }}-cargo-ddc-macos-arm64
-          base: /Users/amos/.cache
+          cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build ddc
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness build --release -p dodeca --verbose
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p dodeca --verbose
       - 
         name: Test ddc
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p dodeca --bins
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p dodeca --bins
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -385,9 +362,7 @@ jobs:
   build-cells-macos-arm64-1: 
     name: Build cells (macos-arm64) [cell-arborium, cell-code-execution, cell-css, cell-fonts, cell-html, cell-html-diff, cell-http, cell-image, cell-js]
     runs-on: 
-      - self-hosted
-      - macOS
-      - ARM64
+      - depot-macos-15
 
     timeout-minutes: 30
     steps: 
@@ -401,19 +376,18 @@ jobs:
           toolchain: nightly-2025-12-19
 
       - 
-        name: Local cache
-        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with: 
-          path: target
-          key: ${{ runner.os }}-cargo-targets-cells-macos-arm64-1
-          base: /Users/amos/.cache
+          cache-on-failure: "true"
+          cache-targets: "true"
 
       - 
         name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js --verbose
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js --verbose
       - 
         name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -425,9 +399,7 @@ jobs:
   build-cells-macos-arm64-2: 
     name: Build cells (macos-arm64) [cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-pagefind, cell-sass, cell-svgo, cell-tui, cell-webp]
     runs-on: 
-      - self-hosted
-      - macOS
-      - ARM64
+      - depot-macos-15
 
     timeout-minutes: 30
     steps: 
@@ -441,19 +413,18 @@ jobs:
           toolchain: nightly-2025-12-19
 
       - 
-        name: Local cache
-        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with: 
-          path: target
-          key: ${{ runner.os }}-cargo-targets-cells-macos-arm64-2
-          base: /Users/amos/.cache
+          cache-on-failure: "true"
+          cache-targets: "true"
 
       - 
         name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness build --release -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
       - 
         name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
       - 
         name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -465,9 +436,7 @@ jobs:
   integration-macos-arm64: 
     name: Integration (macos-arm64)
     runs-on: 
-      - self-hosted
-      - macOS
-      - ARM64
+      - depot-macos-15
 
     timeout-minutes: 30
     needs: 
@@ -486,16 +455,15 @@ jobs:
           toolchain: nightly-2025-12-19
 
       - 
-        name: Local cache
-        uses: bearcove/local-cache@a3ee51e34146df8cdfc7ea67188e9ca4e2364794
+        name: Rust cache
+        uses: Swatinem/rust-cache@v2
         with: 
-          path: target
-          key: ${{ runner.os }}-cargo-integration-macos-arm64
-          base: /Users/amos/.cache
+          cache-on-failure: "true"
+          cache-targets: "false"
 
       - 
         name: Build integration-tests
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness build -p integration-tests
+        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build -p integration-tests
       - 
         name: Download ddc
         uses: actions/download-artifact@v4
@@ -532,9 +500,7 @@ jobs:
   assemble-macos-arm64: 
     name: Assemble (macos-arm64)
     runs-on: 
-      - self-hosted
-      - macOS
-      - ARM64
+      - depot-macos-15
 
     timeout-minutes: 30
     needs: 

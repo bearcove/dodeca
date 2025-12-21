@@ -126,10 +126,10 @@ impl CiPlatform {
 // =============================================================================
 
 /// Use self-hosted runner for macOS (true) or Depot (false).
-const MACOS_SELF_HOSTED: bool = true;
+const MACOS_SELF_HOSTED: bool = false;
 
 /// Use self-hosted runner for Linux (true) or Depot (false).
-const LINUX_SELF_HOSTED: bool = true;
+const LINUX_SELF_HOSTED: bool = false;
 
 /// Self-hosted runner labels for GitHub macOS.
 const GITHUB_MACOS_LABELS: &[&str] = &["self-hosted", "macOS", "ARM64"];
