@@ -373,6 +373,11 @@ impl SiteServer {
         }
     }
 
+    /// Get the current revision generation
+    pub fn current_generation(&self) -> u64 {
+        self.revision_tx.borrow().generation
+    }
+
     /// Update cached code execution results
     pub fn set_code_execution_results(&self, results: Vec<crate::db::CodeExecutionResult>) {
         *self.code_execution_results.write().unwrap() = results;
@@ -1182,6 +1187,9 @@ impl SiteServer {
     pub async fn find_content_for_rpc(&self, path: &str) -> cell_http_proto::ServeContent {
         use cell_http_proto::ServeContent as RpcServeContent;
 
+        // Get current generation
+        let generation = self.current_generation();
+
         match self.find_content(path).await {
             Some(ServeContent::Html(html)) => {
                 // Cache HTML for smart reload patching
@@ -1195,25 +1203,31 @@ impl SiteServer {
                 RpcServeContent::Html {
                     content: html,
                     route,
+                    generation,
                 }
             }
             Some(ServeContent::Css(css)) => {
                 self.cache_css(path);
-                RpcServeContent::Css { content: css }
+                RpcServeContent::Css {
+                    content: css,
+                    generation,
+                }
             }
             Some(ServeContent::Static(bytes, mime)) => RpcServeContent::Static {
                 content: bytes,
                 mime: mime.to_string(),
+                generation,
             },
             Some(ServeContent::StaticNoCache(bytes, mime)) => RpcServeContent::StaticNoCache {
                 content: bytes,
                 mime: mime.to_string(),
+                generation,
             },
             None => {
                 // 404 with similar routes - render the page on the host side
                 let similar = self.find_similar_routes(path).await;
                 let html = crate::error_pages::render_404_page(path, &similar);
-                RpcServeContent::NotFound { html }
+                RpcServeContent::NotFound { html, generation }
             }
         }
     }

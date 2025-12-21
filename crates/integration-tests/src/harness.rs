@@ -479,6 +479,11 @@ impl TestSite {
                     .and_then(|v| v.to_str().ok())
                     .unwrap_or("(none)")
                     .to_string();
+                let generation = headers
+                    .get("x-picante-generation")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("?")
+                    .to_string();
 
                 let body = resp.into_body().read_to_string().unwrap_or_default();
                 let body_len = body.len();
@@ -487,8 +492,8 @@ impl TestSite {
                     &self.logs,
                     self.log_start,
                     format!(
-                        "[harness] ← {} {} ({} ms, {} bytes, content-type: {})",
-                        status, path, elapsed_ms, body_len, content_type
+                        "[harness] ← {} {} ({} ms, {} bytes, gen={}, content-type: {})",
+                        status, path, elapsed_ms, body_len, generation, content_type
                     ),
                 );
 

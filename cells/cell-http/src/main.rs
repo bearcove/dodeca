@@ -108,39 +108,64 @@ fn build_router(ctx: Arc<CellContext>) -> axum::Router {
 
         // Convert ServeContent to HTTP response
         match content {
-            ServeContent::Html { content, route: _ } => Response::builder()
+            ServeContent::Html {
+                content,
+                route: _,
+                generation,
+            } => Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
                 .header(header::CACHE_CONTROL, CACHE_NO_CACHE)
+                .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
-            ServeContent::Css { content } => Response::builder()
+            ServeContent::Css {
+                content,
+                generation,
+            } => Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "text/css; charset=utf-8")
                 .header(header::CACHE_CONTROL, CACHE_IMMUTABLE)
+                .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
-            ServeContent::Static { content, mime } => Response::builder()
+            ServeContent::Static {
+                content,
+                mime,
+                generation,
+            } => Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime)
                 .header(header::CACHE_CONTROL, CACHE_IMMUTABLE)
+                .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
-            ServeContent::StaticNoCache { content, mime } => Response::builder()
+            ServeContent::StaticNoCache {
+                content,
+                mime,
+                generation,
+            } => Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime)
                 .header(header::CACHE_CONTROL, CACHE_NO_CACHE)
+                .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
-            ServeContent::Search { content, mime } => Response::builder()
+            ServeContent::Search {
+                content,
+                mime,
+                generation,
+            } => Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime)
+                .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
-            ServeContent::NotFound { html } => Response::builder()
+            ServeContent::NotFound { html, generation } => Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
                 .header(header::CACHE_CONTROL, CACHE_NO_CACHE)
+                .header("x-picante-generation", generation.to_string())
                 .body(Body::from(html))
                 .unwrap(),
         }

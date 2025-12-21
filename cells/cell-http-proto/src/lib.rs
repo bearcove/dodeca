@@ -53,17 +53,33 @@ pub trait TcpTunnel {
 #[repr(u8)]
 pub enum ServeContent {
     /// HTML page content
-    Html { content: String, route: String },
+    Html {
+        content: String,
+        route: String,
+        generation: u64,
+    },
     /// CSS stylesheet
-    Css { content: String },
+    Css { content: String, generation: u64 },
     /// Static file with MIME type (immutable, cacheable)
-    Static { content: Vec<u8>, mime: String },
+    Static {
+        content: Vec<u8>,
+        mime: String,
+        generation: u64,
+    },
     /// Static file that should not be cached
-    StaticNoCache { content: Vec<u8>, mime: String },
+    StaticNoCache {
+        content: Vec<u8>,
+        mime: String,
+        generation: u64,
+    },
     /// Search index file (pagefind)
-    Search { content: Vec<u8>, mime: String },
+    Search {
+        content: Vec<u8>,
+        mime: String,
+        generation: u64,
+    },
     /// Not found - rendered 404 HTML page
-    NotFound { html: String },
+    NotFound { html: String, generation: u64 },
 }
 
 /// Content service provided by the host

@@ -27,6 +27,9 @@ impl ContentService for HostContentService {
         // Stall until the current revision is fully ready.
         self.server.wait_revision_ready().await;
 
+        // Get current generation
+        let generation = self.server.current_generation();
+
         // Check devtools assets first (/_/*.js, /_/*.wasm, /_/snippets/*)
         if path.starts_with("/_/")
             && let Some((content, mime)) = get_devtools_asset(&path)
@@ -34,6 +37,7 @@ impl ContentService for HostContentService {
             return ServeContent::StaticNoCache {
                 content,
                 mime: mime.to_string(),
+                generation,
             };
         }
 
@@ -42,6 +46,7 @@ impl ContentService for HostContentService {
             return ServeContent::Search {
                 content,
                 mime: guess_mime(&path).to_string(),
+                generation,
             };
         }
 
