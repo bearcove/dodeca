@@ -1108,8 +1108,18 @@ mod section_pages {
         site.wait_debounce();
 
         tracing::info!("Checking initial section pages");
-        let html = site.get("/guide/");
-        html.assert_ok();
+
+        let html = site.wait_until(Duration::from_secs(5), || {
+            let html = site.get("/guide/");
+            html.assert_ok();
+
+            let nav_re = regex::Regex::new(r#"<nav id="page-list">(.*?)</nav>"#).unwrap();
+            if nav_re.is_match(&html.body) {
+                Some(html)
+            } else {
+                None
+            }
+        });
 
         // Extract page titles from the navigation
         let nav_re = regex::Regex::new(r#"<nav id="page-list">(.*?)</nav>"#).unwrap();
@@ -1146,9 +1156,11 @@ This is a newly added page.
 
         tracing::info!("Waiting for section.pages to update with new page");
         site.wait_until(Duration::from_secs(5), || {
+            tracing::debug!("Getting...");
             let html = site.get("/guide/");
 
             // Show what we found
+            tracing::debug!("Applying RE...");
             let nav_re = regex::Regex::new(r#"<nav id="page-list">(.*?)</nav>"#).unwrap();
             if let Some(caps) = nav_re.captures(&html.body) {
                 let nav_html = &caps[1];
@@ -1158,6 +1170,12 @@ This is a newly added page.
                     .map(|c| c.get(1).unwrap().as_str())
                     .collect();
                 tracing::debug!("Poll: Found {} pages: {:?}", titles.len(), titles);
+            } else {
+                tracing::error!(
+                    "Poll: Did not find nav section. Entire markup: {}",
+                    html.body
+                );
+                panic!("Markup did not have page-list");
             }
 
             if html.body.contains("New Topic") {
