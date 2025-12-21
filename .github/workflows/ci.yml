@@ -71,6 +71,9 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - 
+        name: Add WASM target
+        run: rustup target add wasm32-unknown-unknown
+      - 
         name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 

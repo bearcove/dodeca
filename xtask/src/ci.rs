@@ -1156,6 +1156,14 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
             .steps([
                 checkout(platform),
                 install_rust_with_target(platform, "wasm32-unknown-unknown"),
+                if ci_linux.runner.is_self_hosted() {
+                    Step::run("Add WASM target (noop)", "true")
+                } else {
+                    Step::run(
+                        "Add WASM target",
+                        "rustup target add wasm32-unknown-unknown",
+                    )
+                },
                 ci_linux_cache.clone(),
                 Step::run("Install wasm-bindgen-cli", ci_linux.wasm_install),
                 Step::run("Build WASM", "cargo xtask wasm"),
