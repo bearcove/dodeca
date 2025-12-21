@@ -19,7 +19,10 @@ use harness::{
 };
 use owo_colors::OwoColorize;
 use std::panic::{self, AssertUnwindSafe};
+
 use std::time::{Duration, Instant};
+use tracing_subscriber::Layer;
+use tracing_subscriber::layer::SubscriberExt;
 
 /// A test case
 struct Test {
@@ -29,8 +32,94 @@ struct Test {
     ignored: bool,
 }
 
+/// Custom tracing layer that captures logs for the current test
+#[derive(Debug)]
+struct TestTracingLayer {
+    test_id: std::sync::atomic::AtomicU64,
+}
+
+impl TestTracingLayer {
+    fn new() -> Self {
+        Self {
+            test_id: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    fn set_test_id(&self, id: u64) {
+        self.test_id.store(id, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+impl<S> tracing_subscriber::Layer<S> for TestTracingLayer
+where
+    S: tracing::Subscriber,
+{
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let test_id = self.test_id.load(std::sync::atomic::Ordering::Relaxed);
+        if test_id == 0 {
+            return; // No test currently running
+        }
+
+        // Format the event similar to how tracing_subscriber::fmt would
+        let metadata = event.metadata();
+        let mut visitor = LogVisitor::new();
+        event.record(&mut visitor);
+
+        let level = match *metadata.level() {
+            tracing::Level::ERROR => "ERROR",
+            tracing::Level::WARN => "WARN",
+            tracing::Level::INFO => "INFO",
+            tracing::Level::DEBUG => "DEBUG",
+            tracing::Level::TRACE => "TRACE",
+        };
+
+        let formatted = format!("[{}] {}: {}", level, metadata.target(), visitor.message);
+
+        // Push to the test logs using the existing system
+        push_test_log(test_id, formatted);
+    }
+}
+
+struct LogVisitor {
+    message: String,
+}
+
+impl LogVisitor {
+    fn new() -> Self {
+        Self {
+            message: String::new(),
+        }
+    }
+}
+
+impl tracing::field::Visit for LogVisitor {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.message = format!("{:?}", value);
+        } else if !self.message.is_empty() {
+            self.message
+                .push_str(&format!(" {}={:?}", field.name(), value));
+        } else {
+            self.message = format!("{}={:?}", field.name(), value);
+        }
+    }
+}
+
+// Push a log entry for a specific test
+fn push_test_log(test_id: u64, message: String) {
+    // Use the existing harness infrastructure
+    harness::push_test_log(test_id, message);
+}
+
 /// Run all tests and return (passed, failed, skipped)
-fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
+// Global reference to the test tracing layer
+static GLOBAL_TEST_LAYER: std::sync::OnceLock<TestTracingLayer> = std::sync::OnceLock::new();
+
+fn run_tests(tests: Vec<Test>, filter: Option<&str>) -> (usize, usize, usize) {
     let mut passed = 0;
     let mut failed = 0;
     let mut skipped = 0;
@@ -69,6 +158,12 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
 
         let test_id = next_test_id;
         next_test_id = next_test_id.saturating_add(1);
+
+        // Set test ID in the tracing layer FIRST
+        if let Some(layer) = GLOBAL_TEST_LAYER.get() {
+            layer.set_test_id(test_id);
+        }
+
         set_current_test_id(test_id);
         clear_test_state(test_id);
 
@@ -84,6 +179,11 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
         };
 
         panic::set_hook(prev_hook);
+
+        // Reset tracing layer test ID
+        if let Some(layer) = GLOBAL_TEST_LAYER.get() {
+            layer.set_test_id(0);
+        }
 
         match result {
             Ok(()) => {
@@ -169,13 +269,14 @@ fn list_tests(tests: &[Test], filter: Option<&str>) {
 }
 
 fn main() {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive("integration_tests=debug".parse().unwrap()),
-        )
-        .init();
+    // Initialize tracing with only our custom layer for test log capture
+    let test_layer = TestTracingLayer::new();
+
+    use tracing_subscriber::util::SubscriberInitExt;
+    tracing_subscriber::registry().with(test_layer).init();
+
+    // Store the test layer globally so we can update the test ID
+    GLOBAL_TEST_LAYER.set(TestTracingLayer::new()).ok();
 
     // Check required environment variables
     if std::env::var("DODECA_BIN").is_err() {
@@ -242,7 +343,7 @@ fn main() {
     println!("{}", "Running integration tests...".bold());
     println!();
 
-    let (passed, failed, skipped) = run_tests(&tests, filter);
+    let (passed, failed, skipped) = run_tests(tests, filter);
 
     println!();
     if failed > 0 {
@@ -578,7 +679,9 @@ mod basic {
     use super::*;
 
     pub fn all_pages_return_200() {
+        tracing::info!("Starting all_pages_return_200 test");
         let site = TestSite::new("sample-site");
+        tracing::debug!("Created test site, now testing pages");
         site.get("/").assert_ok();
         site.get("/guide/").assert_ok();
         site.get("/guide/getting-started/").assert_ok();

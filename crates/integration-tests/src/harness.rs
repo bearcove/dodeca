@@ -60,6 +60,20 @@ pub fn set_current_test_id(id: u64) {
     CURRENT_TEST_ID.with(|cell| cell.set(id));
 }
 
+/// Push a log entry for a specific test (used by tracing integration)
+pub fn push_test_log(test_id: u64, message: String) {
+    let logs_map = TEST_LOGS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let mut logs = logs_map.lock().unwrap();
+
+    let log_entry = LogLine {
+        ts: Duration::from_millis(0), // We don't have access to log_start here, so use 0
+        abs: SystemTime::now(),
+        line: message,
+    };
+
+    logs.entry(test_id).or_insert_with(Vec::new).push(log_entry);
+}
+
 /// Clear per-test logs and setup timing
 pub fn clear_test_state(id: u64) {
     let logs = TEST_LOGS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
