@@ -22,7 +22,6 @@ code_execution {
         args "run" "--quiet" "--release"
         extension "rs"
         prepare_code #true
-        auto_imports "use std::collections::HashMap;"
         show_output #true
     }
 }

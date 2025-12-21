@@ -38,8 +38,6 @@ This page describes what’s currently implemented in dodeca (as shipped in this
 Any fenced Rust code block is treated as executable:
 
 ```rust
-use std::collections::HashMap;
-
 fn main() {
     let mut scores = HashMap::new();
     scores.insert("Alice", 10);
