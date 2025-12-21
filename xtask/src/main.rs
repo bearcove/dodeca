@@ -167,10 +167,9 @@ fn main() -> ExitCode {
             }
         }
         XtaskCommand::CiGithub(args) => {
-            let repo_root = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .parent()
-                .unwrap()
-                .to_owned();
+            let repo_root =
+                Utf8PathBuf::from_path_buf(env::current_dir().expect("get current directory"))
+                    .expect("current dir is valid UTF-8");
             match ci::generate_github(&repo_root, args.check) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
@@ -180,10 +179,9 @@ fn main() -> ExitCode {
             }
         }
         XtaskCommand::CiForgejo(args) => {
-            let repo_root = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .parent()
-                .unwrap()
-                .to_owned();
+            let repo_root =
+                Utf8PathBuf::from_path_buf(env::current_dir().expect("get current directory"))
+                    .expect("current dir is valid UTF-8");
             match ci::generate_forgejo(&repo_root, args.check) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
@@ -579,9 +577,10 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
     eprintln!("  DODECA_CELL_PATH={}", cell_path_abs.display());
 
     // Make fixture resolution independent of where `integration-tests` was built.
-    let fixtures_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
+    // Use runtime path resolution instead of compile-time CARGO_MANIFEST_DIR to support
+    // CI environments where binaries are built in temp directories and then moved.
+    let fixtures_root = env::current_dir()
+        .expect("get current directory")
         .join("crates")
         .join("integration-tests")
         .join("fixtures");
@@ -591,6 +590,11 @@ fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
             "error".red().bold(),
             fixtures_root.display()
         );
+        eprintln!(
+            "Current directory: {}",
+            env::current_dir().unwrap_or_default().display()
+        );
+        eprintln!("Expected to be run from the repository root");
         return false;
     }
     cmd.env("DODECA_TEST_FIXTURES_DIR", &fixtures_root);
