@@ -69,13 +69,13 @@ fn abbreviate_target(target: &str) -> String {
     target.to_string()
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy, PartialEq, PartialOrd)]
 enum LogLevel {
-    Error,
-    Warn,
-    Info,
-    Debug,
-    Trace,
+    Error = 1,
+    Warn = 2,
+    Info = 3,
+    Debug = 4,
+    Trace = 5,
 }
 
 impl LogLevel {
@@ -884,8 +884,45 @@ fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_else(|_| Duration::from_secs(0))
     });
+
+    // Parse RUST_LOG to determine filtering
+    let rust_log = std::env::var("RUST_LOG").unwrap_or_default();
+    let should_show_log = |level: LogLevel, target: &str| -> bool {
+        if rust_log.is_empty() {
+            return true; // Show all if no RUST_LOG set
+        }
+
+        // Simple parsing - look for patterns like "debug", "info", "target=level"
+        let rust_log_lower = rust_log.to_lowercase();
+
+        // Check for target-specific rules first (e.g., "ddc=info")
+        for directive in rust_log_lower.split(',') {
+            let directive = directive.trim();
+            if let Some((target_pattern, level_str)) = directive.split_once('=') {
+                if target.starts_with(target_pattern.trim()) {
+                    let directive_level = LogLevel::from_str(level_str.trim());
+                    return level <= directive_level;
+                }
+            }
+        }
+
+        // Check for global level (e.g., just "debug" in RUST_LOG)
+        for directive in rust_log_lower.split(',') {
+            let directive = directive.trim();
+            if !directive.contains('=') {
+                // This is a global level directive
+                let directive_level = LogLevel::from_str(directive);
+                return level <= directive_level;
+            }
+        }
+
+        // Default to info level if no matching directive found
+        level <= LogLevel::Info
+    };
+
     lines
         .into_iter()
+        .filter(|l| should_show_log(l.level, &l.target))
         .map(|l| {
             let timestamp = format!("{:>5.3}s", l.ts.as_secs_f64())
                 .truecolor(65, 72, 104)

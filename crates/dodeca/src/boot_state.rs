@@ -84,7 +84,7 @@ impl BootStateManager {
     /// Update the boot phase
     pub fn set_phase(&self, phase: BootPhase) {
         let elapsed_ms = self.start_time.elapsed().as_millis();
-        tracing::info!(
+        tracing::debug!(
             elapsed_ms,
             phase = ?phase,
             "Boot phase transition"

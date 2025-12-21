@@ -988,7 +988,7 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<SiteOutput> {
 /// This is cached globally and used for font character analysis
 #[picante::tracked]
 pub async fn all_rendered_html<DB: Db>(db: &DB) -> PicanteResult<AllRenderedHtml> {
-    tracing::info!("🔄 all_rendered_html: EXECUTING (not cached)");
+    tracing::debug!("🔄 all_rendered_html: EXECUTING (not cached)");
     let site_tree = build_tree(db).await?;
     let template_map = load_all_templates(db).await?;
 

@@ -311,7 +311,7 @@ impl SiteServer {
             started_at: Some(started_at),
         };
         self.revision_tx.send_replace(state);
-        tracing::info!(
+        tracing::debug!(
             generation = next_generation,
             reason = %reason,
             "revision: begin"
@@ -340,7 +340,7 @@ impl SiteServer {
             started_at: None,
         };
         self.revision_tx.send_replace(state);
-        tracing::info!(
+        tracing::debug!(
             generation = token.generation,
             elapsed_ms = token.started_at.elapsed().as_millis(),
             "revision: ready"
@@ -355,7 +355,7 @@ impl SiteServer {
                 return;
             }
 
-            tracing::info!(
+            tracing::debug!(
                 generation = state.generation,
                 reason = state.reason.as_deref().unwrap_or(""),
                 "revision: waiting"
@@ -367,7 +367,7 @@ impl SiteServer {
 
             let state = rx.borrow().clone();
             if state.status == crate::revision::RevisionStatus::Ready {
-                tracing::info!(generation = state.generation, "revision: ready");
+                tracing::debug!(generation = state.generation, "revision: ready");
                 return;
             }
         }
@@ -471,7 +471,7 @@ impl SiteServer {
             }
 
             if let Some(ref path) = new_css_path {
-                tracing::info!("CSS changed: {}", path);
+                tracing::debug!("CSS changed: {}", path);
                 let _ = self
                     .livereload_tx
                     .send(LiveReloadMsg::CssUpdate { path: path.clone() });
@@ -567,7 +567,7 @@ impl SiteServer {
                                 let summary = summarize_patches(&diff_result.patches);
                                 let patch_count = diff_result.patches.len();
 
-                                tracing::info!(
+                                tracing::debug!(
                                     "{} - patching: {} ({} patches)",
                                     route,
                                     summary,

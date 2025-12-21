@@ -333,7 +333,7 @@ pub async fn start_cell_server_with_shutdown(
         }
     };
 
-    tracing::info!("HTTP cell connected via hub");
+    tracing::debug!("HTTP cell connected via hub");
 
     // Create the ContentService implementation
     let content_service = Arc::new(HostContentService::new(server.clone()));
@@ -344,7 +344,7 @@ pub async fn start_cell_server_with_shutdown(
 
     // Signal that the session is ready
     let _ = session_tx.send(Some(session.clone()));
-    tracing::info!("HTTP cell session ready");
+    tracing::debug!("HTTP cell session ready");
 
     // Wait for required cells to be ready
     boot_state.set_phase(BootPhase::WaitingCellsReady);

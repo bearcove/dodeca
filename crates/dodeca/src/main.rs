@@ -1349,7 +1349,7 @@ async fn build_with_mini_tui(
     }
 
     // Build search index
-    tracing::info!("Building search index...");
+    tracing::debug!("Building search index...");
 
     let search_files = search::build_search_index_async(&site_output).await?;
 
