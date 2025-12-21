@@ -1051,9 +1051,11 @@ fn ci_linux_runner(platform: CiPlatform) -> CiRunner {
             RunnerSpec::single("depot-ubuntu-24.04-32")
         },
         wasm_install: if LINUX_SELF_HOSTED {
+            // wasm-bindgen-cli should be pre-installed on self-hosted runners
             "true"
         } else {
-            "curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh"
+            // Install wasm-bindgen-cli (not wasm-pack - we call cargo directly for caching)
+            "cargo install wasm-bindgen-cli --locked"
         },
     }
 }
@@ -1119,7 +1121,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                 checkout(platform),
                 install_rust_with_target(platform, "wasm32-unknown-unknown"),
                 ci_linux_cache.clone(),
-                Step::run("Install wasm-pack", ci_linux.wasm_install),
+                Step::run("Install wasm-bindgen-cli", ci_linux.wasm_install),
                 Step::run("Build WASM", "cargo xtask wasm"),
                 upload_artifact(
                     platform,
@@ -1569,13 +1571,14 @@ pub fn build_forgejo_workflow() -> Workflow {
                 .join(", ");
 
             // Upload cell binaries to CAS with pointer files (batch upload)
+            // Each group gets its own manifest to avoid overwriting
             let binary_list: String = cells
                 .iter()
                 .map(|(_, bin)| format!("target/release/{bin}"))
                 .collect::<Vec<_>>()
                 .join(" ");
             let upload_script = format!(
-                r#"./scripts/cas-upload-batch.ts "ci/{run_id}/cells-{short}" {binary_list}"#
+                r#"./scripts/cas-upload-batch.ts "ci/{run_id}/cells-{short}-{group_num}" {binary_list}"#
             );
 
             jobs.insert(
@@ -1642,12 +1645,17 @@ pub fn build_forgejo_workflow() -> Workflow {
                         "Download ddc from CAS",
                         format!(r#"./scripts/cas-download.ts "ci/{run_id}/ddc-{short}" dist/ddc"#),
                     ),
-                    // Download cells from CAS - batch download for parallelism
+                    // Download cells from CAS - download all group manifests
                     Step::run(
                         "Download cells from CAS",
-                        format!(
-                            r#"./scripts/cas-download-batch.ts "ci/{run_id}/cells-{short}" dist/"#
-                        ),
+                        {
+                            let download_commands: Vec<String> = groups.iter()
+                                .map(|(group_num, _)| {
+                                    format!(r#"./scripts/cas-download-batch.ts "ci/{run_id}/cells-{short}-{group_num}" dist/"#)
+                                })
+                                .collect();
+                            download_commands.join("\n")
+                        },
                     ),
                     Step::run("List binaries", "ls -la dist/"),
                     Step::run("Verify artifacts", verify_artifacts_script()),
@@ -1683,12 +1691,17 @@ pub fn build_forgejo_workflow() -> Workflow {
                             r#"./scripts/cas-download.ts "ci/{run_id}/ddc-{short}" target/release/ddc"#
                         ),
                     ),
-                    // Download cells from CAS - batch download for parallelism
+                    // Download cells from CAS - download all group manifests
                     Step::run(
                         "Download cells from CAS",
-                        format!(
-                            r#"./scripts/cas-download-batch.ts "ci/{run_id}/cells-{short}" target/release/"#
-                        ),
+                        {
+                            let download_commands: Vec<String> = groups.iter()
+                                .map(|(group_num, _)| {
+                                    format!(r#"./scripts/cas-download-batch.ts "ci/{run_id}/cells-{short}-{group_num}" target/release/"#)
+                                })
+                                .collect();
+                            download_commands.join("\n")
+                        },
                     ),
                     // Download WASM from CAS
                     Step::run(

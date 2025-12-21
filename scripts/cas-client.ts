@@ -105,7 +105,10 @@ export class CasClient {
 
     const fullArgs = ["-e", `ssh ${sshArgs}`, ...args];
 
-    return this.run("rsync", fullArgs);
+    // Use Homebrew rsync on macOS (has --mkpath support)
+    const rsyncCmd = process.platform === "darwin" ? "/opt/homebrew/bin/rsync" : "rsync";
+
+    return this.run(rsyncCmd, fullArgs);
   }
 
   /**

@@ -251,22 +251,56 @@ fn build_all(release: bool) -> bool {
 fn build_wasm() -> bool {
     eprintln!("Building dodeca-devtools WASM...");
 
-    let status = Command::new("wasm-pack")
-        .args(["build", "--target", "web", "crates/dodeca-devtools"])
+    // wasm-pack doesn't respect CARGO_TARGET_DIR by default, so we pass it explicitly
+    // This ensures it uses the workspace target/ directory that we cache
+    let status = Command::new("cargo")
+        .args([
+            "build",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--package",
+            "dodeca-devtools",
+            "--verbose",
+        ])
         .status();
 
     match status {
         Ok(s) if s.success() => {
-            eprintln!("WASM build complete");
-            true
+            // Now run wasm-bindgen to generate the JS bindings
+            eprintln!("Running wasm-bindgen...");
+            let bindgen_status = Command::new("wasm-bindgen")
+                .args([
+                    "--target",
+                    "web",
+                    "--out-dir",
+                    "crates/dodeca-devtools/pkg",
+                    "target/wasm32-unknown-unknown/release/dodeca_devtools.wasm",
+                ])
+                .status();
+
+            match bindgen_status {
+                Ok(s) if s.success() => {
+                    eprintln!("WASM build complete");
+                    true
+                }
+                Ok(s) => {
+                    eprintln!("wasm-bindgen failed with status: {s}");
+                    false
+                }
+                Err(e) => {
+                    eprintln!("Failed to run wasm-bindgen: {e}");
+                    eprintln!("Install with: cargo install wasm-bindgen-cli");
+                    false
+                }
+            }
         }
         Ok(s) => {
-            eprintln!("wasm-pack failed with status: {s}");
+            eprintln!("cargo build failed with status: {s}");
             false
         }
         Err(e) => {
-            eprintln!("Failed to run wasm-pack: {e}");
-            eprintln!("Install with: cargo install wasm-pack");
+            eprintln!("Failed to run cargo: {e}");
             false
         }
     }
