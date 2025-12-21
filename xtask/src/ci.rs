@@ -1590,6 +1590,20 @@ pub fn build_forgejo_workflow() -> Workflow {
                     timelord_cache_info(cache_base, "before sync"),
                     timelord_restore(cache_base),
                     cargo_sweep_cache_stamp(&format!("ddc-{short}"), cache_base),
+                    Step::run(
+                        "Debug proc-macro2 mtimes",
+                        r#"set -euo pipefail
+if ls target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then
+  if stat -c %y target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then
+    stat -c %y target/debug/build/proc-macro2-*/build-script-build
+  else
+    stat -f %m target/debug/build/proc-macro2-*/build-script-build
+  fi
+else
+  echo "No proc-macro2 build-script-build file found"
+fi"#,
+                    )
+                    .shell("bash"),
                     Step::run("Build ddc", format!("cargo {} build --release -p dodeca --verbose", CiPlatform::CARGO_NIGHTLY_FLAGS)),
                     // Save cache immediately after build (before tests/uploads that might fail)
                     ctree_cache_save(&format!("ddc-{short}"), cache_base),

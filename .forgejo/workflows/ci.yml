@@ -141,6 +141,10 @@ jobs:
         name: Stamp cache artifacts (cargo sweep)
         run: "mkdir -p \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\"\nCARGO_TARGET_DIR=\"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" cargo sweep --stamp"
       - 
+        name: Debug proc-macro2 mtimes
+        run: "set -euo pipefail\nif ls target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then\n  if stat -c %y target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then\n    stat -c %y target/debug/build/proc-macro2-*/build-script-build\n  else\n    stat -f %m target/debug/build/proc-macro2-*/build-script-build\n  fi\nelse\n  echo \"No proc-macro2 build-script-build file found\"\nfi"
+        shell: bash
+      - 
         name: Build ddc
         run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p dodeca --verbose
       - 
@@ -386,6 +390,10 @@ jobs:
       - 
         name: Stamp cache artifacts (cargo sweep)
         run: "mkdir -p \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\"\nCARGO_TARGET_DIR=\"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" cargo sweep --stamp"
+      - 
+        name: Debug proc-macro2 mtimes
+        run: "set -euo pipefail\nif ls target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then\n  if stat -c %y target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then\n    stat -c %y target/debug/build/proc-macro2-*/build-script-build\n  else\n    stat -f %m target/debug/build/proc-macro2-*/build-script-build\n  fi\nelse\n  echo \"No proc-macro2 build-script-build file found\"\nfi"
+        shell: bash
       - 
         name: Build ddc
         run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p dodeca --verbose
