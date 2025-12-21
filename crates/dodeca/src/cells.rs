@@ -381,9 +381,12 @@ pub async fn get_hub() -> Option<(Arc<HubHost>, PathBuf)> {
 ///
 /// This is used for cells like TUI that need a custom dispatcher rather than
 /// just being clients that we call methods on.
+///
+/// Set `inherit_stdio` to true for cells that need terminal access (e.g., TUI).
 pub async fn spawn_cell_with_dispatcher<D>(
     binary_name: &str,
     dispatcher_factory: impl FnOnce(Arc<RpcSession>) -> D,
+    inherit_stdio: bool,
 ) -> Option<(Arc<RpcSession>, tokio::process::Child)>
 where
     D: Fn(
@@ -430,7 +433,9 @@ where
         .arg(format!("--doorbell-fd={}", peer_doorbell_fd))
         .stdin(Stdio::null());
 
-    if is_quiet_mode() {
+    if inherit_stdio {
+        cmd.stdout(Stdio::inherit()).stderr(Stdio::inherit());
+    } else if is_quiet_mode() {
         cmd.stdout(Stdio::null()).stderr(Stdio::null());
         cmd.env("DODECA_QUIET", "1");
     } else {
@@ -450,7 +455,7 @@ where
         dodeca_debug::register_child_pid(pid);
     }
 
-    if !is_quiet_mode() {
+    if !is_quiet_mode() && !inherit_stdio {
         capture_cell_stdio(binary_name, &mut child);
     }
 

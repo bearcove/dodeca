@@ -309,6 +309,7 @@ pub async fn start_tui_cell(
     let (_rpc_session, mut child) = crate::cells::spawn_cell_with_dispatcher(
         "ddc-cell-tui",
         dispatcher_factory,
+        true, // inherit_stdio
     )
     .await
     .ok_or_else(|| {

@@ -2258,6 +2258,13 @@ async fn serve_with_tui(
     // SAFETY: We're single-threaded at this point (before spawning cells)
     unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
 
+    let (progress_tx, mut progress_rx) = tui::progress_channel();
+    let (server_tx, mut server_rx) = tui::server_status_channel();
+    let (event_tx, event_rx) = tui::event_channel();
+
+    // Initialize tracing BEFORE spawning cells so they can emit tracing events during startup
+    let filter_handle = logging::init_tui_tracing(event_tx.clone());
+
     // Enable quiet mode for cells so they don't print startup messages that corrupt TUI
     cells::set_quiet_mode(true);
 
@@ -2268,14 +2275,6 @@ async fn serve_with_tui(
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
     let cache_dir = parent_dir.join(".cache");
     cas::init_asset_cache(cache_dir.as_std_path())?;
-
-    // Create channels
-    let (progress_tx, mut progress_rx) = tui::progress_channel();
-    let (server_tx, mut server_rx) = tui::server_status_channel();
-    let (event_tx, event_rx) = tui::event_channel();
-
-    // Initialize tracing with TUI layer - routes log events to Activity panel
-    let filter_handle = logging::init_tui_tracing(event_tx.clone());
 
     // Render options with live reload enabled (development mode)
     let render_options = render::RenderOptions {
