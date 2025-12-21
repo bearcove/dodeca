@@ -219,10 +219,6 @@ impl CellLifecycle for HostCellLifecycle {
     async fn ready(&self, msg: ReadyMsg) -> ReadyAck {
         let peer_id = msg.peer_id;
         let cell_name = msg.cell_name.clone();
-        eprintln!(
-            "[dodeca-host] Received ready signal from {} (peer_id={})",
-            cell_name, peer_id
-        );
         debug!("Cell {} (peer_id={}) is ready", cell_name, peer_id);
 
         self.registry.mark_ready(msg);

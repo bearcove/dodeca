@@ -61,8 +61,8 @@ static TEST_STATES: OnceLock<Mutex<std::collections::HashMap<u64, TestState>>> =
 /// Abbreviates long target paths to make logs more readable
 fn abbreviate_target(target: &str) -> String {
     // Handle integration_tests targets
-    if target.starts_with("integration_tests::") {
-        let suffix = &target[19..]; // Remove "integration_tests::"
+    if let Some(suffix) = target.strip_prefix("integration_tests::") {
+        // Remove "integration_tests::"
         return format!("i_t::{}", suffix);
     }
 
@@ -898,11 +898,11 @@ fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {
         // Check for target-specific rules first (e.g., "ddc=info")
         for directive in rust_log_lower.split(',') {
             let directive = directive.trim();
-            if let Some((target_pattern, level_str)) = directive.split_once('=') {
-                if target.starts_with(target_pattern.trim()) {
-                    let directive_level = LogLevel::from_str(level_str.trim());
-                    return level <= directive_level;
-                }
+            if let Some((target_pattern, level_str)) = directive.split_once('=')
+                && target.starts_with(target_pattern.trim())
+            {
+                let directive_level = LogLevel::from_str(level_str.trim());
+                return level <= directive_level;
             }
         }
 
