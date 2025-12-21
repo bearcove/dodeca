@@ -1405,8 +1405,18 @@ fn handle_file_changed(
     let category = config.categorize(path);
     let relative = match config.relative_path(path) {
         Some(r) => r,
-        None => return,
+        None => {
+            tracing::debug!(path = %path, "handle_file_changed: path not in watched dirs, ignoring");
+            return;
+        }
     };
+
+    tracing::debug!(
+        path = %path,
+        relative = %relative,
+        category = ?category,
+        "handle_file_changed: processing"
+    );
 
     match category {
         PathCategory::Content => {
@@ -1434,15 +1444,21 @@ fn handle_file_changed(
                         .unwrap_or(false)
                 }) {
                     // Replace with new version (picante inputs are immutable after creation)
+                    tracing::debug!(relative = %relative, "handle_file_changed: updating existing source file");
                     sources[pos] =
                         SourceFile::new(&*db, source_path, source_content, last_modified)
                             .expect("failed to create source file");
                 } else {
+                    tracing::debug!(relative = %relative, "handle_file_changed: adding new source file");
                     let source = SourceFile::new(&*db, source_path, source_content, last_modified)
                         .expect("failed to create source file");
                     sources.push(source);
                     println!("  {} Added new source: {}", "+".green(), relative);
                 }
+                tracing::debug!(
+                    count = sources.len(),
+                    "handle_file_changed: setting SourceRegistry (triggers picante invalidation)"
+                );
                 SourceRegistry::set(&*db, sources).expect("failed to set sources");
             }
         }

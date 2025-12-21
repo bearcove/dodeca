@@ -154,6 +154,12 @@ pub fn process_notify_event(
     config: &WatcherConfig,
     watcher: &Arc<Mutex<RecommendedWatcher>>,
 ) -> Vec<FileEvent> {
+    tracing::debug!(
+        event_kind = ?event.kind,
+        paths = ?event.paths,
+        "file_watcher: received notify event"
+    );
+
     let mut events = Vec::new();
 
     match event.kind {
@@ -176,6 +182,7 @@ pub fn process_notify_event(
                 } else if should_watch_path(path, config)
                     && let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone())
                 {
+                    tracing::debug!(path = %utf8, "file_watcher: file created");
                     events.push(FileEvent::Changed(utf8));
                 }
             }
@@ -187,6 +194,7 @@ pub fn process_notify_event(
                 if should_watch_path(path, config)
                     && let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone())
                 {
+                    tracing::debug!(path = %utf8, "file_watcher: file modified");
                     events.push(FileEvent::Changed(utf8));
                 }
             }
@@ -201,6 +209,7 @@ pub fn process_notify_event(
                         if should_watch_path(path, config)
                             && let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone())
                         {
+                            tracing::debug!(path = %utf8, "file_watcher: file renamed from (removed)");
                             events.push(FileEvent::Removed(utf8));
                         }
                     }
@@ -287,12 +296,19 @@ pub fn process_notify_event(
                 if should_watch_path(path, config)
                     && let Ok(utf8) = Utf8PathBuf::from_path_buf(path.clone())
                 {
+                    tracing::debug!(path = %utf8, "file_watcher: file removed");
                     events.push(FileEvent::Removed(utf8));
                 }
             }
         }
 
-        _ => {}
+        _ => {
+            tracing::debug!(event_kind = ?event.kind, "file_watcher: ignoring event kind");
+        }
+    }
+
+    if !events.is_empty() {
+        tracing::debug!(count = events.len(), events = ?events, "file_watcher: emitting events");
     }
 
     events

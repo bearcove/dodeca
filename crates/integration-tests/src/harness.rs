@@ -235,7 +235,10 @@ impl TestSite {
         // Start server with Unix socket path
         let fixture_str = fixture_dir.to_string_lossy().to_string();
         let unix_socket_str = unix_socket_path.to_string_lossy().to_string();
-        let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+        let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| {
+            // Default to info, but enable debug for file watching, rendering, and queries
+            "info,ddc::file_watcher=debug,ddc::queries=debug,ddc::render=debug".to_string()
+        });
 
         let ddc = ddc_binary();
         let ddc_args = [
@@ -470,9 +473,14 @@ impl TestSite {
                 let elapsed_ms = request_start.elapsed().as_millis();
 
                 // Extract interesting headers
-                let content_type = resp.header("content-type").unwrap_or("(none)");
-                let content_length = resp
-                    .header("content-length")
+                let headers = resp.headers();
+                let content_type = headers
+                    .get("content-type")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("(none)");
+                let content_length = headers
+                    .get("content-length")
+                    .and_then(|v| v.to_str().ok())
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| "(chunked)".to_string());
 

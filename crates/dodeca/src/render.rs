@@ -527,6 +527,13 @@ pub fn try_render_page_with_loader<L: TemplateLoader>(
     loader: L,
     data: Option<Value>,
 ) -> std::result::Result<String, String> {
+    tracing::debug!(
+        route = %page.route.as_str(),
+        title = %page.title,
+        template = "page.html",
+        "render: rendering page"
+    );
+
     let mut engine = Engine::new(loader);
 
     let mut ctx = build_render_context(site_tree, data);
@@ -562,19 +569,47 @@ pub fn try_render_section_with_loader<L: TemplateLoader>(
     loader: L,
     data: Option<Value>,
 ) -> std::result::Result<String, String> {
-    let mut engine = Engine::new(loader);
-
-    let mut ctx = build_render_context(site_tree, data);
-    ctx.set("section", section_to_value(section, site_tree));
-    ctx.set("current_path", Value::from(section.route.as_str()));
-    // Set page to NULL so templates can use `{% if page %}` without error
-    ctx.set("page", Value::NULL);
-
     let template_name = if section.route.as_str() == "/" {
         "index.html"
     } else {
         "section.html"
     };
+
+    // Count pages in this section for logging
+    let page_count = site_tree
+        .pages
+        .values()
+        .filter(|p| p.section_route == section.route)
+        .count();
+
+    tracing::debug!(
+        route = %section.route.as_str(),
+        title = %section.title,
+        template = %template_name,
+        section_pages = page_count,
+        "render: rendering section"
+    );
+
+    let mut engine = Engine::new(loader);
+
+    let mut ctx = build_render_context(site_tree, data);
+    let section_value = section_to_value(section, site_tree);
+
+    // Log section.pages array length
+    if let Value::Object(ref obj) = section_value {
+        if let Some(Value::Array(ref pages)) = obj.get(&VString::from("pages")) {
+            tracing::debug!(
+                route = %section.route.as_str(),
+                pages_in_context = pages.len(),
+                "render: section.pages set in context"
+            );
+        }
+    }
+
+    ctx.set("section", section_value);
+    ctx.set("current_path", Value::from(section.route.as_str()));
+    // Set page to NULL so templates can use `{% if page %}` without error
+    ctx.set("page", Value::NULL);
 
     engine
         .render(template_name, &ctx)
