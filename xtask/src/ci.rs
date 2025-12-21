@@ -848,9 +848,16 @@ fi"#
         )
     }
 
-    /// Stamp cargo sweep to track artifact usage for this job.
-    pub fn cargo_sweep_stamp() -> Step {
-        Step::run("Stamp artifacts (cargo sweep)", "cargo sweep --stamp")
+    /// Stamp cargo sweep to track artifact usage for the cache directory.
+    pub fn cargo_sweep_cache_stamp(cache_name: &str, base_path: &str) -> Step {
+        let cache_dir = format!("{}/dodeca-ci/{}", base_path, cache_name);
+        Step::run(
+            "Stamp cache artifacts (cargo sweep)",
+            format!(
+                r#"mkdir -p "{cache_dir}"
+CARGO_TARGET_DIR="{cache_dir}" cargo sweep --stamp"#
+            ),
+        )
     }
 
     /// Trim the saved cache based on the sweep stamp.
@@ -860,7 +867,7 @@ fi"#
             "Trim cache (cargo sweep)",
             format!(
                 r#"if [ -d "{cache_dir}" ]; then
-  cd "{cache_dir}" && cargo sweep --file || true
+  CARGO_TARGET_DIR="{cache_dir}" cargo sweep --file || true
 else
   echo "No cache found at {cache_dir} to trim"
 fi"#
@@ -1516,7 +1523,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                 ctree_cache_restore("clippy", linux_cache_base),
                 timelord_cache_info(linux_cache_base, "before sync"),
                 timelord_restore(linux_cache_base),
-                cargo_sweep_stamp(),
+                cargo_sweep_cache_stamp("clippy", linux_cache_base),
                 Step::run(
                     "Clippy",
                     format!(
@@ -1545,7 +1552,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                 ctree_cache_restore("wasm", linux_cache_base),
                 timelord_cache_info(linux_cache_base, "before sync"),
                 timelord_restore(linux_cache_base),
-                cargo_sweep_stamp(),
+                cargo_sweep_cache_stamp("wasm", linux_cache_base),
                 Step::run("Build WASM", "cargo xtask wasm"),
                 // Save cache immediately after build (before uploads that might fail)
                 ctree_cache_save("wasm", linux_cache_base),
@@ -1582,7 +1589,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                     ctree_cache_restore(&format!("ddc-{short}"), cache_base),
                     timelord_cache_info(cache_base, "before sync"),
                     timelord_restore(cache_base),
-                    cargo_sweep_stamp(),
+                    cargo_sweep_cache_stamp(&format!("ddc-{short}"), cache_base),
                     Step::run("Build ddc", format!("cargo {} build --release -p dodeca --verbose", CiPlatform::CARGO_NIGHTLY_FLAGS)),
                     // Save cache immediately after build (before tests/uploads that might fail)
                     ctree_cache_save(&format!("ddc-{short}"), cache_base),
@@ -1643,7 +1650,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                         ctree_cache_restore(&format!("cells-{short}-{group_num}"), cache_base),
                         timelord_cache_info(cache_base, "before sync"),
                         timelord_restore(cache_base),
-                        cargo_sweep_stamp(),
+                        cargo_sweep_cache_stamp(&format!("cells-{short}-{group_num}"), cache_base),
                         Step::run(
                             "Build cells",
                             format!(
@@ -1688,7 +1695,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                     ctree_cache_restore(&format!("integration-{short}"), cache_base),
                     timelord_cache_info(cache_base, "before sync"),
                     timelord_restore(cache_base),
-                    cargo_sweep_stamp(),
+                    cargo_sweep_cache_stamp(&format!("integration-{short}"), cache_base),
                     // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
                     Step::run(
                         "Build integration-tests",
