@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca Pagefind plugin
+//! RPC protocol for dodeca Pagefind cell
 //!
 //! Defines services for search indexing.
 
@@ -46,7 +46,7 @@ pub enum SearchIndexResult {
     Error { message: String },
 }
 
-/// Search indexing service implemented by the plugin.
+/// Search indexing service implemented by the cell.
 ///
 /// The host calls these methods to build search indexes.
 #[allow(async_fn_in_trait)]

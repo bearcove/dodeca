@@ -8,42 +8,44 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 
 use eyre::Result;
-use futures::stream::{self, StreamExt};
-use rapace::transport::shm::HubHostPeerTransport;
 use rapace::{Frame, RpcError, RpcSession};
 use rapace_tracing::{EventMeta, Field, SpanMeta, TracingSink};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
 use tokio::sync::watch;
-use tokio_stream::wrappers::TcpListenerStream;
 
 use cell_http_proto::{ContentServiceServer, TcpTunnelClient};
-use cell_lifecycle_proto::CellLifecycleServer;
+use rapace_cell::CellLifecycleServer;
 use rapace_tracing::TracingSinkServer;
 
-use crate::cells::{HostCellLifecycle, cell_ready_registry, get_cell_session, plugins};
+use crate::boot_state::{BootPhase, BootState, BootStateManager, ErrorKind};
+use crate::cells::{HostCellLifecycle, all, cell_ready_registry, get_cell_session};
 use crate::content_service::HostContentService;
 use crate::serve::SiteServer;
+
+static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
+const REQUIRED_CELLS: [&str; 2] = ["ddc-cell-http", "ddc-cell-markdown"];
+const REQUIRED_CELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const SESSION_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Find the cell binary path (for backwards compatibility).
 ///
 /// Note: The http cell is now loaded via the hub, so this just returns a dummy path.
 /// The actual cell location is determined by cells.rs.
-pub fn find_plugin_path() -> Result<std::path::PathBuf> {
+pub fn find_cell_path() -> Result<std::path::PathBuf> {
     // Return a dummy path - cells are loaded via hub now
     Ok(std::path::PathBuf::from("ddc-cell-http"))
 }
-
-/// Buffer size for TCP reads
-const CHUNK_SIZE: usize = 4096;
 
 // ============================================================================
 // Forwarding TracingSink - re-emits cell tracing events to host's tracing
 // ============================================================================
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 
 /// A TracingSink implementation that forwards events to the host's tracing subscriber.
 ///
@@ -130,21 +132,19 @@ impl TracingSink for ForwardingTracingSink {
 #[allow(clippy::type_complexity)]
 fn create_http_cell_dispatcher(
     content_service: Arc<HostContentService>,
-) -> impl Fn(
-    u32,
-    u32,
-    Vec<u8>,
-) -> Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
+) -> impl Fn(Frame) -> Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
 + Send
 + Sync
 + 'static {
     let tracing_sink = ForwardingTracingSink::new();
     let lifecycle_registry = cell_ready_registry().clone();
 
-    move |_channel_id, method_id, payload| {
+    move |frame: Frame| {
         let content_service = content_service.clone();
         let tracing_sink = tracing_sink.clone();
         let lifecycle_registry = lifecycle_registry.clone();
+        let method_id = frame.desc.method_id;
+        let payload = frame.payload_bytes().to_vec();
 
         Box::pin(async move {
             // Try TracingSink service first
@@ -170,44 +170,32 @@ fn create_http_cell_dispatcher(
 /// Start the HTTP cell server with optional shutdown signal
 ///
 /// This:
-/// 1. Ensures the http cell is loaded (via plugins())
+/// 1. Ensures the http cell is loaded (via all())
 /// 2. Sets up ContentService on the http cell's session
 /// 3. Listens for browser TCP connections and tunnels them to the cell
 ///
 /// If `shutdown_rx` is provided, the server will stop when the signal is received.
 ///
 /// The `bind_ips` parameter specifies which IP addresses to bind to.
-pub async fn start_plugin_server_with_shutdown(
+///
+/// # Boot State Contract
+/// - The accept loop is NEVER aborted due to cell loading failures
+/// - Connections are accepted immediately and held open
+/// - If boot fails fatally, connections receive HTTP 500 responses
+/// - If boot succeeds, connections are tunneled to the HTTP cell
+#[allow(clippy::too_many_arguments)]
+pub async fn start_cell_server_with_shutdown(
     server: Arc<SiteServer>,
-    _plugin_path: std::path::PathBuf, // No longer used - cells loaded via hub
+    _cell_path: std::path::PathBuf, // No longer used - cells loaded via hub
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
-    mut shutdown_rx: Option<watch::Receiver<bool>>,
+    shutdown_rx: Option<watch::Receiver<bool>>,
     port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
-    pre_bound_listener: Option<TcpListener>,
+    pre_bound_listener: Option<std::net::TcpListener>,
 ) -> Result<()> {
-    // Ensure all cells are loaded (including http)
-    let registry = plugins();
-
-    // Check that the http cell is loaded
-    if registry.http.is_none() {
-        return Err(eyre::eyre!(
-            "HTTP cell not loaded. Build it with: cargo build -p cell-http --bin ddc-cell-http"
-        ));
-    }
-
-    // Get the raw session to set up ContentService dispatcher
-    let session = get_cell_session("ddc-cell-http")
-        .ok_or_else(|| eyre::eyre!("HTTP cell session not found"))?;
-
-    tracing::info!("HTTP cell connected via hub");
-
-    // Create the ContentService implementation
-    let content_service = Arc::new(HostContentService::new(server));
-
-    // Set up multi-service dispatcher on the http cell's session
-    // This replaces the basic dispatcher from cells.rs with one that includes ContentService
-    session.set_dispatcher(create_http_cell_dispatcher(content_service));
+    // Create boot state manager - tracks lifecycle for connection handlers
+    let boot_state = Arc::new(BootStateManager::new());
+    let boot_state_rx = boot_state.subscribe();
 
     // Start TCP listeners for browser connections
     let (listeners, bound_port) = if let Some(listener) = pre_bound_listener {
@@ -216,12 +204,10 @@ pub async fn start_plugin_server_with_shutdown(
             .local_addr()
             .map_err(|e| eyre::eyre!("Failed to get pre-bound listener address: {}", e))?
             .port();
+        if let Err(e) = listener.set_nonblocking(true) {
+            tracing::warn!("Failed to set pre-bound listener non-blocking: {}", e);
+        }
         tracing::info!("Using pre-bound listener on port {}", bound_port);
-
-        // Print READY signal for test harness
-        println!("READY");
-        use std::io::Write;
-        let _ = std::io::stdout().flush();
 
         (vec![listener], bound_port)
     } else {
@@ -229,8 +215,9 @@ pub async fn start_plugin_server_with_shutdown(
         let mut listeners = Vec::new();
         let mut actual_port: Option<u16> = None;
         for ip in &bind_ips {
-            let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(*ip), port);
-            match TcpListener::bind(addr).await {
+            let requested_port = actual_port.unwrap_or(port);
+            let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(*ip), requested_port);
+            match std::net::TcpListener::bind(addr) {
                 Ok(listener) => {
                     if let Ok(bound_addr) = listener.local_addr() {
                         let bound_port = bound_addr.port();
@@ -238,6 +225,9 @@ pub async fn start_plugin_server_with_shutdown(
                             actual_port = Some(bound_port);
                         }
                         tracing::info!("Listening on {}:{}", ip, bound_port);
+                    }
+                    if let Err(e) = listener.set_nonblocking(true) {
+                        tracing::warn!("Failed to set non-blocking on {}: {}", ip, e);
                     }
                     listeners.push(listener);
                 }
@@ -254,28 +244,6 @@ pub async fn start_plugin_server_with_shutdown(
         let bound_port =
             actual_port.ok_or_else(|| eyre::eyre!("Could not determine bound port"))?;
 
-        // Wait for required cells to be ready before declaring the server ready
-        // This prevents the race condition where tests/clients connect before cells can handle RPCs
-        let required_cells = ["ddc-cell-http", "ddc-cell-markdown"];
-        let timeout = std::time::Duration::from_secs(5);
-
-        tracing::info!(
-            "Waiting for required cells to be ready: {:?}",
-            required_cells
-        );
-        if let Err(e) = crate::cells::wait_for_cells_ready(&required_cells, timeout).await {
-            tracing::warn!(
-                "Timeout waiting for cells to be ready: {}. Proceeding anyway.",
-                e
-            );
-        }
-
-        eprintln!("DEBUG: About to print LISTENING_PORT={}", bound_port);
-        println!("LISTENING_PORT={}", bound_port);
-        use std::io::Write;
-        let _ = std::io::stdout().flush();
-        eprintln!("DEBUG: Flushed LISTENING_PORT");
-
         (listeners, bound_port)
     };
 
@@ -284,34 +252,210 @@ pub async fn start_plugin_server_with_shutdown(
         let _ = tx.send(bound_port);
     }
 
-    // Merge all listeners into a single stream
-    let mut accept_stream = stream::select_all(listeners.into_iter().map(TcpListenerStream::new));
+    tracing::debug!(port = bound_port, "BOUND");
 
-    // Accept browser connections and tunnel them to the cell
+    let (session_tx, session_rx) = watch::channel::<Option<Arc<RpcSession>>>(None);
+
+    let shutdown_flag = Arc::new(AtomicBool::new(false));
+    if let Some(mut shutdown_rx) = shutdown_rx.clone() {
+        let shutdown_flag = shutdown_flag.clone();
+        tokio::spawn(async move {
+            let _ = shutdown_rx.changed().await;
+            if *shutdown_rx.borrow() {
+                shutdown_flag.store(true, Ordering::Relaxed);
+            }
+        });
+    }
+
+    // Convert std listeners to tokio listeners for direct async accept.
+    // This eliminates the thread+poll design that introduced cross-thread races.
+    let tokio_listeners: Vec<tokio::net::TcpListener> = listeners
+        .into_iter()
+        .filter_map(|l| match tokio::net::TcpListener::from_std(l) {
+            Ok(listener) => Some(listener),
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to convert listener to tokio");
+                None
+            }
+        })
+        .collect();
+
+    if tokio_listeners.is_empty() {
+        return Err(eyre::eyre!(
+            "No listeners available after conversion to tokio"
+        ));
+    }
+
+    // Start accepting connections immediately; readiness is gated per-connection.
+    // CRITICAL: This task is NEVER aborted - it runs until shutdown.
+    let accept_server = server.clone();
+    let accept_boot_state_rx = boot_state_rx.clone();
+    let accept_task = tokio::spawn(async move {
+        run_async_accept_loop(
+            tokio_listeners,
+            session_rx,
+            accept_boot_state_rx,
+            accept_server,
+            shutdown_rx,
+            shutdown_flag,
+        )
+        .await
+    });
+
+    // Load cells with boot state tracking
+    boot_state.set_phase(BootPhase::LoadingCells);
+    let registry = all().await;
+
+    // Check that the http cell is loaded - but don't abort accept loop!
+    if registry.http.is_none() {
+        boot_state.set_fatal(
+            ErrorKind::MissingCell,
+            "HTTP cell not loaded. Build it with: cargo build -p cell-http --bin ddc-cell-http",
+        );
+        // Don't abort - let accept loop run and serve HTTP 500s
+        return accept_task
+            .await
+            .map_err(|e| eyre::eyre!("Accept loop task failed: {}", e))?;
+    }
+
+    // Get the raw session to set up ContentService dispatcher
+    let session = match get_cell_session("ddc-cell-http") {
+        Some(session) => session,
+        None => {
+            boot_state.set_fatal(
+                ErrorKind::CellStartupFailed,
+                "HTTP cell session not found after loading",
+            );
+            // Don't abort - let accept loop run and serve HTTP 500s
+            return accept_task
+                .await
+                .map_err(|e| eyre::eyre!("Accept loop task failed: {}", e))?;
+        }
+    };
+
+    tracing::debug!("HTTP cell connected via hub");
+
+    // Create the ContentService implementation
+    let content_service = Arc::new(HostContentService::new(server.clone()));
+
+    // Set up multi-service dispatcher on the http cell's session
+    // This replaces the basic dispatcher from cells.rs with one that includes ContentService
+    session.set_dispatcher(create_http_cell_dispatcher(content_service));
+
+    // Signal that the session is ready
+    let _ = session_tx.send(Some(session.clone()));
+    tracing::debug!("HTTP cell session ready");
+
+    // Wait for required cells to be ready
+    boot_state.set_phase(BootPhase::WaitingCellsReady);
+    if let Err(e) = crate::cells::wait_for_cells_ready(&REQUIRED_CELLS, REQUIRED_CELL_TIMEOUT).await
+    {
+        boot_state.set_fatal(
+            ErrorKind::CellStartupFailed,
+            format!("Required cells not ready: {}", e),
+        );
+        return accept_task
+            .await
+            .map_err(|e| eyre::eyre!("Accept loop task failed: {}", e))?;
+    }
+
+    // Mark boot as complete - connections can now be fully handled
+    boot_state.set_ready();
+
+    match accept_task.await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(e)) => Err(e),
+        Err(e) => Err(eyre::eyre!("Accept loop task failed: {}", e)),
+    }
+}
+
+/// Async accept loop using tokio::net::TcpListener directly.
+/// This eliminates the thread+poll design that introduced cross-thread races
+/// and OS scheduling differences between macOS and Linux.
+async fn run_async_accept_loop(
+    listeners: Vec<tokio::net::TcpListener>,
+    session_rx: watch::Receiver<Option<Arc<RpcSession>>>,
+    boot_state_rx: watch::Receiver<BootState>,
+    server: Arc<SiteServer>,
+    mut shutdown_rx: Option<watch::Receiver<bool>>,
+    shutdown_flag: Arc<AtomicBool>,
+) -> Result<()> {
+    tracing::debug!(
+        session_ready = session_rx.borrow().is_some(),
+        boot_state = ?*boot_state_rx.borrow(),
+        num_listeners = listeners.len(),
+        "Async accept loop starting"
+    );
+
+    tracing::debug!(
+        "Accepting connections immediately; readiness gated per connection (cells={:?})",
+        REQUIRED_CELLS
+    );
+
+    let accept_start = Instant::now();
+    let mut accept_seq: u64 = 0;
+
+    // For simplicity with multiple listeners, we'll use the first one.
+    // In FD-passing mode there's only one listener anyway.
+    // For multi-listener cases, we could use tokio::select! with all of them.
+    let listener = listeners
+        .into_iter()
+        .next()
+        .ok_or_else(|| eyre::eyre!("No listeners available"))?;
+
     loop {
         tokio::select! {
-            accept_result = accept_stream.next() => {
-                match accept_result {
-                    Some(Ok(stream)) => {
-                        let addr = stream.peer_addr().ok();
-                        tracing::debug!("Accepted browser connection from {:?}", addr);
-                        let session = session.clone();
-                        tokio::spawn(async move {
-                            // Create TcpTunnelClient per connection
-                            let tunnel_client = TcpTunnelClient::new(session.clone());
-                            if let Err(e) = handle_browser_connection(stream, tunnel_client, session).await {
-                                tracing::error!("Failed to handle browser connection: {:?}", e);
-                            }
-                        });
+            accept_result = listener.accept() => {
+                accept_seq = accept_seq.wrapping_add(1);
+                let (stream, addr) = match accept_result {
+                    Ok((s, a)) => (s, a),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Accept error");
+                        continue;
                     }
-                    Some(Err(e)) => {
-                        tracing::error!("Accept error: {:?}", e);
+                };
+
+                let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
+                let local_addr = stream.local_addr().ok();
+
+                // Inspect SO_LINGER without taking ownership
+                let linger_info = {
+                    use socket2::SockRef;
+                    let sock_ref = SockRef::from(&stream);
+                    sock_ref.linger().ok()
+                };
+
+                tracing::trace!(
+                    conn_id,
+                    peer_addr = ?addr,
+                    ?local_addr,
+                    accept_seq,
+                    elapsed_ms = accept_start.elapsed().as_millis(),
+                    ?linger_info,
+                    "Accepted browser connection"
+                );
+
+                let session_rx = session_rx.clone();
+                let boot_state_rx = boot_state_rx.clone();
+                let server = server.clone();
+                tokio::spawn(async move {
+                    if let Err(e) =
+                        handle_browser_connection(
+                            conn_id,
+                            stream,
+                            session_rx,
+                            boot_state_rx,
+                            server,
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            conn_id,
+                            error = ?e,
+                            "Failed to handle browser connection"
+                        );
                     }
-                    None => {
-                        tracing::info!("All listeners closed");
-                        break;
-                    }
-                }
+                });
             }
             _ = async {
                 if let Some(ref mut rx) = shutdown_rx {
@@ -328,87 +472,216 @@ pub async fn start_plugin_server_with_shutdown(
         }
     }
 
-    // Cleanup: drop the stream to release listeners
-    drop(accept_stream);
-
+    shutdown_flag.store(true, Ordering::Relaxed);
     Ok(())
 }
 
 /// Start the cell server (convenience wrapper without shutdown signal)
 #[allow(dead_code)]
-pub async fn start_plugin_server(
+pub async fn start_cell_server(
     server: Arc<SiteServer>,
-    plugin_path: std::path::PathBuf,
+    cell_path: std::path::PathBuf,
     bind_ips: Vec<std::net::Ipv4Addr>,
     port: u16,
 ) -> Result<()> {
-    start_plugin_server_with_shutdown(server, plugin_path, bind_ips, port, None, None, None).await
+    start_cell_server_with_shutdown(server, cell_path, bind_ips, port, None, None, None).await
 }
 
+/// HTTP 500 response for fatal boot errors
+const FATAL_ERROR_RESPONSE: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\
+Content-Type: text/plain; charset=utf-8\r\n\
+Connection: close\r\n\
+Content-Length: 52\r\n\
+\r\n\
+Server failed to start. Check server logs for details";
+
 /// Handle a browser TCP connection by tunneling it through the cell
+///
+/// # Boot State Contract
+/// - Connection is held open while waiting for boot to complete
+/// - If boot succeeds (Ready), tunnel to HTTP cell
+/// - If boot fails (Fatal), send HTTP 500 response
+/// - Never reset or refuse the connection
 async fn handle_browser_connection(
-    browser_stream: TcpStream,
-    tunnel_client: TcpTunnelClient<HubHostPeerTransport>,
-    session: Arc<RpcSession<HubHostPeerTransport>>,
+    conn_id: u64,
+    mut browser_stream: TcpStream,
+    mut session_rx: watch::Receiver<Option<Arc<RpcSession>>>,
+    mut boot_state_rx: watch::Receiver<BootState>,
+    server: Arc<SiteServer>,
 ) -> Result<()> {
+    let started_at = Instant::now();
+    let peer_addr = browser_stream.peer_addr().ok();
+    let local_addr = browser_stream.local_addr().ok();
+    tracing::trace!(
+        conn_id,
+        ?peer_addr,
+        ?local_addr,
+        "handle_browser_connection: start"
+    );
+
+    if let Ok(Some(err)) = browser_stream.take_error() {
+        tracing::warn!(conn_id, error = %err, "socket error present on accept");
+    }
+
+    // Wait for boot state to resolve (Ready or Fatal)
+    // This replaces the old "read 1 byte first" hack - we hold the connection
+    // open while waiting, the client's request sits in the kernel receive buffer.
+    let boot_wait_start = Instant::now();
+    loop {
+        let state = boot_state_rx.borrow().clone();
+        match state {
+            BootState::Ready => {
+                tracing::debug!(
+                    conn_id,
+                    elapsed_ms = boot_wait_start.elapsed().as_millis(),
+                    "Boot ready, proceeding with connection"
+                );
+                break;
+            }
+            BootState::Fatal {
+                ref message,
+                ref error_kind,
+                ..
+            } => {
+                tracing::warn!(
+                    conn_id,
+                    error_kind = ?error_kind,
+                    message = %message,
+                    elapsed_ms = boot_wait_start.elapsed().as_millis(),
+                    "Boot failed fatally, sending HTTP 500"
+                );
+                // Send HTTP 500 response instead of closing/resetting
+                if let Err(e) = browser_stream.write_all(FATAL_ERROR_RESPONSE).await {
+                    tracing::warn!(conn_id, error = %e, "Failed to write 500 response");
+                }
+                return Ok(());
+            }
+            BootState::Booting { ref phase, .. } => {
+                tracing::debug!(
+                    conn_id,
+                    phase = ?phase,
+                    elapsed_ms = boot_wait_start.elapsed().as_millis(),
+                    "Waiting for boot to complete"
+                );
+            }
+        }
+        // Wait for state change
+        if boot_state_rx.changed().await.is_err() {
+            tracing::warn!(conn_id, "Boot state channel closed unexpectedly");
+            return Ok(());
+        }
+    }
+
+    // Get HTTP cell session
+    let session = if let Some(session) = session_rx.borrow().clone() {
+        session
+    } else {
+        tracing::info!(conn_id, "Waiting for HTTP cell session (socket held open)");
+        let wait_start = Instant::now();
+        let session = tokio::time::timeout(SESSION_WAIT_TIMEOUT, async {
+            loop {
+                session_rx.changed().await.ok();
+                if let Some(session) = session_rx.borrow().clone() {
+                    break session;
+                }
+            }
+        })
+        .await;
+        match session {
+            Ok(session) => {
+                tracing::info!(
+                    conn_id,
+                    elapsed_ms = wait_start.elapsed().as_millis(),
+                    "HTTP cell session ready (per-connection)"
+                );
+                session
+            }
+            Err(_) => {
+                tracing::warn!(
+                    conn_id,
+                    elapsed_ms = wait_start.elapsed().as_millis(),
+                    "HTTP cell session wait timed out; sending 500"
+                );
+                if let Err(e) = browser_stream.write_all(FATAL_ERROR_RESPONSE).await {
+                    tracing::warn!(conn_id, error = %e, "Failed to write 500 response");
+                }
+                return Ok(());
+            }
+        }
+    };
+
+    let tunnel_client = TcpTunnelClient::new(session.clone());
+
+    // Wait for revision readiness (site content built)
+    tracing::trace!(conn_id, "Waiting for revision readiness (per-connection)");
+    let revision_start = Instant::now();
+    server.wait_revision_ready().await;
+    tracing::trace!(
+        conn_id,
+        elapsed_ms = revision_start.elapsed().as_millis(),
+        "Revision ready (per-connection)"
+    );
+
     // Open a tunnel to the cell
+    let open_started = Instant::now();
     let handle = tunnel_client
         .open()
         .await
         .map_err(|e| eyre::eyre!("Failed to open tunnel: {:?}", e))?;
 
     let channel_id = handle.channel_id;
-    tracing::debug!(channel_id, "Tunnel opened for browser connection");
+    tracing::trace!(
+        conn_id,
+        channel_id,
+        open_elapsed_ms = open_started.elapsed().as_millis(),
+        "Tunnel opened for browser connection"
+    );
 
-    // Register the tunnel to receive incoming chunks from cell
-    let mut tunnel_rx = session.register_tunnel(channel_id);
-
-    let (mut browser_read, mut browser_write) = browser_stream.into_split();
-
-    // Task A: Browser → rapace (read from browser, send to tunnel)
-    let session_a = session.clone();
+    // Bridge browser <-> tunnel with backpressure.
+    // No need to pre-read bytes - the request is in the kernel buffer.
+    let mut tunnel_stream = session.tunnel_stream(channel_id);
+    tracing::trace!(
+        conn_id,
+        channel_id,
+        "Starting browser <-> tunnel bridge task"
+    );
     tokio::spawn(async move {
-        let mut buf = vec![0u8; CHUNK_SIZE];
-        loop {
-            match browser_read.read(&mut buf).await {
-                Ok(0) => {
-                    tracing::debug!(channel_id, "Browser closed connection");
-                    let _ = session_a.close_tunnel(channel_id).await;
-                    break;
-                }
-                Ok(n) => {
-                    if let Err(e) = session_a.send_chunk(channel_id, buf[..n].to_vec()).await {
-                        tracing::debug!(channel_id, error = %e, "Tunnel send error");
-                        break;
-                    }
-                }
-                Err(e) => {
-                    tracing::debug!(channel_id, error = %e, "Browser read error");
-                    let _ = session_a.close_tunnel(channel_id).await;
-                    break;
-                }
+        let bridge_started = Instant::now();
+        tracing::trace!(conn_id, channel_id, "browser <-> tunnel bridge: start");
+        match tokio::io::copy_bidirectional(&mut browser_stream, &mut tunnel_stream).await {
+            Ok((to_tunnel, to_browser)) => {
+                tracing::trace!(
+                    conn_id,
+                    channel_id,
+                    to_tunnel,
+                    to_browser,
+                    elapsed_ms = bridge_started.elapsed().as_millis(),
+                    "browser <-> tunnel finished"
+                );
+            }
+            Err(e) => {
+                tracing::warn!(
+                    conn_id,
+                    channel_id,
+                    error = %e,
+                    elapsed_ms = bridge_started.elapsed().as_millis(),
+                    "browser <-> tunnel error"
+                );
             }
         }
-        tracing::debug!(channel_id, "Browser→rapace task finished");
+        tracing::trace!(
+            conn_id,
+            channel_id,
+            elapsed_ms = bridge_started.elapsed().as_millis(),
+            "browser <-> tunnel bridge: done"
+        );
     });
 
-    // Task B: rapace → Browser (read from tunnel, write to browser)
-    tokio::spawn(async move {
-        while let Some(chunk) = tunnel_rx.recv().await {
-            if !chunk.payload.is_empty()
-                && let Err(e) = browser_write.write_all(&chunk.payload).await
-            {
-                tracing::debug!(channel_id, error = %e, "Browser write error");
-                break;
-            }
-            if chunk.is_eos {
-                tracing::debug!(channel_id, "Received EOS from cell");
-                let _ = browser_write.shutdown().await;
-                break;
-            }
-        }
-        tracing::debug!(channel_id, "rapace→browser task finished");
-    });
-
+    tracing::trace!(
+        conn_id,
+        channel_id,
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "handle_browser_connection: end"
+    );
     Ok(())
 }

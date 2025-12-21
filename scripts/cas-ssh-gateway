@@ -1,0 +1,129 @@
+#!/bin/bash
+#
+# CAS SSH Gateway - Forced command for cas@golem.bearcove.cloud
+#
+# This script restricts SSH access to only:
+# 1. rsync server mode (for uploading/downloading files)
+# 2. cas-install command (for atomic CAS object installation)
+#
+# Usage in authorized_keys:
+#   command="/usr/local/bin/cas-ssh-gateway",no-pty,no-agent-forwarding,no-port-forwarding,no-X11-forwarding ssh-ed25519 ...
+
+set -euo pipefail
+
+CAS_ROOT="/srv/cas/cas"
+
+# Get the original command
+CMD="${SSH_ORIGINAL_COMMAND:-}"
+
+if [[ -z "$CMD" ]]; then
+  echo "Error: No command specified" >&2
+  exit 1
+fi
+
+# Case 1: rsync server mode
+if [[ "$CMD" =~ ^rsync\ --server ]]; then
+  # Extract the last argument (destination path)
+  if [[ "$CMD" =~ \  ([^\ ]+)$ ]]; then
+    DEST_PATH="${BASH_REMATCH[1]}"
+
+    # Only allow paths under CAS_ROOT
+    # Normalize path to absolute
+    if [[ "$DEST_PATH" = /* ]]; then
+      # Absolute path - must start with CAS_ROOT
+      if [[ "$DEST_PATH" != "$CAS_ROOT"/* ]]; then
+        echo "Error: rsync path must be under $CAS_ROOT" >&2
+        exit 1
+      fi
+    else
+      # Relative path - resolve relative to CAS_ROOT
+      DEST_PATH="$CAS_ROOT/$DEST_PATH"
+    fi
+
+    # Ensure parent directory exists (for uploads) - redirect ALL output
+    mkdir -p "$(dirname "$DEST_PATH")" >/dev/null 2>&1 || true
+  fi
+
+  # Execute rsync in server mode - CRITICAL: no output before this
+  exec $CMD
+fi
+
+# Case 2: cas-install <tmpPath> <hash>
+if [[ "$CMD" =~ ^cas-install\ ([^\ ]+)\ ([a-f0-9]{64})$ ]]; then
+  TMP_PATH="${BASH_REMATCH[1]}"
+  HASH="${BASH_REMATCH[2]}"
+
+  # Validate paths are within CAS_ROOT
+  if [[ "$TMP_PATH" != tmp/* ]]; then
+    echo "Error: Invalid tmp path: $TMP_PATH" >&2
+    exit 1
+  fi
+
+  # Derive final path
+  HASH_PREFIX="${HASH:0:2}"
+  FINAL_DIR="$CAS_ROOT/sha256/$HASH_PREFIX"
+  FINAL_PATH="$FINAL_DIR/$HASH"
+  FULL_TMP_PATH="$CAS_ROOT/$TMP_PATH"
+
+  # Ensure final directory exists
+  mkdir -p "$FINAL_DIR"
+
+  # Atomic install: check if exists, else move
+  if [[ -f "$FINAL_PATH" ]]; then
+    # Already exists - delete temp file
+    rm -f "$FULL_TMP_PATH"
+    echo "EXISTS"
+  else
+    # Move temp to final location (atomic on same filesystem)
+    mv "$FULL_TMP_PATH" "$FINAL_PATH"
+    # Set permissions: owner rw, others r
+    chmod 644 "$FINAL_PATH"
+    echo "UPLOADED"
+  fi
+
+  exit 0
+fi
+
+# Case 3: test -f (for has() operation)
+if [[ "$CMD" =~ ^test\ -f\ (.+)$ ]]; then
+  FILE_PATH="${BASH_REMATCH[1]}"
+
+  # Validate path is within CAS_ROOT and properly formatted
+  if [[ "$FILE_PATH" != "$CAS_ROOT"/sha256/[a-f0-9][a-f0-9]/[a-f0-9]* ]] &&
+     [[ "$FILE_PATH" != "$CAS_ROOT"/pointers/* ]]; then
+    echo "Error: Invalid path for test: $FILE_PATH" >&2
+    exit 1
+  fi
+
+  exec test -f "$FILE_PATH"
+fi
+
+# Case 4: mkdir -p (for ensuring directories exist)
+if [[ "$CMD" =~ ^mkdir\ -p\ (.+)$ ]]; then
+  DIR_PATH="${BASH_REMATCH[1]}"
+
+  # Validate path is within CAS_ROOT
+  if [[ "$DIR_PATH" != "$CAS_ROOT"/* ]]; then
+    echo "Error: Invalid path for mkdir: $DIR_PATH" >&2
+    exit 1
+  fi
+
+  exec mkdir -p "$DIR_PATH"
+fi
+
+# Case 5: stat (for integrity verification)
+if [[ "$CMD" =~ ^stat\ -c\ %s\ (.+)$ ]]; then
+  FILE_PATH="${BASH_REMATCH[1]}"
+
+  # Validate path is within CAS_ROOT
+  if [[ "$FILE_PATH" != "$CAS_ROOT"/* ]]; then
+    echo "Error: Invalid path for stat: $FILE_PATH" >&2
+    exit 1
+  fi
+
+  exec stat -c %s "$FILE_PATH"
+fi
+
+# Reject everything else
+echo "Error: Command not allowed: $CMD" >&2
+exit 1

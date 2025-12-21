@@ -14,7 +14,7 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-facet = "0.32.2"
+facet.workspace = true
 
 # Re-export config types
 dodeca-code-execution-config = { path = "../dodeca-code-execution-config" }

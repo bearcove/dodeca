@@ -1,10 +1,10 @@
-//! Dodeca HTML diff plugin (dodeca-mod-html-diff)
+//! Dodeca HTML diff cell (cell-html-diff)
 //!
-//! This plugin handles HTML DOM diffing for live reload.
+//! This cell handles HTML DOM diffing for live reload.
 
 use std::collections::HashMap;
 
-use cell_html_diff_proto::{HtmlDiffer, HtmlDiffResult, DiffInput, DiffResult, HtmlDifferServer};
+use cell_html_diff_proto::{DiffInput, DiffResult, HtmlDiffResult, HtmlDiffer, HtmlDifferServer};
 
 // Re-export protocol types
 pub use dodeca_protocol::{NodePath, Patch};
@@ -16,16 +16,20 @@ impl HtmlDiffer for HtmlDifferImpl {
     async fn diff_html(&self, input: DiffInput) -> HtmlDiffResult {
         let old_dom = match parse_html(&input.old_html) {
             Some(dom) => dom,
-            None => return HtmlDiffResult::Error {
-                message: "Failed to parse old HTML".to_string(),
-            },
+            None => {
+                return HtmlDiffResult::Error {
+                    message: "Failed to parse old HTML".to_string(),
+                };
+            }
         };
 
         let new_dom = match parse_html(&input.new_html) {
             Some(dom) => dom,
-            None => return HtmlDiffResult::Error {
-                message: "Failed to parse new HTML".to_string(),
-            },
+            None => {
+                return HtmlDiffResult::Error {
+                    message: "Failed to parse new HTML".to_string(),
+                };
+            }
         };
 
         let result = diff(&old_dom, &new_dom);
@@ -119,9 +123,11 @@ impl DomNode {
 fn parse_html(html: &str) -> Option<DomNode> {
     // This is a simplified HTML parser - the full implementation would be more complex
     // For now, just return a basic structure
-    Some(DomNode::element("html", HashMap::new(), vec![
-        DomNode::text(html)
-    ]))
+    Some(DomNode::element(
+        "html",
+        HashMap::new(),
+        vec![DomNode::text(html)],
+    ))
 }
 
 fn diff(old_dom: &DomNode, new_dom: &DomNode) -> InternalDiffResult {
@@ -148,9 +154,10 @@ fn diff(old_dom: &DomNode, new_dom: &DomNode) -> InternalDiffResult {
     result
 }
 
-dodeca_cell_runtime::cell_service!(
-    HtmlDifferServer<HtmlDifferImpl>,
-    HtmlDifferImpl
-);
+rapace_cell::cell_service!(HtmlDifferServer<HtmlDifferImpl>, HtmlDifferImpl);
 
-dodeca_cell_runtime::run_cell!(HtmlDifferImpl);
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run(CellService::from(HtmlDifferImpl)).await?;
+    Ok(())
+}

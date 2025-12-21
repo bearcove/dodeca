@@ -1,15 +1,16 @@
-//! HTTP server that serves content directly from the Salsa database
+//! HTTP server that serves content directly from the picante database
 //!
-//! No files are read from disk - everything is queried from Salsa on demand.
+//! No files are read from disk - everything is queried from picante on demand.
 //! This enables instant incremental rebuilds with zero disk I/O.
 
-/// Salsa cache version - bump this when making incompatible changes to Salsa inputs/queries
-pub const SALSA_CACHE_VERSION: u32 = 4;
+/// Picante cache version - bump this when making incompatible changes to picante inputs/queries
+pub const PICANTE_CACHE_VERSION: u32 = 4;
 
 use eyre::Result;
+use futures::future::FutureExt;
 use std::collections::HashMap;
 use std::sync::{Mutex, RwLock};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 use crate::db::{
     DataFile, DataRegistry, Database, DatabaseSnapshot, SassFile, SassRegistry, SourceFile,
@@ -270,12 +271,20 @@ pub struct SiteServer {
     current_errors: RwLock<HashMap<String, dodeca_protocol::ErrorInfo>>,
     /// Cached code execution results for build info display
     code_execution_results: RwLock<Vec<crate::db::CodeExecutionResult>>,
+    /// Revision readiness gate
+    revision_tx: watch::Sender<crate::revision::RevisionState>,
 }
 
 impl SiteServer {
     pub fn new(render_options: RenderOptions, stable_assets: Vec<String>) -> Self {
         let (livereload_tx, _) = broadcast::channel(16);
         let db = Database::new(None);
+        let (revision_tx, _) = watch::channel(crate::revision::RevisionState {
+            generation: 0,
+            status: crate::revision::RevisionStatus::Building,
+            reason: Some("startup".to_string()),
+            started_at: None,
+        });
 
         Self {
             db: Mutex::new(db),
@@ -287,7 +296,86 @@ impl SiteServer {
             stable_assets,
             current_errors: RwLock::new(HashMap::new()),
             code_execution_results: RwLock::new(Vec::new()),
+            revision_tx,
         }
+    }
+
+    pub fn begin_revision(&self, reason: impl Into<String>) -> crate::revision::RevisionToken {
+        let reason = reason.into();
+        let next_generation = self.revision_tx.borrow().generation + 1;
+        let started_at = std::time::Instant::now();
+        let state = crate::revision::RevisionState {
+            generation: next_generation,
+            status: crate::revision::RevisionStatus::Building,
+            reason: Some(reason.clone()),
+            started_at: Some(started_at),
+        };
+        self.revision_tx.send_replace(state);
+        tracing::debug!(
+            generation = next_generation,
+            reason = %reason,
+            "revision: begin"
+        );
+        crate::revision::RevisionToken {
+            generation: next_generation,
+            started_at,
+        }
+    }
+
+    pub fn end_revision(&self, token: crate::revision::RevisionToken) {
+        let current = self.revision_tx.borrow().clone();
+        if current.generation != token.generation {
+            tracing::debug!(
+                current_generation = current.generation,
+                token_generation = token.generation,
+                "revision: ignoring stale end"
+            );
+            return;
+        }
+
+        let state = crate::revision::RevisionState {
+            generation: token.generation,
+            status: crate::revision::RevisionStatus::Ready,
+            reason: None,
+            started_at: None,
+        };
+        self.revision_tx.send_replace(state);
+        tracing::debug!(
+            generation = token.generation,
+            elapsed_ms = token.started_at.elapsed().as_millis(),
+            "revision: ready"
+        );
+    }
+
+    pub async fn wait_revision_ready(&self) {
+        let mut rx = self.revision_tx.subscribe();
+        loop {
+            let state = rx.borrow().clone();
+            if state.status == crate::revision::RevisionStatus::Ready {
+                return;
+            }
+
+            tracing::debug!(
+                generation = state.generation,
+                reason = state.reason.as_deref().unwrap_or(""),
+                "revision: waiting"
+            );
+
+            if rx.changed().await.is_err() {
+                return;
+            }
+
+            let state = rx.borrow().clone();
+            if state.status == crate::revision::RevisionStatus::Ready {
+                tracing::debug!(generation = state.generation, "revision: ready");
+                return;
+            }
+        }
+    }
+
+    /// Get the current revision generation
+    pub fn current_generation(&self) -> u64 {
+        self.revision_tx.borrow().generation
     }
 
     /// Update cached code execution results
@@ -366,7 +454,7 @@ impl SiteServer {
     /// Notify all connected browsers to reload
     /// Computes patches for all cached routes and sends them
     pub fn trigger_reload(&self) {
-        use crate::cells::diff_html_plugin;
+        use crate::cells::diff_html_cell;
 
         // Check for CSS changes first
         let old_css_path = {
@@ -383,7 +471,7 @@ impl SiteServer {
             }
 
             if let Some(ref path) = new_css_path {
-                tracing::info!("CSS changed: {}", path);
+                tracing::debug!("CSS changed: {}", path);
                 let _ = self
                     .livereload_tx
                     .send(LiveReloadMsg::CssUpdate { path: path.clone() });
@@ -465,7 +553,7 @@ impl SiteServer {
                     }
 
                     // Try to diff using the cell
-                    match futures::executor::block_on(diff_html_plugin(&old, &new)) {
+                    match futures::executor::block_on(diff_html_cell(&old, &new)) {
                         Some(diff_result) => {
                             if diff_result.patches.is_empty() {
                                 // DOM structure identical but HTML differs (whitespace/comments?)
@@ -479,7 +567,7 @@ impl SiteServer {
                                 let summary = summarize_patches(&diff_result.patches);
                                 let patch_count = diff_result.patches.len();
 
-                                tracing::info!(
+                                tracing::debug!(
                                     "{} - patching: {} ({} patches)",
                                     route,
                                     summary,
@@ -539,7 +627,7 @@ impl SiteServer {
         let version_path = cache_path.with_extension("version");
         let version_ok = if version_path.exists() {
             match std::fs::read_to_string(&version_path) {
-                Ok(v) => v.trim().parse::<u32>().ok() == Some(SALSA_CACHE_VERSION),
+                Ok(v) => v.trim().parse::<u32>().ok() == Some(PICANTE_CACHE_VERSION),
                 Err(_) => false,
             }
         } else {
@@ -549,8 +637,8 @@ impl SiteServer {
         if !version_ok {
             if cache_path.exists() {
                 tracing::info!(
-                    "Salsa cache version mismatch (expected v{}), deleting stale cache",
-                    SALSA_CACHE_VERSION
+                    "Picante cache version mismatch (expected v{}), deleting stale cache",
+                    PICANTE_CACHE_VERSION
                 );
                 let _ = std::fs::remove_file(cache_path);
             }
@@ -579,12 +667,17 @@ impl SiteServer {
 
     /// Find content for a given path using lazy picante queries
     async fn find_content(&self, path: &str) -> Option<ServeContent> {
+        tracing::debug!(path, "find_content: called");
         // Snapshot pattern: create snapshot while holding lock (sync), then release
-        // Note: from_database is async but doesn't await internally, so we use block_on
+        // Note: from_database is async but doesn't await internally, so we use now_or_never()
+        // to avoid nested block_on calls (which panic in futures-executor)
         let snapshot = {
             let db = self.db.lock().ok()?;
-            futures::executor::block_on(DatabaseSnapshot::from_database(&db))
+            DatabaseSnapshot::from_database(&db)
+                .now_or_never()
+                .expect("from_database should complete immediately")
         };
+        tracing::debug!(path, "find_content: got database snapshot");
 
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
@@ -608,7 +701,10 @@ impl SiteServer {
         };
 
         let route = Route::new(route_path.clone());
-        if let Some(html) = serve_html(&snapshot, route).await.ok().flatten() {
+        tracing::debug!(route = %route.as_str(), "find_content: calling serve_html");
+        let serve_html_result = serve_html(&snapshot, route).await;
+        tracing::debug!(route = %route_path, has_result = serve_html_result.is_ok(), "find_content: serve_html returned");
+        if let Some(html) = serve_html_result.ok().flatten() {
             // Check if this is an error page and notify devtools
             if html.contains(crate::render::RENDER_ERROR_MARKER) {
                 // Extract error message HTML from between <pre> tags
@@ -802,14 +898,16 @@ impl SiteServer {
         use facet_value::{VObject, VString};
 
         // Snapshot pattern: create snapshot while holding lock (sync), then release
-        // Note: from_database is async but doesn't await internally, so we use block_on
+        // Note: from_database is async but doesn't await internally, so we use now_or_never()
+        // to avoid nested block_on calls (which panic in futures-executor)
         let snapshot = {
             let db = match self.db.lock() {
                 Ok(db) => db,
                 Err(_) => return vec![],
             };
-            // from_database is async but sync internally - use block_on to avoid Send issues
-            futures::executor::block_on(DatabaseSnapshot::from_database(&db))
+            DatabaseSnapshot::from_database(&db)
+                .now_or_never()
+                .expect("from_database should complete immediately")
         };
 
         let site_tree = match build_tree(&snapshot).await {
@@ -988,9 +1086,12 @@ impl SiteServer {
         use facet_value::{VObject, VString};
 
         // Snapshot pattern: create snapshot while holding lock (sync), then release
-        // Note: from_database is async but doesn't await internally, so we use block_on
+        // Note: from_database is async but doesn't await internally, so we use now_or_never()
+        // to avoid nested block_on calls (which panic in futures-executor)
         let snapshot = match self.db.lock() {
-            Ok(db) => futures::executor::block_on(DatabaseSnapshot::from_database(&db)),
+            Ok(db) => DatabaseSnapshot::from_database(&db)
+                .now_or_never()
+                .expect("from_database should complete immediately"),
             Err(_) => return Err("Failed to acquire database lock".to_string()),
         };
 
@@ -1086,6 +1187,9 @@ impl SiteServer {
     pub async fn find_content_for_rpc(&self, path: &str) -> cell_http_proto::ServeContent {
         use cell_http_proto::ServeContent as RpcServeContent;
 
+        // Get current generation
+        let generation = self.current_generation();
+
         match self.find_content(path).await {
             Some(ServeContent::Html(html)) => {
                 // Cache HTML for smart reload patching
@@ -1099,38 +1203,47 @@ impl SiteServer {
                 RpcServeContent::Html {
                     content: html,
                     route,
+                    generation,
                 }
             }
             Some(ServeContent::Css(css)) => {
                 self.cache_css(path);
-                RpcServeContent::Css { content: css }
+                RpcServeContent::Css {
+                    content: css,
+                    generation,
+                }
             }
             Some(ServeContent::Static(bytes, mime)) => RpcServeContent::Static {
                 content: bytes,
                 mime: mime.to_string(),
+                generation,
             },
             Some(ServeContent::StaticNoCache(bytes, mime)) => RpcServeContent::StaticNoCache {
                 content: bytes,
                 mime: mime.to_string(),
+                generation,
             },
             None => {
                 // 404 with similar routes - render the page on the host side
-                let similar = self.find_similar_routes(path);
+                let similar = self.find_similar_routes(path).await;
                 let html = crate::error_pages::render_404_page(path, &similar);
-                RpcServeContent::NotFound { html }
+                RpcServeContent::NotFound { html, generation }
             }
         }
     }
 
     /// Find routes similar to the requested path (for 404 suggestions)
-    pub fn find_similar_routes(&self, path: &str) -> Vec<(String, String)> {
+    pub async fn find_similar_routes(&self, path: &str) -> Vec<(String, String)> {
         // Snapshot pattern: create snapshot while holding lock (sync), then release
+        // Note: from_database is async but doesn't await internally, so we use now_or_never()
         let snapshot = match self.db.lock() {
-            Ok(db) => futures::executor::block_on(DatabaseSnapshot::from_database(&db)),
+            Ok(db) => DatabaseSnapshot::from_database(&db)
+                .now_or_never()
+                .expect("from_database should complete immediately"),
             Err(_) => return Vec::new(),
         };
 
-        let site_tree = match futures::executor::block_on(build_tree(&snapshot)) {
+        let site_tree = match build_tree(&snapshot).await {
             Ok(tree) => tree,
             Err(_) => return Vec::new(),
         };
@@ -1223,10 +1336,23 @@ enum ServeContent {
     StaticNoCache(Vec<u8>, &'static str),
 }
 
-/// Embedded devtools WASM client files (built by build.rs)
-const DEVTOOLS_JS: &str = include_str!("../../../crates/dodeca-devtools/pkg/dodeca_devtools.js");
-const DEVTOOLS_WASM: &[u8] =
-    include_bytes!("../../../crates/dodeca-devtools/pkg/dodeca_devtools_bg.wasm");
+fn devtools_js_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../dodeca-devtools/pkg/dodeca_devtools.js")
+}
+
+fn devtools_wasm_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../dodeca-devtools/pkg/dodeca_devtools_bg.wasm")
+}
+
+fn load_devtools_js() -> Option<String> {
+    std::fs::read_to_string(devtools_js_path()).ok()
+}
+
+fn load_devtools_wasm() -> Option<Vec<u8>> {
+    std::fs::read(devtools_wasm_path()).ok()
+}
 
 /// Compute a short hash for cache busting
 fn compute_hash(data: &[u8]) -> String {
@@ -1240,8 +1366,12 @@ fn compute_hash(data: &[u8]) -> String {
 pub fn devtools_urls() -> (String, String) {
     use std::sync::LazyLock;
     static URLS: LazyLock<(String, String)> = LazyLock::new(|| {
-        let js_hash = compute_hash(DEVTOOLS_JS.as_bytes());
-        let wasm_hash = compute_hash(DEVTOOLS_WASM);
+        let js_hash = load_devtools_js()
+            .map(|js| compute_hash(js.as_bytes()))
+            .unwrap_or_else(|| "missing".to_string());
+        let wasm_hash = load_devtools_wasm()
+            .map(|bytes| compute_hash(&bytes))
+            .unwrap_or_else(|| "missing".to_string());
         (
             format!("/_/{}.js", js_hash),
             format!("/_/{}.wasm", wasm_hash),
@@ -1316,12 +1446,29 @@ pub fn get_devtools_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
 
     // Check for JS (cache-busted)
     if asset_path.ends_with(".js") {
-        return Some((rewrite_devtools_js().into_bytes(), "application/javascript"));
+        if let Some(js) = load_devtools_js() {
+            return Some((
+                rewrite_devtools_js(&js).into_bytes(),
+                "application/javascript",
+            ));
+        }
+        tracing::warn!(
+            path = %devtools_js_path().display(),
+            "devtools js missing"
+        );
+        return None;
     }
 
     // Check for WASM (cache-busted)
     if asset_path.ends_with(".wasm") {
-        return Some((DEVTOOLS_WASM.to_vec(), "application/wasm"));
+        if let Some(bytes) = load_devtools_wasm() {
+            return Some((bytes, "application/wasm"));
+        }
+        tracing::warn!(
+            path = %devtools_wasm_path().display(),
+            "devtools wasm missing"
+        );
+        return None;
     }
 
     None
@@ -1337,12 +1484,12 @@ pub fn get_search_file_content(
 }
 
 /// Rewrite relative snippet imports to absolute paths
-fn rewrite_devtools_js() -> String {
+fn rewrite_devtools_js(js: &str) -> String {
     // The generated JS has imports like:
     //   import { X } from './snippets/foo/bar.js';
     // We need to rewrite them to absolute paths:
     //   import { X } from '/_/snippets/foo/bar.js';
-    DEVTOOLS_JS.replace("from './snippets/", "from '/_/snippets/")
+    js.replace("from './snippets/", "from '/_/snippets/")
 }
 
 /// Guess MIME type from file extension

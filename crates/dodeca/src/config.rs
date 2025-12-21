@@ -43,7 +43,8 @@ pub struct DodecaConfig {
 }
 
 /// Link checking configuration
-#[derive(Debug, Clone, Facet, Default)]
+#[derive(Debug, Clone, Default, Facet)]
+#[facet(traits(Default))]
 pub struct LinkCheckConfig {
     /// Domains to skip checking (anti-bot policies, known flaky, etc.)
     #[facet(kdl::children, default)]
@@ -57,6 +58,7 @@ pub struct LinkCheckConfig {
 
 /// Stable assets configuration (served at original paths without cache-busting)
 #[derive(Debug, Clone, Default, Facet)]
+#[facet(traits(Default))]
 pub struct StableAssetsConfig {
     /// Asset paths relative to static/ directory
     #[facet(kdl::children, default)]
@@ -107,7 +109,7 @@ pub struct ResolvedConfig {
     /// Asset paths that should be served at original paths (no cache-busting)
     pub stable_assets: Vec<String>,
     /// Code execution configuration
-    /// TODO: Pass this through to the Salsa query system instead of using default config
+    /// TODO: Pass this through to the picante query system instead of using default config
     #[allow(dead_code)]
     pub code_execution: CodeExecutionConfig,
 }

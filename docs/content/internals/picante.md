@@ -4,7 +4,7 @@ description = "How dodeca tracks dependencies and only rebuilds what changed"
 weight = 1
 +++
 
-dodeca uses [Picante](https://github.com/bearcove/picante), an async incremental query runtime. Everything is a query; queries are memoized async functions that track which inputs they read.
+dodeca uses [Picante](https://picante.bearcove.eu/), an async incremental query runtime. Everything is a query; queries are memoized async functions that track which inputs they read.
 
 When you change a file, picante traces exactly which outputs depend on it and only recomputes those. Edit `features.md` and only that page re-renders—other pages, CSS, images, and fonts stay cached.
 

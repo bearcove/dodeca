@@ -13,28 +13,10 @@ name = "ddc-cell-js"
 path = "src/main.rs"
 
 [dependencies]
-# JavaScript processing
-oxc = { version = "0.102", features = ["full"] }
-
-# Error handling
-color-eyre = "0.6"
-
-# Async runtime
-tokio = { version = "1", features = ["rt", "time"] }
-
-# Logging
-tracing = "0.1"
-
-# Plugin runtime
-dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
-
-# RPC framework
-rapace = { workspace = true, features = ["stream"] }
-rapace-cell.workspace = true
 
 # Local protocol definitions
 cell-js-proto = { path = "../cell-js-proto" }
-
-# Facet for serialization  
-facet = { version = "0.32.2" }
-facet-kdl = { version = "0.32.2" }
+# JavaScript processing
+oxc = { version = "0.102", features = ["full"] }
+rapace-cell.workspace = true
+tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified

@@ -1,11 +1,11 @@
-//! Dodeca SASS plugin (dodeca-mod-sass)
+//! Dodeca SASS cell (cell-sass)
 //!
-//! This plugin handles SASS/SCSS compilation using grass.
+//! This cell handles SASS/SCSS compilation using grass.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use cell_sass_proto::{SassCompiler, SassResult, SassInput, SassCompilerServer};
+use cell_sass_proto::{SassCompiler, SassCompilerServer, SassInput, SassResult};
 
 /// SASS compiler implementation
 pub struct SassCompilerImpl;
@@ -17,9 +17,11 @@ impl SassCompiler for SassCompilerImpl {
         // Find main.scss
         let main_content = match files.get("main.scss") {
             Some(content) => content,
-            None => return SassResult::Error {
-                message: "main.scss not found in files".to_string(),
-            },
+            None => {
+                return SassResult::Error {
+                    message: "main.scss not found in files".to_string(),
+                };
+            }
         };
 
         // Create an in-memory filesystem for grass
@@ -73,9 +75,10 @@ impl grass::Fs for InMemorySassFs {
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    SassCompilerServer<SassCompilerImpl>,
-    SassCompilerImpl
-);
+rapace_cell::cell_service!(SassCompilerServer<SassCompilerImpl>, SassCompilerImpl);
 
-dodeca_cell_runtime::run_cell!(SassCompilerImpl);
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run(CellService::from(SassCompilerImpl)).await?;
+    Ok(())
+}

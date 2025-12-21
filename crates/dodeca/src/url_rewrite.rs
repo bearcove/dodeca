@@ -7,8 +7,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::cells::{
-    mark_dead_links_plugin, rewrite_string_literals_in_js_plugin, rewrite_urls_in_css_plugin,
-    rewrite_urls_in_html_plugin,
+    mark_dead_links_cell, rewrite_string_literals_in_js_cell, rewrite_urls_in_css_cell,
+    rewrite_urls_in_html_cell,
 };
 
 /// Rewrite URLs in CSS using lightningcss parser (via cell)
@@ -18,11 +18,11 @@ use crate::cells::{
 /// Returns original CSS if cell is not available.
 pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) -> String {
     // Check if CSS cell is available
-    if crate::cells::plugins().css.is_none() {
+    if crate::cells::all().await.css.is_none() {
         return css.to_string();
     }
 
-    match rewrite_urls_in_css_plugin(css, path_map).await {
+    match rewrite_urls_in_css_cell(css, path_map).await {
         Ok(result) => result,
         Err(e) => {
             tracing::warn!("CSS rewriting failed: {}", e);
@@ -35,11 +35,11 @@ pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) 
 /// Returns original JS if cell is not available.
 async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, String>) -> String {
     // Check if JS cell is available
-    if crate::cells::plugins().js.is_none() {
+    if crate::cells::all().await.js.is_none() {
         return js.to_string();
     }
 
-    match rewrite_string_literals_in_js_plugin(js, path_map).await {
+    match rewrite_string_literals_in_js_cell(js, path_map).await {
         Ok(result) => result,
         Err(e) => {
             tracing::warn!("JS rewriting failed: {}", e);
@@ -59,7 +59,7 @@ async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, Stri
 /// Returns original HTML if the html cell is not available.
 pub async fn rewrite_urls_in_html(html: &str, path_map: &HashMap<String, String>) -> String {
     // First: rewrite HTML attributes using the cell
-    let html_with_attrs = match rewrite_urls_in_html_plugin(html, path_map).await {
+    let html_with_attrs = match rewrite_urls_in_html_cell(html, path_map).await {
         Some(result) => result,
         None => html.to_string(),
     };
@@ -102,7 +102,7 @@ pub async fn rewrite_urls_in_html(html: &str, path_map: &HashMap<String, String>
 /// Returns (modified_html, had_dead_links) tuple.
 /// Returns original HTML with no dead links if the cell is not available.
 pub async fn mark_dead_links(html: &str, known_routes: &HashSet<String>) -> (String, bool) {
-    match mark_dead_links_plugin(html, known_routes).await {
+    match mark_dead_links_cell(html, known_routes).await {
         Some((result, had_dead)) => (result, had_dead),
         None => (html.to_string(), false),
     }

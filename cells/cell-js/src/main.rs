@@ -1,6 +1,6 @@
-//! Dodeca JS plugin (dodeca-mod-js)
+//! Dodeca JS cell (cell-js)
 //!
-//! This plugin handles JavaScript string literal rewriting using OXC.
+//! This cell handles JavaScript string literal rewriting using OXC.
 
 use std::collections::HashMap;
 
@@ -10,7 +10,7 @@ use oxc::ast_visit::Visit;
 use oxc::parser::Parser;
 use oxc::span::SourceType;
 
-use cell_js_proto::{JsProcessor, JsResult, JsRewriteInput, JsProcessorServer};
+use cell_js_proto::{JsProcessor, JsProcessorServer, JsResult, JsRewriteInput};
 
 /// JS processor implementation
 pub struct JsProcessorImpl;
@@ -115,9 +115,10 @@ impl<'a> Visit<'_> for StringCollector<'a> {
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    JsProcessorServer<JsProcessorImpl>,
-    JsProcessorImpl
-);
+rapace_cell::cell_service!(JsProcessorServer<JsProcessorImpl>, JsProcessorImpl);
 
-dodeca_cell_runtime::run_cell!(JsProcessorImpl);
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run(CellService::from(JsProcessorImpl)).await?;
+    Ok(())
+}

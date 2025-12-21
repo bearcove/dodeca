@@ -2,13 +2,13 @@
 //!
 //! Provides HTML and SVG minification via cells.
 
-use crate::cells::{minify_html_plugin, optimize_svg_plugin};
+use crate::cells::{minify_html_cell, optimize_svg_cell};
 
 /// Minify HTML content
 ///
 /// Returns minified HTML, or original content if minification fails
 pub async fn minify_html(html: &str) -> String {
-    minify_html_plugin(html).await.unwrap_or_else(|e| {
+    minify_html_cell(html).await.unwrap_or_else(|e| {
         tracing::warn!("HTML minification failed: {}", e);
         html.to_string()
     })
@@ -19,7 +19,7 @@ pub async fn minify_html(html: &str) -> String {
 /// Removes unnecessary metadata, collapses groups, optimizes paths, etc.
 /// Preserves case sensitivity of SVG attributes.
 pub async fn optimize_svg(svg_content: &str) -> Option<String> {
-    optimize_svg_plugin(svg_content).await.ok()
+    optimize_svg_cell(svg_content).await.ok()
 }
 
 #[cfg(test)]

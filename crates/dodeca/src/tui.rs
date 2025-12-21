@@ -147,7 +147,7 @@ pub enum EventKind {
     Search,
     /// Server status
     Server,
-    /// Salsa/build related
+    /// Picante/build related
     Build,
     /// Generic info
     #[default]
@@ -330,8 +330,8 @@ pub struct ServerStatus {
     pub urls: Vec<String>,
     pub is_running: bool,
     pub bind_mode: BindMode,
-    /// Salsa cache size in bytes (dodeca.bin)
-    pub salsa_cache_size: usize,
+    /// Picante cache size in bytes (dodeca.bin)
+    pub picante_cache_size: usize,
     /// CAS/image cache size in bytes (.cache directory)
     pub cas_cache_size: usize,
 }

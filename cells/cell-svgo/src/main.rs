@@ -1,8 +1,8 @@
-//! Dodeca SVGO plugin (dodeca-mod-svgo)
+//! Dodeca SVGO cell (cell-svgo)
 //!
-//! This plugin handles SVG optimization.
+//! This cell handles SVG optimization.
 
-use cell_svgo_proto::{SvgoOptimizer, SvgoResult, SvgoOptimizerServer};
+use cell_svgo_proto::{SvgoOptimizer, SvgoOptimizerServer, SvgoResult};
 
 /// SVGO optimizer implementation
 pub struct SvgoOptimizerImpl;
@@ -18,9 +18,10 @@ impl SvgoOptimizer for SvgoOptimizerImpl {
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    SvgoOptimizerServer<SvgoOptimizerImpl>,
-    SvgoOptimizerImpl
-);
+rapace_cell::cell_service!(SvgoOptimizerServer<SvgoOptimizerImpl>, SvgoOptimizerImpl);
 
-dodeca_cell_runtime::run_cell!(SvgoOptimizerImpl);
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run(CellService::from(SvgoOptimizerImpl)).await?;
+    Ok(())
+}

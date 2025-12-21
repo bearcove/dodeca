@@ -29,61 +29,8 @@ name = "ddc"
 path = "src/main.rs"
 
 [dependencies]
-# Facet (dogfooding!)
-facet = "0.32.2"
-facet-kdl = "0.32.2"
-facet-toml = "0.32.2"
-facet-json = "0.32.2"
-facet-value = "0.32.2"
-facet-postcard = "0.32.2"
-
-# YAML parsing (for data files - facet-yaml doesn't support dynamic values)
-serde_yaml = "0.9"
-
-# Markdown parsing is now handled via the mod-markdown plugin
-
-# File system
-ignore = "0.4"
-notify = "8"
-
-# Async runtime
-tokio = { version = "1", features = ["full"] }
-tokio-stream = { version = "0.1", features = ["net", "sync"] }
-futures = "0.3"
-dashmap = "6"
-
-# TUI is now in the mod-tui plugin
-
-# CLI (using facet-args instead of clap)
-facet-args = "0.32.2"
-
-# Error handling & diagnostics
-eyre = "0.6"
-miette = { version = "7", features = ["fancy-no-backtrace"] }
-owo-colors = "4"
-
-# Logging
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# Open in browser
-open = "5"
-
-# Network interfaces
-if-addrs = "0.14"
-
-# Incremental computation
-picante = { git = "https://github.com/bearcove/picante" }
-
-# Serialization
-serde = { version = "1", features = ["derive"] }
-postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary serialization with serde
-
-# Devtools protocol (shared types between server and WASM client)
-dodeca-protocol = { path = "../dodeca-protocol" }
-
-# RPC protocol for dev server plugin
-cell-http-proto = { path = "../../cells/cell-http-proto" }
+camino = { workspace = true } #unified
+passfd = "0.1" # For Unix socket FD passing (tests)
 
 # Syntax highlight service protocol
 cell-arborium-proto = { path = "../../cells/cell-arborium-proto" }
@@ -93,39 +40,50 @@ cell-code-execution-proto = { path = "../../cells/cell-code-execution-proto" }
 cell-css-proto = { path = "../../cells/cell-css-proto" }
 cell-fonts-proto = { path = "../../cells/cell-fonts-proto" }
 cell-html-diff-proto = { path = "../../cells/cell-html-diff-proto" }
+cell-html-proto = { path = "../../cells/cell-html-proto" }
+
+# RPC protocol for dev server plugin
+cell-http-proto = { path = "../../cells/cell-http-proto" }
 cell-image-proto = { path = "../../cells/cell-image-proto" }
 cell-js-proto = { path = "../../cells/cell-js-proto" }
 cell-jxl-proto = { path = "../../cells/cell-jxl-proto" }
-cell-lifecycle-proto = { path = "../../cells/cell-lifecycle-proto" }
 cell-linkcheck-proto = { path = "../../cells/cell-linkcheck-proto" }
+cell-markdown-proto = { path = "../../cells/cell-markdown-proto" }
 cell-minify-proto = { path = "../../cells/cell-minify-proto" }
-cell-tui-proto = { path = "../../cells/cell-tui-proto" }
 cell-pagefind-proto = { path = "../../cells/cell-pagefind-proto" }
 cell-sass-proto = { path = "../../cells/cell-sass-proto" }
 cell-svgo-proto = { path = "../../cells/cell-svgo-proto" }
+cell-tui-proto = { path = "../../cells/cell-tui-proto" }
 cell-webp-proto = { path = "../../cells/cell-webp-proto" }
-cell-html-proto = { path = "../../cells/cell-html-proto" }
-cell-markdown-proto = { path = "../../cells/cell-markdown-proto" }
 
-# RPC framework for plugin communication
-rapace = { workspace = true, features = ["stream"] }
-rapace-tracing.workspace = true
-ur-taking-me-with-you.workspace = true
-async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
+# Date handling
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+dashmap = "6"
 
 # Code execution plugin types (lightweight - no plugin implementation)
 dodeca-code-execution-types = { path = "../dodeca-code-execution-types" }
 
-# Content-addressed storage
-rapidhash = "4"
+# Debug utilities (SIGUSR1 stack trace handler)
+dodeca-debug = { path = "../dodeca-debug" }
 
-# Date handling
-chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# Devtools protocol (shared types between server and WASM client)
+dodeca-protocol = { path = "../dodeca-protocol" }
 
-# Misc
-camino = "1"  # UTF-8 paths
-strid = "2.1"  # Strongly-typed string wrappers (like aliri_braid but without syn)
-regex = "1"  # For HTML heading extraction and inline CSS/JS extraction
+# Error handling & diagnostics
+eyre = "0.6"
+# Facet (dogfooding!)
+facet.workspace = true
+
+# TUI is now in the mod-tui plugin
+
+# CLI (using facet-args instead of clap)
+facet-args.workspace = true
+facet-json.workspace = true
+facet-kdl.workspace = true
+facet-postcard.workspace = true
+facet-toml.workspace = true
+facet-value.workspace = true
+futures = "0.3"
 
 # HTML parsing and rewriting is now handled via the mod-html plugin
 
@@ -141,18 +99,51 @@ regex = "1"  # For HTML heading extraction and inline CSS/JS extraction
 # Template engine
 gingembre = { path = "../gingembre" }
 
-# Debug utilities (SIGUSR1 stack trace handler)
-dodeca-debug = { path = "../dodeca-debug" }
+# Network interfaces
+if-addrs = "0.14"
+
+# Markdown parsing is now handled via the mod-markdown plugin
+
+# File system
+ignore = "0.4"
+miette = { workspace = true, features = ["fancy"] } #unified
+notify = "8"
+
+# Open in browser
+open = "5"
+owo-colors = "4"
+
+# Incremental computation
+picante = { git = "https://github.com/bearcove/picante" }
+postcard = { version = "1", features = ["alloc"] }  # Fast, compact binary serialization with serde
+
+# RPC framework for plugin communication
+rapace = { workspace = true, features = ["stream"] }
+rapace-cell.workspace = true
+rapace-tracing.workspace = true
+
+# Content-addressed storage
+rapidhash = "4"
+regex = "1"  # For HTML heading extraction and inline CSS/JS extraction
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+
+# YAML parsing (for data files - facet-yaml doesn't support dynamic values)
+serde_yaml = "0.9"
+socket2 = "0.6"  # SO_LINGER inspection for connection debugging
+strid = "2.1"  # Strongly-typed string wrappers (like aliri_braid but without syn)
+tokio = { workspace = true, features = ["macros", "process", "rt", "rt-multi-thread", "sync", "time"] } #unified
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
+tracing = { workspace = true } #unified
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+ur-taking-me-with-you.workspace = true
 
 [dev-dependencies]
 divan = "0.1"
+futures = { workspace = true } #unified
 minijinja = "2"  # For template engine benchmarks
-test-log = { version = "0.2", features = ["trace"] }
-regex = "1"  # For test assertions
-tempfile = "3"  # For isolated test fixtures
-futures = "0.3"        # For StreamExt in browser tests
-async-send-fd = { version = "1.2", features = ["tokio"] }  # For sending listening socket FDs to server process
-reqwest = { version = "0.12", features = ["blocking"] }
+regex = { workspace = true } #unified
 
 [[bench]]
 name = "template"

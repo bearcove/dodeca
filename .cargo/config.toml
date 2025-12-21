@@ -1,6 +1,13 @@
 [alias]
 xtask = "run --package xtask --"
 
+[net]
+git-fetch-with-cli = true
+
+# Enable getrandom for WASM targets
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+
 # # Unstable features (requires nightly or cargo +nightly)
 # [unstable]
 # profile-rustflags = true

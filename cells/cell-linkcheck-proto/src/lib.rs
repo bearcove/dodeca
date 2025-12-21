@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca linkcheck plugin
+//! RPC protocol for dodeca linkcheck cell
 //!
 //! Defines services for external link checking.
 
@@ -44,7 +44,7 @@ pub enum LinkCheckResult {
     Error { message: String },
 }
 
-/// Link checking service implemented by the plugin.
+/// Link checking service implemented by the cell.
 ///
 /// The host calls these methods to check external URLs.
 #[allow(async_fn_in_trait)]

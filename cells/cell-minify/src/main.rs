@@ -1,8 +1,8 @@
-//! Dodeca minify plugin (dodeca-mod-minify)
+//! Dodeca minify cell (cell-minify)
 //!
-//! This plugin handles HTML minification.
+//! This cell handles HTML minification.
 
-use cell_minify_proto::{Minifier, MinifyResult, MinifierServer};
+use cell_minify_proto::{Minifier, MinifierServer, MinifyResult};
 
 /// Minifier implementation
 pub struct MinifierImpl;
@@ -27,9 +27,10 @@ impl Minifier for MinifierImpl {
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    MinifierServer<MinifierImpl>,
-    MinifierImpl
-);
+rapace_cell::cell_service!(MinifierServer<MinifierImpl>, MinifierImpl);
 
-dodeca_cell_runtime::run_cell!(MinifierImpl);
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run(CellService::from(MinifierImpl)).await?;
+    Ok(())
+}

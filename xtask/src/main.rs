@@ -1,11 +1,4 @@
 //! Build tasks for dodeca
-//!
-//! Usage:
-//!   cargo xtask build [--release]
-//!   cargo xtask run [--release] [-- <ddc args>]
-//!   cargo xtask install
-//!   cargo xtask wasm
-//!   cargo xtask ci [--check]
 
 mod ci;
 
@@ -13,225 +6,237 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
+use std::time::SystemTime;
 
 use camino::Utf8PathBuf;
+use facet::Facet;
+use facet_args as args;
+use owo_colors::OwoColorize;
+
+/// Build command - build WASM + plugins + dodeca
+#[derive(Facet, Debug)]
+struct BuildArgs {
+    /// Build in release mode
+    #[facet(args::named, args::short = 'r')]
+    release: bool,
+}
+
+/// Run command - build all, then run ddc
+#[derive(Facet, Debug)]
+struct RunArgs {
+    /// Build in release mode
+    #[facet(args::named, args::short = 'r')]
+    release: bool,
+
+    /// Arguments to pass to ddc
+    #[facet(args::positional, default)]
+    ddc_args: Vec<String>,
+}
+
+/// Install command - build release & install to ~/.cargo/bin
+#[derive(Facet, Debug)]
+struct InstallArgs {}
+
+/// WASM command - build WASM only
+#[derive(Facet, Debug)]
+struct WasmArgs {}
+
+/// CI GitHub command - generate GitHub workflow
+#[derive(Facet, Debug)]
+struct CiGithubArgs {
+    /// Check that generated files are up to date (don't write)
+    #[facet(args::named)]
+    check: bool,
+}
+
+/// CI Forgejo command - generate Forgejo workflow
+#[derive(Facet, Debug)]
+struct CiForgejoArgs {
+    /// Check that generated files are up to date (don't write)
+    #[facet(args::named)]
+    check: bool,
+}
+
+/// Generate PowerShell installer
+#[derive(Facet, Debug)]
+struct GeneratePs1InstallerArgs {
+    /// Output path for the installer script
+    #[facet(args::positional)]
+    output_path: String,
+}
+
+/// Integration tests command
+#[derive(Facet, Debug)]
+struct IntegrationArgs {
+    /// Skip building binaries (assume they're already built)
+    #[facet(args::named)]
+    no_build: bool,
+
+    /// Arguments to pass to integration-tests binary
+    #[facet(args::positional, default)]
+    extra_args: Vec<String>,
+}
+
+#[derive(Facet, Debug)]
+#[repr(u8)]
+enum XtaskCommand {
+    /// Build WASM + plugins + dodeca
+    Build(BuildArgs),
+    /// Build all, then run ddc
+    Run(RunArgs),
+    /// Build release & install to ~/.cargo/bin
+    Install(InstallArgs),
+    /// Build WASM only
+    Wasm(WasmArgs),
+    /// Generate GitHub workflow
+    CiGithub(CiGithubArgs),
+    /// Generate Forgejo workflow
+    CiForgejo(CiForgejoArgs),
+    /// Generate PowerShell installer
+    GeneratePs1Installer(GeneratePs1InstallerArgs),
+    /// Run integration tests
+    Integration(IntegrationArgs),
+}
+
+#[derive(Facet, Debug)]
+struct XtaskArgs {
+    #[facet(args::subcommand)]
+    command: XtaskCommand,
+}
+
+fn parse_args() -> Result<XtaskCommand, String> {
+    let args: Vec<String> = env::args().skip(1).collect();
+    let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+
+    let parsed: XtaskArgs = facet_args::from_slice(&args_refs).map_err(|e| {
+        eprintln!("{:?}", miette::Report::new(e));
+        "Failed to parse arguments".to_string()
+    })?;
+
+    Ok(parsed.command)
+}
 
 fn main() -> ExitCode {
-    let args: Vec<String> = env::args().skip(1).collect();
+    // Set up miette for nice error formatting
+    miette::set_hook(Box::new(|_| {
+        Box::new(
+            miette::MietteHandlerOpts::new()
+                .terminal_links(true)
+                .unicode(true)
+                .build(),
+        )
+    }))
+    .ok();
 
-    match args.first().map(|s| s.as_str()) {
-        Some("build") => {
-            let release = args.iter().any(|a| a == "--release" || a == "-r");
-            if !build_all(release) {
+    let cmd = match parse_args() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("{}: {}", "error".red().bold(), e);
+            return ExitCode::FAILURE;
+        }
+    };
+
+    match cmd {
+        XtaskCommand::Build(args) => {
+            if !build_all(args.release) {
                 return ExitCode::FAILURE;
             }
             ExitCode::SUCCESS
         }
-        Some("run") => {
-            let release = args.iter().any(|a| a == "--release" || a == "-r");
-            // Find args after "--" to pass to ddc
-            let ddc_args: Vec<&str> = args
-                .iter()
-                .skip_while(|a| *a != "--")
-                .skip(1)
-                .map(|s| s.as_str())
-                .collect();
-
-            if !build_all(release) {
+        XtaskCommand::Run(args) => {
+            if !build_all(args.release) {
                 return ExitCode::FAILURE;
             }
-            if !run_ddc(release, &ddc_args) {
+            let ddc_args: Vec<&str> = args.ddc_args.iter().map(|s| s.as_str()).collect();
+            if !run_ddc(args.release, &ddc_args) {
                 return ExitCode::FAILURE;
             }
             ExitCode::SUCCESS
         }
-        Some("install") => {
+        XtaskCommand::Install(_) => {
             if !install_dev() {
                 return ExitCode::FAILURE;
             }
             ExitCode::SUCCESS
         }
-        Some("wasm") => {
+        XtaskCommand::Wasm(_) => {
             if build_wasm() {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::FAILURE
             }
         }
-        Some("ci") => {
-            let check = args.iter().any(|a| a == "--check");
-            let repo_root = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                .parent()
-                .unwrap()
-                .to_owned();
-            match ci::generate(&repo_root, check) {
+        XtaskCommand::CiGithub(args) => {
+            let repo_root =
+                Utf8PathBuf::from_path_buf(env::current_dir().expect("get current directory"))
+                    .expect("current dir is valid UTF-8");
+            match ci::generate_github(&repo_root, args.check) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
-                    eprintln!("Error: {e}");
+                    eprintln!("{}: {e}", "error".red().bold());
                     ExitCode::FAILURE
                 }
             }
         }
-        Some("generate-ps1-installer") => {
-            // Generate PowerShell installer to specified path
-            if let Some(output_path) = args.get(1) {
-                let content = ci::generate_powershell_installer();
-                if let Err(e) = fs::write(output_path, content) {
-                    eprintln!("Error writing PowerShell installer: {e}");
-                    return ExitCode::FAILURE;
+        XtaskCommand::CiForgejo(args) => {
+            let repo_root =
+                Utf8PathBuf::from_path_buf(env::current_dir().expect("get current directory"))
+                    .expect("current dir is valid UTF-8");
+            match ci::generate_forgejo(&repo_root, args.check) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("{}: {e}", "error".red().bold());
+                    ExitCode::FAILURE
                 }
-                eprintln!("Generated PowerShell installer: {output_path}");
-                ExitCode::SUCCESS
-            } else {
-                eprintln!("Usage: cargo xtask generate-ps1-installer <output-path>");
-                ExitCode::FAILURE
             }
         }
-        _ => {
-            eprintln!("Usage:");
-            eprintln!("  cargo xtask build [--release]        Build WASM + plugins + dodeca");
-            eprintln!("  cargo xtask run [--release] [-- ..]  Build all, then run ddc");
-            eprintln!(
-                "  cargo xtask install                  Build release & install to ~/.cargo/bin"
-            );
-            eprintln!("  cargo xtask wasm                     Build WASM only");
-            eprintln!("  cargo xtask ci [--check]             Generate release workflow");
-            ExitCode::FAILURE
+        XtaskCommand::GeneratePs1Installer(args) => {
+            let content = ci::generate_powershell_installer();
+            if let Err(e) = fs::write(&args.output_path, content) {
+                eprintln!(
+                    "{}: writing PowerShell installer: {e}",
+                    "error".red().bold()
+                );
+                return ExitCode::FAILURE;
+            }
+            eprintln!("Generated PowerShell installer: {}", args.output_path);
+            ExitCode::SUCCESS
+        }
+        XtaskCommand::Integration(args) => {
+            let extra_args: Vec<&str> = args.extra_args.iter().map(|s| s.as_str()).collect();
+            if !run_integration_tests(args.no_build, &extra_args) {
+                return ExitCode::FAILURE;
+            }
+            ExitCode::SUCCESS
         }
     }
 }
 
 fn build_all(release: bool) -> bool {
+    // Build WASM first
     if !build_wasm() {
         return false;
     }
-    if !build_cdylib_plugins(release) {
-        return false;
-    }
-    if !build_dodeca_and_rapace_plugins(release) {
-        return false;
-    }
-    true
-}
 
-fn build_wasm() -> bool {
-    eprintln!("Building dodeca-devtools WASM...");
-
-    let status = Command::new("wasm-pack")
-        .args(["build", "--target", "web", "crates/dodeca-devtools"])
-        .status();
-
-    match status {
-        Ok(s) if s.success() => {
-            eprintln!("WASM build complete");
-            true
-        }
-        Ok(s) => {
-            eprintln!("wasm-pack failed with status: {s}");
-            false
-        }
-        Err(e) => {
-            eprintln!("Failed to run wasm-pack: {e}");
-            eprintln!("Install with: cargo install wasm-pack");
-            false
-        }
-    }
-}
-
-/// Discover cdylib plugin crates by looking for dodeca-* directories with cdylib crate type
-fn discover_cdylib_plugins() -> Vec<String> {
-    let crates_dir = PathBuf::from("crates");
-    let mut plugins = Vec::new();
-
-    if let Ok(entries) = fs::read_dir(&crates_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if !name.starts_with("dodeca-") {
-                continue;
-            }
-
-            // Check if it's a cdylib (plugin)
-            let cargo_toml = path.join("Cargo.toml");
-            if let Ok(content) = fs::read_to_string(&cargo_toml)
-                && content.contains("cdylib")
-            {
-                plugins.push(name.to_string());
-            }
-        }
-    }
-
-    plugins.sort();
-    plugins
-}
-
-/// Discover rapace plugins by looking for mod-* directories with [[bin]] in Cargo.toml
-/// Returns (package_name, binary_name) pairs
-fn discover_rapace_plugins() -> Vec<(String, String)> {
-    let cells_dir = PathBuf::from("cells");
-    let mut plugins = Vec::new();
-
-    if let Ok(entries) = fs::read_dir(&cells_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            // Skip proto crates
-            if !name.starts_with("mod-") || name.ends_with("-proto") {
-                continue;
-            }
-
-            // Check if it has a [[bin]] section
-            let cargo_toml = path.join("Cargo.toml");
-            if let Ok(content) = fs::read_to_string(&cargo_toml)
-                && content.contains("[[bin]]")
-            {
-                let bin_name = format!("dodeca-{}", name);
-                plugins.push((name.to_string(), bin_name));
-            }
-        }
-    }
-
-    plugins.sort();
-    plugins
-}
-
-fn build_cdylib_plugins(release: bool) -> bool {
-    let plugins = discover_cdylib_plugins();
-    if plugins.is_empty() {
-        eprintln!("No cdylib plugins found to build");
-        return true;
-    }
-
+    // Build everything else (dodeca + all cells in workspace)
     eprintln!(
-        "Building {} cdylib plugins{}...",
-        plugins.len(),
+        "Building dodeca + all cells{}...",
         if release { " (release)" } else { "" }
     );
 
     let mut cmd = Command::new("cargo");
     cmd.arg("build");
-    for plugin in &plugins {
-        cmd.args(["-p", plugin]);
-    }
     if release {
         cmd.arg("--release");
     }
 
     match cmd.status() {
         Ok(s) if s.success() => {
-            eprintln!("cdylib plugins built: {}", plugins.join(", "));
+            eprintln!("Build complete");
             true
         }
         Ok(s) => {
-            eprintln!("cdylib plugin build failed with status: {s}");
+            eprintln!("cargo build failed with status: {s}");
             false
         }
         Err(e) => {
@@ -241,32 +246,52 @@ fn build_cdylib_plugins(release: bool) -> bool {
     }
 }
 
-fn build_dodeca_and_rapace_plugins(release: bool) -> bool {
-    let rapace_plugins = discover_rapace_plugins();
+fn build_wasm() -> bool {
+    eprintln!("Building dodeca-devtools WASM...");
 
-    eprintln!(
-        "Building dodeca + {} rapace plugins{}...",
-        rapace_plugins.len(),
-        if release { " (release)" } else { "" }
-    );
+    // wasm-pack doesn't respect CARGO_TARGET_DIR by default, so we pass it explicitly
+    // This ensures it uses the workspace target/ directory that we cache
+    let status = Command::new("cargo")
+        .args([
+            "build",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--package",
+            "dodeca-devtools",
+            "--verbose",
+        ])
+        .status();
 
-    let mut cmd = Command::new("cargo");
-    cmd.args(["build", "--package", "dodeca"]);
-
-    // Add all rapace plugins
-    for (pkg, bin) in &rapace_plugins {
-        cmd.args(["--package", pkg, "--bin", bin]);
-    }
-
-    if release {
-        cmd.arg("--release");
-    }
-
-    match cmd.status() {
+    match status {
         Ok(s) if s.success() => {
-            let bins: Vec<_> = rapace_plugins.iter().map(|(_, b)| b.as_str()).collect();
-            eprintln!("Built: ddc, {}", bins.join(", "));
-            true
+            // Now run wasm-bindgen to generate the JS bindings
+            eprintln!("Running wasm-bindgen...");
+            let bindgen_status = Command::new("wasm-bindgen")
+                .args([
+                    "--target",
+                    "web",
+                    "--out-dir",
+                    "crates/dodeca-devtools/pkg",
+                    "target/wasm32-unknown-unknown/release/dodeca_devtools.wasm",
+                ])
+                .status();
+
+            match bindgen_status {
+                Ok(s) if s.success() => {
+                    eprintln!("WASM build complete");
+                    true
+                }
+                Ok(s) => {
+                    eprintln!("wasm-bindgen failed with status: {s}");
+                    false
+                }
+                Err(e) => {
+                    eprintln!("Failed to run wasm-bindgen: {e}");
+                    eprintln!("Install with: cargo install wasm-bindgen-cli");
+                    false
+                }
+            }
         }
         Ok(s) => {
             eprintln!("cargo build failed with status: {s}");
@@ -333,60 +358,260 @@ fn install_dev() -> bool {
 
     eprintln!("Installing to {}...", cargo_bin.display());
 
+    let release_dir = PathBuf::from("target/release");
+
     // Copy ddc binary (remove first to avoid "text file busy" on Linux)
-    let ddc_src = PathBuf::from("target/release/ddc");
+    let ddc_src = release_dir.join("ddc");
     let ddc_dst = cargo_bin.join("ddc");
-    let _ = fs::remove_file(&ddc_dst); // Ignore error if file doesn't exist
+    let _ = fs::remove_file(&ddc_dst);
     if let Err(e) = fs::copy(&ddc_src, &ddc_dst) {
         eprintln!("Failed to copy ddc: {e}");
         return false;
     }
     eprintln!("  Installed ddc");
 
-    // Copy all rapace plugin binaries
-    let rapace_plugins = discover_rapace_plugins();
-    for (_, bin_name) in &rapace_plugins {
-        let src = PathBuf::from(format!("target/release/{bin_name}"));
-        let dst = cargo_bin.join(bin_name);
-        if src.exists() {
-            let _ = fs::remove_file(&dst);
-            if let Err(e) = fs::copy(&src, &dst) {
-                eprintln!("Failed to copy {bin_name}: {e}");
-                return false;
+    // Copy all dodeca-cell-* binaries
+    if let Ok(entries) = fs::read_dir(&release_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
             }
-            eprintln!("  Installed {bin_name}");
-        } else {
-            eprintln!("  Warning: {bin_name} not found, skipping");
-        }
-    }
 
-    // Copy cdylib plugins
-    let plugin_ext = if cfg!(target_os = "macos") {
-        "dylib"
-    } else if cfg!(target_os = "windows") {
-        "dll"
-    } else {
-        "so"
-    };
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-    let cdylib_plugins = discover_cdylib_plugins();
-    for plugin in &cdylib_plugins {
-        // Convert crate name (dodeca-webp) to lib name (libdodeca_webp)
-        let lib_name = format!("lib{}", plugin.replace('-', "_"));
-        let src = PathBuf::from(format!("target/release/{lib_name}.{plugin_ext}"));
-        let dst = cargo_bin.join(format!("{lib_name}.{plugin_ext}"));
-        if src.exists() {
-            let _ = fs::remove_file(&dst); // Remove first to avoid "text file busy"
-            if let Err(e) = fs::copy(&src, &dst) {
-                eprintln!("Failed to copy {lib_name}: {e}");
-                return false;
+            // Copy cell binaries (dodeca-cell-*)
+            if name.starts_with("dodeca-cell-") && !name.contains('.') {
+                let dst = cargo_bin.join(name);
+                let _ = fs::remove_file(&dst);
+                if let Err(e) = fs::copy(&path, &dst) {
+                    eprintln!("Failed to copy {name}: {e}");
+                    return false;
+                }
+                eprintln!("  Installed {name}");
             }
-            eprintln!("  Installed {lib_name}.{plugin_ext}");
-        } else {
-            eprintln!("  Warning: {lib_name}.{plugin_ext} not found, skipping");
+
+            // Copy cdylib files (libdodeca_*.dylib/so/dll)
+            let is_cdylib = name.starts_with("libdodeca_")
+                && (name.ends_with(".dylib") || name.ends_with(".so") || name.ends_with(".dll"));
+            if is_cdylib {
+                let dst = cargo_bin.join(name);
+                let _ = fs::remove_file(&dst);
+                if let Err(e) = fs::copy(&path, &dst) {
+                    eprintln!("Failed to copy {name}: {e}");
+                    return false;
+                }
+                eprintln!("  Installed {name}");
+            }
         }
     }
 
     eprintln!("Installation complete!");
     true
+}
+
+fn run_integration_tests(no_build: bool, extra_args: &[&str]) -> bool {
+    use std::env;
+
+    // Determine which profile to use for integration tests.
+    // Priority:
+    // 1. DODECA_INTEGRATION_PROFILE env var (for explicit CI control)
+    // 2. Auto-detect from xtask's own build profile
+    // 3. Default to release
+    let release = if let Ok(profile) = env::var("DODECA_INTEGRATION_PROFILE") {
+        match profile.as_str() {
+            "debug" | "dev" => {
+                eprintln!(
+                    "Using debug profile (DODECA_INTEGRATION_PROFILE={})",
+                    profile
+                );
+                false
+            }
+            "release" => {
+                eprintln!(
+                    "Using release profile (DODECA_INTEGRATION_PROFILE={})",
+                    profile
+                );
+                true
+            }
+            _ => {
+                eprintln!(
+                    "{}: invalid DODECA_INTEGRATION_PROFILE={}, expected 'debug' or 'release'",
+                    "warning".yellow().bold(),
+                    profile
+                );
+                true
+            }
+        }
+    } else if cfg!(debug_assertions) {
+        // xtask itself was built in debug mode, so look for debug integration-tests
+        eprintln!("Auto-detected debug profile (xtask built with debug_assertions)");
+        false
+    } else {
+        // xtask was built in release mode
+        eprintln!("Auto-detected release profile");
+        true
+    };
+
+    let target_dir = if release {
+        PathBuf::from("target/release")
+    } else {
+        PathBuf::from("target/debug")
+    };
+    let integration_bin = target_dir.join("integration-tests");
+
+    if !no_build {
+        let profile_name = if release { "release" } else { "debug" };
+        eprintln!(
+            "Building {} binaries for integration tests...",
+            profile_name
+        );
+        // build_all builds everything: WASM, dodeca, all cells, and integration-tests
+        if !build_all(release) {
+            return false;
+        }
+    } else {
+        eprintln!("Skipping build (--no-build), assuming binaries are already built");
+
+        // Strictness: refuse to run if the integration test harness looks stale.
+        //
+        // A stale harness tends to produce misleading failures and wastes time.
+        let bin_mtime = match fs::metadata(&integration_bin).and_then(|m| m.modified()) {
+            Ok(t) => t,
+            Err(_) => {
+                eprintln!(
+                    "{}: integration-tests binary not found at {}",
+                    "error".red().bold(),
+                    integration_bin.display()
+                );
+                let build_cmd = if release {
+                    "cargo build --release -p integration-tests"
+                } else {
+                    "cargo build -p integration-tests"
+                };
+                eprintln!("Rebuild it with: {}", build_cmd);
+                return false;
+            }
+        };
+
+        fn src_mtime(path: &str) -> Option<SystemTime> {
+            std::fs::metadata(path).ok()?.modified().ok()
+        }
+
+        let watched_sources = [
+            "crates/integration-tests/src/harness.rs",
+            "crates/integration-tests/src/main.rs",
+            "crates/integration-tests/Cargo.toml",
+        ];
+
+        for src in watched_sources {
+            if let Some(src_mtime) = src_mtime(src)
+                && src_mtime > bin_mtime
+            {
+                eprintln!(
+                    "{}: integration-tests binary is older than {}",
+                    "error".red().bold(),
+                    src
+                );
+                let build_cmd = if release {
+                    "cargo build --release -p integration-tests"
+                } else {
+                    "cargo build -p integration-tests"
+                };
+                eprintln!("Rebuild it with: {}", build_cmd);
+                return false;
+            }
+        }
+    }
+
+    // Verify integration-tests binary exists
+    if !integration_bin.exists() {
+        eprintln!(
+            "{}: integration-tests binary not found at {}",
+            "error".red().bold(),
+            integration_bin.display()
+        );
+        return false;
+    }
+
+    // Run the integration-tests binary
+    eprintln!("Running integration tests...");
+
+    let mut cmd = Command::new(&integration_bin);
+    cmd.args(extra_args);
+
+    // Check if DODECA_BIN and DODECA_CELL_PATH are already set in the environment
+    // If so, pass them through. Otherwise, set them to our built binaries.
+    let ddc_bin_path = if let Ok(env_bin) = env::var("DODECA_BIN") {
+        eprintln!("Using DODECA_BIN from environment: {}", env_bin);
+        PathBuf::from(env_bin)
+    } else {
+        let ddc_bin = target_dir.join("ddc");
+        if !ddc_bin.exists() {
+            eprintln!(
+                "{}: ddc binary not found at {}",
+                "error".red().bold(),
+                ddc_bin.display()
+            );
+            eprintln!("Run without --no-build to build it, or set DODECA_BIN environment variable");
+            return false;
+        }
+        ddc_bin
+    };
+
+    let cell_path = if let Ok(env_path) = env::var("DODECA_CELL_PATH") {
+        eprintln!("Using DODECA_CELL_PATH from environment: {}", env_path);
+        PathBuf::from(env_path)
+    } else {
+        target_dir.clone()
+    };
+
+    // Set environment variables for the test harness
+    let ddc_bin_abs = ddc_bin_path.canonicalize().unwrap_or(ddc_bin_path);
+    let cell_path_abs = cell_path.canonicalize().unwrap_or(cell_path);
+
+    cmd.env("DODECA_BIN", &ddc_bin_abs);
+    cmd.env("DODECA_CELL_PATH", &cell_path_abs);
+
+    eprintln!("  DODECA_BIN={}", ddc_bin_abs.display());
+    eprintln!("  DODECA_CELL_PATH={}", cell_path_abs.display());
+
+    // Make fixture resolution independent of where `integration-tests` was built.
+    // Use runtime path resolution instead of compile-time CARGO_MANIFEST_DIR to support
+    // CI environments where binaries are built in temp directories and then moved.
+    let fixtures_root = env::current_dir()
+        .expect("get current directory")
+        .join("crates")
+        .join("integration-tests")
+        .join("fixtures");
+    if !fixtures_root.is_dir() {
+        eprintln!(
+            "{}: fixtures directory not found at {}",
+            "error".red().bold(),
+            fixtures_root.display()
+        );
+        eprintln!(
+            "Current directory: {}",
+            env::current_dir().unwrap_or_default().display()
+        );
+        eprintln!("Expected to be run from the repository root");
+        return false;
+    }
+    cmd.env("DODECA_TEST_FIXTURES_DIR", &fixtures_root);
+    eprintln!("  DODECA_TEST_FIXTURES_DIR={}", fixtures_root.display());
+
+    match cmd.status() {
+        Ok(s) if s.success() => {
+            eprintln!("Integration tests passed!");
+            true
+        }
+        Ok(s) => {
+            eprintln!("Integration tests failed with status: {s}");
+            false
+        }
+        Err(e) => {
+            eprintln!("Failed to run integration-tests: {e}");
+            false
+        }
+    }
 }

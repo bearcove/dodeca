@@ -34,7 +34,7 @@ title = "My Site"
 Hello, world!
 ```
 
-## Create a template
+## Create a template (root section)
 
 Create `templates/index.html`:
 
@@ -50,6 +50,11 @@ Create `templates/index.html`:
 </html>
 ```
 
+At minimum, the root section (`/`) uses `templates/index.html`. If you add more content later, you'll typically also want:
+
+- `templates/section.html` (non-root sections)
+- `templates/page.html` (individual pages)
+
 ## Build
 
 ```bash
@@ -64,17 +69,28 @@ Your site is now in `public/`.
 ddc serve
 ```
 
-Open http://localhost:4000 and start editing. Changes appear instantly.
+`ddc serve` will print the URL it’s listening on. By default it tries ports `4000–4019` and falls back to an OS-assigned port if those are taken.
 
 ## Code samples
 
-Add Rust code to your markdown - it runs automatically to make sure it works:
+If the code execution helper is available (`ddc-cell-code-execution`), Rust code blocks in Markdown are compiled and executed:
 
-```markdown
-​```rust  
+- In `ddc build`: failing code stops the build.
+- In `ddc serve`: failing code is reported as a warning.
+
+Example:
+
+````markdown
+```rust
 let message = "Hello from dodeca!";
 println!("{}", message);
-​```
 ```
+````
 
-If the code breaks, your build fails. No more embarrassing broken examples in your docs!
+To keep a block as Rust-highlighted but skip execution, use `rust,noexec`:
+
+````markdown
+```rust,noexec
+// not executed
+```
+````

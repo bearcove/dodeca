@@ -1,3 +1,4 @@
+/dist
 /target
 .dodeca.db
 /docs/public/
@@ -9,3 +10,4 @@ llvm-lines*
 perf-*.data
 *.zst
 *.log
+.handoffs

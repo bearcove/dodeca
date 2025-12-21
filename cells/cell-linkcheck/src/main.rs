@@ -1,6 +1,6 @@
-//! Dodeca linkcheck plugin (dodeca-mod-linkcheck)
+//! Dodeca linkcheck cell (cell-linkcheck)
 //!
-//! This plugin handles external link checking with per-domain rate limiting.
+//! This cell handles external link checking with per-domain rate limiting.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -31,7 +31,9 @@ impl LinkCheckerImpl {
 
     /// Extract domain from URL for rate limiting
     fn get_domain(url: &str) -> Option<String> {
-        Url::parse(url).ok().and_then(|u| u.host_str().map(|s| s.to_string()))
+        Url::parse(url)
+            .ok()
+            .and_then(|u| u.host_str().map(|s| s.to_string()))
     }
 
     /// Check a single URL
@@ -139,9 +141,10 @@ impl LinkChecker for LinkCheckerImpl {
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    LinkCheckerServer<LinkCheckerImpl>,
-    LinkCheckerImpl
-);
+rapace_cell::cell_service!(LinkCheckerServer<LinkCheckerImpl>, LinkCheckerImpl);
 
-dodeca_cell_runtime::run_cell!(LinkCheckerImpl::new());
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run(CellService::from(LinkCheckerImpl::new())).await?;
+    Ok(())
+}

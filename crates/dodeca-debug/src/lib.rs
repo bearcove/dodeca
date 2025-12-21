@@ -72,7 +72,12 @@ pub fn install_sigusr1_handler(process_name: &'static str) {
     PROCESS_NAME.store(process_name);
 
     unsafe {
-        libc::signal(libc::SIGUSR1, sigusr1_handler as libc::sighandler_t);
+        // `libc::sighandler_t` is an integer type on Unix targets in the `libc` crate, so
+        // cast via a raw pointer to avoid the `function-casts-as-integer` lint.
+        libc::signal(
+            libc::SIGUSR1,
+            sigusr1_handler as *const () as libc::sighandler_t,
+        );
     }
 
     // Only print if RAPACE_DEBUG is set

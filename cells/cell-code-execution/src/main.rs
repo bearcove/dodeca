@@ -1,15 +1,16 @@
-//! Dodeca code execution plugin (dodeca-mod-code-execution)
+//! Dodeca code execution cell (cell-code-execution)
 //!
-//! This plugin handles extracting and executing code samples from markdown.
+//! This cell handles extracting and executing code samples from markdown.
 
-use cell_code_execution_proto::{CodeExecutor, CodeExecutionResult, CodeExecutorServer};
+use cell_code_execution_proto::{CodeExecutionResult, CodeExecutor, CodeExecutorServer};
 
 // Include implementation code directly
 include!("impl.rs");
 
-dodeca_cell_runtime::cell_service!(
-    CodeExecutorServer<CodeExecutorImpl>,
-    CodeExecutorImpl
-);
+rapace_cell::cell_service!(CodeExecutorServer<CodeExecutorImpl>, CodeExecutorImpl);
 
-dodeca_cell_runtime::run_cell!(CodeExecutorImpl);
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run(CellService::from(CodeExecutorImpl)).await?;
+    Ok(())
+}

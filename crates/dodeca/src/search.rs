@@ -1,9 +1,9 @@
-//! Search indexing via pagefind plugin
+//! Search indexing via pagefind cell
 //!
 //! Builds a full-text search index from HTML content.
 //! Works entirely in memory - no files need to be written to disk.
 
-use crate::cells::build_search_index_plugin;
+use crate::cells::build_search_index_cell;
 use crate::db::{OutputFile, SiteOutput};
 use cell_pagefind_proto::SearchPage;
 use eyre::eyre;
@@ -42,7 +42,7 @@ pub fn collect_search_pages(output: &SiteOutput) -> Vec<SearchPage> {
 pub async fn build_search_index_async(output: &SiteOutput) -> eyre::Result<SearchFiles> {
     let pages = collect_search_pages(output);
 
-    let files = build_search_index_plugin(pages)
+    let files = build_search_index_cell(pages)
         .await
         .map_err(|e| eyre!("pagefind: {}", e))?;
 

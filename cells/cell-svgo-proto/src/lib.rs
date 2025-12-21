@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca SVGO plugin
+//! RPC protocol for dodeca SVGO cell
 //!
 //! Defines services for SVG optimization.
 
@@ -14,7 +14,7 @@ pub enum SvgoResult {
     Error { message: String },
 }
 
-/// SVG optimization service implemented by the plugin.
+/// SVG optimization service implemented by the cell.
 ///
 /// The host calls these methods to optimize SVG content.
 #[allow(async_fn_in_trait)]

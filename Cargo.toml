@@ -7,11 +7,52 @@ members = [
 resolver = "3"
 
 [workspace.dependencies]
-rapace = { git = "https://github.com/bearcove/rapace", default-features = false }
-rapace-core = { git = "https://github.com/bearcove/rapace" }
-rapace-cell = { git = "https://github.com/bearcove/rapace" }
-rapace-tracing = { git = "https://github.com/bearcove/rapace" }
-ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", features = ["tokio"] }
+camino = "^1.2.2" #unified
+
+facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+futures = "^0.3.31" #unified
+miette = { version = "^7.6.0", features = ["fancy", "fancy-no-backtrace"] } #unified
+rapace = { git = "https://github.com/bearcove/rapace", branch = "main", default-features = false }
+rapace-cell = { git = "https://github.com/bearcove/rapace", branch = "main" }
+rapace-tracing = { git = "https://github.com/bearcove/rapace", branch = "main" }
+regex = "^1.12.2" #unified
+reqwest = { version = "^0.12.26", features = ["blocking", "rustls-tls"] } #unified
+tempfile = "^3.23.0" #unified
+thiserror = "^2.0.17" #unified
+tokio = { version = "^1.48.0", features = ["full", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] } #unified
+tracing = "^0.1.44" #unified
+ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", branch = "main", features = ["tokio"] }
+
+[workspace.package]
+rust-version = "1.91"
+
+# Force all transitive facet dependencies to use git version
+[patch.crates-io]
+facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-assert = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macro-parse = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macro-types = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macros = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macros-impl = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-singularize = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-solver = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
 # Optimize dependencies in dev mode for faster tests
 # (keeps main crate unoptimized for fast incremental builds)
@@ -29,6 +70,10 @@ opt-level = 1
 [profile.test]
 inherits = "dev"
 debug = true
+
+# Release profile with reduced debug info for smaller binaries
+[profile.release]
+debug = "line-tables-only"
 
 # The profile that 'dist' will build with
 [profile.dist]

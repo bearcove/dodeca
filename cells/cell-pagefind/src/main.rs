@@ -1,17 +1,23 @@
-//! Dodeca Pagefind plugin (dodeca-mod-pagefind)
+//! Dodeca Pagefind cell (cell-pagefind)
 //!
-//! This plugin handles search indexing using Pagefind.
+//! This cell handles search indexing using Pagefind.
 //!
 //! The pagefind crate uses html5ever's DomParser which is !Send, so the async
-//! futures cannot be sent across threads. Since the plugin runtime already runs
+//! futures cannot be sent across threads. Since the cell runtime already runs
 //! in a tokio context, we spawn a separate OS thread with its own runtime to
 //! avoid "Cannot start a runtime from within a runtime" errors.
-
-use std::sync::mpsc;
+//!
+//! IMPORTANT: This is intentionally an OS thread + dedicated current_thread runtime
+//! with a tokio oneshot back to the async caller. Do NOT replace it with
+//! tokio::spawn/spawn_blocking or a std::sync::mpsc recv in async code.
 
 use pagefind::api::PagefindIndex;
+use tokio::sync::oneshot;
 
-use cell_pagefind_proto::{SearchIndexer, SearchIndexResult, SearchIndexInput, SearchIndexOutput, SearchFile, SearchIndexerServer};
+use cell_pagefind_proto::{
+    SearchFile, SearchIndexInput, SearchIndexOutput, SearchIndexResult, SearchIndexer,
+    SearchIndexerServer,
+};
 
 /// Search indexer implementation
 pub struct SearchIndexerImpl;
@@ -19,10 +25,16 @@ pub struct SearchIndexerImpl;
 impl SearchIndexer for SearchIndexerImpl {
     async fn build_search_index(&self, input: SearchIndexInput) -> SearchIndexResult {
         // Spawn a separate OS thread with its own runtime because:
-        // 1. We're already inside the plugin's tokio runtime
+        // 1. We're already inside the cell's tokio runtime
         // 2. Pagefind futures are !Send (html5ever's DomParser)
         // 3. We need block_on but can't nest runtimes
-        let (tx, rx) = mpsc::channel();
+        //
+        // IMPORTANT: Do NOT "simplify" this by using tokio::spawn/spawn_blocking.
+        // Pagefind's futures are !Send, so we must run them on a dedicated OS thread with its
+        // own current_thread runtime and communicate across threads. We use a tokio oneshot
+        // so the async caller can await without blocking the outer runtime.
+        // This has been accidentally reverted multiple times and reintroduced failures.
+        let (tx, rx) = oneshot::channel();
 
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
@@ -34,10 +46,12 @@ impl SearchIndexer for SearchIndexerImpl {
             let _ = tx.send(result);
         });
 
-        match rx.recv() {
+        match rx.await {
             Ok(Ok(output)) => SearchIndexResult::Success { output },
             Ok(Err(e)) => SearchIndexResult::Error { message: e },
-            Err(_) => SearchIndexResult::Error { message: "pagefind thread panicked".to_string() },
+            Err(_) => SearchIndexResult::Error {
+                message: "pagefind thread panicked".to_string(),
+            },
         }
     }
 }
@@ -79,9 +93,10 @@ async fn build_search_index_inner(input: SearchIndexInput) -> Result<SearchIndex
     })
 }
 
-dodeca_cell_runtime::cell_service!(
-    SearchIndexerServer<SearchIndexerImpl>,
-    SearchIndexerImpl
-);
+rapace_cell::cell_service!(SearchIndexerServer<SearchIndexerImpl>, SearchIndexerImpl);
 
-dodeca_cell_runtime::run_cell!(SearchIndexerImpl);
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run(CellService::from(SearchIndexerImpl)).await?;
+    Ok(())
+}

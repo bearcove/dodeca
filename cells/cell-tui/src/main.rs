@@ -1,6 +1,6 @@
-//! Dodeca TUI plugin (dodeca-mod-tui)
+//! Dodeca TUI cell (cell-tui)
 //!
-//! This plugin connects to dodeca and subscribes to event streams,
+//! This cell connects to dodeca and subscribes to event streams,
 //! rendering them in a terminal UI.
 
 use std::collections::VecDeque;
@@ -11,10 +11,12 @@ use std::time::Duration;
 use color_eyre::Result;
 use crossterm::{
     ExecutableCommand,
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use futures::StreamExt;
+use rapace::RpcSession;
+use rapace::transport::shm::HubPeerTransport;
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Layout},
@@ -22,8 +24,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
-use rapace::RpcSession;
-use rapace::transport::shm::HubPeerTransport;
 use tokio::sync::mpsc;
 
 use cell_tui_proto::{
@@ -34,7 +34,7 @@ use cell_tui_proto::{
 mod theme;
 
 /// Type alias for our transport
-type _PluginTransport = HubPeerTransport;
+type _CellTransport = HubPeerTransport;
 
 /// Maximum number of events to keep in buffer
 const MAX_EVENTS: usize = 100;
@@ -102,7 +102,7 @@ impl TuiApp {
                 let _ = self.command_tx.send(cmd);
             }
             KeyCode::Char('d') => {
-                let _ = self.command_tx.send(ServerCommand::ToggleSalsaDebug);
+                let _ = self.command_tx.send(ServerCommand::TogglePicanteDebug);
             }
             KeyCode::Char('l') => {
                 let _ = self.command_tx.send(ServerCommand::CycleLogLevel);
@@ -184,13 +184,13 @@ impl TuiApp {
             status_spans.push(Span::styled(symbol, Style::default().fg(color)));
         }
         // Cache size display
-        if self.server_status.salsa_cache_size > 0 || self.server_status.cas_cache_size > 0 {
+        if self.server_status.picante_cache_size > 0 || self.server_status.cas_cache_size > 0 {
             status_spans.push(Span::raw("  ").fg(FG_DARK));
             status_spans.push(Span::raw("💾 ").fg(FG));
             status_spans.push(
                 Span::raw(format!(
                     "{}+{}",
-                    format_size(self.server_status.salsa_cache_size),
+                    format_size(self.server_status.picante_cache_size),
                     format_size(self.server_status.cas_cache_size)
                 ))
                 .fg(FG_DARK),
@@ -283,7 +283,7 @@ impl TuiApp {
             ]),
             Line::from(vec![
                 Span::raw("  d").fg(YELLOW),
-                Span::raw("      Toggle salsa debug logs").fg(FG),
+                Span::raw("      Toggle picante debug logs").fg(FG),
             ]),
             Line::from(vec![
                 Span::raw("  l").fg(YELLOW),
@@ -374,22 +374,53 @@ fn restore_terminal() -> Result<()> {
     Ok(())
 }
 
+/// No-op service for TUI cell (it only makes client calls, doesn't serve anything)
+struct TuiCellService;
+
+impl rapace_cell::ServiceDispatch for TuiCellService {
+    fn dispatch(
+        &self,
+        _method_id: u32,
+        _payload: &[u8],
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
+                + Send
+                + 'static,
+        >,
+    > {
+        Box::pin(async move {
+            Err(rapace::RpcError::Status {
+                code: rapace::ErrorCode::Unimplemented,
+                message: "TUI cell does not serve any methods".to_string(),
+            })
+        })
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    // Use standardized argument parsing and transport creation
-    let args = dodeca_cell_runtime::parse_args()?;
-    let transport = dodeca_cell_runtime::create_hub_transport(&args).await?;
+    rapace_cell::run_with_session(|session| {
+        // Spawn the TUI loop
+        tokio::spawn(run_tui(session));
+        TuiCellService
+    })
+    .await?;
 
-    // Plugin uses even channel IDs
-    let session = Arc::new(RpcSession::with_channel_start(transport, 2));
+    Ok(())
+}
 
+async fn run_tui(session: Arc<RpcSession>) -> Result<()> {
     // Create TuiHost client
     let client = TuiHostClient::new(session.clone());
 
     // Channel for sending commands
     let (command_tx, mut command_rx) = mpsc::unbounded_channel::<ServerCommand>();
+
+    // Channel for key events (read on a blocking thread so we don't stall the RPC runtime)
+    let (key_tx, mut key_rx) = mpsc::unbounded_channel::<KeyEvent>();
 
     // Initialize terminal
     let mut terminal = init_terminal()?;
@@ -402,26 +433,40 @@ async fn main() -> Result<()> {
     let mut events_stream = client.subscribe_events().await?;
     let mut status_stream = client.subscribe_server_status().await?;
 
+    // Spawn a blocking reader for keyboard input.
+    // Exits automatically when the receiver is dropped.
+    std::thread::spawn(move || {
+        loop {
+            if key_tx.is_closed() {
+                break;
+            }
+            match event::poll(Duration::from_millis(100)) {
+                Ok(true) => match event::read() {
+                    Ok(Event::Key(key)) if key.kind == KeyEventKind::Press => {
+                        if key_tx.send(key).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(_) => break,
+                },
+                Ok(false) => {}
+                Err(_) => break,
+            }
+        }
+    });
+
+    let mut tick = tokio::time::interval(Duration::from_millis(33));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
     // Main event loop
     loop {
-        // Draw
-        terminal.draw(|frame| app.draw(frame))?;
-
-        // Poll for terminal events with short timeout
-        if event::poll(Duration::from_millis(16))?
-            && let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-        {
-            app.handle_key(key.code, key.modifiers);
-        }
-
-        if app.should_quit {
-            break;
-        }
-
-        // Check for stream updates (non-blocking)
         tokio::select! {
-            biased;
+            _ = tick.tick() => {}
+
+            Some(key) = key_rx.recv() => {
+                app.handle_key(key.code, key.modifiers);
+            }
 
             Some(cmd) = command_rx.recv() => {
                 let _ = client.send_command(cmd).await;
@@ -444,8 +489,13 @@ async fn main() -> Result<()> {
                     app.server_status = status;
                 }
             }
+        }
 
-            else => {}
+        // Draw after handling any update (including tick) so we stay responsive to keys
+        terminal.draw(|frame| app.draw(frame))?;
+
+        if app.should_quit {
+            break;
         }
     }
 

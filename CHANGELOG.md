@@ -12,8 +12,8 @@
 ### Features
 
 - extract template engine to standalone `gingembre` crate (#94)
-- lazy template loading via SalsaTemplateLoader (#96)
-- lazy data loading with per-value Salsa tracking (#98)
+- lazy template loading via PicanteTemplateLoader (#96)
+- lazy data loading with per-value picante tracking (#98)
 - add template engine filters (#71, #72, #73, #74, #78)
 - validate hash fragment links against heading IDs (#89)
 - extract pagefind to plugin (#33)

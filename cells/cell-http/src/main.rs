@@ -1,17 +1,17 @@
-//! Dodeca HTTP module (dodeca-mod-http)
+//! Dodeca HTTP cell (cell-http)
 //!
 //! This binary handles HTTP serving for dodeca via L4 tunneling:
 //!
 //! Architecture:
 //! ```text
-//! Browser → Host (TCP) → rapace tunnel → Plugin → internal axum
+//! Browser → Host (TCP) → rapace tunnel → Cell → internal axum
 //!                                              ↓
-//!                              ContentService RPC → Host (Salsa DB)
+//!                              ContentService RPC → Host (picante DB)
 //!                                    ↑
 //!                          (zero-copy via SHM)
 //! ```
 //!
-//! The plugin:
+//! The cell:
 //! - Runs axum internally on localhost (not exposed to network)
 //! - Implements TcpTunnel service (host opens tunnels for each browser connection)
 //! - Calls ContentService on host for all content (HTML, CSS, static files)
@@ -21,60 +21,40 @@
 use std::sync::Arc;
 
 use rapace::RpcSession;
-use rapace::transport::shm::HubPeerTransport;
-use rapace_cell::ServiceDispatch;
 
 use cell_http_proto::{ContentServiceClient, TcpTunnelServer, WebSocketTunnelClient};
 
 mod devtools;
 mod tunnel;
 
-/// Type alias for our transport (SHM-based for zero-copy)
-type PluginTransport = HubPeerTransport;
-
-/// Plugin context shared across HTTP handlers
-pub struct PluginContext {
+/// Cell context shared across HTTP handlers
+pub struct CellContext {
     /// RPC session for bidirectional communication with host
-    pub session: Arc<RpcSession<PluginTransport>>,
+    pub session: Arc<RpcSession>,
 }
 
-impl PluginContext {
+impl CellContext {
     /// Create a ContentServiceClient for calling the host
-    pub fn content_client(&self) -> ContentServiceClient<PluginTransport> {
+    pub fn content_client(&self) -> ContentServiceClient {
         ContentServiceClient::new(self.session.clone())
     }
 
     /// Create a WebSocketTunnelClient for opening devtools tunnels to host
-    pub fn ws_tunnel_client(&self) -> WebSocketTunnelClient<PluginTransport> {
+    pub fn ws_tunnel_client(&self) -> WebSocketTunnelClient {
         WebSocketTunnelClient::new(self.session.clone())
     }
 }
 
-/// Service wrapper for TcpTunnel to satisfy ServiceDispatch
-struct TcpTunnelService(Arc<TcpTunnelServer<tunnel::TcpTunnelImpl<PluginTransport>>>);
+rapace_cell::cell_service!(
+    TcpTunnelServer<tunnel::TcpTunnelImpl>,
+    tunnel::TcpTunnelImpl
+);
 
-impl ServiceDispatch for TcpTunnelService {
-    fn dispatch(
-        &self,
-        method_id: u32,
-        payload: &[u8],
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
-                + Send
-                + 'static,
-        >,
-    > {
-        let server = self.0.clone();
-        let bytes = payload.to_vec();
-        Box::pin(async move { server.dispatch(method_id, &bytes).await })
-    }
-}
-
-impl From<Arc<RpcSession<PluginTransport>>> for TcpTunnelService {
-    fn from(session: Arc<RpcSession<PluginTransport>>) -> Self {
-        // Build plugin context
-        let ctx = Arc::new(PluginContext {
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run_with_session(|session: Arc<RpcSession>| {
+        // Build cell context
+        let ctx = Arc::new(CellContext {
             session: session.clone(),
         });
 
@@ -84,15 +64,14 @@ impl From<Arc<RpcSession<PluginTransport>>> for TcpTunnelService {
         // Create the tunnel implementation
         let tunnel_impl = tunnel::TcpTunnelImpl::new(session, app);
 
-        Self(Arc::new(TcpTunnelServer::new(tunnel_impl)))
-    }
+        CellService::from(tunnel_impl)
+    })
+    .await?;
+    Ok(())
 }
 
-// Use the standard cell infrastructure with session access
-dodeca_cell_runtime::run_cell_with_session!(TcpTunnelService::from);
-
 /// Build the axum router for the internal HTTP server
-fn build_router(ctx: Arc<PluginContext>) -> axum::Router {
+fn build_router(ctx: Arc<CellContext>) -> axum::Router {
     use axum::{
         Router,
         body::Body,
@@ -111,7 +90,7 @@ fn build_router(ctx: Arc<PluginContext>) -> axum::Router {
     const CACHE_NO_CACHE: &str = "no-cache, no-store, must-revalidate";
 
     /// Handle content requests by calling host via RPC
-    async fn content_handler(State(ctx): State<Arc<PluginContext>>, request: Request) -> Response {
+    async fn content_handler(State(ctx): State<Arc<CellContext>>, request: Request) -> Response {
         let path = request.uri().path().to_string();
         let client = ctx.content_client();
 
@@ -129,39 +108,64 @@ fn build_router(ctx: Arc<PluginContext>) -> axum::Router {
 
         // Convert ServeContent to HTTP response
         match content {
-            ServeContent::Html { content, route: _ } => Response::builder()
+            ServeContent::Html {
+                content,
+                route: _,
+                generation,
+            } => Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
                 .header(header::CACHE_CONTROL, CACHE_NO_CACHE)
+                .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
-            ServeContent::Css { content } => Response::builder()
+            ServeContent::Css {
+                content,
+                generation,
+            } => Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, "text/css; charset=utf-8")
                 .header(header::CACHE_CONTROL, CACHE_IMMUTABLE)
+                .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
-            ServeContent::Static { content, mime } => Response::builder()
+            ServeContent::Static {
+                content,
+                mime,
+                generation,
+            } => Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime)
                 .header(header::CACHE_CONTROL, CACHE_IMMUTABLE)
+                .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
-            ServeContent::StaticNoCache { content, mime } => Response::builder()
+            ServeContent::StaticNoCache {
+                content,
+                mime,
+                generation,
+            } => Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime)
                 .header(header::CACHE_CONTROL, CACHE_NO_CACHE)
+                .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
-            ServeContent::Search { content, mime } => Response::builder()
+            ServeContent::Search {
+                content,
+                mime,
+                generation,
+            } => Response::builder()
                 .status(StatusCode::OK)
                 .header(header::CONTENT_TYPE, mime)
+                .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
-            ServeContent::NotFound { html } => Response::builder()
+            ServeContent::NotFound { html, generation } => Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
                 .header(header::CACHE_CONTROL, CACHE_NO_CACHE)
+                .header("x-picante-generation", generation.to_string())
                 .body(Body::from(html))
                 .unwrap(),
         }
@@ -175,19 +179,18 @@ fn build_router(ctx: Arc<PluginContext>) -> axum::Router {
 
         let mut response = next.run(request).await;
 
-        // Add header to identify this is served by the plugin
+        // Add header to identify this is served by the cell
         response
             .headers_mut()
-            .insert("x-served-by", "dodeca-mod-http".parse().unwrap());
+            .insert("x-served-by", "cell-http".parse().unwrap());
 
         let status = response.status().as_u16();
         let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
 
         if status >= 500 {
             tracing::error!("{} {} -> {} in {:.1}ms", method, path, status, latency_ms);
-        } else if status >= 400 {
-            tracing::warn!("{} {} -> {} in {:.1}ms", method, path, status, latency_ms);
         } else {
+            // 2xx, 3xx, 4xx are all normal in a dev server (404s are common during probing)
             tracing::debug!("{} {} -> {} in {:.1}ms", method, path, status, latency_ms);
         }
 

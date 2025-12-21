@@ -1,5 +1,0 @@
-# Ignore cache and database files in fixtures
-**/.cache/
-**/.dodeca.db/
-**/public/
-.cache

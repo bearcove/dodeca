@@ -1,6 +1,6 @@
-//! RPC protocol for dodeca HTML processing plugin
+//! RPC protocol for dodeca HTML processing cell
 //!
-//! This plugin handles HTML transformations:
+//! This cell handles HTML transformations:
 //! - URL rewriting (href, src, srcset attributes)
 //! - Dead link marking
 //! - Build info button injection
@@ -63,10 +63,10 @@ pub enum DependencySource {
 }
 
 // ============================================================================
-// Plugin service (host calls these)
+// Cell service (host calls these)
 // ============================================================================
 
-/// HTML processing service implemented by the PLUGIN.
+/// HTML processing service implemented by the CELL.
 ///
 /// The host calls these methods to process HTML content.
 /// All required data is passed as parameters.

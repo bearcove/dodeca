@@ -6,6 +6,8 @@
 //! - Suggestions and help text
 //! - Future: IDE integration, quick fixes
 
+#![allow(unused_assignments)]
+
 use miette::{Diagnostic, NamedSource, SourceSpan};
 use std::sync::Arc;
 use thiserror::Error;

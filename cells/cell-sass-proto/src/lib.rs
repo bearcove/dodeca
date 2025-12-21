@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca SASS plugin
+//! RPC protocol for dodeca SASS cell
 //!
 //! Defines services for SASS/SCSS compilation.
 
@@ -21,7 +21,7 @@ pub struct SassInput {
     pub files: HashMap<String, String>,
 }
 
-/// SASS compilation service implemented by the plugin.
+/// SASS compilation service implemented by the cell.
 ///
 /// The host calls these methods to compile SASS/SCSS to CSS.
 #[allow(async_fn_in_trait)]

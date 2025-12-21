@@ -6,7 +6,7 @@
 //! External link checking is done via the linkcheck cell, which handles
 //! per-domain rate limiting internally.
 
-use crate::cells::{CheckOptions, check_urls_plugin, has_linkcheck_plugin};
+use crate::cells::{CheckOptions, check_urls_cell, has_linkcheck_cell};
 use crate::db::ExternalLinkStatus;
 use crate::types::Route;
 use chrono::NaiveDate;
@@ -203,16 +203,16 @@ impl ExternalLinkOptions {
     }
 }
 
-/// Check external links using the linkcheck plugin
+/// Check external links using the linkcheck cell
 /// Uses date for cache key - same URL + same date = cached
-/// The plugin handles per-domain rate limiting internally
+/// The cell handles per-domain rate limiting internally
 pub async fn check_external_links(
     extracted: &ExtractedLinks,
     cache: &mut HashMap<(String, NaiveDate), ExternalLinkStatus>,
     date: NaiveDate,
     options: &ExternalLinkOptions,
 ) -> (Vec<BrokenLink>, usize) {
-    if !has_linkcheck_plugin() {
+    if !has_linkcheck_cell().await {
         warn!("linkcheck cell not loaded, skipping external link checks");
         return (Vec::new(), 0);
     }
@@ -242,16 +242,16 @@ pub async fn check_external_links(
 
     // Call the cell for uncached URLs (blocking, so we spawn_blocking)
     let checked_count = if !urls_to_check.is_empty() {
-        let plugin_options = CheckOptions {
+        let cell_options = CheckOptions {
             skip_domains: options.skip_domains.iter().cloned().collect(),
             rate_limit_ms: options.rate_limit.as_millis() as u64,
             timeout_secs: 10,
         };
 
         // Call the cell
-        let plugin_result = check_urls_plugin(urls_to_check, plugin_options).await;
+        let cell_result = check_urls_cell(urls_to_check, cell_options).await;
 
-        if let Some(result) = plugin_result {
+        if let Some(result) = cell_result {
             // Map results back to URLs and update cache
             for (url, status) in url_order.iter().zip(result.statuses.iter()) {
                 let external_status = match status.status.as_str() {

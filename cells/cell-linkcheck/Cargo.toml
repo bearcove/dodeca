@@ -18,30 +18,13 @@ name = "ddc-cell-linkcheck"
 path = "src/main.rs"
 
 [dependencies]
-# HTTP client for link checking
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-
-# URL parsing for domain extraction
-url = "2"
-
-# Error handling
-color-eyre = "0.6"
-
-# Async runtime
-tokio = { version = "1", features = ["rt", "time"] }
-
-# Logging
-tracing = "0.1"
-
-# Plugin runtime
-dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
-
-# RPC framework
-rapace = { workspace = true, features = ["stream"] }
-rapace-cell.workspace = true
 
 # Local protocol definitions
 cell-linkcheck-proto = { path = "../cell-linkcheck-proto" }
+rapace-cell.workspace = true
+reqwest = { workspace = true, features = ["blocking"] } #unified
+tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified
+tracing = { workspace = true } #unified
 
-# Facet for serialization
-facet = { version = "0.32.2" }
+# URL parsing for domain extraction
+url = "2"

@@ -1,11 +1,13 @@
-//! Dodeca image plugin (dodeca-mod-image)
+//! Dodeca image cell (cell-image)
 //!
-//! This plugin handles image decoding, resizing, and thumbhash generation.
+//! This cell handles image decoding, resizing, and thumbhash generation.
 
 use base64::Engine;
 use image::{DynamicImage, ImageEncoder, Rgb, Rgba};
 
-use cell_image_proto::{DecodedImage, ImageProcessor, ImageResult, ImageProcessorServer, ResizeInput, ThumbhashInput};
+use cell_image_proto::{
+    DecodedImage, ImageProcessor, ImageProcessorServer, ImageResult, ResizeInput, ThumbhashInput,
+};
 
 /// Image processor implementation
 pub struct ImageProcessorImpl;
@@ -24,12 +26,16 @@ impl ImageProcessor for ImageProcessorImpl {
     }
 
     async fn resize_image(&self, input: ResizeInput) -> ImageResult {
-        let img = match pixels_to_dynamic_image(&input.pixels, input.width, input.height, input.channels) {
-            Some(img) => img,
-            None => return ImageResult::Error {
-                message: "Invalid pixel data".to_string(),
-            },
-        };
+        let img =
+            match pixels_to_dynamic_image(&input.pixels, input.width, input.height, input.channels)
+            {
+                Some(img) => img,
+                None => {
+                    return ImageResult::Error {
+                        message: "Invalid pixel data".to_string(),
+                    };
+                }
+            };
 
         // Maintain aspect ratio
         let aspect = input.height as f64 / input.width as f64;
@@ -55,9 +61,11 @@ impl ImageProcessor for ImageProcessorImpl {
     async fn generate_thumbhash_data_url(&self, input: ThumbhashInput) -> ImageResult {
         let img = match pixels_to_dynamic_image(&input.pixels, input.width, input.height, 4) {
             Some(img) => img,
-            None => return ImageResult::Error {
-                message: "Invalid pixel data".to_string(),
-            },
+            None => {
+                return ImageResult::Error {
+                    message: "Invalid pixel data".to_string(),
+                };
+            }
         };
 
         // Thumbhash works best with small images, resize if needed
@@ -77,18 +85,22 @@ impl ImageProcessor for ImageProcessorImpl {
         // Decode thumbhash back to RGBA for the placeholder image
         let (w, h, rgba_pixels) = match thumbhash::thumb_hash_to_rgba(&hash) {
             Ok(result) => result,
-            Err(()) => return ImageResult::Error {
-                message: "Failed to decode thumbhash".to_string(),
-            },
+            Err(()) => {
+                return ImageResult::Error {
+                    message: "Failed to decode thumbhash".to_string(),
+                };
+            }
         };
 
         // Create a tiny PNG from the decoded thumbhash
         let img_buf: image::RgbaImage =
             match image::ImageBuffer::from_raw(w as u32, h as u32, rgba_pixels) {
                 Some(buf) => buf,
-                None => return ImageResult::Error {
-                    message: "Failed to create image buffer".to_string(),
-                },
+                None => {
+                    return ImageResult::Error {
+                        message: "Failed to create image buffer".to_string(),
+                    };
+                }
             };
 
         let mut png_bytes = Vec::new();
@@ -115,9 +127,11 @@ impl ImageProcessor for ImageProcessorImpl {
 fn decode_format(data: &[u8], format: image::ImageFormat) -> ImageResult {
     let img = match image::load_from_memory_with_format(data, format) {
         Ok(img) => img,
-        Err(e) => return ImageResult::Error {
-            message: format!("Failed to decode image: {e}"),
-        },
+        Err(e) => {
+            return ImageResult::Error {
+                message: format!("Failed to decode image: {e}"),
+            };
+        }
     };
 
     let rgba = img.to_rgba8();
@@ -153,9 +167,10 @@ fn pixels_to_dynamic_image(
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    ImageProcessorServer<ImageProcessorImpl>,
-    ImageProcessorImpl
-);
+rapace_cell::cell_service!(ImageProcessorServer<ImageProcessorImpl>, ImageProcessorImpl);
 
-dodeca_cell_runtime::run_cell!(ImageProcessorImpl);
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run(CellService::from(ImageProcessorImpl)).await?;
+    Ok(())
+}

@@ -1,8 +1,8 @@
-//! Dodeca WebP plugin (dodeca-mod-webp)
+//! Dodeca WebP cell (cell-webp)
 //!
-//! This plugin handles WebP encoding and decoding.
+//! This cell handles WebP encoding and decoding.
 
-use cell_webp_proto::{WebPProcessor, WebPResult, WebPEncodeInput, WebPProcessorServer};
+use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPProcessorServer, WebPResult};
 
 /// WebP processor implementation
 pub struct WebPProcessorImpl;
@@ -12,9 +12,11 @@ impl WebPProcessor for WebPProcessorImpl {
         let decoder = webp::Decoder::new(&data);
         let image = match decoder.decode() {
             Some(img) => img,
-            None => return WebPResult::Error {
-                message: "Failed to decode WebP".to_string(),
-            },
+            None => {
+                return WebPResult::Error {
+                    message: "Failed to decode WebP".to_string(),
+                };
+            }
         };
 
         WebPResult::DecodeSuccess {
@@ -41,13 +43,16 @@ impl WebPProcessor for WebPProcessorImpl {
         let encoder = webp::Encoder::from_rgba(&input.pixels, input.width, input.height);
         let webp = encoder.encode(input.quality as f32);
 
-        WebPResult::EncodeSuccess { data: webp.to_vec() }
+        WebPResult::EncodeSuccess {
+            data: webp.to_vec(),
+        }
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    WebPProcessorServer<WebPProcessorImpl>,
-    WebPProcessorImpl
-);
+rapace_cell::cell_service!(WebPProcessorServer<WebPProcessorImpl>, WebPProcessorImpl);
 
-dodeca_cell_runtime::run_cell!(WebPProcessorImpl);
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run(CellService::from(WebPProcessorImpl)).await?;
+    Ok(())
+}

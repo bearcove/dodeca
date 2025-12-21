@@ -1,4 +1,4 @@
-//! RPC protocol for dodeca code execution plugin
+//! RPC protocol for dodeca code execution cell
 //!
 //! Defines services for extracting and executing code samples from markdown.
 
@@ -6,8 +6,8 @@ use facet::Facet;
 
 // Re-export types from the types crate
 pub use dodeca_code_execution_types::{
-    CodeSample, ExecutionResult, ExtractSamplesInput, ExtractSamplesOutput,
-    ExecuteSamplesInput, ExecuteSamplesOutput, CodeExecutionConfig, LanguageConfig,
+    CodeExecutionConfig, CodeSample, ExecuteSamplesInput, ExecuteSamplesOutput, ExecutionResult,
+    ExtractSamplesInput, ExtractSamplesOutput, LanguageConfig,
 };
 
 /// Result of code execution operations
@@ -22,7 +22,7 @@ pub enum CodeExecutionResult {
     Error { message: String },
 }
 
-/// Code execution service implemented by the plugin.
+/// Code execution service implemented by the cell.
 ///
 /// The host calls these methods to process code samples.
 #[allow(async_fn_in_trait)]

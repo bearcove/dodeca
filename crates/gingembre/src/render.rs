@@ -216,7 +216,7 @@ impl<L: TemplateLoader> Engine<L> {
         Self { loader }
     }
 
-    /// Load a template (no caching - that's Salsa's job)
+    /// Load a template (no caching - that's picante's job)
     pub fn load(&self, name: &str) -> Result<Template> {
         let source = self
             .loader

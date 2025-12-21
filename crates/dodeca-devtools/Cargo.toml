@@ -20,39 +20,28 @@ crate-type = ["cdylib", "rlib"]
 dioxus = { version = "0.7", features = ["signals"] }
 dioxus-web = "0.7"
 
+# Shared protocol types
+dodeca-protocol = { path = "../dodeca-protocol" }
+
+# Fix for WASM: getrandom needs wasm_js feature
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
 # Glade component library
 glade = { git = "https://github.com/bearcove/glade", features = ["web"] }
-
-# WASM bindings
-wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = [
-    "console",
-    "Document",
-    "Element",
-    "HtmlElement",
-    "HtmlLinkElement",
-    "Location",
-    "Node",
-    "NodeList",
-    "Window",
-    "WebSocket",
-    "MessageEvent",
-    "BinaryType",
-    "CloseEvent",
-    "ErrorEvent",
-] }
 js-sys = "0.3"
 
 # Serialization (facet-postcard via dodeca-protocol re-export)
 
 # Re-use DOM patching from livereload-client
 livereload-client = { path = "../livereload-client" }
-
-# Shared protocol types
-dodeca-protocol = { path = "../dodeca-protocol" }
-
-# Logging
-tracing = "0.1"
+tracing = { workspace = true } #unified
 tracing-wasm = "0.2"
 
+# WASM bindings
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = ["BinaryType", "CloseEvent", "Document", "Element", "ErrorEvent", "HtmlElement", "HtmlLinkElement", "Location", "MessageEvent", "Node", "NodeList", "Text", "WebSocket", "Window", "console"] }
+
 [dev-dependencies]
+
+[package.metadata.cargo-shear]
+ignored = ["getrandom"]

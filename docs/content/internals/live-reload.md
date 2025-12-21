@@ -5,7 +5,7 @@ weight = 22
 
 Instead of refreshing the page, dodeca patches the DOM directly. You keep your scroll position, form state, and focus.
 
-When a file changes, Salsa rebuilds only what's affected. The server diffs the old and new HTML, computes minimal edit operations, and sends them over WebSocket. A small WASM client applies the patches—replacing nodes, updating text, adding or removing attributes—without touching anything that didn't change.
+When a file changes, Picante rebuilds only what's affected. The server diffs the old and new HTML, computes minimal edit operations, and sends them over WebSocket. A small WASM client applies the patches—replacing nodes, updating text, adding or removing attributes—without touching anything that didn't change.
 
 ```rust,noexec
 enum Patch {

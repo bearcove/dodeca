@@ -1,10 +1,10 @@
-//! Dodeca JXL plugin (dodeca-mod-jxl)
+//! Dodeca JXL cell (cell-jxl)
 //!
-//! This plugin handles JPEG XL encoding and decoding.
+//! This cell handles JPEG XL encoding and decoding.
 
 use jpegxl_rs::encode::EncoderFrame;
 
-use cell_jxl_proto::{JXLProcessor, JXLResult, JXLEncodeInput, JXLProcessorServer};
+use cell_jxl_proto::{JXLEncodeInput, JXLProcessor, JXLProcessorServer, JXLResult};
 
 /// JXL processor implementation
 pub struct JXLProcessorImpl;
@@ -13,16 +13,20 @@ impl JXLProcessor for JXLProcessorImpl {
     async fn decode_jxl(&self, data: Vec<u8>) -> JXLResult {
         let decoder = match jpegxl_rs::decoder_builder().build() {
             Ok(d) => d,
-            Err(e) => return JXLResult::Error {
-                message: format!("Failed to create JXL decoder: {e}"),
-            },
+            Err(e) => {
+                return JXLResult::Error {
+                    message: format!("Failed to create JXL decoder: {e}"),
+                };
+            }
         };
 
         let (metadata, pixels) = match decoder.decode_with::<u8>(&data) {
             Ok(result) => result,
-            Err(e) => return JXLResult::Error {
-                message: format!("Failed to decode JXL: {e}"),
-            },
+            Err(e) => {
+                return JXLResult::Error {
+                    message: format!("Failed to decode JXL: {e}"),
+                };
+            }
         };
 
         JXLResult::DecodeSuccess {
@@ -58,27 +62,34 @@ impl JXLProcessor for JXLProcessorImpl {
             .build()
         {
             Ok(e) => e,
-            Err(e) => return JXLResult::Error {
-                message: format!("Failed to create JXL encoder: {e}"),
-            },
+            Err(e) => {
+                return JXLResult::Error {
+                    message: format!("Failed to create JXL encoder: {e}"),
+                };
+            }
         };
 
         encoder.has_alpha = true;
         let frame = EncoderFrame::new(&input.pixels).num_channels(4);
         let result = match encoder.encode_frame::<_, u8>(&frame, input.width, input.height) {
             Ok(r) => r,
-            Err(e) => return JXLResult::Error {
-                message: format!("Failed to encode JXL: {e}"),
-            },
+            Err(e) => {
+                return JXLResult::Error {
+                    message: format!("Failed to encode JXL: {e}"),
+                };
+            }
         };
 
-        JXLResult::EncodeSuccess { data: result.data.to_vec() }
+        JXLResult::EncodeSuccess {
+            data: result.data.to_vec(),
+        }
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    JXLProcessorServer<JXLProcessorImpl>,
-    JXLProcessorImpl
-);
+rapace_cell::cell_service!(JXLProcessorServer<JXLProcessorImpl>, JXLProcessorImpl);
 
-dodeca_cell_runtime::run_cell!(JXLProcessorImpl);
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run(CellService::from(JXLProcessorImpl)).await?;
+    Ok(())
+}

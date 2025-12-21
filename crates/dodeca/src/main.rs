@@ -1,5 +1,6 @@
 #![allow(clippy::collapsible_if)]
 
+mod boot_state;
 mod cache_bust;
 mod cas;
 mod cell_server;
@@ -9,12 +10,14 @@ mod content_service;
 mod data;
 mod db;
 mod error_pages;
+mod fd_passing;
 mod file_watcher;
 mod image;
 mod link_checker;
 mod logging;
 mod queries;
 mod render;
+mod revision;
 mod search;
 mod serve;
 mod svg;
@@ -288,6 +291,12 @@ fn main() -> Result<()> {
     // Install SIGUSR1 handler for debugging (dumps stack traces)
     dodeca_debug::install_sigusr1_handler("ddc");
 
+    // When spawned by test harness with DODECA_DIE_WITH_PARENT=1, install death-watch
+    // so we exit when the test process dies. This prevents orphan accumulation.
+    if std::env::var("DODECA_DIE_WITH_PARENT").is_ok() {
+        ur_taking_me_with_you::die_with_parent();
+    }
+
     miette::set_hook(Box::new(
         |_| Box::new(miette::GraphicalReportHandler::new()),
     ))?;
@@ -326,6 +335,9 @@ fn main() -> Result<()> {
                 let use_tui = args.force_tui || (!args.no_tui && std::io::stdout().is_terminal());
 
                 if use_tui {
+                    if args.fd_socket.is_some() {
+                        return Err(eyre!("FD passing is only supported in --no-tui mode"));
+                    }
                     serve_with_tui(
                         &cfg.content_dir,
                         &cfg.output_dir,
@@ -337,7 +349,7 @@ fn main() -> Result<()> {
                     )
                     .await
                 } else {
-                    // Plain mode - no TUI, serve from Salsa
+                    // Plain mode - no TUI, serve from picante
                     logging::init_standard_tracing();
                     serve_plain(
                         &cfg.content_dir,
@@ -346,6 +358,7 @@ fn main() -> Result<()> {
                         args.open,
                         cfg.stable_assets,
                         args.fd_socket,
+                        args.public_access,
                     )
                     .await
                 }
@@ -366,7 +379,7 @@ fn main() -> Result<()> {
 
             let cache_dir = base_dir.join(".cache");
 
-            // Remove .cache directory (contains CAS, Salsa DB, image cache)
+            // Remove .cache directory (contains CAS, picante DB, image cache)
             if cache_dir.exists() {
                 let size = dir_size(&cache_dir);
                 fs::remove_dir_all(&cache_dir)?;
@@ -443,7 +456,7 @@ pub enum BuildMode {
     Quick,
 }
 
-/// The build context with Salsa database
+/// The build context with picante database
 pub struct BuildContext {
     pub db: Database,
     pub content_dir: Utf8PathBuf,
@@ -815,7 +828,7 @@ pub async fn build(
     let query_stats = QueryStats::new();
     let mut ctx = BuildContext::with_stats(content_dir, output_dir, Some(Arc::clone(&query_stats)));
 
-    // Phase 1: Load everything into Salsa
+    // Phase 1: Load everything into picante
     ctx.load_sources()?;
     ctx.load_templates()?;
     ctx.load_sass()?;
@@ -1336,7 +1349,7 @@ async fn build_with_mini_tui(
     }
 
     // Build search index
-    tracing::info!("Building search index...");
+    tracing::debug!("Building search index...");
 
     let search_files = search::build_search_index_async(&site_output).await?;
 
@@ -1381,36 +1394,6 @@ async fn build_with_mini_tui(
     Ok(())
 }
 
-/// Recursively scan a directory for files and process them as changes.
-/// Used when a new directory is created to catch files that were written
-/// before the watcher was fully set up (inotify race condition on Linux).
-fn scan_directory_recursive(
-    dir: &std::path::Path,
-    config: &file_watcher::WatcherConfig,
-    server: &serve::SiteServer,
-) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if entry.file_type().is_ok_and(|t| t.is_file()) {
-            if let Ok(utf8_path) = Utf8PathBuf::from_path_buf(path) {
-                println!(
-                    "    {} Found file in new dir: {}",
-                    "+".green(),
-                    utf8_path.file_name().unwrap_or("?")
-                );
-                handle_file_changed(&utf8_path, config, server);
-            }
-        } else if entry.file_type().is_ok_and(|t| t.is_dir()) {
-            // Recurse into subdirectories
-            scan_directory_recursive(&path, config, server);
-        }
-    }
-}
-
 /// Handle a file change event by updating or adding it to picante
 fn handle_file_changed(
     path: &Utf8PathBuf,
@@ -1422,8 +1405,18 @@ fn handle_file_changed(
     let category = config.categorize(path);
     let relative = match config.relative_path(path) {
         Some(r) => r,
-        None => return,
+        None => {
+            tracing::debug!(path = %path, "handle_file_changed: path not in watched dirs, ignoring");
+            return;
+        }
     };
+
+    tracing::debug!(
+        path = %path,
+        relative = %relative,
+        category = ?category,
+        "handle_file_changed: processing"
+    );
 
     match category {
         PathCategory::Content => {
@@ -1451,15 +1444,21 @@ fn handle_file_changed(
                         .unwrap_or(false)
                 }) {
                     // Replace with new version (picante inputs are immutable after creation)
+                    tracing::debug!(relative = %relative, "handle_file_changed: updating existing source file");
                     sources[pos] =
                         SourceFile::new(&*db, source_path, source_content, last_modified)
                             .expect("failed to create source file");
                 } else {
+                    tracing::debug!(relative = %relative, "handle_file_changed: adding new source file");
                     let source = SourceFile::new(&*db, source_path, source_content, last_modified)
                         .expect("failed to create source file");
                     sources.push(source);
                     println!("  {} Added new source: {}", "+".green(), relative);
                 }
+                tracing::debug!(
+                    count = sources.len(),
+                    "handle_file_changed: setting SourceRegistry (triggers picante invalidation)"
+                );
                 SourceRegistry::set(&*db, sources).expect("failed to set sources");
             }
         }
@@ -1672,7 +1671,141 @@ fn handle_file_removed(
     }
 }
 
-/// Plain serve mode (no TUI) - serves directly from Salsa
+type FileEventHandler = Arc<dyn Fn(&file_watcher::FileEvent) + Send + Sync>;
+
+async fn start_file_watcher(
+    server: Arc<serve::SiteServer>,
+    watcher_config: file_watcher::WatcherConfig,
+    on_event: Option<FileEventHandler>,
+    after_apply: Option<Arc<dyn Fn() + Send + Sync>>,
+) -> Result<()> {
+    let (watcher, watcher_rx) = file_watcher::create_watcher(&watcher_config)?;
+    let (event_tx, mut event_rx) =
+        tokio::sync::mpsc::unbounded_channel::<file_watcher::FileEvent>();
+
+    let watcher_config_thread = watcher_config.clone();
+    std::thread::spawn(move || {
+        let watcher = watcher; // keep Arc alive
+        while let Ok(event) = watcher_rx.recv() {
+            let Ok(event) = event else { continue };
+            let file_events =
+                file_watcher::process_notify_event(event, &watcher_config_thread, &watcher);
+            for file_event in file_events {
+                let _ = event_tx.send(file_event);
+            }
+        }
+    });
+
+    tokio::spawn(async move {
+        use tokio::time::{Duration, Instant};
+
+        let debounce = Duration::from_millis(100);
+        let max_debounce = Duration::from_millis(500);
+        let mut pending: Vec<file_watcher::FileEvent> = Vec::new();
+        let mut active_revision: Option<crate::revision::RevisionToken> = None;
+
+        loop {
+            let first = match event_rx.recv().await {
+                Some(ev) => ev,
+                None => break,
+            };
+
+            if active_revision.is_none() {
+                active_revision = Some(server.begin_revision("file changes"));
+            }
+
+            pending.push(first);
+            let batch_start = Instant::now();
+            let mut deadline = batch_start + debounce;
+
+            loop {
+                let max_deadline = batch_start + max_debounce;
+                let sleep_until = if deadline < max_deadline {
+                    deadline
+                } else {
+                    max_deadline
+                };
+                tokio::select! {
+                    Some(ev) = event_rx.recv() => {
+                        pending.push(ev);
+                        deadline = Instant::now() + debounce;
+                    }
+                    _ = tokio::time::sleep_until(sleep_until) => {
+                        break;
+                    }
+                }
+            }
+
+            let batch = std::mem::take(&mut pending);
+            let server_apply = server.clone();
+            let config_apply = watcher_config.clone();
+            let on_event = on_event.clone();
+            let after_apply = after_apply.clone();
+            let token = active_revision.take();
+
+            let apply_result = tokio::task::spawn_blocking(move || {
+                let mut expanded: Vec<file_watcher::FileEvent> = Vec::new();
+
+                for file_event in batch {
+                    match file_event {
+                        file_watcher::FileEvent::DirectoryCreated(path) => {
+                            if let Some(cb) = &on_event {
+                                cb(&file_watcher::FileEvent::DirectoryCreated(path.clone()));
+                            }
+                            let mut scanned = file_watcher::scan_directory_recursive(
+                                path.as_std_path(),
+                                &config_apply,
+                            );
+                            for event in &scanned {
+                                if let Some(cb) = &on_event {
+                                    cb(event);
+                                }
+                            }
+                            expanded.append(&mut scanned);
+                        }
+                        other => {
+                            if let Some(cb) = &on_event {
+                                cb(&other);
+                            }
+                            expanded.push(other);
+                        }
+                    }
+                }
+
+                for file_event in expanded {
+                    match file_event {
+                        file_watcher::FileEvent::Changed(path) => {
+                            handle_file_changed(&path, &config_apply, &server_apply);
+                        }
+                        file_watcher::FileEvent::Removed(path) => {
+                            handle_file_removed(&path, &config_apply, &server_apply);
+                        }
+                        file_watcher::FileEvent::DirectoryCreated(_) => {}
+                    }
+                }
+
+                server_apply.trigger_reload();
+                if let Some(cb) = &after_apply {
+                    cb();
+                }
+            })
+            .await;
+
+            if let Err(e) = apply_result {
+                tracing::error!(error = %e, "file watcher apply task failed");
+            }
+
+            if let Some(token) = token {
+                server.end_revision(token);
+            }
+        }
+    });
+
+    Ok(())
+}
+
+/// Plain serve mode (no TUI) - serves directly from picante
+#[allow(clippy::too_many_arguments)]
 async fn serve_plain(
     content_dir: &Utf8PathBuf,
     address: &str,
@@ -1680,15 +1813,53 @@ async fn serve_plain(
     open: bool,
     stable_assets: Vec<String>,
     fd_socket: Option<String>,
+    public_access: bool,
 ) -> Result<()> {
     use std::sync::Arc;
+
+    // IMPORTANT: Receive listening FD FIRST if --fd-socket was provided (for testing)
+    // This must happen before any other initialization so the test harness isn't blocked.
+    let pre_bound_listener = if let Some(ref socket_path) = fd_socket {
+        use std::os::unix::io::FromRawFd;
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::UnixStream;
+
+        tracing::info!("Connecting to Unix socket for FD passing: {}", socket_path);
+        let mut unix_stream = UnixStream::connect(socket_path)
+            .await
+            .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", socket_path, e))?;
+
+        tracing::info!("Receiving TCP listener FD from test harness");
+        let fd = fd_passing::recv_fd(&unix_stream)
+            .await
+            .map_err(|e| eyre!("Failed to receive FD: {}", e))?;
+
+        // SAFETY: We just received this FD from the test harness, which created a valid TcpListener
+        // and sent us its file descriptor. We're the only owner now.
+        let std_listener = unsafe { std::net::TcpListener::from_raw_fd(fd) };
+
+        // IMPORTANT: tokio requires the listener to be in non-blocking mode
+        std_listener
+            .set_nonblocking(true)
+            .map_err(|e| eyre!("Failed to set listener to non-blocking: {}", e))?;
+
+        tracing::info!("Successfully received TCP listener FD");
+
+        // Ack FD receipt to the harness. This avoids any OS-specific edge cases where the
+        // harness closing its copy "immediately after send_fd returns" could still lead to
+        // transient flakiness for the first connection (observed on macOS).
+        unix_stream
+            .write_all(&[0xAC])
+            .await
+            .map_err(|e| eyre!("Failed to send FD ack: {}", e))?;
+        Some(std_listener)
+    } else {
+        None
+    };
 
     // Set reentrancy guard so code execution cell knows we're in a build
     // SAFETY: We're single-threaded at this point (before spawning cells)
     unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
-
-    // Initialize cells and wait for ALL to be ready before doing anything
-    cells::init_and_wait_for_cells().await?;
 
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
@@ -1707,6 +1878,54 @@ async fn serve_plain(
 
     // Create the site server
     let server = Arc::new(serve::SiteServer::new(render_options, stable_assets));
+    let startup_revision = server.begin_revision("startup");
+
+    // Use the requested port (or default to 4000)
+    let requested_port: u16 = port.unwrap_or(4000);
+    // Find the cell path
+    let cell_path = cell_server::find_cell_path()?;
+
+    // Determine bind IPs based on --public flag or explicit 0.0.0.0 address
+    let bind_ips: Vec<std::net::Ipv4Addr> = if public_access || address == "0.0.0.0" {
+        // LAN mode: bind to localhost + all LAN interfaces
+        let mut ips = vec![std::net::Ipv4Addr::LOCALHOST];
+        ips.extend(tui::get_lan_ips());
+        ips
+    } else {
+        // Local mode: bind to the specified address only
+        let bind_ip = match address.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V4(ip)) => ip,
+            Ok(std::net::IpAddr::V6(_)) => std::net::Ipv4Addr::LOCALHOST,
+            Err(_) => std::net::Ipv4Addr::LOCALHOST,
+        };
+        vec![bind_ip]
+    };
+
+    // Create channel to receive actual bound port
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+
+    // Start the cell server in background ASAP so we can accept connections early.
+    let server_clone = server.clone();
+    tokio::spawn(async move {
+        if let Err(e) = cell_server::start_cell_server_with_shutdown(
+            server_clone,
+            cell_path,
+            bind_ips,
+            requested_port,
+            None,
+            Some(port_tx),
+            pre_bound_listener,
+        )
+        .await
+        {
+            eprintln!("Server error: {e}");
+        }
+    });
+
+    // Wait for the actual bound port
+    let actual_port = port_rx
+        .await
+        .map_err(|_| eyre!("Failed to get bound port"))?;
 
     // Load source files
     println!("{}", "Loading source files...".dimmed());
@@ -1783,7 +2002,7 @@ async fn serve_plain(
         println!("  Loaded {} templates", count);
     }
 
-    // Load static files into Salsa
+    // Load static files into picante
     let static_dir = parent_dir.join("static");
     if static_dir.exists() {
         let walker = WalkBuilder::new(&static_dir).build();
@@ -1810,7 +2029,7 @@ async fn serve_plain(
         println!("  Loaded {count} static files");
     }
 
-    // Load data files into Salsa
+    // Load data files into picante
     let data_dir = parent_dir.join("data");
     if data_dir.exists() {
         let walker = WalkBuilder::new(&data_dir).build();
@@ -1841,7 +2060,7 @@ async fn serve_plain(
         println!("  Loaded {count} data files");
     }
 
-    // Load SASS files into Salsa (CSS compiled on-demand via query)
+    // Load SASS files into picante (CSS compiled on-demand via query)
     let sass_dir = parent_dir.join("sass");
     if sass_dir.exists() {
         let sass_files_list: Vec<Utf8PathBuf> = WalkBuilder::new(&sass_dir)
@@ -1880,11 +2099,7 @@ async fn serve_plain(
 
     // Ensure cells are loaded before spawning search index thread
     // (search index needs to wait for cells to be ready)
-    // Use spawn_blocking since plugins() does blocking I/O (spawns processes, waits for them)
-    tokio::task::spawn_blocking(|| {
-        let _ = cells::plugins();
-    })
-    .await?;
+    let _ = cells::all().await;
 
     // Build search index in background
     println!("{}", "Building search index...".dimmed());
@@ -1908,6 +2123,10 @@ async fn serve_plain(
             }
         }
     });
+
+    // Mark the startup revision as ready before accepting requests.
+    server.end_revision(startup_revision);
+    tracing::info!("startup revision ready (serve_plain)");
 
     // Set up file watcher for live reload using the file_watcher module
     // This handles:
@@ -1937,158 +2156,32 @@ async fn serve_plain(
             .unwrap_or_else(|_| data_dir.clone()),
     };
 
-    let (watcher, watcher_rx) = file_watcher::create_watcher(&watcher_config)?;
-    let server_for_watcher = server.clone();
-
-    std::thread::spawn(move || {
-        use std::time::{Duration, Instant};
-
-        let debounce = Duration::from_millis(100);
-        let mut last_rebuild = Instant::now() - debounce;
-        let watcher = watcher; // keep Arc alive
-        let mut pending_events: Vec<file_watcher::FileEvent> = Vec::new();
-
-        while let Ok(event) = watcher_rx.recv() {
-            let Ok(event) = event else { continue };
-
-            let mut file_events =
-                file_watcher::process_notify_event(event, &watcher_config, &watcher);
-            if file_events.is_empty() {
-                continue;
-            }
-            pending_events.append(&mut file_events);
-
-            // Coalesce any immediately available events so a burst is handled together.
-            while let Ok(next) = watcher_rx.try_recv() {
-                match next {
-                    Ok(next) => {
-                        let mut more =
-                            file_watcher::process_notify_event(next, &watcher_config, &watcher);
-                        if !more.is_empty() {
-                            pending_events.append(&mut more);
-                        }
-                    }
-                    Err(_) => continue,
-                }
-            }
-
-            let elapsed = last_rebuild.elapsed();
-            if elapsed < debounce {
-                std::thread::sleep(debounce - elapsed);
-            }
-
-            for file_event in pending_events.drain(..) {
-                match file_event {
-                    file_watcher::FileEvent::Changed(path) => {
-                        println!("  Changed: {}", path.file_name().unwrap_or("?"));
-                        handle_file_changed(&path, &watcher_config, &server_for_watcher);
-                    }
-                    file_watcher::FileEvent::Removed(path) => {
-                        println!(
-                            "  {} Removed: {}",
-                            "-".red(),
-                            path.file_name().unwrap_or("?")
-                        );
-                        handle_file_removed(&path, &watcher_config, &server_for_watcher);
-                    }
-                    file_watcher::FileEvent::DirectoryCreated(path) => {
-                        println!(
-                            "  {} New directory: {}",
-                            "+".green(),
-                            path.file_name().unwrap_or("?")
-                        );
-                        // Scan recursively for files that may have been created before the watcher
-                        // was added (race condition with inotify on Linux)
-                        scan_directory_recursive(
-                            path.as_std_path(),
-                            &watcher_config,
-                            &server_for_watcher,
-                        );
-                    }
-                }
-            }
-
-            server_for_watcher.trigger_reload();
-            last_rebuild = Instant::now();
+    let on_event = Arc::new(|event: &file_watcher::FileEvent| match event {
+        file_watcher::FileEvent::Changed(path) => {
+            println!("  Changed: {}", path.file_name().unwrap_or("?"));
+        }
+        file_watcher::FileEvent::Removed(path) => {
+            println!(
+                "  {} Removed: {}",
+                "-".red(),
+                path.file_name().unwrap_or("?")
+            );
+        }
+        file_watcher::FileEvent::DirectoryCreated(path) => {
+            println!(
+                "  {} New directory: {}",
+                "+".green(),
+                path.file_name().unwrap_or("?")
+            );
         }
     });
 
-    // Use the requested port (or default to 4000)
-    let requested_port: u16 = port.unwrap_or(4000);
+    start_file_watcher(server.clone(), watcher_config.clone(), Some(on_event), None).await?;
 
-    // Find the plugin path
-    let plugin_path = cell_server::find_plugin_path()?;
-
-    // Parse the address to get the IP to bind to
-    let bind_ip: std::net::Ipv4Addr = match address.parse::<std::net::IpAddr>() {
-        Ok(std::net::IpAddr::V4(ip)) => ip,
-        Ok(std::net::IpAddr::V6(_)) => std::net::Ipv4Addr::LOCALHOST, // Fallback for IPv6
-        Err(_) => std::net::Ipv4Addr::LOCALHOST,
-    };
-
-    // Create channel to receive actual bound port
-    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
-
-    // Receive listening FD if --fd-socket was provided (for testing)
-    let pre_bound_listener = if let Some(socket_path) = fd_socket {
-        use async_send_fd::AsyncRecvFd;
-        use std::os::unix::io::FromRawFd;
-        use tokio::net::UnixStream;
-
-        tracing::info!("Connecting to Unix socket for FD passing: {}", socket_path);
-        let unix_stream = UnixStream::connect(&socket_path)
-            .await
-            .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", socket_path, e))?;
-
-        tracing::info!("Receiving TCP listener FD from test harness");
-        let fd = unix_stream
-            .recv_fd()
-            .await
-            .map_err(|e| eyre!("Failed to receive FD: {}", e))?;
-
-        // SAFETY: We just received this FD from the test harness, which created a valid TcpListener
-        // and sent us its file descriptor. We're the only owner now.
-        let std_listener = unsafe { std::net::TcpListener::from_raw_fd(fd) };
-
-        // IMPORTANT: tokio requires the listener to be in non-blocking mode
-        std_listener
-            .set_nonblocking(true)
-            .map_err(|e| eyre!("Failed to set listener to non-blocking: {}", e))?;
-
-        let listener = tokio::net::TcpListener::from_std(std_listener)
-            .map_err(|e| eyre!("Failed to convert std TcpListener to tokio: {}", e))?;
-
-        tracing::info!("Successfully received TCP listener FD");
-        Some(listener)
-    } else {
-        None
-    };
-
-    // Start the cell server in background
-    let server_clone = server.clone();
-    tokio::spawn(async move {
-        if let Err(e) = cell_server::start_plugin_server_with_shutdown(
-            server_clone,
-            plugin_path,
-            vec![bind_ip],
-            requested_port,
-            None,
-            Some(port_tx),
-            pre_bound_listener,
-        )
-        .await
-        {
-            eprintln!("Server error: {e}");
-        }
-    });
-
-    // Wait for the actual bound port
-    let actual_port = port_rx
-        .await
-        .map_err(|_| eyre!("Failed to get bound port"))?;
-
-    // Print server URLs (LISTENING_PORT already printed by start_plugin_server)
-    print_server_urls(address, actual_port);
+    // Print server URLs (LISTENING_PORT already printed by start_cell_server)
+    // Use "0.0.0.0" to trigger multi-interface display when --public is used
+    let display_address = if public_access { "0.0.0.0" } else { address };
+    print_server_urls(display_address, actual_port);
 
     if open {
         let url = format!("http://127.0.0.1:{actual_port}");
@@ -2134,7 +2227,7 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
 
         // Build search index - call the cell directly since we're already in an async context.
         let pages = search::collect_search_pages(&site_output);
-        let files = cells::build_search_index_plugin(pages)
+        let files = cells::build_search_index_cell(pages)
             .await
             .map_err(|e| eyre!("pagefind: {}", e))?;
 
@@ -2147,8 +2240,8 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
 
 /// Serve with TUI progress display and file watching
 ///
-/// This serves content directly from Salsa - no files written to disk.
-/// HTTP requests query the Salsa database, which caches/memoizes results.
+/// This serves content directly from picante - no files written to disk.
+/// HTTP requests query the picante database, which caches/memoizes results.
 async fn serve_with_tui(
     content_dir: &Utf8PathBuf,
     _output_dir: &Utf8PathBuf,
@@ -2158,9 +2251,7 @@ async fn serve_with_tui(
     stable_assets: Vec<String>,
     start_public: bool,
 ) -> Result<()> {
-    use notify::{RecommendedWatcher, RecursiveMode, Watcher};
     use std::sync::Arc;
-    use std::sync::mpsc;
     use tokio::sync::watch;
 
     // Set reentrancy guard so code execution cell knows we're in a build
@@ -2192,8 +2283,9 @@ async fn serve_with_tui(
         dev_mode: true,
     };
 
-    // Create the site server - serves directly from Salsa, no disk I/O
+    // Create the site server - serves directly from picante, no disk I/O
     let server = Arc::new(serve::SiteServer::new(render_options, stable_assets));
+    let startup_revision = server.begin_revision("startup");
 
     // Load cached query results (e.g., processed images) from disk
     let cache_path = content_dir
@@ -2230,18 +2322,21 @@ async fn serve_with_tui(
 
     // Get cache sizes for status display
     let base_dir = content_dir.parent().unwrap_or(content_dir);
-    let salsa_cache_path = base_dir.join(".cache/dodeca.bin");
+    let picante_cache_path = base_dir.join(".cache/dodeca.bin");
     let cas_cache_dir = base_dir.join(".cache");
-    fn get_cache_sizes(salsa_path: &Utf8Path, cas_dir: &Utf8Path) -> (usize, usize) {
-        let salsa_size = salsa_path.metadata().map(|m| m.len() as usize).unwrap_or(0);
+    fn get_cache_sizes(picante_path: &Utf8Path, cas_dir: &Utf8Path) -> (usize, usize) {
+        let picante_size = picante_path
+            .metadata()
+            .map(|m| m.len() as usize)
+            .unwrap_or(0);
         let cas_size = if cas_dir.exists() {
-            dir_size(cas_dir).saturating_sub(salsa_size) // Subtract salsa file since it's inside .cache
+            dir_size(cas_dir).saturating_sub(picante_size) // Subtract picante file since it's inside .cache
         } else {
             0
         };
-        (salsa_size, cas_size)
+        (picante_size, cas_size)
     }
-    let (salsa_size, cas_size) = get_cache_sizes(&salsa_cache_path, &cas_cache_dir);
+    let (picante_size, cas_size) = get_cache_sizes(&picante_cache_path, &cas_cache_dir);
 
     // Set initial server status (use preferred port or 4000 as placeholder until bound)
     let initial_ips = get_bind_ips(initial_mode);
@@ -2250,7 +2345,7 @@ async fn serve_with_tui(
         urls: build_urls(&initial_ips, display_port),
         is_running: false,
         bind_mode: initial_mode,
-        salsa_cache_size: salsa_size,
+        picante_cache_size: picante_size,
         cas_cache_size: cas_size,
     });
 
@@ -2341,7 +2436,7 @@ async fn serve_with_tui(
         let _ = event_tx.send(LogEvent::build(format!("Loaded {} templates", count)));
     }
 
-    // Load static files into Salsa
+    // Load static files into picante
     let static_dir = parent_dir.join("static");
     if static_dir.exists() {
         let walker = WalkBuilder::new(&static_dir).build();
@@ -2371,7 +2466,7 @@ async fn serve_with_tui(
         let _ = event_tx.send(LogEvent::build(format!("Loaded {count} static files")));
     }
 
-    // Load SASS files into Salsa (CSS compiled on-demand via query)
+    // Load SASS files into picante (CSS compiled on-demand via query)
     let sass_dir = parent_dir.join("sass");
     if sass_dir.exists() {
         let sass_files_list: Vec<Utf8PathBuf> = WalkBuilder::new(&sass_dir)
@@ -2432,36 +2527,55 @@ async fn serve_with_tui(
         }
     });
 
-    // Mark all tasks as ready - in serve mode, everything is computed on-demand via Salsa
+    // Mark all tasks as ready - in serve mode, everything is computed on-demand via picante
     progress_tx.send_modify(|prog| {
         prog.render.finish();
         prog.sass.finish();
     });
 
+    // Mark startup revision ready before accepting requests.
+    server.end_revision(startup_revision);
+    tracing::info!("startup revision ready (serve_with_tui)");
+
     let _ = event_tx.send(LogEvent::server(
         "Server ready - content served from memory",
     ));
 
-    // Set up file watcher for content and templates
-    let (watch_tx, watch_rx) = mpsc::channel();
-    let mut watcher = RecommendedWatcher::new(watch_tx, notify::Config::default())?;
-    watcher.watch(content_dir.as_std_path(), RecursiveMode::Recursive)?;
-
+    // Set up file watcher (shared pipeline with plain serve)
     let sass_dir = parent_dir.join("sass");
-    let mut watched_dirs = vec![content_dir.to_string()];
+    let static_dir = parent_dir.join("static");
+    let data_dir = parent_dir.join("data");
 
+    let watcher_config = file_watcher::WatcherConfig {
+        content_dir: content_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| content_dir.clone()),
+        templates_dir: templates_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| templates_dir.clone()),
+        sass_dir: sass_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| sass_dir.clone()),
+        static_dir: static_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| static_dir.clone()),
+        data_dir: data_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| data_dir.clone()),
+    };
+
+    let mut watched_dirs = vec![content_dir.to_string()];
     if templates_dir.exists() {
-        watcher.watch(templates_dir.as_std_path(), RecursiveMode::Recursive)?;
         watched_dirs.push("templates".to_string());
     }
     if sass_dir.exists() {
-        watcher.watch(sass_dir.as_std_path(), RecursiveMode::Recursive)?;
         watched_dirs.push("sass".to_string());
     }
-    let static_dir = parent_dir.join("static");
     if static_dir.exists() {
-        watcher.watch(static_dir.as_std_path(), RecursiveMode::Recursive)?;
         watched_dirs.push("static".to_string());
+    }
+    if data_dir.exists() {
+        watched_dirs.push("data".to_string());
     }
 
     let _ = event_tx.send(LogEvent::file_change(format!(
@@ -2479,11 +2593,11 @@ async fn serve_with_tui(
     let server_for_http = server.clone();
     let server_tx_clone = server_tx.clone();
     let event_tx_clone = event_tx.clone();
-    let salsa_cache_path_clone = salsa_cache_path.clone();
+    let picante_cache_path_clone = picante_cache_path.clone();
     let cas_cache_dir_clone = cas_cache_dir.clone();
 
-    // Find the plugin path once upfront
-    let plugin_path = match cell_server::find_plugin_path() {
+    // Find the cell path once upfront
+    let cell_path = match cell_server::find_cell_path() {
         Ok(p) => p,
         Err(e) => {
             return Err(eyre!("Failed to find cell: {e}"));
@@ -2496,9 +2610,9 @@ async fn serve_with_tui(
                         shutdown_rx: watch::Receiver<bool>,
                         server_tx: tui::ServerStatusTx,
                         event_tx: tui::EventTx,
-                        salsa_path: Utf8PathBuf,
+                        picante_path: Utf8PathBuf,
                         cas_dir: Utf8PathBuf,
-                        plugin_path: std::path::PathBuf| {
+                        cell_path: std::path::PathBuf| {
         tokio::spawn(async move {
             let ips = get_bind_ips(mode);
             let requested_port = preferred_port.unwrap_or(4000);
@@ -2510,13 +2624,13 @@ async fn serve_with_tui(
             let server_clone = server.clone();
             let ips_clone = ips.clone();
             let shutdown_rx_clone = shutdown_rx.clone();
-            let plugin_path_clone = plugin_path.clone();
+            let cell_path_clone = cell_path.clone();
             let event_tx_clone = event_tx.clone();
 
             tokio::spawn(async move {
-                if let Err(e) = cell_server::start_plugin_server_with_shutdown(
+                if let Err(e) = cell_server::start_cell_server_with_shutdown(
                     server_clone,
-                    plugin_path_clone,
+                    cell_path_clone,
                     ips_clone,
                     requested_port,
                     Some(shutdown_rx_clone),
@@ -2539,7 +2653,10 @@ async fn serve_with_tui(
             };
 
             // Get current cache sizes
-            let salsa_size = salsa_path.metadata().map(|m| m.len() as usize).unwrap_or(0);
+            let picante_size = picante_path
+                .metadata()
+                .map(|m| m.len() as usize)
+                .unwrap_or(0);
             let cas_size = WalkBuilder::new(&cas_dir)
                 .build()
                 .filter_map(|e| e.ok())
@@ -2547,14 +2664,14 @@ async fn serve_with_tui(
                 .filter(|m| m.is_file())
                 .map(|m| m.len() as usize)
                 .sum::<usize>()
-                .saturating_sub(salsa_size);
+                .saturating_sub(picante_size);
 
             // Update server status
             let _ = server_tx.send(tui::ServerStatus {
                 urls: build_urls(&ips, actual_port),
                 is_running: true,
                 bind_mode: mode,
-                salsa_cache_size: salsa_size,
+                picante_cache_size: picante_size,
                 cas_cache_size: cas_size,
             });
 
@@ -2575,7 +2692,7 @@ async fn serve_with_tui(
         })
     };
 
-    let plugin_path_clone = plugin_path.clone();
+    let cell_path_clone = cell_path.clone();
     let mut server_handle = start_server(
         server_for_http.clone(),
         initial_mode,
@@ -2583,9 +2700,9 @@ async fn serve_with_tui(
         shutdown_rx.clone(),
         server_tx_clone.clone(),
         event_tx_clone.clone(),
-        salsa_cache_path_clone.clone(),
+        picante_cache_path_clone.clone(),
         cas_cache_dir_clone.clone(),
-        plugin_path_clone,
+        cell_path_clone,
     );
 
     // Open browser if requested (use preferred port or default 4000)
@@ -2599,322 +2716,81 @@ async fn serve_with_tui(
         }
     }
 
-    // Spawn file watcher handler
-    // Canonicalize paths for comparison with notify events (which return absolute paths)
-    let content_for_watcher = content_dir
-        .canonicalize_utf8()
-        .unwrap_or_else(|_| content_dir.clone());
-    let templates_dir_for_watcher = templates_dir
-        .canonicalize_utf8()
-        .unwrap_or_else(|_| templates_dir.clone());
-    let sass_dir_for_watcher = sass_dir
-        .canonicalize_utf8()
-        .unwrap_or_else(|_| sass_dir.clone());
-    let static_dir_for_watcher = static_dir
-        .canonicalize_utf8()
-        .unwrap_or_else(|_| static_dir.clone());
     let event_tx_for_watcher = event_tx.clone();
-    let server_for_watcher = server.clone();
-
-    std::thread::spawn(move || {
-        use std::time::Instant;
-        let mut last_rebuild = Instant::now();
-        let debounce = std::time::Duration::from_millis(100);
-
-        while let Ok(res) = watch_rx.recv() {
-            match res {
-                Ok(event) => {
-                    // Debounce rapid events
-                    if last_rebuild.elapsed() < debounce {
-                        continue;
-                    }
-
-                    // React to modify/create/rename events (rename catches atomic saves)
-                    use notify::EventKind;
-                    match event.kind {
-                        EventKind::Modify(_) | EventKind::Create(_) => {
-                            // Accept content/template/sass files by extension, or any file in static dir
-                            // Filter out temp files (editors write to .tmp then rename)
-                            let paths: Vec<Utf8PathBuf> = event
-                                .paths
-                                .iter()
-                                .filter(|p| {
-                                    // Skip temp files created by editors
-                                    let path_str = p.to_string_lossy();
-                                    if path_str.contains(".tmp.") || path_str.ends_with("~") {
-                                        return false;
-                                    }
-                                    let is_known_ext = p
-                                        .extension()
-                                        .map(|e| e == "md" || e == "scss" || e == "html")
-                                        .unwrap_or(false);
-                                    let is_static =
-                                        p.starts_with(static_dir_for_watcher.as_std_path());
-                                    is_known_ext || is_static
-                                })
-                                .filter_map(|p| Utf8PathBuf::from_path_buf(p.clone()).ok())
-                                .collect();
-
-                            if paths.is_empty() {
-                                continue;
-                            }
-
-                            for path in &paths {
-                                // Determine file type for logging
-                                let ext = path.extension();
-                                let filename = path.file_name().unwrap_or("?");
-                                let file_type = match ext {
-                                    Some("md") => "content",
-                                    Some("html") => "template",
-                                    Some("scss") | Some("sass") => "style",
-                                    Some("css") => "css",
-                                    Some("js") | Some("ts") => "script",
-                                    Some("png") | Some("jpg") | Some("jpeg") | Some("gif")
-                                    | Some("svg") | Some("webp") | Some("avif") => "image",
-                                    Some("woff") | Some("woff2") | Some("ttf") | Some("otf") => {
-                                        "font"
-                                    }
-                                    _ => "file",
-                                };
-                                let _ = event_tx_for_watcher.send(LogEvent::file_change(format!(
-                                    "{} changed: {}",
-                                    file_type, filename
-                                )));
-
-                                // Update the file in the server's picante database
-                                if ext == Some("md") {
-                                    if let Ok(relative) = path.strip_prefix(&content_for_watcher) {
-                                        if let Ok(content) = fs::read_to_string(path) {
-                                            let last_modified = fs::metadata(path.as_std_path())
-                                                .and_then(|m| m.modified())
-                                                .ok()
-                                                .and_then(|t| {
-                                                    t.duration_since(std::time::UNIX_EPOCH).ok()
-                                                })
-                                                .map(|d| d.as_secs() as i64)
-                                                .unwrap_or(0);
-                                            let db = server_for_watcher.db.lock().unwrap();
-                                            let mut sources = SourceRegistry::sources(&*db)
-                                                .ok()
-                                                .flatten()
-                                                .unwrap_or_default();
-
-                                            let relative_str = relative.to_string();
-                                            let source_path = SourcePath::new(relative_str.clone());
-                                            let source_content = SourceContent::new(content);
-
-                                            // Find and replace, or add new
-                                            if let Some(pos) = sources.iter().position(|s| {
-                                                s.path(&*db)
-                                                    .ok()
-                                                    .map(|p| p.as_str() == relative_str)
-                                                    .unwrap_or(false)
-                                            }) {
-                                                sources[pos] = SourceFile::new(
-                                                    &*db,
-                                                    source_path,
-                                                    source_content,
-                                                    last_modified,
-                                                )
-                                                .expect("failed to create source file");
-                                            } else {
-                                                sources.push(
-                                                    SourceFile::new(
-                                                        &*db,
-                                                        source_path,
-                                                        source_content,
-                                                        last_modified,
-                                                    )
-                                                    .expect("failed to create source file"),
-                                                );
-                                            }
-                                            SourceRegistry::set(&*db, sources)
-                                                .expect("failed to set sources");
-                                        }
-                                    }
-                                } else if ext == Some("html") {
-                                    if let Ok(relative) =
-                                        path.strip_prefix(&templates_dir_for_watcher)
-                                    {
-                                        if let Ok(content) = fs::read_to_string(path) {
-                                            let db = server_for_watcher.db.lock().unwrap();
-                                            let mut templates = TemplateRegistry::templates(&*db)
-                                                .ok()
-                                                .flatten()
-                                                .unwrap_or_default();
-
-                                            let relative_str = relative.to_string();
-                                            let template_path =
-                                                TemplatePath::new(relative_str.clone());
-                                            let template_content =
-                                                TemplateContent::new(content.clone());
-
-                                            let content_hash = {
-                                                use std::hash::{Hash, Hasher};
-                                                let mut hasher =
-                                                    std::collections::hash_map::DefaultHasher::new(
-                                                    );
-                                                content.hash(&mut hasher);
-                                                hasher.finish()
-                                            };
-                                            tracing::info!(
-                                                "📝 template changed: {} (content hash: {:016x}, {} bytes)",
-                                                relative_str,
-                                                content_hash,
-                                                content.len()
-                                            );
-
-                                            if let Some(pos) = templates.iter().position(|t| {
-                                                t.path(&*db)
-                                                    .ok()
-                                                    .map(|p| p.as_str() == relative_str)
-                                                    .unwrap_or(false)
-                                            }) {
-                                                templates[pos] = TemplateFile::new(
-                                                    &*db,
-                                                    template_path,
-                                                    template_content,
-                                                )
-                                                .expect("failed to create template file");
-                                            } else {
-                                                templates.push(
-                                                    TemplateFile::new(
-                                                        &*db,
-                                                        template_path,
-                                                        template_content,
-                                                    )
-                                                    .expect("failed to create template file"),
-                                                );
-                                            }
-                                            TemplateRegistry::set(&*db, templates)
-                                                .expect("failed to set templates");
-                                        }
-                                    }
-                                } else if ext == Some("scss") || ext == Some("sass") {
-                                    if let Ok(relative) = path.strip_prefix(&sass_dir_for_watcher) {
-                                        if let Ok(content) = fs::read_to_string(path) {
-                                            let db = server_for_watcher.db.lock().unwrap();
-                                            let mut sass_files = SassRegistry::files(&*db)
-                                                .ok()
-                                                .flatten()
-                                                .unwrap_or_default();
-
-                                            let relative_str = relative.to_string();
-                                            let sass_path = SassPath::new(relative_str.clone());
-                                            let sass_content = SassContent::new(content);
-
-                                            if let Some(pos) = sass_files.iter().position(|s| {
-                                                s.path(&*db)
-                                                    .ok()
-                                                    .map(|p| p.as_str() == relative_str)
-                                                    .unwrap_or(false)
-                                            }) {
-                                                sass_files[pos] =
-                                                    SassFile::new(&*db, sass_path, sass_content)
-                                                        .expect("failed to create sass file");
-                                            } else {
-                                                sass_files.push(
-                                                    SassFile::new(&*db, sass_path, sass_content)
-                                                        .expect("failed to create sass file"),
-                                                );
-                                            }
-                                            SassRegistry::set(&*db, sass_files)
-                                                .expect("failed to set sass files");
-                                        }
-                                    }
-                                } else if path.starts_with(&static_dir_for_watcher) {
-                                    // Static file changed (CSS, fonts, images, etc.)
-                                    if let Ok(relative) = path.strip_prefix(&static_dir_for_watcher)
-                                    {
-                                        if let Ok(content) = fs::read(path) {
-                                            // Skip empty files (transient state during git operations)
-                                            if content.is_empty() {
-                                                continue;
-                                            }
-                                            let db = server_for_watcher.db.lock().unwrap();
-                                            let mut static_files = StaticRegistry::files(&*db)
-                                                .ok()
-                                                .flatten()
-                                                .unwrap_or_default();
-
-                                            let relative_str = relative.to_string();
-                                            let static_path = StaticPath::new(relative_str.clone());
-
-                                            tracing::debug!(
-                                                "Looking for static file: {relative_str}"
-                                            );
-
-                                            if let Some(pos) = static_files.iter().position(|s| {
-                                                s.path(&*db)
-                                                    .ok()
-                                                    .map(|p| p.as_str() == relative_str)
-                                                    .unwrap_or(false)
-                                            }) {
-                                                tracing::info!(
-                                                    "Updating static file: {relative_str}"
-                                                );
-                                                static_files[pos] =
-                                                    StaticFile::new(&*db, static_path, content)
-                                                        .expect("failed to create static file");
-                                            } else {
-                                                static_files.push(
-                                                    StaticFile::new(&*db, static_path, content)
-                                                        .expect("failed to create static file"),
-                                                );
-                                            }
-                                            StaticRegistry::set(&*db, static_files)
-                                                .expect("failed to set static files");
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Trigger live reload - browsers will re-fetch and get fresh content from Salsa
-                            // (trigger_reload logs detailed patch/reload decisions)
-                            server_for_watcher.trigger_reload();
-
-                            // Rebuild search index in background (debounced with live reload)
-                            let server_for_search = server_for_watcher.clone();
-                            let event_tx_for_search = event_tx_for_watcher.clone();
-                            std::thread::spawn(move || {
-                                match rebuild_search_for_serve(&server_for_search) {
-                                    Ok(search_files) => {
-                                        let count = search_files.len();
-                                        let mut sf =
-                                            server_for_search.search_files.write().unwrap();
-                                        *sf = search_files;
-                                        let _ = event_tx_for_search.send(LogEvent::search(
-                                            format!("Search index updated ({count} pages)"),
-                                        ));
-                                    }
-                                    Err(e) => {
-                                        let _ = event_tx_for_search.send(
-                                            LogEvent::error(format!("Search rebuild failed: {e}"))
-                                                .with_kind(crate::tui::EventKind::Search),
-                                        );
-                                    }
-                                }
-                            });
-
-                            last_rebuild = Instant::now();
-                        }
-                        _ => {}
-                    }
-                }
-                Err(e) => {
-                    let _ = event_tx_for_watcher.send(LogEvent::error(format!("Watch error: {e}")));
-                }
+    let on_event = Arc::new(
+        move |path_event: &file_watcher::FileEvent| match path_event {
+            file_watcher::FileEvent::Changed(path) => {
+                let ext = path.extension();
+                let filename = path.file_name().unwrap_or("?");
+                let file_type = match ext {
+                    Some("md") => "content",
+                    Some("html") => "template",
+                    Some("scss") | Some("sass") => "style",
+                    Some("css") => "css",
+                    Some("js") | Some("ts") => "script",
+                    Some("png") | Some("jpg") | Some("jpeg") | Some("gif") | Some("svg")
+                    | Some("webp") | Some("avif") => "image",
+                    Some("woff") | Some("woff2") | Some("ttf") | Some("otf") => "font",
+                    _ => "file",
+                };
+                let _ = event_tx_for_watcher.send(LogEvent::file_change(format!(
+                    "{} changed: {}",
+                    file_type, filename
+                )));
             }
-        }
+            file_watcher::FileEvent::Removed(path) => {
+                let filename = path.file_name().unwrap_or("?");
+                let _ = event_tx_for_watcher
+                    .send(LogEvent::file_change(format!("removed: {}", filename)));
+            }
+            file_watcher::FileEvent::DirectoryCreated(path) => {
+                let filename = path.file_name().unwrap_or("?");
+                let _ = event_tx_for_watcher.send(LogEvent::file_change(format!(
+                    "new directory: {}",
+                    filename
+                )));
+            }
+        },
+    );
+
+    let server_for_search = server.clone();
+    let event_tx_for_search = event_tx.clone();
+    let after_apply = Arc::new(move || {
+        let server_for_search = server_for_search.clone();
+        let event_tx_for_search = event_tx_for_search.clone();
+        std::thread::spawn(move || match rebuild_search_for_serve(&server_for_search) {
+            Ok(search_files) => {
+                let count = search_files.len();
+                let mut sf = server_for_search.search_files.write().unwrap();
+                *sf = search_files;
+                let _ = event_tx_for_search.send(LogEvent::search(format!(
+                    "Search index updated ({count} pages)"
+                )));
+            }
+            Err(e) => {
+                let _ = event_tx_for_search.send(
+                    LogEvent::error(format!("Search rebuild failed: {e}"))
+                        .with_kind(crate::tui::EventKind::Search),
+                );
+            }
+        });
     });
+
+    start_file_watcher(
+        server.clone(),
+        watcher_config,
+        Some(on_event),
+        Some(after_apply),
+    )
+    .await?;
 
     // Spawn command handler for rebinding
     let server_for_cmd = server.clone();
     let server_tx_for_cmd = server_tx.clone();
     let event_tx_for_cmd = event_tx.clone();
-    let salsa_path_for_cmd = salsa_cache_path_clone.clone();
+    let picante_path_for_cmd = picante_cache_path_clone.clone();
     let cas_dir_for_cmd = cas_cache_dir_clone.clone();
-    let plugin_path_for_cmd = plugin_path.clone();
+    let cell_path_for_cmd = cell_path.clone();
     // Use Arc<Mutex> for the shutdown sender so we can update it for each rebind
     let current_shutdown = Arc::new(std::sync::Mutex::new(shutdown_tx.clone()));
     let current_shutdown_for_handler = current_shutdown.clone();
@@ -2954,9 +2830,9 @@ async fn serve_with_tui(
                 new_shutdown_rx,
                 server_tx_for_cmd.clone(),
                 event_tx_for_cmd.clone(),
-                salsa_path_for_cmd.clone(),
+                picante_path_for_cmd.clone(),
                 cas_dir_for_cmd.clone(),
-                plugin_path_for_cmd.clone(),
+                cell_path_for_cmd.clone(),
             );
         }
     });
@@ -2980,11 +2856,11 @@ async fn serve_with_tui(
                         new_level.as_str()
                     )));
                 }
-                cell_tui_proto::ServerCommand::ToggleSalsaDebug => {
-                    // Legacy command - toggle salsa debug (now mostly obsolete with picante)
-                    let enabled = filter_handle_for_bridge.toggle_salsa_debug();
+                cell_tui_proto::ServerCommand::TogglePicanteDebug => {
+                    // Legacy command - toggle picante debug (now mostly obsolete with picante)
+                    let enabled = filter_handle_for_bridge.toggle_picante_debug();
                     let _ = event_tx_for_bridge.send(tui::LogEvent::info(format!(
-                        "Salsa debug: {}",
+                        "Picante debug: {}",
                         if enabled { "ON" } else { "OFF" }
                     )));
                 }
@@ -3001,40 +2877,53 @@ async fn serve_with_tui(
     let tui_host = tui_host::TuiHostImpl::new(proto_cmd_tx);
     let tui_handle = tui_host.handle();
 
+    // Seed the TUI host with the latest snapshots before the cell subscribes.
+    // (The forwarders will keep it updated after this.)
+    {
+        let progress = progress_rx.borrow().clone();
+        tui_handle.send_progress(tui_host::convert_build_progress(&progress));
+    }
+    {
+        let status = server_rx.borrow().clone();
+        tui_handle.send_status(tui_host::convert_server_status(&status));
+    }
+
     // Spawn forwarders to bridge old channels to TuiHost
     // Forward progress updates
     let tui_handle_progress = tui_handle.clone();
     tokio::spawn(async move {
-        loop {
-            if progress_rx.has_changed().unwrap_or(false) {
-                let progress = progress_rx.borrow_and_update().clone();
-                tui_handle_progress.send_progress(tui_host::convert_build_progress(&progress));
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+        // Send current value immediately, then forward changes.
+        let progress = progress_rx.borrow().clone();
+        tui_handle_progress.send_progress(tui_host::convert_build_progress(&progress));
+
+        while progress_rx.changed().await.is_ok() {
+            let progress = progress_rx.borrow().clone();
+            tui_handle_progress.send_progress(tui_host::convert_build_progress(&progress));
         }
     });
 
     // Forward server status updates
     let tui_handle_status = tui_handle.clone();
     tokio::spawn(async move {
-        loop {
-            if server_rx.has_changed().unwrap_or(false) {
-                let status = server_rx.borrow_and_update().clone();
-                tui_handle_status.send_status(tui_host::convert_server_status(&status));
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
+        // Send current value immediately, then forward changes.
+        let status = server_rx.borrow().clone();
+        tui_handle_status.send_status(tui_host::convert_server_status(&status));
+
+        while server_rx.changed().await.is_ok() {
+            let status = server_rx.borrow().clone();
+            tui_handle_status.send_status(tui_host::convert_server_status(&status));
         }
     });
 
     // Forward log events
     let tui_handle_events = tui_handle.clone();
-    tokio::spawn(async move {
+    tokio::task::spawn_blocking(move || {
         while let Ok(event) = event_rx.recv() {
             tui_handle_events.send_event(tui_host::convert_log_event(&event));
         }
     });
 
-    // Create shutdown channel for TUI plugin
+    // Create shutdown channel for TUI cell
     let (tui_shutdown_tx, tui_shutdown_rx) = watch::channel(false);
 
     // Run the TUI cell (blocks until TUI exits)

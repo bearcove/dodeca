@@ -4,17 +4,26 @@ description = "How to install dodeca"
 weight = 10
 +++
 
+The recommended way to install dodeca is from GitHub releases. Releases ship the `ddc` binary plus a set of helper binaries (`ddc-cell-*`) used for things like image processing, Sass, search indexing, etc.
+
 ## macOS / Linux
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf https://github.com/bearcove/dodeca/releases/latest/download/dodeca-installer.sh | sh
 ```
 
+Supported by the installer:
+- macOS (Apple Silicon / `arm64`)
+- Linux (`x86_64`)
+
 ## Windows
 
 ```powershell
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/bearcove/dodeca/releases/latest/download/dodeca-installer.ps1 | iex"
 ```
+
+Supported by the installer:
+- Windows (`x86_64`)
 
 ## From source
 
@@ -38,8 +47,6 @@ ddc --version
 
 ## Updating
 
-To update an existing installation to the latest version:
-
-```bash
-ddc self-update
-```
+There is no in-app updater command in `ddc`. To update:
+- If you installed from releases: re-run the installer command for your platform.
+- If you built from source: pull changes and re-run `cargo xtask build`.

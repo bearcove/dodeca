@@ -1,13 +1,13 @@
-//! RPC protocol for dodeca syntax highlighting plugin
+//! RPC protocol for dodeca syntax highlighting cell
 //!
-//! Defines the SyntaxHighlightService that both host and plugin implement.
+//! Defines the SyntaxHighlightService that both host and cell implement.
 
 use facet::Facet;
 
 /// Result of syntax highlighting
 #[derive(Facet, Debug, Clone)]
 pub struct HighlightResult {
-    /// The highlighted HTML (with <span> tags for tokens)
+    /// The highlighted HTML (with `<span>` tags for tokens)
     pub html: String,
     /// Whether highlighting was successful (vs fallback to plain text)
     pub highlighted: bool,
@@ -15,7 +15,7 @@ pub struct HighlightResult {
 
 /// Syntax highlighting service provided by the host
 ///
-/// The plugin calls these methods to get syntax highlighting.
+/// The cell calls these methods to get syntax highlighting.
 #[allow(async_fn_in_trait)]
 #[rapace::service]
 pub trait SyntaxHighlightService {

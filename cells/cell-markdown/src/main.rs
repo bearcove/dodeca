@@ -1,26 +1,17 @@
-//! Dodeca markdown processing plugin (dodeca-mod-markdown)
+//! Dodeca markdown processing cell (cell-markdown)
 //!
-//! This plugin handles:
+//! This cell handles:
 //! - Markdown to HTML conversion (pulldown-cmark)
 //! - Frontmatter parsing (TOML)
 //! - Heading extraction
 //! - Code block extraction (for syntax highlighting by host)
 
-use pulldown_cmark::{html, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag};
+use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, html};
 
 use cell_markdown_proto::{
-    CodeBlock, Frontmatter, FrontmatterResult, Heading, MarkdownProcessor,
-    MarkdownProcessorServer, MarkdownResult, ParseResult,
+    CodeBlock, Frontmatter, FrontmatterResult, Heading, MarkdownProcessor, MarkdownProcessorServer,
+    MarkdownResult, ParseResult,
 };
-
-// Create the ServiceDispatch wrapper
-dodeca_cell_runtime::cell_service!(
-    MarkdownProcessorServer<MarkdownProcessorImpl>,
-    MarkdownProcessorImpl
-);
-
-// Create main function
-dodeca_cell_runtime::run_cell!(MarkdownProcessorImpl);
 
 /// Markdown processor implementation
 #[derive(Clone)]
@@ -93,12 +84,12 @@ fn split_frontmatter(content: &str) -> (String, String) {
     let content = content.trim_start();
 
     // Check for +++ delimiters (TOML frontmatter)
-    if let Some(rest) = content.strip_prefix("+++") {
-        if let Some(end) = rest.find("+++") {
-            let frontmatter = rest[..end].trim().to_string();
-            let body = rest[end + 3..].trim_start().to_string();
-            return (frontmatter, body);
-        }
+    if let Some(rest) = content.strip_prefix("+++")
+        && let Some(end) = rest.find("+++")
+    {
+        let frontmatter = rest[..end].trim().to_string();
+        let body = rest[end + 3..].trim_start().to_string();
+        return (frontmatter, body);
     }
 
     // No frontmatter found
@@ -321,4 +312,15 @@ fn inject_heading_ids(html: &str, headings: &[Heading]) -> String {
     }
 
     result
+}
+
+rapace_cell::cell_service!(
+    MarkdownProcessorServer<MarkdownProcessorImpl>,
+    MarkdownProcessorImpl
+);
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run(CellService::from(MarkdownProcessorImpl)).await?;
+    Ok(())
 }

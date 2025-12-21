@@ -2,7 +2,7 @@
 //!
 //! Provides:
 //! - TUI layer that routes log events to the Activity panel
-//! - Dynamic filtering with salsa debug toggle
+//! - Dynamic filtering with picante debug toggle
 //! - Slow query logging (spans >50ms)
 //! - Standard env filter for non-TUI mode
 
@@ -27,7 +27,7 @@ const SLOW_SPAN_THRESHOLD_MS: u128 = 50;
 /// A tracing layer that sends formatted events to a channel (for TUI Activity panel)
 pub struct TuiLayer {
     tx: Sender<LogEvent>,
-    salsa_debug: Arc<AtomicBool>,
+    picante_debug: Arc<AtomicBool>,
     log_level: Arc<AtomicU8>,
 }
 
@@ -35,7 +35,7 @@ impl TuiLayer {
     pub fn new(tx: Sender<LogEvent>) -> Self {
         Self {
             tx,
-            salsa_debug: Arc::new(AtomicBool::new(false)),
+            picante_debug: Arc::new(AtomicBool::new(false)),
             log_level: Arc::new(AtomicU8::new(TuiLogLevel::Info as u8)),
         }
     }
@@ -43,7 +43,7 @@ impl TuiLayer {
     /// Get a handle to update the filter dynamically
     pub fn filter_handle(&self) -> FilterHandle {
         FilterHandle {
-            salsa_debug: self.salsa_debug.clone(),
+            picante_debug: self.picante_debug.clone(),
             log_level: self.log_level.clone(),
         }
     }
@@ -100,9 +100,9 @@ where
         let level = *metadata.level();
         let target = metadata.target();
 
-        // Filter salsa events (they use INFO and DEBUG levels)
-        if target.starts_with("salsa") {
-            if !self.salsa_debug.load(Ordering::Relaxed) {
+        // Filter picante events (they use INFO and DEBUG levels)
+        if target.starts_with("picante") {
+            if !self.picante_debug.load(Ordering::Relaxed) {
                 return;
             }
         } else {
@@ -197,20 +197,20 @@ impl TuiLogLevel {
 /// Handle for dynamically updating the log filter
 #[derive(Clone)]
 pub struct FilterHandle {
-    salsa_debug: Arc<AtomicBool>,
+    picante_debug: Arc<AtomicBool>,
     log_level: Arc<AtomicU8>,
 }
 
 impl FilterHandle {
-    /// Toggle salsa debug logging, returns new state
-    pub fn toggle_salsa_debug(&self) -> bool {
+    /// Toggle picante debug logging, returns new state
+    pub fn toggle_picante_debug(&self) -> bool {
         // Toggle and return the new value
-        !self.salsa_debug.fetch_xor(true, Ordering::Relaxed)
+        !self.picante_debug.fetch_xor(true, Ordering::Relaxed)
     }
 
-    /// Check if salsa debug is currently enabled
-    fn _is_salsa_debug_enabled(&self) -> bool {
-        self.salsa_debug.load(Ordering::Relaxed)
+    /// Check if picante debug is currently enabled
+    fn _is_picante_debug_enabled(&self) -> bool {
+        self.picante_debug.load(Ordering::Relaxed)
     }
 
     /// Cycle to the next log level (more verbose, wrapping around)
@@ -261,8 +261,8 @@ fn detect_event_kind(msg: &str, target: &str) -> EventKind {
         return EventKind::Http { status };
     }
 
-    // Salsa/build events
-    if target.starts_with("salsa") {
+    // Picante/build events
+    if target.starts_with("picante") {
         return EventKind::Build;
     }
 
@@ -331,7 +331,7 @@ fn parse_http_status(msg: &str) -> Option<u16> {
 
 /// Initialize tracing for TUI mode
 /// Returns a FilterHandle for dynamic filter updates
-/// Starts with salsa debug disabled - use 'd' key to toggle
+/// Starts with picante debug disabled - use 'd' key to toggle
 pub fn init_tui_tracing(event_tx: Sender<LogEvent>) -> FilterHandle {
     let tui_layer = TuiLayer::new(event_tx);
     let handle = tui_layer.filter_handle();
@@ -344,14 +344,73 @@ pub fn init_tui_tracing(event_tx: Sender<LogEvent>) -> FilterHandle {
 /// Initialize tracing for non-TUI mode (uses RUST_LOG env var)
 pub fn init_standard_tracing() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let log_format = std::env::var("DDC_LOG_FORMAT")
+        .unwrap_or_default()
+        .to_lowercase();
+    let log_time = std::env::var("DDC_LOG_TIME")
+        .unwrap_or_default()
+        .to_lowercase();
 
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_target(true)
-                .with_timer(tracing_subscriber::fmt::time::uptime())
-                .compact()
-                .with_filter(filter),
-        )
-        .init();
+    if log_format == "json" {
+        // JSON format - structured logging
+        let json_layer = tracing_subscriber::fmt::layer()
+            .json()
+            .with_target(true)
+            .with_current_span(false)
+            .with_span_list(false);
+
+        match log_time.as_str() {
+            "utc" => {
+                tracing_subscriber::registry()
+                    .with(
+                        json_layer
+                            .with_timer(tracing_subscriber::fmt::time::SystemTime)
+                            .with_filter(filter),
+                    )
+                    .init();
+            }
+            "none" => {
+                tracing_subscriber::registry()
+                    .with(json_layer.without_time().with_filter(filter))
+                    .init();
+            }
+            _ => {
+                tracing_subscriber::registry()
+                    .with(
+                        json_layer
+                            .with_timer(tracing_subscriber::fmt::time::uptime())
+                            .with_filter(filter),
+                    )
+                    .init();
+            }
+        }
+    } else {
+        // Standard format - human readable
+        let fmt_layer = tracing_subscriber::fmt::layer().with_target(true).compact();
+        match log_time.as_str() {
+            "utc" => {
+                tracing_subscriber::registry()
+                    .with(
+                        fmt_layer
+                            .with_timer(tracing_subscriber::fmt::time::SystemTime)
+                            .with_filter(filter),
+                    )
+                    .init();
+            }
+            "none" => {
+                tracing_subscriber::registry()
+                    .with(fmt_layer.without_time().with_filter(filter))
+                    .init();
+            }
+            _ => {
+                tracing_subscriber::registry()
+                    .with(
+                        fmt_layer
+                            .with_timer(tracing_subscriber::fmt::time::uptime())
+                            .with_filter(filter),
+                    )
+                    .init();
+            }
+        }
+    }
 }

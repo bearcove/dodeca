@@ -1,10 +1,12 @@
-//! Dodeca fonts plugin (dodeca-mod-fonts)
+//! Dodeca fonts cell (cell-fonts)
 //!
-//! This plugin handles font analysis, subsetting, and compression.
+//! This cell handles font analysis, subsetting, and compression.
 
 use std::collections::{HashMap, HashSet};
 
-use cell_fonts_proto::{FontProcessor, FontResult, FontAnalysis, FontFace, SubsetFontInput, FontProcessorServer};
+use cell_fonts_proto::{
+    FontAnalysis, FontFace, FontProcessor, FontProcessorServer, FontResult, SubsetFontInput,
+};
 
 /// Font processor implementation
 pub struct FontProcessorImpl;
@@ -79,9 +81,10 @@ impl FontProcessor for FontProcessorImpl {
     }
 }
 
-dodeca_cell_runtime::cell_service!(
-    FontProcessorServer<FontProcessorImpl>,
-    FontProcessorImpl
-);
+rapace_cell::cell_service!(FontProcessorServer<FontProcessorImpl>, FontProcessorImpl);
 
-dodeca_cell_runtime::run_cell!(FontProcessorImpl);
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rapace_cell::run(CellService::from(FontProcessorImpl)).await?;
+    Ok(())
+}

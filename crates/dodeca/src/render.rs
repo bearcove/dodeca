@@ -1,4 +1,4 @@
-use crate::cells::inject_build_info_plugin;
+use crate::cells::inject_build_info_cell;
 use crate::db::{
     CodeExecutionMetadata, CodeExecutionResult, DependencySourceInfo, Heading, Page, Section,
     SiteTree,
@@ -53,7 +53,7 @@ a[data-dead] {
 </style>"#;
 
 /// CSS for syntax highlighting (arborium theme - Tokyo Night style)
-/// These styles target custom elements like <a-k>, <a-c>, <a-f> etc.
+/// These styles target custom elements like `<a-k>`, `<a-c>`, `<a-f>` etc.
 const SYNTAX_HIGHLIGHT_STYLES: &str = r##"<style>
 /* Arborium syntax highlighting - Tokyo Night theme */
 a-k { color: #bb9af7; } /* keywords */
@@ -85,6 +85,51 @@ a-dd { color: #f7768e; } /* diff delete */
 a-eb { color: #ff9e64; } /* embedded */
 a-er { color: #f7768e; text-decoration: wavy underline; } /* errors */
 </style>"##;
+
+/// CSS for copy button on code blocks
+const COPY_BUTTON_STYLES: &str = r##"<style>
+pre { position: relative; }
+pre .copy-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    background: rgba(80,80,95,0.8);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 0.25rem;
+    color: #c0caf5;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+pre:hover .copy-btn { opacity: 1; }
+pre .copy-btn:hover { background: rgba(80,80,95,0.95); }
+pre .copy-btn.copied { background: rgba(50,160,50,0.9); }
+</style>"##;
+
+/// JavaScript for copy button functionality
+const COPY_BUTTON_SCRIPT: &str = r##"<script>
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('pre').forEach(pre => {
+        if (pre.querySelector('.copy-btn')) return;
+        const btn = document.createElement('button');
+        btn.className = 'copy-btn';
+        btn.textContent = 'Copy';
+        btn.onclick = async () => {
+            const code = pre.querySelector('code')?.textContent || pre.textContent;
+            await navigator.clipboard.writeText(code);
+            btn.textContent = 'Copied!';
+            btn.classList.add('copied');
+            setTimeout(() => {
+                btn.textContent = 'Copy';
+                btn.classList.remove('copied');
+            }, 2000);
+        };
+        pre.appendChild(btn);
+    });
+});
+</script>"##;
 
 /// CSS and JS for build info icon on code blocks
 const BUILD_INFO_STYLES: &str = r##"<style>
@@ -379,7 +424,7 @@ async fn inject_build_info_buttons(
         return (html.to_string(), false);
     }
 
-    match inject_build_info_plugin(html, code_metadata).await {
+    match inject_build_info_cell(html, code_metadata).await {
         Some((result, had_buttons)) => (result, had_buttons),
         None => (html.to_string(), false),
     }
@@ -426,7 +471,9 @@ pub async fn inject_livereload_with_build_info(
 
     // Always inject copy button script and syntax highlighting styles for code blocks
     // Try to inject after <html, but fall back to after <!doctype html> if <html not found
-    let scripts_to_inject = format!("{SYNTAX_HIGHLIGHT_STYLES}{build_info_assets}");
+    let scripts_to_inject = format!(
+        "{SYNTAX_HIGHLIGHT_STYLES}{COPY_BUTTON_STYLES}{COPY_BUTTON_SCRIPT}{build_info_assets}"
+    );
     if result.contains("<html") {
         result = result.replacen("<html", &format!("{scripts_to_inject}<html"), 1);
     } else if let Some(pos) = result.to_lowercase().find("<!doctype html>") {
@@ -469,7 +516,7 @@ pub async fn inject_livereload_with_build_info(
 }
 
 // ============================================================================
-// Render functions for Salsa tracked queries
+// Render functions for picante tracked queries
 // ============================================================================
 
 /// Render a page to HTML using a template loader.
@@ -480,6 +527,13 @@ pub fn try_render_page_with_loader<L: TemplateLoader>(
     loader: L,
     data: Option<Value>,
 ) -> std::result::Result<String, String> {
+    tracing::debug!(
+        route = %page.route.as_str(),
+        title = %page.title,
+        template = "page.html",
+        "render: rendering page"
+    );
+
     let mut engine = Engine::new(loader);
 
     let mut ctx = build_render_context(site_tree, data);
@@ -515,19 +569,49 @@ pub fn try_render_section_with_loader<L: TemplateLoader>(
     loader: L,
     data: Option<Value>,
 ) -> std::result::Result<String, String> {
-    let mut engine = Engine::new(loader);
-
-    let mut ctx = build_render_context(site_tree, data);
-    ctx.set("section", section_to_value(section, site_tree));
-    ctx.set("current_path", Value::from(section.route.as_str()));
-    // Set page to NULL so templates can use `{% if page %}` without error
-    ctx.set("page", Value::NULL);
-
     let template_name = if section.route.as_str() == "/" {
         "index.html"
     } else {
         "section.html"
     };
+
+    // Count pages in this section for logging
+    let page_count = site_tree
+        .pages
+        .values()
+        .filter(|p| p.section_route == section.route)
+        .count();
+
+    tracing::debug!(
+        route = %section.route.as_str(),
+        title = %section.title,
+        template = %template_name,
+        section_pages = page_count,
+        "render: rendering section"
+    );
+
+    let mut engine = Engine::new(loader);
+
+    let mut ctx = build_render_context(site_tree, data);
+    let section_value = section_to_value(section, site_tree);
+
+    // Log section.pages array length
+    if let facet_value::DestructuredRef::Object(obj) = section_value.destructure_ref() {
+        if let Some(pages_value) = obj.get(&VString::from("pages")) {
+            if let facet_value::DestructuredRef::Array(pages) = pages_value.destructure_ref() {
+                tracing::debug!(
+                    route = %section.route.as_str(),
+                    pages_in_context = pages.len(),
+                    "render: section.pages set in context"
+                );
+            }
+        }
+    }
+
+    ctx.set("section", section_value);
+    ctx.set("current_path", Value::from(section.route.as_str()));
+    // Set page to NULL so templates can use `{% if page %}` without error
+    ctx.set("page", Value::NULL);
 
     engine
         .render(template_name, &ctx)
@@ -552,11 +636,11 @@ pub fn render_section_with_loader<L: TemplateLoader>(
 }
 
 // ============================================================================
-// Lazy data resolver variants (for fine-grained Salsa tracking)
+// Lazy data resolver variants (for fine-grained picante tracking)
 // ============================================================================
 
 /// Render a page to HTML with lazy data resolver.
-/// Each data path access becomes a tracked Salsa dependency.
+/// Each data path access becomes a tracked picante dependency.
 pub fn try_render_page_with_resolver<L: TemplateLoader>(
     page: &Page,
     site_tree: &SiteTree,
@@ -591,7 +675,7 @@ pub fn render_page_with_resolver<L: TemplateLoader>(
 }
 
 /// Render a section to HTML with lazy data resolver.
-/// Each data path access becomes a tracked Salsa dependency.
+/// Each data path access becomes a tracked picante dependency.
 pub fn try_render_section_with_resolver<L: TemplateLoader>(
     section: &Section,
     site_tree: &SiteTree,
@@ -678,7 +762,7 @@ fn build_render_context(site_tree: &SiteTree, data: Option<Value>) -> Context {
 /// Build the render context with a lazy data resolver
 ///
 /// Instead of loading all data upfront, this uses a resolver that will
-/// fetch data on-demand. Each data path access becomes a tracked Salsa dependency.
+/// fetch data on-demand. Each data path access becomes a tracked picante dependency.
 fn build_render_context_with_resolver(
     site_tree: &SiteTree,
     resolver: Arc<dyn DataResolver>,

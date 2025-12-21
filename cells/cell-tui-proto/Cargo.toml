@@ -17,4 +17,4 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 rapace = { workspace = true, features = ["stream"] }
 
 # Serialization
-facet = "0.32.2"
+facet.workspace = true

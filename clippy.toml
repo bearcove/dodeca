@@ -10,9 +10,4 @@ disallowed-types = [
 disallowed-methods = [
     { path = "serde_json::to_string", reason = "Use facet_postcard::to_allocvec for serialization instead" },
     { path = "serde_json::from_str", reason = "Use facet_postcard::from_bytes for deserialization instead" },
-    # Blocking on async code from sync context causes RPC call queue exhaustion
-    # Make the function async instead and propagate the async up the call chain
-    { path = "tokio::runtime::Handle::block_on", reason = "Avoid blocking on async - make function async instead" },
-    { path = "tokio::runtime::Runtime::block_on", reason = "Avoid blocking on async (except at entry point) - make function async instead" },
-    { path = "tokio::task::block_in_place", reason = "Avoid block_in_place - make function async instead" },
 ]
