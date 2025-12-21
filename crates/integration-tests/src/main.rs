@@ -25,12 +25,8 @@ use std::time::{Duration, Instant};
 struct Test {
     name: &'static str,
     module: &'static str,
-    func: TestFn,
+    func: fn(),
     ignored: bool,
-}
-
-enum TestFn {
-    Sync(fn()),
 }
 
 /// Run all tests and return (passed, failed, skipped)
@@ -82,11 +78,9 @@ fn run_tests(tests: &[Test], filter: Option<&str>) -> (usize, usize, usize) {
         let prev_hook = panic::take_hook();
         panic::set_hook(Box::new(|_| {}));
 
-        let result = match &test.func {
-            TestFn::Sync(f) => {
-                let f = *f;
-                panic::catch_unwind(AssertUnwindSafe(f))
-            }
+        let result = {
+            let f = test.func;
+            panic::catch_unwind(AssertUnwindSafe(f))
         };
 
         panic::set_hook(prev_hook);
@@ -282,295 +276,295 @@ fn collect_tests() -> Vec<Test> {
         Test {
             name: "nonexistent_page_returns_404",
             module: "basic",
-            func: TestFn::Sync(basic::nonexistent_page_returns_404),
+            func: basic::nonexistent_page_returns_404,
             ignored: false,
         },
         Test {
             name: "nonexistent_static_returns_404",
             module: "basic",
-            func: TestFn::Sync(basic::nonexistent_static_returns_404),
+            func: basic::nonexistent_static_returns_404,
             ignored: false,
         },
         Test {
             name: "pagefind_files_served",
             module: "basic",
-            func: TestFn::Sync(basic::pagefind_files_served),
+            func: basic::pagefind_files_served,
             ignored: false,
         },
         Test {
             name: "all_pages_return_200",
             module: "basic",
-            func: TestFn::Sync(basic::all_pages_return_200),
+            func: basic::all_pages_return_200,
             ignored: false,
         },
         // content tests
         Test {
             name: "markdown_content_rendered",
             module: "content",
-            func: TestFn::Sync(content::markdown_content_rendered),
+            func: content::markdown_content_rendered,
             ignored: false,
         },
         Test {
             name: "frontmatter_title_in_html",
             module: "content",
-            func: TestFn::Sync(content::frontmatter_title_in_html),
+            func: content::frontmatter_title_in_html,
             ignored: false,
         },
         Test {
             name: "nested_content_structure",
             module: "content",
-            func: TestFn::Sync(content::nested_content_structure),
+            func: content::nested_content_structure,
             ignored: false,
         },
         // cache_busting tests
         Test {
             name: "css_urls_are_cache_busted",
             module: "cache_busting",
-            func: TestFn::Sync(cache_busting::css_urls_are_cache_busted),
+            func: cache_busting::css_urls_are_cache_busted,
             ignored: false,
         },
         Test {
             name: "font_urls_rewritten_in_css",
             module: "cache_busting",
-            func: TestFn::Sync(cache_busting::font_urls_rewritten_in_css),
+            func: cache_busting::font_urls_rewritten_in_css,
             ignored: false,
         },
         Test {
             name: "css_change_updates_hash",
             module: "cache_busting",
-            func: TestFn::Sync(cache_busting::css_change_updates_hash),
+            func: cache_busting::css_change_updates_hash,
             ignored: false,
         },
         Test {
             name: "fonts_are_subsetted",
             module: "cache_busting",
-            func: TestFn::Sync(cache_busting::fonts_are_subsetted),
+            func: cache_busting::fonts_are_subsetted,
             ignored: false,
         },
         // templates tests
         Test {
             name: "template_renders_content",
             module: "templates",
-            func: TestFn::Sync(templates::template_renders_content),
+            func: templates::template_renders_content,
             ignored: false,
         },
         Test {
             name: "template_includes_css",
             module: "templates",
-            func: TestFn::Sync(templates::template_includes_css),
+            func: templates::template_includes_css,
             ignored: false,
         },
         Test {
             name: "template_metadata_used",
             module: "templates",
-            func: TestFn::Sync(templates::template_metadata_used),
+            func: templates::template_metadata_used,
             ignored: false,
         },
         Test {
             name: "different_templates_for_different_pages",
             module: "templates",
-            func: TestFn::Sync(templates::different_templates_for_different_pages),
+            func: templates::different_templates_for_different_pages,
             ignored: false,
         },
         Test {
             name: "extra_frontmatter_accessible_in_templates",
             module: "templates",
-            func: TestFn::Sync(templates::extra_frontmatter_accessible_in_templates),
+            func: templates::extra_frontmatter_accessible_in_templates,
             ignored: false,
         },
         Test {
             name: "page_extra_frontmatter_accessible_in_templates",
             module: "templates",
-            func: TestFn::Sync(templates::page_extra_frontmatter_accessible_in_templates),
+            func: templates::page_extra_frontmatter_accessible_in_templates,
             ignored: false,
         },
         Test {
             name: "code_blocks_have_copy_button_script",
             module: "templates",
-            func: TestFn::Sync(templates::code_blocks_have_copy_button_script),
+            func: templates::code_blocks_have_copy_button_script,
             ignored: false,
         },
         // static_assets tests
         Test {
             name: "svg_files_served",
             module: "static_assets",
-            func: TestFn::Sync(static_assets::svg_files_served),
+            func: static_assets::svg_files_served,
             ignored: false,
         },
         Test {
             name: "js_files_cache_busted",
             module: "static_assets",
-            func: TestFn::Sync(static_assets::js_files_cache_busted),
+            func: static_assets::js_files_cache_busted,
             ignored: false,
         },
         Test {
             name: "static_files_served_directly",
             module: "static_assets",
-            func: TestFn::Sync(static_assets::static_files_served_directly),
+            func: static_assets::static_files_served_directly,
             ignored: false,
         },
         Test {
             name: "image_files_processed",
             module: "static_assets",
-            func: TestFn::Sync(static_assets::image_files_processed),
+            func: static_assets::image_files_processed,
             ignored: false,
         },
         // livereload tests
         Test {
             name: "test_new_section_detected",
             module: "livereload",
-            func: TestFn::Sync(livereload::test_new_section_detected),
+            func: livereload::test_new_section_detected,
             ignored: false,
         },
         Test {
             name: "test_deeply_nested_new_section",
             module: "livereload",
-            func: TestFn::Sync(livereload::test_deeply_nested_new_section),
+            func: livereload::test_deeply_nested_new_section,
             ignored: false,
         },
         Test {
             name: "test_file_move_detected",
             module: "livereload",
-            func: TestFn::Sync(livereload::test_file_move_detected),
+            func: livereload::test_file_move_detected,
             ignored: false,
         },
         Test {
             name: "test_css_livereload",
             module: "livereload",
-            func: TestFn::Sync(livereload::test_css_livereload),
+            func: livereload::test_css_livereload,
             ignored: false,
         },
         // section_pages tests
         Test {
             name: "adding_page_updates_section_pages_list",
             module: "section_pages",
-            func: TestFn::Sync(section_pages::adding_page_updates_section_pages_list),
+            func: section_pages::adding_page_updates_section_pages_list,
             ignored: false,
         },
         Test {
             name: "adding_page_updates_via_get_section_macro",
             module: "section_pages",
-            func: TestFn::Sync(section_pages::adding_page_updates_via_get_section_macro),
+            func: section_pages::adding_page_updates_via_get_section_macro,
             ignored: false,
         },
         // error_detection tests
         Test {
             name: "template_syntax_error_shows_error_page",
             module: "error_detection",
-            func: TestFn::Sync(error_detection::template_syntax_error_shows_error_page),
+            func: error_detection::template_syntax_error_shows_error_page,
             ignored: false,
         },
         Test {
             name: "template_error_recovery_removes_error_page",
             module: "error_detection",
-            func: TestFn::Sync(error_detection::template_error_recovery_removes_error_page),
+            func: error_detection::template_error_recovery_removes_error_page,
             ignored: false,
         },
         Test {
             name: "missing_template_shows_error_page",
             module: "error_detection",
-            func: TestFn::Sync(error_detection::missing_template_shows_error_page),
+            func: error_detection::missing_template_shows_error_page,
             ignored: false,
         },
         // dead_links tests
         Test {
             name: "dead_links_marked_in_html",
             module: "dead_links",
-            func: TestFn::Sync(dead_links::dead_links_marked_in_html),
+            func: dead_links::dead_links_marked_in_html,
             ignored: false,
         },
         Test {
             name: "valid_links_not_marked_dead",
             module: "dead_links",
-            func: TestFn::Sync(dead_links::valid_links_not_marked_dead),
+            func: dead_links::valid_links_not_marked_dead,
             ignored: false,
         },
         // sass tests
         Test {
             name: "no_scss_builds_successfully",
             module: "sass",
-            func: TestFn::Sync(sass::no_scss_builds_successfully),
+            func: sass::no_scss_builds_successfully,
             ignored: false,
         },
         Test {
             name: "scss_compiled_to_css",
             module: "sass",
-            func: TestFn::Sync(sass::scss_compiled_to_css),
+            func: sass::scss_compiled_to_css,
             ignored: false,
         },
         Test {
             name: "scss_change_triggers_rebuild",
             module: "sass",
-            func: TestFn::Sync(sass::scss_change_triggers_rebuild),
+            func: sass::scss_change_triggers_rebuild,
             ignored: false,
         },
         // picante_cache tests
         Test {
             name: "navigating_twice_should_not_recompute_queries",
             module: "picante_cache",
-            func: TestFn::Sync(picante_cache::navigating_twice_should_not_recompute_queries),
+            func: picante_cache::navigating_twice_should_not_recompute_queries,
             ignored: false,
         },
         // code_execution tests
         Test {
             name: "test_successful_code_sample_shows_output",
             module: "code_execution",
-            func: TestFn::Sync(code_execution::test_successful_code_sample_shows_output),
+            func: code_execution::test_successful_code_sample_shows_output,
             ignored: false,
         },
         Test {
             name: "test_successful_code_sample_with_ansi_colors",
             module: "code_execution",
-            func: TestFn::Sync(code_execution::test_successful_code_sample_with_ansi_colors),
+            func: code_execution::test_successful_code_sample_with_ansi_colors,
             ignored: false,
         },
         Test {
             name: "test_failing_code_sample_shows_compiler_error",
             module: "code_execution",
-            func: TestFn::Sync(code_execution::test_failing_code_sample_shows_compiler_error),
+            func: code_execution::test_failing_code_sample_shows_compiler_error,
             ignored: false,
         },
         Test {
             name: "test_compiler_error_with_ansi_colors",
             module: "code_execution",
-            func: TestFn::Sync(code_execution::test_compiler_error_with_ansi_colors),
+            func: code_execution::test_compiler_error_with_ansi_colors,
             ignored: false,
         },
         Test {
             name: "test_incorrect_sample_expected_to_pass_fails_build",
             module: "code_execution",
-            func: TestFn::Sync(code_execution::test_incorrect_sample_expected_to_pass_fails_build),
+            func: code_execution::test_incorrect_sample_expected_to_pass_fails_build,
             ignored: false,
         },
         Test {
             name: "test_multiple_code_samples_executed",
             module: "code_execution",
-            func: TestFn::Sync(code_execution::test_multiple_code_samples_executed),
+            func: code_execution::test_multiple_code_samples_executed,
             ignored: false,
         },
         Test {
             name: "test_non_rust_code_blocks_not_executed",
             module: "code_execution",
-            func: TestFn::Sync(code_execution::test_non_rust_code_blocks_not_executed),
+            func: code_execution::test_non_rust_code_blocks_not_executed,
             ignored: false,
         },
         Test {
             name: "test_runtime_panic_reported",
             module: "code_execution",
-            func: TestFn::Sync(code_execution::test_runtime_panic_reported),
+            func: code_execution::test_runtime_panic_reported,
             ignored: false,
         },
         // boot_contract tests (Part 8: regression tests that pin the contract)
         Test {
             name: "missing_cell_returns_http_500_not_connection_reset",
             module: "boot_contract",
-            func: TestFn::Sync(boot_contract::missing_cell_returns_http_500_not_connection_reset),
+            func: boot_contract::missing_cell_returns_http_500_not_connection_reset,
             ignored: false,
         },
         Test {
             name: "immediate_request_after_fd_pass_succeeds",
             module: "boot_contract",
-            func: TestFn::Sync(boot_contract::immediate_request_after_fd_pass_succeeds),
+            func: boot_contract::immediate_request_after_fd_pass_succeeds,
             ignored: false,
         },
     ]
