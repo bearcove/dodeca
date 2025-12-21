@@ -41,7 +41,7 @@ pub fn scss_change_triggers_rebuild() {
 
     let css_url_2 = site.wait_until(
         "SCSS change to trigger CSS rebuild and URL change",
-        Duration::from_secs(10),
+        Duration::from_secs(2),
         || {
             let url = site.get("/").css_link("/main.*.css")?;
             if url != css_url_1 { Some(url) } else { None }

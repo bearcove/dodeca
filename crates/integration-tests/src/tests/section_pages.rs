@@ -30,7 +30,7 @@ pub fn adding_page_updates_section_pages_list() {
 
     let html = site.wait_until(
         "initial section pages list to be generated",
-        Duration::from_secs(5),
+        Duration::from_secs(2),
         || {
             let html = site.get("/guide/");
             html.assert_ok();
@@ -80,7 +80,7 @@ This is a newly added page.
     tracing::info!("Waiting for section.pages to update with new page");
     site.wait_until(
         "section pages list to include new topic",
-        Duration::from_secs(5),
+        Duration::from_secs(2),
         || {
             tracing::debug!("Getting...");
             let html = site.get("/guide/");
@@ -170,7 +170,7 @@ pub fn adding_page_updates_via_get_section_macro() {
 
     site.wait_until(
         "get_section macro to show section-pages",
-        Duration::from_secs(5),
+        Duration::from_secs(2),
         || {
             let html = site.get("/guide/");
             if html.body.contains("section-pages") {
@@ -204,7 +204,7 @@ Testing get_section in macros.
 
     site.wait_until(
         "get_section macro to include new macro test page",
-        Duration::from_secs(5),
+        Duration::from_secs(2),
         || {
             let html = site.get("/guide/");
             if html.body.contains("Macro Test Page") {

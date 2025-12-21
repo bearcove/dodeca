@@ -36,7 +36,7 @@ pub fn css_change_updates_hash() {
     });
     let css_url_2 = site.wait_until(
         "CSS URL to change after style modification",
-        Duration::from_secs(10),
+        Duration::from_secs(2),
         || {
             let url = site.get("/").css_link("/css/style.*.css")?;
             if url != css_url_1 { Some(url) } else { None }
