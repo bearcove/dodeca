@@ -22,10 +22,10 @@ use std::io::{BufRead, BufReader, Read as _, Write as _};
 use std::os::unix::io::IntoRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as StdCommand, Stdio};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::net::UnixListener;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::fd_passing;
 
@@ -34,10 +34,27 @@ thread_local! {
     static CURRENT_TEST_ID: Cell<u64> = const { Cell::new(0) };
 }
 
-static TEST_LOGS: OnceLock<Mutex<std::collections::HashMap<u64, Vec<LogLine>>>> = OnceLock::new();
-static TEST_EXIT_STATUS: OnceLock<Mutex<std::collections::HashMap<u64, std::process::ExitStatus>>> =
-    OnceLock::new();
-static TEST_SETUP: OnceLock<Mutex<std::collections::HashMap<u64, Duration>>> = OnceLock::new();
+/// Per-test state storage
+struct TestState {
+    logs: Vec<LogLine>,
+    exit_status: Option<std::process::ExitStatus>,
+    start_time: Instant,
+    setup_duration: Option<Duration>,
+}
+
+impl TestState {
+    fn new() -> Self {
+        Self {
+            logs: Vec::new(),
+            exit_status: None,
+            start_time: Instant::now(),
+            setup_duration: None,
+        }
+    }
+}
+
+/// Global test state storage (consolidated from 4 separate statics)
+static TEST_STATES: OnceLock<Mutex<std::collections::HashMap<u64, TestState>>> = OnceLock::new();
 
 #[derive(Clone)]
 struct LogLine {
@@ -46,59 +63,72 @@ struct LogLine {
     line: String,
 }
 
-fn push_log(logs: &Arc<Mutex<Vec<LogLine>>>, log_start: Instant, line: impl Into<String>) {
-    let entry = LogLine {
-        ts: log_start.elapsed(),
-        abs: SystemTime::now(),
-        line: line.into(),
-    };
-    logs.lock().unwrap().push(entry);
-}
+// push_log function removed - all logging now goes through tracing
 
-/// Set the current test id for log routing
+/// Set the current test id for log routing and initialize test state
 pub fn set_current_test_id(id: u64) {
     CURRENT_TEST_ID.with(|cell| cell.set(id));
+
+    // Initialize test state
+    let states = TEST_STATES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    states.lock().unwrap().insert(id, TestState::new());
 }
 
 /// Push a log entry for a specific test (used by tracing integration)
 pub fn push_test_log(test_id: u64, message: String) {
-    let logs_map = TEST_LOGS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-    let mut logs = logs_map.lock().unwrap();
+    let states = TEST_STATES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let mut states_map = states.lock().unwrap();
 
-    let log_entry = LogLine {
-        ts: Duration::from_millis(0), // We don't have access to log_start here, so use 0
-        abs: SystemTime::now(),
-        line: message,
-    };
-
-    logs.entry(test_id).or_insert_with(Vec::new).push(log_entry);
+    if let Some(state) = states_map.get_mut(&test_id) {
+        let log_entry = LogLine {
+            ts: state.start_time.elapsed(),
+            abs: SystemTime::now(),
+            line: message,
+        };
+        state.logs.push(log_entry);
+    }
 }
 
-/// Clear per-test logs and setup timing
+/// Clear per-test state
 pub fn clear_test_state(id: u64) {
-    let logs = TEST_LOGS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-    let setup = TEST_SETUP.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-    logs.lock().unwrap().remove(&id);
-    setup.lock().unwrap().remove(&id);
+    let states = TEST_STATES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    states.lock().unwrap().remove(&id);
 }
 
 /// Get the logs for a test id (for printing on failure)
 pub fn get_logs_for(id: u64) -> Vec<String> {
-    let logs = TEST_LOGS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-    let lines = logs.lock().unwrap().get(&id).cloned().unwrap_or_default();
-    render_logs(lines)
+    let states = TEST_STATES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let states_map = states.lock().unwrap();
+    eprintln!(
+        "DEBUG: get_logs_for({}) - found {} test states",
+        id,
+        states_map.len()
+    );
+    if let Some(state) = states_map.get(&id) {
+        eprintln!(
+            "DEBUG: get_logs_for({}) - found state with {} logs",
+            id,
+            state.logs.len()
+        );
+        render_logs(state.logs.clone())
+    } else {
+        eprintln!("DEBUG: get_logs_for({}) - no state found for test id", id);
+        Vec::new()
+    }
 }
 
 /// Get the exit status for a test id (if the server already exited)
 pub fn get_exit_status_for(id: u64) -> Option<std::process::ExitStatus> {
-    let statuses = TEST_EXIT_STATUS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-    statuses.lock().unwrap().get(&id).copied()
+    let states = TEST_STATES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let states_map = states.lock().unwrap();
+    states_map.get(&id).and_then(|state| state.exit_status)
 }
 
 /// Get the setup duration for a test id
 pub fn get_setup_for(id: u64) -> Option<Duration> {
-    let setup = TEST_SETUP.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-    setup.lock().unwrap().get(&id).copied()
+    let states = TEST_STATES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+    let states_map = states.lock().unwrap();
+    states_map.get(&id).and_then(|state| state.setup_duration)
 }
 
 /// Get the path to the ddc binary
@@ -127,8 +157,6 @@ pub struct TestSite {
     fixture_dir: PathBuf,
     _temp_dir: tempfile::TempDir,
     _unix_socket_dir: tempfile::TempDir,
-    logs: Arc<Mutex<Vec<LogLine>>>,
-    log_start: Instant,
     test_id: u64,
 }
 
@@ -311,27 +339,16 @@ impl TestSite {
         let stdout = child.stdout.take().expect("capture stdout");
         let stderr = child.stderr.take().expect("capture stderr");
 
-        // Capture logs (stdout/stderr + harness events). Only printed on test failure.
-        let reader = BufReader::new(stdout);
+        // Prepare readers for background log capture
+        let stdout_reader = BufReader::new(stdout);
         let stderr_reader = BufReader::new(stderr);
-        let logs: Arc<Mutex<Vec<LogLine>>> = Arc::new(Mutex::new(Vec::new()));
-        let log_start = Instant::now();
-        push_log(
-            &logs,
-            log_start,
-            format!("[harness] spawned ddc pid={}", child.id()),
-        );
+        info!("spawned ddc pid={}", child.id());
         // Accept connection from server on Unix socket and send FD
         let child_id = child.id();
-        let logs_for_fd = Arc::clone(&logs);
         rt.block_on(async {
             use tokio::io::AsyncReadExt;
 
-            push_log(
-                &logs_for_fd,
-                log_start,
-                "[harness] waiting for unix socket accept",
-            );
+            debug!("waiting for unix socket accept");
             let accept_future = unix_listener.accept();
             let timeout_duration = tokio::time::Duration::from_secs(5);
 
@@ -349,11 +366,7 @@ impl TestSite {
             fd_passing::send_fd(&unix_stream, listener_fd)
                 .await
                 .expect("send FD");
-            push_log(
-                &logs_for_fd,
-                log_start,
-                "[harness] sent TCP listener FD to server",
-            );
+            info!("sent TCP listener FD to ddc");
             debug!("Sent TCP listener FD to server");
 
             // FD passing ack:
@@ -378,11 +391,7 @@ impl TestSite {
                     child_id, ack_buf[0]
                 );
             }
-            push_log(
-                &logs_for_fd,
-                log_start,
-                "[harness] server acked listener FD",
-            );
+            info!("server acked listener FD");
 
             // Close the local copy *after* the server has acked receipt. The receiver gets its
             // own duplicate FD via SCM_RIGHTS.
@@ -391,16 +400,14 @@ impl TestSite {
             // SAFETY: We created `listener_fd` from a freshly-bound listener and haven't closed it.
             let _ = unsafe { std::os::fd::OwnedFd::from_raw_fd(listener_fd) };
         });
-        push_log(&logs, log_start, "[harness] log capture started");
+        debug!("log capture started");
 
         // Drain stdout in background (capture only, no printing)
-        let logs_stdout = Arc::clone(&logs);
-        let log_start_stdout = log_start;
         std::thread::spawn(move || {
-            for line in reader.lines() {
+            for line in stdout_reader.lines() {
                 match line {
                     Ok(l) => {
-                        push_log(&logs_stdout, log_start_stdout, format!("[stdout] {l}"));
+                        debug!(target: "stdout", "{}", l);
                     }
                     Err(_) => break,
                 }
@@ -408,13 +415,11 @@ impl TestSite {
         });
 
         // Drain stderr in background (capture only, no printing)
-        let logs_stderr = Arc::clone(&logs);
-        let log_start_stderr = log_start;
         std::thread::spawn(move || {
             for line in stderr_reader.lines() {
                 match line {
                     Ok(l) => {
-                        push_log(&logs_stderr, log_start_stderr, format!("[stderr] {l}"));
+                        debug!(target: "stderr", "{}", l);
                     }
                     Err(_) => break,
                 }
@@ -422,8 +427,10 @@ impl TestSite {
         });
 
         let setup_elapsed = setup_start.elapsed();
-        let setup = TEST_SETUP.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-        setup.lock().unwrap().insert(test_id, setup_elapsed);
+        let states = TEST_STATES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+        if let Some(state) = states.lock().unwrap().get_mut(&test_id) {
+            state.setup_duration = Some(setup_elapsed);
+        }
 
         Self {
             child,
@@ -431,28 +438,27 @@ impl TestSite {
             fixture_dir,
             _temp_dir: temp_dir,
             _unix_socket_dir: unix_socket_dir,
-            logs,
-            log_start,
             test_id,
         }
     }
 
-    /// Clear captured logs (stdout + stderr).
+    /// Clear captured logs for this test
     pub fn clear_logs(&self) {
-        self.logs.lock().unwrap().clear();
+        clear_test_state(self.test_id);
     }
 
-    /// Return the current log cursor (index into the captured log vector).
+    /// Return the current log cursor (number of log lines)
     pub fn log_cursor(&self) -> usize {
-        self.logs.lock().unwrap().len()
+        let logs = get_logs_for(self.test_id);
+        logs.len()
     }
 
-    /// Count log lines containing `needle` since `cursor`.
+    /// Count log lines containing `needle` since `cursor`
     pub fn count_logs_since(&self, cursor: usize, needle: &str) -> usize {
-        let logs = self.logs.lock().unwrap();
+        let logs = get_logs_for(self.test_id);
         logs.iter()
             .skip(cursor)
-            .filter(|l| l.line.contains(needle))
+            .filter(|line| line.contains(needle))
             .count()
     }
 
@@ -463,11 +469,7 @@ impl TestSite {
     /// stall until ready, but connect+write must never fail.
     pub fn get(&self, path: &str) -> Response {
         let url = format!("http://127.0.0.1:{}{}", self.port, path);
-        push_log(
-            &self.logs,
-            self.log_start,
-            format!("[harness] → GET {}", path),
-        );
+        info!("→ GET {}", path);
 
         fn format_error_chain(err: &dyn std::error::Error) -> String {
             let mut out = err.to_string();
@@ -502,13 +504,9 @@ impl TestSite {
                 let body = resp.into_body().read_to_string().unwrap_or_default();
                 let body_len = body.len();
 
-                push_log(
-                    &self.logs,
-                    self.log_start,
-                    format!(
-                        "[harness] ← {} {} ({} ms, {} bytes, gen={}, content-type: {})",
-                        status, path, elapsed_ms, body_len, generation, content_type
-                    ),
+                info!(
+                    "← {} {} ({} ms, {} bytes, gen={}, content-type: {})",
+                    status, path, elapsed_ms, body_len, generation, content_type
                 );
 
                 Response { status, body, url }
@@ -517,26 +515,12 @@ impl TestSite {
                 // ureq treats 4xx/5xx as errors, but we want to return them as responses
                 let elapsed_ms = request_start.elapsed().as_millis();
                 let body = String::new();
-                push_log(
-                    &self.logs,
-                    self.log_start,
-                    format!(
-                        "[harness] ← {} {} ({} ms, error status)",
-                        status, path, elapsed_ms
-                    ),
-                );
+                info!("← {} {} ({} ms, error status)", status, path, elapsed_ms);
                 Response { status, body, url }
             }
             Err(e) => {
                 let elapsed_ms = request_start.elapsed().as_millis();
-                push_log(
-                    &self.logs,
-                    self.log_start,
-                    format!(
-                        "[harness] ✗ GET {} failed after {} ms: {}",
-                        path, elapsed_ms, e
-                    ),
-                );
+                error!("✗ GET {} failed after {} ms: {}", path, elapsed_ms, e);
                 error!(%url, error = ?e, "GET failed (no retries)");
                 panic!("GET {} failed:\n{:?}\n{}", url, e, format_error_chain(&e));
             }
@@ -554,11 +538,7 @@ impl TestSite {
         use std::net::TcpStream;
 
         let addr = format!("127.0.0.1:{}", self.port);
-        push_log(
-            &self.logs,
-            self.log_start,
-            format!("[probe] Starting raw TCP probe to {}{}", addr, path),
-        );
+        info!(target: "probe", "Starting raw TCP probe to {}{}", addr, path);
 
         // Phase 1: Connect
         let connect_start = Instant::now();
@@ -572,17 +552,12 @@ impl TestSite {
                     e,
                     e.kind()
                 );
-                push_log(&self.logs, self.log_start, &msg);
-                error!("{}", msg);
+                error!(target: "probe", "{}", msg);
                 panic!("{}", msg);
             }
         };
         let connect_elapsed = connect_start.elapsed();
-        push_log(
-            &self.logs,
-            self.log_start,
-            format!("[probe] CONNECT OK in {:?}", connect_elapsed),
-        );
+        info!(target: "probe", "Connected in {:?}", connect_elapsed);
 
         // Phase 2: Write HTTP request
         let request = format!(
@@ -598,20 +573,11 @@ impl TestSite {
                 e,
                 e.kind()
             );
-            push_log(&self.logs, self.log_start, &msg);
-            error!("{}", msg);
+            error!(target: "probe", "{}", msg);
             panic!("{}", msg);
         }
         let write_elapsed = write_start.elapsed();
-        push_log(
-            &self.logs,
-            self.log_start,
-            format!(
-                "[probe] WRITE OK in {:?} ({} bytes)",
-                write_elapsed,
-                request.len()
-            ),
-        );
+        info!(target: "probe", "Wrote request in {:?} ({} bytes)", write_elapsed, request.len());
 
         // Phase 3: Read first byte (with timeout)
         stream.set_read_timeout(Some(Duration::from_secs(30))).ok();
@@ -624,8 +590,7 @@ impl TestSite {
                     "[probe] READ EOF after {:?} (server closed without response)",
                     elapsed
                 );
-                push_log(&self.logs, self.log_start, &msg);
-                debug!("{}", msg);
+                debug!(target: "probe", "{}", msg);
             }
             Ok(_) => {
                 let elapsed = read_start.elapsed();
@@ -639,8 +604,7 @@ impl TestSite {
                         '.'
                     }
                 );
-                push_log(&self.logs, self.log_start, &msg);
-                debug!("{}", msg);
+                debug!(target: "probe", "{}", msg);
             }
             Err(e) => {
                 let elapsed = read_start.elapsed();
@@ -650,21 +614,14 @@ impl TestSite {
                     e,
                     e.kind()
                 );
-                push_log(&self.logs, self.log_start, &msg);
                 // Read failures during probe are logged but not fatal
-                debug!("{}", msg);
+                debug!(target: "probe", "{}", msg);
             }
         }
 
         let total = connect_start.elapsed();
-        push_log(
-            &self.logs,
-            self.log_start,
-            format!(
-                "[probe] COMPLETE: connect={:?} write={:?} total={:?}",
-                connect_elapsed, write_elapsed, total
-            ),
-        );
+        info!(target: "probe", "COMPLETE: connect={:?} write={:?} total={:?}",
+              connect_elapsed, write_elapsed, total);
     }
 
     /// Check if raw TCP probe mode is enabled via DODECA_HARNESS_RAW_TCP=1
@@ -771,65 +728,44 @@ impl TestSite {
 
 impl Drop for TestSite {
     fn drop(&mut self) {
-        push_log(
-            &self.logs,
-            self.log_start,
-            format!("[harness] drop: cleaning up ddc pid={}", self.child.id()),
-        );
+        info!("cleaning up ddc pid={}", self.child.id());
 
         match self.child.try_wait() {
             Ok(Some(status)) => {
-                push_log(
-                    &self.logs,
-                    self.log_start,
-                    format!("[harness] drop: ddc already exited status={status}"),
-                );
-                let statuses =
-                    TEST_EXIT_STATUS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-                statuses.lock().unwrap().insert(self.test_id, status);
+                info!("ddc already exited status={status}");
+                let states =
+                    TEST_STATES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
+                if let Some(state) = states.lock().unwrap().get_mut(&self.test_id) {
+                    state.exit_status = Some(status);
+                }
             }
             Ok(None) => {
-                push_log(&self.logs, self.log_start, "[harness] drop: killing ddc");
-                if let Err(err) = self.child.kill() {
-                    push_log(
-                        &self.logs,
-                        self.log_start,
-                        format!("[harness] drop: kill failed: {err}"),
-                    );
+                info!("killing ddc");
+                if let Err(e) = self.child.kill() {
+                    error!("kill failed: {e}");
                 }
 
                 match self.child.wait() {
                     Ok(status) => {
-                        push_log(
-                            &self.logs,
-                            self.log_start,
-                            format!("[harness] drop: wait complete status={status}"),
-                        );
-                        let statuses = TEST_EXIT_STATUS
+                        info!("wait complete status={status}");
+                        let states = TEST_STATES
                             .get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-                        statuses.lock().unwrap().insert(self.test_id, status);
+                        if let Some(state) = states.lock().unwrap().get_mut(&self.test_id) {
+                            state.exit_status = Some(status);
+                        }
                     }
-                    Err(err) => {
-                        push_log(
-                            &self.logs,
-                            self.log_start,
-                            format!("[harness] drop: wait failed: {err}"),
-                        );
+                    Err(e) => {
+                        error!("wait failed: {e}");
                     }
                 }
             }
-            Err(err) => {
-                push_log(
-                    &self.logs,
-                    self.log_start,
-                    format!("[harness] drop: try_wait failed: {err}"),
-                );
+            Err(e) => {
+                error!("try_wait failed: {e}");
             }
         }
 
-        let logs = self.logs.lock().unwrap().clone();
-        let logs_map = TEST_LOGS.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
-        logs_map.lock().unwrap().insert(self.test_id, logs);
+        // Logs are now handled by the tracing system via push_test_log
+        // No need to copy from self.logs since it's no longer used
     }
 }
 
