@@ -267,7 +267,7 @@ pub async fn start_cell_server_with_shutdown(
         });
     }
 
-    // Part 4.1: Convert std listeners to tokio listeners for direct async accept.
+    // Convert std listeners to tokio listeners for direct async accept.
     // This eliminates the thread+poll design that introduced cross-thread races.
     let tokio_listeners: Vec<tokio::net::TcpListener> = listeners
         .into_iter()
@@ -369,7 +369,7 @@ pub async fn start_cell_server_with_shutdown(
     }
 }
 
-/// Part 4.1: Async accept loop using tokio::net::TcpListener directly.
+/// Async accept loop using tokio::net::TcpListener directly.
 /// This eliminates the thread+poll design that introduced cross-thread races
 /// and OS scheduling differences between macOS and Linux.
 async fn run_async_accept_loop(
@@ -380,14 +380,14 @@ async fn run_async_accept_loop(
     mut shutdown_rx: Option<watch::Receiver<bool>>,
     shutdown_flag: Arc<AtomicBool>,
 ) -> Result<()> {
-    tracing::info!(
+    tracing::debug!(
         session_ready = session_rx.borrow().is_some(),
         boot_state = ?*boot_state_rx.borrow(),
         num_listeners = listeners.len(),
-        "Async accept loop starting (Part 4.1)"
+        "Async accept loop starting"
     );
 
-    tracing::info!(
+    tracing::debug!(
         "Accepting connections immediately; readiness gated per connection (cells={:?})",
         REQUIRED_CELLS
     );

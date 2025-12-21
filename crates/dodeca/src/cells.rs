@@ -807,7 +807,7 @@ impl CellRegistry {
         loop {
             let all_active = peer_ids.iter().all(|&id| hub.is_peer_active(id));
             if all_active {
-                info!(
+                debug!(
                     "Initialized {} cells in {:?}",
                     peer_ids.len(),
                     start.elapsed()
@@ -1002,7 +1002,7 @@ pub async fn all() -> &'static CellRegistry {
             .count();
 
             if loaded_count > 0 {
-                info!(
+                debug!(
                     cell_dir = %cell_dir.display(),
                     source = %source,
                     loaded_count,
