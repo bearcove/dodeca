@@ -58,10 +58,49 @@ impl TestState {
 /// Global test state storage (consolidated from 4 separate statics)
 static TEST_STATES: OnceLock<Mutex<std::collections::HashMap<u64, TestState>>> = OnceLock::new();
 
+#[derive(Clone, Debug)]
+enum LogLevel {
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl LogLevel {
+    fn from_str(s: &str) -> Self {
+        match s.to_uppercase().as_str() {
+            "ERROR" => LogLevel::Error,
+            "WARN" => LogLevel::Warn,
+            "INFO" => LogLevel::Info,
+            "DEBUG" => LogLevel::Debug,
+            "TRACE" => LogLevel::Trace,
+            _ => LogLevel::Info, // default fallback
+        }
+    }
+
+    fn format_colored(&self, target: &str, message: &str) -> String {
+        match self {
+            LogLevel::Error => format!("{} {}: {}", "ERROR".red().bold(), target.green(), message),
+            LogLevel::Warn => format!("{} {}: {}", "WARN".yellow().bold(), target.green(), message),
+            LogLevel::Info => format!("{} {}: {}", "INFO".blue().bold(), target.green(), message),
+            LogLevel::Debug => format!("{} {}: {}", "DEBUG".cyan().bold(), target.green(), message),
+            LogLevel::Trace => format!(
+                "{} {}: {}",
+                "TRACE".magenta().bold(),
+                target.green(),
+                message
+            ),
+        }
+    }
+}
+
 #[derive(Clone)]
 struct LogLine {
     ts: Duration,
     abs: SystemTime,
+    level: LogLevel,
+    target: String,
     line: String,
 }
 
@@ -77,7 +116,7 @@ pub fn set_current_test_id(id: u64) {
 }
 
 /// Push a log entry for a specific test (used by tracing integration)
-pub fn push_test_log(test_id: u64, message: String) {
+pub fn push_test_log(test_id: u64, level: &str, target: &str, message: &str) {
     let states = TEST_STATES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
     let mut states_map = states.lock().unwrap();
 
@@ -85,7 +124,9 @@ pub fn push_test_log(test_id: u64, message: String) {
         let log_entry = LogLine {
             ts: state.start_time.elapsed(),
             abs: SystemTime::now(),
-            line: message,
+            level: LogLevel::from_str(level),
+            target: target.to_string(),
+            line: message.to_string(),
         };
         state.logs.push(log_entry);
     }
@@ -772,34 +813,9 @@ fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {
         .map(|l| {
             let timestamp = format!("{:>5.3}s", l.ts.as_secs_f64()).dimmed().to_string();
 
-            // Parse the log line to extract level and target for coloring
-            if let Some(captures) = regex::Regex::new(r"^\[(\w+)\] ([^:]+): (.+)$")
-                .unwrap()
-                .captures(&l.line)
-            {
-                let level = &captures[1];
-                let target = &captures[2];
-                let message = &captures[3];
-
-                let colored_level = match level {
-                    "ERROR" => level.red().bold().to_string(),
-                    "WARN" => level.yellow().bold().to_string(),
-                    "INFO" => level.blue().bold().to_string(),
-                    "DEBUG" => level.cyan().to_string(),
-                    "TRACE" => level.magenta().to_string(),
-                    _ => level.white().to_string(),
-                };
-
-                let colored_target = target.green().to_string();
-
-                format!(
-                    "{} [{}] {}: {}",
-                    timestamp, colored_level, colored_target, message
-                )
-            } else {
-                // Fallback for lines that don't match the expected format
-                format!("{} {}", timestamp, l.line)
-            }
+            // Use structured data for consistent coloring
+            let colored_message = l.level.format_colored(&l.target, &l.line);
+            format!("{} {}", timestamp, colored_message)
         })
         .collect()
 }
@@ -1084,52 +1100,13 @@ fn process_ddc_log_line(line: &str, stream: &str) {
     let trimmed = line.trim();
 
     // Try to parse as JSON first
-    if let Ok(json_value) = facet_json::from_str::<Value>(trimmed) {
-        if let Some(parsed) = parse_json_log(&json_value) {
-            // Successfully parsed JSON log - emit as structured log with colors
-            let colored_message = match parsed.level.as_str() {
-                "ERROR" => format!(
-                    "{} {}: {}",
-                    parsed.level.red().bold(),
-                    parsed.target.green(),
-                    parsed.message
-                ),
-                "WARN" => format!(
-                    "{} {}: {}",
-                    parsed.level.yellow().bold(),
-                    parsed.target.green(),
-                    parsed.message
-                ),
-                "INFO" => format!(
-                    "{} {}: {}",
-                    parsed.level.blue().bold(),
-                    parsed.target.green(),
-                    parsed.message
-                ),
-                "DEBUG" => format!(
-                    "{} {}: {}",
-                    parsed.level.cyan().bold(),
-                    parsed.target.green(),
-                    parsed.message
-                ),
-                "TRACE" => format!(
-                    "{} {}: {}",
-                    parsed.level.magenta().bold(),
-                    parsed.target.green(),
-                    parsed.message
-                ),
-                _ => format!(
-                    "{} {}: {}",
-                    parsed.level.blue().bold(),
-                    parsed.target.green(),
-                    parsed.message
-                ),
-            };
-
-            // Use info! for all to avoid duplication
-            info!("{}", colored_message);
-            return;
-        }
+    if let Ok(json_value) = facet_json::from_str::<Value>(trimmed)
+        && let Some(parsed) = parse_json_log(&json_value)
+    {
+        // Successfully parsed JSON log - push structured data to test log
+        let test_id = CURRENT_TEST_ID.with(|id| id.get());
+        push_test_log(test_id, &parsed.level, &parsed.target, &parsed.message);
+        return;
     }
 
     // Fallback to text parsing
@@ -1139,15 +1116,32 @@ fn process_ddc_log_line(line: &str, stream: &str) {
         || trimmed.starts_with("ERROR ")
         || trimmed.starts_with("TRACE ")
     {
-        // Pass through pre-formatted logs without wrapping
-        info!(target: "ddc", "{}", trimmed);
-    } else {
-        // Regular output without log formatting
-        match stream {
-            "stdout" => debug!("[stdout] {}", line),
-            "stderr" => debug!("[stderr] {}", line),
-            _ => debug!("[unknown] {}", line),
+        // Parse pre-formatted logs to extract level, target, and message
+        let test_id = CURRENT_TEST_ID.with(|id| id.get());
+        if let Some(space_pos) = trimmed.find(' ') {
+            let level = &trimmed[..space_pos];
+            if let Some(colon_pos) = trimmed.find(": ") {
+                let target = &trimmed[space_pos + 1..colon_pos];
+                let message = &trimmed[colon_pos + 2..];
+                push_test_log(test_id, level, target, message);
+            } else {
+                // No target separator found, treat as unknown target
+                let message = &trimmed[space_pos + 1..];
+                push_test_log(test_id, level, "unknown", message);
+            }
+        } else {
+            // No space found, treat entire line as message with unknown level
+            push_test_log(test_id, "INFO", "unknown", trimmed);
         }
+    } else {
+        // Regular output without log formatting - push directly to avoid harness prefix
+        let test_id = CURRENT_TEST_ID.with(|id| id.get());
+        let target = match stream {
+            "stdout" => "stdout",
+            "stderr" => "stderr",
+            _ => "unknown",
+        };
+        push_test_log(test_id, "INFO", target, line);
     }
 }
 

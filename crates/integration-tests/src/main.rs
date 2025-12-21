@@ -75,6 +75,29 @@ where
             return; // No test currently running
         }
 
+        // Filter out noisy ureq logs - check message content for specific patterns
+        let target = event.metadata().target();
+        if target == "log" {
+            let mut visitor = LogVisitor::new();
+            event.record(&mut visitor);
+            let message = &visitor.message;
+
+            // Filter out specific noisy ureq patterns
+            if message.contains("Call<")
+                || message.contains("GET http://")
+                || message.contains("POST http://")
+                || message.contains("PUT http://")
+                || message.contains("DELETE http://")
+                || message.contains("Resolved: ArrayVec")
+                || message.contains("Connected TcpStream")
+                || message.contains("Response { status:")
+                || message.contains("Pool gone:")
+                || message.starts_with("Request {")
+            {
+                return;
+            }
+        }
+
         // Format the event similar to how tracing_subscriber::fmt would
         let metadata = event.metadata();
         let mut visitor = LogVisitor::new();
@@ -88,10 +111,8 @@ where
             tracing::Level::TRACE => "TRACE",
         };
 
-        let formatted = format!("[{}] {}: {}", level, metadata.target(), visitor.message);
-
-        // Push to the test logs using the existing system
-        push_test_log(test_id, formatted);
+        // Push to the test logs using the structured system
+        push_test_log(test_id, level, metadata.target(), &visitor.message);
     }
 }
 
@@ -121,13 +142,12 @@ impl tracing::field::Visit for LogVisitor {
 }
 
 // Push a log entry for a specific test
-fn push_test_log(test_id: u64, message: String) {
+fn push_test_log(test_id: u64, level: &str, target: &str, message: &str) {
     // Use the existing harness infrastructure
-    harness::push_test_log(test_id, message);
+    harness::push_test_log(test_id, level, target, message);
 }
 
 /// Run all tests and return (passed, failed, skipped)
-
 fn run_tests(tests: Vec<Test>, filter: Option<&str>) -> (usize, usize, usize) {
     let mut passed = 0;
     let mut failed = 0;
