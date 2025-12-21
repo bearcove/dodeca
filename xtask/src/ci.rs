@@ -1309,6 +1309,10 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                     .with_env([
                         ("DODECA_BIN", format!("{}/dist/ddc", workspace_var)),
                         ("DODECA_CELL_PATH", format!("{}/dist", workspace_var)),
+                        (
+                            "DODECA_TEST_FIXTURES_DIR",
+                            format!("{}/crates/integration-tests/fixtures", workspace_var),
+                        ),
                     ]),
                 ]),
         );
@@ -1666,6 +1670,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                     .with_env([
                         ("DODECA_BIN", format!("{}/dist/ddc", workspace_var)),
                         ("DODECA_CELL_PATH", format!("{}/dist", workspace_var)),
+                        ("DODECA_TEST_FIXTURES_DIR", format!("{}/crates/integration-tests/fixtures", workspace_var)),
                     ]),
                     ctree_cache_save(&format!("integration-{short}"), cache_base),
                 ]),
