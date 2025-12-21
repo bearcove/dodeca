@@ -90,10 +90,32 @@ impl LogLevel {
         }
     }
 
-    fn format_colored(&self, target: &str, message: &str) -> String {
+    fn format_colored(
+        &self,
+        target: &str,
+        message: &str,
+        fields: &std::collections::HashMap<String, String>,
+    ) -> String {
         let abbreviated_target = abbreviate_target(target);
         let colored_target = abbreviated_target.truecolor(169, 177, 214);
-        match self {
+
+        // Format structured fields with distinct colors
+        let mut formatted_fields = String::new();
+        if !fields.is_empty() {
+            let field_parts: Vec<String> = fields
+                .iter()
+                .map(|(key, value)| {
+                    format!(
+                        "{}={}",
+                        key.truecolor(158, 206, 106), // Green for keys
+                        value.truecolor(224, 175, 104)
+                    ) // Orange for values
+                })
+                .collect();
+            formatted_fields = format!(" {}", field_parts.join(" "));
+        }
+
+        let base_message = match self {
             LogLevel::Error => format!(
                 "{} {}: {}",
                 "ERROR".truecolor(247, 118, 142).bold(),
@@ -124,7 +146,9 @@ impl LogLevel {
                 colored_target,
                 message
             ),
-        }
+        };
+
+        format!("{}{}", base_message, formatted_fields)
     }
 }
 
@@ -135,6 +159,7 @@ struct LogLine {
     level: LogLevel,
     target: String,
     line: String,
+    fields: std::collections::HashMap<String, String>,
 }
 
 // push_log function removed - all logging now goes through tracing
@@ -150,6 +175,23 @@ pub fn set_current_test_id(id: u64) {
 
 /// Push a log entry for a specific test (used by tracing integration)
 pub fn push_test_log(test_id: u64, level: &str, target: &str, message: &str) {
+    push_test_log_with_fields(
+        test_id,
+        level,
+        target,
+        message,
+        std::collections::HashMap::new(),
+    );
+}
+
+/// Push a log entry with structured fields for a specific test
+pub fn push_test_log_with_fields(
+    test_id: u64,
+    level: &str,
+    target: &str,
+    message: &str,
+    fields: std::collections::HashMap<String, String>,
+) {
     let states = TEST_STATES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));
     let mut states_map = states.lock().unwrap();
 
@@ -160,6 +202,7 @@ pub fn push_test_log(test_id: u64, level: &str, target: &str, message: &str) {
             level: LogLevel::from_str(level),
             target: target.to_string(),
             line: message.to_string(),
+            fields,
         };
         state.logs.push(log_entry);
     }
@@ -849,7 +892,7 @@ fn render_logs(mut lines: Vec<LogLine>) -> Vec<String> {
                 .to_string();
 
             // Use structured data for consistent coloring
-            let colored_message = l.level.format_colored(&l.target, &l.line);
+            let colored_message = l.level.format_colored(&l.target, &l.line, &l.fields);
             format!("{} {}", timestamp, colored_message)
         })
         .collect()
@@ -1139,7 +1182,13 @@ fn process_ddc_log_line(line: &str, stream: &str, test_id: u64) {
         && let Some(parsed) = parse_json_log(&json_value)
     {
         // Successfully parsed JSON log - push structured data to test log
-        push_test_log(test_id, &parsed.level, &parsed.target, &parsed.message);
+        push_test_log_with_fields(
+            test_id,
+            &parsed.level,
+            &parsed.target,
+            &parsed.message,
+            parsed.fields,
+        );
         return;
     }
 
@@ -1182,6 +1231,7 @@ struct ParsedJsonLog {
     level: String,
     target: String,
     message: String,
+    fields: std::collections::HashMap<String, String>,
 }
 
 /// Parse a JSON log entry from tracing-subscriber
@@ -1208,39 +1258,38 @@ fn parse_json_log(json: &Value) -> Option<ParsedJsonLog> {
         _ => return None,
     };
 
-    // Extract message - tracing-subscriber JSON uses different field structures
+    // Extract message and structured fields - tracing-subscriber JSON uses different field structures
+    let mut fields = std::collections::HashMap::new();
     let message = if let Some(fields_value) = obj.get("fields") {
         // Check if fields is an object with message
         match fields_value.destructure_ref() {
             DestructuredRef::Object(fields_obj) => {
-                if let Some(msg_field) = fields_obj.get("message") {
-                    match msg_field.destructure_ref() {
-                        DestructuredRef::String(s) => s.to_string(),
-                        _ => format!("fields: {}", facet_value::format_value(fields_value)),
-                    }
-                } else {
-                    // Build message from all fields
-                    let mut parts = Vec::new();
-                    for (key, value) in fields_obj.iter() {
-                        if key.as_str() != "message" {
-                            match value.destructure_ref() {
-                                DestructuredRef::String(s) => {
-                                    parts.push(format!("{}={}", key.as_str(), s))
-                                }
-                                _ => parts.push(format!(
-                                    "{}={}",
-                                    key.as_str(),
-                                    facet_value::format_value(value)
-                                )),
+                let mut message = None;
+
+                // Extract all fields, treating message specially
+                for (key, value) in fields_obj.iter() {
+                    let key_str = key.as_str();
+                    match value.destructure_ref() {
+                        DestructuredRef::String(s) => {
+                            if key_str == "message" {
+                                message = Some(s.to_string());
+                            } else {
+                                fields.insert(key_str.to_string(), s.to_string());
+                            }
+                        }
+                        _ => {
+                            let formatted_value = facet_value::format_value(value);
+                            if key_str == "message" {
+                                message = Some(formatted_value);
+                            } else {
+                                fields.insert(key_str.to_string(), formatted_value);
                             }
                         }
                     }
-                    if parts.is_empty() {
-                        target.clone()
-                    } else {
-                        parts.join(" ")
-                    }
                 }
+
+                // Use message if found, otherwise use target
+                message.unwrap_or_else(|| target.clone())
             }
             _ => format!("fields: {}", facet_value::format_value(fields_value)),
         }
@@ -1260,9 +1309,35 @@ fn parse_json_log(json: &Value) -> Option<ParsedJsonLog> {
         target.clone() // fallback to target if no message found
     };
 
+    // Extract additional top-level fields that aren't level, target, message, or timestamp
+    for (key, value) in obj.iter() {
+        let key_str = key.as_str();
+        if ![
+            "level",
+            "target",
+            "message",
+            "msg",
+            "fields",
+            "timestamp",
+            "time",
+        ]
+        .contains(&key_str)
+        {
+            match value.destructure_ref() {
+                DestructuredRef::String(s) => {
+                    fields.insert(key_str.to_string(), s.to_string());
+                }
+                _ => {
+                    fields.insert(key_str.to_string(), facet_value::format_value(value));
+                }
+            }
+        }
+    }
+
     Some(ParsedJsonLog {
         level,
         target,
         message,
+        fields,
     })
 }

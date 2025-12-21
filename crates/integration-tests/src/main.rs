@@ -112,40 +112,42 @@ where
             tracing::Level::TRACE => "TRACE",
         };
 
-        // Push to the test logs using the structured system
-        push_test_log(test_id, level, metadata.target(), &visitor.message);
+        // Push to the test logs using the structured system with fields
+        harness::push_test_log_with_fields(
+            test_id,
+            level,
+            metadata.target(),
+            &visitor.message,
+            visitor.fields,
+        );
     }
 }
 
 struct LogVisitor {
     message: String,
+    fields: std::collections::HashMap<String, String>,
 }
 
 impl LogVisitor {
     fn new() -> Self {
         Self {
             message: String::new(),
+            fields: std::collections::HashMap::new(),
         }
     }
 }
 
 impl tracing::field::Visit for LogVisitor {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        let formatted_value = format!("{:?}", value);
         if field.name() == "message" {
-            self.message = format!("{:?}", value);
-        } else if !self.message.is_empty() {
-            self.message
-                .push_str(&format!(" {}={:?}", field.name(), value));
+            self.message = formatted_value;
         } else {
-            self.message = format!("{}={:?}", field.name(), value);
+            // Store structured fields separately
+            self.fields
+                .insert(field.name().to_string(), formatted_value);
         }
     }
-}
-
-// Push a log entry for a specific test
-fn push_test_log(test_id: u64, level: &str, target: &str, message: &str) {
-    // Use the existing harness infrastructure
-    harness::push_test_log(test_id, level, target, message);
 }
 
 /// Run all tests and return (passed, failed, skipped)
