@@ -1084,7 +1084,7 @@ mod section_pages {
     pub fn adding_page_updates_section_pages_list() {
         let site = TestSite::new("sample-site");
 
-        eprintln!("[test] Setting up section template with page list");
+        tracing::info!("Setting up section template with page list");
         site.write_file(
             "templates/section.html",
             r#"<!DOCTYPE html>
@@ -1107,7 +1107,7 @@ mod section_pages {
 
         site.wait_debounce();
 
-        eprintln!("[test] Checking initial section pages");
+        tracing::info!("Checking initial section pages");
         let html = site.get("/guide/");
         html.assert_ok();
 
@@ -1120,19 +1120,15 @@ mod section_pages {
                 .captures_iter(nav_html)
                 .map(|c| c.get(1).unwrap().as_str())
                 .collect();
-            eprintln!(
-                "[test] Found {} pages in section: {:?}",
-                titles.len(),
-                titles
-            );
+            tracing::info!("Found {} pages in section: {:?}", titles.len(), titles);
         } else {
-            eprintln!("[test] WARNING: Could not find page-list nav in HTML");
+            tracing::warn!("Could not find page-list nav in HTML");
         }
 
         html.assert_contains("Getting Started");
         html.assert_contains("Advanced");
 
-        eprintln!("[test] Adding new page: new-topic.md");
+        tracing::info!("Adding new page: new-topic.md");
         site.write_file(
             "content/guide/new-topic.md",
             r#"+++
@@ -1148,7 +1144,7 @@ This is a newly added page.
 
         site.wait_debounce();
 
-        eprintln!("[test] Waiting for section.pages to update with new page");
+        tracing::info!("Waiting for section.pages to update with new page");
         site.wait_until(Duration::from_secs(5), || {
             let html = site.get("/guide/");
 
@@ -1161,7 +1157,7 @@ This is a newly added page.
                     .captures_iter(nav_html)
                     .map(|c| c.get(1).unwrap().as_str())
                     .collect();
-                eprintln!("[test]   Poll: Found {} pages: {:?}", titles.len(), titles);
+                tracing::debug!("Poll: Found {} pages: {:?}", titles.len(), titles);
             }
 
             if html.body.contains("New Topic") {
@@ -1171,7 +1167,7 @@ This is a newly added page.
             }
         });
 
-        eprintln!("[test] Final check: all pages should be present");
+        tracing::info!("Final check: all pages should be present");
         let html = site.get("/guide/");
         html.assert_ok();
 
@@ -1184,7 +1180,7 @@ This is a newly added page.
                 .captures_iter(nav_html)
                 .map(|c| c.get(1).unwrap().as_str())
                 .collect();
-            eprintln!("[test] Final state: {} pages: {:?}", titles.len(), titles);
+            tracing::info!("Final state: {} pages: {:?}", titles.len(), titles);
         }
 
         html.assert_contains("Getting Started");

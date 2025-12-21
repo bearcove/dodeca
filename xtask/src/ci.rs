@@ -83,8 +83,10 @@ impl CiPlatform {
     /// Cargo flags for nightly features we rely on.
     /// +nightly: Explicitly use nightly toolchain (runner default may be stable).
     /// -Z checksum-freshness: Use file checksums instead of mtimes for freshness checks.
+    /// -Z mtime-on-use: Update mtimes when Cargo actually uses artifacts (for sweep).
     /// This allows caching to work properly even when git checkout changes file mtimes.
-    pub const CARGO_NIGHTLY_FLAGS: &'static str = "+nightly-2025-12-19 -Z checksum-freshness";
+    pub const CARGO_NIGHTLY_FLAGS: &'static str =
+        "+nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use";
 
     /// Get the local cache action for this platform (for self-hosted runners).
     pub fn local_cache_action(&self) -> &'static str {
@@ -793,11 +795,6 @@ pub mod common {
     /// Generate a ctree-based cache restore step.
     /// Uses reflinks for near-instant COW copies on supported filesystems.
     ///
-    /// CRITICAL: We backdate all source files before restoring cache to prevent
-    /// cargo from seeing "source newer than build output" and triggering rebuilds.
-    /// Even with -Z checksum-freshness, build script outputs still use mtime checks,
-    /// so we need source mtimes < cached output mtimes.
-    ///
     /// After restore, we nuke any CMake build directories because CMake caches
     /// are not relocatable - they contain absolute paths that break when the
     /// workspace path changes between CI runs.
@@ -820,20 +817,37 @@ pub mod common {
   find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {{}} + 2>/dev/null || true
   echo "Cleaned CMake caches (non-relocatable)"
 
-  # Backdate entire source tree to prevent mtime-based cache invalidation.
-  # Fresh checkout creates files with mtime=NOW, but cached artifacts have old mtimes.
-  # Cargo's build script outputs use mtime checks (not affected by -Z checksum-freshness).
-  # Build scripts can read ANY file, so backdate everything to epoch (Jan 1, 1970).
-  echo "Backdating source tree to epoch (Jan 1, 1970)..."
-
-  # Touch all source files to epoch time (exclude .git and target)
-  if ! find . -path ./target -prune -o -path ./.git -prune -o -type f -exec touch -t 197001010000.00 {{}} \; ; then
-    echo "ERROR: Failed to backdate source files"
-    exit 1
-  fi
-  echo "Backdating complete"
 else
   echo "No cache found at {cache_dir}"
+fi"#
+            ),
+        )
+    }
+
+    /// Restore source mtimes for unchanged files using timelord.
+    pub fn timelord_restore(base_path: &str) -> Step {
+        let cache_dir = format!("{}/dodeca-ci/timelord", base_path);
+        Step::run(
+            "Restore source mtimes (timelord)",
+            format!(r#"timelord --source-dir . --cache-dir "{cache_dir}""#),
+        )
+    }
+
+    /// Stamp cargo sweep to track artifact usage for this job.
+    pub fn cargo_sweep_stamp() -> Step {
+        Step::run("Stamp artifacts (cargo sweep)", "cargo sweep --stamp")
+    }
+
+    /// Trim the saved cache based on the sweep stamp.
+    pub fn cargo_sweep_cache_trim(cache_name: &str, base_path: &str) -> Step {
+        let cache_dir = format!("{}/dodeca-ci/{}", base_path, cache_name);
+        Step::run(
+            "Trim cache (cargo sweep)",
+            format!(
+                r#"if [ -d "{cache_dir}" ]; then
+  cd "{cache_dir}" && cargo sweep --file || true
+else
+  echo "No cache found at {cache_dir} to trim"
 fi"#
             ),
         )
@@ -1452,6 +1466,11 @@ pub fn build_forgejo_workflow() -> Workflow {
 
     let platform = CiPlatform::Forgejo;
     let targets = targets_for_platform(platform);
+    let linux_cache_base = targets
+        .iter()
+        .find(|target| target.triple == "x86_64-unknown-linux-gnu")
+        .map(|target| target.cache_base_path())
+        .unwrap_or("/home/amos/.cache");
     let groups = cell_groups(9);
 
     // CAS env vars used by all artifact steps (SSH-based content-addressed storage)
@@ -1479,7 +1498,9 @@ pub fn build_forgejo_workflow() -> Workflow {
                     "clippy",
                     "wasm32-unknown-unknown",
                 ),
-                ctree_cache_restore("clippy", "/home/amos/.cache"),
+                ctree_cache_restore("clippy", linux_cache_base),
+                timelord_restore(linux_cache_base),
+                cargo_sweep_stamp(),
                 Step::run(
                     "Clippy",
                     format!(
@@ -1487,7 +1508,8 @@ pub fn build_forgejo_workflow() -> Workflow {
                         CiPlatform::CARGO_NIGHTLY_FLAGS
                     ),
                 ),
-                ctree_cache_save("clippy", "/home/amos/.cache"),
+                ctree_cache_save("clippy", linux_cache_base),
+                cargo_sweep_cache_trim("clippy", linux_cache_base),
             ]),
     );
 
@@ -1504,10 +1526,13 @@ pub fn build_forgejo_workflow() -> Workflow {
             .steps([
                 checkout(platform),
                 install_rust_with_target(platform, "wasm32-unknown-unknown"),
-                ctree_cache_restore("wasm", "/home/amos/.cache"),
+                ctree_cache_restore("wasm", linux_cache_base),
+                timelord_restore(linux_cache_base),
+                cargo_sweep_stamp(),
                 Step::run("Build WASM", "cargo xtask wasm"),
                 // Save cache immediately after build (before uploads that might fail)
-                ctree_cache_save("wasm", "/home/amos/.cache"),
+                ctree_cache_save("wasm", linux_cache_base),
+                cargo_sweep_cache_trim("wasm", linux_cache_base),
                 // Upload WASM to CAS as a tarball
                 Step::run(
                     "Upload WASM to CAS",
@@ -1538,9 +1563,12 @@ pub fn build_forgejo_workflow() -> Workflow {
                     checkout(platform),
                     install_rust(platform),
                     ctree_cache_restore(&format!("ddc-{short}"), cache_base),
+                    timelord_restore(cache_base),
+                    cargo_sweep_stamp(),
                     Step::run("Build ddc", format!("cargo {} build --release -p dodeca --verbose", CiPlatform::CARGO_NIGHTLY_FLAGS)),
                     // Save cache immediately after build (before tests/uploads that might fail)
                     ctree_cache_save(&format!("ddc-{short}"), cache_base),
+                    cargo_sweep_cache_trim(&format!("ddc-{short}"), cache_base),
                     Step::run("Test ddc", format!("cargo {} test --release -p dodeca --bins", CiPlatform::CARGO_NIGHTLY_FLAGS)),
                     Step::run(
                         "Upload ddc to CAS",
@@ -1595,6 +1623,8 @@ pub fn build_forgejo_workflow() -> Workflow {
                         checkout(platform),
                         install_rust(platform),
                         ctree_cache_restore(&format!("cells-{short}-{group_num}"), cache_base),
+                        timelord_restore(cache_base),
+                        cargo_sweep_stamp(),
                         Step::run(
                             "Build cells",
                             format!(
@@ -1604,6 +1634,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                         ),
                         // Save cache immediately after build (before tests/uploads that might fail)
                         ctree_cache_save(&format!("cells-{short}-{group_num}"), cache_base),
+                        cargo_sweep_cache_trim(&format!("cells-{short}-{group_num}"), cache_base),
                         Step::run(
                             "Test cells",
                             format!(
@@ -1636,6 +1667,8 @@ pub fn build_forgejo_workflow() -> Workflow {
                     checkout(platform),
                     install_rust(platform),
                     ctree_cache_restore(&format!("integration-{short}"), cache_base),
+                    timelord_restore(cache_base),
+                    cargo_sweep_stamp(),
                     // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
                     Step::run(
                         "Build integration-tests",
@@ -1673,6 +1706,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                         ("DODECA_TEST_FIXTURES_DIR", format!("{}/crates/integration-tests/fixtures", workspace_var)),
                     ]),
                     ctree_cache_save(&format!("integration-{short}"), cache_base),
+                    cargo_sweep_cache_trim(&format!("integration-{short}"), cache_base),
                 ]),
         );
 
