@@ -662,6 +662,7 @@ impl SiteServer {
 
     /// Find content for a given path using lazy picante queries
     async fn find_content(&self, path: &str) -> Option<ServeContent> {
+        tracing::debug!(path, "find_content: called");
         // Snapshot pattern: create snapshot while holding lock (sync), then release
         // Note: from_database is async but doesn't await internally, so we use now_or_never()
         // to avoid nested block_on calls (which panic in futures-executor)
@@ -671,6 +672,7 @@ impl SiteServer {
                 .now_or_never()
                 .expect("from_database should complete immediately")
         };
+        tracing::debug!(path, "find_content: got database snapshot");
 
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
@@ -694,7 +696,10 @@ impl SiteServer {
         };
 
         let route = Route::new(route_path.clone());
-        if let Some(html) = serve_html(&snapshot, route).await.ok().flatten() {
+        tracing::debug!(route = %route.as_str(), "find_content: calling serve_html");
+        let serve_html_result = serve_html(&snapshot, route).await;
+        tracing::debug!(route = %route.as_str(), has_result = serve_html_result.is_ok(), "find_content: serve_html returned");
+        if let Some(html) = serve_html_result.ok().flatten() {
             // Check if this is an error page and notify devtools
             if html.contains(crate::render::RENDER_ERROR_MARKER) {
                 // Extract error message HTML from between <pre> tags
