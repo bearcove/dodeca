@@ -46,8 +46,11 @@ jobs:
         name: Restore cache (ctree)
         run: "if [ -d \"/home/amos/.cache/dodeca-ci/clippy\" ]; then\n  echo \"Restoring cache from /home/amos/.cache/dodeca-ci/clippy...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/clippy\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/clippy\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/clippy\"\nfi"
       - 
+        name: Timelord cache info (before sync)
+        run: "if [ -d \"/home/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord\"\nfi"
+      - 
         name: Restore source mtimes (timelord)
-        run: "timelord --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
+        run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
       - 
         name: Stamp artifacts (cargo sweep)
         run: cargo sweep --stamp
@@ -85,8 +88,11 @@ jobs:
         name: Restore cache (ctree)
         run: "if [ -d \"/home/amos/.cache/dodeca-ci/wasm\" ]; then\n  echo \"Restoring cache from /home/amos/.cache/dodeca-ci/wasm...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/wasm\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/wasm\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/wasm\"\nfi"
       - 
+        name: Timelord cache info (before sync)
+        run: "if [ -d \"/home/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord\"\nfi"
+      - 
         name: Restore source mtimes (timelord)
-        run: "timelord --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
+        run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
       - 
         name: Stamp artifacts (cargo sweep)
         run: cargo sweep --stamp
@@ -126,8 +132,11 @@ jobs:
         name: Restore cache (ctree)
         run: "if [ -d \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" ]; then\n  echo \"Restoring cache from /home/amos/.cache/dodeca-ci/ddc-linux-x64...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/ddc-linux-x64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/ddc-linux-x64\"\nfi"
       - 
+        name: Timelord cache info (before sync)
+        run: "if [ -d \"/home/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord\"\nfi"
+      - 
         name: Restore source mtimes (timelord)
-        run: "timelord --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
+        run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
       - 
         name: Stamp artifacts (cargo sweep)
         run: cargo sweep --stamp
@@ -170,8 +179,11 @@ jobs:
         name: Restore cache (ctree)
         run: "if [ -d \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" ]; then\n  echo \"Restoring cache from /home/amos/.cache/dodeca-ci/cells-linux-x64-1...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-1\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-1\"\nfi"
       - 
+        name: Timelord cache info (before sync)
+        run: "if [ -d \"/home/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord\"\nfi"
+      - 
         name: Restore source mtimes (timelord)
-        run: "timelord --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
+        run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
       - 
         name: Stamp artifacts (cargo sweep)
         run: cargo sweep --stamp
@@ -214,8 +226,11 @@ jobs:
         name: Restore cache (ctree)
         run: "if [ -d \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" ]; then\n  echo \"Restoring cache from /home/amos/.cache/dodeca-ci/cells-linux-x64-2...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-2\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-2\"\nfi"
       - 
+        name: Timelord cache info (before sync)
+        run: "if [ -d \"/home/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord\"\nfi"
+      - 
         name: Restore source mtimes (timelord)
-        run: "timelord --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
+        run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
       - 
         name: Stamp artifacts (cargo sweep)
         run: cargo sweep --stamp
@@ -263,8 +278,11 @@ jobs:
         name: Restore cache (ctree)
         run: "if [ -d \"/home/amos/.cache/dodeca-ci/integration-linux-x64\" ]; then\n  echo \"Restoring cache from /home/amos/.cache/dodeca-ci/integration-linux-x64...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/integration-linux-x64\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/integration-linux-x64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/integration-linux-x64\"\nfi"
       - 
+        name: Timelord cache info (before sync)
+        run: "if [ -d \"/home/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord\"\nfi"
+      - 
         name: Restore source mtimes (timelord)
-        run: "timelord --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
+        run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
       - 
         name: Stamp artifacts (cargo sweep)
         run: cargo sweep --stamp
@@ -360,8 +378,11 @@ jobs:
         name: Restore cache (ctree)
         run: "if [ -d \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" ]; then\n  echo \"Restoring cache from /Users/amos/.cache/dodeca-ci/ddc-macos-arm64...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/ddc-macos-arm64\"\nfi"
       - 
+        name: Timelord cache info (before sync)
+        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord\"\nfi"
+      - 
         name: Restore source mtimes (timelord)
-        run: "timelord --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
+        run: "timelord sync --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
       - 
         name: Stamp artifacts (cargo sweep)
         run: cargo sweep --stamp
@@ -404,8 +425,11 @@ jobs:
         name: Restore cache (ctree)
         run: "if [ -d \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" ]; then\n  echo \"Restoring cache from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\"\nfi"
       - 
+        name: Timelord cache info (before sync)
+        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord\"\nfi"
+      - 
         name: Restore source mtimes (timelord)
-        run: "timelord --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
+        run: "timelord sync --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
       - 
         name: Stamp artifacts (cargo sweep)
         run: cargo sweep --stamp
@@ -448,8 +472,11 @@ jobs:
         name: Restore cache (ctree)
         run: "if [ -d \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" ]; then\n  echo \"Restoring cache from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\"\nfi"
       - 
+        name: Timelord cache info (before sync)
+        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord\"\nfi"
+      - 
         name: Restore source mtimes (timelord)
-        run: "timelord --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
+        run: "timelord sync --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
       - 
         name: Stamp artifacts (cargo sweep)
         run: cargo sweep --stamp
@@ -497,8 +524,11 @@ jobs:
         name: Restore cache (ctree)
         run: "if [ -d \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" ]; then\n  echo \"Restoring cache from /Users/amos/.cache/dodeca-ci/integration-macos-arm64...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/integration-macos-arm64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/integration-macos-arm64\"\nfi"
       - 
+        name: Timelord cache info (before sync)
+        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord\"\nfi"
+      - 
         name: Restore source mtimes (timelord)
-        run: "timelord --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
+        run: "timelord sync --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
       - 
         name: Stamp artifacts (cargo sweep)
         run: cargo sweep --stamp

@@ -829,7 +829,22 @@ fi"#
         let cache_dir = format!("{}/dodeca-ci/timelord", base_path);
         Step::run(
             "Restore source mtimes (timelord)",
-            format!(r#"timelord --source-dir . --cache-dir "{cache_dir}""#),
+            format!(r#"timelord sync --source-dir . --cache-dir "{cache_dir}""#),
+        )
+    }
+
+    /// Print timelord cache info (if present).
+    pub fn timelord_cache_info(base_path: &str, label: &str) -> Step {
+        let cache_dir = format!("{}/dodeca-ci/timelord", base_path);
+        Step::run(
+            format!("Timelord cache info ({label})"),
+            format!(
+                r#"if [ -d "{cache_dir}" ]; then
+  timelord cache-info --cache-dir "{cache_dir}"
+else
+  echo "No timelord cache dir at {cache_dir}"
+fi"#
+            ),
         )
     }
 
@@ -1499,6 +1514,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                     "wasm32-unknown-unknown",
                 ),
                 ctree_cache_restore("clippy", linux_cache_base),
+                timelord_cache_info(linux_cache_base, "before sync"),
                 timelord_restore(linux_cache_base),
                 cargo_sweep_stamp(),
                 Step::run(
@@ -1527,6 +1543,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                 checkout(platform),
                 install_rust_with_target(platform, "wasm32-unknown-unknown"),
                 ctree_cache_restore("wasm", linux_cache_base),
+                timelord_cache_info(linux_cache_base, "before sync"),
                 timelord_restore(linux_cache_base),
                 cargo_sweep_stamp(),
                 Step::run("Build WASM", "cargo xtask wasm"),
@@ -1563,6 +1580,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                     checkout(platform),
                     install_rust(platform),
                     ctree_cache_restore(&format!("ddc-{short}"), cache_base),
+                    timelord_cache_info(cache_base, "before sync"),
                     timelord_restore(cache_base),
                     cargo_sweep_stamp(),
                     Step::run("Build ddc", format!("cargo {} build --release -p dodeca --verbose", CiPlatform::CARGO_NIGHTLY_FLAGS)),
@@ -1623,6 +1641,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                         checkout(platform),
                         install_rust(platform),
                         ctree_cache_restore(&format!("cells-{short}-{group_num}"), cache_base),
+                        timelord_cache_info(cache_base, "before sync"),
                         timelord_restore(cache_base),
                         cargo_sweep_stamp(),
                         Step::run(
@@ -1667,6 +1686,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                     checkout(platform),
                     install_rust(platform),
                     ctree_cache_restore(&format!("integration-{short}"), cache_base),
+                    timelord_cache_info(cache_base, "before sync"),
                     timelord_restore(cache_base),
                     cargo_sweep_stamp(),
                     // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
