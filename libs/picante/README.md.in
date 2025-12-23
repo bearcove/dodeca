@@ -9,6 +9,7 @@
 - In-flight query deduplication across database snapshots (see below)
 - Cache persistence to disk (snapshot file) using `facet` + `facet-postcard` (**no serde**)
 - Runtime notifications for live reload (`Runtime::subscribe_revisions`, `Runtime::subscribe_events`)
+- Debugging and observability tools (`picante::debug`): dependency graph visualization, query execution tracing, cache statistics, enhanced cycle diagnostics
 
 ## Quickstart (minimal)
 
@@ -89,6 +90,83 @@ This deduplication works across database snapshots from the same parent database
 - The same **query kind and key**
 
 This is particularly useful for request-per-snapshot patterns where many concurrent requests may query the same data.
+
+## Debugging and Observability
+
+picante provides comprehensive debugging tools in the `picante::debug` module:
+
+### Dependency Graph Visualization
+
+Export the dependency graph in Graphviz DOT format for visualization:
+
+```rust,no_run
+# use picante::{Runtime, HasRuntime};
+# struct Db { runtime: Runtime }
+# impl HasRuntime for Db { fn runtime(&self) -> &Runtime { &self.runtime } }
+# fn main() -> std::io::Result<()> {
+# let db = Db { runtime: Runtime::new() };
+use picante::debug::DependencyGraph;
+
+let graph = DependencyGraph::from_runtime(db.runtime());
+graph.write_dot("deps.dot")?;
+
+// Visualize with: dot -Tpng deps.dot -o deps.png
+# Ok(())
+# }
+```
+
+### Query Execution Tracing
+
+Record and analyze query execution events:
+
+```rust,no_run
+# use picante::{Runtime, HasRuntime};
+# struct Db { runtime: Runtime }
+# impl HasRuntime for Db { fn runtime(&self) -> &Runtime { &self.runtime } }
+# #[tokio::main(flavor = "current_thread")]
+# async fn main() {
+# let db = Db { runtime: Runtime::new() };
+use picante::debug::{TraceCollector, TraceAnalysis};
+
+let collector = TraceCollector::start(db.runtime());
+// ... perform queries ...
+let trace = collector.stop().await;
+
+let analysis = TraceAnalysis::from_trace(&trace);
+println!("{}", analysis.format());
+// Shows: total events, input changes, invalidations, recomputations, duration
+# }
+```
+
+### Cache Statistics
+
+Get insights into cache usage and dependency structure:
+
+```rust,no_run
+# use picante::{Runtime, HasRuntime};
+# struct Db { runtime: Runtime }
+# impl HasRuntime for Db { fn runtime(&self) -> &Runtime { &self.runtime } }
+# fn main() {
+# let db = Db { runtime: Runtime::new() };
+use picante::debug::CacheStats;
+
+let stats = CacheStats::collect(db.runtime());
+println!("{}", stats.format());
+// Shows: forward deps, reverse deps, total edges, root queries, distribution
+# }
+```
+
+### Enhanced Cycle Diagnostics
+
+When a dependency cycle is detected, picante shows the full path:
+
+```text
+dependency cycle detected
+  → kind_1, key_0000000000000001  (initial)
+  → kind_2, key_0000000000000002
+  → kind_3, key_0000000000000003
+  → kind_1, key_0000000000000001  ← cycle (already in stack)
+```
 
 ## Notes
 
