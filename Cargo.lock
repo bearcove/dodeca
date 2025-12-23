@@ -6520,7 +6520,7 @@ dependencies = [
 [[package]]
 name = "picante"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/picante#9024c10dba9980d6f257ba9c2511a753fce7f0b5"
+source = "git+https://github.com/bearcove/picante#c8b83b66b3a7f459aaad07614a2af3efe777c980"
 dependencies = [
  "dashmap 5.5.3",
  "facet",
@@ -6538,7 +6538,7 @@ dependencies = [
 [[package]]
 name = "picante-macros"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/picante#9024c10dba9980d6f257ba9c2511a753fce7f0b5"
+source = "git+https://github.com/bearcove/picante#c8b83b66b3a7f459aaad07614a2af3efe777c980"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -7046,7 +7046,7 @@ dependencies = [
 [[package]]
 name = "rapace"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#a6a1e433396a6a1cd6b1f3118f7b34faad536149"
+source = "git+https://github.com/bearcove/rapace?branch=main#c4970306488e27f0516a5ffab34e29414a955704"
 dependencies = [
  "facet",
  "facet-core",
@@ -7064,7 +7064,7 @@ dependencies = [
 [[package]]
 name = "rapace-cell"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#a6a1e433396a6a1cd6b1f3118f7b34faad536149"
+source = "git+https://github.com/bearcove/rapace?branch=main#c4970306488e27f0516a5ffab34e29414a955704"
 dependencies = [
  "facet",
  "libc",
@@ -7080,7 +7080,7 @@ dependencies = [
 [[package]]
 name = "rapace-core"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#a6a1e433396a6a1cd6b1f3118f7b34faad536149"
+source = "git+https://github.com/bearcove/rapace?branch=main#c4970306488e27f0516a5ffab34e29414a955704"
 dependencies = [
  "allocator-api2",
  "async-stream",
@@ -7107,7 +7107,7 @@ dependencies = [
 [[package]]
 name = "rapace-macros"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#a6a1e433396a6a1cd6b1f3118f7b34faad536149"
+source = "git+https://github.com/bearcove/rapace?branch=main#c4970306488e27f0516a5ffab34e29414a955704"
 dependencies = [
  "facet-cargo-toml",
  "heck 0.4.1",
@@ -7119,7 +7119,7 @@ dependencies = [
 [[package]]
 name = "rapace-registry"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#a6a1e433396a6a1cd6b1f3118f7b34faad536149"
+source = "git+https://github.com/bearcove/rapace?branch=main#c4970306488e27f0516a5ffab34e29414a955704"
 dependencies = [
  "facet",
  "facet-core",
@@ -7129,7 +7129,7 @@ dependencies = [
 [[package]]
 name = "rapace-tracing"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#a6a1e433396a6a1cd6b1f3118f7b34faad536149"
+source = "git+https://github.com/bearcove/rapace?branch=main#c4970306488e27f0516a5ffab34e29414a955704"
 dependencies = [
  "facet",
  "parking_lot",
@@ -7890,7 +7890,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shm-primitives"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#a6a1e433396a6a1cd6b1f3118f7b34faad536149"
+source = "git+https://github.com/bearcove/rapace?branch=main#c4970306488e27f0516a5ffab34e29414a955704"
 dependencies = [
  "loom",
 ]
@@ -9036,7 +9036,7 @@ checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 [[package]]
 name = "ur-taking-me-with-you"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#a6a1e433396a6a1cd6b1f3118f7b34faad536149"
+source = "git+https://github.com/bearcove/rapace?branch=main#c4970306488e27f0516a5ffab34e29414a955704"
 dependencies = [
  "libc",
  "tokio",
