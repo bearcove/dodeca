@@ -7,7 +7,7 @@ use cell_code_execution_proto::{CodeExecutionResult, CodeExecutor, CodeExecutorS
 // Include implementation code directly
 include!("impl.rs");
 
-rapace_cell::cell_service!(CodeExecutorServer<CodeExecutorImpl>, CodeExecutorImpl, []);
+rapace_cell::cell_service!(CodeExecutorServer<CodeExecutorImpl>, CodeExecutorImpl);
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

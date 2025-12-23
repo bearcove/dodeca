@@ -18,11 +18,7 @@ impl SvgoOptimizer for SvgoOptimizerImpl {
     }
 }
 
-rapace_cell::cell_service!(
-    SvgoOptimizerServer<SvgoOptimizerImpl>,
-    SvgoOptimizerImpl,
-    []
-);
+rapace_cell::cell_service!(SvgoOptimizerServer<SvgoOptimizerImpl>, SvgoOptimizerImpl);
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

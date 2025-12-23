@@ -75,7 +75,7 @@ impl grass::Fs for InMemorySassFs {
     }
 }
 
-rapace_cell::cell_service!(SassCompilerServer<SassCompilerImpl>, SassCompilerImpl, []);
+rapace_cell::cell_service!(SassCompilerServer<SassCompilerImpl>, SassCompilerImpl);
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

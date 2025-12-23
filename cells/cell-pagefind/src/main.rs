@@ -93,11 +93,7 @@ async fn build_search_index_inner(input: SearchIndexInput) -> Result<SearchIndex
     })
 }
 
-rapace_cell::cell_service!(
-    SearchIndexerServer<SearchIndexerImpl>,
-    SearchIndexerImpl,
-    []
-);
+rapace_cell::cell_service!(SearchIndexerServer<SearchIndexerImpl>, SearchIndexerImpl);
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

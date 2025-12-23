@@ -9,8 +9,7 @@ mod syntax_highlight;
 
 rapace_cell::cell_service!(
     SyntaxHighlightServiceServer<syntax_highlight::SyntaxHighlightImpl>,
-    syntax_highlight::SyntaxHighlightImpl,
-    []
+    syntax_highlight::SyntaxHighlightImpl
 );
 
 #[tokio::main(flavor = "current_thread")]

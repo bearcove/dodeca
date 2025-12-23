@@ -141,7 +141,7 @@ impl LinkChecker for LinkCheckerImpl {
     }
 }
 
-rapace_cell::cell_service!(LinkCheckerServer<LinkCheckerImpl>, LinkCheckerImpl, []);
+rapace_cell::cell_service!(LinkCheckerServer<LinkCheckerImpl>, LinkCheckerImpl);
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

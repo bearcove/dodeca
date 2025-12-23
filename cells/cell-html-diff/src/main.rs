@@ -154,7 +154,7 @@ fn diff(old_dom: &DomNode, new_dom: &DomNode) -> InternalDiffResult {
     result
 }
 
-rapace_cell::cell_service!(HtmlDifferServer<HtmlDifferImpl>, HtmlDifferImpl, []);
+rapace_cell::cell_service!(HtmlDifferServer<HtmlDifferImpl>, HtmlDifferImpl);
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

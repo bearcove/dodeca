@@ -27,7 +27,7 @@ impl Minifier for MinifierImpl {
     }
 }
 
-rapace_cell::cell_service!(MinifierServer<MinifierImpl>, MinifierImpl, []);
+rapace_cell::cell_service!(MinifierServer<MinifierImpl>, MinifierImpl);
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

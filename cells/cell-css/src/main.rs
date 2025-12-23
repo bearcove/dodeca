@@ -73,7 +73,7 @@ impl<'i, 'a> lightningcss::visitor::Visitor<'i> for UrlRewriter<'a> {
     }
 }
 
-rapace_cell::cell_service!(CssProcessorServer<CssProcessorImpl>, CssProcessorImpl, []);
+rapace_cell::cell_service!(CssProcessorServer<CssProcessorImpl>, CssProcessorImpl);
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

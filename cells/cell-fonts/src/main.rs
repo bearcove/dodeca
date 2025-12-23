@@ -81,11 +81,7 @@ impl FontProcessor for FontProcessorImpl {
     }
 }
 
-rapace_cell::cell_service!(
-    FontProcessorServer<FontProcessorImpl>,
-    FontProcessorImpl,
-    []
-);
+rapace_cell::cell_service!(FontProcessorServer<FontProcessorImpl>, FontProcessorImpl);
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
