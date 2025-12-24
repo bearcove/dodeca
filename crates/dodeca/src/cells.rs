@@ -308,65 +308,6 @@ struct PeerDiagInfo {
     rpc_session: Arc<RpcSession>,
 }
 
-/// Wrapper for TracingSinkServer to implement ServiceDispatch
-struct TracingSinkService(Arc<TracingSinkServer<ForwardingTracingSink>>);
-
-impl ServiceDispatch for TracingSinkService {
-    fn method_ids(&self) -> &'static [u32] {
-        use rapace_tracing::{
-            TRACING_SINK_METHOD_ID_DROP_SPAN, TRACING_SINK_METHOD_ID_ENTER,
-            TRACING_SINK_METHOD_ID_EVENT, TRACING_SINK_METHOD_ID_EXIT,
-            TRACING_SINK_METHOD_ID_NEW_SPAN, TRACING_SINK_METHOD_ID_RECORD,
-        };
-        &[
-            TRACING_SINK_METHOD_ID_NEW_SPAN,
-            TRACING_SINK_METHOD_ID_RECORD,
-            TRACING_SINK_METHOD_ID_EVENT,
-            TRACING_SINK_METHOD_ID_ENTER,
-            TRACING_SINK_METHOD_ID_EXIT,
-            TRACING_SINK_METHOD_ID_DROP_SPAN,
-        ]
-    }
-
-    fn dispatch(
-        &self,
-        method_id: u32,
-        frame: Frame,
-        buffer_pool: &rapace::BufferPool,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send + 'static>,
-    > {
-        let server = self.0.clone();
-        let buffer_pool = buffer_pool.clone();
-        // Frame is now owned, no need to clone
-        Box::pin(async move { server.dispatch(method_id, &frame, &buffer_pool).await })
-    }
-}
-
-/// Wrapper for CellLifecycleServer to implement ServiceDispatch
-struct CellLifecycleService(Arc<CellLifecycleServer<HostCellLifecycle>>);
-
-impl ServiceDispatch for CellLifecycleService {
-    fn method_ids(&self) -> &'static [u32] {
-        use rapace_cell::lifecycle::CELL_LIFECYCLE_METHOD_ID_READY;
-        &[CELL_LIFECYCLE_METHOD_ID_READY]
-    }
-
-    fn dispatch(
-        &self,
-        method_id: u32,
-        frame: Frame,
-        buffer_pool: &rapace::BufferPool,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send + 'static>,
-    > {
-        let server = self.0.clone();
-        let buffer_pool = buffer_pool.clone();
-        // Frame is now owned, no need to clone
-        Box::pin(async move { server.dispatch(method_id, &frame, &buffer_pool).await })
-    }
-}
-
 /// Global peer diagnostic info.
 static PEER_DIAG_INFO: RwLock<Vec<PeerDiagInfo>> = RwLock::new(Vec::new());
 
@@ -745,16 +686,14 @@ impl CellRegistry {
 
         // Set up multi-service dispatcher for tracing and cell lifecycle
         let tracing_sink = ForwardingTracingSink::new();
-        let tracing_server = Arc::new(TracingSinkServer::new(tracing_sink));
         let lifecycle_impl = HostCellLifecycle::new(cell_ready_registry().clone());
-        let lifecycle_server = Arc::new(CellLifecycleServer::new(lifecycle_impl));
 
         // Use 256KB buffer pool to handle larger payloads (fonts, search indexes, etc.)
         // Default 64KB is too small for some assets (e.g., fonts/test.woff2 is 73KB)
         let buffer_pool = rapace::BufferPool::with_capacity(128, 256 * 1024);
         let dispatcher = DispatcherBuilder::new()
-            .add_service(TracingSinkService(tracing_server))
-            .add_service(CellLifecycleService(lifecycle_server))
+            .add_service(TracingSinkServer::new(tracing_sink).into_dispatch())
+            .add_service(CellLifecycleServer::new(lifecycle_impl).into_dispatch())
             .build(buffer_pool);
 
         rpc_session.set_dispatcher(dispatcher);
