@@ -308,6 +308,49 @@ struct PeerDiagInfo {
     rpc_session: Arc<RpcSession>,
 }
 
+/// Temporary wrapper for TracingSinkServer to implement ServiceDispatch.
+///
+/// FIXME: This is a workaround for rapace PR #105's broken crate detection.
+/// rapace-tracing doesn't get auto-generated wrappers because it depends on
+/// `rapace` (umbrella crate) not `rapace-cell` directly, so the macro's
+/// `crate_name("rapace-cell")` check fails.
+///
+/// Tracking issue: https://github.com/bearcove/rapace/issues/107
+/// Once rapace implements blanket `impl<T: Dispatchable> ServiceDispatch for Arc<T>`,
+/// this wrapper can be deleted.
+struct TracingSinkService(Arc<TracingSinkServer<ForwardingTracingSink>>);
+
+impl ServiceDispatch for TracingSinkService {
+    fn method_ids(&self) -> &'static [u32] {
+        use rapace_tracing::{
+            TRACING_SINK_METHOD_ID_DROP_SPAN, TRACING_SINK_METHOD_ID_ENTER,
+            TRACING_SINK_METHOD_ID_EVENT, TRACING_SINK_METHOD_ID_EXIT,
+            TRACING_SINK_METHOD_ID_NEW_SPAN, TRACING_SINK_METHOD_ID_RECORD,
+        };
+        &[
+            TRACING_SINK_METHOD_ID_NEW_SPAN,
+            TRACING_SINK_METHOD_ID_RECORD,
+            TRACING_SINK_METHOD_ID_EVENT,
+            TRACING_SINK_METHOD_ID_ENTER,
+            TRACING_SINK_METHOD_ID_EXIT,
+            TRACING_SINK_METHOD_ID_DROP_SPAN,
+        ]
+    }
+
+    fn dispatch(
+        &self,
+        method_id: u32,
+        frame: Frame,
+        buffer_pool: &rapace::BufferPool,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send + 'static>,
+    > {
+        let server = self.0.clone();
+        let buffer_pool = buffer_pool.clone();
+        Box::pin(async move { server.dispatch(method_id, &frame, &buffer_pool).await })
+    }
+}
+
 /// Global peer diagnostic info.
 static PEER_DIAG_INFO: RwLock<Vec<PeerDiagInfo>> = RwLock::new(Vec::new());
 
@@ -692,7 +735,9 @@ impl CellRegistry {
         // Default 64KB is too small for some assets (e.g., fonts/test.woff2 is 73KB)
         let buffer_pool = rapace::BufferPool::with_capacity(128, 256 * 1024);
         let dispatcher = DispatcherBuilder::new()
-            .add_service(TracingSinkServer::new(tracing_sink).into_dispatch())
+            .add_service(TracingSinkService(Arc::new(TracingSinkServer::new(
+                tracing_sink,
+            ))))
             .add_service(CellLifecycleServer::new(lifecycle_impl).into_dispatch())
             .build(buffer_pool);
 

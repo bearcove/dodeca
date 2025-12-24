@@ -2723,7 +2723,7 @@ checksum = "6738d2e996274e499bc7b0d693c858b7720b9cd2543a0643a3087e6cb0a4fa16"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2999,7 +2999,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3061,7 +3061,7 @@ dependencies = [
 [[package]]
 name = "facet-args"
 version = "0.34.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#b363602f559d9e033e3a82cb5638a5967562708b"
+source = "git+https://github.com/facet-rs/facet?branch=main#640f89fd426eb80d8a023f5fa678f5a395ad0c86"
 dependencies = [
  "facet 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
  "facet-core 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
@@ -3132,7 +3132,7 @@ dependencies = [
 [[package]]
 name = "facet-json"
 version = "0.34.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#b363602f559d9e033e3a82cb5638a5967562708b"
+source = "git+https://github.com/facet-rs/facet?branch=main#640f89fd426eb80d8a023f5fa678f5a395ad0c86"
 dependencies = [
  "facet 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
  "facet-core 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
@@ -3150,7 +3150,7 @@ dependencies = [
 [[package]]
 name = "facet-kdl"
 version = "0.34.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#b363602f559d9e033e3a82cb5638a5967562708b"
+source = "git+https://github.com/facet-rs/facet?branch=main#640f89fd426eb80d8a023f5fa678f5a395ad0c86"
 dependencies = [
  "facet 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
  "facet-core 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
@@ -3299,12 +3299,12 @@ dependencies = [
 [[package]]
 name = "facet-singularize"
 version = "0.34.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#b363602f559d9e033e3a82cb5638a5967562708b"
+source = "git+https://github.com/facet-rs/facet?branch=main#640f89fd426eb80d8a023f5fa678f5a395ad0c86"
 
 [[package]]
 name = "facet-solver"
 version = "0.34.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#04d7e4b2452baab8f7d5df27e1f28a1d0302f3e9"
+source = "git+https://github.com/facet-rs/facet?branch=main#640f89fd426eb80d8a023f5fa678f5a395ad0c86"
 dependencies = [
  "facet-core 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
  "facet-reflect 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
@@ -3324,7 +3324,7 @@ dependencies = [
 [[package]]
 name = "facet-toml"
 version = "0.34.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#04d7e4b2452baab8f7d5df27e1f28a1d0302f3e9"
+source = "git+https://github.com/facet-rs/facet?branch=main#640f89fd426eb80d8a023f5fa678f5a395ad0c86"
 dependencies = [
  "ariadne",
  "facet-core 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
@@ -3340,7 +3340,7 @@ dependencies = [
 [[package]]
 name = "facet-value"
 version = "0.34.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#04d7e4b2452baab8f7d5df27e1f28a1d0302f3e9"
+source = "git+https://github.com/facet-rs/facet?branch=main#640f89fd426eb80d8a023f5fa678f5a395ad0c86"
 dependencies = [
  "facet-core 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
  "facet-reflect 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
@@ -3362,7 +3362,7 @@ dependencies = [
 [[package]]
 name = "facet-yaml"
 version = "0.34.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#b363602f559d9e033e3a82cb5638a5967562708b"
+source = "git+https://github.com/facet-rs/facet?branch=main#640f89fd426eb80d8a023f5fa678f5a395ad0c86"
 dependencies = [
  "facet 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
  "facet-core 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
@@ -5664,7 +5664,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7015,7 +7015,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7161,7 +7161,7 @@ dependencies = [
 [[package]]
 name = "rapace"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#060a28185432f09bfbda19ba40897c3323e5bf67"
+source = "git+https://github.com/bearcove/rapace?branch=main#b8b5a67bbdf85cd83df7e2c412c614ba1e51e09c"
 dependencies = [
  "facet 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
  "facet-core 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
@@ -7179,7 +7179,7 @@ dependencies = [
 [[package]]
 name = "rapace-cell"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#060a28185432f09bfbda19ba40897c3323e5bf67"
+source = "git+https://github.com/bearcove/rapace?branch=main#b8b5a67bbdf85cd83df7e2c412c614ba1e51e09c"
 dependencies = [
  "facet 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
  "libc",
@@ -7195,7 +7195,7 @@ dependencies = [
 [[package]]
 name = "rapace-core"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#060a28185432f09bfbda19ba40897c3323e5bf67"
+source = "git+https://github.com/bearcove/rapace?branch=main#b8b5a67bbdf85cd83df7e2c412c614ba1e51e09c"
 dependencies = [
  "allocator-api2",
  "async-stream",
@@ -7223,7 +7223,7 @@ dependencies = [
 [[package]]
 name = "rapace-macros"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#060a28185432f09bfbda19ba40897c3323e5bf67"
+source = "git+https://github.com/bearcove/rapace?branch=main#b8b5a67bbdf85cd83df7e2c412c614ba1e51e09c"
 dependencies = [
  "facet-cargo-toml",
  "heck 0.4.1",
@@ -7235,7 +7235,7 @@ dependencies = [
 [[package]]
 name = "rapace-registry"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#060a28185432f09bfbda19ba40897c3323e5bf67"
+source = "git+https://github.com/bearcove/rapace?branch=main#b8b5a67bbdf85cd83df7e2c412c614ba1e51e09c"
 dependencies = [
  "facet 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
  "facet-core 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
@@ -7245,7 +7245,7 @@ dependencies = [
 [[package]]
 name = "rapace-tracing"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#060a28185432f09bfbda19ba40897c3323e5bf67"
+source = "git+https://github.com/bearcove/rapace?branch=main#b8b5a67bbdf85cd83df7e2c412c614ba1e51e09c"
 dependencies = [
  "facet 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
  "parking_lot",
@@ -7596,7 +7596,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.11.0",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7879,15 +7879,15 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.146"
+version = "1.0.147"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "217ca874ae0207aac254aa02c957ded05585a90892cc8d87f9e5fa49669dadd8"
+checksum = "6af14725505314343e673e9ecb7cd7e8a36aa9791eb936235a3567cc31447ae4"
 dependencies = [
  "itoa 1.0.16",
  "memchr",
- "ryu",
  "serde",
  "serde_core",
+ "zmij",
 ]
 
 [[package]]
@@ -8006,7 +8006,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shm-primitives"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#060a28185432f09bfbda19ba40897c3323e5bf67"
+source = "git+https://github.com/bearcove/rapace?branch=main#b8b5a67bbdf85cd83df7e2c412c614ba1e51e09c"
 dependencies = [
  "loom",
 ]
@@ -8485,15 +8485,15 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tempfile"
-version = "3.23.0"
+version = "3.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d31c77bdf42a745371d260a26ca7163f1e0924b64afa0b688e61b5a9fa02f16"
+checksum = "655da9c7eb6305c55742045d5a8d2037996d61d8de95806335c7c86ce0f82e9c"
 dependencies = [
  "fastrand",
  "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.3",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -9152,7 +9152,7 @@ checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 [[package]]
 name = "ur-taking-me-with-you"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#060a28185432f09bfbda19ba40897c3323e5bf67"
+source = "git+https://github.com/bearcove/rapace?branch=main#b8b5a67bbdf85cd83df7e2c412c614ba1e51e09c"
 dependencies = [
  "libc",
  "tokio",
@@ -9535,7 +9535,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -10053,6 +10053,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "zmij"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e404bcd8afdaf006e529269d3e85a743f9480c3cef60034d77860d02964f3ba"
+
+[[package]]
 name = "zstd"
 version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10122,9 +10128,9 @@ dependencies = [
 [[patch.unused]]
 name = "facet-assert"
 version = "0.34.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#b363602f559d9e033e3a82cb5638a5967562708b"
+source = "git+https://github.com/facet-rs/facet?branch=main#640f89fd426eb80d8a023f5fa678f5a395ad0c86"
 
 [[patch.unused]]
 name = "facet-diff"
 version = "0.34.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#b363602f559d9e033e3a82cb5638a5967562708b"
+source = "git+https://github.com/facet-rs/facet?branch=main#640f89fd426eb80d8a023f5fa678f5a395ad0c86"
