@@ -15,13 +15,13 @@ facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
-futures = "0.3.31"
 heck = "0.5.0"
 parking_lot = "0.12.4"
 proc-macro2 = "1.0.101"
 quote = "1.0.41"
-tokio = { version = "1.48.0", features = ["fs", "macros", "rt", "sync", "time"] }
-tracing = "0.1.41"
+tokio = { version = "1.48.0", features = ["fs", "rt", "sync", "time"] }
+tokio-test-lite = "0.2"
+tracing = { version = "0.1.41", default-features = false, features = ["std"] }
 tracing-subscriber = "0.3.20"
 trybuild = "1.0"
 unsynn = "0.3.0"

@@ -35,9 +35,13 @@ impl IngredientLookup for Db {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> picante::PicanteResult<()> {
-    let db = Db::default();
+fn main() -> picante::PicanteResult<()> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let db = Db::default();
 
     let text: Arc<InputIngredient<String, String>> =
         Arc::new(InputIngredient::new(QueryKindId(1), "Text"));
@@ -53,10 +57,11 @@ async fn main() -> picante::PicanteResult<()> {
         }))
     };
 
-    text.set(&db, "a".into(), "hello".into());
-    assert_eq!(len.get(&db, "a".into()).await?, 5);
+        text.set(&db, "a".into(), "hello".into());
+        assert_eq!(len.get(&db, "a".into()).await?, 5);
 
-    Ok(())
+        Ok(())
+    })
 }
 ```
 
@@ -123,8 +128,9 @@ Record and analyze query execution events:
 # use picante::{Runtime, HasRuntime};
 # struct Db { runtime: Runtime }
 # impl HasRuntime for Db { fn runtime(&self) -> &Runtime { &self.runtime } }
-# #[tokio::main(flavor = "current_thread")]
-# async fn main() {
+# fn main() {
+# let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+# rt.block_on(async {
 # let db = Db { runtime: Runtime::new() };
 use picante::debug::{TraceCollector, TraceAnalysis};
 
@@ -135,6 +141,7 @@ let trace = collector.stop().await;
 let analysis = TraceAnalysis::from_trace(&trace);
 println!("{}", analysis.format());
 // Shows: total events, input changes, invalidations, recomputations, duration
+# });
 # }
 ```
 

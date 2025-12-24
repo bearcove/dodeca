@@ -230,8 +230,8 @@ dependencies = [
 
 [[package]]
 name = "facet"
-version = "0.33.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#8166f8d69622910e55115be598352f4db38284b4"
+version = "0.34.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#e972a3cfe022be819f048d411482aaacff59ceae"
 dependencies = [
  "autocfg",
  "facet-core",
@@ -241,8 +241,8 @@ dependencies = [
 
 [[package]]
 name = "facet-core"
-version = "0.33.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#8166f8d69622910e55115be598352f4db38284b4"
+version = "0.34.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#e972a3cfe022be819f048d411482aaacff59ceae"
 dependencies = [
  "autocfg",
  "impls",
@@ -250,8 +250,8 @@ dependencies = [
 
 [[package]]
 name = "facet-macro-parse"
-version = "0.33.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#8166f8d69622910e55115be598352f4db38284b4"
+version = "0.34.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#e972a3cfe022be819f048d411482aaacff59ceae"
 dependencies = [
  "facet-macro-types",
  "proc-macro2",
@@ -260,8 +260,8 @@ dependencies = [
 
 [[package]]
 name = "facet-macro-types"
-version = "0.33.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#8166f8d69622910e55115be598352f4db38284b4"
+version = "0.34.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#e972a3cfe022be819f048d411482aaacff59ceae"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -270,16 +270,16 @@ dependencies = [
 
 [[package]]
 name = "facet-macros"
-version = "0.33.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#8166f8d69622910e55115be598352f4db38284b4"
+version = "0.34.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#e972a3cfe022be819f048d411482aaacff59ceae"
 dependencies = [
  "facet-macros-impl",
 ]
 
 [[package]]
 name = "facet-macros-impl"
-version = "0.33.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#8166f8d69622910e55115be598352f4db38284b4"
+version = "0.34.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#e972a3cfe022be819f048d411482aaacff59ceae"
 dependencies = [
  "facet-macro-parse",
  "facet-macro-types",
@@ -291,8 +291,8 @@ dependencies = [
 
 [[package]]
 name = "facet-path"
-version = "0.33.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#8166f8d69622910e55115be598352f4db38284b4"
+version = "0.34.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#e972a3cfe022be819f048d411482aaacff59ceae"
 dependencies = [
  "arborium",
  "facet-core",
@@ -303,8 +303,8 @@ dependencies = [
 
 [[package]]
 name = "facet-postcard"
-version = "0.33.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#8166f8d69622910e55115be598352f4db38284b4"
+version = "0.34.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#e972a3cfe022be819f048d411482aaacff59ceae"
 dependencies = [
  "facet-core",
  "facet-path",
@@ -315,8 +315,8 @@ dependencies = [
 
 [[package]]
 name = "facet-pretty"
-version = "0.33.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#8166f8d69622910e55115be598352f4db38284b4"
+version = "0.34.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#e972a3cfe022be819f048d411482aaacff59ceae"
 dependencies = [
  "facet-core",
  "facet-reflect",
@@ -325,8 +325,8 @@ dependencies = [
 
 [[package]]
 name = "facet-reflect"
-version = "0.33.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#8166f8d69622910e55115be598352f4db38284b4"
+version = "0.34.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#e972a3cfe022be819f048d411482aaacff59ceae"
 dependencies = [
  "facet-core",
  "miette",
@@ -339,69 +339,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a3076410a55c90011c298b04d0cfa770b00fa04e1e3c97d3f6c9de105a03844"
 
 [[package]]
-name = "futures"
-version = "0.3.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65bc07b1a8bc7c85c5f2e110c476c7389b4554ba72af57d8445ea63a576b0876"
-dependencies = [
- "futures-channel",
- "futures-core",
- "futures-executor",
- "futures-io",
- "futures-sink",
- "futures-task",
- "futures-util",
-]
-
-[[package]]
-name = "futures-channel"
-version = "0.3.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2dff15bf788c671c1934e366d07e30c1814a8ef514e1af724a602e8a2fbe1b10"
-dependencies = [
- "futures-core",
- "futures-sink",
-]
-
-[[package]]
 name = "futures-core"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f29059c0c2090612e8d742178b0580d2dc940c837851ad723096f87af6663e"
-
-[[package]]
-name = "futures-executor"
-version = "0.3.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e28d1d997f585e54aebc3f97d39e72338912123a67330d723fdbb564d646c9f"
-dependencies = [
- "futures-core",
- "futures-task",
- "futures-util",
-]
-
-[[package]]
-name = "futures-io"
-version = "0.3.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e5c1b78ca4aae1ac06c48a526a655760685149f0d465d21f37abfe57ce075c6"
-
-[[package]]
-name = "futures-macro"
-version = "0.3.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "162ee34ebcb7c64a8abebc059ce0fee27c2262618d7b60ed8faf72fef13c3650"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "futures-sink"
-version = "0.3.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e575fab7d1e0dcb8d0c7bcf9a63ee213816ab51902e6d244a95819acacf1d4f7"
 
 [[package]]
 name = "futures-task"
@@ -415,13 +356,8 @@ version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9fa08315bb612088cc391249efdc3bc77536f16c91f6cf495e6fbe85b20a4a81"
 dependencies = [
- "futures-channel",
  "futures-core",
- "futures-io",
- "futures-macro",
- "futures-sink",
  "futures-task",
- "memchr",
  "pin-project-lite",
  "pin-utils",
  "slab",
@@ -539,7 +475,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f98efec8807c63c752b5bd61f862c165c115b0a35685bdcfd9238c7aeb592b7"
 dependencies = [
  "cfg-if",
- "miette-derive",
  "owo-colors",
  "supports-color",
  "supports-hyperlinks",
@@ -560,17 +495,6 @@ dependencies = [
  "arborium-theme",
  "miette",
  "owo-colors",
-]
-
-[[package]]
-name = "miette-derive"
-version = "7.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db5b29714e950dbb20d5e6f74f9dcec4edbcc1067bb7f8ed198c097b8c1a818b"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
@@ -633,11 +557,12 @@ dependencies = [
  "facet-core",
  "facet-postcard",
  "facet-reflect",
- "futures",
+ "futures-util",
  "im",
  "parking_lot",
  "picante-macros",
  "tokio",
+ "tokio-test-lite",
  "tracing",
  "tracing-subscriber",
  "trybuild",
@@ -962,18 +887,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff360e02eab121e0bc37a2d3b4d4dc622e6eda3a8e5253d5435ecf5bd4c68408"
 dependencies = [
  "pin-project-lite",
- "tokio-macros",
 ]
 
 [[package]]
-name = "tokio-macros"
-version = "2.6.0"
+name = "tokio-test-lite"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af407857209536a95c8e56f8231ef2c2e2aff839b22e07a1ffcbc617e9db9fa5"
+checksum = "43d510187ff54d4baba7a36d605a79a666ed9a1f07e2cff088bbfd87354d5227"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn",
 ]
 
 [[package]]
@@ -1022,19 +945,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
 dependencies = [
  "pin-project-lite",
- "tracing-attributes",
  "tracing-core",
-]
-
-[[package]]
-name = "tracing-attributes"
-version = "0.1.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7490cfa5ec963746568740651ac6781f701c9c5ea257c58e057f3ba8cf69e8da"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]
