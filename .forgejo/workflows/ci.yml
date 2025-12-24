@@ -112,7 +112,7 @@ jobs:
   build-ddc-linux-x64: 
     name: Build ddc (linux-x64)
     runs-on: 
-      - linux-amd64-metal
+      - depot-ubuntu-24.04-32
 
     timeout-minutes: 30
     env: 
@@ -163,7 +163,7 @@ jobs:
   build-cells-linux-x64-1: 
     name: Build cells (linux-x64) [cell-arborium, cell-code-execution, cell-css, cell-fonts, cell-html, cell-html-diff, cell-http, cell-image, cell-js]
     runs-on: 
-      - linux-amd64-metal
+      - depot-ubuntu-24.04-32
 
     timeout-minutes: 30
     env: 
@@ -210,7 +210,7 @@ jobs:
   build-cells-linux-x64-2: 
     name: Build cells (linux-x64) [cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-pagefind, cell-sass, cell-svgo, cell-tui, cell-webp]
     runs-on: 
-      - linux-amd64-metal
+      - depot-ubuntu-24.04-32
 
     timeout-minutes: 30
     env: 
@@ -257,7 +257,7 @@ jobs:
   integration-linux-x64: 
     name: Integration (linux-x64)
     runs-on: 
-      - linux-amd64-metal
+      - depot-ubuntu-24.04-32
 
     timeout-minutes: 30
     needs: 
@@ -323,7 +323,7 @@ jobs:
   assemble-linux-x64: 
     name: Assemble (linux-x64)
     runs-on: 
-      - linux-amd64-metal
+      - depot-ubuntu-24.04-32
 
     timeout-minutes: 30
     needs: 
@@ -362,7 +362,7 @@ jobs:
   build-ddc-macos-arm64: 
     name: Build ddc (macos-arm64)
     runs-on: 
-      - mac-arm64-metal
+      - mac-arm64-oakhost
 
     timeout-minutes: 30
     env: 
@@ -413,7 +413,7 @@ jobs:
   build-cells-macos-arm64-1: 
     name: Build cells (macos-arm64) [cell-arborium, cell-code-execution, cell-css, cell-fonts, cell-html, cell-html-diff, cell-http, cell-image, cell-js]
     runs-on: 
-      - mac-arm64-metal
+      - mac-arm64-oakhost
 
     timeout-minutes: 30
     env: 
@@ -460,7 +460,7 @@ jobs:
   build-cells-macos-arm64-2: 
     name: Build cells (macos-arm64) [cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-pagefind, cell-sass, cell-svgo, cell-tui, cell-webp]
     runs-on: 
-      - mac-arm64-metal
+      - mac-arm64-oakhost
 
     timeout-minutes: 30
     env: 
@@ -507,7 +507,7 @@ jobs:
   integration-macos-arm64: 
     name: Integration (macos-arm64)
     runs-on: 
-      - mac-arm64-metal
+      - mac-arm64-oakhost
 
     timeout-minutes: 30
     needs: 
@@ -573,7 +573,7 @@ jobs:
   assemble-macos-arm64: 
     name: Assemble (macos-arm64)
     runs-on: 
-      - mac-arm64-metal
+      - mac-arm64-oakhost
 
     timeout-minutes: 30
     needs: 

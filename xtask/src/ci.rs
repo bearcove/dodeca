@@ -713,14 +713,25 @@ pub mod common {
         ])
     }
 
-    pub fn rust_cache_with_targets(platform: CiPlatform, cache_targets: bool) -> Step {
-        Step::uses("Rust cache", platform.rust_cache_action()).with_inputs([
+    pub fn rust_cache_with_targets(
+        platform: CiPlatform,
+        cache_targets: bool,
+        target: &Target,
+    ) -> Step {
+        let mut inputs: Vec<(&str, &str)> = vec![
             ("cache-on-failure", "true"),
             (
                 "cache-targets",
                 if cache_targets { "true" } else { "false" },
             ),
-        ])
+        ];
+
+        // macOS requires cache-bin: false to avoid cache corruption issues
+        if target.triple.contains("apple") {
+            inputs.push(("cache-bin", "false"));
+        }
+
+        Step::uses("Rust cache", platform.rust_cache_action()).with_inputs(inputs)
     }
 
     pub fn local_cache_with_targets(
@@ -1116,10 +1127,14 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
     let mut all_release_needs: Vec<String> = Vec::new();
 
     // Cache step for CI Linux jobs
+    let linux_target = targets
+        .iter()
+        .find(|t| t.triple == "x86_64-unknown-linux-gnu")
+        .expect("Linux target should exist");
     let ci_linux_cache = if ci_linux.runner.is_self_hosted() {
         local_cache_with_targets(platform, false, "ci-linux", "/home/amos/.cache")
     } else {
-        rust_cache_with_targets(platform, false)
+        rust_cache_with_targets(platform, false, linux_target)
     };
 
     jobs.insert(
@@ -1196,7 +1211,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                             target.cache_base_path(),
                         )
                     } else {
-                        rust_cache_with_targets(platform, false)
+                        rust_cache_with_targets(platform, false, target)
                     },
                     Step::run(
                         "Build ddc",
@@ -1264,7 +1279,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                                 target.cache_base_path(),
                             )
                         } else {
-                            rust_cache_with_targets(platform, true)
+                            rust_cache_with_targets(platform, true, target)
                         },
                         Step::run(
                             "Build cells",
@@ -1318,7 +1333,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                             target.cache_base_path(),
                         )
                     } else {
-                        rust_cache_with_targets(platform, false)
+                        rust_cache_with_targets(platform, false, target)
                     },
                     // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
                     Step::run(

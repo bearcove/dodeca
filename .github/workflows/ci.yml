@@ -347,6 +347,7 @@ jobs:
         with: 
           cache-on-failure: "true"
           cache-targets: "false"
+          cache-bin: "false"
 
       - 
         name: Build ddc
@@ -384,6 +385,7 @@ jobs:
         with: 
           cache-on-failure: "true"
           cache-targets: "true"
+          cache-bin: "false"
 
       - 
         name: Build cells
@@ -421,6 +423,7 @@ jobs:
         with: 
           cache-on-failure: "true"
           cache-targets: "true"
+          cache-bin: "false"
 
       - 
         name: Build cells
@@ -463,6 +466,7 @@ jobs:
         with: 
           cache-on-failure: "true"
           cache-targets: "false"
+          cache-bin: "false"
 
       - 
         name: Build integration-tests
