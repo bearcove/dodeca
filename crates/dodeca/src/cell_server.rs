@@ -138,7 +138,8 @@ fn create_http_cell_dispatcher(
 + 'static {
     let tracing_sink = ForwardingTracingSink::new();
     let lifecycle_registry = cell_ready_registry().clone();
-    let buffer_pool = BufferPool::new();
+    // Use 256KB buffer pool to handle larger payloads (fonts, search indexes, etc.)
+    let buffer_pool = BufferPool::with_capacity(128, 256 * 1024);
 
     move |frame: Frame| {
         let content_service = content_service.clone();
@@ -315,30 +316,26 @@ pub async fn start_cell_server_with_shutdown(
     boot_state.set_phase(BootPhase::LoadingCells);
     let registry = all().await;
 
-    // Check that the http cell is loaded - but don't abort accept loop!
+    // Check that the http cell is loaded
     if registry.http.is_none() {
-        boot_state.set_fatal(
-            ErrorKind::MissingCell,
-            "HTTP cell not loaded. Build it with: cargo build -p cell-http --bin ddc-cell-http",
+        panic!(
+            "FATAL: HTTP cell not loaded\n\
+             \n\
+             Build it with: cargo build -p cell-http --bin ddc-cell-http\n\
+             Or ensure DODECA_CELL_PATH points to a directory containing ddc-cell-http"
         );
-        // Don't abort - let accept loop run and serve HTTP 500s
-        return accept_task
-            .await
-            .map_err(|e| eyre::eyre!("Accept loop task failed: {}", e))?;
     }
 
     // Get the raw session to set up ContentService dispatcher
     let session = match get_cell_session("ddc-cell-http") {
         Some(session) => session,
         None => {
-            boot_state.set_fatal(
-                ErrorKind::CellStartupFailed,
-                "HTTP cell session not found after loading",
+            panic!(
+                "FATAL: HTTP cell session not found after loading\n\
+                 \n\
+                 The HTTP cell binary was found but failed to establish an RPC session.\n\
+                 Check for errors in cell startup logs above."
             );
-            // Don't abort - let accept loop run and serve HTTP 500s
-            return accept_task
-                .await
-                .map_err(|e| eyre::eyre!("Accept loop task failed: {}", e))?;
         }
     };
 
@@ -359,13 +356,15 @@ pub async fn start_cell_server_with_shutdown(
     boot_state.set_phase(BootPhase::WaitingCellsReady);
     if let Err(e) = crate::cells::wait_for_cells_ready(&REQUIRED_CELLS, REQUIRED_CELL_TIMEOUT).await
     {
-        boot_state.set_fatal(
-            ErrorKind::CellStartupFailed,
-            format!("Required cells not ready: {}", e),
+        // CRITICAL: Required cells MUST be ready for the application to function.
+        // Panic immediately instead of silently serving HTTP 500 errors.
+        panic!(
+            "FATAL: Required cells failed to start: {}\n\
+             \n\
+             This is a critical startup failure. The application cannot function without these cells.\n\
+             Check cell logs above for errors during startup.",
+            e
         );
-        return accept_task
-            .await
-            .map_err(|e| eyre::eyre!("Accept loop task failed: {}", e))?;
     }
 
     // Mark boot as complete - connections can now be fully handled

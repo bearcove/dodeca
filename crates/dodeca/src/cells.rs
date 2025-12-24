@@ -736,7 +736,9 @@ impl CellRegistry {
         let lifecycle_impl = HostCellLifecycle::new(cell_ready_registry().clone());
         let lifecycle_server = Arc::new(CellLifecycleServer::new(lifecycle_impl));
 
-        let buffer_pool = rapace::BufferPool::new();
+        // Use 256KB buffer pool to handle larger payloads (fonts, search indexes, etc.)
+        // Default 64KB is too small for some assets (e.g., fonts/test.woff2 is 73KB)
+        let buffer_pool = rapace::BufferPool::with_capacity(128, 256 * 1024);
         let dispatcher = DispatcherBuilder::new()
             .add_service(TracingSinkService(tracing_server))
             .add_service(CellLifecycleService(lifecycle_server))
