@@ -22,6 +22,7 @@ mod search;
 mod serve;
 mod svg;
 mod template;
+mod template_host;
 mod tui;
 mod tui_host;
 mod types;
@@ -458,7 +459,7 @@ pub enum BuildMode {
 
 /// The build context with picante database
 pub struct BuildContext {
-    pub db: Database,
+    pub db: Arc<Database>,
     pub content_dir: Utf8PathBuf,
     pub output_dir: Utf8PathBuf,
     /// Source files keyed by source path
@@ -485,7 +486,7 @@ impl BuildContext {
         output_dir: &Utf8Path,
         stats: Option<Arc<QueryStats>>,
     ) -> Self {
-        let db = Database::new(stats.clone());
+        let db = Arc::new(Database::new(stats.clone()));
         Self {
             db,
             content_dir: content_dir.to_owned(),
@@ -497,6 +498,11 @@ impl BuildContext {
             data_files: BTreeMap::new(),
             stats,
         }
+    }
+
+    /// Get the database Arc for sharing with render contexts
+    pub fn db_arc(&self) -> Arc<Database> {
+        self.db.clone()
     }
 
     /// Get the templates directory (sibling to content dir)
@@ -555,8 +561,12 @@ impl BuildContext {
 
             let source_path = SourcePath::new(relative);
             let source_content = SourceContent::new(content);
-            let source =
-                SourceFile::new(&self.db, source_path.clone(), source_content, last_modified)?;
+            let source = SourceFile::new(
+                &*self.db,
+                source_path.clone(),
+                source_content,
+                last_modified,
+            )?;
             self.sources.insert(source_path, source);
         }
 
@@ -592,7 +602,7 @@ impl BuildContext {
 
             let template_path = TemplatePath::new(relative);
             let template_content = TemplateContent::new(content);
-            let template = TemplateFile::new(&self.db, template_path.clone(), template_content)?;
+            let template = TemplateFile::new(&*self.db, template_path.clone(), template_content)?;
             self.templates.insert(template_path, template);
         }
 
@@ -628,7 +638,7 @@ impl BuildContext {
 
             let sass_path = SassPath::new(relative);
             let sass_content = SassContent::new(content);
-            let sass_file = SassFile::new(&self.db, sass_path.clone(), sass_content)?;
+            let sass_file = SassFile::new(&*self.db, sass_path.clone(), sass_content)?;
             self.sass_files.insert(sass_path, sass_file);
         }
 
@@ -657,7 +667,7 @@ impl BuildContext {
                 .unwrap_or_else(|_| path.to_string());
 
             let static_path = StaticPath::new(relative);
-            let static_file = StaticFile::new(&self.db, static_path.clone(), content)?;
+            let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
             self.static_files.insert(static_path, static_file);
         }
 
@@ -697,7 +707,7 @@ impl BuildContext {
 
             let data_path = DataPath::new(relative);
             let data_content = DataContent::new(content);
-            let data_file = DataFile::new(&self.db, data_path.clone(), data_content)?;
+            let data_file = DataFile::new(&*self.db, data_path.clone(), data_content)?;
             self.data_files.insert(data_path, data_file);
         }
 
@@ -723,8 +733,13 @@ impl BuildContext {
 
         // Check if we already have this source - for picante, recreate and replace
         let source_path = SourcePath::new(relative_path.to_string());
-        let source = SourceFile::new(&self.db, source_path.clone(), source_content, last_modified)
-            .expect("failed to create source file");
+        let source = SourceFile::new(
+            &*self.db,
+            source_path.clone(),
+            source_content,
+            last_modified,
+        )
+        .expect("failed to create source file");
         self.sources.insert(source_path, source);
 
         Ok(true)
@@ -745,7 +760,7 @@ impl BuildContext {
 
         // For picante, recreate and replace
         let template_path = TemplatePath::new(relative_path.to_string());
-        let template = TemplateFile::new(&self.db, template_path.clone(), template_content)
+        let template = TemplateFile::new(&*self.db, template_path.clone(), template_content)
             .expect("failed to create template file");
         self.templates.insert(template_path, template);
 
@@ -767,7 +782,7 @@ impl BuildContext {
 
         // For picante, recreate and replace
         let sass_path = SassPath::new(relative_path.to_string());
-        let sass_file = SassFile::new(&self.db, sass_path.clone(), sass_content)
+        let sass_file = SassFile::new(&*self.db, sass_path.clone(), sass_content)
             .expect("failed to create sass file");
         self.sass_files.insert(sass_path, sass_file);
 
@@ -853,19 +868,22 @@ pub async fn build(
     let static_vec: Vec<_> = ctx.static_files.values().copied().collect();
     let data_vec: Vec<_> = ctx.data_files.values().copied().collect();
 
-    SourceRegistry::set(&ctx.db, source_vec)?;
-    TemplateRegistry::set(&ctx.db, template_vec)?;
-    SassRegistry::set(&ctx.db, sass_vec)?;
-    StaticRegistry::set(&ctx.db, static_vec)?;
-    DataRegistry::set(&ctx.db, data_vec)?;
+    SourceRegistry::set(&*ctx.db, source_vec)?;
+    TemplateRegistry::set(&*ctx.db, template_vec)?;
+    SassRegistry::set(&*ctx.db, sass_vec)?;
+    StaticRegistry::set(&*ctx.db, static_vec)?;
+    DataRegistry::set(&*ctx.db, data_vec)?;
 
     // Update progress: parsing phase
     if let Some(ref p) = progress {
         p.update(|prog| prog.parse.start(ctx.sources.len()));
     }
 
+    // Set the current database for cell-based rendering
+    crate::db::set_current_db(ctx.db.clone());
+
     // THE query - produces all outputs (fonts are automatically subsetted)
-    let site_output = build_site(&ctx.db).await?;
+    let site_output = build_site(&*ctx.db).await?;
 
     // Code execution validation
     let failed_executions: Vec<_> = site_output
@@ -1163,16 +1181,19 @@ async fn build_with_mini_tui(
     let static_vec: Vec<_> = ctx.static_files.values().copied().collect();
     let data_vec: Vec<_> = ctx.data_files.values().copied().collect();
 
-    SourceRegistry::set(&ctx.db, source_vec)?;
-    TemplateRegistry::set(&ctx.db, template_vec)?;
-    SassRegistry::set(&ctx.db, sass_vec)?;
-    StaticRegistry::set(&ctx.db, static_vec)?;
-    DataRegistry::set(&ctx.db, data_vec)?;
+    SourceRegistry::set(&*ctx.db, source_vec)?;
+    TemplateRegistry::set(&*ctx.db, template_vec)?;
+    SassRegistry::set(&*ctx.db, sass_vec)?;
+    StaticRegistry::set(&*ctx.db, static_vec)?;
+    DataRegistry::set(&*ctx.db, data_vec)?;
 
     tracing::info!("Building...");
 
+    // Set the current database for cell-based rendering
+    crate::db::set_current_db(ctx.db.clone());
+
     // Run the build query
-    let site_output = build_site(&ctx.db).await?;
+    let site_output = build_site(&*ctx.db).await?;
 
     // Code execution validation
     let failed_executions: Vec<_> = site_output

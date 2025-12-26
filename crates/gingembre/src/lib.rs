@@ -56,7 +56,7 @@ pub use facet_value::{VArray, VObject, VSafeString, VString};
 
 /// Evaluate a standalone expression string against a context.
 /// Useful for REPL-style evaluation.
-pub fn eval_expression(expr: &str, ctx: &Context) -> miette::Result<Value> {
+pub async fn eval_expression(expr: &str, ctx: &Context) -> miette::Result<Value> {
     use error::TemplateSource;
 
     // Use expression parser (starts in code mode, not template mode)
@@ -64,5 +64,5 @@ pub fn eval_expression(expr: &str, ctx: &Context) -> miette::Result<Value> {
     let source = TemplateSource::new("<repl>", expr);
     let ast = parser.parse_expression()?;
     let evaluator = eval::Evaluator::new(ctx, &source);
-    evaluator.eval_concrete(&ast)
+    evaluator.eval_concrete(&ast).await
 }

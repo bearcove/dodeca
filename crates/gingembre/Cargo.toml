@@ -21,3 +21,9 @@ camino.workspace = true
 facet-value.workspace = true
 miette.workspace = true
 thiserror.workspace = true
+
+# Async support
+futures.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }

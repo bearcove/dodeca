@@ -9,14 +9,26 @@
 //! - Comparison with minijinja
 
 use divan::{Bencher, black_box};
+use facet_value::DestructuredRef;
 use gingembre::lexer::Lexer;
 use gingembre::parser::Parser;
 use gingembre::{Context, Engine, InMemoryLoader, VArray, VObject, VString, Value};
-use facet_value::DestructuredRef;
 use std::sync::Arc;
 
 fn main() {
     divan::main();
+}
+
+/// Helper to run async code in benchmarks.
+/// This is safe for benchmarks because:
+/// 1. Each benchmark runs in isolation with a fresh runtime
+/// 2. No shared state or complex async interactions
+/// 3. We're measuring render performance, not async scheduling
+fn bench_async<F: std::future::Future>(f: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(f)
 }
 
 // ============================================================================
@@ -322,7 +334,7 @@ fn render_simple(bencher: Bencher) {
         let mut loader = InMemoryLoader::new();
         loader.add("bench", source);
         let mut engine = Engine::new(loader);
-        black_box(engine.render("bench", &ctx))
+        black_box(bench_async(engine.render("bench", &ctx)))
     });
 }
 
@@ -335,7 +347,7 @@ fn render_with_variables(bencher: Bencher) {
         let mut loader = InMemoryLoader::new();
         loader.add("bench", source);
         let mut engine = Engine::new(loader);
-        black_box(engine.render("bench", &ctx))
+        black_box(bench_async(engine.render("bench", &ctx)))
     });
 }
 
@@ -348,7 +360,7 @@ fn render_with_loops(bencher: Bencher) {
         let mut loader = InMemoryLoader::new();
         loader.add("bench", source);
         let mut engine = Engine::new(loader);
-        black_box(engine.render("bench", &ctx))
+        black_box(bench_async(engine.render("bench", &ctx)))
     });
 }
 
@@ -361,7 +373,7 @@ fn render_complex(bencher: Bencher) {
         let mut loader = InMemoryLoader::new();
         loader.add("bench", source);
         let mut engine = Engine::new(loader);
-        black_box(engine.render("bench", &ctx))
+        black_box(bench_async(engine.render("bench", &ctx)))
     });
 }
 
@@ -388,9 +400,8 @@ fn render_loop_scaling(bencher: Bencher, iterations: usize) {
                     }
                 })
                 .unwrap_or(0) as usize;
-            Ok(Value::from(VArray::from_iter(
-                (0..n).map(|i| Value::from(i as i64)),
-            )))
+            let result = Value::from(VArray::from_iter((0..n).map(|i| Value::from(i as i64))));
+            Box::pin(async move { Ok(result) })
         }),
     );
 
@@ -398,7 +409,7 @@ fn render_loop_scaling(bencher: Bencher, iterations: usize) {
         let mut loader = InMemoryLoader::new();
         loader.add("bench", &source);
         let mut engine = Engine::new(loader);
-        black_box(engine.render("bench", &ctx))
+        black_box(bench_async(engine.render("bench", &ctx)))
     });
 }
 

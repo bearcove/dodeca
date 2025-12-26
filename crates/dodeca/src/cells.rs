@@ -17,6 +17,9 @@ use cell_code_execution_proto::{
 };
 use cell_css_proto::{CssProcessorClient, CssResult};
 use cell_fonts_proto::{FontAnalysis, FontProcessorClient, FontResult, SubsetFontInput};
+use cell_gingembre_proto::{
+    ContextId, EvalResult, RenderResult, TemplateHostServer, TemplateRendererClient,
+};
 use cell_html_diff_proto::{DiffInput, DiffResult, HtmlDiffResult, HtmlDifferClient};
 use cell_html_proto::HtmlProcessorClient;
 use cell_http_proto::TcpTunnelClient;
@@ -251,6 +254,9 @@ pub async fn init_and_wait_for_cells() -> eyre::Result<()> {
 
     // Trigger cell loading - this spawns all cells and their RPC sessions
     let _ = all().await;
+
+    // Initialize gingembre cell (special case - has TemplateHost service)
+    init_gingembre_cell().await;
 
     // Get all spawned peer IDs
     let peer_ids: Vec<u16> = PEER_DIAG_INFO
@@ -2017,6 +2023,280 @@ async fn _parse_frontmatter_cell(
         }
         Err(e) => {
             warn!("markdown parse_frontmatter cell call failed: {:?}", e);
+            None
+        }
+    }
+}
+
+// ============================================================================
+// Gingembre template rendering cell
+// ============================================================================
+//
+// Gingembre is special: it uses bidirectional RPC where the cell calls back
+// to the host for template loading and data resolution. This enables fine-grained
+// picante dependency tracking while keeping the template engine in a separate process.
+
+use crate::template_host::{TemplateHostImpl, render_context_registry};
+
+/// Global gingembre cell client.
+static GINGEMBRE_CELL: tokio::sync::OnceCell<Arc<TemplateRendererClient>> =
+    tokio::sync::OnceCell::const_new();
+
+/// Temporary wrapper for TemplateHostServer to implement ServiceDispatch.
+///
+/// This is needed because rapace's service macro generates a Server type
+/// but the ServiceDispatch wrapper generation has crate detection issues.
+/// Same pattern as TracingSinkService above.
+struct TemplateHostService(Arc<TemplateHostServer<TemplateHostImpl>>);
+
+impl ServiceDispatch for TemplateHostService {
+    fn method_ids(&self) -> &'static [u32] {
+        use cell_gingembre_proto::{
+            TEMPLATE_HOST_METHOD_ID_KEYS_AT, TEMPLATE_HOST_METHOD_ID_LOAD_TEMPLATE,
+            TEMPLATE_HOST_METHOD_ID_RESOLVE_DATA,
+        };
+        &[
+            TEMPLATE_HOST_METHOD_ID_LOAD_TEMPLATE,
+            TEMPLATE_HOST_METHOD_ID_RESOLVE_DATA,
+            TEMPLATE_HOST_METHOD_ID_KEYS_AT,
+        ]
+    }
+
+    fn dispatch(
+        &self,
+        method_id: u32,
+        frame: Frame,
+        buffer_pool: &rapace::BufferPool,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send + 'static>,
+    > {
+        let server = self.0.clone();
+        let buffer_pool = buffer_pool.clone();
+        Box::pin(async move { server.dispatch(method_id, &frame, &buffer_pool).await })
+    }
+}
+
+/// Initialize the gingembre cell with TemplateHost service.
+///
+/// This must be called after the hub is initialized but before any render calls.
+pub async fn init_gingembre_cell() -> Option<()> {
+    let (hub, hub_path) = get_hub().await?;
+
+    // Find the cell directory
+    let exe_path = std::env::current_exe().ok()?;
+    let dir = exe_path.parent()?;
+
+    #[cfg(target_os = "windows")]
+    let binary_name = "ddc-cell-gingembre.exe";
+    #[cfg(not(target_os = "windows"))]
+    let binary_name = "ddc-cell-gingembre";
+
+    let path = dir.join(binary_name);
+    if !path.exists() {
+        // Try development fallback
+        #[cfg(debug_assertions)]
+        let profile_dir = PathBuf::from("target/debug");
+        #[cfg(not(debug_assertions))]
+        let profile_dir = PathBuf::from("target/release");
+
+        let dev_path = profile_dir.join(binary_name);
+        if !dev_path.exists() {
+            debug!(
+                "gingembre cell not found at {} or {}",
+                path.display(),
+                dev_path.display()
+            );
+            return None;
+        }
+        return spawn_gingembre_cell(&dev_path, &hub, &hub_path).await;
+    }
+
+    spawn_gingembre_cell(&path, &hub, &hub_path).await
+}
+
+/// Spawn the gingembre cell with a custom dispatcher including TemplateHost.
+async fn spawn_gingembre_cell(path: &Path, hub: &Arc<HubHost>, hub_path: &Path) -> Option<()> {
+    // Add peer to hub
+    let peer_info = match hub.add_peer() {
+        Ok(info) => info,
+        Err(e) => {
+            warn!("failed to add peer for gingembre cell: {}", e);
+            return None;
+        }
+    };
+
+    let peer_id = peer_info.peer_id;
+    let peer_doorbell_fd = peer_info.peer_doorbell_fd;
+
+    // Build command with hub args
+    let mut cmd = Command::new(path);
+    cmd.arg(format!("--hub-path={}", hub_path.display()))
+        .arg(format!("--peer-id={}", peer_id))
+        .arg(format!("--doorbell-fd={}", peer_doorbell_fd))
+        .stdin(Stdio::null());
+
+    if is_quiet_mode() {
+        cmd.stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .env("DODECA_QUIET", "1");
+    } else {
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    }
+
+    let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
+        Ok(child) => child,
+        Err(e) => {
+            warn!("failed to spawn gingembre cell: {}", e);
+            return None;
+        }
+    };
+
+    // Register child PID for SIGUSR1 forwarding
+    if let Some(pid) = child.id() {
+        dodeca_debug::register_child_pid(pid);
+    }
+
+    if !is_quiet_mode() {
+        capture_cell_stdio("ddc-cell-gingembre", &mut child);
+    }
+
+    // Close our end of the peer's doorbell
+    close_peer_fd(peer_doorbell_fd);
+
+    // Create transport
+    let peer_transport = HubHostPeerTransport::new(hub.clone(), peer_id, peer_info.doorbell);
+    let transport = rapace::Transport::Shm(rapace::transport::shm::ShmTransport::HubHostPeer(
+        peer_transport,
+    ));
+
+    let rpc_session = Arc::new(RpcSession::with_channel_start(transport, 1));
+
+    // Register for diagnostics
+    register_peer_diag(peer_id, "ddc-cell-gingembre", rpc_session.clone());
+
+    // Set up multi-service dispatcher with TemplateHost
+    let tracing_sink = ForwardingTracingSink::new();
+    let lifecycle_impl = HostCellLifecycle::new(cell_ready_registry().clone());
+    let template_host_impl = TemplateHostImpl::new(render_context_registry());
+
+    // Use 256KB buffer pool for larger payloads
+    let buffer_pool = rapace::BufferPool::with_capacity(128, 256 * 1024);
+    let dispatcher = DispatcherBuilder::new()
+        .add_service(TracingSinkService(Arc::new(TracingSinkServer::new(
+            tracing_sink,
+        ))))
+        .add_service(CellLifecycleServer::new(lifecycle_impl).into_dispatch())
+        .add_service(TemplateHostService(Arc::new(TemplateHostServer::new(
+            template_host_impl,
+        ))))
+        .build(buffer_pool);
+
+    rpc_session.set_dispatcher(dispatcher);
+
+    // Start the RPC session runner
+    {
+        let session_runner = rpc_session.clone();
+        tokio::spawn(async move {
+            if let Err(e) = session_runner.run().await {
+                warn!("gingembre cell RPC session error: {}", e);
+            }
+        });
+    }
+
+    // Wait on the child asynchronously
+    {
+        let hub_for_cleanup = hub.clone();
+        tokio::spawn(async move {
+            match child.wait().await {
+                Ok(status) => {
+                    if !status.success() {
+                        warn!("gingembre cell exited with status: {}", status);
+                    }
+                }
+                Err(e) => {
+                    warn!("gingembre cell wait error: {}", e);
+                }
+            }
+            hub_for_cleanup
+                .allocator()
+                .reclaim_peer_slots(peer_id as u32);
+            info!(
+                "gingembre cell exited, reclaimed slots for peer {}",
+                peer_id
+            );
+        });
+    }
+
+    // Create and store the client
+    let client = Arc::new(TemplateRendererClient::new(rpc_session));
+    let _ = GINGEMBRE_CELL.set(client);
+
+    info!(
+        "launched gingembre cell from {} (peer_id={})",
+        path.display(),
+        peer_id
+    );
+
+    Some(())
+}
+
+/// Get the gingembre cell client, if available.
+pub async fn gingembre_cell() -> Option<Arc<TemplateRendererClient>> {
+    GINGEMBRE_CELL.get().cloned()
+}
+
+/// Render a template using the gingembre cell.
+///
+/// # Arguments
+/// - `context_id`: The render context ID (from RenderContextGuard)
+/// - `template_name`: Name of the template to render
+/// - `initial_context`: Initial context variables (VObject)
+///
+/// Returns the rendered HTML or None on error.
+pub async fn render_template_cell(
+    context_id: ContextId,
+    template_name: &str,
+    initial_context: facet_value::Value,
+) -> Option<Result<String, String>> {
+    let client = gingembre_cell().await?;
+
+    match client
+        .render(context_id, template_name.to_string(), initial_context)
+        .await
+    {
+        Ok(RenderResult::Success { html }) => Some(Ok(html)),
+        Ok(RenderResult::Error { message }) => Some(Err(message)),
+        Err(e) => {
+            warn!("gingembre render RPC failed: {:?}", e);
+            None
+        }
+    }
+}
+
+/// Evaluate a template expression using the gingembre cell.
+///
+/// # Arguments
+/// - `context_id`: The render context ID
+/// - `expression`: The expression to evaluate
+/// - `context`: Context variables
+///
+/// Returns the result value or None on error.
+#[allow(dead_code)] // Scaffolding for future expression evaluation
+pub async fn eval_expression_cell(
+    context_id: ContextId,
+    expression: &str,
+    context: facet_value::Value,
+) -> Option<Result<facet_value::Value, String>> {
+    let client = gingembre_cell().await?;
+
+    match client
+        .eval_expression(context_id, expression.to_string(), context)
+        .await
+    {
+        Ok(EvalResult::Success { value }) => Some(Ok(value)),
+        Ok(EvalResult::Error { message }) => Some(Err(message)),
+        Err(e) => {
+            warn!("gingembre eval_expression RPC failed: {:?}", e);
             None
         }
     }

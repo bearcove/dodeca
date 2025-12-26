@@ -1,4 +1,5 @@
-use crate::cells::inject_build_info_cell;
+use crate::cells::{gingembre_cell, inject_build_info_cell, render_template_cell};
+use crate::db::current_db;
 use crate::db::{
     CodeExecutionMetadata, CodeExecutionResult, DependencySourceInfo, Heading, Page, Section,
     SiteTree,
@@ -8,6 +9,7 @@ use crate::template::{
     Context, DataResolver, Engine, InMemoryLoader, TemplateLoader, VArray, VObject, VString, Value,
     ValueExt,
 };
+use crate::template_host::{RenderContext, RenderContextGuard, render_context_registry};
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
 use std::collections::{HashMap, HashSet};
@@ -521,7 +523,7 @@ pub async fn inject_livereload_with_build_info(
 
 /// Render a page to HTML using a template loader.
 /// Returns Result - caller decides whether to show error page (dev) or fail (prod)
-pub fn try_render_page_with_loader<L: TemplateLoader>(
+pub async fn try_render_page_with_loader<L: TemplateLoader>(
     page: &Page,
     site_tree: &SiteTree,
     loader: L,
@@ -547,23 +549,25 @@ pub fn try_render_page_with_loader<L: TemplateLoader>(
 
     engine
         .render("page.html", &ctx)
+        .await
         .map_err(|e| format!("{e:?}"))
 }
 
 /// Render page with a loader - development mode (shows error page on failure)
-pub fn render_page_with_loader<L: TemplateLoader>(
+pub async fn render_page_with_loader<L: TemplateLoader>(
     page: &Page,
     site_tree: &SiteTree,
     loader: L,
     data: Option<Value>,
 ) -> String {
     try_render_page_with_loader(page, site_tree, loader, data)
+        .await
         .unwrap_or_else(|e| render_error_page(&e))
 }
 
 /// Render a section to HTML using a template loader.
 /// Returns Result - caller decides whether to show error page (dev) or fail (prod)
-pub fn try_render_section_with_loader<L: TemplateLoader>(
+pub async fn try_render_section_with_loader<L: TemplateLoader>(
     section: &Section,
     site_tree: &SiteTree,
     loader: L,
@@ -615,17 +619,18 @@ pub fn try_render_section_with_loader<L: TemplateLoader>(
 
     engine
         .render(template_name, &ctx)
+        .await
         .map_err(|e| format!("{e:?}"))
 }
 
 /// Render section with a loader - development mode (shows error page on failure)
-pub fn render_section_with_loader<L: TemplateLoader>(
+pub async fn render_section_with_loader<L: TemplateLoader>(
     section: &Section,
     site_tree: &SiteTree,
     loader: L,
     data: Option<Value>,
 ) -> String {
-    let result = try_render_section_with_loader(section, site_tree, loader, data);
+    let result = try_render_section_with_loader(section, site_tree, loader, data).await;
     match result {
         Ok(html) => html,
         Err(e) => {
@@ -641,7 +646,7 @@ pub fn render_section_with_loader<L: TemplateLoader>(
 
 /// Render a page to HTML with lazy data resolver.
 /// Each data path access becomes a tracked picante dependency.
-pub fn try_render_page_with_resolver<L: TemplateLoader>(
+pub async fn try_render_page_with_resolver<L: TemplateLoader>(
     page: &Page,
     site_tree: &SiteTree,
     loader: L,
@@ -660,23 +665,25 @@ pub fn try_render_page_with_resolver<L: TemplateLoader>(
 
     engine
         .render("page.html", &ctx)
+        .await
         .map_err(|e| format!("{e:?}"))
 }
 
 /// Render page with lazy resolver - development mode (shows error page on failure)
-pub fn render_page_with_resolver<L: TemplateLoader>(
+pub async fn render_page_with_resolver<L: TemplateLoader>(
     page: &Page,
     site_tree: &SiteTree,
     loader: L,
     resolver: Arc<dyn DataResolver>,
 ) -> String {
     try_render_page_with_resolver(page, site_tree, loader, resolver)
+        .await
         .unwrap_or_else(|e| render_error_page(&e))
 }
 
 /// Render a section to HTML with lazy data resolver.
 /// Each data path access becomes a tracked picante dependency.
-pub fn try_render_section_with_resolver<L: TemplateLoader>(
+pub async fn try_render_section_with_resolver<L: TemplateLoader>(
     section: &Section,
     site_tree: &SiteTree,
     loader: L,
@@ -698,17 +705,162 @@ pub fn try_render_section_with_resolver<L: TemplateLoader>(
 
     engine
         .render(template_name, &ctx)
+        .await
         .map_err(|e| format!("{e:?}"))
 }
 
 /// Render section with lazy resolver - development mode (shows error page on failure)
-pub fn render_section_with_resolver<L: TemplateLoader>(
+pub async fn render_section_with_resolver<L: TemplateLoader>(
     section: &Section,
     site_tree: &SiteTree,
     loader: L,
     resolver: Arc<dyn DataResolver>,
 ) -> String {
     try_render_section_with_resolver(section, site_tree, loader, resolver)
+        .await
+        .unwrap_or_else(|e| render_error_page(&e))
+}
+
+// ============================================================================
+// Cell-based rendering (uses gingembre cell for template processing)
+// ============================================================================
+
+/// Build initial context as a Value for passing to the cell.
+/// This includes page/section data and any static context values.
+fn build_initial_context_value(
+    page: Option<&Page>,
+    section: Option<&Section>,
+    site_tree: &SiteTree,
+    current_path: &str,
+) -> Value {
+    let mut obj = VObject::new();
+
+    // Add page if present
+    if let Some(page) = page {
+        obj.insert(VString::from("page"), page_to_value(page, site_tree));
+    } else {
+        obj.insert(VString::from("page"), Value::NULL);
+    }
+
+    // Add section if present
+    if let Some(section) = section {
+        obj.insert(
+            VString::from("section"),
+            section_to_value(section, site_tree),
+        );
+    }
+
+    // Add current_path
+    obj.insert(VString::from("current_path"), Value::from(current_path));
+
+    // Add root section if available
+    if let Some(root) = site_tree.sections.get(&Route::root()) {
+        obj.insert(VString::from("root"), section_to_value(root, site_tree));
+    }
+
+    obj.into()
+}
+
+/// Render a page via the gingembre cell.
+/// Falls back to direct rendering if cell is not available.
+pub async fn try_render_page_via_cell(
+    page: &Page,
+    site_tree: &SiteTree,
+    templates: HashMap<String, String>,
+) -> std::result::Result<String, String> {
+    // Check if cell is available and we have a database
+    let db = match (gingembre_cell().await, current_db()) {
+        (Some(_), Some(db)) => db,
+        _ => {
+            // Fall back to direct rendering
+            return try_render_page_with_loader(page, site_tree, loader_from_map(&templates), None)
+                .await;
+        }
+    };
+
+    // Create render context with templates and site_tree
+    let context = RenderContext::new(templates, db, Arc::new(site_tree.clone()));
+    let guard = RenderContextGuard::new(render_context_registry(), context);
+
+    // Find parent section
+    let parent_section = find_parent_section(&page.route, site_tree);
+
+    // Build initial context
+    let initial_context =
+        build_initial_context_value(Some(page), parent_section, site_tree, page.route.as_str());
+
+    // Render via cell
+    match render_template_cell(guard.id(), "page.html", initial_context).await {
+        Some(Ok(html)) => Ok(html),
+        Some(Err(e)) => Err(e),
+        None => Err("Gingembre cell unavailable".to_string()),
+    }
+}
+
+/// Render a section via the gingembre cell.
+/// Falls back to direct rendering if cell is not available.
+pub async fn try_render_section_via_cell(
+    section: &Section,
+    site_tree: &SiteTree,
+    templates: HashMap<String, String>,
+) -> std::result::Result<String, String> {
+    // Check if cell is available and we have a database
+    let db = match (gingembre_cell().await, current_db()) {
+        (Some(_), Some(db)) => db,
+        _ => {
+            // Fall back to direct rendering
+            return try_render_section_with_loader(
+                section,
+                site_tree,
+                loader_from_map(&templates),
+                None,
+            )
+            .await;
+        }
+    };
+
+    // Create render context with templates and site_tree
+    let context = RenderContext::new(templates, db, Arc::new(site_tree.clone()));
+    let guard = RenderContextGuard::new(render_context_registry(), context);
+
+    // Build initial context
+    let initial_context =
+        build_initial_context_value(None, Some(section), site_tree, section.route.as_str());
+
+    // Choose template based on route
+    let template_name = if section.route.as_str() == "/" {
+        "index.html"
+    } else {
+        "section.html"
+    };
+
+    // Render via cell
+    match render_template_cell(guard.id(), template_name, initial_context).await {
+        Some(Ok(html)) => Ok(html),
+        Some(Err(e)) => Err(e),
+        None => Err("Gingembre cell unavailable".to_string()),
+    }
+}
+
+/// Render page via cell - development mode (shows error page on failure)
+pub async fn render_page_via_cell(
+    page: &Page,
+    site_tree: &SiteTree,
+    templates: HashMap<String, String>,
+) -> String {
+    try_render_page_via_cell(page, site_tree, templates)
+        .await
+        .unwrap_or_else(|e| render_error_page(&e))
+}
+
+/// Render section via cell - development mode (shows error page on failure)
+pub async fn render_section_via_cell(
+    section: &Section,
+    site_tree: &SiteTree,
+    templates: HashMap<String, String>,
+) -> String {
+    try_render_section_via_cell(section, site_tree, templates)
+        .await
         .unwrap_or_else(|e| render_error_page(&e))
 }
 
@@ -726,23 +878,23 @@ fn loader_from_map(templates: &HashMap<String, String>) -> InMemoryLoader {
 }
 
 /// Render page - development mode (shows error page on failure)
-pub fn render_page_to_html(
+pub async fn render_page_to_html(
     page: &Page,
     site_tree: &SiteTree,
     templates: &HashMap<String, String>,
     data: Option<Value>,
 ) -> String {
-    render_page_with_loader(page, site_tree, loader_from_map(templates), data)
+    render_page_with_loader(page, site_tree, loader_from_map(templates), data).await
 }
 
 /// Render section - development mode (shows error page on failure)
-pub fn render_section_to_html(
+pub async fn render_section_to_html(
     section: &Section,
     site_tree: &SiteTree,
     templates: &HashMap<String, String>,
     data: Option<Value>,
 ) -> String {
-    render_section_with_loader(section, site_tree, loader_from_map(templates), data)
+    render_section_with_loader(section, site_tree, loader_from_map(templates), data).await
 }
 
 /// Build the render context with config and global functions
@@ -821,7 +973,8 @@ fn build_render_context_base(site_tree: &SiteTree) -> Context {
             } else {
                 format!("/{path}")
             };
-            Ok(Value::from(url.as_str()))
+            let result = Value::from(url.as_str());
+            Box::pin(async move { Ok(result) })
         }),
     );
 
@@ -839,7 +992,7 @@ fn build_render_context_base(site_tree: &SiteTree) -> Context {
 
             let route = path_to_route(&path);
 
-            if let Some(section) = sections.get(&route) {
+            let result = if let Some(section) = sections.get(&route) {
                 let mut section_map = VObject::new();
                 section_map.insert(VString::from("title"), Value::from(section.title.as_str()));
                 section_map.insert(
@@ -887,10 +1040,11 @@ fn build_render_context_base(site_tree: &SiteTree) -> Context {
                     .collect();
                 section_map.insert(VString::from("subsections"), VArray::from_iter(subsections));
 
-                Ok(section_map.into())
+                section_map.into()
             } else {
-                Ok(Value::NULL)
-            }
+                Value::NULL
+            };
+            Box::pin(async move { Ok(result) })
         }),
     );
 
@@ -912,7 +1066,7 @@ fn heading_to_value(h: &Heading, children: Vec<Value>) -> Value {
 }
 
 /// Convert headings to a hierarchical TOC Value (Zola-style nested structure)
-fn headings_to_toc(headings: &[Heading]) -> Value {
+pub fn headings_to_toc(headings: &[Heading]) -> Value {
     build_toc_tree(headings)
 }
 
@@ -1137,7 +1291,7 @@ fn subsection_to_value(section: &Section, site_tree: &SiteTree) -> Value {
 }
 
 /// Convert a source path like "learn/_index.md" to a route like "/learn"
-fn path_to_route(path: &str) -> Route {
+pub fn path_to_route(path: &str) -> Route {
     let mut p = path.to_string();
 
     // Remove .md extension
@@ -1161,7 +1315,7 @@ fn path_to_route(path: &str) -> Route {
 }
 
 /// Convert a route like "/learn/" back to a path like "learn/_index.md"
-fn route_to_path(route: &str) -> String {
+pub fn route_to_path(route: &str) -> String {
     let r = route.trim_matches('/');
     if r.is_empty() {
         "_index.md".to_string()

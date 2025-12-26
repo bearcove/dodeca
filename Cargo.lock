@@ -1357,6 +1357,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "cell-gingembre"
+version = "0.6.1"
+dependencies = [
+ "cell-gingembre-proto",
+ "facet 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
+ "facet-value 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
+ "futures",
+ "gingembre",
+ "miette",
+ "rapace-cell",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "cell-gingembre-proto"
+version = "0.6.1"
+dependencies = [
+ "facet 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
+ "facet-value 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
+ "rapace",
+]
+
+[[package]]
 name = "cell-html"
 version = "0.6.1"
 dependencies = [
@@ -2742,6 +2766,7 @@ dependencies = [
  "cell-code-execution-proto",
  "cell-css-proto",
  "cell-fonts-proto",
+ "cell-gingembre-proto",
  "cell-html-diff-proto",
  "cell-html-proto",
  "cell-http-proto",
@@ -3834,8 +3859,10 @@ version = "0.6.1"
 dependencies = [
  "camino",
  "facet-value 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
+ "futures",
  "miette",
  "thiserror 2.0.17",
+ "tokio",
 ]
 
 [[package]]
