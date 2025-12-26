@@ -13,10 +13,7 @@ name = "ddc-cell-jxl"
 path = "src/main.rs"
 
 [dependencies]
-
-# Local protocol definitions
 cell-jxl-proto = { path = "../cell-jxl-proto" }
-# JPEG XL processing
-jpegxl-rs = { version = "0.11", features = ["vendored"] }
+jpegxl-rs.workspace = true
 rapace-cell.workspace = true
-tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified
+tokio.workspace = true

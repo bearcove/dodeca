@@ -17,7 +17,7 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-camino = { workspace = true } #unified
+camino.workspace = true
 facet-value.workspace = true
-miette = { workspace = true, features = ["fancy"] } #unified
-thiserror = { workspace = true } #unified
+miette.workspace = true
+thiserror.workspace = true

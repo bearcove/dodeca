@@ -17,18 +17,11 @@ name = "ddc-cell-tui"
 path = "src/main.rs"
 
 [dependencies]
-
-# Protocol definitions
 cell-tui-proto = { path = "../cell-tui-proto" }
-
-# Error handling
-color-eyre = "0.6"
-crossterm = "0.28"
-futures = { workspace = true } #unified
-
-# RPC framework
+color-eyre.workspace = true
+crossterm.workspace = true
+futures.workspace = true
 rapace = { workspace = true, features = ["stream"] }
 rapace-cell.workspace = true
-# TUI framework
-ratatui = "0.29"
-tokio = { workspace = true, features = ["full", "process", "rt-multi-thread"] } #unified
+ratatui.workspace = true
+tokio.workspace = true

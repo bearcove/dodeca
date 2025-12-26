@@ -13,10 +13,7 @@ name = "ddc-cell-sass"
 path = "src/main.rs"
 
 [dependencies]
-
-# Local protocol definitions
 cell-sass-proto = { path = "../cell-sass-proto" }
-# SASS compilation
-grass = { version = "0.13", features = ["macro"] }
+grass.workspace = true
 rapace-cell.workspace = true
-tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified
+tokio.workspace = true

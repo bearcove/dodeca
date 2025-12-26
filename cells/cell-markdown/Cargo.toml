@@ -13,16 +13,11 @@ name = "ddc-cell-markdown"
 path = "src/main.rs"
 
 [dependencies]
-
-# Local protocol definitions
 cell-markdown-proto = { path = "../cell-markdown-proto" }
-
-# Frontmatter parsing
 facet.workspace = true
 facet-json.workspace = true
 facet-toml.workspace = true
 facet-value.workspace = true
-# Markdown parsing
-pulldown-cmark = "0.13"
+pulldown-cmark.workspace = true
 rapace-cell.workspace = true
-tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified
+tokio.workspace = true

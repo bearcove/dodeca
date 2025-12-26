@@ -13,10 +13,7 @@ name = "ddc-cell-css"
 path = "src/main.rs"
 
 [dependencies]
-
-# Local protocol definitions
 cell-css-proto = { path = "../cell-css-proto" }
-# CSS processing
-lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }
+lightningcss.workspace = true
 rapace-cell.workspace = true
-tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified
+tokio.workspace = true

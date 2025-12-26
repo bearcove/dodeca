@@ -370,7 +370,7 @@ fn install_dev() -> bool {
     }
     eprintln!("  Installed ddc");
 
-    // Copy all dodeca-cell-* binaries
+    // Copy all ddc-cell-* binaries
     if let Ok(entries) = fs::read_dir(&release_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -380,21 +380,8 @@ fn install_dev() -> bool {
 
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
-            // Copy cell binaries (dodeca-cell-*)
-            if name.starts_with("dodeca-cell-") && !name.contains('.') {
-                let dst = cargo_bin.join(name);
-                let _ = fs::remove_file(&dst);
-                if let Err(e) = fs::copy(&path, &dst) {
-                    eprintln!("Failed to copy {name}: {e}");
-                    return false;
-                }
-                eprintln!("  Installed {name}");
-            }
-
-            // Copy cdylib files (libdodeca_*.dylib/so/dll)
-            let is_cdylib = name.starts_with("libdodeca_")
-                && (name.ends_with(".dylib") || name.ends_with(".so") || name.ends_with(".dll"));
-            if is_cdylib {
+            // Copy cell binaries (ddc-cell-*)
+            if name.starts_with("ddc-cell-") && !name.contains('.') {
                 let dst = cargo_bin.join(name);
                 let _ = fs::remove_file(&dst);
                 if let Err(e) = fs::copy(&path, &dst) {

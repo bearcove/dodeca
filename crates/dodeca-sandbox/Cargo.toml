@@ -14,10 +14,10 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-thiserror = { workspace = true } #unified
+thiserror.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-hakoniwa = "1.2"
+hakoniwa.workspace = true
 
 [dev-dependencies]
-tempfile = { workspace = true } #unified
+tempfile.workspace = true

@@ -17,7 +17,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 dodeca-protocol = { path = "../dodeca-protocol" }
-wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["BinaryType", "CloseEvent", "Document", "Element", "ErrorEvent", "HtmlElement", "HtmlLinkElement", "Location", "MessageEvent", "Node", "NodeList", "Text", "WebSocket", "Window", "console"] }
+wasm-bindgen.workspace = true
+web-sys.workspace = true
 
 [dev-dependencies]

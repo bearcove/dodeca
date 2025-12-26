@@ -48,7 +48,7 @@ async fn handle_socket(socket: WebSocket, ctx: Arc<CellContext>) {
         while let Some(msg) = ws_receiver.next().await {
             match msg {
                 Ok(Message::Binary(data)) => {
-                    if let Err(e) = session_a.send_chunk(channel_id, data.to_vec()).await {
+                    if let Err(e) = session_a.send_chunk(channel_id, data).await {
                         tracing::debug!(channel_id, error = %e, "tunnel send error");
                         break;
                     }
@@ -56,7 +56,7 @@ async fn handle_socket(socket: WebSocket, ctx: Arc<CellContext>) {
                 Ok(Message::Text(text)) => {
                     // Send text as bytes too
                     let bytes = text.as_bytes().to_vec();
-                    if let Err(e) = session_a.send_chunk(channel_id, bytes).await {
+                    if let Err(e) = session_a.send_chunk(channel_id, bytes.into()).await {
                         tracing::debug!(channel_id, error = %e, "tunnel send error");
                         break;
                     }

@@ -12,13 +12,12 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-camino = { workspace = true } #unified
-# CI generation
+camino.workspace = true
 facet = { workspace = true, features = ["indexmap"] }
 facet-args.workspace = true
 facet-yaml.workspace = true
-fs-err = "3"
-indexmap = "2"
-miette = { workspace = true, features = ["fancy-no-backtrace"] } #unified
-owo-colors = "4"
-structstruck = "0.4"
+fs-err.workspace = true
+indexmap.workspace = true
+miette.workspace = true
+owo-colors.workspace = true
+structstruck.workspace = true

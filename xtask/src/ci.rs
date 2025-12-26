@@ -350,7 +350,7 @@ impl Target {
 
 structstruck::strike! {
     /// A GitHub Actions workflow file.
-    #[strikethrough[derive(Debug, Clone, Facet)]]
+    #[structstruck::each[derive(Debug, Clone, Facet)]]
     #[facet(rename_all = "kebab-case")]
     pub struct Workflow {
         /// The name of the workflow displayed in the GitHub UI.
@@ -374,7 +374,7 @@ structstruck::strike! {
 
 structstruck::strike! {
     /// Events that trigger a workflow.
-    #[strikethrough[derive(Debug, Clone, Facet)]]
+    #[structstruck::each[derive(Debug, Clone, Facet)]]
     #[facet(rename_all = "snake_case")]
     pub struct On {
         /// Trigger on push events.
@@ -425,7 +425,7 @@ impl RunsOn {
 
 structstruck::strike! {
     /// A job in a workflow.
-    #[strikethrough[derive(Debug, Clone, Facet)]]
+    #[structstruck::each[derive(Debug, Clone, Facet)]]
     #[facet(rename_all = "kebab-case")]
     pub struct Job {
         /// Display name for the job in the GitHub UI.
@@ -470,7 +470,7 @@ structstruck::strike! {
 
 structstruck::strike! {
     /// A step in a job.
-    #[strikethrough[derive(Debug, Clone, Facet)]]
+    #[structstruck::each[derive(Debug, Clone, Facet)]]
     #[facet(rename_all = "kebab-case")]
     pub struct Step {
         /// The name of the step.

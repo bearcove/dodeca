@@ -7,8 +7,41 @@ members = [
 resolver = "3"
 
 [workspace.dependencies]
-camino = "^1.2.2" #unified
+# Core utilities
+camino = "1.2"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+dashmap = "6"
+indexmap = "2"
+regex = "1.12"
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+url = "2"
 
+# Error handling
+color-eyre = "0.6"
+eyre = "0.6"
+miette = { version = "7.6", features = ["fancy", "fancy-no-backtrace"] }
+thiserror = "2.0"
+
+# Async runtime
+futures = "0.3"
+futures-util = "0.3"
+tokio = { version = "1.48", features = ["full", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
+
+# HTTP/networking
+axum = { version = "0.8", features = ["ws"] }
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+if-addrs = "0.14"
+reqwest = { version = "0.12", features = ["blocking", "rustls-tls"] }
+ureq = { version = "3", default-features = false }
+
+# Logging/tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Serialization - Facet ecosystem (git)
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -17,18 +50,103 @@ facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
-futures = "^0.3.31" #unified
-miette = { version = "^7.6.0", features = ["fancy", "fancy-no-backtrace"] } #unified
+
+# Serialization - other
+postcard = { version = "1", features = ["alloc"] }
+
+# RPC framework (git)
 rapace = { git = "https://github.com/bearcove/rapace", branch = "main", default-features = false }
 rapace-cell = { git = "https://github.com/bearcove/rapace", branch = "main" }
 rapace-tracing = { git = "https://github.com/bearcove/rapace", branch = "main" }
-regex = "^1.12.2" #unified
-reqwest = { version = "^0.12.26", features = ["blocking", "rustls-tls"] } #unified
-tempfile = "^3.23.0" #unified
-thiserror = "^2.0.17" #unified
-tokio = { version = "^1.48.0", features = ["full", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] } #unified
-tracing = "^0.1.44" #unified
 ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", branch = "main", features = ["tokio"] }
+
+# Incremental computation (git)
+picante = { git = "https://github.com/bearcove/picante" }
+
+# File system
+fs-err = "3"
+ignore = "0.4"
+notify = "8"
+tempfile = "3.24"
+
+# CLI/TUI
+crossterm = "0.29"
+owo-colors = "4"
+ratatui = "0.30"
+structstruck = "0.5"
+
+# Web/HTML processing
+html5ever = "0.36"
+lol_html = "2.7"
+markup5ever_rcdom = "0.36"
+minify-html = "0.18"
+
+# CSS processing
+lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }
+grass = { version = "0.13", features = ["macro"] }
+
+# JavaScript processing
+oxc = { version = "0.105", features = ["full"] }
+
+# Image processing
+base64 = "0.22"
+image = { version = "0.25", features = ["png", "jpeg", "gif"] }
+jpegxl-rs = { version = "0.11", features = ["vendored"] }
+thumbhash = "0.1"
+webp = "0.3"
+
+# Font processing
+fontcull = { version = "2.0", default-features = false, features = ["static-analysis"] }
+
+# Markdown
+pulldown-cmark = "0.13"
+
+# Syntax highlighting
+arborium = { version = "2", features = [
+    "lang-bash", "lang-c", "lang-cpp", "lang-css", "lang-dockerfile",
+    "lang-go", "lang-haskell", "lang-html", "lang-java", "lang-javascript",
+    "lang-json", "lang-kdl", "lang-kotlin", "lang-lua", "lang-markdown",
+    "lang-python", "lang-ruby", "lang-rust", "lang-scala", "lang-sql",
+    "lang-swift", "lang-toml", "lang-typescript", "lang-yaml", "lang-zig",
+] }
+
+# Search indexing
+pagefind = "1.4"
+
+# SVG optimization (git)
+svag = { git = "https://github.com/bearcove/svag" }
+
+# WASM/browser
+dioxus = { version = "0.7", features = ["signals"] }
+dioxus-web = "0.7"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+glade = { git = "https://github.com/bearcove/glade", features = ["web"] }
+js-sys = "0.3"
+tracing-wasm = "0.2"
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = [
+    "BinaryType", "CloseEvent", "Document", "Element", "ErrorEvent",
+    "HtmlElement", "HtmlLinkElement", "Location", "MessageEvent", "Node",
+    "NodeList", "Text", "WebSocket", "Window", "console"
+] }
+
+# System/low-level
+backtrace = "0.3"
+libc = "0.2"
+passfd = "0.1"
+rapidhash = "4"
+socket2 = "0.6"
+strid = "3.0"
+
+# Misc utilities
+open = "5"
+
+# Linux-only
+hakoniwa = "1.2"
+
+# Dev/testing
+divan = "0.1"
+minijinja = "2"
 
 [workspace.package]
 rust-version = "1.91"
@@ -37,9 +155,7 @@ rust-version = "1.91"
 [patch.crates-io]
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-assert = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macro-parse = { git = "https://github.com/facet-rs/facet", branch = "main" }

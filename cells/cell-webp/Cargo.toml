@@ -13,10 +13,7 @@ name = "ddc-cell-webp"
 path = "src/main.rs"
 
 [dependencies]
-
-# Local protocol definitions
 cell-webp-proto = { path = "../cell-webp-proto" }
 rapace-cell.workspace = true
-tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified
-# WebP processing
-webp = "0.3"
+tokio.workspace = true
+webp.workspace = true

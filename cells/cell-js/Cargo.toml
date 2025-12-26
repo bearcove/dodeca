@@ -13,10 +13,7 @@ name = "ddc-cell-js"
 path = "src/main.rs"
 
 [dependencies]
-
-# Local protocol definitions
 cell-js-proto = { path = "../cell-js-proto" }
-# JavaScript processing
-oxc = { version = "0.102", features = ["full"] }
+oxc.workspace = true
 rapace-cell.workspace = true
-tokio = { workspace = true, features = ["full", "macros", "process", "rt", "sync"] } #unified
+tokio.workspace = true

@@ -16,30 +16,20 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Dioxus for UI
-dioxus = { version = "0.7", features = ["signals"] }
-dioxus-web = "0.7"
-
-# Shared protocol types
+# Internal crates
 dodeca-protocol = { path = "../dodeca-protocol" }
-
-# Fix for WASM: getrandom needs wasm_js feature
-getrandom = { version = "0.3", features = ["wasm_js"] }
-
-# Glade component library
-glade = { git = "https://github.com/bearcove/glade", features = ["web"] }
-js-sys = "0.3"
-
-# Serialization (facet-postcard via dodeca-protocol re-export)
-
-# Re-use DOM patching from livereload-client
 livereload-client = { path = "../livereload-client" }
-tracing = { workspace = true } #unified
-tracing-wasm = "0.2"
 
-# WASM bindings
-wasm-bindgen = "0.2"
-web-sys = { version = "0.3", features = ["BinaryType", "CloseEvent", "Document", "Element", "ErrorEvent", "HtmlElement", "HtmlLinkElement", "Location", "MessageEvent", "Node", "NodeList", "Text", "WebSocket", "Window", "console"] }
+# Workspace dependencies
+dioxus.workspace = true
+dioxus-web.workspace = true
+getrandom.workspace = true
+glade.workspace = true
+js-sys.workspace = true
+tracing.workspace = true
+tracing-wasm.workspace = true
+wasm-bindgen.workspace = true
+web-sys.workspace = true
 
 [dev-dependencies]
 

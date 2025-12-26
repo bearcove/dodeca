@@ -18,37 +18,7 @@ name = "ddc-cell-arborium"
 path = "src/main.rs"
 
 [dependencies]
-
-# Syntax highlighting with tree-sitter
-arborium = { version = "2", features = [
-    "lang-bash",
-    "lang-c",
-    "lang-cpp",
-    "lang-css",
-    "lang-dockerfile",
-    "lang-go",
-    "lang-haskell",
-    "lang-html",
-    "lang-java",
-    "lang-javascript",
-    "lang-json",
-    "lang-kdl",
-    "lang-kotlin",
-    "lang-lua",
-    "lang-markdown",
-    "lang-python",
-    "lang-ruby",
-    "lang-rust",
-    "lang-scala",
-    "lang-sql",
-    "lang-swift",
-    "lang-toml",
-    "lang-typescript",
-    "lang-yaml",
-    "lang-zig",
-] }
-
-# Protocol definition
+arborium.workspace = true
 cell-arborium-proto = { path = "../cell-arborium-proto" }
 rapace-cell.workspace = true
-tokio = { workspace = true, features = ["macros", "process", "rt", "rt-multi-thread", "sync", "time"] } #unified
+tokio.workspace = true
