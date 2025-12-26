@@ -1,0 +1,26 @@
+[package]
+name = "cell-gingembre"
+version = "0.6.1"
+edition = "2024"
+rust-version = "1.91"
+description = "Template rendering cell for dodeca using gingembre"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[[bin]]
+name = "ddc-cell-gingembre"
+path = "src/main.rs"
+
+[dependencies]
+cell-gingembre-proto = { path = "../cell-gingembre-proto" }
+gingembre = { path = "../../crates/gingembre" }
+rapace-cell.workspace = true
+tokio.workspace = true
+facet.workspace = true
+facet-json.workspace = true
+facet-value.workspace = true

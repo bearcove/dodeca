@@ -18,12 +18,14 @@
 //!      ↓ .version
 //! LazyValue { path: ["versions", "dodeca", "version"] }
 //!      ↓ print/compare/etc
-//! resolver.resolve(path) → concrete value + dependency tracked
+//! resolver.resolve(path).await → concrete value + dependency tracked
 //! ```
 
 use crate::error::{TemplateSource, TypeError, UnknownFieldError};
 use facet_value::DestructuredRef;
 use miette::Result;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 /// A path through a data tree.
@@ -68,7 +70,7 @@ impl std::fmt::Display for DataPath {
     }
 }
 
-/// Trait for resolving lazy data values by path.
+/// Trait for resolving lazy data values by path (async).
 ///
 /// Implementations should track dependencies - each unique path that is
 /// resolved becomes a separate dependency in the tracking system.
@@ -77,24 +79,38 @@ impl std::fmt::Display for DataPath {
 ///
 /// A picante-backed resolver would create a tracked query for each path,
 /// allowing fine-grained cache invalidation when specific values change.
+///
+/// An RPC-backed resolver would call back to the host for each resolution,
+/// with the host tracking dependencies.
 pub trait DataResolver: Send + Sync {
     /// Resolve a value at the given path.
     ///
     /// Returns `None` if the path doesn't exist in the data tree.
-    fn resolve(&self, path: &DataPath) -> Option<facet_value::Value>;
+    fn resolve(
+        &self,
+        path: &DataPath,
+    ) -> Pin<Box<dyn Future<Output = Option<facet_value::Value>> + Send + '_>>;
 
     /// Get all child keys at a path (for iteration).
     ///
     /// Returns `None` if the path doesn't exist or points to a non-container value.
     /// For objects, returns the field names.
     /// For arrays, returns string indices ("0", "1", etc.).
-    fn keys_at(&self, path: &DataPath) -> Option<Vec<String>>;
+    fn keys_at(
+        &self,
+        path: &DataPath,
+    ) -> Pin<Box<dyn Future<Output = Option<Vec<String>>> + Send + '_>>;
 
     /// Get the number of children at a path.
     ///
     /// Returns `None` if the path doesn't exist or isn't a container.
-    fn len_at(&self, path: &DataPath) -> Option<usize> {
-        self.keys_at(path).map(|k| k.len())
+    fn len_at(&self, path: &DataPath) -> Pin<Box<dyn Future<Output = Option<usize>> + Send + '_>> {
+        let path = path.clone();
+        Box::pin(async move {
+            // Default implementation calls keys_at
+            // Implementations can override for efficiency
+            self.keys_at(&path).await.map(|k| k.len())
+        })
     }
 }
 
@@ -166,20 +182,21 @@ impl LazyValue {
     /// # Errors
     ///
     /// Returns an error if the path doesn't exist in the data tree.
-    pub fn resolve(&self) -> Result<facet_value::Value> {
+    pub async fn resolve(&self) -> Result<facet_value::Value> {
         match self {
             Self::Concrete(value) => Ok(value.clone()),
             Self::Lazy { resolver, path } => resolver
                 .resolve(path)
+                .await
                 .ok_or_else(|| miette::miette!("Data path not found: {}", path)),
         }
     }
 
     /// Try to resolve, returning None if the path doesn't exist.
-    pub fn try_resolve(&self) -> Option<facet_value::Value> {
+    pub async fn try_resolve(&self) -> Option<facet_value::Value> {
         match self {
             Self::Concrete(value) => Some(value.clone()),
-            Self::Lazy { resolver, path } => resolver.resolve(path),
+            Self::Lazy { resolver, path } => resolver.resolve(path).await,
         }
     }
 
@@ -318,11 +335,11 @@ impl LazyValue {
     ///
     /// For lazy values, this resolves the keys but keeps values lazy.
     /// For concrete values, this iterates normally.
-    pub fn iter_pairs(&self) -> Vec<(String, LazyValue)> {
+    pub async fn iter_pairs(&self) -> Vec<(String, LazyValue)> {
         match self {
             Self::Lazy { resolver, path } => {
                 // Get keys at this path, but keep values lazy!
-                let keys = resolver.keys_at(path).unwrap_or_default();
+                let keys = resolver.keys_at(path).await.unwrap_or_default();
                 keys.into_iter()
                     .map(|key| {
                         let child_path = path.push(&key);
@@ -352,10 +369,10 @@ impl LazyValue {
     }
 
     /// Get an iterator over values only (for simple for loops).
-    pub fn iter_values(&self) -> Vec<LazyValue> {
+    pub async fn iter_values(&self) -> Vec<LazyValue> {
         match self {
             Self::Lazy { resolver, path } => {
-                let keys = resolver.keys_at(path).unwrap_or_default();
+                let keys = resolver.keys_at(path).await.unwrap_or_default();
                 keys.into_iter()
                     .map(|key| Self::Lazy {
                         resolver: resolver.clone(),
@@ -390,16 +407,16 @@ impl LazyValue {
     }
 
     /// Check if the value is truthy (forces resolution for lazy values).
-    pub fn is_truthy(&self) -> bool {
-        match self.try_resolve() {
+    pub async fn is_truthy(&self) -> bool {
+        match self.try_resolve().await {
             Some(v) => crate::eval::ValueExt::is_truthy(&v),
             None => false,
         }
     }
 
     /// Check if the value is null.
-    pub fn is_null(&self) -> bool {
-        match self.try_resolve() {
+    pub async fn is_null(&self) -> bool {
+        match self.try_resolve().await {
             Some(v) => v.is_null(),
             None => true, // Unresolvable paths are treated as null
         }
@@ -425,25 +442,25 @@ impl LazyValue {
     }
 
     /// Render the value to a string (forces resolution).
-    pub fn render_to_string(&self) -> String {
-        match self.try_resolve() {
+    pub async fn render_to_string(&self) -> String {
+        match self.try_resolve().await {
             Some(v) => crate::eval::ValueExt::render_to_string(&v),
             None => String::new(),
         }
     }
 
     /// Check if this value is marked as "safe" (forces resolution).
-    pub fn is_safe(&self) -> bool {
-        match self.try_resolve() {
+    pub async fn is_safe(&self) -> bool {
+        match self.try_resolve().await {
             Some(v) => crate::eval::ValueExt::is_safe(&v),
             None => false,
         }
     }
 
     /// Get the length of a container (may not require full resolution).
-    pub fn len(&self) -> Option<usize> {
+    pub async fn len(&self) -> Option<usize> {
         match self {
-            Self::Lazy { resolver, path } => resolver.len_at(path),
+            Self::Lazy { resolver, path } => resolver.len_at(path).await,
             Self::Concrete(value) => match value.destructure_ref() {
                 DestructuredRef::Array(arr) => Some(arr.len()),
                 DestructuredRef::Object(obj) => Some(obj.len()),
@@ -454,8 +471,8 @@ impl LazyValue {
     }
 
     /// Check if the container is empty.
-    pub fn is_empty(&self) -> bool {
-        self.len().map(|l| l == 0).unwrap_or(true)
+    pub async fn is_empty(&self) -> bool {
+        self.len().await.map(|l| l == 0).unwrap_or(true)
     }
 }
 
@@ -528,32 +545,46 @@ mod tests {
     }
 
     impl DataResolver for TestResolver {
-        fn resolve(&self, path: &DataPath) -> Option<Value> {
-            self.resolved_paths.lock().unwrap().push(path.clone());
+        fn resolve(
+            &self,
+            path: &DataPath,
+        ) -> Pin<Box<dyn Future<Output = Option<Value>> + Send + '_>> {
+            let path = path.clone();
+            Box::pin(async move {
+                self.resolved_paths.lock().unwrap().push(path.clone());
 
-            let mut current = self.data.clone();
-            for segment in path.segments() {
-                current = match current.destructure_ref() {
-                    DestructuredRef::Object(obj) => obj.get(segment.as_str())?.clone(),
-                    DestructuredRef::Array(arr) => {
-                        let idx: usize = segment.parse().ok()?;
-                        arr.get(idx)?.clone()
-                    }
-                    _ => return None,
-                };
-            }
-            Some(current)
+                let mut current = self.data.clone();
+                for segment in path.segments() {
+                    current = match current.destructure_ref() {
+                        DestructuredRef::Object(obj) => obj.get(segment.as_str())?.clone(),
+                        DestructuredRef::Array(arr) => {
+                            let idx: usize = segment.parse().ok()?;
+                            arr.get(idx)?.clone()
+                        }
+                        _ => return None,
+                    };
+                }
+                Some(current)
+            })
         }
 
-        fn keys_at(&self, path: &DataPath) -> Option<Vec<String>> {
-            let value = self.resolve(path)?;
-            match value.destructure_ref() {
-                DestructuredRef::Object(obj) => Some(obj.keys().map(|k| k.to_string()).collect()),
-                DestructuredRef::Array(arr) => {
-                    Some((0..arr.len()).map(|i| i.to_string()).collect())
+        fn keys_at(
+            &self,
+            path: &DataPath,
+        ) -> Pin<Box<dyn Future<Output = Option<Vec<String>>> + Send + '_>> {
+            let path = path.clone();
+            Box::pin(async move {
+                let value = self.resolve(&path).await?;
+                match value.destructure_ref() {
+                    DestructuredRef::Object(obj) => {
+                        Some(obj.keys().map(|k| k.to_string()).collect())
+                    }
+                    DestructuredRef::Array(arr) => {
+                        Some((0..arr.len()).map(|i| i.to_string()).collect())
+                    }
+                    _ => None,
                 }
-                _ => None,
-            }
+            })
         }
     }
 
@@ -588,8 +619,8 @@ mod tests {
         assert_eq!(grandchild.segments(), &["versions", "dodeca"]);
     }
 
-    #[test]
-    fn test_lazy_field_access_extends_path() {
+    #[tokio::test]
+    async fn test_lazy_field_access_extends_path() {
         let resolver = TestResolver::new(make_test_data());
         let lazy = LazyValue::lazy_root(resolver.clone());
 
@@ -607,7 +638,7 @@ mod tests {
 
         // Now resolve
         let value = dodeca.field("version", test_span(), &source).unwrap();
-        let resolved = value.resolve().unwrap();
+        let resolved = value.resolve().await.unwrap();
 
         // NOW it should have resolved
         assert_eq!(resolver.resolved_paths().len(), 1);
@@ -624,8 +655,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_lazy_iteration() {
+    #[tokio::test]
+    async fn test_lazy_iteration() {
         let resolver = TestResolver::new(make_test_data());
         let lazy = LazyValue::lazy_root(resolver.clone());
 
@@ -633,7 +664,7 @@ mod tests {
         let versions = lazy.field("versions", test_span(), &source).unwrap();
 
         // Get pairs - this should resolve keys but NOT values
-        let pairs = versions.iter_pairs();
+        let pairs = versions.iter_pairs().await;
         assert_eq!(pairs.len(), 2);
 
         // Keys were resolved to get the list
@@ -647,7 +678,7 @@ mod tests {
         // Now access one value
         let (_, dodeca) = pairs.iter().find(|(k, _)| k == "dodeca").unwrap();
         let version = dodeca.field("version", test_span(), &source).unwrap();
-        let _ = version.resolve().unwrap();
+        let _ = version.resolve().await.unwrap();
 
         // Now we should have resolved the specific path
         let paths = resolver.resolved_paths();
@@ -658,8 +689,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_concrete_value_access() {
+    #[tokio::test]
+    async fn test_concrete_value_access() {
         let mut obj = VObject::new();
         obj.insert(VString::from("name"), Value::from("test"));
         let concrete = LazyValue::Concrete(Value::from(obj));
@@ -670,7 +701,7 @@ mod tests {
         // Should still be concrete
         assert!(name.is_concrete());
 
-        let resolved = name.resolve().unwrap();
+        let resolved = name.resolve().await.unwrap();
         if let DestructuredRef::String(s) = resolved.destructure_ref() {
             assert_eq!(s.as_str(), "test");
         } else {
@@ -678,8 +709,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_render_to_string() {
+    #[tokio::test]
+    async fn test_render_to_string() {
         let resolver = TestResolver::new(make_test_data());
         let lazy = LazyValue::lazy_root(resolver.clone());
 
@@ -693,6 +724,6 @@ mod tests {
             .unwrap();
 
         // render_to_string triggers resolution
-        assert_eq!(version.render_to_string(), "0.1.0");
+        assert_eq!(version.render_to_string().await, "0.1.0");
     }
 }

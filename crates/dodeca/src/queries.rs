@@ -13,6 +13,7 @@ use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Ti
 use crate::url_rewrite::rewrite_urls_in_css;
 use facet::Facet;
 use facet_value::Value;
+use futures::future::BoxFuture;
 use std::collections::{BTreeMap, HashMap};
 
 /// Load a template file's content - tracked for dependency tracking
@@ -79,8 +80,9 @@ impl PicanteTemplateLoader {
 }
 
 impl gingembre::TemplateLoader for PicanteTemplateLoader {
-    fn load(&self, name: &str) -> Option<String> {
-        self.templates.get(name).cloned()
+    fn load(&self, name: &str) -> BoxFuture<'_, Option<String>> {
+        let result = self.templates.get(name).cloned();
+        Box::pin(async move { result })
     }
 }
 
@@ -288,47 +290,74 @@ impl SyncDataResolver {
 }
 
 impl DataResolver for SyncDataResolver {
-    fn resolve(&self, path: &DataPath) -> Option<Value> {
+    fn resolve(
+        &self,
+        path: &DataPath,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<Value>> + Send + '_>> {
         let mut current = &self.data;
         for segment in path.segments() {
             match current.destructure_ref() {
                 DestructuredRef::Object(obj) => {
-                    current = obj.get(segment)?;
+                    if let Some(v) = obj.get(segment) {
+                        current = v;
+                    } else {
+                        return Box::pin(async { None });
+                    }
                 }
                 DestructuredRef::Array(arr) => {
-                    let idx: usize = segment.parse().ok()?;
-                    current = arr.get(idx)?;
+                    let idx: usize = match segment.parse() {
+                        Ok(i) => i,
+                        Err(_) => return Box::pin(async { None }),
+                    };
+                    if let Some(v) = arr.get(idx) {
+                        current = v;
+                    } else {
+                        return Box::pin(async { None });
+                    }
                 }
-                _ => return None,
+                _ => return Box::pin(async { None }),
             }
         }
-        Some(current.clone())
+        let result = current.clone();
+        Box::pin(async move { Some(result) })
     }
 
-    fn keys_at(&self, path: &DataPath) -> Option<Vec<String>> {
+    fn keys_at(
+        &self,
+        path: &DataPath,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<Vec<String>>> + Send + '_>> {
         let mut current = &self.data;
         for segment in path.segments() {
             match current.destructure_ref() {
                 DestructuredRef::Object(obj) => {
-                    current = obj.get(segment)?;
+                    if let Some(v) = obj.get(segment) {
+                        current = v;
+                    } else {
+                        return Box::pin(async { None });
+                    }
                 }
                 DestructuredRef::Array(arr) => {
-                    let idx: usize = segment.parse().ok()?;
-                    current = arr.get(idx)?;
+                    let idx: usize = match segment.parse() {
+                        Ok(i) => i,
+                        Err(_) => return Box::pin(async { None }),
+                    };
+                    if let Some(v) = arr.get(idx) {
+                        current = v;
+                    } else {
+                        return Box::pin(async { None });
+                    }
                 }
-                _ => return None,
+                _ => return Box::pin(async { None }),
             }
         }
-        match current.destructure_ref() {
+        let result = match current.destructure_ref() {
             DestructuredRef::Object(obj) => Some(obj.iter().map(|(k, _)| k.to_string()).collect()),
             DestructuredRef::Array(arr) => Some((0..arr.len()).map(|i| i.to_string()).collect()),
             _ => None,
-        }
+        };
+        Box::pin(async move { result })
     }
-
-    fn len_at(&self, path: &DataPath) -> Option<usize> {
-        self.keys_at(path).map(|k| k.len())
-    }
+    // len_at has default implementation in the trait
 }
 
 /// Compiled CSS output
@@ -580,7 +609,7 @@ pub async fn render_page<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rendere
         .expect("Page not found for route");
 
     // Render to HTML - template and data loads are tracked as dependencies
-    let html = render_page_with_resolver(page, &site_tree, loader, resolver);
+    let html = render_page_with_resolver(page, &site_tree, loader, resolver).await;
     Ok(RenderedHtml(html))
 }
 
@@ -612,7 +641,7 @@ pub async fn render_section<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rend
         .expect("Section not found for route");
 
     // Render to HTML - template and data loads are tracked as dependencies
-    let html = render_section_with_resolver(section, &site_tree, loader, resolver);
+    let html = render_section_with_resolver(section, &site_tree, loader, resolver).await;
     Ok(RenderedHtml(html))
 }
 
@@ -1004,7 +1033,8 @@ pub async fn all_rendered_html<DB: Db>(db: &DB) -> PicanteResult<AllRenderedHtml
             &site_tree,
             &template_map,
             Some(data_value.clone()),
-        );
+        )
+        .await;
         pages.insert(route.clone(), html);
     }
 
@@ -1014,7 +1044,8 @@ pub async fn all_rendered_html<DB: Db>(db: &DB) -> PicanteResult<AllRenderedHtml
             &site_tree,
             &template_map,
             Some(data_value.clone()),
-        );
+        )
+        .await;
         pages.insert(route.clone(), html);
     }
 

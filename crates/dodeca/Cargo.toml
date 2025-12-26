@@ -95,6 +95,7 @@ divan.workspace = true
 futures.workspace = true
 minijinja.workspace = true
 regex.workspace = true
+tokio.workspace = true
 
 [[bench]]
 name = "template"

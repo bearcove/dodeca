@@ -10,6 +10,7 @@ use super::lazy::LazyValue;
 use super::parser::Parser;
 use camino::{Utf8Path, Utf8PathBuf};
 use facet_value::{DestructuredRef, VObject, VString};
+use futures::future::BoxFuture;
 use miette::Result;
 use std::collections::HashMap;
 
@@ -44,9 +45,12 @@ struct BlockDef {
 type MacroRegistry = HashMap<String, HashMap<String, MacroDef>>;
 
 /// Trait for loading templates by name (for inheritance and includes)
-pub trait TemplateLoader {
+///
+/// This trait is async to support loading templates from remote sources
+/// (e.g., via RPC in the cell architecture).
+pub trait TemplateLoader: Send + Sync {
     /// Load a template by path/name, returning the source code
-    fn load(&self, name: &str) -> Option<String>;
+    fn load(&self, name: &str) -> BoxFuture<'_, Option<String>>;
 }
 
 /// A null loader that never finds any templates.
@@ -55,8 +59,8 @@ pub trait TemplateLoader {
 pub struct NullLoader;
 
 impl TemplateLoader for NullLoader {
-    fn load(&self, _name: &str) -> Option<String> {
-        None
+    fn load(&self, _name: &str) -> BoxFuture<'_, Option<String>> {
+        Box::pin(async { None })
     }
 }
 
@@ -77,8 +81,9 @@ impl InMemoryLoader {
 }
 
 impl TemplateLoader for InMemoryLoader {
-    fn load(&self, name: &str) -> Option<String> {
-        self.templates.get(name).cloned()
+    fn load(&self, name: &str) -> BoxFuture<'_, Option<String>> {
+        let result = self.templates.get(name).cloned();
+        Box::pin(async move { result })
     }
 }
 
@@ -102,9 +107,9 @@ impl FileLoader {
 }
 
 impl TemplateLoader for FileLoader {
-    fn load(&self, name: &str) -> Option<String> {
+    fn load(&self, name: &str) -> BoxFuture<'_, Option<String>> {
         let path = self.root.join(name);
-        std::fs::read_to_string(&path).ok()
+        Box::pin(async move { std::fs::read_to_string(&path).ok() })
     }
 }
 
@@ -174,7 +179,7 @@ impl Template {
     }
 
     /// Render the template with the given context (no inheritance support)
-    pub fn render(&self, ctx: &Context) -> Result<String> {
+    pub async fn render(&self, ctx: &Context) -> Result<String> {
         let mut output = String::new();
         let null_loader = NullLoader;
         let mut renderer = Renderer {
@@ -186,12 +191,12 @@ impl Template {
             macros: HashMap::new(),
         };
         renderer.collect_macros(&self.ast.body);
-        let _ = renderer.render_nodes(&self.ast.body)?;
+        let _ = renderer.render_nodes(&self.ast.body).await?;
         Ok(output)
     }
 
     /// Render the template with a simple key-value context
-    pub fn render_with<I, K, V>(&self, vars: I) -> Result<String>
+    pub async fn render_with<I, K, V>(&self, vars: I) -> Result<String>
     where
         I: IntoIterator<Item = (K, V)>,
         K: Into<String>,
@@ -201,7 +206,7 @@ impl Template {
         for (k, v) in vars {
             ctx.set(k, v.into());
         }
-        self.render(&ctx)
+        self.render(&ctx).await
     }
 }
 
@@ -217,18 +222,19 @@ impl<L: TemplateLoader> Engine<L> {
     }
 
     /// Load a template (no caching - that's picante's job)
-    pub fn load(&self, name: &str) -> Result<Template> {
+    pub async fn load(&self, name: &str) -> Result<Template> {
         let source = self
             .loader
             .load(name)
+            .await
             .ok_or_else(|| miette::miette!("Template not found: {}", name))?;
         Template::parse(name, source)
     }
 
     /// Render a template by name with inheritance support
-    pub fn render(&mut self, name: &str, ctx: &Context) -> Result<String> {
+    pub async fn render(&mut self, name: &str, ctx: &Context) -> Result<String> {
         // Load the template
-        let template = self.load(name)?;
+        let template = self.load(name).await?;
 
         // Check for extends
         if let Some(parent_path) = template.extends_path() {
@@ -254,6 +260,7 @@ impl<L: TemplateLoader> Engine<L> {
 
             // Recursively resolve the inheritance chain
             self.render_with_blocks(parent_path, ctx, child_blocks, child_imports)
+                .await
         } else {
             // No inheritance, render directly
             let mut output = String::new();
@@ -266,72 +273,75 @@ impl<L: TemplateLoader> Engine<L> {
                 macros: HashMap::new(),
             };
             renderer.collect_macros(&template.ast.body);
-            let _ = renderer.render_nodes(&template.ast.body)?;
+            let _ = renderer.render_nodes(&template.ast.body).await?;
             Ok(output)
         }
     }
 
-    fn render_with_blocks(
-        &mut self,
-        name: &str,
-        ctx: &Context,
+    fn render_with_blocks<'a>(
+        &'a mut self,
+        name: &'a str,
+        ctx: &'a Context,
         child_blocks: HashMap<String, BlockDef>,
         child_imports: Vec<(String, String)>,
-    ) -> Result<String> {
-        let template = self.load(name)?;
+    ) -> BoxFuture<'a, Result<String>> {
+        Box::pin(async move {
+            let template = self.load(name).await?;
 
-        // Check if parent also extends
-        if let Some(grandparent_path) = template.extends_path() {
-            // Merge blocks: child blocks override parent blocks
-            let parent_blocks = template.blocks();
-            let mut merged_blocks: HashMap<String, BlockDef> = HashMap::new();
+            // Check if parent also extends
+            if let Some(grandparent_path) = template.extends_path() {
+                // Merge blocks: child blocks override parent blocks
+                let parent_blocks = template.blocks();
+                let mut merged_blocks: HashMap<String, BlockDef> = HashMap::new();
 
-            // Add parent blocks first (with this template's source)
-            for (name, nodes) in parent_blocks {
-                merged_blocks.insert(
-                    name,
-                    BlockDef {
-                        nodes: nodes.to_vec(),
-                        source: template.source.clone(),
-                    },
-                );
+                // Add parent blocks first (with this template's source)
+                for (name, nodes) in parent_blocks {
+                    merged_blocks.insert(
+                        name,
+                        BlockDef {
+                            nodes: nodes.to_vec(),
+                            source: template.source.clone(),
+                        },
+                    );
+                }
+                // Child blocks override (keeping their original source)
+                for (name, block_def) in child_blocks {
+                    merged_blocks.insert(name, block_def);
+                }
+
+                // Merge imports: add parent imports first, then child imports
+                let parent_imports: Vec<(String, String)> = template
+                    .imports()
+                    .into_iter()
+                    .map(|(p, a)| (p.to_string(), a.to_string()))
+                    .collect();
+                let mut all_imports = parent_imports;
+                all_imports.extend(child_imports);
+
+                self.render_with_blocks(grandparent_path, ctx, merged_blocks, all_imports)
+                    .await
+            } else {
+                // This is the root template, render it with block overrides
+                let mut output = String::new();
+                let mut renderer = Renderer {
+                    ctx: ctx.clone(),
+                    source: template.source.clone(),
+                    output: &mut output,
+                    blocks: child_blocks,
+                    loader: Some(&self.loader),
+                    macros: HashMap::new(),
+                };
+
+                // Process imports from child templates
+                for (path, alias) in &child_imports {
+                    renderer.load_macros_from(path, alias).await?;
+                }
+
+                renderer.collect_macros(&template.ast.body);
+                let _ = renderer.render_nodes(&template.ast.body).await?;
+                Ok(output)
             }
-            // Child blocks override (keeping their original source)
-            for (name, block_def) in child_blocks {
-                merged_blocks.insert(name, block_def);
-            }
-
-            // Merge imports: add parent imports first, then child imports
-            let parent_imports: Vec<(String, String)> = template
-                .imports()
-                .into_iter()
-                .map(|(p, a)| (p.to_string(), a.to_string()))
-                .collect();
-            let mut all_imports = parent_imports;
-            all_imports.extend(child_imports);
-
-            self.render_with_blocks(grandparent_path, ctx, merged_blocks, all_imports)
-        } else {
-            // This is the root template, render it with block overrides
-            let mut output = String::new();
-            let mut renderer = Renderer {
-                ctx: ctx.clone(),
-                source: template.source.clone(),
-                output: &mut output,
-                blocks: child_blocks,
-                loader: Some(&self.loader),
-                macros: HashMap::new(),
-            };
-
-            // Process imports from child templates
-            for (path, alias) in &child_imports {
-                renderer.load_macros_from(path, alias)?;
-            }
-
-            renderer.collect_macros(&template.ast.body);
-            let _ = renderer.render_nodes(&template.ast.body)?;
-            Ok(output)
-        }
+        })
     }
 }
 
@@ -350,240 +360,250 @@ struct Renderer<'a, L: TemplateLoader> {
 }
 
 impl<'a, L: TemplateLoader> Renderer<'a, L> {
-    fn render_nodes(&mut self, nodes: &[Node]) -> Result<LoopControl> {
-        for node in nodes {
-            let control = self.render_node(node)?;
-            if control != LoopControl::None {
-                return Ok(control);
-            }
-        }
-        Ok(LoopControl::None)
-    }
-
-    /// Render nodes with a different source (for block overrides from child templates)
-    fn render_nodes_with_source(
-        &mut self,
-        nodes: &[Node],
-        source: TemplateSource,
-    ) -> Result<LoopControl> {
-        let original_source = std::mem::replace(&mut self.source, source);
-        let result = self.render_nodes(nodes);
-        self.source = original_source;
-        result
-    }
-
-    fn render_node(&mut self, node: &Node) -> Result<LoopControl> {
-        match node {
-            Node::Text(text) => {
-                self.output.push_str(&text.text);
-            }
-            Node::Print(print) => {
-                // Check if this is a macro call
-                if let Expr::MacroCall(macro_call) = &print.expr {
-                    // Evaluate arguments (macros need concrete values)
-                    let eval = Evaluator::new(&self.ctx, &self.source);
-                    let args: Vec<Value> = macro_call
-                        .args
-                        .iter()
-                        .map(|a| eval.eval_concrete(a))
-                        .collect::<Result<Vec<_>>>()?;
-                    let kwargs: Vec<(String, Value)> = macro_call
-                        .kwargs
-                        .iter()
-                        .map(|(ident, expr)| Ok((ident.name.clone(), eval.eval_concrete(expr)?)))
-                        .collect::<Result<Vec<_>>>()?;
-
-                    // Call the macro
-                    let result = self.call_macro(
-                        &macro_call.namespace.name,
-                        &macro_call.macro_name.name,
-                        &args,
-                        &kwargs,
-                    )?;
-                    // Macro output is already HTML, don't escape it
-                    self.output.push_str(&result);
-                } else {
-                    let eval = Evaluator::new(&self.ctx, &self.source);
-                    let value = eval.eval(&print.expr)?;
-                    // Skip escaping for safe values, auto-escape everything else
-                    let s = if value.is_safe() {
-                        value.render_to_string()
-                    } else {
-                        html_escape(&value.render_to_string())
-                    };
-                    self.output.push_str(&s);
-                }
-            }
-            Node::If(if_node) => {
-                let eval = Evaluator::new(&self.ctx, &self.source);
-                let condition = eval.eval(&if_node.condition)?;
-
-                if condition.is_truthy() {
-                    let control = self.render_nodes(&if_node.then_body)?;
-                    if control != LoopControl::None {
-                        return Ok(control);
-                    }
-                } else {
-                    // Check elif branches
-                    let mut handled = false;
-                    for elif in &if_node.elif_branches {
-                        let eval = Evaluator::new(&self.ctx, &self.source);
-                        let cond = eval.eval(&elif.condition)?;
-                        if cond.is_truthy() {
-                            let control = self.render_nodes(&elif.body)?;
-                            if control != LoopControl::None {
-                                return Ok(control);
-                            }
-                            handled = true;
-                            break;
-                        }
-                    }
-
-                    // Else branch
-                    if !handled && let Some(else_body) = &if_node.else_body {
-                        let control = self.render_nodes(else_body)?;
-                        if control != LoopControl::None {
-                            return Ok(control);
-                        }
-                    }
-                }
-            }
-            Node::For(for_node) => {
-                let eval = Evaluator::new(&self.ctx, &self.source);
-                let iter_value = eval.eval(&for_node.iter)?;
-
-                // Use LazyValue's iteration which handles lazy/concrete uniformly
-                let items: Vec<LazyValue> = iter_value.iter_values();
-
-                if items.is_empty() {
-                    // Render else body if present
-                    if let Some(else_body) = &for_node.else_body {
-                        let control = self.render_nodes(else_body)?;
-                        if control != LoopControl::None {
-                            return Ok(control);
-                        }
-                    }
-                } else {
-                    let len = items.len();
-                    'for_loop: for (index, item) in items.into_iter().enumerate() {
-                        self.ctx.push_scope();
-
-                        // Bind loop variable(s)
-                        match &for_node.target {
-                            Target::Single { name, .. } => {
-                                self.ctx.set(name.clone(), item);
-                            }
-                            Target::Tuple { names, .. } => {
-                                // For tuple unpacking, resolve to get the concrete value
-                                let resolved = item.try_resolve().unwrap_or(Value::NULL);
-                                match resolved.destructure_ref() {
-                                    DestructuredRef::Array(parts) => {
-                                        for (i, (name, _)) in names.iter().enumerate() {
-                                            let val = parts.get(i).cloned().unwrap_or(Value::NULL);
-                                            self.ctx.set(name.clone(), val);
-                                        }
-                                    }
-                                    DestructuredRef::Object(obj) => {
-                                        // Special case: dict iteration gives key, value
-                                        if names.len() == 2 {
-                                            if let Some(key) = obj.get("key") {
-                                                self.ctx.set(names[0].0.clone(), key.clone());
-                                            }
-                                            if let Some(value) = obj.get("value") {
-                                                self.ctx.set(names[1].0.clone(), value.clone());
-                                            }
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-
-                        // Bind loop helper variables
-                        let mut loop_var = VObject::new();
-                        loop_var.insert(VString::from("index"), Value::from((index + 1) as i64));
-                        loop_var.insert(VString::from("index0"), Value::from(index as i64));
-                        loop_var.insert(VString::from("first"), Value::from(index == 0));
-                        loop_var.insert(VString::from("last"), Value::from(index == len - 1));
-                        loop_var.insert(VString::from("length"), Value::from(len as i64));
-                        self.ctx.set("loop", Value::from(loop_var));
-
-                        let control = self.render_nodes(&for_node.body)?;
-                        self.ctx.pop_scope();
-
-                        match control {
-                            LoopControl::None => {}
-                            LoopControl::Continue => continue 'for_loop,
-                            LoopControl::Break => break 'for_loop,
-                        }
-                    }
-                }
-            }
-            Node::Include(_include) => {
-                // TODO: Template loading/caching
-                self.output.push_str("<!-- include not implemented -->");
-            }
-            Node::Block(block) => {
-                // Check if we have an override for this block
-                let control = if let Some(block_def) = self.blocks.get(&block.name.name).cloned() {
-                    // Render the overridden block content with its original source
-                    // (for correct error reporting)
-                    self.render_nodes_with_source(&block_def.nodes, block_def.source)?
-                } else {
-                    // Render the default block content
-                    self.render_nodes(&block.body)?
-                };
+    fn render_nodes<'b>(&'b mut self, nodes: &'b [Node]) -> BoxFuture<'b, Result<LoopControl>> {
+        Box::pin(async move {
+            for node in nodes {
+                let control = self.render_node(node).await?;
                 if control != LoopControl::None {
                     return Ok(control);
                 }
             }
-            Node::Extends(_extends) => {
-                // Extends is handled at the Engine level, not during node rendering
-                // When we reach here, we're rendering the parent template
-            }
-            Node::Comment(_) => {
-                // Comments are not rendered
-            }
-            Node::Set(set_node) => {
-                let eval = Evaluator::new(&self.ctx, &self.source);
-                let value = eval.eval(&set_node.value)?;
-                self.ctx.set(set_node.name.name.clone(), value);
-            }
-            Node::Import(import) => {
-                // Load macros from the imported template
-                if let Some(loader) = &self.loader
-                    && let Some(source) = loader.load(&import.path.value)
-                    && let Ok(template) = Template::parse(&import.path.value, source)
-                {
-                    // Extract macros from the imported template
-                    let mut namespace_macros = HashMap::new();
-                    for node in &template.ast.body {
-                        if let Node::Macro(m) = node {
-                            namespace_macros.insert(
-                                m.name.name.clone(),
-                                MacroDef {
-                                    params: m.params.clone(),
-                                    body: m.body.clone(),
-                                },
-                            );
+            Ok(LoopControl::None)
+        })
+    }
+
+    /// Render nodes with a different source (for block overrides from child templates)
+    fn render_nodes_with_source<'b>(
+        &'b mut self,
+        nodes: &'b [Node],
+        source: TemplateSource,
+    ) -> BoxFuture<'b, Result<LoopControl>> {
+        Box::pin(async move {
+            let original_source = std::mem::replace(&mut self.source, source);
+            let result = self.render_nodes(nodes).await;
+            self.source = original_source;
+            result
+        })
+    }
+
+    fn render_node<'b>(&'b mut self, node: &'b Node) -> BoxFuture<'b, Result<LoopControl>> {
+        Box::pin(async move {
+            match node {
+                Node::Text(text) => {
+                    self.output.push_str(&text.text);
+                }
+                Node::Print(print) => {
+                    // Check if this is a macro call
+                    if let Expr::MacroCall(macro_call) = &print.expr {
+                        // Evaluate arguments (macros need concrete values)
+                        let eval = Evaluator::new(&self.ctx, &self.source);
+                        let mut args = Vec::with_capacity(macro_call.args.len());
+                        for a in &macro_call.args {
+                            args.push(eval.eval_concrete(a).await?);
+                        }
+                        let mut kwargs = Vec::with_capacity(macro_call.kwargs.len());
+                        for (ident, expr) in &macro_call.kwargs {
+                            kwargs.push((ident.name.clone(), eval.eval_concrete(expr).await?));
+                        }
+
+                        // Call the macro
+                        let result = self
+                            .call_macro(
+                                &macro_call.namespace.name,
+                                &macro_call.macro_name.name,
+                                &args,
+                                &kwargs,
+                            )
+                            .await?;
+                        // Macro output is already HTML, don't escape it
+                        self.output.push_str(&result);
+                    } else {
+                        let eval = Evaluator::new(&self.ctx, &self.source);
+                        let value = eval.eval(&print.expr).await?;
+                        // Skip escaping for safe values, auto-escape everything else
+                        let s = if value.is_safe().await {
+                            value.render_to_string().await
+                        } else {
+                            html_escape(&value.render_to_string().await)
+                        };
+                        self.output.push_str(&s);
+                    }
+                }
+                Node::If(if_node) => {
+                    let eval = Evaluator::new(&self.ctx, &self.source);
+                    let condition = eval.eval(&if_node.condition).await?;
+
+                    if condition.is_truthy().await {
+                        let control = self.render_nodes(&if_node.then_body).await?;
+                        if control != LoopControl::None {
+                            return Ok(control);
+                        }
+                    } else {
+                        // Check elif branches
+                        let mut handled = false;
+                        for elif in &if_node.elif_branches {
+                            let eval = Evaluator::new(&self.ctx, &self.source);
+                            let cond = eval.eval(&elif.condition).await?;
+                            if cond.is_truthy().await {
+                                let control = self.render_nodes(&elif.body).await?;
+                                if control != LoopControl::None {
+                                    return Ok(control);
+                                }
+                                handled = true;
+                                break;
+                            }
+                        }
+
+                        // Else branch
+                        if !handled && let Some(else_body) = &if_node.else_body {
+                            let control = self.render_nodes(else_body).await?;
+                            if control != LoopControl::None {
+                                return Ok(control);
+                            }
                         }
                     }
-                    self.macros
-                        .insert(import.alias.name.clone(), namespace_macros);
+                }
+                Node::For(for_node) => {
+                    let eval = Evaluator::new(&self.ctx, &self.source);
+                    let iter_value = eval.eval(&for_node.iter).await?;
+
+                    // Use LazyValue's iteration which handles lazy/concrete uniformly
+                    let items: Vec<LazyValue> = iter_value.iter_values().await;
+
+                    if items.is_empty() {
+                        // Render else body if present
+                        if let Some(else_body) = &for_node.else_body {
+                            let control = self.render_nodes(else_body).await?;
+                            if control != LoopControl::None {
+                                return Ok(control);
+                            }
+                        }
+                    } else {
+                        let len = items.len();
+                        'for_loop: for (index, item) in items.into_iter().enumerate() {
+                            self.ctx.push_scope();
+
+                            // Bind loop variable(s)
+                            match &for_node.target {
+                                Target::Single { name, .. } => {
+                                    self.ctx.set(name.clone(), item);
+                                }
+                                Target::Tuple { names, .. } => {
+                                    // For tuple unpacking, resolve to get the concrete value
+                                    let resolved = item.try_resolve().await.unwrap_or(Value::NULL);
+                                    match resolved.destructure_ref() {
+                                        DestructuredRef::Array(parts) => {
+                                            for (i, (name, _)) in names.iter().enumerate() {
+                                                let val =
+                                                    parts.get(i).cloned().unwrap_or(Value::NULL);
+                                                self.ctx.set(name.clone(), val);
+                                            }
+                                        }
+                                        DestructuredRef::Object(obj) => {
+                                            // Special case: dict iteration gives key, value
+                                            if names.len() == 2 {
+                                                if let Some(key) = obj.get("key") {
+                                                    self.ctx.set(names[0].0.clone(), key.clone());
+                                                }
+                                                if let Some(value) = obj.get("value") {
+                                                    self.ctx.set(names[1].0.clone(), value.clone());
+                                                }
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                            }
+
+                            // Bind loop helper variables
+                            let mut loop_var = VObject::new();
+                            loop_var
+                                .insert(VString::from("index"), Value::from((index + 1) as i64));
+                            loop_var.insert(VString::from("index0"), Value::from(index as i64));
+                            loop_var.insert(VString::from("first"), Value::from(index == 0));
+                            loop_var.insert(VString::from("last"), Value::from(index == len - 1));
+                            loop_var.insert(VString::from("length"), Value::from(len as i64));
+                            self.ctx.set("loop", Value::from(loop_var));
+
+                            let control = self.render_nodes(&for_node.body).await?;
+                            self.ctx.pop_scope();
+
+                            match control {
+                                LoopControl::None => {}
+                                LoopControl::Continue => continue 'for_loop,
+                                LoopControl::Break => break 'for_loop,
+                            }
+                        }
+                    }
+                }
+                Node::Include(_include) => {
+                    // TODO: Template loading/caching
+                    self.output.push_str("<!-- include not implemented -->");
+                }
+                Node::Block(block) => {
+                    // Check if we have an override for this block
+                    let control =
+                        if let Some(block_def) = self.blocks.get(&block.name.name).cloned() {
+                            // Render the overridden block content with its original source
+                            // (for correct error reporting)
+                            self.render_nodes_with_source(&block_def.nodes, block_def.source)
+                                .await?
+                        } else {
+                            // Render the default block content
+                            self.render_nodes(&block.body).await?
+                        };
+                    if control != LoopControl::None {
+                        return Ok(control);
+                    }
+                }
+                Node::Extends(_extends) => {
+                    // Extends is handled at the Engine level, not during node rendering
+                    // When we reach here, we're rendering the parent template
+                }
+                Node::Comment(_) => {
+                    // Comments are not rendered
+                }
+                Node::Set(set_node) => {
+                    let eval = Evaluator::new(&self.ctx, &self.source);
+                    let value = eval.eval(&set_node.value).await?;
+                    self.ctx.set(set_node.name.name.clone(), value);
+                }
+                Node::Import(import) => {
+                    // Load macros from the imported template
+                    if let Some(loader) = &self.loader
+                        && let Some(source) = loader.load(&import.path.value).await
+                        && let Ok(template) = Template::parse(&import.path.value, source)
+                    {
+                        // Extract macros from the imported template
+                        let mut namespace_macros = HashMap::new();
+                        for node in &template.ast.body {
+                            if let Node::Macro(m) = node {
+                                namespace_macros.insert(
+                                    m.name.name.clone(),
+                                    MacroDef {
+                                        params: m.params.clone(),
+                                        body: m.body.clone(),
+                                    },
+                                );
+                            }
+                        }
+                        self.macros
+                            .insert(import.alias.name.clone(), namespace_macros);
+                    }
+                }
+                Node::Macro(_macro_def) => {
+                    // Macro definitions are collected by collect_macros before rendering
+                }
+                Node::Continue(_) => {
+                    return Ok(LoopControl::Continue);
+                }
+                Node::Break(_) => {
+                    return Ok(LoopControl::Break);
                 }
             }
-            Node::Macro(_macro_def) => {
-                // Macro definitions are collected by collect_macros before rendering
-            }
-            Node::Continue(_) => {
-                return Ok(LoopControl::Continue);
-            }
-            Node::Break(_) => {
-                return Ok(LoopControl::Break);
-            }
-        }
 
-        Ok(LoopControl::None)
+            Ok(LoopControl::None)
+        })
     }
 
     /// Collect macro definitions from the template body into the "self" namespace
@@ -606,9 +626,9 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
     }
 
     /// Load macros from an imported template file into the given namespace
-    fn load_macros_from(&mut self, path: &str, alias: &str) -> Result<()> {
+    async fn load_macros_from(&mut self, path: &str, alias: &str) -> Result<()> {
         if let Some(loader) = &self.loader
-            && let Some(source) = loader.load(path)
+            && let Some(source) = loader.load(path).await
         {
             let template = Template::parse(path, source)?;
             // Extract macros from the imported template
@@ -630,74 +650,76 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
     }
 
     /// Call a macro and return its rendered output
-    fn call_macro(
-        &mut self,
-        namespace: &str,
-        macro_name: &str,
-        args: &[Value],
-        kwargs: &[(String, Value)],
-    ) -> Result<String> {
-        // Find the macro
-        let macro_def = self
-            .macros
-            .get(namespace)
-            .and_then(|ns| ns.get(macro_name))
-            .cloned()
-            .ok_or_else(|| miette::miette!("Macro not found: {}::{}", namespace, macro_name))?;
+    fn call_macro<'b>(
+        &'b mut self,
+        namespace: &'b str,
+        macro_name: &'b str,
+        args: &'b [Value],
+        kwargs: &'b [(String, Value)],
+    ) -> BoxFuture<'b, Result<String>> {
+        Box::pin(async move {
+            // Find the macro
+            let macro_def = self
+                .macros
+                .get(namespace)
+                .and_then(|ns| ns.get(macro_name))
+                .cloned()
+                .ok_or_else(|| miette::miette!("Macro not found: {}::{}", namespace, macro_name))?;
 
-        // Save output and create new buffer for macro
-        let mut macro_output = String::new();
-        std::mem::swap(self.output, &mut macro_output);
+            // Save output and create new buffer for macro
+            let mut macro_output = String::new();
+            std::mem::swap(self.output, &mut macro_output);
 
-        // Set up "self" namespace with macros from the called macro's namespace
-        // This allows macros to call other macros from the same file via self::
-        // Only do this if we're not already calling from the "self" namespace
-        let saved_self = if namespace != "self" {
-            let saved = self.macros.remove("self");
-            if let Some(ns_macros) = self.macros.get(namespace).cloned() {
-                self.macros.insert("self".to_string(), ns_macros);
-            }
-            saved
-        } else {
-            None
-        };
-
-        // Push a new scope for macro arguments
-        self.ctx.push_scope();
-
-        // Bind positional arguments
-        for (i, param) in macro_def.params.iter().enumerate() {
-            let value: LazyValue = if i < args.len() {
-                LazyValue::concrete(args[i].clone())
-            } else if let Some((_, v)) = kwargs.iter().find(|(k, _)| k == &param.name.name) {
-                LazyValue::concrete(v.clone())
-            } else if let Some(ref default_expr) = param.default {
-                // Evaluate default value
-                let eval = Evaluator::new(&self.ctx, &self.source);
-                eval.eval(default_expr)?
+            // Set up "self" namespace with macros from the called macro's namespace
+            // This allows macros to call other macros from the same file via self::
+            // Only do this if we're not already calling from the "self" namespace
+            let saved_self = if namespace != "self" {
+                let saved = self.macros.remove("self");
+                if let Some(ns_macros) = self.macros.get(namespace).cloned() {
+                    self.macros.insert("self".to_string(), ns_macros);
+                }
+                saved
             } else {
-                LazyValue::concrete(Value::NULL)
+                None
             };
-            self.ctx.set(param.name.name.clone(), value);
-        }
 
-        // Render macro body (ignore loop control - macros don't propagate continue/break)
-        let _ = self.render_nodes(&macro_def.body)?;
+            // Push a new scope for macro arguments
+            self.ctx.push_scope();
 
-        // Restore scope
-        self.ctx.pop_scope();
-
-        // Restore "self" namespace (only if we modified it)
-        if namespace != "self" {
-            self.macros.remove("self");
-            if let Some(saved) = saved_self {
-                self.macros.insert("self".to_string(), saved);
+            // Bind positional arguments
+            for (i, param) in macro_def.params.iter().enumerate() {
+                let value: LazyValue = if i < args.len() {
+                    LazyValue::concrete(args[i].clone())
+                } else if let Some((_, v)) = kwargs.iter().find(|(k, _)| k == &param.name.name) {
+                    LazyValue::concrete(v.clone())
+                } else if let Some(ref default_expr) = param.default {
+                    // Evaluate default value
+                    let eval = Evaluator::new(&self.ctx, &self.source);
+                    eval.eval(default_expr).await?
+                } else {
+                    LazyValue::concrete(Value::NULL)
+                };
+                self.ctx.set(param.name.name.clone(), value);
             }
-        }
 
-        // Swap back and return macro output
-        std::mem::swap(self.output, &mut macro_output);
-        Ok(macro_output)
+            // Render macro body (ignore loop control - macros don't propagate continue/break)
+            let _ = self.render_nodes(&macro_def.body).await?;
+
+            // Restore scope
+            self.ctx.pop_scope();
+
+            // Restore "self" namespace (only if we modified it)
+            if namespace != "self" {
+                self.macros.remove("self");
+                if let Some(saved) = saved_self {
+                    self.macros.insert("self".to_string(), saved);
+                }
+            }
+
+            // Swap back and return macro output
+            std::mem::swap(self.output, &mut macro_output);
+            Ok(macro_output)
+        })
     }
 }
 
@@ -716,80 +738,87 @@ mod tests {
     use crate::eval::ValueExt;
     use facet_value::VArray;
 
-    #[test]
-    fn test_simple_text() {
+    #[tokio::test]
+    async fn test_simple_text() {
         let t = Template::parse("test", "Hello, world!").unwrap();
-        assert_eq!(t.render(&Context::new()).unwrap(), "Hello, world!");
+        assert_eq!(t.render(&Context::new()).await.unwrap(), "Hello, world!");
     }
 
-    #[test]
-    fn test_variable() {
+    #[tokio::test]
+    async fn test_variable() {
         let t = Template::parse("test", "Hello, {{ name }}!").unwrap();
-        let result = t.render_with([("name", Value::from("Alice"))]).unwrap();
+        let result = t
+            .render_with([("name", Value::from("Alice"))])
+            .await
+            .unwrap();
         assert_eq!(result, "Hello, Alice!");
     }
 
-    #[test]
-    fn test_if_true() {
+    #[tokio::test]
+    async fn test_if_true() {
         let t = Template::parse("test", "{% if show %}visible{% endif %}").unwrap();
-        let result = t.render_with([("show", Value::from(true))]).unwrap();
+        let result = t.render_with([("show", Value::from(true))]).await.unwrap();
         assert_eq!(result, "visible");
     }
 
-    #[test]
-    fn test_if_false() {
+    #[tokio::test]
+    async fn test_if_false() {
         let t = Template::parse("test", "{% if show %}visible{% endif %}").unwrap();
-        let result = t.render_with([("show", Value::from(false))]).unwrap();
+        let result = t.render_with([("show", Value::from(false))]).await.unwrap();
         assert_eq!(result, "");
     }
 
-    #[test]
-    fn test_if_else() {
+    #[tokio::test]
+    async fn test_if_else() {
         let t = Template::parse("test", "{% if show %}yes{% else %}no{% endif %}").unwrap();
-        let result = t.render_with([("show", Value::from(false))]).unwrap();
+        let result = t.render_with([("show", Value::from(false))]).await.unwrap();
         assert_eq!(result, "no");
     }
 
-    #[test]
-    fn test_for_loop() {
+    #[tokio::test]
+    async fn test_for_loop() {
         let t = Template::parse("test", "{% for item in items %}{{ item }} {% endfor %}").unwrap();
         let items: Value =
             VArray::from_iter([Value::from("a"), Value::from("b"), Value::from("c")]).into();
-        let result = t.render_with([("items", items)]).unwrap();
+        let result = t.render_with([("items", items)]).await.unwrap();
         assert_eq!(result, "a b c ");
     }
 
-    #[test]
-    fn test_loop_index() {
+    #[tokio::test]
+    async fn test_loop_index() {
         let t =
             Template::parse("test", "{% for x in items %}{{ loop.index }}{% endfor %}").unwrap();
         let items: Value = VArray::from_iter([Value::from("a"), Value::from("b")]).into();
-        let result = t.render_with([("items", items)]).unwrap();
+        let result = t.render_with([("items", items)]).await.unwrap();
         assert_eq!(result, "12");
     }
 
-    #[test]
-    fn test_filter() {
+    #[tokio::test]
+    async fn test_filter() {
         let t = Template::parse("test", "{{ name | upper }}").unwrap();
-        let result = t.render_with([("name", Value::from("alice"))]).unwrap();
+        let result = t
+            .render_with([("name", Value::from("alice"))])
+            .await
+            .unwrap();
         assert_eq!(result, "ALICE");
     }
 
-    #[test]
-    fn test_field_access() {
+    #[tokio::test]
+    async fn test_field_access() {
         let t = Template::parse("test", "{{ user.name }}").unwrap();
         let mut user = VObject::new();
         user.insert(VString::from("name"), Value::from("Bob"));
         let user_val: Value = user.into();
-        let result = t.render_with([("user", user_val)]).unwrap();
+        let result = t.render_with([("user", user_val)]).await.unwrap();
         assert_eq!(result, "Bob");
     }
 
-    #[test]
-    fn test_html_escape() {
+    #[tokio::test]
+    async fn test_html_escape() {
         let t = Template::parse("test", "{{ content }}").unwrap();
         let result = t
             .render_with([("content", Value::from("<script>alert('xss')</script>"))])
+            .await
             .unwrap();
         assert_eq!(
             result,
@@ -797,39 +826,44 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_safe_filter() {
+    #[tokio::test]
+    async fn test_safe_filter() {
         let t = Template::parse("test", "{{ content | safe }}").unwrap();
         let result = t
             .render_with([("content", Value::from("<b>bold</b>"))])
+            .await
             .unwrap();
         // Note: safe filter doesn't work with facet_value since we can't track "safe" status
         // This test just verifies the filter doesn't error
         assert!(result.contains("bold"));
     }
 
-    #[test]
-    fn test_safe_filter_with_other_filters() {
+    #[tokio::test]
+    async fn test_safe_filter_with_other_filters() {
         let t = Template::parse("test", "{{ content | upper | safe }}").unwrap();
         let result = t
             .render_with([("content", Value::from("<b>bold</b>"))])
+            .await
             .unwrap();
         assert!(result.contains("BOLD"));
     }
 
-    #[test]
-    fn test_split_filter() {
+    #[tokio::test]
+    async fn test_split_filter() {
         let t = Template::parse(
             "test",
             "{% for p in path | split(pat=\"/\") %}[{{ p }}]{% endfor %}",
         )
         .unwrap();
-        let result = t.render_with([("path", Value::from("a/b/c"))]).unwrap();
+        let result = t
+            .render_with([("path", Value::from("a/b/c"))])
+            .await
+            .unwrap();
         assert_eq!(result, "[a][b][c]");
     }
 
-    #[test]
-    fn test_global_function() {
+    #[tokio::test]
+    async fn test_global_function() {
         let t = Template::parse("test", "{{ greet(name) }}").unwrap();
         let mut ctx = Context::new();
         ctx.set("name", Value::from("World"));
@@ -843,73 +877,73 @@ mod tests {
                 Ok(Value::from(format!("Hello, {name}!").as_str()))
             }),
         );
-        let result = t.render(&ctx).unwrap();
+        let result = t.render(&ctx).await.unwrap();
         assert_eq!(result, "Hello, World!");
     }
 
-    #[test]
-    fn test_set() {
+    #[tokio::test]
+    async fn test_set() {
         let t = Template::parse("test", "{% set x = 42 %}{{ x }}").unwrap();
-        let result = t.render(&Context::new()).unwrap();
+        let result = t.render(&Context::new()).await.unwrap();
         assert_eq!(result, "42");
     }
 
-    #[test]
-    fn test_set_expression() {
+    #[tokio::test]
+    async fn test_set_expression() {
         let t = Template::parse("test", "{% set x = 2 + 3 %}{{ x }}").unwrap();
-        let result = t.render(&Context::new()).unwrap();
+        let result = t.render(&Context::new()).await.unwrap();
         assert_eq!(result, "5");
     }
 
-    #[test]
-    fn test_macro_simple() {
+    #[tokio::test]
+    async fn test_macro_simple() {
         let t = Template::parse(
             "test",
             "{% macro greet(name) %}Hello, {{ name }}!{% endmacro %}{{ self::greet(\"World\") }}",
         )
         .unwrap();
-        let result = t.render(&Context::new()).unwrap();
+        let result = t.render(&Context::new()).await.unwrap();
         assert_eq!(result, "Hello, World!");
     }
 
-    #[test]
-    fn test_macro_with_default() {
+    #[tokio::test]
+    async fn test_macro_with_default() {
         let t = Template::parse(
             "test",
             "{% macro greet(name=\"Guest\") %}Hello, {{ name }}!{% endmacro %}{{ self::greet() }}",
         )
         .unwrap();
-        let result = t.render(&Context::new()).unwrap();
+        let result = t.render(&Context::new()).await.unwrap();
         assert_eq!(result, "Hello, Guest!");
     }
 
-    #[test]
-    fn test_macro_override_default() {
+    #[tokio::test]
+    async fn test_macro_override_default() {
         let t = Template::parse("test", "{% macro greet(name=\"Guest\") %}Hello, {{ name }}!{% endmacro %}{{ self::greet(\"Alice\") }}").unwrap();
-        let result = t.render(&Context::new()).unwrap();
+        let result = t.render(&Context::new()).await.unwrap();
         assert_eq!(result, "Hello, Alice!");
     }
 
-    #[test]
-    fn test_macro_kwargs() {
+    #[tokio::test]
+    async fn test_macro_kwargs() {
         let t = Template::parse("test", "{% macro greet(name) %}Hello, {{ name }}!{% endmacro %}{{ self::greet(name=\"Bob\") }}").unwrap();
-        let result = t.render(&Context::new()).unwrap();
+        let result = t.render(&Context::new()).await.unwrap();
         assert_eq!(result, "Hello, Bob!");
     }
 
-    #[test]
-    fn test_macro_multiple_calls() {
+    #[tokio::test]
+    async fn test_macro_multiple_calls() {
         let t = Template::parse(
             "test",
             "{% macro twice(x) %}{{ x }}{{ x }}{% endmacro %}{{ self::twice(\"ab\") }}",
         )
         .unwrap();
-        let result = t.render(&Context::new()).unwrap();
+        let result = t.render(&Context::new()).await.unwrap();
         assert_eq!(result, "abab");
     }
 
-    #[test]
-    fn test_template_inheritance() {
+    #[tokio::test]
+    async fn test_template_inheritance() {
         let mut loader = InMemoryLoader::new();
         loader.add(
             "base.html",
@@ -921,12 +955,12 @@ mod tests {
         );
 
         let mut engine = Engine::new(loader);
-        let result = engine.render("child.html", &Context::new()).unwrap();
+        let result = engine.render("child.html", &Context::new()).await.unwrap();
         assert_eq!(result, "Header CUSTOM Footer");
     }
 
-    #[test]
-    fn test_template_inheritance_with_variables() {
+    #[tokio::test]
+    async fn test_template_inheritance_with_variables() {
         let mut loader = InMemoryLoader::new();
         loader.add("base.html", "{% block title %}Default{% endblock %}");
         loader.add(
@@ -937,35 +971,35 @@ mod tests {
         let mut engine = Engine::new(loader);
         let mut ctx = Context::new();
         ctx.set("page_title", Value::from("My Page"));
-        let result = engine.render("child.html", &ctx).unwrap();
+        let result = engine.render("child.html", &ctx).await.unwrap();
         assert_eq!(result, "My Page");
     }
 
-    #[test]
-    fn test_template_no_extends() {
+    #[tokio::test]
+    async fn test_template_no_extends() {
         let mut loader = InMemoryLoader::new();
         loader.add("simple.html", "Just {{ content }}");
 
         let mut engine = Engine::new(loader);
         let mut ctx = Context::new();
         ctx.set("content", Value::from("text"));
-        let result = engine.render("simple.html", &ctx).unwrap();
+        let result = engine.render("simple.html", &ctx).await.unwrap();
         assert_eq!(result, "Just text");
     }
 
-    #[test]
-    fn test_block_default_content() {
+    #[tokio::test]
+    async fn test_block_default_content() {
         let mut loader = InMemoryLoader::new();
         loader.add("base.html", "{% block main %}DEFAULT{% endblock %}");
         loader.add("child.html", "{% extends \"base.html\" %}");
 
         let mut engine = Engine::new(loader);
-        let result = engine.render("child.html", &Context::new()).unwrap();
+        let result = engine.render("child.html", &Context::new()).await.unwrap();
         assert_eq!(result, "DEFAULT");
     }
 
-    #[test]
-    fn test_multiple_blocks() {
+    #[tokio::test]
+    async fn test_multiple_blocks() {
         let mut loader = InMemoryLoader::new();
         loader.add(
             "base.html",
@@ -977,12 +1011,12 @@ mod tests {
         );
 
         let mut engine = Engine::new(loader);
-        let result = engine.render("child.html", &Context::new()).unwrap();
+        let result = engine.render("child.html", &Context::new()).await.unwrap();
         assert_eq!(result, "[X][B]");
     }
 
-    #[test]
-    fn test_macro_import() {
+    #[tokio::test]
+    async fn test_macro_import() {
         let mut loader = InMemoryLoader::new();
         loader.add(
             "macros.html",
@@ -994,12 +1028,12 @@ mod tests {
         );
 
         let mut engine = Engine::new(loader);
-        let result = engine.render("page.html", &Context::new()).unwrap();
+        let result = engine.render("page.html", &Context::new()).await.unwrap();
         assert_eq!(result, "Hello, World!");
     }
 
-    #[test]
-    fn test_is_starting_with() {
+    #[tokio::test]
+    async fn test_is_starting_with() {
         let t = Template::parse(
             "test",
             "{% if path is starting_with(\"/admin\") %}admin{% else %}user{% endif %}",
@@ -1007,12 +1041,13 @@ mod tests {
         .unwrap();
         let result = t
             .render_with([("path", Value::from("/admin/dashboard"))])
+            .await
             .unwrap();
         assert_eq!(result, "admin");
     }
 
-    #[test]
-    fn test_is_containing() {
+    #[tokio::test]
+    async fn test_is_containing() {
         let t = Template::parse(
             "test",
             "{% if text is containing(\"foo\") %}yes{% else %}no{% endif %}",
@@ -1020,20 +1055,21 @@ mod tests {
         .unwrap();
         let result = t
             .render_with([("text", Value::from("hello foo bar"))])
+            .await
             .unwrap();
         assert_eq!(result, "yes");
     }
 
-    #[test]
-    fn test_is_not() {
+    #[tokio::test]
+    async fn test_is_not() {
         // Note: "none" is a keyword, so we test with "defined" instead
         let t = Template::parse("test", "{% if x is not undefined %}has_value{% endif %}").unwrap();
-        let result = t.render_with([("x", Value::from(42i64))]).unwrap();
+        let result = t.render_with([("x", Value::from(42i64))]).await.unwrap();
         assert_eq!(result, "has_value");
     }
 
-    #[test]
-    fn test_continue_in_loop() {
+    #[tokio::test]
+    async fn test_continue_in_loop() {
         let t = Template::parse(
             "test",
             "{% for i in items %}{% if i == 2 %}{% continue %}{% endif %}{{ i }}{% endfor %}",
@@ -1041,12 +1077,12 @@ mod tests {
         .unwrap();
         let items: Value =
             VArray::from_iter([Value::from(1i64), Value::from(2i64), Value::from(3i64)]).into();
-        let result = t.render_with([("items", items)]).unwrap();
+        let result = t.render_with([("items", items)]).await.unwrap();
         assert_eq!(result, "13");
     }
 
-    #[test]
-    fn test_break_in_loop() {
+    #[tokio::test]
+    async fn test_break_in_loop() {
         let t = Template::parse(
             "test",
             "{% for i in items %}{% if i == 2 %}{% break %}{% endif %}{{ i }}{% endfor %}",
@@ -1054,30 +1090,30 @@ mod tests {
         .unwrap();
         let items: Value =
             VArray::from_iter([Value::from(1i64), Value::from(2i64), Value::from(3i64)]).into();
-        let result = t.render_with([("items", items)]).unwrap();
+        let result = t.render_with([("items", items)]).await.unwrap();
         assert_eq!(result, "1");
     }
 
-    #[test]
-    fn test_continue_with_loop_index() {
+    #[tokio::test]
+    async fn test_continue_with_loop_index() {
         let t = Template::parse("test", "{% for x in items %}{% if loop.index == 2 %}{% continue %}{% endif %}[{{ x }}]{% endfor %}").unwrap();
         let items: Value =
             VArray::from_iter([Value::from("a"), Value::from("b"), Value::from("c")]).into();
-        let result = t.render_with([("items", items)]).unwrap();
+        let result = t.render_with([("items", items)]).await.unwrap();
         assert_eq!(result, "[a][c]");
     }
 
-    #[test]
-    fn test_break_in_nested_if() {
+    #[tokio::test]
+    async fn test_break_in_nested_if() {
         let t = Template::parse("test", "{% for i in items %}{% if i > 1 %}{% if i == 2 %}{% break %}{% endif %}{% endif %}{{ i }}{% endfor %}").unwrap();
         let items: Value =
             VArray::from_iter([Value::from(1i64), Value::from(2i64), Value::from(3i64)]).into();
-        let result = t.render_with([("items", items)]).unwrap();
+        let result = t.render_with([("items", items)]).await.unwrap();
         assert_eq!(result, "1");
     }
 
-    #[test]
-    fn test_error_source_in_inherited_block() {
+    #[tokio::test]
+    async fn test_error_source_in_inherited_block() {
         let mut loader = InMemoryLoader::new();
         loader.add("base.html", "{% block content %}{% endblock %}");
         loader.add(
@@ -1086,7 +1122,7 @@ mod tests {
         );
 
         let mut engine = Engine::new(loader);
-        let result = engine.render("child.html", &Context::new());
+        let result = engine.render("child.html", &Context::new()).await;
         assert!(result.is_err());
         let err = format!("{:?}", result.unwrap_err());
         // The error should reference child.html, not base.html
@@ -1101,28 +1137,28 @@ mod tests {
     // New filter tests (#71, #72, #73, #74, #78)
     // ========================================================================
 
-    #[test]
-    fn test_typeof_filter() {
+    #[tokio::test]
+    async fn test_typeof_filter() {
         let t = Template::parse("test", "{{ x | typeof }}").unwrap();
         assert_eq!(
-            t.render_with([("x", Value::from("hello"))]).unwrap(),
+            t.render_with([("x", Value::from("hello"))]).await.unwrap(),
             "string"
         );
         assert_eq!(
-            t.render_with([("x", Value::from(42i64))]).unwrap(),
+            t.render_with([("x", Value::from(42i64))]).await.unwrap(),
             "number"
         );
-        assert_eq!(t.render_with([("x", Value::NULL)]).unwrap(), "none");
+        assert_eq!(t.render_with([("x", Value::NULL)]).await.unwrap(), "none");
 
         let arr: Value = VArray::from_iter([Value::from(1i64)]).into();
-        assert_eq!(t.render_with([("x", arr)]).unwrap(), "list");
+        assert_eq!(t.render_with([("x", arr)]).await.unwrap(), "list");
 
         let obj: Value = VObject::new().into();
-        assert_eq!(t.render_with([("x", obj)]).unwrap(), "dict");
+        assert_eq!(t.render_with([("x", obj)]).await.unwrap(), "dict");
     }
 
-    #[test]
-    fn test_slice_filter_kwargs() {
+    #[tokio::test]
+    async fn test_slice_filter_kwargs() {
         let t = Template::parse(
             "test",
             "{% for x in items | slice(end=2) %}{{ x }}{% endfor %}",
@@ -1130,11 +1166,11 @@ mod tests {
         .unwrap();
         let items: Value =
             VArray::from_iter([Value::from("a"), Value::from("b"), Value::from("c")]).into();
-        assert_eq!(t.render_with([("items", items)]).unwrap(), "ab");
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "ab");
     }
 
-    #[test]
-    fn test_slice_filter_start_end() {
+    #[tokio::test]
+    async fn test_slice_filter_start_end() {
         let t = Template::parse(
             "test",
             "{% for x in items | slice(start=1, end=3) %}{{ x }}{% endfor %}",
@@ -1147,11 +1183,11 @@ mod tests {
             Value::from("d"),
         ])
         .into();
-        assert_eq!(t.render_with([("items", items)]).unwrap(), "bc");
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "bc");
     }
 
-    #[test]
-    fn test_slice_filter_positional() {
+    #[tokio::test]
+    async fn test_slice_filter_positional() {
         let t = Template::parse(
             "test",
             "{% for x in items | slice(1, 3) %}{{ x }}{% endfor %}",
@@ -1164,22 +1200,22 @@ mod tests {
             Value::from("d"),
         ])
         .into();
-        assert_eq!(t.render_with([("items", items)]).unwrap(), "bc");
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "bc");
     }
 
-    #[test]
-    fn test_slice_filter_empty() {
+    #[tokio::test]
+    async fn test_slice_filter_empty() {
         let t = Template::parse(
             "test",
             "{% for x in items | slice(end=0) %}{{ x }}{% endfor %}",
         )
         .unwrap();
         let items: Value = VArray::from_iter([Value::from("a"), Value::from("b")]).into();
-        assert_eq!(t.render_with([("items", items)]).unwrap(), "");
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "");
     }
 
-    #[test]
-    fn test_map_filter() {
+    #[tokio::test]
+    async fn test_map_filter() {
         let t = Template::parse(
             "test",
             "{{ items | map(attribute=\"name\") | join(\", \") }}",
@@ -1192,11 +1228,14 @@ mod tests {
         item2.insert(VString::from("name"), Value::from("Bob"));
 
         let items: Value = VArray::from_iter([Value::from(item1), Value::from(item2)]).into();
-        assert_eq!(t.render_with([("items", items)]).unwrap(), "Alice, Bob");
+        assert_eq!(
+            t.render_with([("items", items)]).await.unwrap(),
+            "Alice, Bob"
+        );
     }
 
-    #[test]
-    fn test_map_filter_missing_attr() {
+    #[tokio::test]
+    async fn test_map_filter_missing_attr() {
         let t =
             Template::parse("test", "{{ items | map(attribute=\"missing\") | length }}").unwrap();
 
@@ -1205,11 +1244,11 @@ mod tests {
 
         let items: Value = VArray::from_iter([Value::from(item1)]).into();
         // Items without the attribute are filtered out
-        assert_eq!(t.render_with([("items", items)]).unwrap(), "0");
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "0");
     }
 
-    #[test]
-    fn test_selectattr_truthy() {
+    #[tokio::test]
+    async fn test_selectattr_truthy() {
         let t = Template::parse(
             "test",
             "{% for x in items | selectattr(\"active\") %}{{ x.name }}{% endfor %}",
@@ -1228,11 +1267,14 @@ mod tests {
 
         let items: Value =
             VArray::from_iter([Value::from(item1), Value::from(item2), Value::from(item3)]).into();
-        assert_eq!(t.render_with([("items", items)]).unwrap(), "AliceCarol");
+        assert_eq!(
+            t.render_with([("items", items)]).await.unwrap(),
+            "AliceCarol"
+        );
     }
 
-    #[test]
-    fn test_selectattr_eq() {
+    #[tokio::test]
+    async fn test_selectattr_eq() {
         let t = Template::parse("test", "{% for x in items | selectattr(\"status\", \"eq\", \"active\") %}{{ x.name }}{% endfor %}").unwrap();
 
         let mut item1 = VObject::new();
@@ -1243,11 +1285,11 @@ mod tests {
         item2.insert(VString::from("status"), Value::from("inactive"));
 
         let items: Value = VArray::from_iter([Value::from(item1), Value::from(item2)]).into();
-        assert_eq!(t.render_with([("items", items)]).unwrap(), "Alice");
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "Alice");
     }
 
-    #[test]
-    fn test_selectattr_gt() {
+    #[tokio::test]
+    async fn test_selectattr_gt() {
         let t = Template::parse(
             "test",
             "{% for x in items | selectattr(\"weight\", \"gt\", 5) %}{{ x.name }}{% endfor %}",
@@ -1262,11 +1304,11 @@ mod tests {
         item2.insert(VString::from("weight"), Value::from(3i64));
 
         let items: Value = VArray::from_iter([Value::from(item1), Value::from(item2)]).into();
-        assert_eq!(t.render_with([("items", items)]).unwrap(), "Heavy");
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "Heavy");
     }
 
-    #[test]
-    fn test_rejectattr_truthy() {
+    #[tokio::test]
+    async fn test_rejectattr_truthy() {
         let t = Template::parse(
             "test",
             "{% for x in items | rejectattr(\"draft\") %}{{ x.name }}{% endfor %}",
@@ -1281,11 +1323,14 @@ mod tests {
         item2.insert(VString::from("draft"), Value::from(true));
 
         let items: Value = VArray::from_iter([Value::from(item1), Value::from(item2)]).into();
-        assert_eq!(t.render_with([("items", items)]).unwrap(), "Published");
+        assert_eq!(
+            t.render_with([("items", items)]).await.unwrap(),
+            "Published"
+        );
     }
 
-    #[test]
-    fn test_selectattr_starting_with() {
+    #[tokio::test]
+    async fn test_selectattr_starting_with() {
         let t = Template::parse("test", "{% for x in items | selectattr(\"path\", \"starting_with\", \"/admin\") %}{{ x.name }}{% endfor %}").unwrap();
 
         let mut item1 = VObject::new();
@@ -1296,11 +1341,11 @@ mod tests {
         item2.insert(VString::from("path"), Value::from("/user/profile"));
 
         let items: Value = VArray::from_iter([Value::from(item1), Value::from(item2)]).into();
-        assert_eq!(t.render_with([("items", items)]).unwrap(), "Admin");
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "Admin");
     }
 
-    #[test]
-    fn test_groupby_filter() {
+    #[tokio::test]
+    async fn test_groupby_filter() {
         // Use tuple unpacking to access category and items
         let t = Template::parse("test", "{% for category, group_items in items | groupby(attribute=\"category\") %}[{{ category }}:{% for x in group_items %}{{ x.name }}{% endfor %}]{% endfor %}").unwrap();
 
@@ -1316,13 +1361,13 @@ mod tests {
 
         let items: Value =
             VArray::from_iter([Value::from(item1), Value::from(item2), Value::from(item3)]).into();
-        let result = t.render_with([("items", items)]).unwrap();
+        let result = t.render_with([("items", items)]).await.unwrap();
         // Order is preserved: fruit first (Apple, Banana), then vegetable (Carrot)
         assert_eq!(result, "[fruit:AppleBanana][vegetable:Carrot]");
     }
 
-    #[test]
-    fn test_groupby_tuple_unpacking() {
+    #[tokio::test]
+    async fn test_groupby_tuple_unpacking() {
         // Test using tuple unpacking syntax in for loop
         let t = Template::parse("test", "{% for category, posts in items | groupby(attribute=\"cat\") %}{{ category }}:{{ posts | length }};{% endfor %}").unwrap();
 
@@ -1335,12 +1380,12 @@ mod tests {
 
         let items: Value =
             VArray::from_iter([Value::from(item1), Value::from(item2), Value::from(item3)]).into();
-        let result = t.render_with([("items", items)]).unwrap();
+        let result = t.render_with([("items", items)]).await.unwrap();
         assert_eq!(result, "A:2;B:1;");
     }
 
-    #[test]
-    fn test_filters_chained() {
+    #[tokio::test]
+    async fn test_filters_chained() {
         // Test chaining multiple new filters
         let t = Template::parse(
             "test",
@@ -1360,7 +1405,10 @@ mod tests {
 
         let items: Value =
             VArray::from_iter([Value::from(item1), Value::from(item2), Value::from(item3)]).into();
-        assert_eq!(t.render_with([("items", items)]).unwrap(), "Alice, Carol");
+        assert_eq!(
+            t.render_with([("items", items)]).await.unwrap(),
+            "Alice, Carol"
+        );
     }
 
     #[test]

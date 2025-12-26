@@ -1,0 +1,17 @@
+[package]
+name = "cell-gingembre-proto"
+version = "0.6.1"
+edition = "2024"
+rust-version = "1.91"
+description = "RPC protocol for dodeca template rendering cell"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[dependencies]
+facet.workspace = true
+rapace.workspace = true

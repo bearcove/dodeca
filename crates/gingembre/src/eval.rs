@@ -8,6 +8,7 @@ use super::error::{
     UnknownTestError,
 };
 use facet_value::{DestructuredRef, VArray, VObject, VString};
+use futures::future::BoxFuture;
 use miette::Result;
 use std::collections::HashMap;
 
@@ -239,31 +240,33 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Evaluate an expression to a (possibly lazy) value
-    pub fn eval(&self, expr: &Expr) -> Result<LazyValue> {
-        match expr {
-            Expr::Literal(lit) => self.eval_literal(lit),
-            Expr::Var(ident) => self.eval_var(ident),
-            Expr::Field(field) => self.eval_field(field),
-            Expr::Index(index) => self.eval_index(index),
-            Expr::Filter(filter) => self.eval_filter(filter),
-            Expr::Binary(binary) => self.eval_binary(binary),
-            Expr::Unary(unary) => self.eval_unary(unary),
-            Expr::Call(call) => self.eval_call(call),
-            Expr::Ternary(ternary) => self.eval_ternary(ternary),
-            Expr::Test(test) => self.eval_test(test),
-            Expr::MacroCall(_macro_call) => {
-                // Macro calls are evaluated during rendering, not expression evaluation
-                Ok(LazyValue::concrete(Value::NULL))
+    pub fn eval<'b>(&'b self, expr: &'b Expr) -> BoxFuture<'b, Result<LazyValue>> {
+        Box::pin(async move {
+            match expr {
+                Expr::Literal(lit) => self.eval_literal(lit).await,
+                Expr::Var(ident) => self.eval_var(ident),
+                Expr::Field(field) => self.eval_field(field).await,
+                Expr::Index(index) => self.eval_index(index).await,
+                Expr::Filter(filter) => self.eval_filter(filter).await,
+                Expr::Binary(binary) => self.eval_binary(binary).await,
+                Expr::Unary(unary) => self.eval_unary(unary).await,
+                Expr::Call(call) => self.eval_call(call).await,
+                Expr::Ternary(ternary) => self.eval_ternary(ternary).await,
+                Expr::Test(test) => self.eval_test(test).await,
+                Expr::MacroCall(_macro_call) => {
+                    // Macro calls are evaluated during rendering, not expression evaluation
+                    Ok(LazyValue::concrete(Value::NULL))
+                }
             }
-        }
+        })
     }
 
     /// Evaluate and resolve to a concrete value (forces lazy resolution)
-    pub fn eval_concrete(&self, expr: &Expr) -> Result<Value> {
-        self.eval(expr)?.resolve()
+    pub async fn eval_concrete(&self, expr: &Expr) -> Result<Value> {
+        self.eval(expr).await?.resolve().await
     }
 
-    fn eval_literal(&self, lit: &Literal) -> Result<LazyValue> {
+    async fn eval_literal(&self, lit: &Literal) -> Result<LazyValue> {
         Ok(LazyValue::concrete(match lit {
             Literal::None(_) => Value::NULL,
             Literal::Bool(b) => Value::from(b.value),
@@ -272,15 +275,17 @@ impl<'a> Evaluator<'a> {
             Literal::String(s) => Value::from(s.value.as_str()),
             Literal::List(l) => {
                 // List elements are resolved to concrete values
-                let elements: Result<Vec<_>> =
-                    l.elements.iter().map(|e| self.eval_concrete(e)).collect();
-                VArray::from_iter(elements?).into()
+                let mut elements = Vec::with_capacity(l.elements.len());
+                for e in &l.elements {
+                    elements.push(self.eval_concrete(e).await?);
+                }
+                VArray::from_iter(elements).into()
             }
             Literal::Dict(d) => {
                 let mut obj = VObject::new();
                 for (k, v) in &d.entries {
-                    let key = self.eval(k)?.render_to_string();
-                    let value = self.eval_concrete(v)?;
+                    let key = self.eval(k).await?.render_to_string().await;
+                    let value = self.eval_concrete(v).await?;
                     obj.insert(VString::from(key.as_str()), value);
                 }
                 obj.into()
@@ -300,21 +305,21 @@ impl<'a> Evaluator<'a> {
         })
     }
 
-    fn eval_field(&self, field: &FieldExpr) -> Result<LazyValue> {
-        let base = self.eval(&field.base)?;
+    async fn eval_field(&self, field: &FieldExpr) -> Result<LazyValue> {
+        let base = self.eval(&field.base).await?;
         // Use LazyValue's field method - extends path for lazy, normal access for concrete
         base.field(&field.field.name, field.field.span, self.source)
     }
 
-    fn eval_index(&self, index: &IndexExpr) -> Result<LazyValue> {
-        let base = self.eval(&index.base)?;
-        let idx = self.eval(&index.index)?;
+    async fn eval_index(&self, index: &IndexExpr) -> Result<LazyValue> {
+        let base = self.eval(&index.base).await?;
+        let idx = self.eval(&index.index).await?;
 
         // For lazy base, we need to resolve the index to get a concrete key/index
         match &base {
             LazyValue::Lazy { .. } => {
                 // Resolve the index to get the key
-                let idx_resolved = idx.resolve()?;
+                let idx_resolved = idx.resolve().await?;
                 match idx_resolved.destructure_ref() {
                     DestructuredRef::Number(n) => {
                         let i = n.to_i64().unwrap_or(0);
@@ -335,7 +340,7 @@ impl<'a> Evaluator<'a> {
             }
             LazyValue::Concrete(base_val) => {
                 // Original concrete logic
-                let idx_resolved = idx.resolve()?;
+                let idx_resolved = idx.resolve().await?;
                 match (base_val.destructure_ref(), idx_resolved.destructure_ref()) {
                     (DestructuredRef::Array(arr), DestructuredRef::Number(n)) => {
                         let i = n.to_i64().unwrap_or(0);
@@ -404,18 +409,18 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    fn eval_filter(&self, filter: &FilterExpr) -> Result<LazyValue> {
+    async fn eval_filter(&self, filter: &FilterExpr) -> Result<LazyValue> {
         // Filters always work on concrete values
-        let value = self.eval_concrete(&filter.expr)?;
-        let args: Result<Vec<_>> = filter.args.iter().map(|a| self.eval_concrete(a)).collect();
-        let args = args?;
+        let value = self.eval_concrete(&filter.expr).await?;
+        let mut args = Vec::with_capacity(filter.args.len());
+        for a in &filter.args {
+            args.push(self.eval_concrete(a).await?);
+        }
 
-        let kwargs: Result<Vec<(String, Value)>> = filter
-            .kwargs
-            .iter()
-            .map(|(ident, expr)| Ok((ident.name.clone(), self.eval_concrete(expr)?)))
-            .collect();
-        let kwargs = kwargs?;
+        let mut kwargs = Vec::with_capacity(filter.kwargs.len());
+        for (ident, expr) in &filter.kwargs {
+            kwargs.push((ident.name.clone(), self.eval_concrete(expr).await?));
+        }
 
         apply_filter(
             &filter.filter.name,
@@ -428,29 +433,29 @@ impl<'a> Evaluator<'a> {
         .map(LazyValue::concrete)
     }
 
-    fn eval_binary(&self, binary: &BinaryExpr) -> Result<LazyValue> {
+    async fn eval_binary(&self, binary: &BinaryExpr) -> Result<LazyValue> {
         // Short-circuit for and/or - these can stay lazy
         match binary.op {
             BinaryOp::And => {
-                let left = self.eval(&binary.left)?;
-                if !left.is_truthy() {
+                let left = self.eval(&binary.left).await?;
+                if !left.is_truthy().await {
                     return Ok(left);
                 }
-                return self.eval(&binary.right);
+                return self.eval(&binary.right).await;
             }
             BinaryOp::Or => {
-                let left = self.eval(&binary.left)?;
-                if left.is_truthy() {
+                let left = self.eval(&binary.left).await?;
+                if left.is_truthy().await {
                     return Ok(left);
                 }
-                return self.eval(&binary.right);
+                return self.eval(&binary.right).await;
             }
             _ => {}
         }
 
         // All other binary ops need concrete values
-        let left = self.eval_concrete(&binary.left)?;
-        let right = self.eval_concrete(&binary.right)?;
+        let left = self.eval_concrete(&binary.left).await?;
+        let right = self.eval_concrete(&binary.right).await?;
 
         Ok(LazyValue::concrete(match binary.op {
             BinaryOp::Add => binary_add(&left, &right),
@@ -491,9 +496,9 @@ impl<'a> Evaluator<'a> {
         }))
     }
 
-    fn eval_unary(&self, unary: &UnaryExpr) -> Result<LazyValue> {
+    async fn eval_unary(&self, unary: &UnaryExpr) -> Result<LazyValue> {
         // Unary ops need concrete values
-        let value = self.eval_concrete(&unary.expr)?;
+        let value = self.eval_concrete(&unary.expr).await?;
 
         Ok(LazyValue::concrete(match unary.op {
             UnaryOp::Not => Value::from(!value.is_truthy()),
@@ -516,19 +521,17 @@ impl<'a> Evaluator<'a> {
         }))
     }
 
-    fn eval_call(&self, call: &CallExpr) -> Result<LazyValue> {
+    async fn eval_call(&self, call: &CallExpr) -> Result<LazyValue> {
         // Function calls require concrete argument values
-        let args: Vec<Value> = call
-            .args
-            .iter()
-            .map(|a| self.eval_concrete(a))
-            .collect::<Result<Vec<_>>>()?;
+        let mut args = Vec::with_capacity(call.args.len());
+        for a in &call.args {
+            args.push(self.eval_concrete(a).await?);
+        }
 
-        let kwargs: Vec<(String, Value)> = call
-            .kwargs
-            .iter()
-            .map(|(ident, expr)| Ok((ident.name.clone(), self.eval_concrete(expr)?)))
-            .collect::<Result<Vec<_>>>()?;
+        let mut kwargs = Vec::with_capacity(call.kwargs.len());
+        for (ident, expr) in &call.kwargs {
+            kwargs.push((ident.name.clone(), self.eval_concrete(expr).await?));
+        }
 
         // Check if this is a global function call
         if let Expr::Var(ident) = &*call.func
@@ -541,23 +544,22 @@ impl<'a> Evaluator<'a> {
         Ok(LazyValue::concrete(Value::NULL))
     }
 
-    fn eval_ternary(&self, ternary: &TernaryExpr) -> Result<LazyValue> {
-        let condition = self.eval(&ternary.condition)?;
-        if condition.is_truthy() {
-            self.eval(&ternary.value)
+    async fn eval_ternary(&self, ternary: &TernaryExpr) -> Result<LazyValue> {
+        let condition = self.eval(&ternary.condition).await?;
+        if condition.is_truthy().await {
+            self.eval(&ternary.value).await
         } else {
-            self.eval(&ternary.otherwise)
+            self.eval(&ternary.otherwise).await
         }
     }
 
-    fn eval_test(&self, test: &TestExpr) -> Result<LazyValue> {
+    async fn eval_test(&self, test: &TestExpr) -> Result<LazyValue> {
         // Tests require concrete values
-        let value = self.eval_concrete(&test.expr)?;
-        let args: Vec<Value> = test
-            .args
-            .iter()
-            .map(|a| self.eval_concrete(a))
-            .collect::<Result<Vec<_>>>()?;
+        let value = self.eval_concrete(&test.expr).await?;
+        let mut args = Vec::with_capacity(test.args.len());
+        for a in &test.args {
+            args.push(self.eval_concrete(a).await?);
+        }
 
         let result = match test.test_name.name.as_str() {
             // String tests

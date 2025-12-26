@@ -1171,7 +1171,7 @@ impl SiteServer {
         ctx.set("data", data_value);
 
         // Evaluate the expression
-        match gingembre::eval_expression(expression, &ctx) {
+        match gingembre::eval_expression(expression, &ctx).await {
             Ok(value) => Ok(value_to_scope_value(&value)),
             Err(e) => {
                 // Convert ANSI error to HTML for display in devtools

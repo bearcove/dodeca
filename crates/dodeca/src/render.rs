@@ -521,7 +521,7 @@ pub async fn inject_livereload_with_build_info(
 
 /// Render a page to HTML using a template loader.
 /// Returns Result - caller decides whether to show error page (dev) or fail (prod)
-pub fn try_render_page_with_loader<L: TemplateLoader>(
+pub async fn try_render_page_with_loader<L: TemplateLoader>(
     page: &Page,
     site_tree: &SiteTree,
     loader: L,
@@ -547,23 +547,25 @@ pub fn try_render_page_with_loader<L: TemplateLoader>(
 
     engine
         .render("page.html", &ctx)
+        .await
         .map_err(|e| format!("{e:?}"))
 }
 
 /// Render page with a loader - development mode (shows error page on failure)
-pub fn render_page_with_loader<L: TemplateLoader>(
+pub async fn render_page_with_loader<L: TemplateLoader>(
     page: &Page,
     site_tree: &SiteTree,
     loader: L,
     data: Option<Value>,
 ) -> String {
     try_render_page_with_loader(page, site_tree, loader, data)
+        .await
         .unwrap_or_else(|e| render_error_page(&e))
 }
 
 /// Render a section to HTML using a template loader.
 /// Returns Result - caller decides whether to show error page (dev) or fail (prod)
-pub fn try_render_section_with_loader<L: TemplateLoader>(
+pub async fn try_render_section_with_loader<L: TemplateLoader>(
     section: &Section,
     site_tree: &SiteTree,
     loader: L,
@@ -615,17 +617,18 @@ pub fn try_render_section_with_loader<L: TemplateLoader>(
 
     engine
         .render(template_name, &ctx)
+        .await
         .map_err(|e| format!("{e:?}"))
 }
 
 /// Render section with a loader - development mode (shows error page on failure)
-pub fn render_section_with_loader<L: TemplateLoader>(
+pub async fn render_section_with_loader<L: TemplateLoader>(
     section: &Section,
     site_tree: &SiteTree,
     loader: L,
     data: Option<Value>,
 ) -> String {
-    let result = try_render_section_with_loader(section, site_tree, loader, data);
+    let result = try_render_section_with_loader(section, site_tree, loader, data).await;
     match result {
         Ok(html) => html,
         Err(e) => {
@@ -641,7 +644,7 @@ pub fn render_section_with_loader<L: TemplateLoader>(
 
 /// Render a page to HTML with lazy data resolver.
 /// Each data path access becomes a tracked picante dependency.
-pub fn try_render_page_with_resolver<L: TemplateLoader>(
+pub async fn try_render_page_with_resolver<L: TemplateLoader>(
     page: &Page,
     site_tree: &SiteTree,
     loader: L,
@@ -660,23 +663,25 @@ pub fn try_render_page_with_resolver<L: TemplateLoader>(
 
     engine
         .render("page.html", &ctx)
+        .await
         .map_err(|e| format!("{e:?}"))
 }
 
 /// Render page with lazy resolver - development mode (shows error page on failure)
-pub fn render_page_with_resolver<L: TemplateLoader>(
+pub async fn render_page_with_resolver<L: TemplateLoader>(
     page: &Page,
     site_tree: &SiteTree,
     loader: L,
     resolver: Arc<dyn DataResolver>,
 ) -> String {
     try_render_page_with_resolver(page, site_tree, loader, resolver)
+        .await
         .unwrap_or_else(|e| render_error_page(&e))
 }
 
 /// Render a section to HTML with lazy data resolver.
 /// Each data path access becomes a tracked picante dependency.
-pub fn try_render_section_with_resolver<L: TemplateLoader>(
+pub async fn try_render_section_with_resolver<L: TemplateLoader>(
     section: &Section,
     site_tree: &SiteTree,
     loader: L,
@@ -698,17 +703,19 @@ pub fn try_render_section_with_resolver<L: TemplateLoader>(
 
     engine
         .render(template_name, &ctx)
+        .await
         .map_err(|e| format!("{e:?}"))
 }
 
 /// Render section with lazy resolver - development mode (shows error page on failure)
-pub fn render_section_with_resolver<L: TemplateLoader>(
+pub async fn render_section_with_resolver<L: TemplateLoader>(
     section: &Section,
     site_tree: &SiteTree,
     loader: L,
     resolver: Arc<dyn DataResolver>,
 ) -> String {
     try_render_section_with_resolver(section, site_tree, loader, resolver)
+        .await
         .unwrap_or_else(|e| render_error_page(&e))
 }
 
@@ -726,23 +733,23 @@ fn loader_from_map(templates: &HashMap<String, String>) -> InMemoryLoader {
 }
 
 /// Render page - development mode (shows error page on failure)
-pub fn render_page_to_html(
+pub async fn render_page_to_html(
     page: &Page,
     site_tree: &SiteTree,
     templates: &HashMap<String, String>,
     data: Option<Value>,
 ) -> String {
-    render_page_with_loader(page, site_tree, loader_from_map(templates), data)
+    render_page_with_loader(page, site_tree, loader_from_map(templates), data).await
 }
 
 /// Render section - development mode (shows error page on failure)
-pub fn render_section_to_html(
+pub async fn render_section_to_html(
     section: &Section,
     site_tree: &SiteTree,
     templates: &HashMap<String, String>,
     data: Option<Value>,
 ) -> String {
-    render_section_with_loader(section, site_tree, loader_from_map(templates), data)
+    render_section_with_loader(section, site_tree, loader_from_map(templates), data).await
 }
 
 /// Build the render context with config and global functions
