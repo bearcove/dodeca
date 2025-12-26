@@ -2,12 +2,13 @@
 //!
 //! This cell handles template rendering with bidirectional RPC:
 //! - Host calls `TemplateRenderer::render()` to render a template
-//! - Cell calls back to `TemplateHost` for template loading and data resolution
+//! - Cell calls back to `TemplateHost` for template loading, data resolution, and function calls
 //!
 //! This enables fine-grained dependency tracking via picante while keeping
 //! the template engine in a separate process (reducing main binary compile time).
 
 use facet::Facet;
+use facet_value::Value;
 
 // ============================================================================
 // Result types
@@ -37,8 +38,8 @@ pub enum LoadTemplateResult {
 #[derive(Facet, Debug, Clone)]
 #[repr(u8)]
 pub enum ResolveDataResult {
-    /// Value found at path (serialized as JSON for cross-process transport)
-    Found { json_value: String },
+    /// Value found at path
+    Found { value: Value },
     /// Path not found in data tree
     NotFound,
 }
@@ -57,9 +58,19 @@ pub enum KeysAtResult {
 #[derive(Facet, Debug, Clone)]
 #[repr(u8)]
 pub enum EvalResult {
-    /// Expression evaluated successfully (serialized as JSON)
-    Success { json_value: String },
+    /// Expression evaluated successfully
+    Success { value: Value },
     /// Evaluation failed with error
+    Error { message: String },
+}
+
+/// Result of calling a template function on the host
+#[derive(Facet, Debug, Clone)]
+#[repr(u8)]
+pub enum CallFunctionResult {
+    /// Function returned a value
+    Success { value: Value },
+    /// Function call failed with error
     Error { message: String },
 }
 
@@ -82,7 +93,7 @@ pub struct ContextId(pub u64);
 /// Service implemented by the CELL (host calls these methods)
 ///
 /// The template renderer receives render requests and produces HTML output,
-/// calling back to the host as needed for templates and data.
+/// calling back to the host as needed for templates, data, and functions.
 #[rapace::service]
 pub trait TemplateRenderer {
     /// Render a template by name.
@@ -90,16 +101,17 @@ pub trait TemplateRenderer {
     /// The cell will call back to `TemplateHost` to:
     /// - Load the template source (and any parent templates for inheritance)
     /// - Resolve data values as they're accessed during rendering
+    /// - Call template functions (get_url, get_section, etc.)
     ///
     /// # Arguments
     /// - `context_id`: Identifies the render context on the host
     /// - `template_name`: Name of the template to render
-    /// - `initial_context_json`: JSON-serialized initial context variables
+    /// - `initial_context`: Initial context variables (VObject)
     async fn render(
         &self,
         context_id: ContextId,
         template_name: String,
-        initial_context_json: String,
+        initial_context: Value,
     ) -> RenderResult;
 
     /// Evaluate a standalone expression (for devtools REPL).
@@ -107,18 +119,18 @@ pub trait TemplateRenderer {
     /// # Arguments
     /// - `context_id`: Identifies the render context on the host
     /// - `expression`: The expression to evaluate
-    /// - `context_json`: JSON-serialized context variables
+    /// - `context`: Context variables
     async fn eval_expression(
         &self,
         context_id: ContextId,
         expression: String,
-        context_json: String,
+        context: Value,
     ) -> EvalResult;
 }
 
 /// Service implemented by the HOST (cell calls these methods)
 ///
-/// Provides template loading and data resolution with picante tracking.
+/// Provides template loading, data resolution, and function calls with picante tracking.
 /// Each call creates dependencies that allow incremental rebuilds.
 #[rapace::service]
 pub trait TemplateHost {
@@ -146,4 +158,23 @@ pub trait TemplateHost {
     /// Called when iterating over a lazy container (for loops).
     /// Returns the keys/indices available at the path.
     async fn keys_at(&self, context_id: ContextId, path: Vec<String>) -> KeysAtResult;
+
+    /// Call a template function on the host.
+    ///
+    /// Called when the template invokes a function like `get_url(path="/foo")`
+    /// or `get_section(path="/blog")`. The host implements these functions
+    /// with access to the full site tree.
+    ///
+    /// # Arguments
+    /// - `context_id`: The render context
+    /// - `name`: Function name (e.g., "get_url", "get_section")
+    /// - `args`: Positional arguments
+    /// - `kwargs`: Keyword arguments as (name, value) pairs
+    async fn call_function(
+        &self,
+        context_id: ContextId,
+        name: String,
+        args: Vec<Value>,
+        kwargs: Vec<(String, Value)>,
+    ) -> CallFunctionResult;
 }

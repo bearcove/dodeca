@@ -108,8 +108,10 @@ impl ValueExt for Value {
 use crate::lazy::{DataPath, DataResolver, LazyValue};
 
 /// A global function that can be called from templates.
-/// Functions receive resolved (concrete) values and return concrete values.
-pub type GlobalFn = Box<dyn Fn(&[Value], &[(String, Value)]) -> Result<Value> + Send + Sync>;
+/// Functions receive resolved (concrete) values and return a future that resolves to a value.
+/// This allows functions to make async calls (like RPC to the host).
+pub type GlobalFn =
+    Box<dyn Fn(&[Value], &[(String, Value)]) -> BoxFuture<'static, Result<Value>> + Send + Sync>;
 
 /// Evaluation context (variables in scope)
 ///
@@ -156,7 +158,7 @@ impl Context {
         name: &str,
         args: &[Value],
         kwargs: &[(String, Value)],
-    ) -> Option<Result<Value>> {
+    ) -> Option<BoxFuture<'static, Result<Value>>> {
         self.global_fns.get(name).map(|f| f(args, kwargs))
     }
 
@@ -535,9 +537,9 @@ impl<'a> Evaluator<'a> {
 
         // Check if this is a global function call
         if let Expr::Var(ident) = &*call.func
-            && let Some(result) = self.ctx.call_fn(&ident.name, &args, &kwargs)
+            && let Some(result_fut) = self.ctx.call_fn(&ident.name, &args, &kwargs)
         {
-            return result.map(LazyValue::concrete);
+            return result_fut.await.map(LazyValue::concrete);
         }
 
         // Method calls on values (like .items(), etc.) - not implemented yet

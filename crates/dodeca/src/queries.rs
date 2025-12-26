@@ -588,19 +588,13 @@ fn find_parent_section(route: &Route, sections: &BTreeMap<Route, Section>) -> Ro
 #[picante::tracked]
 #[tracing::instrument(skip_all, name = "render_page")]
 pub async fn render_page<DB: Db>(db: &DB, route: Route) -> PicanteResult<RenderedHtml> {
-    use crate::render::render_page_with_resolver;
+    use crate::render::{render_page_via_cell, render_page_with_resolver};
 
     // Build tree (cached)
     let site_tree = build_tree(db).await?;
 
     // Pre-load all templates for sync access during rendering
     let templates = load_all_templates(db).await?;
-    let loader = PicanteTemplateLoader::new(templates);
-
-    // Pre-load data for sync access during rendering
-    let raw_data = load_all_data_raw(db).await?;
-    let data_value = crate::data::parse_raw_data_files(&raw_data);
-    let resolver = SyncDataResolver::new(data_value);
 
     // Find the page
     let page = site_tree
@@ -608,9 +602,21 @@ pub async fn render_page<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rendere
         .get(&route)
         .expect("Page not found for route");
 
-    // Render to HTML - template and data loads are tracked as dependencies
-    let html = render_page_with_resolver(page, &site_tree, loader, resolver).await;
-    Ok(RenderedHtml(html))
+    // Try cell-based rendering (falls back to direct if cell unavailable)
+    let html = render_page_via_cell(page, &site_tree, templates.clone()).await;
+
+    // Check if we got an error (cell unavailable) and need to fallback
+    if html.contains(crate::render::RENDER_ERROR_MARKER) {
+        // Fallback: use direct rendering with resolver
+        let raw_data = load_all_data_raw(db).await?;
+        let data_value = crate::data::parse_raw_data_files(&raw_data);
+        let resolver = SyncDataResolver::new(data_value);
+        let loader = PicanteTemplateLoader::new(templates);
+        let html = render_page_with_resolver(page, &site_tree, loader, resolver).await;
+        Ok(RenderedHtml(html))
+    } else {
+        Ok(RenderedHtml(html))
+    }
 }
 
 /// Render a single section to HTML
@@ -620,19 +626,13 @@ pub async fn render_page<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rendere
 #[picante::tracked]
 #[tracing::instrument(skip_all, name = "render_section")]
 pub async fn render_section<DB: Db>(db: &DB, route: Route) -> PicanteResult<RenderedHtml> {
-    use crate::render::render_section_with_resolver;
+    use crate::render::{render_section_via_cell, render_section_with_resolver};
 
     // Build tree (cached)
     let site_tree = build_tree(db).await?;
 
     // Pre-load all templates for sync access during rendering
     let templates = load_all_templates(db).await?;
-    let loader = PicanteTemplateLoader::new(templates);
-
-    // Pre-load data for sync access during rendering
-    let raw_data = load_all_data_raw(db).await?;
-    let data_value = crate::data::parse_raw_data_files(&raw_data);
-    let resolver = SyncDataResolver::new(data_value);
 
     // Find the section
     let section = site_tree
@@ -640,9 +640,21 @@ pub async fn render_section<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rend
         .get(&route)
         .expect("Section not found for route");
 
-    // Render to HTML - template and data loads are tracked as dependencies
-    let html = render_section_with_resolver(section, &site_tree, loader, resolver).await;
-    Ok(RenderedHtml(html))
+    // Try cell-based rendering (falls back to direct if cell unavailable)
+    let html = render_section_via_cell(section, &site_tree, templates.clone()).await;
+
+    // Check if we got an error (cell unavailable) and need to fallback
+    if html.contains(crate::render::RENDER_ERROR_MARKER) {
+        // Fallback: use direct rendering with resolver
+        let raw_data = load_all_data_raw(db).await?;
+        let data_value = crate::data::parse_raw_data_files(&raw_data);
+        let resolver = SyncDataResolver::new(data_value);
+        let loader = PicanteTemplateLoader::new(templates);
+        let html = render_section_with_resolver(section, &site_tree, loader, resolver).await;
+        Ok(RenderedHtml(html))
+    } else {
+        Ok(RenderedHtml(html))
+    }
 }
 
 /// Load a single static file's content - tracked

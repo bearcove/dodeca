@@ -400,9 +400,8 @@ fn render_loop_scaling(bencher: Bencher, iterations: usize) {
                     }
                 })
                 .unwrap_or(0) as usize;
-            Ok(Value::from(VArray::from_iter(
-                (0..n).map(|i| Value::from(i as i64)),
-            )))
+            let result = Value::from(VArray::from_iter((0..n).map(|i| Value::from(i as i64))));
+            Box::pin(async move { Ok(result) })
         }),
     );
 

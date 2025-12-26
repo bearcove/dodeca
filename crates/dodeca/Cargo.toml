@@ -33,6 +33,7 @@ path = "src/main.rs"
 cell-arborium-proto = { path = "../../cells/cell-arborium-proto" }
 cell-code-execution-proto = { path = "../../cells/cell-code-execution-proto" }
 cell-css-proto = { path = "../../cells/cell-css-proto" }
+cell-gingembre-proto = { path = "../../cells/cell-gingembre-proto" }
 cell-fonts-proto = { path = "../../cells/cell-fonts-proto" }
 cell-html-diff-proto = { path = "../../cells/cell-html-diff-proto" }
 cell-html-proto = { path = "../../cells/cell-html-proto" }

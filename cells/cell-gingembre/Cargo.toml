@@ -22,5 +22,7 @@ gingembre = { path = "../../crates/gingembre" }
 rapace-cell.workspace = true
 tokio.workspace = true
 facet.workspace = true
-facet-json.workspace = true
 facet-value.workspace = true
+futures.workspace = true
+miette.workspace = true
+tracing.workspace = true

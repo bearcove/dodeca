@@ -874,7 +874,7 @@ mod tests {
                     .first()
                     .map(|v| v.render_to_string())
                     .unwrap_or_default();
-                Ok(Value::from(format!("Hello, {name}!").as_str()))
+                Box::pin(async move { Ok(Value::from(format!("Hello, {name}!").as_str())) })
             }),
         );
         let result = t.render(&ctx).await.unwrap();
