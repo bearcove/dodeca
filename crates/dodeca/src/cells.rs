@@ -315,7 +315,7 @@ struct PeerDiagInfo {
 /// `rapace` (umbrella crate) not `rapace-cell` directly, so the macro's
 /// `crate_name("rapace-cell")` check fails.
 ///
-/// Tracking issue: https://github.com/bearcove/rapace/issues/107
+/// Tracking issue: <https://github.com/bearcove/rapace/issues/107>
 /// Once rapace implements blanket `impl<T: Dispatchable> ServiceDispatch for Arc<T>`,
 /// this wrapper can be deleted.
 struct TracingSinkService(Arc<TracingSinkServer<ForwardingTracingSink>>);

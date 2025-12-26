@@ -6,6 +6,11 @@ members = [
 ]
 resolver = "3"
 
+# getrandom is required for wasm32 targets (enables wasm_js feature)
+# but cargo-shear doesn't detect it since it's feature-activated, not imported
+[workspace.metadata.cargo-shear]
+ignored = ["getrandom"]
+
 [workspace.dependencies]
 # Core utilities
 camino = "1.2"

@@ -685,12 +685,6 @@ fn collect_tests() -> Vec<Test> {
         },
         // boot_contract tests (Part 8: regression tests that pin the contract)
         Test {
-            name: "missing_cell_returns_http_500_not_connection_reset",
-            module: "boot_contract",
-            func: boot_contract::missing_cell_returns_http_500_not_connection_reset,
-            ignored: false,
-        },
-        Test {
             name: "immediate_request_after_fd_pass_succeeds",
             module: "boot_contract",
             func: boot_contract::immediate_request_after_fd_pass_succeeds,

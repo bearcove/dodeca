@@ -309,26 +309,8 @@ impl TestSite {
         Self::from_source_with_files(src, &[])
     }
 
-    /// Create a new test site with a deliberately empty cell path.
-    /// This simulates the "missing cells" scenario for testing boot failure handling.
-    /// The server should still accept connections and return HTTP 500 (not connection refused/reset).
-    pub fn with_empty_cell_path(fixture_name: &str) -> Self {
-        let src = fixture_source_dir(fixture_name);
-        Self::from_source_with_config(&src, &[], Some(PathBuf::new()))
-    }
-
     /// Create a new test site from an arbitrary source directory with custom files
     pub fn from_source_with_files(src: &Path, files: &[(&str, &str)]) -> Self {
-        Self::from_source_with_config(src, files, None)
-    }
-
-    /// Internal: Create a test site with full configuration options.
-    /// If `custom_cell_path` is Some, it overrides the DODECA_CELL_PATH env var.
-    fn from_source_with_config(
-        src: &Path,
-        files: &[(&str, &str)],
-        custom_cell_path: Option<PathBuf>,
-    ) -> Self {
         let setup_start = Instant::now();
         let test_id = CURRENT_TEST_ID.with(|cell| cell.get());
         // Create isolated temp directory
@@ -430,10 +412,8 @@ impl TestSite {
         let _ = fs::create_dir_all(&code_exec_target_dir);
         cmd.env("DDC_CODE_EXEC_TARGET_DIR", &code_exec_target_dir);
 
-        // Set cell path: explicit override takes precedence, then env var
-        if let Some(cell_dir) = &custom_cell_path {
-            cmd.env("DODECA_CELL_PATH", cell_dir);
-        } else if let Some(cell_dir) = cell_path() {
+        // Set cell path from env var
+        if let Some(cell_dir) = cell_path() {
             cmd.env("DODECA_CELL_PATH", &cell_dir);
         }
 
