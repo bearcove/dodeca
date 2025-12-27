@@ -1760,7 +1760,20 @@ fn render_object_stmt(
                     }
                 }
                 Some(ClassName::Cylinder) => {
-                    height = height + style.corner_radius * 0.25 + style.stroke_width;
+                    // cref: cylinderFit (pikchr.c:3976)
+                    // if( h>0 ) pObj->h = h + 0.25*pObj->rad + pObj->sw;
+                    // Only add extra height for cylinder cap when autofitting height
+                    if needs_autofit_height {
+                        height = height + style.corner_radius * 0.25 + style.stroke_width;
+                    }
+                }
+                Some(ClassName::Oval) => {
+                    // cref: ovalFit (pikchr.c:4320-4326)
+                    // After setting w/h, ensure width >= height (pill shape constraint)
+                    // if( pObj->w < pObj->h ) pObj->w = pObj->h;
+                    if width < height {
+                        width = height;
+                    }
                 }
                 Some(ClassName::File) => {
                     // cref: fileFit (pikchr.c:4147)
