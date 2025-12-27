@@ -166,14 +166,23 @@ fn render_markdown_impl(
             }
             Event::End(pulldown_cmark::TagEnd::CodeBlock) => {
                 if in_code_block {
-                    let idx = code_blocks.len();
-                    let placeholder = format!("<!--CODE_BLOCK_PLACEHOLDER_{}-->", idx);
-                    code_blocks.push(CodeBlock {
-                        code: std::mem::take(&mut code_block_content),
-                        language: std::mem::take(&mut code_block_lang),
-                        placeholder: placeholder.clone(),
-                    });
-                    output_events.push(Event::Html(placeholder.into()));
+                    // Check if this is an ASCII diagram block
+                    if code_block_lang == "aa" {
+                        // Render ASCII art to SVG using aasvg
+                        let svg = aasvg::render(&code_block_content);
+                        output_events.push(Event::Html(svg.into()));
+                        code_block_content.clear();
+                        code_block_lang.clear();
+                    } else {
+                        let idx = code_blocks.len();
+                        let placeholder = format!("<!--CODE_BLOCK_PLACEHOLDER_{}-->", idx);
+                        code_blocks.push(CodeBlock {
+                            code: std::mem::take(&mut code_block_content),
+                            language: std::mem::take(&mut code_block_lang),
+                            placeholder: placeholder.clone(),
+                        });
+                        output_events.push(Event::Html(placeholder.into()));
+                    }
                     in_code_block = false;
                 }
             }

@@ -19,5 +19,6 @@ facet-json.workspace = true
 facet-toml.workspace = true
 facet-value.workspace = true
 pulldown-cmark.workspace = true
+aasvg.workspace = true
 rapace-cell.workspace = true
 tokio.workspace = true

@@ -108,6 +108,9 @@ fontcull = { version = "2.0", default-features = false, features = ["static-anal
 # Markdown
 pulldown-cmark = "0.13"
 
+# ASCII diagrams to SVG
+aasvg = "1.0"
+
 # Syntax highlighting
 arborium = { version = "2", features = [
     "lang-bash", "lang-c", "lang-cpp", "lang-css", "lang-dockerfile",
