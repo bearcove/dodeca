@@ -1,0 +1,14 @@
+#!/bin/sh
+if [ "$1" = "install" ]; then
+  if hash realpath; then
+    source="$(realpath "$0")"
+  else
+    p="$(cd "$(dirname "$0")"; pwd)"
+    f="$(basename "$0")"
+    source="$p/$f"
+  fi
+  target="$(git rev-parse --git-dir 2>/dev/null)"/hooks/pre-commit
+  [ -f "$target" ] || ln -s "$source" "$target"
+  exit
+fi
+exec npm test

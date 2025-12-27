@@ -1,96 +1,50 @@
 # aasvg
 
-Convert ASCII art diagrams to SVG with automatic light/dark mode support.
+Convert ASCII art diagrams into SVG.
 
-This is a Rust port of [aasvg](https://github.com/martinthomson/aasvg) by Martin Thomson,
-which is itself derived from [Markdeep](https://casual-effects.com/markdeep/) by Morgan McGuire.
-
-## Features
-
-- **Light/Dark Mode**: SVG output uses CSS variables with `prefers-color-scheme` media query
-- **Zero Dependencies**: Pure Rust implementation
-- **Comprehensive**: Supports lines, arrows, boxes, curves, points, and text
+This is inspired by [goat](https://github.com/blampe/goat) but rather than a
+reimplementation, this code uses the original
+[markdeep](https://casual-effects.com/markdeep/) code.
 
 ## Usage
 
-```rust
-use aasvg::render;
+Install with `npm install -g aasvg`.
 
-let diagram = r#"
-+--------+     +--------+
-| Hello  |---->| World  |
-+--------+     +--------+
-"#;
-
-let svg = render(diagram);
-println!("{}", svg);
-```
-
-### With Options
-
-```rust
-use aasvg::{render_with_options, RenderOptions};
-
-let options = RenderOptions::new()
-    .with_backdrop(true)    // Add background rectangle
-    .with_stretch(true);    // Stretch text to fit cells
-
-let svg = render_with_options(diagram, &options);
-```
-
-## Supported Elements
-
-| Element | Characters | Description |
-|---------|-----------|-------------|
-| Lines | `-` `│` `\|` `/` `\` | Horizontal, vertical, diagonal |
-| Double lines | `=` `║` | Thick/emphasized lines |
-| Squiggle | `~` | Wavy horizontal lines |
-| Vertices | `+` `.` `'` `,` `` ` `` | Connection points |
-| Arrows | `>` `<` `^` `v` `V` | Directional indicators |
-| Points | `*` `o` `●` `○` | Markers on lines |
-| Jumps | `(` `)` | Line crossings |
-
-## Example
+Feed `aasvg` an image and it will write an SVG.  For example:
 
 ```
-+--------+
-| Input  |
-+---+----+
-    |
-    v
-+---+----+     .--------.
-| Parse  |---->| Output |
-+--------+     '--------'
+$ aasvg < example.txt > example.svg
 ```
 
-## Light/Dark Mode
+<!-- generate this with the ~~backdrop option to avoid it looking terrible
+     when shown on GitHub in dark mode -->
+![example](./example.svg)
 
-The generated SVG includes CSS variables that automatically adapt to the user's
-color scheme preference:
+## Character Placement
 
-```css
-:root {
-  --aasvg-stroke: #000;
-  --aasvg-fill: #000;
-  --aasvg-bg: #fff;
-  --aasvg-text: #000;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --aasvg-stroke: #fff;
-    --aasvg-fill: #fff;
-    --aasvg-bg: #1a1a1a;
-    --aasvg-text: #fff;
-  }
-}
-```
+By default, this does not place text characters on a grid one-by-one as the
+original markdeep code did.
 
-## Attribution
+The `--spaces` command-line argument controls how text is combined.  Use either
+`--spaces=0` or `--stretch` to provide precise text placement.
 
-This crate is a Rust port of:
-- [aasvg](https://github.com/martinthomson/aasvg) by Martin Thomson (BSD-2-Clause)
-- [Markdeep](https://casual-effects.com/markdeep/) by Morgan McGuire (BSD-2-Clause)
+`--spaces=0`
+ensures that every character is placed separately; which is precise and avoids
+text distortion, but makes for a larger SVG that is harder to search and
+less accessible to screen readers.
 
-## License
+`--stretch` can be used with `--spaces` set to any value.  `--stretch` stretches
+text to fit, which is less widely implemented in viewers (generally you don't
+have to worry about this unless you are using an [insane
+profile](https://datatracker.ietf.org/doc/html/rfc7996)) and might distort the
+text a tiny bit because the metrics for the font used (the generic "monospace")
+cannot be exactly controlled.
 
-BSD-2-Clause - See [LICENSE](LICENSE) for details.
+## Dark Backgrounds
+
+This tool draws black lines and text on a transparent background.  In certain settings (such as GitHub when
+a dark mode is enabled), this produces unfortunate results.  If you inline the
+resulting SVG, you can perform [tricks with
+CSS](https://github.com/martinthomson/i-d-template/blob/3c960b652a0708a291c01f186511fd0b39eeb8b4/v3.css#L982-L993),
+but if you are using `<img>`, that isn't possible.  Use the `--backdrop`
+switch to generate a mostly-white backdrop for the image.

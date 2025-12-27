@@ -1,0 +1,34 @@
+{
+  "name": "aasvg",
+  "version": "0.4.0",
+  "description": "Turn ASCII art diagrams into SVG",
+  "bin": "./main.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/martinthomson/aasvg"
+  },
+  "keywords": [
+    "ascii",
+    "diagram",
+    "goat",
+    "svg"
+  ],
+  "author": "Martin Thomson <mt@lowentropy.net>",
+  "license": "BSD",
+  "bugs": {
+    "url": "https://github.com/martinthomson/aasvg/issues"
+  },
+  "homepage": "https://github.com/martinthomson/aasvg#readme",
+  "engines": {
+    "node": ">=10"
+  },
+  "files": [
+    "*.js",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "set -e;[ \"aasvg $(jq -r .version <package.json)\" = \"$(./main.js --version)\" ];svg=$(mktemp); trap \"rm $svg\" EXIT;./main.js --backdrop <example.txt >\"$svg\"; diff -u example.svg \"$svg\"",
+    "release": "set -e;npm run test;t=\"v$(jq -r .version <package.json)\"; git tag \"$t\"; git push origin \"$t\";npm publish"
+  },
+  "dependencies": {}
+}
