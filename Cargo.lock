@@ -1361,7 +1361,6 @@ name = "cell-gingembre"
 version = "0.6.1"
 dependencies = [
  "cell-gingembre-proto",
- "facet 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
  "facet-value 0.34.0 (git+https://github.com/facet-rs/facet?branch=main)",
  "futures",
  "gingembre",

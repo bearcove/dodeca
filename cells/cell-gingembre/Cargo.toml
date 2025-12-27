@@ -21,7 +21,6 @@ cell-gingembre-proto = { path = "../cell-gingembre-proto" }
 gingembre = { path = "../../crates/gingembre" }
 rapace-cell.workspace = true
 tokio.workspace = true
-facet.workspace = true
 facet-value.workspace = true
 futures.workspace = true
 miette.workspace = true
