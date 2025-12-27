@@ -18,6 +18,13 @@ use std::sync::Arc;
 // Re-export for backwards compatibility
 pub use crate::error_pages::RENDER_ERROR_MARKER;
 
+/// Get base_url from global config, defaulting to "/" for local development
+fn get_base_url() -> String {
+    crate::config::global_config()
+        .map(|c| c.base_url.clone())
+        .unwrap_or_else(|| "/".to_string())
+}
+
 /// Find the nearest parent section for a route (for page context)
 fn find_parent_section<'a>(route: &Route, site_tree: &'a SiteTree) -> Option<&'a Section> {
     let mut current = route.clone();
@@ -520,8 +527,9 @@ pub async fn try_render_page_with_loader<L: TemplateLoader>(
     ctx.set("current_path", Value::from(page.route.as_str()));
 
     // Find the parent section for sidebar navigation
+    let base_url = get_base_url();
     if let Some(section) = find_parent_section(&page.route, site_tree) {
-        ctx.set("section", section_to_value(section, site_tree));
+        ctx.set("section", section_to_value(section, site_tree, &base_url));
     }
 
     engine
@@ -574,7 +582,8 @@ pub async fn try_render_section_with_loader<L: TemplateLoader>(
     let mut engine = Engine::new(loader);
 
     let mut ctx = build_render_context(site_tree, data);
-    let section_value = section_to_value(section, site_tree);
+    let base_url = get_base_url();
+    let section_value = section_to_value(section, site_tree, &base_url);
 
     // Log section.pages array length
     if let facet_value::DestructuredRef::Object(obj) = section_value.destructure_ref() {
@@ -636,8 +645,9 @@ pub async fn try_render_page_with_resolver<L: TemplateLoader>(
     ctx.set("current_path", Value::from(page.route.as_str()));
 
     // Find the parent section for sidebar navigation
+    let base_url = get_base_url();
     if let Some(section) = find_parent_section(&page.route, site_tree) {
-        ctx.set("section", section_to_value(section, site_tree));
+        ctx.set("section", section_to_value(section, site_tree, &base_url));
     }
 
     engine
@@ -669,7 +679,8 @@ pub async fn try_render_section_with_resolver<L: TemplateLoader>(
     let mut engine = Engine::new(loader);
 
     let mut ctx = build_render_context_with_resolver(site_tree, resolver);
-    ctx.set("section", section_to_value(section, site_tree));
+    let base_url = get_base_url();
+    ctx.set("section", section_to_value(section, site_tree, &base_url));
     ctx.set("current_path", Value::from(section.route.as_str()));
     // Set page to NULL so templates can use `{% if page %}` without error
     ctx.set("page", Value::NULL);
@@ -711,6 +722,7 @@ fn build_initial_context_value(
     current_path: &str,
 ) -> Value {
     let mut obj = VObject::new();
+    let base_url = get_base_url();
 
     // Add page if present
     if let Some(page) = page {
@@ -723,7 +735,7 @@ fn build_initial_context_value(
     if let Some(section) = section {
         obj.insert(
             VString::from("section"),
-            section_to_value(section, site_tree),
+            section_to_value(section, site_tree, &base_url),
         );
     }
 
@@ -732,7 +744,10 @@ fn build_initial_context_value(
 
     // Add root section if available
     if let Some(root) = site_tree.sections.get(&Route::root()) {
-        obj.insert(VString::from("root"), section_to_value(root, site_tree));
+        obj.insert(
+            VString::from("root"),
+            section_to_value(root, site_tree, &base_url),
+        );
     }
 
     obj.into()
@@ -908,6 +923,9 @@ fn build_render_context_with_resolver(
 fn build_render_context_base(site_tree: &SiteTree) -> Context {
     let mut ctx = Context::new();
 
+    // Get base_url from config (defaults to "/" if not set)
+    let base_url = get_base_url();
+
     // Add config - derive title/description from root section's frontmatter
     let mut config_map = VObject::new();
     let (site_title, site_description) = site_tree
@@ -925,12 +943,12 @@ fn build_render_context_base(site_tree: &SiteTree) -> Context {
         VString::from("description"),
         Value::from(site_description.as_str()),
     );
-    config_map.insert(VString::from("base_url"), Value::from("/"));
+    config_map.insert(VString::from("base_url"), Value::from(base_url.as_str()));
     ctx.set("config", Value::from(config_map));
 
     // Add root section for sidebar navigation
     if let Some(root) = site_tree.sections.get(&Route::root()) {
-        ctx.set("root", section_to_value(root, site_tree));
+        ctx.set("root", section_to_value(root, site_tree, &base_url));
     }
 
     // Register get_url function
@@ -958,6 +976,7 @@ fn build_render_context_base(site_tree: &SiteTree) -> Context {
     // Register get_section function
     let sections = site_tree.sections.clone();
     let pages = site_tree.pages.clone();
+    let base_url_for_get_section = base_url.clone();
     ctx.register_fn(
         "get_section",
         Box::new(move |_args, kwargs| {
@@ -968,15 +987,16 @@ fn build_render_context_base(site_tree: &SiteTree) -> Context {
                 .unwrap_or_default();
 
             let route = path_to_route(&path);
+            let base_url = &base_url_for_get_section;
 
             let result = if let Some(section) = sections.get(&route) {
                 let mut section_map = VObject::new();
                 section_map.insert(VString::from("title"), Value::from(section.title.as_str()));
                 section_map.insert(
                     VString::from("permalink"),
-                    Value::from(section.route.as_str()),
+                    Value::from(make_permalink(base_url, section.route.as_str()).as_str()),
                 );
-                section_map.insert(VString::from("path"), Value::from(path.as_str()));
+                section_map.insert(VString::from("path"), Value::from(section.route.as_str()));
                 section_map.insert(
                     VString::from("content"),
                     Value::from(section.body_html.as_str()),
@@ -989,11 +1009,11 @@ fn build_render_context_base(site_tree: &SiteTree) -> Context {
                     .map(|p| {
                         let mut page_map = VObject::new();
                         page_map.insert(VString::from("title"), Value::from(p.title.as_str()));
-                        page_map.insert(VString::from("permalink"), Value::from(p.route.as_str()));
                         page_map.insert(
-                            VString::from("path"),
-                            Value::from(route_to_path(p.route.as_str()).as_str()),
+                            VString::from("permalink"),
+                            Value::from(make_permalink(base_url, p.route.as_str()).as_str()),
                         );
+                        page_map.insert(VString::from("path"), Value::from(p.route.as_str()));
                         page_map.insert(VString::from("weight"), Value::from(p.weight as i64));
                         page_map.insert(VString::from("toc"), headings_to_toc(&p.headings));
                         page_map.into()
@@ -1013,7 +1033,7 @@ fn build_render_context_base(site_tree: &SiteTree) -> Context {
                                 .count()
                                 == 0
                     })
-                    .map(|s| Value::from(route_to_path(s.route.as_str()).as_str()))
+                    .map(|s| Value::from(s.route.as_str()))
                     .collect();
                 section_map.insert(VString::from("subsections"), VArray::from_iter(subsections));
 
@@ -1099,6 +1119,7 @@ fn build_toc_subtree(headings: &[Heading], start: usize, parent_level: u8) -> (V
 fn build_ancestors(section_route: &Route, site_tree: &SiteTree) -> Vec<Value> {
     let mut ancestors = Vec::new();
     let mut current = section_route.clone();
+    let base_url = get_base_url();
 
     // Walk up the route hierarchy, collecting all ancestor sections
     loop {
@@ -1109,12 +1130,9 @@ fn build_ancestors(section_route: &Route, site_tree: &SiteTree) -> Vec<Value> {
                 ancestor_map.insert(VString::from("title"), Value::from(section.title.as_str()));
                 ancestor_map.insert(
                     VString::from("permalink"),
-                    Value::from(section.route.as_str()),
+                    Value::from(make_permalink(&base_url, section.route.as_str()).as_str()),
                 );
-                ancestor_map.insert(
-                    VString::from("path"),
-                    Value::from(route_to_path(section.route.as_str()).as_str()),
-                );
+                ancestor_map.insert(VString::from("path"), Value::from(section.route.as_str()));
                 ancestor_map.insert(VString::from("weight"), Value::from(section.weight as i64));
                 ancestors.push(ancestor_map.into());
             }
@@ -1133,17 +1151,18 @@ fn build_ancestors(section_route: &Route, site_tree: &SiteTree) -> Vec<Value> {
 
 /// Convert a Page to a Value for template context
 pub fn page_to_value(page: &Page, site_tree: &SiteTree) -> Value {
+    let base_url = get_base_url();
     let mut map = VObject::new();
     map.insert(VString::from("title"), Value::from(page.title.as_str()));
     map.insert(
         VString::from("content"),
         Value::from(page.body_html.as_str()),
     );
-    map.insert(VString::from("permalink"), Value::from(page.route.as_str()));
     map.insert(
-        VString::from("path"),
-        Value::from(route_to_path(page.route.as_str()).as_str()),
+        VString::from("permalink"),
+        Value::from(make_permalink(&base_url, page.route.as_str()).as_str()),
     );
+    map.insert(VString::from("path"), Value::from(page.route.as_str()));
     map.insert(VString::from("weight"), Value::from(page.weight as i64));
     map.insert(VString::from("toc"), headings_to_value(&page.headings));
     map.insert(
@@ -1159,7 +1178,7 @@ pub fn page_to_value(page: &Page, site_tree: &SiteTree) -> Value {
 }
 
 /// Convert a Section to a Value for template context
-pub fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
+pub fn section_to_value(section: &Section, site_tree: &SiteTree, base_url: &str) -> Value {
     let mut map = VObject::new();
     map.insert(VString::from("title"), Value::from(section.title.as_str()));
     map.insert(
@@ -1168,12 +1187,9 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
     );
     map.insert(
         VString::from("permalink"),
-        Value::from(section.route.as_str()),
+        Value::from(make_permalink(base_url, section.route.as_str()).as_str()),
     );
-    map.insert(
-        VString::from("path"),
-        Value::from(route_to_path(section.route.as_str()).as_str()),
-    );
+    map.insert(VString::from("path"), Value::from(section.route.as_str()));
     map.insert(VString::from("weight"), Value::from(section.weight as i64));
     map.insert(
         VString::from("last_updated"),
@@ -1196,11 +1212,11 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
         .map(|p| {
             let mut page_map = VObject::new();
             page_map.insert(VString::from("title"), Value::from(p.title.as_str()));
-            page_map.insert(VString::from("permalink"), Value::from(p.route.as_str()));
             page_map.insert(
-                VString::from("path"),
-                Value::from(route_to_path(p.route.as_str()).as_str()),
+                VString::from("permalink"),
+                Value::from(make_permalink(base_url, p.route.as_str()).as_str()),
             );
+            page_map.insert(VString::from("path"), Value::from(p.route.as_str()));
             page_map.insert(VString::from("weight"), Value::from(p.weight as i64));
             page_map.insert(VString::from("toc"), headings_to_value(&p.headings));
             page_map.insert(VString::from("extra"), p.extra.clone());
@@ -1227,7 +1243,7 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
     child_sections.sort_by_key(|s| s.weight);
     let subsections: Vec<Value> = child_sections
         .into_iter()
-        .map(|s| subsection_to_value(s, site_tree))
+        .map(|s| subsection_to_value(s, site_tree, base_url))
         .collect();
     map.insert(VString::from("subsections"), VArray::from_iter(subsections));
     map.insert(VString::from("toc"), headings_to_value(&section.headings));
@@ -1237,13 +1253,14 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree) -> Value {
 }
 
 /// Convert a subsection to a value (includes pages but not recursive subsections)
-fn subsection_to_value(section: &Section, site_tree: &SiteTree) -> Value {
+fn subsection_to_value(section: &Section, site_tree: &SiteTree, base_url: &str) -> Value {
     let mut map = VObject::new();
     map.insert(VString::from("title"), Value::from(section.title.as_str()));
     map.insert(
         VString::from("permalink"),
-        Value::from(section.route.as_str()),
+        Value::from(make_permalink(base_url, section.route.as_str()).as_str()),
     );
+    map.insert(VString::from("path"), Value::from(section.route.as_str()));
     map.insert(VString::from("weight"), Value::from(section.weight as i64));
     map.insert(VString::from("extra"), section.extra.clone());
 
@@ -1260,7 +1277,11 @@ fn subsection_to_value(section: &Section, site_tree: &SiteTree) -> Value {
         .map(|p| {
             let mut page_map = VObject::new();
             page_map.insert(VString::from("title"), Value::from(p.title.as_str()));
-            page_map.insert(VString::from("permalink"), Value::from(p.route.as_str()));
+            page_map.insert(VString::from("path"), Value::from(p.route.as_str()));
+            page_map.insert(
+                VString::from("permalink"),
+                Value::from(make_permalink(base_url, p.route.as_str()).as_str()),
+            );
             page_map.insert(VString::from("weight"), Value::from(p.weight as i64));
             page_map.insert(VString::from("extra"), p.extra.clone());
             page_map.into()
@@ -1302,6 +1323,19 @@ pub fn route_to_path(route: &str) -> String {
         "_index.md".to_string()
     } else {
         format!("{r}/_index.md")
+    }
+}
+
+/// Create a permalink from base_url and route
+/// e.g., ("https://example.com", "/spec/core/") -> "https://example.com/spec/core/"
+/// e.g., ("/", "/spec/core/") -> "/spec/core/"
+fn make_permalink(base_url: &str, route: &str) -> String {
+    if base_url == "/" {
+        route.to_string()
+    } else {
+        // Remove trailing slash from base_url to avoid double slashes
+        let base = base_url.trim_end_matches('/');
+        format!("{base}{route}")
     }
 }
 

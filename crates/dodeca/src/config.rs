@@ -21,6 +21,11 @@ const CONFIG_FILE: &str = "dodeca.kdl";
 /// Dodeca configuration from `.config/dodeca.kdl`
 #[derive(Debug, Clone, Facet)]
 pub struct DodecaConfig {
+    /// Base URL for the site (e.g., "https://example.com")
+    /// Used to generate permalinks. Defaults to "/" for local development.
+    #[facet(kdl::child, default)]
+    pub base_url: Option<BaseUrl>,
+
     /// Content directory (relative to project root)
     #[facet(kdl::child)]
     pub content: ContentDir,
@@ -111,11 +116,20 @@ pub struct OutputDir {
     pub path: String,
 }
 
+/// Base URL node
+#[derive(Debug, Clone, Facet)]
+pub struct BaseUrl {
+    #[facet(kdl::argument)]
+    pub url: String,
+}
+
 /// Discovered configuration with resolved paths
 #[derive(Debug, Clone)]
 pub struct ResolvedConfig {
     /// Project root (parent of .config/)
     pub _root: Utf8PathBuf,
+    /// Base URL for the site (e.g., "https://example.com" or "/" for local dev)
+    pub base_url: String,
     /// Absolute path to content directory
     pub content_dir: Utf8PathBuf,
     /// Absolute path to output directory
@@ -252,8 +266,15 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
     let dark_theme_css = crate::theme_resolver::generate_theme_css(dark_theme_name)
         .map_err(|e| eyre!("Failed to load dark theme '{}': {}", dark_theme_name, e))?;
 
+    // Get base_url, defaulting to "/" for local development
+    let base_url = config
+        .base_url
+        .map(|b| b.url)
+        .unwrap_or_else(|| "/".to_string());
+
     Ok(ResolvedConfig {
         _root: root,
+        base_url,
         content_dir,
         output_dir,
         skip_domains,

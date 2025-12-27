@@ -943,6 +943,9 @@ impl SiteServer {
                 )
             })
             .unwrap_or_else(|| ("Untitled".to_string(), String::new()));
+        let base_url = crate::config::global_config()
+            .map(|c| c.base_url.clone())
+            .unwrap_or_else(|| "/".to_string());
         config_map.insert(
             VString::from("title"),
             facet_value::Value::from(site_title.as_str()),
@@ -951,7 +954,10 @@ impl SiteServer {
             VString::from("description"),
             facet_value::Value::from(site_description.as_str()),
         );
-        config_map.insert(VString::from("base_url"), facet_value::Value::from("/"));
+        config_map.insert(
+            VString::from("base_url"),
+            facet_value::Value::from(base_url.as_str()),
+        );
         scope.insert(
             VString::from("config"),
             facet_value::Value::from(config_map),
@@ -1127,6 +1133,9 @@ impl SiteServer {
                 )
             })
             .unwrap_or_else(|| ("Untitled".to_string(), String::new()));
+        let base_url = crate::config::global_config()
+            .map(|c| c.base_url.clone())
+            .unwrap_or_else(|| "/".to_string());
         config_map.insert(
             VString::from("title"),
             facet_value::Value::from(site_title.as_str()),
@@ -1135,7 +1144,10 @@ impl SiteServer {
             VString::from("description"),
             facet_value::Value::from(site_description.as_str()),
         );
-        config_map.insert(VString::from("base_url"), facet_value::Value::from("/"));
+        config_map.insert(
+            VString::from("base_url"),
+            facet_value::Value::from(base_url.as_str()),
+        );
         ctx.set("config", facet_value::Value::from(config_map));
 
         // Add current_path
@@ -1143,7 +1155,7 @@ impl SiteServer {
 
         // Check if it's a section or page and add appropriate data
         if let Some(section) = site_tree.sections.get(&route) {
-            let section_value = crate::render::section_to_value(section, &site_tree);
+            let section_value = crate::render::section_to_value(section, &site_tree, &base_url);
             ctx.set("section", section_value);
             ctx.set("page", facet_value::Value::NULL);
         } else if let Some(page) = site_tree.pages.get(&route) {
@@ -1152,14 +1164,14 @@ impl SiteServer {
 
             // Add parent section
             if let Some(section) = site_tree.sections.get(&page.section_route) {
-                let section_value = crate::render::section_to_value(section, &site_tree);
+                let section_value = crate::render::section_to_value(section, &site_tree, &base_url);
                 ctx.set("section", section_value);
             }
         }
 
         // Add site tree info
         if let Some(root) = site_tree.sections.get(&Route::root()) {
-            let root_value = crate::render::section_to_value(root, &site_tree);
+            let root_value = crate::render::section_to_value(root, &site_tree, &base_url);
             ctx.set("root", root_value);
         }
 
