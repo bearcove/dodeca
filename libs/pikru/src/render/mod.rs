@@ -1682,19 +1682,29 @@ fn render_object_stmt(
             let mut bbox_min_y = f64::MAX;
             let mut bbox_max_y = f64::MIN;
 
+            // cref: pik_append_txt (pikchr.c:5102-5110) - yBase for cylinders
+            // Cylinder text is shifted down by 0.75 * rad to account for top ellipse
+            let y_base = if class_name == Some(ClassName::Cylinder) && style.corner_radius.raw() > 0.0
+            {
+                -0.75 * style.corner_radius.raw()
+            } else {
+                0.0
+            };
+
             for (i, t) in text.iter().enumerate() {
                 let cw = t.width_inches(charwid);
                 let ch = charht * 0.5 * t.font_scale();
 
-                // Compute y offset based on vertical slot
+                // Compute y offset based on vertical slot, including yBase for cylinders
                 let slot = vslots.get(i).unwrap_or(&TextVSlot::Center);
-                let y = match slot {
-                    TextVSlot::Above2 => 0.5 * hc + ha1 + 0.5 * ha2,
-                    TextVSlot::Above => 0.5 * hc + 0.5 * ha1,
-                    TextVSlot::Center => 0.0,
-                    TextVSlot::Below => -(0.5 * hc + 0.5 * hb1),
-                    TextVSlot::Below2 => -(0.5 * hc + hb1 + 0.5 * hb2),
-                };
+                let y = y_base
+                    + match slot {
+                        TextVSlot::Above2 => 0.5 * hc + ha1 + 0.5 * ha2,
+                        TextVSlot::Above => 0.5 * hc + 0.5 * ha1,
+                        TextVSlot::Center => 0.0,
+                        TextVSlot::Below => -(0.5 * hc + 0.5 * hb1),
+                        TextVSlot::Below2 => -(0.5 * hc + hb1 + 0.5 * hb2),
+                    };
 
                 let nx = if t.ljust {
                     -jw
