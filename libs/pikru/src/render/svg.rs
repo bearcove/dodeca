@@ -116,80 +116,106 @@ fn process_backslash_escapes(s: &str) -> String {
     result
 }
 
-/// Decode HTML entities in text content.
+/// Process HTML entities in text content for SVG output.
 ///
-/// C pikchr allows HTML entities in string literals (e.g., `&amp;` for `&`).
-/// Since facet-xml will escape `&` to `&amp;` during serialization, we need to
-/// decode entities first so they get re-encoded correctly.
+/// C pikchr behavior (pik_append_text in pikchr.c:2066-2110):
+/// - If text contains `&` followed by alphanumerics and `;`, it's treated as an entity
+///   and passed through unchanged (e.g., `&amp;` stays as `&amp;`, `&rightarrow;` stays as-is)
+/// - Only `<` and `>` are always escaped to `&lt;` and `&gt;`
+/// - Bare `&` not part of an entity is escaped to `&amp;`
 ///
-/// cref: pik_isentity (pikchr.c:4728) - checks if text starts with HTML entity
-/// cref: pik_append_text (pikchr.c:4766) - handles entity pass-through
-fn decode_html_entities(s: &str) -> String {
+/// Since facet-xml with preserve_entities:true will pass through entity-like sequences,
+/// we just need to escape bare `&` that aren't part of entities, plus `<` and `>`.
+///
+/// cref: pik_isentity (pikchr.c:2043) - checks if text starts with HTML entity
+/// cref: pik_append_text (pikchr.c:2066) - handles entity pass-through
+fn process_entities_for_svg(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
+    let bytes = s.as_bytes();
+    let mut i = 0;
 
-    while let Some(c) = chars.next() {
-        if c == '&' {
-            // Collect the potential entity
-            let mut entity = String::from("&");
-            let mut found_semicolon = false;
-
-            while let Some(&next) = chars.peek() {
-                if next == ';' {
-                    entity.push(chars.next().unwrap());
-                    found_semicolon = true;
-                    break;
-                } else if next.is_ascii_alphanumeric() || next == '#' {
-                    entity.push(chars.next().unwrap());
+    while i < bytes.len() {
+        let c = bytes[i];
+        match c {
+            b'<' => {
+                result.push_str("&lt;");
+                i += 1;
+            }
+            b'>' => {
+                result.push_str("&gt;");
+                i += 1;
+            }
+            b'&' => {
+                // Check if this looks like an entity: &[#]?[a-zA-Z0-9]+;
+                if is_entity_at(bytes, i) {
+                    // Pass through the entity unchanged
+                    result.push('&');
+                    i += 1;
                 } else {
-                    break;
+                    // Bare & - escape it
+                    result.push_str("&amp;");
+                    i += 1;
                 }
             }
-
-            if found_semicolon {
-                // Try to decode the entity
-                match entity.as_str() {
-                    "&amp;" => result.push('&'),
-                    "&lt;" => result.push('<'),
-                    "&gt;" => result.push('>'),
-                    "&quot;" => result.push('"'),
-                    "&apos;" => result.push('\''),
-                    "&nbsp;" => result.push('\u{00A0}'),
-                    _ if entity.starts_with("&#x") || entity.starts_with("&#X") => {
-                        // Hex numeric entity: &#xHH;
-                        if let Ok(code) = u32::from_str_radix(&entity[3..entity.len() - 1], 16) {
-                            if let Some(ch) = char::from_u32(code) {
-                                result.push(ch);
-                                continue;
-                            }
-                        }
-                        result.push_str(&entity);
-                    }
-                    _ if entity.starts_with("&#") => {
-                        // Decimal numeric entity: &#NNN;
-                        if let Ok(code) = entity[2..entity.len() - 1].parse::<u32>() {
-                            if let Some(ch) = char::from_u32(code) {
-                                result.push(ch);
-                                continue;
-                            }
-                        }
-                        result.push_str(&entity);
-                    }
-                    _ => {
-                        // Unknown entity, pass through as-is
-                        result.push_str(&entity);
+            _ => {
+                // Safe to push byte as char for ASCII, but we need to handle UTF-8
+                if c < 128 {
+                    result.push(c as char);
+                    i += 1;
+                } else {
+                    // UTF-8 multibyte - find the full character
+                    let remaining = &s[i..];
+                    if let Some(ch) = remaining.chars().next() {
+                        result.push(ch);
+                        i += ch.len_utf8();
+                    } else {
+                        i += 1;
                     }
                 }
-            } else {
-                // Not a valid entity, output what we collected
-                result.push_str(&entity);
             }
-        } else {
-            result.push(c);
         }
     }
 
     result
+}
+
+/// Check if position i in bytes starts an HTML entity.
+/// Matches: &[#]?[a-zA-Z0-9]+;
+/// cref: pik_isentity (pikchr.c:2043)
+fn is_entity_at(bytes: &[u8], i: usize) -> bool {
+    if i >= bytes.len() || bytes[i] != b'&' {
+        return false;
+    }
+
+    let mut j = i + 1;
+    if j >= bytes.len() {
+        return false;
+    }
+
+    // Optional # for numeric entities
+    if bytes[j] == b'#' {
+        j += 1;
+        if j >= bytes.len() {
+            return false;
+        }
+    }
+
+    // Must have at least one alphanumeric
+    let start = j;
+    while j < bytes.len() {
+        let c = bytes[j];
+        if c == b';' {
+            // Valid entity if we have at least 2 chars between & and ;
+            // (e.g., &lt; is valid, &; is not)
+            return j > start + 1 || (j > start && bytes[i + 1] != b'#');
+        } else if c.is_ascii_alphanumeric() {
+            j += 1;
+        } else {
+            return false;
+        }
+    }
+
+    false
 }
 
 /// Generate CSS color definitions for light-dark mode
@@ -512,9 +538,9 @@ pub fn generate_svg(
                     text_anchor: Some(anchor.to_string()),
                     dominant_baseline: Some("central".to_string()),
                     content: {
-                        // Process in order: HTML entities (from input), then backslash escapes (for output), then spaces
-                        let text = decode_html_entities(&positioned_text.value);
-                        let text = process_backslash_escapes(&text);
+                        // Process in order: backslash escapes first, then entities for SVG, then spaces
+                        let text = process_backslash_escapes(&positioned_text.value);
+                        let text = process_entities_for_svg(&text);
                         text.replace(' ', "\u{00A0}")
                     },
                 };
