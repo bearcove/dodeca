@@ -2,6 +2,10 @@
 //!
 //! This crate provides shared comparison logic used by both the test harness
 //! and the xtask visual comparison tool.
+//!
+//! Primary comparison is visual (render with resvg, compare with SSIM).
+//! Falls back to structural comparison (facet-assert) for detailed diff output
+//! when visual comparison fails.
 
 use camino::Utf8Path;
 use facet_assert::{SameOptions, SameReport, check_same_with_report};
@@ -9,16 +13,20 @@ use facet_svg::{Svg, facet_xml};
 use std::fs;
 use std::process::Command;
 
-/// Tolerance for floating-point comparisons (pikchr uses single precision)
-/// Keep this tight so genuine geometry differences don't get masked.
-/// A value of 0.002 px covers formatting/rounding noise while
-/// catching mis-chopped endpoints like autochop02.
+/// SSIM threshold for visual comparison.
+/// 1.0 = identical, 0.0 = completely different.
+/// 0.9999 is very strict - allows only tiny anti-aliasing differences.
+pub const SSIM_THRESHOLD: f64 = 0.9999;
+
+/// Render size for visual comparison (pixels).
+/// Larger = more accurate but slower.
+pub const RENDER_SIZE: u32 = 800;
+
+/// Tolerance for floating-point comparisons in structural diff.
+/// Used when SSIM fails and we need detailed diff output.
 pub const FLOAT_TOLERANCE: f64 = 0.002;
 
-/// Similarity threshold for tree-based element matching.
-/// Elements with structural similarity >= this threshold are paired for
-/// inline field-level diffing rather than shown as remove+add.
-/// A value of 0.5 means elements sharing 50%+ of their structure are paired.
+/// Similarity threshold for tree-based element matching in structural diff.
 pub const SIMILARITY_THRESHOLD: f64 = 0.5;
 
 /// Result of comparing two pikchr outputs
@@ -44,10 +52,12 @@ pub enum CompareResult {
         c_output: String,
         rust_output: String,
     },
-    /// SVG outputs differ
-    SvgMismatch { details: String },
+    /// SVG outputs differ (includes SSIM score and structural diff)
+    SvgMismatch { ssim: f64, details: String },
     /// Failed to parse one of the SVGs
     ParseError { details: String },
+    /// Failed to render one of the SVGs
+    RenderError { details: String },
 }
 
 impl CompareResult {
@@ -90,15 +100,14 @@ pub fn extract_pre_svg_text(output: &str) -> Option<&str> {
     None
 }
 
-/// Parse SVG string into typed Svg struct
+/// Parse SVG string into typed Svg struct (for structural comparison)
 pub fn parse_svg(svg: &str) -> Result<Svg, String> {
-    // Extract just the SVG portion in case there's print output before it
     let svg_only = extract_svg(svg).unwrap_or(svg);
     facet_xml::from_str(svg_only)
         .map_err(|e| format!("XML parse error: {:?}", miette::Report::new(e)))
 }
 
-/// Options for SVG comparison with float tolerance and tree-based similarity
+/// Options for SVG structural comparison with float tolerance
 pub fn svg_compare_options() -> SameOptions {
     SameOptions::new()
         .float_tolerance(FLOAT_TOLERANCE)
@@ -110,7 +119,127 @@ pub fn is_error_output(output: &str) -> bool {
     output.contains("ERROR:") || (!output.contains("<svg") && !output.contains("<!--"))
 }
 
-/// Compare two pikchr outputs with tolerance
+/// Convert HTML named entities to Unicode characters.
+/// SVG only defines &lt; &gt; &amp; &quot; &apos; - everything else needs conversion.
+fn normalize_html_entities(svg: &str) -> String {
+    let mut result = svg.to_string();
+    
+    // Common HTML entities that might appear in pikchr text
+    let entities = [
+        ("&sup1;", "¹"),    // superscript 1
+        ("&sup2;", "²"),    // superscript 2  
+        ("&sup3;", "³"),    // superscript 3
+        ("&lambda;", "λ"),  // Greek lambda
+        ("&alpha;", "α"),
+        ("&beta;", "β"),
+        ("&gamma;", "γ"),
+        ("&delta;", "δ"),
+        ("&epsilon;", "ε"),
+        ("&pi;", "π"),
+        ("&sigma;", "σ"),
+        ("&omega;", "ω"),
+        ("&deg;", "°"),
+        ("&plusmn;", "±"),
+        ("&times;", "×"),
+        ("&divide;", "÷"),
+        ("&ne;", "≠"),
+        ("&le;", "≤"),
+        ("&ge;", "≥"),
+        ("&infin;", "∞"),
+        ("&rarr;", "→"),
+        ("&larr;", "←"),
+        ("&uarr;", "↑"),
+        ("&darr;", "↓"),
+        ("&harr;", "↔"),
+        ("&nbsp;", " "),
+        ("&copy;", "©"),
+        ("&reg;", "®"),
+        ("&trade;", "™"),
+        ("&mdash;", "—"),
+        ("&ndash;", "–"),
+        ("&hellip;", "…"),
+        ("&bull;", "•"),
+    ];
+    
+    for (entity, unicode) in entities {
+        result = result.replace(entity, unicode);
+    }
+    
+    result
+}
+
+/// Render SVG to a pixel buffer using resvg
+fn render_svg_to_pixels(svg_content: &str) -> Result<image::RgbaImage, String> {
+    // Normalize HTML entities to Unicode
+    let normalized = normalize_html_entities(svg_content);
+    
+    // Parse SVG with usvg
+    let options = usvg::Options::default();
+    let tree = usvg::Tree::from_str(&normalized, &options)
+        .map_err(|e| format!("Failed to parse SVG: {}", e))?;
+
+    // Get the SVG size and calculate scale to fit RENDER_SIZE
+    let svg_size = tree.size();
+    let scale = (RENDER_SIZE as f32 / svg_size.width().max(svg_size.height())).min(2.0);
+    
+    let width = (svg_size.width() * scale).ceil() as u32;
+    let height = (svg_size.height() * scale).ceil() as u32;
+
+    if width == 0 || height == 0 {
+        return Err("SVG has zero size".to_string());
+    }
+
+    // Create pixmap and render
+    let mut pixmap = tiny_skia::Pixmap::new(width, height)
+        .ok_or_else(|| "Failed to create pixmap".to_string())?;
+    
+    // Fill with white background (like a browser would)
+    pixmap.fill(tiny_skia::Color::WHITE);
+
+    let transform = tiny_skia::Transform::from_scale(scale, scale);
+    resvg::render(&tree, transform, &mut pixmap.as_mut());
+
+    // Convert to image::RgbaImage
+    let img = image::RgbaImage::from_raw(width, height, pixmap.take())
+        .ok_or_else(|| "Failed to convert pixmap to image".to_string())?;
+
+    Ok(img)
+}
+
+/// Compare two images using SSIM and return the score (1.0 = identical, 0.0 = different)
+fn compare_images_ssim(img1: &image::RgbaImage, img2: &image::RgbaImage) -> Result<f64, String> {
+    let (w1, h1) = img1.dimensions();
+    let (w2, h2) = img2.dimensions();
+
+    // Images need to be the same size for comparison
+    let (img1_final, img2_final) = if w1 == w2 && h1 == h2 {
+        (img1.clone(), img2.clone())
+    } else {
+        // Resize both to the larger dimensions to avoid losing detail
+        let w = w1.max(w2);
+        let h = h1.max(h2);
+        
+        let img1_resized = image::imageops::resize(
+            img1, w, h, image::imageops::FilterType::Lanczos3
+        );
+        let img2_resized = image::imageops::resize(
+            img2, w, h, image::imageops::FilterType::Lanczos3
+        );
+        
+        (img1_resized, img2_resized)
+    };
+
+    // Use rgba_hybrid_compare which handles RGBA properly
+    // It does MSSIM on luma, then RMS on U, V, and alpha channels
+    let result = image_compare::rgba_hybrid_compare(&img1_final, &img2_final)
+        .map_err(|e| format!("Image comparison failed: {:?}", e))?;
+
+    // Score is 1.0 for identical, 0.0 for completely different
+    Ok(result.score)
+}
+
+/// Compare two pikchr outputs with visual comparison (SSIM) first,
+/// falling back to structural diff for details if visual fails.
 ///
 /// This is the single source of truth for comparing C and Rust pikchr outputs.
 pub fn compare_outputs(c_output: &str, rust_output: &str, rust_is_err: bool) -> CompareResult {
@@ -124,7 +253,6 @@ pub fn compare_outputs(c_output: &str, rust_output: &str, rust_is_err: bool) -> 
     // Handle error cases
     if rust_is_err {
         if c_is_error {
-            // Both errored - compare error messages
             if c_output.trim() == rust_output.trim() {
                 return CompareResult::BothErrorMatch;
             } else {
@@ -147,10 +275,8 @@ pub fn compare_outputs(c_output: &str, rust_output: &str, rust_is_err: bool) -> 
     }
 
     // Neither errored - compare outputs
-    // If neither has SVG, compare raw output (e.g., empty diagram comments)
     if !c_has_svg && !rust_has_svg {
         if c_has_comment || rust_has_comment {
-            // Both produced non-SVG output - compare as strings (trimmed)
             if c_output.trim() == rust_output.trim() {
                 return CompareResult::NonSvgMatch;
             } else {
@@ -162,36 +288,74 @@ pub fn compare_outputs(c_output: &str, rust_output: &str, rust_is_err: bool) -> 
         }
     }
 
-    // Parse both SVGs
-    let c_svg = match parse_svg(c_output) {
-        Ok(svg) => svg,
-        Err(e) => {
+    // Extract SVG content
+    let c_svg = match extract_svg(c_output) {
+        Some(svg) => svg,
+        None => {
             return CompareResult::ParseError {
-                details: format!("Failed to parse C SVG: {}", e),
+                details: "No SVG found in C output".to_string(),
             };
         }
     };
 
-    let rust_svg = match parse_svg(rust_output) {
-        Ok(svg) => svg,
-        Err(e) => {
+    let rust_svg = match extract_svg(rust_output) {
+        Some(svg) => svg,
+        None => {
             return CompareResult::ParseError {
-                details: format!("Failed to parse Rust SVG: {}", e),
+                details: "No SVG found in Rust output".to_string(),
             };
         }
     };
 
-    // Compare using facet-assert with float tolerance
-    match check_same_with_report(&c_svg, &rust_svg, svg_compare_options()) {
-        SameReport::Same => CompareResult::Match,
-        SameReport::Different(report) => {
-            let xml_diff = report.render_ansi_xml();
-            CompareResult::SvgMismatch { details: xml_diff }
+    // Try visual comparison first
+    let c_img = match render_svg_to_pixels(c_svg) {
+        Ok(img) => img,
+        Err(e) => {
+            return CompareResult::RenderError {
+                details: format!("Failed to render C SVG: {}", e),
+            };
         }
-        SameReport::Opaque { type_name } => CompareResult::SvgMismatch {
-            details: format!("Opaque type comparison not supported: {}", type_name),
-        },
+    };
+
+    let rust_img = match render_svg_to_pixels(rust_svg) {
+        Ok(img) => img,
+        Err(e) => {
+            return CompareResult::RenderError {
+                details: format!("Failed to render Rust SVG: {}", e),
+            };
+        }
+    };
+
+    let ssim = match compare_images_ssim(&c_img, &rust_img) {
+        Ok(score) => score,
+        Err(e) => {
+            return CompareResult::RenderError {
+                details: format!("SSIM comparison failed: {}", e),
+            };
+        }
+    };
+
+    // If SSIM is above threshold, it's a match
+    if ssim >= SSIM_THRESHOLD {
+        return CompareResult::Match;
     }
+
+    // Visual comparison failed - get structural diff for details
+    let details = match (parse_svg(c_output), parse_svg(rust_output)) {
+        (Ok(c_parsed), Ok(rust_parsed)) => {
+            match check_same_with_report(&c_parsed, &rust_parsed, svg_compare_options()) {
+                SameReport::Same => "Structural comparison shows match (but SSIM failed)".to_string(),
+                SameReport::Different(report) => report.render_ansi_xml(),
+                SameReport::Opaque { type_name } => {
+                    format!("Opaque type comparison not supported: {}", type_name)
+                }
+            }
+        }
+        (Err(e), _) => format!("Failed to parse C SVG for diff: {}", e),
+        (_, Err(e)) => format!("Failed to parse Rust SVG for diff: {}", e),
+    };
+
+    CompareResult::SvgMismatch { ssim, details }
 }
 
 /// Write debug SVGs for a test so we can inspect C vs Rust output.

@@ -406,11 +406,6 @@ pub fn create_rounded_box_path(x1: f64, y1: f64, x2: f64, y2: f64, r: f64) -> Pa
 /// Oval has fully rounded ends where rad = min(width, height) / 2
 /// cref: boxRender (oval uses same render function as box with rad > 0)
 pub fn create_oval_path(x1: f64, y1: f64, x2: f64, y2: f64, rad: f64) -> PathData {
-    // C pikchr uses conditional lines: only emit L commands where there's
-    // actually space between the arc endpoints. When width < height (vertical oval),
-    // there are no horizontal lines. When height < width (horizontal oval),
-    // there are no vertical lines.
-    //
     // IMPORTANT: The path must go COUNTER-CLOCKWISE with sweep-flag=0 for arcs
     // to curve inward. C starts at bottom-left and goes: right along bottom,
     // up right side, left along top, down left side.
@@ -426,39 +421,44 @@ pub fn create_oval_path(x1: f64, y1: f64, x2: f64, y2: f64, rad: f64) -> PathDat
     let yi_bottom = y2 - rad; // inner bottom y
     let yi_top = y1 + rad; // inner top y
 
-    // Epsilon for floating-point comparisons - avoids emitting zero-length lines
-    // when computed coordinates are nearly equal due to floating-point precision
-    const EPSILON: f64 = 1e-6;
+    // C pikchr uses `>` comparisons (e.g., `if(x2>x1)`) to decide whether to emit
+    // line commands between arcs. Due to floating-point precision issues in C,
+    // these comparisons can return true even when the values are mathematically equal,
+    // resulting in zero-length lines being emitted (e.g., L103.306,171.792 right after
+    // an arc that ends at the same point). To match C's output exactly, we use the
+    // same comparison logic without an epsilon tolerance.
+    // cref: boxRender (pikchr.y:1211-1222)
 
     let mut path = PathData::new();
     path = path.m(xi1, y2); // Start at bottom-left inner corner
 
-    // Bottom edge (horizontal line) - only if there's meaningful horizontal space
-    if xi2 - xi1 > EPSILON {
+    // Bottom edge (horizontal line) - only if x2 > x1
+    if xi2 > xi1 {
         path = path.l(xi2, y2);
     }
 
     // Bottom-right corner arc (going up)
     path = path.a(rad, rad, 0.0, false, false, x2, yi_bottom);
 
-    // Right edge (vertical line going up) - only if there's meaningful vertical space
-    if yi_bottom - yi_top > EPSILON {
+    // Right edge (vertical line going up) - only if y2 > y1
+    // Note: C's y2>y1 becomes yi_bottom>yi_top in our coordinate system
+    if yi_bottom > yi_top {
         path = path.l(x2, yi_top);
     }
 
     // Top-right corner arc (going left)
     path = path.a(rad, rad, 0.0, false, false, xi2, y1);
 
-    // Top edge (horizontal line going left) - only if there's meaningful horizontal space
-    if xi2 - xi1 > EPSILON {
+    // Top edge (horizontal line going left) - only if x2 > x1
+    if xi2 > xi1 {
         path = path.l(xi1, y1);
     }
 
     // Top-left corner arc (going down)
     path = path.a(rad, rad, 0.0, false, false, x1, yi_top);
 
-    // Left edge (vertical line going down) - only if there's meaningful vertical space
-    if yi_bottom - yi_top > EPSILON {
+    // Left edge (vertical line going down) - only if y2 > y1
+    if yi_bottom > yi_top {
         path = path.l(x1, yi_bottom);
     }
 

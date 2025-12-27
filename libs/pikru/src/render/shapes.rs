@@ -425,6 +425,66 @@ impl Shape for BoxShape {
         &self.text
     }
 
+    /// Calculate edge point for boxes, accounting for corner_radius on diagonal edges
+    /// cref: boxOffset (pikchr.c:1104-1130) - diagonal corners are inset by (1-1/√2)*rad
+    /// Note: Uses internal Y-up coordinates (positive Y = north)
+    fn edge_point(&self, direction: EdgeDirection) -> PointIn {
+        match direction {
+            EdgeDirection::Center => return self.center,
+            EdgeDirection::Start => return self.edge_point(EdgeDirection::West),
+            EdgeDirection::End => return self.edge_point(EdgeDirection::East),
+            _ => {}
+        }
+
+        let hw = self.width / 2.0;
+        let hh = self.height / 2.0;
+
+        // For boxes with corner_radius, diagonal edges are inset
+        // cref: boxOffset uses rx = 0.29289321881345252392 * rad (which is (1 - 1/√2) * rad)
+        let is_diagonal = matches!(
+            direction,
+            EdgeDirection::NorthEast
+                | EdgeDirection::NorthWest
+                | EdgeDirection::SouthEast
+                | EdgeDirection::SouthWest
+        );
+
+        let (offset_x, offset_y) = if is_diagonal && self.corner_radius > Inches::ZERO {
+            // Clamp radius like C does: rad = min(rad, w2, h2)
+            let rad = self.corner_radius.min(hw).min(hh);
+            // rx = (1 - 1/√2) * rad ≈ 0.29289 * rad
+            let rx = Inches(0.29289321881345252392 * rad.0);
+
+            // Determine signs based on direction (Y-up: north=+Y, south=-Y)
+            let (sign_x, sign_y) = match direction {
+                EdgeDirection::NorthEast => (1.0, 1.0),   // +x, +y (up in Y-up coords)
+                EdgeDirection::NorthWest => (-1.0, 1.0),  // -x, +y
+                EdgeDirection::SouthEast => (1.0, -1.0),  // +x, -y (down in Y-up coords)
+                EdgeDirection::SouthWest => (-1.0, -1.0), // -x, -y
+                _ => unreachable!(),
+            };
+
+            // Offset is (w2 - rx) for diagonal corners
+            (Inches(sign_x * (hw.0 - rx.0)), Inches(sign_y * (hh.0 - rx.0)))
+        } else if is_diagonal {
+            // Non-rounded box: diagonal corners at full (hw, hh)
+            let (sign_x, sign_y) = match direction {
+                EdgeDirection::NorthEast => (1.0, 1.0),
+                EdgeDirection::NorthWest => (-1.0, 1.0),
+                EdgeDirection::SouthEast => (1.0, -1.0),
+                EdgeDirection::SouthWest => (-1.0, -1.0),
+                _ => unreachable!(),
+            };
+            (Inches(sign_x * hw.0), Inches(sign_y * hh.0))
+        } else {
+            // Cardinal directions: use unit vector scaled by hw/hh
+            let unit = direction.unit_vec();
+            (hw * unit.dx(), hh * unit.dy())
+        };
+
+        self.center + OffsetIn::new(offset_x, offset_y)
+    }
+
     fn render_svg(&self, _obj: &RenderedObject, ctx: &ShapeRenderContext) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
@@ -574,6 +634,46 @@ impl Shape for OvalShape {
         true
     }
 
+    /// Calculate edge point for ovals (pill shapes)
+    /// cref: boxOffset (pikchr.c:1178-1212) - oval uses boxOffset with rad = min(w2, h2)
+    /// The diagonal corners are inset by rx = 0.29289 * rad to sit on the rounded corner
+    /// Note: Uses internal Y-up coordinates (positive Y = north)
+    fn edge_point(&self, direction: EdgeDirection) -> PointIn {
+        match direction {
+            EdgeDirection::Center => return self.center,
+            EdgeDirection::Start => return self.edge_point(EdgeDirection::West),
+            EdgeDirection::End => return self.edge_point(EdgeDirection::East),
+            _ => {}
+        }
+
+        let hw = self.width / 2.0;
+        let hh = self.height / 2.0;
+
+        // Oval uses rad = min(w2, h2), which is half the smaller dimension
+        // cref: ovalNumProp line 1289: pObj->rad = 0.5*(pObj->h<pObj->w?pObj->h:pObj->w)
+        let rad = hw.min(hh);
+
+        // rx = (1 - cos(45°)) * rad ≈ 0.29289 * rad
+        // cref: boxOffset lines 1181-1183
+        let rx = Inches(0.29289321881345252392 * rad.0);
+
+        let (offset_x, offset_y) = match direction {
+            // Cardinal directions use full half-dimensions
+            EdgeDirection::North => (Inches::ZERO, hh),
+            EdgeDirection::East => (hw, Inches::ZERO),
+            EdgeDirection::South => (Inches::ZERO, -hh),
+            EdgeDirection::West => (-hw, Inches::ZERO),
+            // Diagonal directions are inset by rx to sit on the rounded corner
+            EdgeDirection::NorthEast => (hw - rx, hh - rx),
+            EdgeDirection::SouthEast => (hw - rx, -(hh - rx)),
+            EdgeDirection::SouthWest => (-(hw - rx), -(hh - rx)),
+            EdgeDirection::NorthWest => (-(hw - rx), hh - rx),
+            _ => return self.center,
+        };
+
+        self.center + OffsetIn::new(offset_x, offset_y)
+    }
+
     fn render_svg(&self, _obj: &RenderedObject, ctx: &ShapeRenderContext) -> Vec<SvgNode> {
         let mut nodes = Vec::new();
 
@@ -643,6 +743,39 @@ impl Shape for DiamondShape {
 
     fn text(&self) -> &[PositionedText] {
         &self.text
+    }
+
+    /// Calculate edge point for diamonds
+    /// cref: diamondOffset (pikchr.c:1397-1417) - diagonal corners use quarter dimensions (w/4, h/4)
+    /// Note: Uses internal Y-up coordinates (positive Y = north)
+    fn edge_point(&self, direction: EdgeDirection) -> PointIn {
+        match direction {
+            EdgeDirection::Center => return self.center,
+            EdgeDirection::Start => return self.edge_point(EdgeDirection::West),
+            EdgeDirection::End => return self.edge_point(EdgeDirection::East),
+            _ => {}
+        }
+
+        let hw = self.width / 2.0;
+        let hh = self.height / 2.0;
+        let qw = self.width / 4.0; // w4 in C
+        let qh = self.height / 4.0; // h4 in C
+
+        let (offset_x, offset_y) = match direction {
+            // Cardinal directions use full half-dimensions (Y-up: north=+Y, south=-Y)
+            EdgeDirection::North => (Inches::ZERO, hh),
+            EdgeDirection::East => (hw, Inches::ZERO),
+            EdgeDirection::South => (Inches::ZERO, -hh),
+            EdgeDirection::West => (-hw, Inches::ZERO),
+            // Diagonal directions use quarter dimensions
+            EdgeDirection::NorthEast => (qw, qh),
+            EdgeDirection::SouthEast => (qw, -qh),
+            EdgeDirection::SouthWest => (-qw, -qh),
+            EdgeDirection::NorthWest => (-qw, qh),
+            _ => return self.center,
+        };
+
+        self.center + OffsetIn::new(offset_x, offset_y)
     }
 
     fn render_svg(&self, _obj: &RenderedObject, ctx: &ShapeRenderContext) -> Vec<SvgNode> {
@@ -865,6 +998,51 @@ impl Shape for FileShape {
 
     fn text(&self) -> &[PositionedText] {
         &self.text
+    }
+
+    /// Calculate edge point for file shapes
+    /// cref: fileOffset (pikchr.c:1491-1540) - only NE corner is inset for the fold
+    /// rx = 0.5 * rad, clamped to [mn*0.25, mn] where mn = min(w2, h2)
+    /// Note: Uses internal Y-up coordinates (positive Y = north)
+    fn edge_point(&self, direction: EdgeDirection) -> PointIn {
+        match direction {
+            EdgeDirection::Center => return self.center,
+            EdgeDirection::Start => return self.edge_point(EdgeDirection::West),
+            EdgeDirection::End => return self.edge_point(EdgeDirection::East),
+            _ => {}
+        }
+
+        let hw = self.width / 2.0;
+        let hh = self.height / 2.0;
+
+        // cref: fileOffset lines 1493-1500
+        // rx = 0.5 * rad, clamped to [mn*0.25, mn] where mn = min(w2, h2)
+        let mn = hw.min(hh);
+        let mut rx = self.fold_radius;
+        if rx > mn {
+            rx = mn;
+        }
+        if rx < mn * 0.25 {
+            rx = mn * 0.25;
+        }
+        rx = rx * 0.5;
+
+        let (offset_x, offset_y) = match direction {
+            // Cardinal directions use full half-dimensions
+            EdgeDirection::North => (Inches::ZERO, hh),
+            EdgeDirection::East => (hw, Inches::ZERO),
+            EdgeDirection::South => (Inches::ZERO, -hh),
+            EdgeDirection::West => (-hw, Inches::ZERO),
+            // Only NE is inset for the fold
+            EdgeDirection::NorthEast => (hw - rx, hh - rx),
+            // Other diagonals are NOT inset (unlike box/oval)
+            EdgeDirection::SouthEast => (hw, -hh),
+            EdgeDirection::SouthWest => (-hw, -hh),
+            EdgeDirection::NorthWest => (-hw, hh),
+            _ => return self.center,
+        };
+
+        self.center + OffsetIn::new(offset_x, offset_y)
     }
 
     fn render_svg(&self, _obj: &RenderedObject, ctx: &ShapeRenderContext) -> Vec<SvgNode> {
@@ -1132,14 +1310,15 @@ impl Shape for LineShape {
             return nodes;
         }
 
-        if self.style.chop && svg_points.len() >= 2 {
-            let chop_amount = ctx.scaler.px(defaults::CIRCLE_RADIUS);
-            let (new_start, _) = chop_line(svg_points[0], svg_points[1], chop_amount);
-            svg_points[0] = new_start;
-            let n = svg_points.len();
-            let (_, new_end) = chop_line(svg_points[n - 2], svg_points[n - 1], chop_amount);
-            svg_points[n - 1] = new_end;
-        }
+        // NOTE: Autochop is now handled in mod.rs via autochop_inches().
+        // The style.chop flag is used there to determine if chopping should occur.
+        // We don't need to do additional chopping here because:
+        // 1. If there are object attachments, autochop_inches already chopped against them
+        // 2. If there are no attachments but chop is set, the line doesn't need chopping
+        //    (chop only makes sense when connecting to an object)
+        //
+        // The old code here was applying CIRCLE_RADIUS chop to both endpoints,
+        // which was wrong when autochop had already been applied to one or both ends.
 
         // cref: lineRender (pikchr.c:4271-4276) - larrow first, then rarrow
         // Render arrowheads before chopping endpoints

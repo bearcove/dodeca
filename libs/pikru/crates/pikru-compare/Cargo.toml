@@ -9,3 +9,10 @@ facet-svg = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-assert = { git = "https://github.com/facet-rs/facet", branch = "main" }
 miette = { version = "7.6.0", features = ["fancy"] }
 camino = "1.2.1"
+
+# Visual comparison
+resvg = "0.45"
+usvg = "0.45"
+tiny-skia = "0.11"
+image = { version = "0.25", default-features = false, features = ["png"] }
+image-compare = "0.5"

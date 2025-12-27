@@ -649,13 +649,23 @@ fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
     use crate::ast::Direction;
     use crate::render::shapes::ShapeEnum;
 
-    // For lines, .start and .end refer to actual waypoints (ptEnter/ptExit in C)
+    // For lines, .start refers to actual waypoint (ptEnter in C)
+    // For open lines, .end also refers to waypoint (ptExit)
+    // For CLOSED lines (with "close" attribute), .end is computed from
+    // bounding box like block objects
     // cref: pik_place_of_elem (pikchr.c:4118-4122)
+    // cref: pikchr.c:4398-4404 - "For 'closed' lines, the .end is one of the
+    //       .e, .s, .w, or .n points of the bounding box, as with block objects"
+    // Note: .start is still the first waypoint even for closed lines (ptEnter is not changed)
+    let is_closed = obj.style().close_path;
+
     match (&obj.shape, edge) {
+        // .start is always from waypoints for lines (closed or not)
         (ShapeEnum::Line(line), EdgePoint::Start) => {
             return line.waypoints.first().copied().unwrap_or(obj.center());
         }
-        (ShapeEnum::Line(line), EdgePoint::End) => {
+        // .end uses waypoints for OPEN lines only
+        (ShapeEnum::Line(line), EdgePoint::End) if !is_closed => {
             return line.waypoints.last().copied().unwrap_or(obj.center());
         }
         (ShapeEnum::Arc(arc), EdgePoint::Start) => {
@@ -664,14 +674,17 @@ fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
         (ShapeEnum::Arc(arc), EdgePoint::End) => {
             return arc.end;
         }
+        // Splines: .start always from waypoints
         (ShapeEnum::Spline(spline), EdgePoint::Start) => {
             return spline.waypoints.first().copied().unwrap_or(obj.center());
         }
-        (ShapeEnum::Spline(spline), EdgePoint::End) => {
+        // Splines: .end uses waypoints for OPEN splines only
+        (ShapeEnum::Spline(spline), EdgePoint::End) if !is_closed => {
             return spline.waypoints.last().copied().unwrap_or(obj.center());
         }
         _ => {}
     }
+    // For closed lines/splines with .end, fall through to use bbox-based edge points
 
     // Convert Start/End to compass points based on object's stored direction
     // (for non-line objects)

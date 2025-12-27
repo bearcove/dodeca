@@ -53,7 +53,7 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
     let debug_dir = Utf8Path::new(DEBUG_SVG_DIR);
     write_debug_svgs(debug_dir, test_name, &c_output, &rust_output);
 
-    // Use shared comparison logic
+    // Use shared comparison logic (visual comparison with SSIM)
     let result = compare_outputs(&c_output, &rust_output, rust_is_err);
 
     if result.is_match() {
@@ -61,11 +61,17 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
     }
 
     match result {
-        CompareResult::SvgMismatch { details } => {
-            panic!("SVG mismatch for {}\n{}", path, details);
+        CompareResult::SvgMismatch { ssim, details } => {
+            panic!(
+                "SVG mismatch for {} (SSIM: {:.6})\n{}",
+                path, ssim, details
+            );
         }
         CompareResult::ParseError { details } => {
             panic!("Parse error for {}\n{}", path, details);
+        }
+        CompareResult::RenderError { details } => {
+            panic!("Render error for {}\n{}", path, details);
         }
         CompareResult::BothErrorMismatch {
             c_output,
