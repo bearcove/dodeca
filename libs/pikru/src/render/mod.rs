@@ -30,6 +30,14 @@ use eval::{
 };
 use svg::generate_svg;
 
+/// Options for rendering pikchr to SVG
+#[derive(Debug, Clone, Default)]
+pub struct RenderOptions {
+    /// Emit CSS variables for colors instead of direct color values.
+    /// When enabled, generates a <style> block with all colors defined using light-dark().
+    pub css_variables: bool,
+}
+
 // TODO: Move these to appropriate submodules
 
 /// Proportional character widths from C pikchr's awChar table.
@@ -70,8 +78,16 @@ fn monospace_text_length(text: &str) -> u32 {
     text.chars().count() as u32 * MONO_AVG
 }
 
-/// Render a pikchr program to SVG
+/// Render a pikchr program to SVG with default options
 pub fn render(program: &Program) -> Result<String, miette::Report> {
+    render_with_options(program, &RenderOptions::default())
+}
+
+/// Render a pikchr program to SVG with custom options
+pub fn render_with_options(
+    program: &Program,
+    options: &RenderOptions,
+) -> Result<String, miette::Report> {
     let mut ctx = RenderContext::new();
     let mut print_lines: Vec<String> = Vec::new();
 
@@ -104,7 +120,7 @@ pub fn render(program: &Program) -> Result<String, miette::Report> {
     );
 
     // Generate SVG
-    generate_svg(&ctx)
+    generate_svg(&ctx, options)
 }
 
 fn render_statement(

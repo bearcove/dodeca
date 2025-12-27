@@ -1,10 +1,10 @@
 //! SVG generation
 
-use super::shapes::{Shape, svg_style_from_entries};
+use super::shapes::{Shape, ShapeRenderContext, svg_style_from_entries};
 use super::{TextVSlot, compute_text_vslots};
 use crate::types::{Length as Inches, Scaler};
 use facet_svg::facet_xml::SerializeOptions;
-use facet_svg::{Color, Points, Polygon, Svg, SvgNode, SvgStyle, Text, facet_xml};
+use facet_svg::{Color, Points, Polygon, Style, Svg, SvgNode, SvgStyle, Text, facet_xml};
 use glam::{DVec2, dvec2};
 use time::{OffsetDateTime, format_description};
 
@@ -27,6 +27,40 @@ pub fn color_to_rgb(color: &str) -> String {
         .parse::<crate::types::Color>()
         .unwrap()
         .to_rgb_string()
+}
+
+/// Convert a color to either CSS variable reference or rgb() format
+pub fn color_to_string(color: &str, use_css_vars: bool) -> String {
+    if use_css_vars {
+        // Try to extract the color name for the CSS variable
+        let name = color.to_lowercase();
+        let normalized = match name.as_str() {
+            "rgb(0,0,0)" | "black" => "black",
+            "rgb(255,255,255)" | "white" => "white",
+            "rgb(255,0,0)" | "red" => "red",
+            "rgb(0,128,0)" | "green" => "green",
+            "rgb(0,0,255)" | "blue" => "blue",
+            "rgb(255,255,0)" | "yellow" => "yellow",
+            "rgb(0,255,255)" | "cyan" => "cyan",
+            "rgb(255,0,255)" | "magenta" => "magenta",
+            "rgb(255,165,0)" | "orange" => "orange",
+            "rgb(128,0,128)" | "purple" => "purple",
+            "rgb(165,42,42)" | "brown" => "brown",
+            "rgb(255,192,203)" | "pink" => "pink",
+            "rgb(128,128,128)" | "gray" | "grey" => "gray",
+            "rgb(211,211,211)" | "lightgray" | "lightgrey" => "lightgray",
+            "rgb(169,169,169)" | "darkgray" | "darkgrey" => "darkgray",
+            "rgb(192,192,192)" | "silver" => "silver",
+            "none" | "off" => return "none".to_string(),
+            _ => {
+                // Unknown color, fall back to direct value
+                return color_to_rgb(color);
+            }
+        };
+        format!("var(--pik-{})", normalized)
+    } else {
+        color_to_rgb(color)
+    }
 }
 
 /// Decode HTML entities in text content.
@@ -105,9 +139,49 @@ fn decode_html_entities(s: &str) -> String {
     result
 }
 
+/// Generate CSS color definitions for light-dark mode
+fn generate_color_css() -> Style {
+    let colors = [
+        ("black", "rgb(0,0,0)", "rgb(255,255,255)"),
+        ("white", "rgb(255,255,255)", "rgb(0,0,0)"),
+        ("red", "rgb(255,0,0)", "rgb(255,100,100)"),
+        ("green", "rgb(0,128,0)", "rgb(100,255,100)"),
+        ("blue", "rgb(0,0,255)", "rgb(100,100,255)"),
+        ("yellow", "rgb(255,255,0)", "rgb(255,255,150)"),
+        ("cyan", "rgb(0,255,255)", "rgb(150,255,255)"),
+        ("magenta", "rgb(255,0,255)", "rgb(255,150,255)"),
+        ("orange", "rgb(255,165,0)", "rgb(255,200,100)"),
+        ("purple", "rgb(128,0,128)", "rgb(200,100,200)"),
+        ("brown", "rgb(165,42,42)", "rgb(210,150,150)"),
+        ("pink", "rgb(255,192,203)", "rgb(255,220,230)"),
+        ("gray", "rgb(128,128,128)", "rgb(160,160,160)"),
+        ("grey", "rgb(128,128,128)", "rgb(160,160,160)"),
+        ("lightgray", "rgb(211,211,211)", "rgb(100,100,100)"),
+        ("lightgrey", "rgb(211,211,211)", "rgb(100,100,100)"),
+        ("darkgray", "rgb(169,169,169)", "rgb(200,200,200)"),
+        ("darkgrey", "rgb(169,169,169)", "rgb(200,200,200)"),
+        ("silver", "rgb(192,192,192)", "rgb(128,128,128)"),
+        ("none", "none", "none"),
+    ];
+
+    let mut css = String::from(":host {\n");
+    for (name, light, dark) in &colors {
+        css.push_str(&format!("  --pik-{}: light-dark({}, {});\n", name, light, dark));
+    }
+    css.push_str("}\n");
+
+    Style {
+        type_: Some("text/css".to_string()),
+        content: css,
+    }
+}
+
 /// Generate SVG from render context
 // cref: pik_render (pikchr.c:7253) - main SVG output function
-pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
+pub fn generate_svg(
+    ctx: &RenderContext,
+    options: &super::RenderOptions,
+) -> Result<String, miette::Report> {
     let margin_base = get_length(ctx, "margin", defaults::MARGIN);
     let left_margin = get_length(ctx, "leftmargin", 0.0);
     let right_margin = get_length(ctx, "rightmargin", 0.0);
@@ -168,6 +242,11 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     // Build SVG DOM
     let mut svg_children: Vec<SvgNode> = Vec::new();
 
+    // Add CSS variables style block if enabled
+    if options.css_variables {
+        svg_children.push(SvgNode::Style(generate_color_css()));
+    }
+
     // SVG header - C pikchr only adds width/height when scale != 1.0
     let viewbox_width = scaler.px(view_width);
     let viewbox_height = scaler.px(view_height);
@@ -204,6 +283,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         charwid: f64,
         thickness: f64,
         fontscale: f64,
+        use_css_vars: bool,
         svg_children: &mut Vec<SvgNode>,
     ) {
         // Convert from pikchr coordinates (Y-up) to SVG pixels (Y-down)
@@ -262,9 +342,9 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             }
 
             let text_color = if obj.style().stroke == "black" || obj.style().stroke == "none" {
-                "rgb(0,0,0)".to_string()
+                color_to_string("black", use_css_vars)
             } else {
-                color_to_rgb(&obj.style().stroke)
+                color_to_string(&obj.style().stroke, use_css_vars)
             };
 
             for (positioned_text, slot) in texts.iter().zip(slots.iter()) {
@@ -384,7 +464,16 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         if let Some(children) = obj.shape.children() {
             for child in children {
                 render_object_text(
-                    child, scaler, offset_x, max_y, charht, charwid, thickness, fontscale, svg_children,
+                    child,
+                    scaler,
+                    offset_x,
+                    max_y,
+                    charht,
+                    charwid,
+                    thickness,
+                    fontscale,
+                    use_css_vars,
+                    svg_children,
                 );
             }
         }
@@ -410,6 +499,7 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
         charwid: f64,
         thickness: f64,
         fontscale: f64,
+        use_css_vars: bool,
         svg_children: &mut Vec<SvgNode>,
     ) {
         // For sublists, render each child (shape + text) sorted by layer
@@ -420,21 +510,50 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
             sorted_children.sort_by_key(|c| c.layer);
             for child in sorted_children {
                 render_object_full(
-                    child, scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid,
-                    charht, charwid, thickness, fontscale, svg_children,
+                    child,
+                    scaler,
+                    offset_x,
+                    max_y,
+                    dashwid,
+                    arrow_ht,
+                    arrow_wid,
+                    charht,
+                    charwid,
+                    thickness,
+                    fontscale,
+                    use_css_vars,
+                    svg_children,
                 );
             }
         } else {
             // Non-sublist: render shape then text immediately after
             if !obj.style().invisible {
                 let shape = &obj.shape;
-                let shape_nodes =
-                    shape.render_svg(obj, scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid, Inches(thickness));
+                let ctx = ShapeRenderContext {
+                    scaler,
+                    offset_x,
+                    max_y,
+                    dashwid,
+                    arrow_len: arrow_ht,
+                    arrow_wid,
+                    thickness: Inches(thickness),
+                    use_css_vars,
+                };
+                let shape_nodes = shape.render_svg(obj, &ctx);
                 svg_children.extend(shape_nodes);
             }
             // Render text for this object immediately after its shape
             render_object_text(
-                obj, scaler, offset_x, max_y, charht, charwid, thickness, fontscale, svg_children,
+                obj,
+                scaler,
+                offset_x,
+                max_y,
+                charht,
+                charwid,
+                thickness,
+                fontscale,
+                use_css_vars,
+                svg_children,
             );
         }
     }
@@ -445,8 +564,19 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     let charwid = get_length(ctx, "charwid", 0.08) * fontscale;
     for obj in sorted_objects {
         render_object_full(
-            obj, &scaler, offset_x, max_y, dashwid, arrow_ht, arrow_wid,
-            charht, charwid, thickness, fontscale, &mut svg_children,
+            obj,
+            &scaler,
+            offset_x,
+            max_y,
+            dashwid,
+            arrow_ht,
+            arrow_wid,
+            charht,
+            charwid,
+            thickness,
+            fontscale,
+            options.css_variables,
+            &mut svg_children,
         );
     }
 
@@ -459,11 +589,11 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
     }
 
     // Serialize to string using facet_xml with custom f64 formatter to match C pikchr precision
-    let options = SerializeOptions {
+    let options_ser = SerializeOptions {
         float_formatter: Some(format_float),
         ..Default::default()
     };
-    facet_xml::to_string_with_options(&svg, &options)
+    facet_xml::to_string_with_options(&svg, &options_ser)
         .map_err(|e| miette::miette!("XML serialization error: {}", e))
 }
 
@@ -475,6 +605,7 @@ pub fn render_arrowhead_dom(
     style: &ObjectStyle,
     arrow_len: f64,
     arrow_width: f64,
+    use_css_vars: bool,
 ) -> Option<Polygon> {
     // Calculate direction vector
     let delta = end - start;
@@ -504,7 +635,7 @@ pub fn render_arrowhead_dom(
         .push(p1.x, p1.y)
         .push(p2.x, p2.y);
 
-    let fill_color = Color::parse(&style.stroke);
+    let fill_color = color_to_string(&style.stroke, use_css_vars);
 
     Some(Polygon {
         points,
@@ -512,7 +643,7 @@ pub fn render_arrowhead_dom(
         stroke: None,
         stroke_width: None,
         stroke_dasharray: None,
-        style: svg_style_from_entries(vec![("fill", fill_color.to_string())]),
+        style: svg_style_from_entries(vec![("fill", fill_color)]),
     })
 }
 
