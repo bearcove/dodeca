@@ -765,7 +765,7 @@
 
 <div class="stats-badge">
     <div class="stats-badge-main">68%</div>
-    <div class="stats-badge-detail">71 / 104 passing</div>
+    <div class="stats-badge-detail">71 / 105 passing</div>
 </div>
 
 <nav>
@@ -788,6 +788,7 @@
     <a href="#fonts01.pikchr" class="status-fail"><span class="status-dot"></span><span class="test-name">fonts01.pikchr</span></a>
     <a href="#gridlines1.pikchr" class="status-pass"><span class="status-dot"></span><span class="test-name">gridlines1.pikchr</span></a>
     <a href="#narrow.pikchr" class="status-fail"><span class="status-dot"></span><span class="test-name">narrow.pikchr</span></a>
+    <a href="#real01.pikchr" class="status-fail"><span class="status-dot"></span><span class="test-name">real01.pikchr</span></a>
     <a href="#test01.pikchr" class="status-pass"><span class="status-dot"></span><span class="test-name">test01.pikchr</span></a>
     <a href="#test02.pikchr" class="status-pass"><span class="status-dot"></span><span class="test-name">test02.pikchr</span></a>
     <a href="#test03.pikchr" class="status-pass"><span class="status-dot"></span><span class="test-name">test03.pikchr</span></a>
@@ -3255,6 +3256,142 @@ move same
 box &quot;Lines should all be&quot; ljust \
      &quot;the same width.&quot; ljust \
      &quot;No round-off errors.&quot; ljust fit thickness 0
+</div>
+        </details>
+    </div>
+</div>
+
+<div class="test-card mismatch" id="real01.pikchr">
+    <div class="test-header">
+        <span class="test-title">real01.pikchr</span>
+        <span class="test-status">MISMATCH</span>
+    </div>
+    <div class="test-body">
+        <div class="comparison">
+            <div class="column c-output">
+                <div class="column-header">C pikchr</div>
+                <div class="svg-container"><svg xmlns='http://www.w3.org/2000/svg' style='font-size:initial;' class="pikchr" width="539" height="379" viewBox="0 0 599.812 422.208" data-pikchr-date="20250512153813">
+<text x="55.152" y="72.288" text-anchor="middle" font-weight="bold" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">IDENTITY</text>
+<path d="M127.498,104.688L343.498,104.688L343.498,39.888L127.498,39.888Z"  style="fill:rgb(207,231,243);stroke-width:2.16;stroke:rgb(0,0,0);" />
+<text x="235.498" y="62.208" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">msg_id</text>
+<text x="235.498" y="82.368" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">u64</text>
+<path d="M343.498,104.688L451.498,104.688L451.498,39.888L343.498,39.888Z"  style="fill:rgb(207,231,243);stroke-width:2.16;stroke:rgb(0,0,0);" />
+<text x="397.498" y="62.208" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">channel_id</text>
+<text x="397.498" y="82.368" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">u32</text>
+<path d="M451.498,104.688L559.498,104.688L559.498,39.888L451.498,39.888Z"  style="fill:rgb(207,231,243);stroke-width:2.16;stroke:rgb(0,0,0);" />
+<text x="505.498" y="62.208" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">method_id</text>
+<text x="505.498" y="82.368" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">u32</text>
+<path d="M343.498,39.888L343.498,104.688"  style="fill:none;stroke-width:2.16;stroke:rgb(102,102,102);" />
+<path d="M451.498,39.888L451.498,104.688"  style="fill:none;stroke-width:2.16;stroke:rgb(102,102,102);" />
+<text x="127.498" y="15.264" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" font-size="80%" dominant-baseline="central">0</text>
+<text x="343.498" y="15.264" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" font-size="80%" dominant-baseline="central">8</text>
+<text x="451.498" y="15.264" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" font-size="80%" dominant-baseline="central">12</text>
+<text x="559.498" y="15.264" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" font-size="80%" dominant-baseline="central">16</text>
+<text x="55.152" y="145.728" text-anchor="middle" font-weight="bold" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">LOCATION</text>
+<path d="M127.498,178.128L235.498,178.128L235.498,113.328L127.498,113.328Z"  style="fill:rgb(201,239,194);stroke-width:2.16;stroke:rgb(0,0,0);" />
+<text x="181.498" y="135.648" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">payload_slot</text>
+<text x="181.498" y="155.808" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">u32</text>
+<path d="M235.498,178.128L343.498,178.128L343.498,113.328L235.498,113.328Z"  style="fill:rgb(201,239,194);stroke-width:2.16;stroke:rgb(0,0,0);" />
+<text x="289.498" y="135.648" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">payload_gen</text>
+<text x="289.498" y="155.808" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">u32</text>
+<path d="M343.498,178.128L451.498,178.128L451.498,113.328L343.498,113.328Z"  style="fill:rgb(201,239,194);stroke-width:2.16;stroke:rgb(0,0,0);" />
+<text x="397.498" y="135.648" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">payload_off</text>
+<text x="397.498" y="155.808" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">u32</text>
+<path d="M451.498,178.128L559.498,178.128L559.498,113.328L451.498,113.328Z"  style="fill:rgb(201,239,194);stroke-width:2.16;stroke:rgb(0,0,0);" />
+<text x="505.498" y="135.648" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">payload_len</text>
+<text x="505.498" y="155.808" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">u32</text>
+<path d="M235.498,113.328L235.498,178.128"  style="fill:none;stroke-width:2.16;stroke:rgb(102,102,102);" />
+<path d="M343.498,113.328L343.498,178.128"  style="fill:none;stroke-width:2.16;stroke:rgb(102,102,102);" />
+<path d="M451.498,113.328L451.498,178.128"  style="fill:none;stroke-width:2.16;stroke:rgb(102,102,102);" />
+<text x="584.335" y="145.728" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" font-size="80%" dominant-baseline="central">32</text>
+<text x="50.4288" y="219.168" text-anchor="middle" font-weight="bold" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">FLOW CTRL</text>
+<path d="M127.498,251.568L235.498,251.568L235.498,186.768L127.498,186.768Z"  style="fill:rgb(255,242,182);stroke-width:2.16;stroke:rgb(0,0,0);" />
+<text x="181.498" y="209.088" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">flags</text>
+<text x="181.498" y="229.248" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">u32</text>
+<path d="M235.498,251.568L343.498,251.568L343.498,186.768L235.498,186.768Z"  style="fill:rgb(255,242,182);stroke-width:2.16;stroke:rgb(0,0,0);" />
+<text x="289.498" y="209.088" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">credit_grant</text>
+<text x="289.498" y="229.248" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">u32</text>
+<path d="M343.498,251.568L559.498,251.568L559.498,186.768L343.498,186.768Z"  style="fill:rgb(255,242,182);stroke-width:2.16;stroke:rgb(0,0,0);" />
+<text x="451.498" y="209.088" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">deadline_ns</text>
+<text x="451.498" y="229.248" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">u64</text>
+<path d="M235.498,186.768L235.498,251.568"  style="fill:none;stroke-width:2.16;stroke:rgb(102,102,102);" />
+<path d="M343.498,186.768L343.498,251.568"  style="fill:none;stroke-width:2.16;stroke:rgb(102,102,102);" />
+<text x="584.335" y="219.168" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" font-size="80%" dominant-baseline="central">48</text>
+<text x="64.5984" y="292.608" text-anchor="middle" font-weight="bold" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">INLINE</text>
+<path d="M127.498,325.008L559.498,325.008L559.498,260.208L127.498,260.208Z"  style="fill:rgb(241,181,181);stroke-width:2.16;stroke:rgb(0,0,0);" />
+<text x="343.498" y="282.528" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">inline_payload</text>
+<text x="343.498" y="302.688" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">[u8; 16]</text>
+<text x="584.335" y="292.608" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" font-size="80%" dominant-baseline="central">64</text>
+<text x="59.8752" y="380.448" text-anchor="middle" font-weight="bold" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">PAYLOAD</text>
+<path d="M127.498,420.048L559.498,420.048L559.498,348.048L127.498,348.048Z"  style="fill:rgb(223,245,225);stroke-width:2.16;stroke:rgb(0,0,0);stroke-dasharray:7.2,7.2;" />
+<text x="343.498" y="373.968" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">postcard-encoded data</text>
+<text x="343.498" y="394.128" text-anchor="middle" font-family="monospace" fill="rgb(0,0,0)" dominant-baseline="central">0+ bytes</text>
+</svg></div>
+            </div>
+            <div class="column rust-output">
+                <div class="column-header">Rust pikchr</div>
+                <div class="svg-container"><svg xmlns="http://www.w3.org/2000/svg" width="539" height="379" viewBox="0 0 599.812 422.208"><text x="55.152" y="72.288" fill="rgb(0,0,0)" font-family="monospace" font-weight="bold" text-anchor="middle" dominant-baseline="central">IDENTITY</text><path d="M127.498,104.688L343.498,104.688L343.498,39.888L127.498,39.888Z" style="fill: #cfe7f3;stroke-width: 2.16px;stroke: #000;"/><text x="235.498" y="62.208" fill="rgb(0,0,0)" text-anchor="middle" dominant-baseline="central">msg_id</text><text x="235.498" y="82.368" fill="rgb(0,0,0)" font-family="monospace" text-anchor="middle" dominant-baseline="central">u64</text><path d="M343.498,104.688L451.498,104.688L451.498,39.888L343.498,39.888Z" style="fill: #cfe7f3;stroke-width: 2.16px;stroke: #000;"/><text x="397.498" y="62.208" fill="rgb(0,0,0)" text-anchor="middle" dominant-baseline="central">channel_id</text><text x="397.498" y="82.368" fill="rgb(0,0,0)" font-family="monospace" text-anchor="middle" dominant-baseline="central">u32</text><path d="M451.498,104.688L559.498,104.688L559.498,39.888L451.498,39.888Z" style="fill: #cfe7f3;stroke-width: 2.16px;stroke: #000;"/><text x="505.498" y="62.208" fill="rgb(0,0,0)" text-anchor="middle" dominant-baseline="central">method_id</text><text x="505.498" y="82.368" fill="rgb(0,0,0)" font-family="monospace" text-anchor="middle" dominant-baseline="central">u32</text><path d="M343.498,39.888L343.498,39.888" style="fill: none;stroke-width: 2.16px;stroke: #666;"/><path d="M451.498,39.888L451.498,39.888" style="fill: none;stroke-width: 2.16px;stroke: #666;"/><text x="127.498" y="15.264" fill="rgb(0,0,0)" font-family="monospace" font-size="80%" text-anchor="middle" dominant-baseline="central">0</text><text x="343.498" y="15.264" fill="rgb(0,0,0)" font-family="monospace" font-size="80%" text-anchor="middle" dominant-baseline="central">8</text><text x="451.498" y="15.264" fill="rgb(0,0,0)" font-family="monospace" font-size="80%" text-anchor="middle" dominant-baseline="central">12</text><text x="559.498" y="15.264" fill="rgb(0,0,0)" font-family="monospace" font-size="80%" text-anchor="middle" dominant-baseline="central">16</text><text x="55.152" y="145.728" fill="rgb(0,0,0)" font-family="monospace" font-weight="bold" text-anchor="middle" dominant-baseline="central">LOCATION</text><path d="M127.498,178.128L235.498,178.128L235.498,113.328L127.498,113.328Z" style="fill: #c9efc2;stroke-width: 2.16px;stroke: #000;"/><text x="181.498" y="135.648" fill="rgb(0,0,0)" text-anchor="middle" dominant-baseline="central">payload_slot</text><text x="181.498" y="155.808" fill="rgb(0,0,0)" font-family="monospace" text-anchor="middle" dominant-baseline="central">u32</text><path d="M235.498,178.128L343.498,178.128L343.498,113.328L235.498,113.328Z" style="fill: #c9efc2;stroke-width: 2.16px;stroke: #000;"/><text x="289.498" y="135.648" fill="rgb(0,0,0)" text-anchor="middle" dominant-baseline="central">payload_gen</text><text x="289.498" y="155.808" fill="rgb(0,0,0)" font-family="monospace" text-anchor="middle" dominant-baseline="central">u32</text><path d="M343.498,178.128L451.498,178.128L451.498,113.328L343.498,113.328Z" style="fill: #c9efc2;stroke-width: 2.16px;stroke: #000;"/><text x="397.498" y="135.648" fill="rgb(0,0,0)" text-anchor="middle" dominant-baseline="central">payload_off</text><text x="397.498" y="155.808" fill="rgb(0,0,0)" font-family="monospace" text-anchor="middle" dominant-baseline="central">u32</text><path d="M451.498,178.128L559.498,178.128L559.498,113.328L451.498,113.328Z" style="fill: #c9efc2;stroke-width: 2.16px;stroke: #000;"/><text x="505.498" y="135.648" fill="rgb(0,0,0)" text-anchor="middle" dominant-baseline="central">payload_len</text><text x="505.498" y="155.808" fill="rgb(0,0,0)" font-family="monospace" text-anchor="middle" dominant-baseline="central">u32</text><path d="M235.498,113.328L235.498,113.328" style="fill: none;stroke-width: 2.16px;stroke: #666;"/><path d="M343.498,113.328L343.498,113.328" style="fill: none;stroke-width: 2.16px;stroke: #666;"/><path d="M451.498,113.328L451.498,113.328" style="fill: none;stroke-width: 2.16px;stroke: #666;"/><text x="584.335" y="145.728" fill="rgb(0,0,0)" font-family="monospace" font-size="80%" text-anchor="middle" dominant-baseline="central">32</text><text x="50.4288" y="219.168" fill="rgb(0,0,0)" font-family="monospace" font-weight="bold" text-anchor="middle" dominant-baseline="central">FLOW CTRL</text><path d="M127.498,251.568L235.498,251.568L235.498,186.768L127.498,186.768Z" style="fill: #fff2b6;stroke-width: 2.16px;stroke: #000;"/><text x="181.498" y="209.088" fill="rgb(0,0,0)" text-anchor="middle" dominant-baseline="central">flags</text><text x="181.498" y="229.248" fill="rgb(0,0,0)" font-family="monospace" text-anchor="middle" dominant-baseline="central">u32</text><path d="M235.498,251.568L343.498,251.568L343.498,186.768L235.498,186.768Z" style="fill: #fff2b6;stroke-width: 2.16px;stroke: #000;"/><text x="289.498" y="209.088" fill="rgb(0,0,0)" text-anchor="middle" dominant-baseline="central">credit_grant</text><text x="289.498" y="229.248" fill="rgb(0,0,0)" font-family="monospace" text-anchor="middle" dominant-baseline="central">u32</text><path d="M343.498,251.568L559.498,251.568L559.498,186.768L343.498,186.768Z" style="fill: #fff2b6;stroke-width: 2.16px;stroke: #000;"/><text x="451.498" y="209.088" fill="rgb(0,0,0)" text-anchor="middle" dominant-baseline="central">deadline_ns</text><text x="451.498" y="229.248" fill="rgb(0,0,0)" font-family="monospace" text-anchor="middle" dominant-baseline="central">u64</text><path d="M235.498,186.768L235.498,186.768" style="fill: none;stroke-width: 2.16px;stroke: #666;"/><path d="M343.498,186.768L343.498,186.768" style="fill: none;stroke-width: 2.16px;stroke: #666;"/><text x="584.335" y="219.168" fill="rgb(0,0,0)" font-family="monospace" font-size="80%" text-anchor="middle" dominant-baseline="central">48</text><text x="64.5984" y="292.608" fill="rgb(0,0,0)" font-family="monospace" font-weight="bold" text-anchor="middle" dominant-baseline="central">INLINE</text><path d="M127.498,325.008L559.498,325.008L559.498,260.208L127.498,260.208Z" style="fill: #f1b5b5;stroke-width: 2.16px;stroke: #000;"/><text x="343.498" y="282.528" fill="rgb(0,0,0)" text-anchor="middle" dominant-baseline="central">inline_payload</text><text x="343.498" y="302.688" fill="rgb(0,0,0)" font-family="monospace" text-anchor="middle" dominant-baseline="central">[u8; 16]</text><text x="584.335" y="292.608" fill="rgb(0,0,0)" font-family="monospace" font-size="80%" text-anchor="middle" dominant-baseline="central">64</text><text x="59.8752" y="380.448" fill="rgb(0,0,0)" font-family="monospace" font-weight="bold" text-anchor="middle" dominant-baseline="central">PAYLOAD</text><path d="M127.498,420.048L559.498,420.048L559.498,348.048L127.498,348.048Z" style="fill: #dff5e1;stroke-dasharray: 7.2 7.2;stroke-width: 2.16px;stroke: #000;"/><text x="343.498" y="373.968" fill="rgb(0,0,0)" text-anchor="middle" dominant-baseline="central">postcard-encoded data</text><text x="343.498" y="394.128" fill="rgb(0,0,0)" font-family="monospace" text-anchor="middle" dominant-baseline="central">0+ bytes</text></svg></div>
+            </div>
+        </div>
+        <details>
+            <summary>Source</summary>
+            <div class="source">scale = 0.9
+bh = 0.45in
+u32w = 0.75in
+u64w = 1.5in
+fullw = 3.0in
+gap = 0.06in
+
+# Row 0: Identity (bytes 0-15)
+L0: text &quot;IDENTITY&quot; mono bold at (0, 0)
+R0F0: box &quot;msg_id&quot; &quot;u64&quot; mono width u64w height bh fill 0xCFE7F3 \
+  with .w at L0.e + (0.2in, 0)
+R0F1: box &quot;channel_id&quot; &quot;u32&quot; mono width u32w height bh fill 0xCFE7F3 with .w at R0F0.e
+R0F2: box &quot;method_id&quot; &quot;u32&quot; mono width u32w height bh fill 0xCFE7F3 with .w at R0F1.e
+# Separators
+line from R0F0.ne to R0F0.se color 0x666666
+line from R0F1.ne to R0F1.se color 0x666666
+# Byte offsets above first row
+text &quot;0&quot; mono small with .s at R0F0.nw + (0, 0.08in)
+text &quot;8&quot; mono small with .s at R0F1.nw + (0, 0.08in)
+text &quot;12&quot; mono small with .s at R0F2.nw + (0, 0.08in)
+text &quot;16&quot; mono small with .s at R0F2.ne + (0, 0.08in)
+
+# Row 1: Payload location (bytes 16-31)
+L1: text &quot;LOCATION&quot; mono bold with .e at L0.e + (0, -bh - gap)
+R1F0: box &quot;payload_slot&quot; &quot;u32&quot; mono width u32w height bh fill 0xC9EFC2 \
+  with .nw at R0F0.sw + (0, -gap)
+R1F1: box &quot;payload_gen&quot; &quot;u32&quot; mono width u32w height bh fill 0xC9EFC2 with .w at R1F0.e
+R1F2: box &quot;payload_off&quot; &quot;u32&quot; mono width u32w height bh fill 0xC9EFC2 with .w at R1F1.e
+R1F3: box &quot;payload_len&quot; &quot;u32&quot; mono width u32w height bh fill 0xC9EFC2 with .w at R1F2.e
+# Separators
+line from R1F0.ne to R1F0.se color 0x666666
+line from R1F1.ne to R1F1.se color 0x666666
+line from R1F2.ne to R1F2.se color 0x666666
+text &quot;32&quot; mono small with .w at R1F3.e + (0.08in, 0)
+
+# Row 2: Flow control (bytes 32-47)
+L2: text &quot;FLOW CTRL&quot; mono bold with .e at L1.e + (0, -bh - gap)
+R2F0: box &quot;flags&quot; &quot;u32&quot; mono width u32w height bh fill 0xFFF2B6 \
+  with .nw at R1F0.sw + (0, -gap)
+R2F1: box &quot;credit_grant&quot; &quot;u32&quot; mono width u32w height bh fill 0xFFF2B6 with .w at R2F0.e
+R2F2: box &quot;deadline_ns&quot; &quot;u64&quot; mono width u64w height bh fill 0xFFF2B6 with .w at R2F1.e
+# Separators
+line from R2F0.ne to R2F0.se color 0x666666
+line from R2F1.ne to R2F1.se color 0x666666
+text &quot;48&quot; mono small with .w at R2F2.e + (0.08in, 0)
+
+# Row 3: Inline payload (bytes 48-63)
+L3: text &quot;INLINE&quot; mono bold with .e at L2.e + (0, -bh - gap)
+R3F0: box &quot;inline_payload&quot; &quot;[u8; 16]&quot; mono width fullw height bh fill 0xF1B5B5 \
+  with .nw at R2F0.sw + (0, -gap)
+text &quot;64&quot; mono small with .w at R3F0.e + (0.08in, 0)
+
+# Variable payload section
+L4: text &quot;PAYLOAD&quot; mono bold with .e at L3.e + (0, -bh - gap - 0.1in)
+PL: box &quot;postcard-encoded data&quot; &quot;0+ bytes&quot; mono width fullw height 0.5in \
+  fill 0xDFF5E1 dashed with .nw at R3F0.sw + (0, -gap - 0.1in)
+
 </div>
         </details>
     </div>

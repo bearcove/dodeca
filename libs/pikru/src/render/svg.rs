@@ -217,7 +217,7 @@ fn generate_color_css() -> Style {
         ("none", "none", "none"),
     ];
 
-    let mut css = String::from(":host {\n");
+    let mut css = String::from(":root {\n");
     for (name, light, dark) in &colors {
         css.push_str(&format!("  --pik-{}: light-dark({}, {});\n", name, light, dark));
     }
