@@ -2250,9 +2250,17 @@ fn render_object_stmt(
                     }
                 }
 
-                // Apply initial direction offset when there are no to_positions
-                // (normal direction moves like "arrow right 2in")
-                let should_apply_direction_offset = to_positions.is_empty();
+                // Apply direction offset AFTER to_positions for Move class
+                // "move to X down 1in" creates waypoint at X, then X+down1in
+                // For non-Move classes without explicit from, don't add direction after to
+                let should_apply_direction_offset = if !to_positions.is_empty() {
+                    // For Move: apply direction after to_position
+                    // For others (Line/Spline): only if we didn't already add direction before to_positions
+                    class == ClassName::Move
+                } else {
+                    // Always apply when no to_positions (normal direction moves)
+                    true
+                };
 
                 if direction_offset != OffsetIn::ZERO && should_apply_direction_offset {
                     let next = current_pos + direction_offset;
