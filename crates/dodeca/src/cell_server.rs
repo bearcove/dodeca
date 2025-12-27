@@ -504,6 +504,243 @@ pub async fn start_cell_server(
     start_cell_server_with_shutdown(server, cell_path, bind_ips, port, None, None, None).await
 }
 
+/// Create a dispatcher for static file serving (no SiteServer needed)
+#[allow(clippy::type_complexity)]
+fn create_static_dispatcher<C: cell_http_proto::ContentService + Clone + Send + Sync + 'static>(
+    content_service: Arc<C>,
+) -> impl Fn(Frame) -> Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
++ Send
++ Sync
++ 'static {
+    let tracing_sink = ForwardingTracingSink::new();
+    let lifecycle_registry = cell_ready_registry().clone();
+    let buffer_pool = BufferPool::with_capacity(128, 256 * 1024);
+
+    move |frame: Frame| {
+        let content_service = content_service.clone();
+        let tracing_sink = tracing_sink.clone();
+        let lifecycle_registry = lifecycle_registry.clone();
+        let buffer_pool = buffer_pool.clone();
+        let method_id = frame.desc.method_id;
+
+        Box::pin(async move {
+            // Try TracingSink service first
+            let tracing_server = TracingSinkServer::new(tracing_sink);
+            if let Ok(response) = tracing_server
+                .dispatch(method_id, &frame, &buffer_pool)
+                .await
+            {
+                return Ok(response);
+            }
+
+            // Try CellLifecycle service
+            let lifecycle_impl = HostCellLifecycle::new(lifecycle_registry);
+            let lifecycle_server = CellLifecycleServer::new(lifecycle_impl);
+            if let Ok(response) = lifecycle_server
+                .dispatch(method_id, &frame, &buffer_pool)
+                .await
+            {
+                return Ok(response);
+            }
+
+            // Try ContentService
+            let content_server = ContentServiceServer::new((*content_service).clone());
+            content_server
+                .dispatch(method_id, &frame, &buffer_pool)
+                .await
+        })
+    }
+}
+
+/// Start a static file server using the HTTP cell
+///
+/// This is a simpler version of start_cell_server_with_shutdown that doesn't
+/// require a SiteServer - just a ContentService implementation.
+pub async fn start_static_cell_server<
+    C: cell_http_proto::ContentService + Clone + Send + Sync + 'static,
+>(
+    content_service: Arc<C>,
+    _cell_path: std::path::PathBuf,
+    bind_ips: Vec<std::net::Ipv4Addr>,
+    port: u16,
+    port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
+) -> Result<()> {
+    use crate::boot_state::{BootPhase, BootStateManager};
+
+    // Create boot state manager
+    let boot_state = Arc::new(BootStateManager::new());
+    let boot_state_rx = boot_state.subscribe();
+
+    // Bind to requested IPs
+    let mut listeners = Vec::new();
+    let mut actual_port: Option<u16> = None;
+    for ip in &bind_ips {
+        let requested_port = actual_port.unwrap_or(port);
+        let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(*ip), requested_port);
+        match std::net::TcpListener::bind(addr) {
+            Ok(listener) => {
+                if let Ok(bound_addr) = listener.local_addr() {
+                    let bound_port = bound_addr.port();
+                    if actual_port.is_none() {
+                        actual_port = Some(bound_port);
+                    }
+                    tracing::info!("Listening on {}:{}", ip, bound_port);
+                }
+                if let Err(e) = listener.set_nonblocking(true) {
+                    tracing::warn!("Failed to set non-blocking on {}: {}", ip, e);
+                }
+                listeners.push(listener);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to bind to {}: {}", addr, e);
+            }
+        }
+    }
+
+    if listeners.is_empty() {
+        return Err(eyre::eyre!("Failed to bind to any addresses"));
+    }
+
+    let bound_port = actual_port.ok_or_else(|| eyre::eyre!("Could not determine bound port"))?;
+
+    // Send the bound port back to the caller
+    if let Some(tx) = port_tx {
+        let _ = tx.send(bound_port);
+    }
+
+    let (session_tx, session_rx) = watch::channel::<Option<Arc<Session>>>(None);
+
+    // Convert to tokio listeners
+    let tokio_listeners: Vec<tokio::net::TcpListener> = listeners
+        .into_iter()
+        .filter_map(|l| tokio::net::TcpListener::from_std(l).ok())
+        .collect();
+
+    if tokio_listeners.is_empty() {
+        return Err(eyre::eyre!("No listeners available after conversion"));
+    }
+
+    // Start accept loop (simplified - no SiteServer, no revision waiting)
+    let accept_boot_state_rx = boot_state_rx.clone();
+    tokio::spawn(async move {
+        run_static_accept_loop(tokio_listeners, session_rx, accept_boot_state_rx).await
+    });
+
+    // Load cells
+    boot_state.set_phase(BootPhase::LoadingCells);
+    let registry = all().await;
+
+    if registry.http.is_none() {
+        panic!("FATAL: HTTP cell not loaded");
+    }
+
+    let session = get_cell_session("ddc-cell-http").expect("HTTP cell session not found");
+
+    // Set up dispatcher with our content service
+    session.set_dispatcher(create_static_dispatcher(content_service));
+
+    // Signal session ready
+    let _ = session_tx.send(Some(session));
+
+    // Wait for HTTP cell to be ready
+    boot_state.set_phase(BootPhase::WaitingCellsReady);
+    crate::cells::wait_for_cells_ready(&["ddc-cell-http"], REQUIRED_CELL_TIMEOUT).await?;
+
+    boot_state.set_ready();
+
+    // Wait forever
+    std::future::pending::<()>().await;
+
+    Ok(())
+}
+
+/// Simplified accept loop for static file serving
+async fn run_static_accept_loop(
+    listeners: Vec<tokio::net::TcpListener>,
+    session_rx: watch::Receiver<Option<Arc<Session>>>,
+    boot_state_rx: watch::Receiver<BootState>,
+) -> Result<()> {
+    for listener in listeners {
+        let session_rx = session_rx.clone();
+        let boot_state_rx = boot_state_rx.clone();
+
+        tokio::spawn(async move {
+            loop {
+                let (stream, addr) = match listener.accept().await {
+                    Ok(x) => x,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Accept error");
+                        continue;
+                    }
+                };
+
+                let conn_id = NEXT_CONN_ID.fetch_add(1, Ordering::Relaxed);
+                tracing::trace!(conn_id, peer_addr = ?addr, "Accepted connection");
+
+                let session_rx = session_rx.clone();
+                let boot_state_rx = boot_state_rx.clone();
+                tokio::spawn(async move {
+                    if let Err(e) =
+                        handle_static_connection(conn_id, stream, session_rx, boot_state_rx).await
+                    {
+                        tracing::warn!(conn_id, error = ?e, "Connection error");
+                    }
+                });
+            }
+        });
+    }
+
+    std::future::pending::<()>().await;
+    Ok(())
+}
+
+/// Handle a connection for static file serving (no revision waiting)
+async fn handle_static_connection(
+    conn_id: u64,
+    mut browser_stream: TcpStream,
+    mut session_rx: watch::Receiver<Option<Arc<Session>>>,
+    mut boot_state_rx: watch::Receiver<BootState>,
+) -> Result<()> {
+    // Wait for boot to complete
+    loop {
+        let state = boot_state_rx.borrow().clone();
+        match state {
+            BootState::Ready => break,
+            BootState::Fatal { ref message, .. } => {
+                tracing::warn!(conn_id, message = %message, "Boot failed");
+                browser_stream.write_all(FATAL_ERROR_RESPONSE).await.ok();
+                return Ok(());
+            }
+            BootState::Booting { .. } => {}
+        }
+        if boot_state_rx.changed().await.is_err() {
+            return Ok(());
+        }
+    }
+
+    // Get session
+    let session = loop {
+        if let Some(session) = session_rx.borrow().clone() {
+            break session;
+        }
+        if session_rx.changed().await.is_err() {
+            return Ok(());
+        }
+    };
+
+    // Open tunnel and bridge
+    let tunnel_client = TcpTunnelClient::new(session.clone());
+    let handle = tunnel_client
+        .open()
+        .await
+        .map_err(|e| eyre::eyre!("Failed to open tunnel: {:?}", e))?;
+
+    let mut tunnel_stream = session.tunnel_stream(handle.channel_id);
+    tokio::io::copy_bidirectional(&mut browser_stream, &mut tunnel_stream).await?;
+
+    Ok(())
+}
+
 /// HTTP 500 response for fatal boot errors
 const FATAL_ERROR_RESPONSE: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\
 Content-Type: text/plain; charset=utf-8\r\n\

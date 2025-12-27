@@ -122,11 +122,36 @@ struct CleanArgs {
     path: Option<String>,
 }
 
+/// Static file server arguments
+#[derive(Facet, Debug)]
+struct StaticArgs {
+    /// Directory to serve
+    #[facet(args::positional, default = ".".to_string())]
+    path: String,
+
+    /// Address to bind on
+    #[facet(args::named, args::short = 'a', default = "127.0.0.1".to_string())]
+    address: String,
+
+    /// Port to serve on (default: 8080)
+    #[facet(args::named, args::short = 'p', default)]
+    port: Option<u16>,
+
+    /// Open browser after starting server
+    #[facet(args::named)]
+    open: bool,
+
+    /// Start with public access enabled (listen on all interfaces)
+    #[facet(args::named, args::short = 'P', rename = "public")]
+    public_access: bool,
+}
+
 /// Parsed command from CLI
 enum Command {
     Build(BuildArgs),
     Serve(ServeArgs),
     Clean(CleanArgs),
+    Static(StaticArgs),
 }
 
 fn print_usage() {
@@ -138,6 +163,10 @@ fn print_usage() {
     eprintln!(
         "    {}      Build and serve with live reload",
         "serve".green()
+    );
+    eprintln!(
+        "    {}     Serve static files from a directory",
+        "static".green()
     );
     eprintln!("    {}      Clear all caches", "clean".green());
     eprintln!("\n{}", "BUILD OPTIONS:".yellow());
@@ -153,6 +182,12 @@ fn print_usage() {
     eprintln!("    -p, --port       Port to serve on (default: 4000)");
     eprintln!("    --open           Open browser after starting server");
     eprintln!("    --no-tui         Disable TUI (show plain output)");
+    eprintln!("    -P, --public     Listen on all interfaces (LAN access)");
+    eprintln!("\n{}", "STATIC OPTIONS:".yellow());
+    eprintln!("    [path]           Directory to serve (default: .)");
+    eprintln!("    -a, --address    Address to bind on (default: 127.0.0.1)");
+    eprintln!("    -p, --port       Port to serve on (default: 8080)");
+    eprintln!("    --open           Open browser after starting server");
     eprintln!("    -P, --public     Listen on all interfaces (LAN access)");
     eprintln!("\n{}", "CLEAN OPTIONS:".yellow());
     eprintln!("    [path]           Project directory");
@@ -203,6 +238,13 @@ fn parse_args() -> Result<Command> {
                 eyre!("Failed to parse clean arguments")
             })?;
             Ok(Command::Clean(clean_args))
+        }
+        "static" => {
+            let static_args: StaticArgs = facet_args::from_slice(&rest).map_err(|e| {
+                eprintln!("{:?}", miette::Report::new(e));
+                eyre!("Failed to parse static arguments")
+            })?;
+            Ok(Command::Static(static_args))
         }
 
         "--help" | "-h" | "help" => {
@@ -391,6 +433,27 @@ fn main() -> Result<()> {
             } else {
                 println!("{}", "No caches to clear.".dimmed());
             }
+        }
+        Command::Static(args) => {
+            let path = Utf8PathBuf::from(&args.path);
+            if !path.exists() {
+                return Err(eyre!("Directory does not exist: {}", path));
+            }
+            if !path.is_dir() {
+                return Err(eyre!("Not a directory: {}", path));
+            }
+
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+
+            rt.block_on(serve_static(
+                &path,
+                &args.address,
+                args.port,
+                args.open,
+                args.public_access,
+            ))?;
         }
     }
 
@@ -2979,4 +3042,211 @@ async fn serve_with_tui(
     // Force exit - the forwarder tasks (especially spawn_blocking) won't be
     // cancelled automatically when the async runtime shuts down
     std::process::exit(0)
+}
+
+/// Simple static file server - serves files from a directory without any build step
+async fn serve_static(
+    dir: &Utf8PathBuf,
+    address: &str,
+    port: Option<u16>,
+    open: bool,
+    public_access: bool,
+) -> Result<()> {
+    use cell_http_proto::{ContentService, ServeContent};
+    use std::sync::Arc;
+
+    // Canonicalize the directory path for display
+    let dir = dir.canonicalize_utf8().unwrap_or_else(|_| dir.to_owned());
+
+    println!(
+        "\n{} {}",
+        "Serving static files from".green().bold(),
+        dir.cyan()
+    );
+
+    // Create a simple content service that reads files from disk
+    #[derive(Clone)]
+    struct StaticContentService {
+        root: Utf8PathBuf,
+    }
+
+    impl ContentService for StaticContentService {
+        async fn find_content(&self, path: String) -> ServeContent {
+            // Normalize path - remove leading slash
+            let path = path.trim_start_matches('/');
+
+            // Try the exact path first, then index.html for directories
+            let file_path = self.root.join(path);
+            let try_paths = if path.is_empty() || path.ends_with('/') {
+                vec![file_path.join("index.html")]
+            } else {
+                vec![file_path.clone(), file_path.join("index.html")]
+            };
+
+            for try_path in try_paths {
+                if try_path.is_file() {
+                    match std::fs::read(&try_path) {
+                        Ok(content) => {
+                            let mime = guess_static_mime(try_path.as_str());
+                            // For HTML, return as Html variant so livereload could be injected
+                            if mime == "text/html" {
+                                match String::from_utf8(content) {
+                                    Ok(html) => {
+                                        return ServeContent::Html {
+                                            content: html,
+                                            route: format!("/{path}"),
+                                            generation: 0,
+                                        };
+                                    }
+                                    Err(e) => {
+                                        // Not valid UTF-8, serve as binary
+                                        return ServeContent::Static {
+                                            content: e.into_bytes(),
+                                            mime: mime.to_string(),
+                                            generation: 0,
+                                        };
+                                    }
+                                }
+                            }
+                            return ServeContent::Static {
+                                content,
+                                mime: mime.to_string(),
+                                generation: 0,
+                            };
+                        }
+                        Err(_) => continue,
+                    }
+                }
+            }
+
+            // Not found
+            ServeContent::NotFound {
+                html: format!(
+                    r#"<!DOCTYPE html>
+<html><head><title>404 Not Found</title></head>
+<body><h1>404 Not Found</h1><p>The requested path <code>/{path}</code> was not found.</p></body>
+</html>"#
+                ),
+                generation: 0,
+            }
+        }
+
+        async fn get_scope(
+            &self,
+            _route: String,
+            _path: Vec<String>,
+        ) -> Vec<cell_http_proto::ScopeEntry> {
+            vec![] // No devtools for static mode
+        }
+
+        async fn eval_expression(
+            &self,
+            _route: String,
+            _expression: String,
+        ) -> cell_http_proto::EvalResult {
+            cell_http_proto::EvalResult::Err("Not supported in static mode".to_string())
+        }
+    }
+
+    let content_service = Arc::new(StaticContentService { root: dir.clone() });
+
+    // Determine bind IPs
+    let bind_ips: Vec<std::net::Ipv4Addr> = if public_access || address == "0.0.0.0" {
+        let mut ips = vec![std::net::Ipv4Addr::LOCALHOST];
+        ips.extend(tui::get_lan_ips());
+        ips
+    } else {
+        let bind_ip = match address.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V4(ip)) => ip,
+            Ok(std::net::IpAddr::V6(_)) => std::net::Ipv4Addr::LOCALHOST,
+            Err(_) => std::net::Ipv4Addr::LOCALHOST,
+        };
+        vec![bind_ip]
+    };
+
+    let requested_port = port.unwrap_or(8080);
+
+    // Find cell path
+    let cell_path = cell_server::find_cell_path()?;
+
+    // Create channel to receive actual bound port
+    let (port_tx, port_rx) = tokio::sync::oneshot::channel();
+
+    // Start the cell server with our static content service
+    let content_service_clone = content_service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = cell_server::start_static_cell_server(
+            content_service_clone,
+            cell_path,
+            bind_ips,
+            requested_port,
+            Some(port_tx),
+        )
+        .await
+        {
+            eprintln!("Server error: {e}");
+        }
+    });
+
+    // Wait for the actual bound port
+    let actual_port = port_rx
+        .await
+        .map_err(|_| eyre!("Failed to get bound port"))?;
+
+    let bind_addr = if public_access { "0.0.0.0" } else { address };
+    print_server_urls(bind_addr, actual_port);
+
+    // Open browser if requested
+    if open {
+        let url = format!("http://127.0.0.1:{actual_port}");
+        if let Err(e) = open::that(&url) {
+            eprintln!("Failed to open browser: {e}");
+        }
+    }
+
+    println!("{}", "Press Ctrl+C to stop".dimmed());
+
+    // Wait forever (until Ctrl+C)
+    std::future::pending::<()>().await;
+
+    Ok(())
+}
+
+/// Guess MIME type for static files
+fn guess_static_mime(path: &str) -> &'static str {
+    if path.ends_with(".html") || path.ends_with(".htm") {
+        "text/html"
+    } else if path.ends_with(".css") {
+        "text/css"
+    } else if path.ends_with(".js") {
+        "application/javascript"
+    } else if path.ends_with(".json") {
+        "application/json"
+    } else if path.ends_with(".png") {
+        "image/png"
+    } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if path.ends_with(".gif") {
+        "image/gif"
+    } else if path.ends_with(".svg") {
+        "image/svg+xml"
+    } else if path.ends_with(".webp") {
+        "image/webp"
+    } else if path.ends_with(".ico") {
+        "image/x-icon"
+    } else if path.ends_with(".woff2") {
+        "font/woff2"
+    } else if path.ends_with(".woff") {
+        "font/woff"
+    } else if path.ends_with(".ttf") {
+        "font/ttf"
+    } else if path.ends_with(".xml") {
+        "application/xml"
+    } else if path.ends_with(".txt") {
+        "text/plain"
+    } else if path.ends_with(".wasm") {
+        "application/wasm"
+    } else {
+        "application/octet-stream"
+    }
 }
