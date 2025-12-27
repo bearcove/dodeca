@@ -1385,11 +1385,15 @@ impl Shape for LineShape {
 
             // Draw line to midpoint before second waypoint
             // cref: radiusMidpoint(a[0], a[1], r) returns a[1] - r*normalized(a[1]-a[0])
+            // IMPORTANT: C clamps r to 0.5*dist when r > 0.5*dist (pikchr.c:1670-1671)
             if n >= 2 {
                 let delta = svg_points[1] - svg_points[0];
-                let m = if delta.length() > 1e-6 {
+                let dist = delta.length();
+                let m = if dist > 1e-6 {
                     let dir = delta.normalize();
-                    svg_points[1] - dir * corner_radius_px  // Go from wp1 back toward wp0
+                    // Clamp radius to half segment length, matching C behavior
+                    let clamped_r = corner_radius_px.min(dist * 0.5);
+                    svg_points[1] - dir * clamped_r  // Go from wp1 back toward wp0
                 } else {
                     svg_points[1]  // Degenerate: just use the point as-is
                 };
@@ -1418,12 +1422,17 @@ impl Shape for LineShape {
 
                 // Entry point: from a_n toward a_i, then back off by radius
                 // cref: radiusMidpoint(an, a[i], r) returns a[i] - r*dir
+                // IMPORTANT: C clamps r to 0.5*dist when r > 0.5*dist (pikchr.c:1670-1671)
                 let delta_in = a_i - a_n;
-                let m_entry = if delta_in.length() > 1e-6 {
+                let dist_in = delta_in.length();
+                let (m_entry, is_mid_in) = if dist_in > 1e-6 {
                     let dir_in = delta_in.normalize();
-                    a_i - dir_in * corner_radius_px
+                    // Clamp radius to half segment length, matching C behavior
+                    let clamped_r = corner_radius_px.min(dist_in * 0.5);
+                    let is_mid = clamped_r < corner_radius_px;  // Was clamped = we're at midpoint
+                    (a_i - dir_in * clamped_r, is_mid)
                 } else {
-                    a_i  // Degenerate: points coincide, skip the curve
+                    (a_i, false)  // Degenerate: points coincide, skip the curve
                 };
 
                 // Quadratic curve: control at a[i], end at entry point
@@ -1439,18 +1448,24 @@ impl Shape for LineShape {
 
                 // Exit point: point before reaching next waypoint
                 // cref: radiusMidpoint(a[i], an, r) returns an - r*dir = point near an
-                let delta_out = a_n - a_i;
-                let dist = delta_out.length();
-                if corner_radius_px < dist * 0.5 && dist > 1e-6 {
-                    let dir_out = delta_out.normalize();
-                    let m_exit = a_n - dir_out * corner_radius_px;  // near a_n, not a_i!
-                    path_data = path_data.l(m_exit.x, m_exit.y);
-                    tracing::debug!(
-                        x = m_exit.x,
-                        y = m_exit.y,
-                        toward = i + 1,
-                        "[Rust radiusPath] L (toward wp)"
-                    );
+                // Only draw L if entry was NOT at midpoint (isMid was false)
+                // This matches C behavior at pikchr.c:1697-1700
+                if !is_mid_in {
+                    let delta_out = a_n - a_i;
+                    let dist_out = delta_out.length();
+                    if dist_out > 1e-6 {
+                        let dir_out = delta_out.normalize();
+                        // Clamp radius to half segment length, matching C behavior
+                        let clamped_r = corner_radius_px.min(dist_out * 0.5);
+                        let m_exit = a_n - dir_out * clamped_r;  // near a_n, not a_i!
+                        path_data = path_data.l(m_exit.x, m_exit.y);
+                        tracing::debug!(
+                            x = m_exit.x,
+                            y = m_exit.y,
+                            toward = i + 1,
+                            "[Rust radiusPath] L (toward wp)"
+                        );
+                    }
                 }
             }
 
