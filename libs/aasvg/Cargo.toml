@@ -3,7 +3,7 @@ members = [".", "aasvg-cli"]
 
 [package]
 name = "aasvg"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.70"
 description = "Convert ASCII art diagrams to SVG with automatic light/dark mode support"
