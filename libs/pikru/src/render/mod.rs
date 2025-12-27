@@ -59,23 +59,76 @@ pub const AW_CHAR: [u8; 95] = [
 
 /// Character width units for proportional text (in hundredths).
 /// Monospace uses constant 82 units per character.
-// cref: pik_text_length (pikchr.c:6386)
+///
+/// Processes backslash escapes: `\\` counts as one char, `\x` counts as just `x`.
+// cref: pik_text_length (pikchr.c:6386) - skips backslashes when computing width
 fn proportional_text_length(text: &str) -> u32 {
     const STD_AVG: u32 = 100;
     let mut cnt: u32 = 0;
-    for c in text.chars() {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        let c = bytes[i] as char;
+
+        // Process backslash escapes
+        if c == '\\' && i + 1 < bytes.len() && bytes[i + 1] != b'&' {
+            if bytes[i + 1] == b'\\' {
+                // Double backslash -> count as one backslash, skip both
+                cnt += AW_CHAR[('\\' as usize) - 0x20] as u32;
+                i += 2;
+                continue;
+            } else {
+                // Backslash followed by other char -> skip backslash, count the char
+                i += 1;
+                let next_c = bytes[i] as char;
+                if next_c >= ' ' && next_c <= '~' {
+                    cnt += AW_CHAR[(next_c as usize) - 0x20] as u32;
+                } else {
+                    cnt += STD_AVG;
+                }
+                i += 1;
+                continue;
+            }
+        }
+
+        // Count the character width
         if c >= ' ' && c <= '~' {
             cnt += AW_CHAR[(c as usize) - 0x20] as u32;
         } else {
             cnt += STD_AVG;
         }
+
+        i += 1;
     }
     cnt
 }
 
 fn monospace_text_length(text: &str) -> u32 {
     const MONO_AVG: u32 = 82;
-    text.chars().count() as u32 * MONO_AVG
+    let bytes = text.as_bytes();
+    let mut count = 0;
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // Process backslash escapes
+        if bytes[i] == b'\\' && i + 1 < bytes.len() && bytes[i + 1] != b'&' {
+            if bytes[i + 1] == b'\\' {
+                // Double backslash -> count as one char, skip both
+                count += 1;
+                i += 2;
+            } else {
+                // Backslash followed by other char -> skip backslash, count the char
+                count += 1;
+                i += 2;
+            }
+        } else {
+            count += 1;
+            i += 1;
+        }
+    }
+
+    count * MONO_AVG
 }
 
 /// Render a pikchr program to SVG with default options

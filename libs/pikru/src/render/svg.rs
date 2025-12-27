@@ -63,6 +63,57 @@ pub fn color_to_string(color: &str, use_css_vars: bool) -> String {
     }
 }
 
+/// Process backslash escape sequences in text content.
+///
+/// C pikchr treats backslash as an escape character:
+/// - `\\` becomes a single backslash
+/// - `\x` (where x is any other char) removes the backslash and keeps x
+///
+/// This means `"\\a"` becomes `"a"` and `"\\\\"` becomes `"\\"` (one backslash).
+/// Note: This is NOT standard C escape processing - `\n` becomes `n`, not newline.
+///
+/// cref: pik_append_txt (pikchr.c:2578-2588) - processes backslashes in text output
+fn process_backslash_escapes(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        // Find next backslash
+        let mut j = i;
+        while j < bytes.len() && bytes[j] != b'\\' {
+            j += 1;
+        }
+
+        // Append all text before the backslash
+        if j > i {
+            result.push_str(&s[i..j]);
+        }
+
+        // Handle backslash if found
+        if j < bytes.len() {
+            // We're at a backslash
+            if j + 1 == bytes.len() {
+                // Backslash at end of string -> output single backslash
+                result.push('\\');
+                break;
+            } else if bytes[j + 1] == b'\\' {
+                // Double backslash -> output single backslash, skip both
+                result.push('\\');
+                i = j + 2;
+            } else {
+                // Backslash followed by other char -> skip backslash only
+                i = j + 1;
+            }
+        } else {
+            // No more backslashes
+            break;
+        }
+    }
+
+    result
+}
+
 /// Decode HTML entities in text content.
 ///
 /// C pikchr allows HTML entities in string literals (e.g., `&amp;` for `&`).
@@ -454,7 +505,12 @@ pub fn generate_svg(
                     font_size,
                     text_anchor: Some(anchor.to_string()),
                     dominant_baseline: Some("central".to_string()),
-                    content: decode_html_entities(&positioned_text.value).replace(' ', "\u{00A0}"),
+                    content: {
+                        // Process in order: backslash escapes, then HTML entities, then spaces
+                        let text = process_backslash_escapes(&positioned_text.value);
+                        let text = decode_html_entities(&text);
+                        text.replace(' ', "\u{00A0}")
+                    },
                 };
                 svg_children.push(SvgNode::Text(text_element));
             }

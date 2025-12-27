@@ -1506,7 +1506,10 @@ fn parse_edgepoint(pair: Pair<Rule>) -> Result<EdgePoint, miette::Report> {
 
 fn parse_string(pair: Pair<Rule>) -> Result<String, miette::Report> {
     let s = pair.as_str();
-    // Remove quotes and handle escapes
+    // Remove quotes and preserve backslash escape sequences
+    // Note: C pikchr does NOT interpret \n, \t, etc. during parsing - it processes
+    // them during rendering. Only \" and \\ are special during parsing.
+    // cref: pik_append_txt (pikchr.c:2578-2588) - processes backslashes at render time
     let inner = &s[1..s.len() - 1];
     let mut result = String::new();
     let mut chars = inner.chars().peekable();
@@ -1515,11 +1518,10 @@ fn parse_string(pair: Pair<Rule>) -> Result<String, miette::Report> {
             if let Some(&next) = chars.peek() {
                 chars.next();
                 match next {
-                    'n' => result.push('\n'),
-                    't' => result.push('\t'),
-                    'r' => result.push('\r'),
+                    // Only process quote escapes during parsing
                     '"' => result.push('"'),
-                    '\\' => result.push('\\'),
+                    // Keep all other backslash sequences literal (including \\, \n, \t, etc.)
+                    // They will be processed during rendering by process_backslash_escapes()
                     _ => {
                         result.push('\\');
                         result.push(next);
