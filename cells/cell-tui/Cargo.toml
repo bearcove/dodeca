@@ -21,6 +21,7 @@ cell-tui-proto = { path = "../cell-tui-proto" }
 color-eyre.workspace = true
 crossterm.workspace = true
 futures.workspace = true
+open = "5.3.3"
 rapace = { workspace = true, features = ["stream"] }
 rapace-cell.workspace = true
 ratatui.workspace = true

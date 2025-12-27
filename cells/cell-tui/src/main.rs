@@ -94,6 +94,11 @@ impl TuiApp {
                 }
             }
             KeyCode::Char('?') => self.show_help = !self.show_help,
+            KeyCode::Char('o') => {
+                if let Some(url) = self.server_status.urls.first() {
+                    let _ = open::that(url);
+                }
+            }
             KeyCode::Char('p') => {
                 let cmd = match self.server_status.bind_mode {
                     BindMode::Local => ServerCommand::GoPublic,
@@ -237,6 +242,8 @@ impl TuiApp {
         let footer = Paragraph::new(Line::from(vec![
             Span::raw("?").fg(YELLOW),
             Span::raw(" help  ").fg(FG_DARK),
+            Span::raw("o").fg(YELLOW),
+            Span::raw(" open  ").fg(FG_DARK),
             Span::raw("p").fg(YELLOW),
             Span::raw(" public  ").fg(FG_DARK),
             Span::raw("d").fg(YELLOW),
@@ -276,6 +283,10 @@ impl TuiApp {
             Line::from(vec![
                 Span::raw("  ?").fg(YELLOW),
                 Span::raw("      Toggle this help").fg(FG),
+            ]),
+            Line::from(vec![
+                Span::raw("  o").fg(YELLOW),
+                Span::raw("      Open first URL in browser").fg(FG),
             ]),
             Line::from(vec![
                 Span::raw("  p").fg(YELLOW),

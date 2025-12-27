@@ -1630,6 +1630,7 @@ dependencies = [
  "color-eyre",
  "crossterm",
  "futures",
+ "open",
  "rapace",
  "rapace-cell",
  "ratatui",
