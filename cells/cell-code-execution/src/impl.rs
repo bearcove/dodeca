@@ -239,10 +239,12 @@ edition = "2021"
         };
     }
 
+    // Process hidden lines (doctest-style # prefix) for compilation
+    let code = prepare_code_for_execution(&sample.code);
+
     // Determine if code needs to be wrapped in main()
-    let code = &sample.code;
     let main_code = if code.contains("fn main()") {
-        code.clone()
+        code
     } else {
         format!("fn main() {{\n{}\n}}", code)
     };
@@ -452,4 +454,37 @@ edition = "2021"
             }
         }
     }
+}
+
+/// Prepare code for execution by processing doctest-style hidden line markers.
+///
+/// Lines starting with `#` have the prefix stripped before compilation:
+/// - `# code` -> `code` (hidden setup code)
+/// - `#[attr]` -> `[attr]` (attributes - but we actually want `#[attr]`!)
+/// - `##` -> `#` (escape sequence)
+///
+/// Wait, that's wrong for attributes. Let me re-read rustdoc behavior:
+/// In rustdoc, `# ` (hash + space) hides the line but includes it.
+/// `#[attr]` is NOT hidden - it's a normal attribute.
+///
+/// So the actual rule is:
+/// - `# ` (hash + space) -> strip `# ` prefix, include in compilation
+/// - `##` -> becomes `#` in output (escape for displaying a #)
+/// - `#foo` where foo doesn't start with space -> normal code, not hidden
+fn prepare_code_for_execution(code: &str) -> String {
+    code.lines()
+        .map(|line| {
+            if let Some(rest) = line.strip_prefix("# ") {
+                // `# code` -> `code` (hidden line, include in compilation)
+                rest.to_string()
+            } else if let Some(rest) = line.strip_prefix("##") {
+                // `##` -> `#` (escape sequence)
+                format!("#{}", rest)
+            } else {
+                // Normal line (including #[attr] which should stay as-is)
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }

@@ -9,13 +9,21 @@ pub struct SyntaxHighlightImpl;
 
 impl SyntaxHighlightService for SyntaxHighlightImpl {
     async fn highlight_code(&self, code: String, language: String) -> HighlightResult {
+        // For Rust code, filter out hidden lines (doctest-style # prefix)
+        // before highlighting for display
+        let display_code = if is_rust_like(&language) {
+            filter_hidden_lines(&code)
+        } else {
+            code.clone()
+        };
+
         // Catch panics from tree-sitter (there are some edge-case bugs)
-        match std::panic::catch_unwind(|| highlight_code_inner(&code, &language)) {
+        match std::panic::catch_unwind(|| highlight_code_inner(&display_code, &language)) {
             Ok(result) => result,
             Err(_) => {
                 // Panic occurred - fallback to escaped plain text
                 HighlightResult {
-                    html: html_escape(&code),
+                    html: html_escape(&display_code),
                     highlighted: false,
                 }
             }
@@ -103,4 +111,34 @@ fn normalize_language(lang: &str) -> String {
         "plaintext" | "text" | "plain" | "" => "text".to_string(),
         _ => lang,
     }
+}
+
+/// Check if a language is Rust-like (supports doctest-style hidden lines)
+fn is_rust_like(lang: &str) -> bool {
+    let lang = lang.split(',').next().unwrap_or(lang).to_lowercase();
+    matches!(lang.as_str(), "rust" | "rs")
+}
+
+/// Filter out hidden lines from code for display purposes.
+///
+/// This follows Rust doctest conventions:
+/// - `# ` (hash + space at start of line) - hidden from display
+/// - `##` at start of line - displays as `#` (escape sequence)
+/// - `#[attr]` - NOT hidden, normal Rust attribute syntax
+fn filter_hidden_lines(code: &str) -> String {
+    code.lines()
+        .filter_map(|line| {
+            if line.starts_with("# ") {
+                // `# code` - hidden line, exclude from display
+                None
+            } else if let Some(rest) = line.strip_prefix("##") {
+                // `##foo` -> `#foo` (escape sequence)
+                Some(format!("#{}", rest))
+            } else {
+                // Normal line (including `#[attr]`), keep as-is
+                Some(line.to_string())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
