@@ -30,6 +30,9 @@ pub struct RenderContext {
     pub current_object: Option<RenderedObject>,
     /// Macro definitions (name -> body)
     pub macros: HashMap<String, String>,
+    /// Named positions (e.g., `OUT: 6.3in right of previous.e`)
+    /// cref: Labeled positions are stored separately from objects
+    pub named_positions: HashMap<String, PointIn>,
 }
 
 impl Default for RenderContext {
@@ -44,6 +47,7 @@ impl Default for RenderContext {
             bounds: BoundingBox::new(),
             current_object: None,
             macros: HashMap::new(),
+            named_positions: HashMap::new(),
         };
         ctx.init_builtin_variables();
         ctx
@@ -295,5 +299,21 @@ impl RenderContext {
         }
 
         self.object_list.push(obj);
+    }
+
+    /// Add a named position (e.g., `OUT: 6.3in right of previous.e`)
+    pub fn add_named_position(&mut self, name: String, pos: PointIn) {
+        tracing::debug!(
+            name = %name,
+            x = pos.x.raw(),
+            y = pos.y.raw(),
+            "Adding named position"
+        );
+        self.named_positions.insert(name, pos);
+    }
+
+    /// Get a named position
+    pub fn get_named_position(&self, name: &str) -> Option<PointIn> {
+        self.named_positions.get(name).copied()
     }
 }

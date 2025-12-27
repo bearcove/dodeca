@@ -343,8 +343,11 @@ fn render_statement(
                     let obj = render_object_stmt(ctx, obj_stmt, Some(labeled.label.clone()))?;
                     ctx.add_object(obj);
                 }
-                LabeledContent::Position(_pos) => {
-                    // Named position - just record it
+                LabeledContent::Position(pos) => {
+                    // Named position - evaluate and store it
+                    // cref: This handles cases like `OUT: 6.3in right of previous.e`
+                    let point = eval_position(ctx, pos)?;
+                    ctx.add_named_position(labeled.label.clone(), point);
                 }
             }
         }

@@ -524,6 +524,20 @@ fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, miette::Rep
             if let Some(rendered) = resolve_object(ctx, obj) {
                 Ok(rendered.center())
             } else {
+                // Check if it's a named position (e.g., `OUT: 6.3in right of previous.e`)
+                if let Object::Named(name) = obj {
+                    if let ObjectNameBase::PlaceName(n) = &name.base {
+                        if let Some(pos) = ctx.get_named_position(n) {
+                            tracing::debug!(
+                                name = %n,
+                                x = pos.x.raw(),
+                                y = pos.y.raw(),
+                                "eval_place: found named position"
+                            );
+                            return Ok(pos);
+                        }
+                    }
+                }
                 Ok(ctx.position)
             }
         }
