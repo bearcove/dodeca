@@ -27,6 +27,10 @@ This page describes what’s currently implemented in dodeca (as shipped in this
 
 - **Jinja-like template engine** - blocks, inheritance, loops, filters, and diagnostics
 
+## Diagrams
+
+- **ASCII diagrams** - render plain text diagrams as SVG using [aasvg](https://crates.io/crates/aasvg)
+
 ## Code Sample Execution
 
 - **Rust code blocks** can be executed during the build (if `ddc-cell-code-execution` is available)
