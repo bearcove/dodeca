@@ -1386,8 +1386,13 @@ impl Shape for LineShape {
             // Draw line to midpoint before second waypoint
             // cref: radiusMidpoint(a[0], a[1], r) returns a[1] - r*normalized(a[1]-a[0])
             if n >= 2 {
-                let dir = (svg_points[1] - svg_points[0]).normalize();
-                let m = svg_points[1] - dir * corner_radius_px;  // Go from wp1 back toward wp0
+                let delta = svg_points[1] - svg_points[0];
+                let m = if delta.length() > 1e-6 {
+                    let dir = delta.normalize();
+                    svg_points[1] - dir * corner_radius_px  // Go from wp1 back toward wp0
+                } else {
+                    svg_points[1]  // Degenerate: just use the point as-is
+                };
                 path_data = path_data.l(m.x, m.y);
                 tracing::debug!(
                     x = m.x,
@@ -1413,8 +1418,13 @@ impl Shape for LineShape {
 
                 // Entry point: from a_n toward a_i, then back off by radius
                 // cref: radiusMidpoint(an, a[i], r) returns a[i] - r*dir
-                let dir_in = (a_i - a_n).normalize();
-                let m_entry = a_i - dir_in * corner_radius_px;
+                let delta_in = a_i - a_n;
+                let m_entry = if delta_in.length() > 1e-6 {
+                    let dir_in = delta_in.normalize();
+                    a_i - dir_in * corner_radius_px
+                } else {
+                    a_i  // Degenerate: points coincide, skip the curve
+                };
 
                 // Quadratic curve: control at a[i], end at entry point
                 path_data = path_data.q(a_i.x, a_i.y, m_entry.x, m_entry.y);
@@ -1429,9 +1439,10 @@ impl Shape for LineShape {
 
                 // Exit point: point before reaching next waypoint
                 // cref: radiusMidpoint(a[i], an, r) returns an - r*dir = point near an
-                let dist = (a_n - a_i).length();
-                if corner_radius_px < dist * 0.5 {
-                    let dir_out = (a_n - a_i).normalize();
+                let delta_out = a_n - a_i;
+                let dist = delta_out.length();
+                if corner_radius_px < dist * 0.5 && dist > 1e-6 {
+                    let dir_out = delta_out.normalize();
                     let m_exit = a_n - dir_out * corner_radius_px;  // near a_n, not a_i!
                     path_data = path_data.l(m_exit.x, m_exit.y);
                     tracing::debug!(
