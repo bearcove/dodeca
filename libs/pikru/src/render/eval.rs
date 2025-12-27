@@ -491,10 +491,10 @@ pub fn endpoint_object_from_position(
 
 fn endpoint_object_from_place(ctx: &RenderContext, place: &Place) -> Option<EndpointObject> {
     match place {
-        Place::Object(obj)
-        | Place::ObjectEdge(obj, _)
-        | Place::EdgePointOf(_, obj)
-        | Place::Vertex(_, obj) => {
+        // Only return object for center references (e.g., `C0`, `last box`)
+        // cref: pik_last_ref_object (pikchr.c) - only returns object if point == ptAt (center)
+        // Edge references like `C0.ne` or `.ne of C0` do NOT trigger autochop
+        Place::Object(obj) => {
             // cref: pik_position_from_place (pikchr.c)
             // When referencing objects inside sublists (dotted names like Ptr.A),
             // C pikchr does NOT trigger implicit autochop (both endpoints present).
@@ -512,6 +512,9 @@ fn endpoint_object_from_place(ctx: &RenderContext, place: &Place) -> Option<Endp
             }
             resolve_object(ctx, obj).map(EndpointObject::from_rendered)
         }
+        // Edge/vertex references do NOT set object attachment for autochop
+        // cref: pik_last_ref_object checks ptAt == pPt, which fails for edge points
+        Place::ObjectEdge(_, _) | Place::EdgePointOf(_, _) | Place::Vertex(_, _) => None,
     }
 }
 

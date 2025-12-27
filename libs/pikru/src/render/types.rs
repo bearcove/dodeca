@@ -133,7 +133,6 @@ impl PositionedText {
                         }
                     }
                     TextAttr::Aligned => pt.aligned = true,
-                    TextAttr::Center => {} // Center is handled at layout level, not per-text
                 }
             }
         }

@@ -4,7 +4,7 @@ use super::shapes::{Shape, ShapeRenderContext, svg_style_from_entries};
 use super::{TextVSlot, compute_text_vslots};
 use crate::types::{Length as Inches, Scaler};
 use facet_svg::facet_xml::SerializeOptions;
-use facet_svg::{Color, Points, Polygon, Style, Svg, SvgNode, SvgStyle, Text, facet_xml};
+use facet_svg::{Points, Polygon, Style, Svg, SvgNode, SvgStyle, Text, facet_xml};
 use glam::{DVec2, dvec2};
 use time::{OffsetDateTime, format_description};
 
