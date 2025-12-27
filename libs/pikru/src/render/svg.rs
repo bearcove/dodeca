@@ -315,11 +315,14 @@ pub fn generate_svg(
     };
 
     // C pikchr: when scale != 1.0, display width = viewBox width * scale
-    // cref: pik_render (pikchr.c:4632-4633) - uses pik_round which truncates (int)v
+    // cref: pik_render (pikchr.c:4626-4633) - C rounds viewbox to int first, then scales and rounds again
+    // This matches the two-step rounding: wSVG = pik_round(rScale*w), then wSVG = pik_round(wSVG*pikScale)
     let is_scaled = scale < 0.99 || scale > 1.01;
     if is_scaled {
-        let display_width = (viewbox_width * scale) as i32;
-        let display_height = (viewbox_height * scale) as i32;
+        let viewbox_width_int = viewbox_width as i32;
+        let viewbox_height_int = viewbox_height as i32;
+        let display_width = ((viewbox_width_int as f64) * scale) as i32;
+        let display_height = ((viewbox_height_int as f64) * scale) as i32;
         svg.width = Some(display_width.to_string());
         svg.height = Some(display_height.to_string());
     }
