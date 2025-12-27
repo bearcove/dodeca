@@ -1,3 +1,4 @@
 /target
+/aasvg-cli/target
 Cargo.lock
 *.svg
