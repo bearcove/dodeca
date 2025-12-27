@@ -31,6 +31,8 @@
 <path d="M 216,160 L 216,176" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 240,288 L 240,320" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 288,288 L 288,312" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 290,312 L 290,344" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 286,312 L 286,344" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 288,344 L 288,368" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 296,192 L 296,256" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 312,208 L 312,240" fill="none" stroke="var(--aasvg-stroke)"/>
@@ -38,6 +40,8 @@
 <path d="M 336,144 L 336,184" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 352,264 L 352,288" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 376,208 L 376,240" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 394,16 L 394,48" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 390,16 L 390,48" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 392,192 L 392,256" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 448,256 L 448,304" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 464,96 L 464,160" fill="none" stroke="var(--aasvg-stroke)"/>
@@ -53,23 +57,25 @@
 <path d="M 592,136 L 592,160" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 608,16 L 608,128" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 608,272 L 608,288" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 640,56 L 640,96" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 642,32 L 642,64" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 638,32 L 638,64" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 640,64 L 640,96" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 640,352 L 640,376" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 674,32 L 674,56" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 670,32 L 670,56" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 672,72 L 672,96" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 672,160 L 672,200" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 672,304 L 672,320" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 696,304 L 696,336" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 704,32 L 704,56" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 706,56 L 706,96" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 702,56 L 702,96" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 712,344 L 712,384" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 720,168 L 720,240" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 728,304 L 728,336" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 736,32 L 736,64" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 290,320 L 290,336" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 286,320 L 286,336" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 642,32 L 642,48" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 638,32 L 638,48" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 706,80 L 706,96" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 702,80 L 702,96" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 738,72 L 738,96" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 734,72 L 734,96" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 192,32 L 192,40" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 216,32 L 216,40" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 240,40 L 240,48" fill="none" stroke="var(--aasvg-stroke)"/>
@@ -87,6 +93,8 @@
 <path d="M 480,48 L 504,48" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 8,64 L 168,64" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 608,64 L 640,64" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 648,62 L 704,62" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 648,66 L 704,66" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 704,64 L 752,64" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 552,80 L 592,80" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 32,96 L 168,96" fill="none" stroke="var(--aasvg-stroke)"/>
@@ -104,6 +112,8 @@
 <path d="M 240,160 L 256,160" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 464,160 L 528,160" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 656,160 L 728,160" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 48,174 L 136,174" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 48,178 L 136,178" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 136,192 L 160,192" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 232,192 L 256,192" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 296,192 L 392,192" fill="none" stroke="var(--aasvg-stroke)"/>
@@ -136,42 +146,38 @@
 <path d="M 696,336 L 728,336" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 160,352 L 248,352" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 320,368 L 352,368" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 352,366 L 376,366" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 352,370 L 376,370" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 380,368 L 400,368" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 160,384 L 248,384" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 632,384 L 648,384" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 8,416 L 36,416" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 40,416 Q 42,412.8 44,416 Q 46,419.2 48,416 Q 50,412.8 52,416 Q 54,419.2 56,416 Q 58,412.8 60,416 Q 62,419.2 64,416 Q 66,412.8 68,416 Q 70,419.2 72,416 " fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 72,416 L 100,416" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 104,414 L 132,414" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 104,418 L 132,418" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 136,416 Q 138,412.8 140,416 Q 142,419.2 144,416 Q 146,412.8 148,416 Q 150,419.2 152,416 Q 154,412.8 156,416 Q 158,419.2 160,416 Q 162,412.8 164,416 Q 166,419.2 168,416 " fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 168,414 L 196,414" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 168,418 L 196,418" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 196,416 L 228,416" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 228,414 L 260,414" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 228,418 L 260,418" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 260,416 Q 262,412.8 264,416 Q 266,419.2 268,416 Q 270,412.8 272,416 Q 274,419.2 276,416 Q 278,412.8 280,416 Q 282,419.2 284,416 Q 286,412.8 288,416 Q 290,419.2 292,416 " fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 292,416 L 328,416" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 352,416 L 392,416" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 416,416 L 452,416" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 516,416 L 548,416" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 644,416 L 672,416" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 708,416 L 736,416" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 40,416 Q 42,412.8 44,416 Q 46,419.2 48,416 Q 50,412.8 52,416 Q 54,419.2 56,416 Q 58,412.8 60,416 Q 62,419.2 64,416 Q 66,412.8 68,416 Q 70,419.2 72,416 " fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 136,416 Q 138,412.8 140,416 Q 142,419.2 144,416 Q 146,412.8 148,416 Q 150,419.2 152,416 Q 154,412.8 156,416 Q 158,419.2 160,416 Q 162,412.8 164,416 Q 166,419.2 168,416 " fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 260,416 Q 262,412.8 264,416 Q 266,419.2 268,416 Q 270,412.8 272,416 Q 274,419.2 276,416 Q 278,412.8 280,416 Q 282,419.2 284,416 Q 286,412.8 288,416 Q 290,419.2 292,416 " fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 452,416 Q 454,412.8 456,416 Q 458,419.2 460,416 Q 462,412.8 464,416 Q 466,419.2 468,416 Q 470,412.8 472,416 Q 474,419.2 476,416 Q 478,412.8 480,416 Q 482,419.2 484,416 " fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 580,416 Q 582,412.8 584,416 Q 586,419.2 588,416 Q 590,412.8 592,416 Q 594,419.2 596,416 Q 598,412.8 600,416 Q 602,419.2 604,416 " fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 676,416 Q 678,412.8 680,416 Q 682,419.2 684,416 Q 686,412.8 688,416 Q 690,419.2 692,416 Q 694,412.8 696,416 Q 698,419.2 700,416 " fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 648,62 L 704,62" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 648,66 L 704,66" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 48,174 L 136,174" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 48,178 L 136,178" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 352,366 L 376,366" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 352,370 L 376,370" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 104,414 L 132,414" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 104,418 L 132,418" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 168,414 L 196,414" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 168,418 L 196,418" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 228,414 L 260,414" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 228,418 L 260,418" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 484,414 L 516,414" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 484,418 L 516,418" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 516,416 L 548,416" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 548,414 L 576,414" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 548,418 L 576,418" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 580,416 Q 582,412.8 584,416 Q 586,419.2 588,416 Q 590,412.8 592,416 Q 594,419.2 596,416 Q 598,412.8 600,416 Q 602,419.2 604,416 Q 606,412.8 608,416 Q 610,419.2 612,416 " fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 612,414 L 640,414" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 612,418 L 640,418" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 644,416 L 672,416" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 676,416 Q 678,412.8 680,416 Q 682,419.2 684,416 Q 686,412.8 688,416 Q 690,419.2 692,416 Q 694,412.8 696,416 Q 698,419.2 700,416 Q 702,412.8 704,416 Q 706,419.2 708,416 " fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 708,416 L 736,416" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 200,224 L 216,256" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 232,288 L 248,320" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 448,256 L 472,304" fill="none" stroke="var(--aasvg-stroke)"/>

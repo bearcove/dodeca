@@ -9,12 +9,9 @@ use crate::path::*;
 
 /// Find all paths (lines and curves) in the grid
 pub fn find_paths(grid: &mut Grid, paths: &mut PathSet) {
-    find_solid_vertical_lines(grid, paths);
-    find_double_vertical_lines(grid, paths);
+    find_vertical_lines(grid, paths); // Combined solid and double, interleaved like JS
     find_circuit_diagram_short_lines(grid, paths); // Must come after vline finders
-    find_solid_horizontal_lines(grid, paths);
-    find_squiggle_horizontal_lines(grid, paths);
-    find_double_horizontal_lines(grid, paths);
+    find_horizontal_lines(grid, paths); // Combined solid, squiggle, and double, interleaved like JS
     find_backslash_diagonals(grid, paths);
     find_forward_slash_diagonals(grid, paths);
     find_curved_corners(grid, paths);
@@ -118,7 +115,14 @@ fn is_double_v_line_at(grid: &Grid, x: i32, y: i32) -> bool {
 /// Stretch vertical line endpoints to meet adjacent lines and decorations
 /// Returns (adjusted_start_y, adjusted_end_y) as fractional grid coordinates
 /// This implements the JS stretching logic from markdeep-diagram.js lines 847-864
-fn stretch_v_line_endpoints(grid: &Grid, x: i32, start_y: i32, end_y: i32) -> (f64, f64) {
+/// `is_double` indicates if this is a double line (affects which alt check and box chars to use)
+fn stretch_v_line_endpoints(
+    grid: &Grid,
+    x: i32,
+    start_y: i32,
+    end_y: i32,
+    is_double: bool,
+) -> (f64, f64) {
     let mut a = start_y as f64;
     let mut b = end_y as f64;
 
@@ -128,8 +132,18 @@ fn stretch_v_line_endpoints(grid: &Grid, x: i32, start_y: i32, end_y: i32) -> (f
     let dndn = grid.get(x, end_y + 1);
 
     // Box-drawing characters for vertical lines (from JS boxt/boxb params)
-    let is_box_top = |c: char| "╤╥╦┬┰".contains(c);
-    let is_box_bottom = |c: char| "╧╨╩┴┸".contains(c);
+    // Solid: boxt = '\u2564' (╤), boxb = '\u2567' (╧)
+    // Double: boxt = '\u2565\u2566' (╥╦), boxb = '\u2568\u2569' (╨╩)
+    let is_box_top = if is_double {
+        |c: char| "╥╦".contains(c)
+    } else {
+        |c: char| "╤".contains(c)
+    };
+    let is_box_bottom = if is_double {
+        |c: char| "╨╩".contains(c)
+    } else {
+        |c: char| "╧".contains(c)
+    };
 
     // Check for underscore to left or right of start
     let has_underscore_above =
@@ -137,10 +151,19 @@ fn stretch_v_line_endpoints(grid: &Grid, x: i32, start_y: i32, end_y: i32) -> (f
     // Check for underscore to left or right of end
     let has_underscore_at_end = grid.get(x - 1, end_y) == '_' || grid.get(x + 1, end_y) == '_';
 
-    // Check for alternate line type (double vs solid) at position
-    // JS: grid[alt](A.x, A.y - 1) which calls isDoubleVLineAt for solid lines
-    let alt_above = is_double_v_line_at(grid, x, start_y - 1);
-    let alt_below = is_double_v_line_at(grid, x, end_y + 1);
+    // Check for alternate line type at position
+    // For solid lines: alt = isDoubleVLineAt
+    // For double lines: alt = isSolidVLineAt
+    let alt_above = if is_double {
+        is_solid_v_line_at(grid, x, start_y - 1)
+    } else {
+        is_double_v_line_at(grid, x, start_y - 1)
+    };
+    let alt_below = if is_double {
+        is_solid_v_line_at(grid, x, end_y + 1)
+    } else {
+        is_double_v_line_at(grid, x, end_y + 1)
+    };
 
     // === TOP (A) ADJUSTMENTS ===
     // JS: if (!isVertex(up) && ((upup === '-') || (upup === '_') || (boxt.indexOf(upup) >= 0) ||
@@ -158,7 +181,11 @@ fn stretch_v_line_endpoints(grid: &Grid, x: i32, start_y: i32, end_y: i32) -> (f
 
     if stretch_up {
         // JS: A.y -= (isVertex(upup) && grid[alt](A.x, A.y - 2) && !isTopVertexOrDecoration(up)) ? 1 : 0.5;
-        let alt_above_2 = is_double_v_line_at(grid, x, start_y - 2);
+        let alt_above_2 = if is_double {
+            is_solid_v_line_at(grid, x, start_y - 2)
+        } else {
+            is_double_v_line_at(grid, x, start_y - 2)
+        };
         if is_vertex(upup) && alt_above_2 && !is_top_vertex(up) && up != '^' {
             a -= 1.0;
         } else {
@@ -184,56 +211,70 @@ fn stretch_v_line_endpoints(grid: &Grid, x: i32, start_y: i32, end_y: i32) -> (f
     (a, b)
 }
 
-fn find_solid_vertical_lines(grid: &mut Grid, paths: &mut PathSet) {
+/// Find all vertical lines (solid and double), checking both at each position
+/// This matches JS behavior where solid is tried first, then double, at each (x, y)
+/// See markdeep-diagram.js lines 833-882
+fn find_vertical_lines(grid: &mut Grid, paths: &mut PathSet) {
     for x in 0..grid.width as i32 {
         let mut y = 0;
         while y < grid.height as i32 {
-            if is_solid_v_line_at(grid, x, y) && !grid.is_used(x, y) {
-                let start_y = y;
-                while y < grid.height as i32 && is_solid_v_line_at(grid, x, y) {
-                    grid.set_used(x, y);
-                    y += 1;
-                }
-                let end_y = y - 1;
-
-                // Apply stretching logic matching JS behavior
-                let (adj_start_y, adj_end_y) =
-                    stretch_v_line_endpoints(grid, x, start_y, end_y);
-
-                let path = Path::line(
-                    Vec2::from_grid_frac(x as f64, adj_start_y),
-                    Vec2::from_grid_frac(x as f64, adj_end_y),
-                );
-                paths.insert(path);
-            } else {
-                y += 1;
+            // Try solid first, then double (matching JS order)
+            if try_vline(grid, paths, x, &mut y, false) || try_vline(grid, paths, x, &mut y, true) {
+                // Line was found and processed, continue to next position
+                // (y was already updated by try_vline)
+                continue;
             }
+            y += 1;
         }
     }
 }
 
-fn find_double_vertical_lines(grid: &mut Grid, paths: &mut PathSet) {
-    for x in 0..grid.width as i32 {
-        let mut y = 0;
-        while y < grid.height as i32 {
-            let c = grid.get(x, y);
-            if c == '║' {
-                let start_y = y;
-                while y < grid.height as i32 && grid.get(x, y) == '║' {
-                    grid.set_used(x, y);
-                    y += 1;
-                }
-                let end_y = y - 1;
+/// Try to find and process a vertical line at (x, y)
+/// Returns true if a line was found, false otherwise
+/// If a line is found, y is updated to point to the position after the line
+/// `is_double` controls whether we're looking for solid (false) or double (true) lines
+fn try_vline(grid: &mut Grid, paths: &mut PathSet, x: i32, y: &mut i32, is_double: bool) -> bool {
+    let check_fn = if is_double {
+        is_double_v_line_at
+    } else {
+        is_solid_v_line_at
+    };
 
-                if end_y >= start_y {
-                    let path = Path::line_from_grid(x, start_y, x, end_y).with_double(true);
-                    paths.insert(path);
-                }
-            } else {
-                y += 1;
-            }
+    if !check_fn(grid, x, *y) || grid.is_used(x, *y) {
+        return false;
+    }
+
+    // This character begins a vertical line...find the end
+    let start_y = *y;
+
+    // Mark cells as used and advance y while the line continues
+    loop {
+        grid.set_used(x, *y);
+        *y += 1;
+        if *y >= grid.height as i32 || !check_fn(grid, x, *y) {
+            break;
         }
     }
+
+    let end_y = *y - 1;
+
+    // Apply stretching logic
+    let (adj_start_y, adj_end_y) = stretch_v_line_endpoints(grid, x, start_y, end_y, is_double);
+
+    // Don't insert degenerate lines (JS: if ((A.x !== B.x) || (A.y !== B.y)))
+    if adj_start_y != adj_end_y {
+        let mut path = Path::line(
+            Vec2::from_grid_frac(x as f64, adj_start_y),
+            Vec2::from_grid_frac(x as f64, adj_end_y),
+        );
+        if is_double {
+            path = path.with_double(true);
+        }
+        paths.insert(path);
+    }
+
+    // Whether degenerate or not, we advanced y past the line, so return true
+    true
 }
 
 /// Find special short vertical lines for circuit diagrams
@@ -428,34 +469,86 @@ fn is_solid_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
     }
 }
 
-fn find_solid_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
+/// Find all horizontal lines (solid, squiggle, and double), checking all at each position
+/// This matches JS behavior where solid is tried first, then squiggle, then double
+/// See markdeep-diagram.js lines 924-979
+fn find_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
     for y in 0..grid.height as i32 {
         let mut x = 0;
         while x < grid.width as i32 {
-            // Note: JS doesn't check is_used before starting a line
-            // This allows vertices to be shared between vertical and horizontal lines
-            if is_solid_h_line_at(grid, x, y) {
-                let start_x = x;
-                while x < grid.width as i32 && is_solid_h_line_at(grid, x, y) {
-                    grid.set_used(x, y);
-                    x += 1;
-                }
-                let end_x = x - 1;
-
-                // Apply stretching logic matching JS behavior
-                let (adj_start, adj_end) =
-                    stretch_h_line_endpoints(grid, start_x, end_x, y);
-
-                let path = Path::line(
-                    Vec2::from_grid_frac(adj_start, y as f64),
-                    Vec2::from_grid_frac(adj_end, y as f64),
-                );
-                paths.insert(path);
-            } else {
-                x += 1;
+            // Try solid first, then squiggle, then double (matching JS order)
+            if try_hline(grid, paths, &mut x, y, HLineType::Solid)
+                || try_hline(grid, paths, &mut x, y, HLineType::Squiggle)
+                || try_hline(grid, paths, &mut x, y, HLineType::Double)
+            {
+                // Line was found and processed, continue to next position
+                continue;
             }
+            x += 1;
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum HLineType {
+    Solid,
+    Squiggle,
+    Double,
+}
+
+/// Try to find and process a horizontal line at (x, y)
+/// Returns true if a line was found, false otherwise
+fn try_hline(
+    grid: &mut Grid,
+    paths: &mut PathSet,
+    x: &mut i32,
+    y: i32,
+    line_type: HLineType,
+) -> bool {
+    let check_fn = match line_type {
+        HLineType::Solid => is_solid_h_line_at,
+        HLineType::Squiggle => is_squiggle_h_line_at,
+        HLineType::Double => is_double_h_line_at,
+    };
+
+    if !check_fn(grid, *x, y) {
+        return false;
+    }
+
+    // This character begins a horizontal line...find the end
+    let start_x = *x;
+
+    // Mark cells as used and advance x while the line continues
+    loop {
+        grid.set_used(*x, y);
+        *x += 1;
+        if *x >= grid.width as i32 || !check_fn(grid, *x, y) {
+            break;
+        }
+    }
+
+    let end_x = *x - 1;
+
+    // Apply stretching logic
+    let (adj_start, adj_end) = stretch_h_line_endpoints(grid, start_x, end_x, y);
+
+    // Only insert non-degenerate lines (JS: if ((A.x !== B.x) || (A.y !== B.y)))
+    if adj_start != adj_end {
+        let mut path = Path::line(
+            Vec2::from_grid_frac(adj_start, y as f64),
+            Vec2::from_grid_frac(adj_end, y as f64),
+        );
+        match line_type {
+            HLineType::Solid => {}
+            HLineType::Squiggle => path = path.with_squiggle(true),
+            HLineType::Double => path = path.with_double(true),
+        }
+        paths.insert(path);
+        return true;
+    }
+
+    // Degenerate line (after stretching) - we already advanced x past the line
+    true
 }
 
 /// Check if position is part of a squiggle horizontal line
@@ -494,36 +587,6 @@ fn is_squiggle_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
     }
 }
 
-fn find_squiggle_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
-    for y in 0..grid.height as i32 {
-        let mut x = 0;
-        while x < grid.width as i32 {
-            // Note: JS doesn't check is_used before starting a line
-            if is_squiggle_h_line_at(grid, x, y) {
-                let start_x = x;
-                while x < grid.width as i32 && is_squiggle_h_line_at(grid, x, y) {
-                    grid.set_used(x, y);
-                    x += 1;
-                }
-                let end_x = x - 1;
-
-                // Apply stretching logic matching JS behavior
-                let (adj_start, adj_end) =
-                    stretch_h_line_endpoints(grid, start_x, end_x, y);
-
-                let path = Path::line(
-                    Vec2::from_grid_frac(adj_start, y as f64),
-                    Vec2::from_grid_frac(adj_end, y as f64),
-                )
-                .with_squiggle(true);
-                paths.insert(path);
-            } else {
-                x += 1;
-            }
-        }
-    }
-}
-
 /// Check if position is part of a double horizontal line
 /// Following JS logic from isHLineAt
 fn is_double_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
@@ -559,36 +622,6 @@ fn is_double_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
             || (is_double_h_line(rt) && is_double_h_line(rtrt))
     } else {
         false
-    }
-}
-
-fn find_double_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
-    for y in 0..grid.height as i32 {
-        let mut x = 0;
-        while x < grid.width as i32 {
-            // Note: JS doesn't check is_used before starting a line
-            if is_double_h_line_at(grid, x, y) {
-                let start_x = x;
-                while x < grid.width as i32 && is_double_h_line_at(grid, x, y) {
-                    grid.set_used(x, y);
-                    x += 1;
-                }
-                let end_x = x - 1;
-
-                // Apply stretching logic matching JS behavior
-                let (adj_start, adj_end) =
-                    stretch_h_line_endpoints(grid, start_x, end_x, y);
-
-                let path = Path::line(
-                    Vec2::from_grid_frac(adj_start, y as f64),
-                    Vec2::from_grid_frac(adj_end, y as f64),
-                )
-                .with_double(true);
-                paths.insert(path);
-            } else {
-                x += 1;
-            }
-        }
     }
 }
 

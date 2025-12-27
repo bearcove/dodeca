@@ -1,5 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="432" width="760" viewBox="0 0 760 432" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
-<rect class="backdrop" x="0" y="0" width="760" height="432" rx="3px" ry="3px" fill="white" opacity="0.9"/>
 <path d="M 8,16 L 8,64" fill="none" stroke="black"/>
 <path d="M 16,112 L 16,144" fill="none" stroke="black"/>
 <path d="M 16,208 L 16,256" fill="none" stroke="black"/>

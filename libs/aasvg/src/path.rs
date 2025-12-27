@@ -409,23 +409,23 @@ impl Path {
 
     fn squiggle_svg(&self) -> String {
         // Generate a wavy horizontal line matching JS behavior
-        // The JS iterates by full grid units and draws 2 Qs per unit
-        let x0 = self.a.x.min(self.b.x);
-        let x1 = self.a.x.max(self.b.x);
+        // The JS iterates from A.x to B.x by 1 grid unit, keeping fractional coords
         let y = self.a.y;
         let amplitude = SCALE * ASPECT * 0.2;
 
-        let mut result = format!("M {},{}", format_coord(x0), format_coord(y));
+        let mut result = format!("M {},{}", format_coord(self.a.x), format_coord(y));
 
-        // Convert to grid coordinates for iteration
-        let grid_x0 = (x0 / SCALE - 1.0).round() as i32;
-        let grid_x1 = (x1 / SCALE - 1.0).ceil() as i32;
+        // Convert to grid coordinates (fractional) for iteration
+        // JS: for (let x = x0; x < x1; x++) where x0/x1 are grid coords
+        let grid_x0 = self.a.x / SCALE - 1.0;
+        let grid_x1 = self.b.x / SCALE - 1.0;
 
-        let step = SCALE / 4.0; // 0.25 grid units
-        let mut x = x0;
+        // Iterate by full grid units (1.0), keeping fractional start
+        let step = SCALE / 4.0; // 0.25 grid units in pixels
+        let mut x = self.a.x; // Start in pixel coords
+        let mut grid_x = grid_x0;
 
-        // Each grid unit gets 2 Q commands (up-mid and down-start pattern)
-        for _ in grid_x0..grid_x1 {
+        while grid_x < grid_x1 {
             // First half: up to mid
             let up_x = x + step;
             let up_y = y - amplitude;
@@ -453,6 +453,7 @@ impl Path {
             );
 
             x = next_x;
+            grid_x += 1.0;
         }
 
         // JS outputs a trailing space after the last Q command
