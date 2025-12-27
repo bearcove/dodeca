@@ -1427,11 +1427,11 @@ fn parse_nth(pair: Pair<Rule>) -> Result<Nth, miette::Report> {
                 .trim_end_matches(|c: char| !c.is_ascii_digit())
                 .parse()
                 .unwrap_or(1);
-            let is_last = inner.peek().map(|p| p.as_str() == "last").unwrap_or(false);
-            if is_last {
-                inner.next();
-            }
+            // Check for "last" keyword - it's consumed as a literal in pest grammar,
+            // not as a child node, so we need to check the original pair string
+            let is_last = pair_str.contains(" last ");
             let class = inner.next().map(|p| parse_nth_class(p)).transpose()?;
+            tracing::debug!(num, is_last, ?class, pair_str, "parse_nth Ordinal");
             Ok(Nth::Ordinal(num, is_last, class))
         }
         Rule::CLASSNAME => {

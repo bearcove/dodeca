@@ -140,7 +140,7 @@ impl RenderContext {
         self.text_names.get(name)
     }
 
-    /// Get the nth object of a class (1-indexed)
+    /// Get the nth object of a class (1-indexed, from start)
     pub fn get_nth_object(&self, n: usize, class: Option<ClassName>) -> Option<&RenderedObject> {
         let filtered: Vec<_> = self
             .object_list
@@ -148,6 +148,25 @@ impl RenderContext {
             .filter(|o| class.map(|c| o.class() == c).unwrap_or(true))
             .collect();
         filtered.get(n.saturating_sub(1)).copied()
+    }
+
+    /// Get the nth last object of a class (1-indexed, from end)
+    /// e.g., "3rd last box" gets the 3rd box counting from the end
+    pub fn get_nth_last_object(
+        &self,
+        n: usize,
+        class: Option<ClassName>,
+    ) -> Option<&RenderedObject> {
+        let filtered: Vec<_> = self
+            .object_list
+            .iter()
+            .filter(|o| class.map(|c| o.class() == c).unwrap_or(true))
+            .collect();
+        let len = filtered.len();
+        if n > len || n == 0 {
+            return None;
+        }
+        filtered.get(len - n).copied()
     }
 
     /// Get the last object of a class

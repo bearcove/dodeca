@@ -595,9 +595,15 @@ pub fn resolve_object<'a>(ctx: &'a RenderContext, obj: &Object) -> Option<&'a Re
                 }
                 obj
             }
-            Nth::Ordinal(n, _, class) => {
+            Nth::Ordinal(n, is_last, class) => {
                 let oc = class.as_ref().and_then(|c| nth_class_to_class_name(c));
-                ctx.get_nth_object(*n as usize, oc)
+                if *is_last {
+                    // "3rd last box" - count from end
+                    ctx.get_nth_last_object(*n as usize, oc)
+                } else {
+                    // "3rd box" - count from start
+                    ctx.get_nth_object(*n as usize, oc)
+                }
             }
             Nth::Previous => {
                 // "previous" refers to the most recently completed object
