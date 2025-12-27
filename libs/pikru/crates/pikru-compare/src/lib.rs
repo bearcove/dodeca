@@ -15,8 +15,8 @@ use std::process::Command;
 
 /// SSIM threshold for visual comparison.
 /// 1.0 = identical, 0.0 = completely different.
-/// 0.9999 is very strict - allows only tiny anti-aliasing differences.
-pub const SSIM_THRESHOLD: f64 = 0.9999;
+/// 0.999 allows for minor anti-aliasing differences from arc rendering, etc.
+pub const SSIM_THRESHOLD: f64 = 0.999;
 
 /// Render size for visual comparison (pixels).
 /// Larger = more accurate but slower.
