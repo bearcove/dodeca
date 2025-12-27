@@ -4,7 +4,7 @@ use super::shapes::{Shape, ShapeRenderContext, svg_style_from_entries};
 use super::{TextVSlot, compute_text_vslots};
 use crate::types::{Length as Inches, Scaler};
 use facet_svg::facet_xml::SerializeOptions;
-use facet_svg::{Points, Polygon, Style, Svg, SvgNode, SvgStyle, Text, facet_xml};
+use facet_svg::{Circle as SvgCircle, Points, Polygon, Style, Svg, SvgNode, SvgStyle, Text, facet_xml};
 use glam::{DVec2, dvec2};
 use time::{OffsetDateTime, format_description};
 
@@ -650,7 +650,7 @@ pub fn generate_svg(
     // cref: pikchr.c:7289-7290 - charht and charwid are scaled by fontscale
     let charht = get_length(ctx, "charht", 0.14) * fontscale;
     let charwid = get_length(ctx, "charwid", 0.08) * fontscale;
-    for obj in sorted_objects {
+    for obj in sorted_objects.iter() {
         render_object_full(
             obj,
             &scaler,
@@ -666,6 +666,63 @@ pub fn generate_svg(
             options.css_variables,
             &mut svg_children,
         );
+    }
+
+    // cref: pik_elist_render (pikchr.c:4497-4518) - render debug labels if debug_label_color is set
+    // If debug_label_color is defined and non-negative, render a dot + label at each named object
+    if let Some(crate::types::EvalValue::Color(color_val)) = ctx.variables.get("debug_label_color") {
+        // Convert u32 color value to rgb() string
+        let r = ((*color_val >> 16) & 0xFF) as u8;
+        let g = ((*color_val >> 8) & 0xFF) as u8;
+        let b = (*color_val & 0xFF) as u8;
+        let color_str = format!("rgb({},{},{})", r, g, b);
+
+        let dot_rad = 0.015; // Same as C: dot.rad = 0.015
+        let dot_rad_px = scaler.px(Inches(dot_rad));
+        let sw_px = fmt_num(scaler.px(Inches(0.015))); // Same as C: dot.sw = 0.015
+
+        for obj in sorted_objects.iter() {
+            // Only render for objects with explicit names (labels like `B1:`)
+            if let Some(ref name) = obj.name {
+                if obj.name_is_explicit {
+                    let center = obj.center().to_svg(&scaler, offset_x, max_y);
+
+                    // Render dot (filled circle)
+                    let circle = SvgCircle {
+                        cx: Some(center.x),
+                        cy: Some(center.y),
+                        r: Some(dot_rad_px),
+                        fill: Some(color_str.clone()),
+                        stroke: Some(color_str.clone()),
+                        stroke_width: Some(sw_px.clone()),
+                        stroke_dasharray: None,
+                        style: SvgStyle::default(),
+                    };
+                    svg_children.push(SvgNode::Circle(circle));
+
+                    // Render label text above the dot
+                    // cref: pik_elist_render (pikchr.c:4509) - aTxt[0].eCode = TP_ABOVE
+                    let text_y = center.y - scaler.px(Inches(charht * 0.5));
+                    let text_element = Text {
+                        x: Some(center.x),
+                        y: Some(text_y),
+                        transform: None,
+                        fill: Some(color_str.clone()),
+                        stroke: None,
+                        stroke_width: None,
+                        style: SvgStyle::default(),
+                        font_family: None,
+                        font_style: None,
+                        font_weight: None,
+                        font_size: None,
+                        text_anchor: Some("middle".to_string()),
+                        dominant_baseline: Some("auto".to_string()),
+                        content: name.clone(),
+                    };
+                    svg_children.push(SvgNode::Text(text_element));
+                }
+            }
+        }
     }
 
     // Set children on the SVG element
