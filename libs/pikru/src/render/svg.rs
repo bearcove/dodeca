@@ -66,10 +66,10 @@ pub fn color_to_string(color: &str, use_css_vars: bool) -> String {
 /// Process backslash escape sequences in text content.
 ///
 /// C pikchr treats backslash as an escape character:
-/// - `\\` becomes HTML entity `&#92;` (renders as single backslash)
+/// - `\\` becomes a literal backslash character (which will render as `\`)
 /// - `\x` (where x is any other char) removes the backslash and keeps x
 ///
-/// This means `"\\a"` becomes `"a"` and `"\\\\"` becomes `"&#92;"` (one backslash entity).
+/// This means `"\\a"` becomes `"a"` and `"\\\\"` becomes `"\"` (one backslash).
 /// Note: This is NOT standard C escape processing - `\n` becomes `n`, not newline.
 ///
 /// cref: pik_append_txt (pikchr.c:5271-5281) - processes backslashes in text output
@@ -94,14 +94,14 @@ fn process_backslash_escapes(s: &str) -> String {
         if j < bytes.len() {
             // We're at a backslash
             if j + 1 == bytes.len() {
-                // Backslash at end of string -> output HTML entity
-                // cref: pikchr.c:5275-5277
-                result.push_str("&#92;");
+                // Backslash at end of string -> output literal backslash
+                // cref: pikchr.c:5275-5277 - C outputs &#92; but facet-xml will escape it
+                result.push('\\');
                 break;
             } else if bytes[j + 1] == b'\\' {
-                // Double backslash -> output HTML entity, skip both
+                // Double backslash -> output literal backslash, skip both
                 // cref: pikchr.c:5275-5277
-                result.push_str("&#92;");
+                result.push('\\');
                 i = j + 2;
             } else {
                 // Backslash followed by other char -> skip backslash, output next char on next iteration
@@ -508,9 +508,9 @@ pub fn generate_svg(
                     text_anchor: Some(anchor.to_string()),
                     dominant_baseline: Some("central".to_string()),
                     content: {
-                        // Process in order: backslash escapes, then HTML entities, then spaces
-                        let text = process_backslash_escapes(&positioned_text.value);
-                        let text = decode_html_entities(&text);
+                        // Process in order: HTML entities (from input), then backslash escapes (for output), then spaces
+                        let text = decode_html_entities(&positioned_text.value);
+                        let text = process_backslash_escapes(&text);
                         text.replace(' ', "\u{00A0}")
                     },
                 };
