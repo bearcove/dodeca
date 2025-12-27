@@ -11,7 +11,7 @@ documentation = "https://docs.rs/aasvg"
 readme = "README.md"
 keywords = ["ascii", "svg", "diagram", "markdeep", "ascii-art"]
 categories = ["graphics", "text-processing", "visualization"]
-authors = ["Amos Wenger <amos@bearcove.net>"]
+authors = ["Amos Wenger <amos@bearcove.eu>"]
 
 [lib]
 name = "aasvg"
