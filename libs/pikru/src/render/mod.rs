@@ -93,8 +93,11 @@ fn proportional_text_length(text: &str) -> u32 {
             }
         }
 
-        // Process HTML entities: &entity; counts as 1.5 average chars
+        // Process HTML entities: & counts as 1.5 average chars
         // cref: pik_text_length (pikchr.c:3708-3713)
+        // Note: In C pikchr, ANY ampersand is counted as 1.5 avg, and if it's
+        // followed by a valid entity (semicolon within 7 chars), the entity
+        // characters are skipped. But the 1.5 avg is added regardless.
         if c == '&' {
             // Look for semicolon within next 7 characters
             let mut k = i + 1;
@@ -102,11 +105,15 @@ fn proportional_text_length(text: &str) -> u32 {
                 k += 1;
             }
             if k < bytes.len() && bytes[k] == b';' {
-                // Found a valid entity, skip to semicolon and count as 1.5 chars
+                // Found a valid entity, skip to semicolon
                 i = k + 1;
-                cnt += STD_AVG * 3 / 2;
-                continue;
+            } else {
+                // No entity, just skip the ampersand
+                i += 1;
             }
+            // Always count as 1.5 average chars for any ampersand
+            cnt += STD_AVG * 3 / 2;
+            continue;
         }
 
         // Count the character width
@@ -140,20 +147,22 @@ fn monospace_text_length(text: &str) -> u32 {
                 i += 2;
             }
         } else if bytes[i] == b'&' {
-            // Process HTML entities: &entity; counts as 1.5 average chars
+            // Process HTML entities: & counts as 1.5 average chars
             // cref: pik_text_length (pikchr.c:3708-3713)
+            // Note: ANY ampersand is 1.5 avg, regardless of whether it's a valid entity
             let mut k = i + 1;
             while k < bytes.len() && k < i + 7 && bytes[k] != b';' {
                 k += 1;
             }
             if k < bytes.len() && bytes[k] == b';' {
-                // Found a valid entity, skip to semicolon and count as 1.5 chars
+                // Found a valid entity, skip to semicolon
                 i = k + 1;
-                count += MONO_AVG * 3 / 2;
             } else {
-                count += MONO_AVG;
+                // No entity, just skip the ampersand
                 i += 1;
             }
+            // Always count as 1.5 average chars for any ampersand
+            count += MONO_AVG * 3 / 2;
         } else {
             count += MONO_AVG;
             i += 1;
