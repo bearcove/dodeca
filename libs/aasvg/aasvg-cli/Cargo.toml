@@ -1,11 +1,14 @@
 [package]
 name = "aasvg-cli"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 rust-version = "1.70"
 description = "CLI tool to convert ASCII art diagrams to SVG"
 license = "BSD-2-Clause"
 repository = "https://github.com/bearcove/aasvg-rs"
+homepage = "https://github.com/bearcove/aasvg-rs"
+keywords = ["ascii", "svg", "diagram", "cli", "ascii-art"]
+categories = ["command-line-utilities", "graphics"]
 authors = ["Amos Wenger <amos@bearcove.eu>"]
 
 [[bin]]
@@ -13,6 +16,6 @@ name = "aasvg"
 path = "src/main.rs"
 
 [dependencies]
-aasvg = { path = ".." }
+aasvg = "1.0.0"
 facet = "0.34"
 facet-args = "0.34"
