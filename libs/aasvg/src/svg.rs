@@ -25,16 +25,31 @@ const CSS_VARIABLES: &str = r#"<style>
 </style>
 "#;
 
-/// Render options
+/// Options for rendering ASCII diagrams to SVG.
+///
+/// # Example
+///
+/// ```rust
+/// use aasvg::{render_with_options, RenderOptions};
+///
+/// let diagram = "+--+\n|  |\n+--+";
+/// let options = RenderOptions::new()
+///     .with_backdrop(true)
+///     .with_stretch(true);
+/// let svg = render_with_options(diagram, &options);
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct RenderOptions {
-    /// Add a background rectangle
+    /// Add a semi-transparent white background rectangle behind the diagram.
+    /// Useful when embedding in pages with non-white backgrounds.
     pub backdrop: bool,
-    /// Skip text rendering
+    /// Skip text rendering entirely. Only render lines, arrows, and decorations.
     pub disable_text: bool,
-    /// Minimum consecutive spaces to end a text run (0 = each char separate)
+    /// Minimum consecutive spaces required to end a text run.
+    /// Default is 2. Set to 0 to render each character separately.
     pub spaces: u32,
-    /// Stretch text to fit character cells (uses textLength/lengthAdjust)
+    /// Stretch text to fit character cells exactly using SVG's
+    /// `textLength` and `lengthAdjust` attributes.
     pub stretch: bool,
 }
 
