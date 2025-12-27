@@ -417,8 +417,9 @@ pub fn generate_svg(
                     obj.class(),
                     ClassName::Box | ClassName::Cylinder | ClassName::File | ClassName::Oval
                 );
+                // cref: pik_append_txt (pikchr.c:2467) - jw uses object's sw, not global thickness
                 let jw_inches = if uses_box_justification {
-                    0.5 * (obj.width().0 - 0.5 * (charwid + thickness))
+                    0.5 * (obj.width().0 - 0.5 * (charwid + obj_sw))
                 } else {
                     0.0
                 };
