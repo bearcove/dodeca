@@ -41,11 +41,10 @@ const MAX_EVENTS: usize = 100;
 
 /// Preset log filter expressions (cycled with 'f' key)
 const FILTER_PRESETS: &[&str] = &[
-    "",                         // Clear filter (use simple level)
-    "info",                     // Default info level
-    "warn,dodeca=info",         // Quiet deps, info for dodeca
+    "warn,dodeca=info",         // Quiet deps, info for dodeca (default)
     "warn,dodeca=debug",        // Quiet deps, debug for dodeca
     "warn,dodeca=trace",        // Quiet deps, trace for dodeca
+    "info",                     // Info level for everything
     "debug",                    // Debug everything
     "warn,hyper=off,tower=off", // Suppress HTTP noise
 ];
