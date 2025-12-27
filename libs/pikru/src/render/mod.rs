@@ -1785,9 +1785,10 @@ fn render_object_stmt(
                 "start: from explicit from_position"
             );
             pos
-        } else if !to_positions.is_empty() && has_direction_move {
+        } else if !to_positions.is_empty() && has_direction_move && class == ClassName::Move {
             // "move to X down Y" - start FROM the to_position, not from current cursor
             // The direction offset will be applied from this point
+            // This only applies to Move objects, not Line/Arrow
             tracing::debug!(
                 to_x = to_positions[0].x.raw(),
                 to_y = to_positions[0].y.raw(),
@@ -1897,6 +1898,8 @@ fn render_object_stmt(
 
                 // If we have both to_positions and direction moves, the direction offset
                 // should be applied AFTER reaching the to_position (e.g., "move to X down 1in")
+                // BUT for Line/Arrow with "go DIR to POS", DIR is just the approach direction,
+                // not an additional segment to add after POS.
                 // cref: C pikchr handles this in pik_elem_new
                 if !to_positions.is_empty() {
                     // Note: if start was set to to_positions[0], we've already pushed it
@@ -1912,7 +1915,17 @@ fn render_object_stmt(
                 }
 
                 // Apply initial direction offset (segment before first "then")
-                if direction_offset != OffsetIn::ZERO {
+                // For Move: "move to X down 1in" creates waypoint at X, then X+down1in
+                // For Line/Arrow with to: "line go up to CW.s" - direction is approach only, don't add extra waypoint
+                let should_apply_direction_offset = if !to_positions.is_empty() {
+                    // Only apply direction_offset after to_position for Move class
+                    class == ClassName::Move
+                } else {
+                    // Always apply when no to_positions (normal direction moves)
+                    true
+                };
+
+                if direction_offset != OffsetIn::ZERO && should_apply_direction_offset {
                     let next = current_pos + direction_offset;
                     tracing::debug!(
                         start_x = start.x.raw(),

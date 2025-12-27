@@ -526,7 +526,16 @@ fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, miette::Rep
         }
         Place::ObjectEdge(obj, edge) => {
             if let Some(rendered) = resolve_object(ctx, obj) {
-                Ok(get_edge_point(rendered, edge))
+                let edge_point = get_edge_point(rendered, edge);
+                tracing::debug!(
+                    ?edge,
+                    center_x = rendered.center().x.raw(),
+                    center_y = rendered.center().y.raw(),
+                    edge_x = edge_point.x.raw(),
+                    edge_y = edge_point.y.raw(),
+                    "eval_place: ObjectEdge"
+                );
+                Ok(edge_point)
             } else {
                 Ok(ctx.position)
             }
@@ -685,10 +694,20 @@ fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
         other => *other,
     };
 
-    match resolved_edge {
+    let result = match resolved_edge {
         EdgePoint::Center | EdgePoint::C => obj.center(),
         _ => obj.edge_point(resolved_edge.to_unit_vec()),
-    }
+    };
+
+    tracing::debug!(
+        ?edge,
+        ?resolved_edge,
+        result_x = result.x.raw(),
+        result_y = result.y.raw(),
+        "get_edge_point"
+    );
+
+    result
 }
 
 // cref: pik_get_color_from_name
