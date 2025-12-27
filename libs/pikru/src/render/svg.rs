@@ -649,6 +649,7 @@ pub fn generate_svg(
     // Serialize to string using facet_xml with custom f64 formatter to match C pikchr precision
     let options_ser = SerializeOptions {
         float_formatter: Some(format_float),
+        preserve_entities: true,
         ..Default::default()
     };
     facet_xml::to_string_with_options(&svg, &options_ser)

@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-facet = { path = "../../../facet/facet" }
-facet-svg = { path = "../../../facet/facet-svg" }
-facet-assert = { path = "../../../facet/facet-assert" }
+facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-svg = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-assert = { git = "https://github.com/facet-rs/facet", branch = "main" }
 miette = { version = "7.6.0", features = ["fancy"] }
 camino = "1.2.1"

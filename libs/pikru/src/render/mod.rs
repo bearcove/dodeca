@@ -61,7 +61,8 @@ pub const AW_CHAR: [u8; 95] = [
 /// Monospace uses constant 82 units per character.
 ///
 /// Processes backslash escapes: `\\` counts as one char, `\x` counts as just `x`.
-// cref: pik_text_length (pikchr.c:6386) - skips backslashes when computing width
+/// Processes HTML entities: `&entity;` counts as 1.5 average chars.
+// cref: pik_text_length (pikchr.c:3700-3729) - skips backslashes and handles entities
 fn proportional_text_length(text: &str) -> u32 {
     const STD_AVG: u32 = 100;
     let mut cnt: u32 = 0;
@@ -92,6 +93,22 @@ fn proportional_text_length(text: &str) -> u32 {
             }
         }
 
+        // Process HTML entities: &entity; counts as 1.5 average chars
+        // cref: pik_text_length (pikchr.c:3708-3713)
+        if c == '&' {
+            // Look for semicolon within next 7 characters
+            let mut k = i + 1;
+            while k < bytes.len() && k < i + 7 && bytes[k] != b';' {
+                k += 1;
+            }
+            if k < bytes.len() && bytes[k] == b';' {
+                // Found a valid entity, skip to semicolon and count as 1.5 chars
+                i = k + 1;
+                cnt += STD_AVG * 3 / 2;
+                continue;
+            }
+        }
+
         // Count the character width
         if c >= ' ' && c <= '~' {
             cnt += AW_CHAR[(c as usize) - 0x20] as u32;
@@ -107,7 +124,7 @@ fn proportional_text_length(text: &str) -> u32 {
 fn monospace_text_length(text: &str) -> u32 {
     const MONO_AVG: u32 = 82;
     let bytes = text.as_bytes();
-    let mut count = 0;
+    let mut count: u32 = 0;
     let mut i = 0;
 
     while i < bytes.len() {
@@ -115,20 +132,35 @@ fn monospace_text_length(text: &str) -> u32 {
         if bytes[i] == b'\\' && i + 1 < bytes.len() && bytes[i + 1] != b'&' {
             if bytes[i + 1] == b'\\' {
                 // Double backslash -> count as one char, skip both
-                count += 1;
+                count += MONO_AVG;
                 i += 2;
             } else {
                 // Backslash followed by other char -> skip backslash, count the char
-                count += 1;
+                count += MONO_AVG;
                 i += 2;
             }
+        } else if bytes[i] == b'&' {
+            // Process HTML entities: &entity; counts as 1.5 average chars
+            // cref: pik_text_length (pikchr.c:3708-3713)
+            let mut k = i + 1;
+            while k < bytes.len() && k < i + 7 && bytes[k] != b';' {
+                k += 1;
+            }
+            if k < bytes.len() && bytes[k] == b';' {
+                // Found a valid entity, skip to semicolon and count as 1.5 chars
+                i = k + 1;
+                count += MONO_AVG * 3 / 2;
+            } else {
+                count += MONO_AVG;
+                i += 1;
+            }
         } else {
-            count += 1;
+            count += MONO_AVG;
             i += 1;
         }
     }
 
-    count * MONO_AVG
+    count
 }
 
 /// Render a pikchr program to SVG with default options
@@ -1301,6 +1333,11 @@ fn render_object_stmt(
                         }
                         if let Ok(p) = eval_position(ctx, pos) {
                             segments.push(Segment::AbsolutePosition(p));
+                        }
+                        // cref: pik_add_to sets pTo for autochop
+                        // When "then to <object>" is used, set to_attachment for autochop
+                        if to_attachment.is_none() {
+                            to_attachment = endpoint_object_from_position(ctx, pos);
                         }
                         in_then_segment = false;
                     }
