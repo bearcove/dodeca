@@ -1325,14 +1325,13 @@ mod tests {
             line: 1,
             language: "rust".to_string(),
             code: code.to_string(),
-            success: true,
+            status: crate::db::CodeExecutionStatus::Success,
             exit_code: Some(0),
             stdout: String::new(),
             stderr: String::new(),
             duration_ms: 100,
             error: None,
             metadata,
-            skipped: false,
         }
     }
 

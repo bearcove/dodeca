@@ -85,14 +85,13 @@ impl CodeExecutor for CodeExecutorImpl {
         for sample in input.samples {
             let result = if !sample.executable {
                 ExecutionResult {
-                    success: true,
-                    exit_code: Some(0),
+                    status: ExecutionStatus::Skipped,
+                    exit_code: None,
                     stdout: String::new(),
                     stderr: String::new(),
                     duration_ms: 0,
                     error: None,
                     metadata: None,
-                    skipped: true,
                 }
             } else {
                 execute_code_sample(&sample, &input.config).await
@@ -143,14 +142,13 @@ async fn execute_code_sample(
             sample.line
         );
         return ExecutionResult {
-            success: false,
+            status: ExecutionStatus::Skipped,
             exit_code: None,
             stdout: String::new(),
             stderr: "Code execution blocked: cannot run code samples during ddc build (reentrancy guard)".to_string(),
             duration_ms: 0,
             error: Some("Reentrancy guard: code execution disabled during ddc build".to_string()),
             metadata: None,
-            skipped: true,
         };
     }
 
@@ -160,14 +158,13 @@ async fn execute_code_sample(
     // Only Rust is supported for now
     if !matches!(sample.language.to_lowercase().as_str(), "rust" | "rs") {
         return ExecutionResult {
-            success: false,
+            status: ExecutionStatus::Skipped,
             exit_code: None,
             stdout: String::new(),
             stderr: format!("Unsupported language: {}", sample.language),
             duration_ms: 0,
             error: Some(format!("Unsupported language: {}", sample.language)),
             metadata: None,
-            skipped: false,
         };
     }
 
@@ -176,7 +173,7 @@ async fn execute_code_sample(
         Ok(dir) => dir,
         Err(e) => {
             return ExecutionResult {
-                success: false,
+                status: ExecutionStatus::Failed,
                 exit_code: None,
                 stdout: String::new(),
                 stderr: format!("Failed to create temp directory: {}", e),
@@ -187,7 +184,6 @@ async fn execute_code_sample(
                     .unwrap_or(u64::MAX),
                 error: Some(format!("Failed to create temp directory: {}", e)),
                 metadata: None,
-                skipped: false,
             };
         }
     };
@@ -205,7 +201,7 @@ edition = "2021"
 
     if let Err(e) = std::fs::write(project_dir.join("Cargo.toml"), cargo_toml) {
         return ExecutionResult {
-            success: false,
+            status: ExecutionStatus::Failed,
             exit_code: None,
             stdout: String::new(),
             stderr: format!("Failed to write Cargo.toml: {}", e),
@@ -216,7 +212,6 @@ edition = "2021"
                 .unwrap_or(u64::MAX),
             error: Some(format!("Failed to write Cargo.toml: {}", e)),
             metadata: None,
-            skipped: false,
         };
     }
 
@@ -224,7 +219,7 @@ edition = "2021"
     let src_dir = project_dir.join("src");
     if let Err(e) = std::fs::create_dir(&src_dir) {
         return ExecutionResult {
-            success: false,
+            status: ExecutionStatus::Failed,
             exit_code: None,
             stdout: String::new(),
             stderr: format!("Failed to create src directory: {}", e),
@@ -235,7 +230,6 @@ edition = "2021"
                 .unwrap_or(u64::MAX),
             error: Some(format!("Failed to create src directory: {}", e)),
             metadata: None,
-            skipped: false,
         };
     }
 
@@ -252,7 +246,7 @@ edition = "2021"
     // Write main.rs
     if let Err(e) = std::fs::write(src_dir.join("main.rs"), &main_code) {
         return ExecutionResult {
-            success: false,
+            status: ExecutionStatus::Failed,
             exit_code: None,
             stdout: String::new(),
             stderr: format!("Failed to write main.rs: {}", e),
@@ -263,7 +257,6 @@ edition = "2021"
                 .unwrap_or(u64::MAX),
             error: Some(format!("Failed to write main.rs: {}", e)),
             metadata: None,
-            skipped: false,
         };
     }
 
@@ -296,14 +289,13 @@ edition = "2021"
         Ok(child) => child,
         Err(e) => {
             return ExecutionResult {
-                success: false,
+                status: ExecutionStatus::Failed,
                 exit_code: None,
                 stdout: String::new(),
                 stderr: format!("Failed to execute {}: {}", command, e),
                 duration_ms: 0,
                 error: Some(format!("Failed to execute {}: {}", command, e)),
                 metadata: None,
-                skipped: false,
             };
         }
     };
@@ -335,7 +327,7 @@ edition = "2021"
                 source_info
             );
             return ExecutionResult {
-                success: false,
+                status: ExecutionStatus::Failed,
                 exit_code: None,
                 stdout: String::from_utf8_lossy(&stdout_buf).to_string(),
                 stderr: String::from_utf8_lossy(&stderr_buf).to_string(),
@@ -345,7 +337,6 @@ edition = "2021"
                     EXECUTION_TIMEOUT_SECS
                 )),
                 metadata: None,
-                skipped: false,
             };
         }
 
@@ -374,7 +365,7 @@ edition = "2021"
                 source_info
             );
             return ExecutionResult {
-                success: false,
+                status: ExecutionStatus::Failed,
                 exit_code: None,
                 stdout: String::from_utf8_lossy(&stdout_buf).to_string(),
                 stderr: String::from_utf8_lossy(&stderr_buf).to_string(),
@@ -384,7 +375,6 @@ edition = "2021"
                     MAX_OUTPUT_SIZE / 1024 / 1024
                 )),
                 metadata: None,
-                skipped: false,
             };
         }
 
@@ -420,9 +410,9 @@ edition = "2021"
                 let _ = stderr_handle.read_to_end(&mut stderr_buf).await;
 
                 let duration_ms = start_time.elapsed().as_millis();
-                let status = result.ok();
-                let exit_code = status.and_then(|s| s.code());
-                let success = status.map(|s| s.success()).unwrap_or(false);
+                let proc_status = result.ok();
+                let exit_code = proc_status.and_then(|s| s.code());
+                let success = proc_status.map(|s| s.success()).unwrap_or(false);
 
                 tracing::debug!(
                     "[code-exec] Finished in {}ms, exit={:?}, stdout={}B, stderr={}B: {} ({})",
@@ -435,7 +425,11 @@ edition = "2021"
                 );
 
                 return ExecutionResult {
-                    success,
+                    status: if success {
+                        ExecutionStatus::Success
+                    } else {
+                        ExecutionStatus::Failed
+                    },
                     exit_code,
                     stdout: String::from_utf8_lossy(&stdout_buf).to_string(),
                     stderr: String::from_utf8_lossy(&stderr_buf).to_string(),
@@ -446,7 +440,6 @@ edition = "2021"
                         Some(format!("Process exited with code {:?}", exit_code))
                     },
                     metadata: None,
-                    skipped: false,
                 };
             }
             _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {

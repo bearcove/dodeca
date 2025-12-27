@@ -955,7 +955,7 @@ pub async fn build(
     let failed_executions: Vec<_> = site_output
         .code_execution_results
         .iter()
-        .filter(|result| !result.success)
+        .filter(|result| result.status == db::CodeExecutionStatus::Failed)
         .collect();
 
     if !failed_executions.is_empty() {
@@ -990,18 +990,18 @@ pub async fn build(
         let executed = site_output
             .code_execution_results
             .iter()
-            .filter(|r| !r.skipped)
+            .filter(|r| r.status == db::CodeExecutionStatus::Success)
             .count();
         let skipped = site_output
             .code_execution_results
             .iter()
-            .filter(|r| r.skipped)
+            .filter(|r| r.status == db::CodeExecutionStatus::Skipped)
             .count();
 
         if verbose {
             if skipped > 0 {
                 println!(
-                    "{} {} code samples executed successfully, {} code samples skipped",
+                    "{} {} code samples executed successfully, {} skipped",
                     "✓".green(),
                     executed,
                     skipped
@@ -1265,7 +1265,7 @@ async fn build_with_mini_tui(
     let failed_executions: Vec<_> = site_output
         .code_execution_results
         .iter()
-        .filter(|result| !result.success)
+        .filter(|result| result.status == db::CodeExecutionStatus::Failed)
         .collect();
 
     if !failed_executions.is_empty() {
@@ -1292,17 +1292,17 @@ async fn build_with_mini_tui(
         let executed = site_output
             .code_execution_results
             .iter()
-            .filter(|r| !r.skipped)
+            .filter(|r| r.status == db::CodeExecutionStatus::Success)
             .count();
         let skipped = site_output
             .code_execution_results
             .iter()
-            .filter(|r| r.skipped)
+            .filter(|r| r.status == db::CodeExecutionStatus::Skipped)
             .count();
 
         if skipped > 0 {
             println!(
-                "{} {} code samples executed successfully, {} code samples skipped",
+                "{} {} code samples executed successfully, {} skipped",
                 "✓".green(),
                 executed,
                 skipped

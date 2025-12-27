@@ -7,7 +7,7 @@ use facet::Facet;
 // Re-export types from the types crate
 pub use dodeca_code_execution_types::{
     CodeExecutionConfig, CodeSample, ExecuteSamplesInput, ExecuteSamplesOutput, ExecutionResult,
-    ExtractSamplesInput, ExtractSamplesOutput, LanguageConfig,
+    ExecutionStatus, ExtractSamplesInput, ExtractSamplesOutput, LanguageConfig,
 };
 
 /// Result of code execution operations

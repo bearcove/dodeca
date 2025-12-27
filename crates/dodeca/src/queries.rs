@@ -1535,14 +1535,23 @@ pub async fn execute_all_code_samples<DB: Db>(db: &DB) -> PicanteResult<Vec<Code
                         line: sample.line as u32,
                         language: sample.language,
                         code: sample.code,
-                        success: result.success,
+                        status: match result.status {
+                            dodeca_code_execution_types::ExecutionStatus::Success => {
+                                crate::db::CodeExecutionStatus::Success
+                            }
+                            dodeca_code_execution_types::ExecutionStatus::Failed => {
+                                crate::db::CodeExecutionStatus::Failed
+                            }
+                            dodeca_code_execution_types::ExecutionStatus::Skipped => {
+                                crate::db::CodeExecutionStatus::Skipped
+                            }
+                        },
                         exit_code: result.exit_code,
                         stdout: result.stdout,
                         stderr: result.stderr,
                         duration_ms: result.duration_ms,
                         error: result.error,
                         metadata,
-                        skipped: result.skipped,
                     };
                     all_results.push(code_result);
                 }
@@ -1551,17 +1560,28 @@ pub async fn execute_all_code_samples<DB: Db>(db: &DB) -> PicanteResult<Vec<Code
     }
 
     if !all_results.is_empty() {
-        let success_count = all_results.iter().filter(|r| r.success).count();
-        let failure_count = all_results.len() - success_count;
+        let success_count = all_results
+            .iter()
+            .filter(|r| r.status == crate::db::CodeExecutionStatus::Success)
+            .count();
+        let failed_count = all_results
+            .iter()
+            .filter(|r| r.status == crate::db::CodeExecutionStatus::Failed)
+            .count();
+        let skipped_count = all_results
+            .iter()
+            .filter(|r| r.status == crate::db::CodeExecutionStatus::Skipped)
+            .count();
         tracing::info!(
-            "Code execution results: {} successful, {} failed",
+            "Code execution results: {} successful, {} failed, {} skipped",
             success_count,
-            failure_count
+            failed_count,
+            skipped_count
         );
 
         // Log failures for visibility
         for result in &all_results {
-            if !result.success {
+            if result.status == crate::db::CodeExecutionStatus::Failed {
                 tracing::warn!(
                     "Code execution failed in {}:{} ({}): {}",
                     result.source_path,

@@ -230,6 +230,18 @@ pub struct SiteOutput {
     pub code_execution_results: Vec<CodeExecutionResult>,
 }
 
+/// Status of code sample execution
+#[derive(Debug, Clone, Copy, PartialEq, Eq, facet::Facet)]
+#[repr(u8)]
+pub enum CodeExecutionStatus {
+    /// Code was executed and succeeded
+    Success,
+    /// Code was executed and failed
+    Failed,
+    /// Code was not executed (noexec, non-Rust, etc.)
+    Skipped,
+}
+
 /// Result of executing a code sample during build
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct CodeExecutionResult {
@@ -241,8 +253,8 @@ pub struct CodeExecutionResult {
     pub language: String,
     /// The actual code that was executed
     pub code: String,
-    /// Whether execution was successful
-    pub success: bool,
+    /// Execution status (Success, Failed, or Skipped)
+    pub status: CodeExecutionStatus,
     /// Exit code from execution
     pub exit_code: Option<i32>,
     /// Standard output
@@ -255,8 +267,6 @@ pub struct CodeExecutionResult {
     pub error: Option<String>,
     /// Build metadata for reproducibility
     pub metadata: Option<CodeExecutionMetadata>,
-    /// Whether this sample was intentionally skipped
-    pub skipped: bool,
 }
 
 /// Build metadata captured during code execution for reproducibility

@@ -168,12 +168,24 @@ pub struct CodeSample {
     pub expected_errors: Vec<String>,
 }
 
+/// Status of code sample execution
+#[derive(Facet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum ExecutionStatus {
+    /// Code was executed and succeeded
+    Success,
+    /// Code was executed and failed
+    Failed,
+    /// Code was not executed (noexec, non-Rust, etc.)
+    Skipped,
+}
+
 /// Result of executing a code sample
 #[derive(Facet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExecutionResult {
-    /// Success status
-    pub success: bool,
-    /// Exit code
+    /// Execution status (Success, Failed, or Skipped)
+    pub status: ExecutionStatus,
+    /// Exit code (if executed)
     pub exit_code: Option<i32>,
     /// Standard output
     pub stdout: String,
@@ -185,8 +197,6 @@ pub struct ExecutionResult {
     pub error: Option<String>,
     /// Build metadata for reproducibility
     pub metadata: Option<BuildMetadata>,
-    /// Whether this sample was intentionally skipped
-    pub skipped: bool,
 }
 
 /// Build metadata captured for reproducibility
