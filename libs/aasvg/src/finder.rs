@@ -33,34 +33,64 @@ pub fn find_decorations(grid: &mut Grid, paths: &PathSet, decorations: &mut Deco
 // Vertical line finding
 // ============================================================================
 
+/// Check if a vertical line character at (x,y) is part of a vertical line
+/// Following JS logic: connects to another line char, vertex, point, arrow, or underscore
+fn is_solid_v_line_at(grid: &Grid, x: i32, y: i32) -> bool {
+    let c = grid.get(x, y);
+    if !is_solid_v_line(c) {
+        return false;
+    }
+
+    let up = grid.get(x, y - 1);
+    let dn = grid.get(x, y + 1);
+    let uprt = grid.get(x + 1, y - 1);
+    let uplt = grid.get(x - 1, y - 1);
+
+    // Check connections above and below
+    is_top_vertex_or_decoration(up)
+        || is_solid_v_line(up)
+        || is_jump(up)
+        || is_bottom_vertex(dn)
+        || dn == 'v'
+        || dn == 'V'
+        || is_solid_v_line(dn)
+        || is_jump(dn)
+        || is_point(up)
+        || is_point(dn)
+        || up == '_'
+        || uplt == '_'
+        || uprt == '_'
+        // Special case: 1-high vertical on two curved corners
+        || ((is_top_vertex(uplt) || is_top_vertex(uprt))
+            && (is_bottom_vertex(grid.get(x - 1, y + 1)) || is_bottom_vertex(grid.get(x + 1, y + 1))))
+}
+
 fn find_solid_vertical_lines(grid: &mut Grid, paths: &mut PathSet) {
     for x in 0..grid.width as i32 {
         let mut y = 0;
         while y < grid.height as i32 {
-            if is_solid_v_line(grid.get(x, y)) {
+            if is_solid_v_line_at(grid, x, y) && !grid.is_used(x, y) {
                 let start_y = y;
-                while y < grid.height as i32 && is_solid_v_line(grid.get(x, y)) {
+                while y < grid.height as i32 && is_solid_v_line_at(grid, x, y) {
                     grid.set_used(x, y);
                     y += 1;
                 }
                 let end_y = y - 1;
 
-                if end_y > start_y {
-                    // Adjust endpoints for vertices
-                    let mut adj_start_y = start_y;
-                    let mut adj_end_y = end_y;
+                // Adjust endpoints for vertices
+                let mut adj_start_y = start_y;
+                let mut adj_end_y = end_y;
 
-                    // Check if we should extend to connect with vertices
-                    if is_top_vertex(grid.get(x, start_y - 1)) {
-                        adj_start_y = start_y - 1;
-                    }
-                    if is_bottom_vertex(grid.get(x, end_y + 1)) {
-                        adj_end_y = end_y + 1;
-                    }
-
-                    let path = Path::line_from_grid(x, adj_start_y, x, adj_end_y);
-                    paths.insert(path);
+                // Check if we should extend to connect with vertices
+                if is_top_vertex(grid.get(x, start_y - 1)) {
+                    adj_start_y = start_y - 1;
                 }
+                if is_bottom_vertex(grid.get(x, end_y + 1)) {
+                    adj_end_y = end_y + 1;
+                }
+
+                let path = Path::line_from_grid(x, adj_start_y, x, adj_end_y);
+                paths.insert(path);
             } else {
                 y += 1;
             }
@@ -96,37 +126,58 @@ fn find_double_vertical_lines(grid: &mut Grid, paths: &mut PathSet) {
 // Horizontal line finding
 // ============================================================================
 
+/// Check if position is part of a solid horizontal line
+/// Following JS logic: "We need three in a row"
+/// A position is part of a horizontal line if:
+/// - It's a solid horizontal line character (-) with proper continuation, OR
+/// - It's a vertex with at least 2 horizontal line chars on one side
+fn is_solid_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
+    let c = grid.get(x, y);
+
+    let lt = grid.get(x - 1, y);
+    let ltlt = grid.get(x - 2, y);
+    let rt = grid.get(x + 1, y);
+    let rtrt = grid.get(x + 2, y);
+
+    if is_solid_h_line(c) {
+        // Need three in a row (including vertices at ends)
+        if is_solid_h_line(lt) {
+            // Has line char to left - need line or vertex to right, or line to far left
+            return is_solid_h_line(rt)
+                || is_vertex_or_right_decoration(rt)
+                || is_solid_h_line(ltlt)
+                || is_vertex_or_left_decoration(ltlt);
+        } else if is_vertex_or_left_decoration(lt) {
+            // Vertex to left - need line char to right
+            return is_solid_h_line(rt);
+        } else {
+            // Need line to right AND (line or vertex at far right)
+            return is_solid_h_line(rt)
+                && (is_solid_h_line(rtrt) || is_vertex_or_right_decoration(rtrt));
+        }
+    } else if is_vertex(c) {
+        // Vertex is part of line if there are 2 line chars on one side
+        (is_solid_h_line(lt) && is_solid_h_line(ltlt))
+            || (is_solid_h_line(rt) && is_solid_h_line(rtrt))
+    } else {
+        false
+    }
+}
+
 fn find_solid_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
     for y in 0..grid.height as i32 {
         let mut x = 0;
         while x < grid.width as i32 {
-            let c = grid.get(x, y);
-            if c == '-' || c == '─' {
+            if is_solid_h_line_at(grid, x, y) && !grid.is_used(x, y) {
                 let start_x = x;
-                while x < grid.width as i32 {
-                    let c = grid.get(x, y);
-                    if c == '-' || c == '─' || c == '+' {
-                        grid.set_used(x, y);
-                        x += 1;
-                    } else {
-                        break;
-                    }
+                while x < grid.width as i32 && is_solid_h_line_at(grid, x, y) {
+                    grid.set_used(x, y);
+                    x += 1;
                 }
                 let end_x = x - 1;
 
                 if end_x > start_x {
-                    // Adjust for vertices
-                    let mut adj_start_x = start_x;
-                    let mut adj_end_x = end_x;
-
-                    if is_vertex(grid.get(start_x - 1, y)) {
-                        adj_start_x = start_x - 1;
-                    }
-                    if is_vertex(grid.get(end_x + 1, y)) {
-                        adj_end_x = end_x + 1;
-                    }
-
-                    let path = Path::line_from_grid(adj_start_x, y, adj_end_x, y);
+                    let path = Path::line_from_grid(start_x, y, end_x, y);
                     paths.insert(path);
                 }
             } else {
@@ -159,25 +210,51 @@ fn find_squiggle_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
     }
 }
 
+/// Check if position is part of a double horizontal line
+/// Similar to solid horizontal line logic but for = characters
+fn is_double_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
+    let c = grid.get(x, y);
+
+    let lt = grid.get(x - 1, y);
+    let ltlt = grid.get(x - 2, y);
+    let rt = grid.get(x + 1, y);
+    let rtrt = grid.get(x + 2, y);
+
+    if is_double_h_line(c) && c != '+' && c != '(' && c != ')' {
+        // Need three in a row (including vertices at ends)
+        if is_double_h_line(lt) {
+            return is_double_h_line(rt)
+                || is_vertex_or_right_decoration(rt)
+                || is_double_h_line(ltlt)
+                || is_vertex_or_left_decoration(ltlt);
+        } else if is_vertex_or_left_decoration(lt) {
+            return is_double_h_line(rt);
+        } else {
+            return is_double_h_line(rt)
+                && (is_double_h_line(rtrt) || is_vertex_or_right_decoration(rtrt));
+        }
+    } else if is_vertex(c) {
+        // Vertex is part of line if there are 2 line chars on one side
+        (is_double_h_line(lt) && is_double_h_line(ltlt))
+            || (is_double_h_line(rt) && is_double_h_line(rtrt))
+    } else {
+        false
+    }
+}
+
 fn find_double_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
     for y in 0..grid.height as i32 {
         let mut x = 0;
         while x < grid.width as i32 {
-            let c = grid.get(x, y);
-            if c == '=' || c == '═' {
+            if is_double_h_line_at(grid, x, y) && !grid.is_used(x, y) {
                 let start_x = x;
-                while x < grid.width as i32 {
-                    let c = grid.get(x, y);
-                    if c == '=' || c == '═' {
-                        grid.set_used(x, y);
-                        x += 1;
-                    } else {
-                        break;
-                    }
+                while x < grid.width as i32 && is_double_h_line_at(grid, x, y) {
+                    grid.set_used(x, y);
+                    x += 1;
                 }
                 let end_x = x - 1;
 
-                if end_x >= start_x {
+                if end_x > start_x {
                     let path = Path::line_from_grid(start_x, y, end_x, y).with_double(true);
                     paths.insert(path);
                 }
@@ -191,6 +268,33 @@ fn find_double_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
 // ============================================================================
 // Diagonal line finding
 // ============================================================================
+
+/// Check if a backslash at (x,y) is part of a diagonal line
+/// Following JS logic: connects to another diagonal, vertex, point, arrow, or underscore
+fn is_solid_b_line_at(grid: &Grid, x: i32, y: i32) -> bool {
+    let c = grid.get(x, y);
+    if !is_solid_b_line(c) {
+        return false;
+    }
+
+    let lt = grid.get(x - 1, y - 1); // upper-left
+    let rt = grid.get(x + 1, y + 1); // lower-right
+
+    // Check connections
+    is_solid_b_line(rt)
+        || is_bottom_vertex(rt)
+        || is_point(rt)
+        || rt == 'v'
+        || rt == 'V'
+        || is_solid_b_line(lt)
+        || is_top_vertex(lt)
+        || is_point(lt)
+        || lt == '^'
+        || grid.get(x, y - 1) == '/'  // hexagon corner
+        || grid.get(x, y + 1) == '/'  // hexagon corner
+        || rt == '_'
+        || lt == '_'
+}
 
 fn find_backslash_diagonals(grid: &mut Grid, paths: &mut PathSet) {
     // Scan diagonals from top-left to bottom-right
@@ -209,11 +313,11 @@ fn find_backslash_diagonals(grid: &mut Grid, paths: &mut PathSet) {
         let mut y = start_y;
 
         while x < width && y < height {
-            if is_solid_b_line(grid.get(x, y)) {
+            if is_solid_b_line_at(grid, x, y) && !grid.is_used(x, y) {
                 let line_start_x = x;
                 let line_start_y = y;
 
-                while x < width && y < height && is_solid_b_line(grid.get(x, y)) {
+                while x < width && y < height && is_solid_b_line_at(grid, x, y) {
                     grid.set_used(x, y);
                     x += 1;
                     y += 1;
@@ -222,16 +326,45 @@ fn find_backslash_diagonals(grid: &mut Grid, paths: &mut PathSet) {
                 let line_end_x = x - 1;
                 let line_end_y = y - 1;
 
-                if line_end_x > line_start_x {
-                    let path = Path::line_from_grid(line_start_x, line_start_y, line_end_x, line_end_y);
-                    paths.insert(path);
-                }
+                // Create path even for single-character diagonals if they connect to something
+                let path = Path::line_from_grid(line_start_x, line_start_y, line_end_x, line_end_y);
+                paths.insert(path);
             } else {
                 x += 1;
                 y += 1;
             }
         }
     }
+}
+
+/// Check if a forward slash at (x,y) is part of a diagonal line
+/// Following JS logic: connects to another diagonal, vertex, point, arrow, or underscore
+fn is_solid_d_line_at(grid: &Grid, x: i32, y: i32) -> bool {
+    let c = grid.get(x, y);
+    if !is_solid_d_line(c) {
+        return false;
+    }
+
+    let lt = grid.get(x - 1, y + 1); // lower-left
+    let rt = grid.get(x + 1, y - 1); // upper-right
+
+    // Special case: hexagon corner with backslash
+    if grid.get(x, y - 1) == '\\' || grid.get(x, y + 1) == '\\' {
+        return true;
+    }
+
+    // Check connections
+    is_solid_d_line(rt)
+        || is_top_vertex(rt)
+        || is_point(rt)
+        || rt == '^'
+        || rt == '_'
+        || is_solid_d_line(lt)
+        || is_bottom_vertex(lt)
+        || is_point(lt)
+        || lt == 'v'
+        || lt == 'V'
+        || lt == '_'
 }
 
 fn find_forward_slash_diagonals(grid: &mut Grid, paths: &mut PathSet) {
@@ -253,11 +386,11 @@ fn find_forward_slash_diagonals(grid: &mut Grid, paths: &mut PathSet) {
 
         // Move down-left (x decreases, y increases)
         while x >= 0 && y < height {
-            if is_solid_d_line(grid.get(x, y)) {
+            if is_solid_d_line_at(grid, x, y) && !grid.is_used(x, y) {
                 let line_start_x = x;
                 let line_start_y = y;
 
-                while x >= 0 && y < height && is_solid_d_line(grid.get(x, y)) {
+                while x >= 0 && y < height && is_solid_d_line_at(grid, x, y) {
                     grid.set_used(x, y);
                     x -= 1;
                     y += 1;
@@ -266,12 +399,10 @@ fn find_forward_slash_diagonals(grid: &mut Grid, paths: &mut PathSet) {
                 let line_end_x = x + 1;
                 let line_end_y = y - 1;
 
-                if line_start_x > line_end_x {
-                    // For forward slash: start is top-right, end is bottom-left
-                    // Create path from bottom-left to top-right for consistency
-                    let path = Path::line_from_grid(line_end_x, line_end_y, line_start_x, line_start_y);
-                    paths.insert(path);
-                }
+                // For forward slash: start is top-right, end is bottom-left
+                // Create path from bottom-left to top-right for consistency
+                let path = Path::line_from_grid(line_end_x, line_end_y, line_start_x, line_start_y);
+                paths.insert(path);
             } else {
                 x -= 1;
                 y += 1;
@@ -288,66 +419,149 @@ fn find_curved_corners(grid: &mut Grid, paths: &mut PathSet) {
     let width = grid.width as i32;
     let height = grid.height as i32;
 
+    // Bezier circle approximation constant
+    // https://spencermortensen.com/articles/bezier-circle/
+    const CURVE: f64 = 0.551915024494;
+    const CURVE_X: f64 = 2.0 * CURVE;
+    const CURVE_Y: f64 = CURVE;
+
     for y in 0..height {
         for x in 0..width {
             let c = grid.get(x, y);
 
-            // Check for curve patterns like -. .- -' '-
-            if c == '.' || c == ',' {
-                // Top vertex - curves down
-                let left = grid.get(x - 1, y);
-                let right = grid.get(x + 1, y);
-                let below = grid.get(x, y + 1);
-
-                // -. pattern (curve from left to down)
-                if is_solid_h_line(left) && is_solid_v_line(below) {
-                    let start = Vec2::from_grid(x, y).offset(-0.5, 0.0);
-                    let end = Vec2::from_grid(x, y).offset(0.0, 0.5);
-                    let ctrl1 = Vec2::from_grid(x, y);
-                    let ctrl2 = Vec2::from_grid(x, y);
+            // Top vertex patterns (. or ,)
+            if is_top_vertex(c) {
+                // -.
+                //   |
+                // Check for horizontal line to left and vertical line at (x+1, y+1)
+                if is_solid_h_line(grid.get(x - 1, y)) && is_solid_v_line(grid.get(x + 1, y + 1)) {
+                    grid.set_used(x - 1, y);
+                    grid.set_used(x, y);
+                    grid.set_used(x + 1, y + 1);
+                    let start = Vec2::from_grid(x - 1, y);
+                    let end = Vec2::from_grid(x + 1, y + 1);
+                    let ctrl1 = Vec2::new(
+                        start.x + CURVE_X * crate::path::SCALE,
+                        start.y,
+                    );
+                    let ctrl2 = Vec2::new(
+                        end.x,
+                        end.y - CURVE_Y * crate::path::SCALE * crate::path::ASPECT,
+                    );
                     let path = Path::curve(start, end, ctrl1, ctrl2);
                     paths.insert(path);
-                    grid.set_used(x, y);
                 }
 
-                // .- pattern (curve from right to down)
-                if is_solid_h_line(right) && is_solid_v_line(below) {
-                    let start = Vec2::from_grid(x, y).offset(0.5, 0.0);
-                    let end = Vec2::from_grid(x, y).offset(0.0, 0.5);
-                    let ctrl1 = Vec2::from_grid(x, y);
-                    let ctrl2 = Vec2::from_grid(x, y);
+                //  .-
+                // |
+                // Check for horizontal line to right and vertical line at (x-1, y+1)
+                if is_solid_h_line(grid.get(x + 1, y)) && is_solid_v_line(grid.get(x - 1, y + 1)) {
+                    grid.set_used(x - 1, y + 1);
+                    grid.set_used(x, y);
+                    grid.set_used(x + 1, y);
+                    let start = Vec2::from_grid(x + 1, y);
+                    let end = Vec2::from_grid(x - 1, y + 1);
+                    let ctrl1 = Vec2::new(
+                        start.x - CURVE_X * crate::path::SCALE,
+                        start.y,
+                    );
+                    let ctrl2 = Vec2::new(
+                        end.x,
+                        end.y - CURVE_Y * crate::path::SCALE * crate::path::ASPECT,
+                    );
                     let path = Path::curve(start, end, ctrl1, ctrl2);
                     paths.insert(path);
-                    grid.set_used(x, y);
                 }
             }
 
-            if c == '\'' || c == '`' {
-                // Bottom vertex - curves up
-                let left = grid.get(x - 1, y);
-                let right = grid.get(x + 1, y);
-                let above = grid.get(x, y - 1);
+            // Special case patterns for round boxes:
+            //   .  .   .  .
+            //  (  o     )  o
+            //   '  .   '  '
+            if (c == ')' || is_point(c))
+                && grid.get(x - 1, y - 1) == '.'
+                && grid.get(x - 1, y + 1) == '\''
+            {
+                grid.set_used(x, y);
+                grid.set_used(x - 1, y - 1);
+                grid.set_used(x - 1, y + 1);
+                let start = Vec2::from_grid(x - 2, y - 1);
+                let end = Vec2::from_grid(x - 2, y + 1);
+                let ctrl1 = Vec2::new(
+                    (x as f64 + 0.6) * crate::path::SCALE,
+                    start.y,
+                );
+                let ctrl2 = Vec2::new(
+                    (x as f64 + 0.6) * crate::path::SCALE,
+                    end.y,
+                );
+                let path = Path::curve(start, end, ctrl1, ctrl2);
+                paths.insert(path);
+            }
 
-                // -' pattern (curve from left to up)
-                if is_solid_h_line(left) && is_solid_v_line(above) {
-                    let start = Vec2::from_grid(x, y).offset(-0.5, 0.0);
-                    let end = Vec2::from_grid(x, y).offset(0.0, -0.5);
-                    let ctrl1 = Vec2::from_grid(x, y);
-                    let ctrl2 = Vec2::from_grid(x, y);
+            if (c == '(' || is_point(c))
+                && grid.get(x + 1, y - 1) == '.'
+                && grid.get(x + 1, y + 1) == '\''
+            {
+                grid.set_used(x, y);
+                grid.set_used(x + 1, y - 1);
+                grid.set_used(x + 1, y + 1);
+                let start = Vec2::from_grid(x + 2, y - 1);
+                let end = Vec2::from_grid(x + 2, y + 1);
+                let ctrl1 = Vec2::new(
+                    (x as f64 - 0.6) * crate::path::SCALE,
+                    start.y,
+                );
+                let ctrl2 = Vec2::new(
+                    (x as f64 - 0.6) * crate::path::SCALE,
+                    end.y,
+                );
+                let path = Path::curve(start, end, ctrl1, ctrl2);
+                paths.insert(path);
+            }
+
+            // Bottom vertex patterns (' or `)
+            if is_bottom_vertex(c) {
+                //   |
+                // -'
+                // Check for horizontal line to left and vertical line at (x+1, y-1)
+                if is_solid_h_line(grid.get(x - 1, y)) && is_solid_v_line(grid.get(x + 1, y - 1)) {
+                    grid.set_used(x - 1, y);
+                    grid.set_used(x, y);
+                    grid.set_used(x + 1, y - 1);
+                    let start = Vec2::from_grid(x - 1, y);
+                    let end = Vec2::from_grid(x + 1, y - 1);
+                    let ctrl1 = Vec2::new(
+                        start.x + CURVE_X * crate::path::SCALE,
+                        start.y,
+                    );
+                    let ctrl2 = Vec2::new(
+                        end.x,
+                        end.y + CURVE_Y * crate::path::SCALE * crate::path::ASPECT,
+                    );
                     let path = Path::curve(start, end, ctrl1, ctrl2);
                     paths.insert(path);
-                    grid.set_used(x, y);
                 }
 
-                // '- pattern (curve from right to up)
-                if is_solid_h_line(right) && is_solid_v_line(above) {
-                    let start = Vec2::from_grid(x, y).offset(0.5, 0.0);
-                    let end = Vec2::from_grid(x, y).offset(0.0, -0.5);
-                    let ctrl1 = Vec2::from_grid(x, y);
-                    let ctrl2 = Vec2::from_grid(x, y);
+                // |
+                //  '-
+                // Check for horizontal line to right and vertical line at (x-1, y-1)
+                if is_solid_h_line(grid.get(x + 1, y)) && is_solid_v_line(grid.get(x - 1, y - 1)) {
+                    grid.set_used(x - 1, y - 1);
+                    grid.set_used(x, y);
+                    grid.set_used(x + 1, y);
+                    let start = Vec2::from_grid(x + 1, y);
+                    let end = Vec2::from_grid(x - 1, y - 1);
+                    let ctrl1 = Vec2::new(
+                        start.x - CURVE_X * crate::path::SCALE,
+                        start.y,
+                    );
+                    let ctrl2 = Vec2::new(
+                        end.x,
+                        end.y + CURVE_Y * crate::path::SCALE * crate::path::ASPECT,
+                    );
                     let path = Path::curve(start, end, ctrl1, ctrl2);
                     paths.insert(path);
-                    grid.set_used(x, y);
                 }
             }
         }
@@ -428,15 +642,23 @@ fn find_arrow_heads(grid: &mut Grid, paths: &PathSet, decorations: &mut Decorati
                     }
                 }
                 '^' => {
-                    // Up arrow
-                    if paths.down_ends_at(x, y) || paths.vertical_passes_through(x, y + 1) {
+                    // Up arrow - check for vertical line below or solid line char directly below
+                    if paths.down_ends_at(x, y)
+                        || paths.vertical_passes_through(x, y + 1)
+                        || is_solid_v_line(grid.get(x, y + 1))
+                        || is_double_v_line(grid.get(x, y + 1))
+                    {
                         decorations.insert(Decoration::arrow(x, y, ARROW_UP));
                         grid.set_used(x, y);
                     }
                 }
                 'v' | 'V' => {
-                    // Down arrow
-                    if paths.up_ends_at(x, y) || paths.vertical_passes_through(x, y - 1) {
+                    // Down arrow - check for vertical line above or solid line char directly above
+                    if paths.up_ends_at(x, y)
+                        || paths.vertical_passes_through(x, y - 1)
+                        || is_solid_v_line(grid.get(x, y - 1))
+                        || is_double_v_line(grid.get(x, y - 1))
+                    {
                         decorations.insert(Decoration::arrow(x, y, ARROW_DOWN));
                         grid.set_used(x, y);
                     }
