@@ -66,13 +66,13 @@ pub fn color_to_string(color: &str, use_css_vars: bool) -> String {
 /// Process backslash escape sequences in text content.
 ///
 /// C pikchr treats backslash as an escape character:
-/// - `\\` becomes a single backslash
+/// - `\\` becomes HTML entity `&#92;` (renders as single backslash)
 /// - `\x` (where x is any other char) removes the backslash and keeps x
 ///
-/// This means `"\\a"` becomes `"a"` and `"\\\\"` becomes `"\\"` (one backslash).
+/// This means `"\\a"` becomes `"a"` and `"\\\\"` becomes `"&#92;"` (one backslash entity).
 /// Note: This is NOT standard C escape processing - `\n` becomes `n`, not newline.
 ///
-/// cref: pik_append_txt (pikchr.c:2578-2588) - processes backslashes in text output
+/// cref: pik_append_txt (pikchr.c:5271-5281) - processes backslashes in text output
 fn process_backslash_escapes(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let bytes = s.as_bytes();
@@ -94,15 +94,17 @@ fn process_backslash_escapes(s: &str) -> String {
         if j < bytes.len() {
             // We're at a backslash
             if j + 1 == bytes.len() {
-                // Backslash at end of string -> output single backslash
-                result.push('\\');
+                // Backslash at end of string -> output HTML entity
+                // cref: pikchr.c:5275-5277
+                result.push_str("&#92;");
                 break;
             } else if bytes[j + 1] == b'\\' {
-                // Double backslash -> output single backslash, skip both
-                result.push('\\');
+                // Double backslash -> output HTML entity, skip both
+                // cref: pikchr.c:5275-5277
+                result.push_str("&#92;");
                 i = j + 2;
             } else {
-                // Backslash followed by other char -> skip backslash only
+                // Backslash followed by other char -> skip backslash, output next char on next iteration
                 i = j + 1;
             }
         } else {

@@ -1615,6 +1615,163 @@ fn render_object_stmt(
         }
     }
 
+    // Apply automatic vertical layout to text if not explicitly positioned
+    // cref: pik_txt_vertical_layout (pikchr.c:2306-2385)
+    if text.len() >= 2 {
+        // Count how many have explicit vertical positioning
+        let has_positioning: Vec<bool> = text.iter().map(|t| t.above || t.below || t.center).collect();
+        let unpositioned_count = has_positioning.iter().filter(|&&x| !x).count();
+
+        if unpositioned_count == text.len() {
+            // All text is unpositioned - apply default layout
+            // For 2+ items, first goes above, rest go below (simplified from C's complex logic)
+            // cref: pikchr.c:2353-2385
+            for (i, t) in text.iter_mut().enumerate() {
+                if i == 0 {
+                    t.above = true;
+                } else {
+                    t.below = true;
+                }
+            }
+        }
+    }
+
+    // Auto-fit when width or height <= 0 (matches C behavior)
+    // cref: pikchr.c:4293-4311 - "A height or width less than or equal to zero means autofit"
+    if !text.is_empty() {
+        let needs_autofit_height = height.raw() <= 0.0;
+        let needs_autofit_width = width.raw() <= 0.0;
+
+        if needs_autofit_height || needs_autofit_width {
+            let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
+            let fontscale = ctx.get_scalar("fontscale", 1.0);
+            let charht = ctx.get_scalar("charht", defaults::FONT_SIZE) * fontscale;
+            let sw = style.stroke_width.raw();
+
+            // For shapes with eJust==1 (box, cylinder, file, oval), compute jw
+            let has_ejust = matches!(
+                class_name,
+                Some(ClassName::Box)
+                    | Some(ClassName::Cylinder)
+                    | Some(ClassName::File)
+                    | Some(ClassName::Oval)
+            );
+            let current_width_for_jw = if has_ejust {
+                match class {
+                    ClassName::Box => eval::get_length(ctx, "boxwid", 0.75),
+                    ClassName::Cylinder => eval::get_length(ctx, "cylwid", 1.0),
+                    ClassName::File => eval::get_length(ctx, "filewid", 1.0),
+                    ClassName::Oval => eval::get_length(ctx, "ovalwid", 1.0),
+                    _ => width.raw(),
+                }
+            } else {
+                width.raw()
+            };
+            let jw = if has_ejust {
+                0.5 * (current_width_for_jw - 0.5 * (charwid + sw))
+            } else {
+                0.0
+            };
+
+            // Compute height allocations for each vertical position
+            // cref: pik_append_txt (pikchr.c:2426-2466)
+            let mut ha1: f64 = 0.0;  // Height of first "above" row
+            let mut hc: f64 = 0.0;   // Height of center row
+            let mut hb1: f64 = 0.0;  // Height of first "below" row
+
+            for t in &text {
+                let s = t.font_scale() * charht;
+                if t.center {
+                    hc = hc.max(s);
+                } else if t.above {
+                    ha1 = ha1.max(s);
+                } else if t.below {
+                    hb1 = hb1.max(s);
+                }
+            }
+
+            // Calculate text bounding box with correct y offsets
+            // cref: pik_append_txt (pikchr.c:2471-2508)
+            let mut bbox_min_x = f64::MAX;
+            let mut bbox_max_x = f64::MIN;
+            let mut bbox_min_y = f64::MAX;
+            let mut bbox_max_y = f64::MIN;
+
+            for t in &text {
+                let cw = t.width_inches(charwid);
+                let ch = charht * 0.5 * t.font_scale();
+
+                // Compute y offset based on vertical position
+                let y = if t.above {
+                    0.5 * hc + 0.5 * ha1
+                } else if t.below {
+                    -(0.5 * hc + 0.5 * hb1)
+                } else {
+                    0.0  // center
+                };
+
+                let nx = if t.ljust {
+                    -jw
+                } else if t.rjust {
+                    jw
+                } else {
+                    0.0
+                };
+
+                let (x0, x1, y0, y1) = if t.rjust {
+                    (nx, nx - cw, y - ch, y + ch)
+                } else if t.ljust {
+                    (nx, nx + cw, y - ch, y + ch)
+                } else {
+                    (nx + cw / 2.0, nx - cw / 2.0, y + ch, y - ch)
+                };
+
+                bbox_min_x = bbox_min_x.min(x0.min(x1));
+                bbox_max_x = bbox_max_x.max(x0.max(x1));
+                bbox_min_y = bbox_min_y.min(y0.min(y1));
+                bbox_max_y = bbox_max_y.max(y0.max(y1));
+            }
+
+            // Apply autofit based on which dimension needs it
+            // cref: pikchr.c:4296-4311
+            if needs_autofit_height {
+                if needs_autofit_width {
+                    // Both width and height need autofit
+                    width = Inches((bbox_max_x - bbox_min_x) + charwid);
+                    height = Inches(2.0 * bbox_max_y.max(bbox_min_y.abs()) + 0.5 * charht);
+                } else {
+                    // Only height needs autofit
+                    height = Inches(2.0 * bbox_max_y.max(bbox_min_y.abs()) + 0.5 * charht);
+                }
+            } else if needs_autofit_width {
+                // Only width needs autofit
+                width = Inches((bbox_max_x - bbox_min_x) + charwid);
+            }
+
+            // Apply shape-specific fit adjustments
+            match class_name {
+                Some(ClassName::Cylinder) => {
+                    height = height + style.corner_radius * 0.25 + style.stroke_width;
+                }
+                Some(ClassName::Diamond) => {
+                    // Diamond uses bAltAutoFit logic
+                    // cref: diamondFit (pikchr.c:1418-1430)
+                    let mut w = width.raw();
+                    let mut h = height.raw();
+                    let fit_w = (bbox_max_x - bbox_min_x) + charwid;
+                    let fit_h = 2.0 * bbox_max_y.max(bbox_min_y.abs()) + 0.5 * charht;
+                    w = w * fit_h / h + fit_w;
+                    h = h * w / w;  // This maintains aspect ratio
+                    width = Inches(w * 1.5);
+                    height = Inches(h * 1.5);
+                }
+                _ => {}
+            }
+
+            update_current_object(ctx, class_name, width, height, &style);
+        }
+    }
+
     // Apply auto-fit for Text class objects (they always get auto-fitted)
     // cref: textOffset (pikchr.c:4416) - text objects always get auto-fitted
     // Normal fit is handled inline when Attribute::Fit is encountered
