@@ -22,7 +22,8 @@ pub enum DecorationType {
     /// XOR point (⊕)
     XorPoint,
     /// Jump curve (bridge over line crossing)
-    Jump,
+    /// Parameter is the jump character: '(' or ')'
+    Jump(char),
     /// Gray fill rectangle
     Gray(u8),
     /// Triangle decoration
@@ -111,13 +112,14 @@ impl Decoration {
     }
 
     /// Create a jump (bridge) decoration
-    pub fn jump(x: i32, y: i32, from: Vec2, to: Vec2) -> Self {
+    /// `c` should be '(' or ')' to indicate which way the curve bends
+    pub fn jump(x: i32, y: i32, c: char) -> Self {
         Self {
             pos: Vec2::from_grid(x, y),
-            kind: DecorationType::Jump,
+            kind: DecorationType::Jump(c),
             angle: 0.0,
-            jump_from: Some(from),
-            jump_to: Some(to),
+            jump_from: None,
+            jump_to: None,
         }
     }
 
@@ -152,7 +154,7 @@ impl Decoration {
             DecorationType::DottedPoint => self.dotted_point_svg(),
             DecorationType::ShadedPoint => self.shaded_point_svg(),
             DecorationType::XorPoint => self.xor_point_svg(),
-            DecorationType::Jump => self.jump_svg(),
+            DecorationType::Jump(c) => self.jump_svg(c),
             DecorationType::Gray(level) => self.gray_svg(level),
             DecorationType::Triangle => self.triangle_svg(),
         }
@@ -227,21 +229,38 @@ impl Decoration {
         )
     }
 
-    fn jump_svg(&self) -> String {
-        if let (Some(from), Some(to)) = (self.jump_from, self.jump_to) {
-            let mid_y = (from.y + to.y) / 2.0;
-            let cx1 = from.x + SCALE;
-            let cx2 = to.x + SCALE;
+    fn jump_svg(&self, c: char) -> String {
+        // JS: var dx = (decoration.type === ')') ? +0.75 : -0.75;
+        let dx = if c == ')' { 0.75 } else { -0.75 };
 
-            format!(
-                "<path d=\"M {},{} C {},{} {},{} {},{}\" fill=\"none\" stroke=\"var(--aasvg-bg)\" stroke-width=\"3\"/>\n\
-                 <path d=\"M {},{} C {},{} {},{} {},{}\" fill=\"none\" stroke=\"var(--aasvg-stroke)\"/>\n",
-                from.x, from.y, cx1, mid_y, cx2, mid_y, to.x, to.y,
-                from.x, from.y, cx1, mid_y, cx2, mid_y, to.x, to.y
-            )
-        } else {
-            String::new()
-        }
+        // JS: C.x, C.y is the grid position (0-indexed)
+        // Our pos is already in pixel coords from from_grid(x, y)
+        // from_grid(x, y) = ((x+1)*8, (y+1)*16)
+        // We need grid coords, so: grid_x = pos.x/8 - 1, grid_y = pos.y/16 - 1
+        let grid_x = self.pos.x / SCALE - 1.0;
+        let grid_y = self.pos.y / (SCALE * ASPECT) - 1.0;
+
+        // JS: up = Vec2(C.x, C.y - 0.5), dn = Vec2(C.x, C.y + 0.5)
+        // Vec2.coords() converts to pixel: (x+1)*SCALE, (y+1)*SCALE*ASPECT
+        let up_x = (grid_x + 1.0) * SCALE;
+        let up_y = (grid_y - 0.5 + 1.0) * SCALE * ASPECT;
+        let dn_x = (grid_x + 1.0) * SCALE;
+        let dn_y = (grid_y + 0.5 + 1.0) * SCALE * ASPECT;
+
+        // JS: cup = Vec2(C.x + dx, C.y - 0.5), cdn = Vec2(C.x + dx, C.y + 0.5)
+        let cup_x = (grid_x + dx + 1.0) * SCALE;
+        let cup_y = (grid_y - 0.5 + 1.0) * SCALE * ASPECT;
+        let cdn_x = (grid_x + dx + 1.0) * SCALE;
+        let cdn_y = (grid_y + 0.5 + 1.0) * SCALE * ASPECT;
+
+        // JS: 'M ' + dn + 'C ' + cdn + cup + up.coords()
+        // Path goes: dn -> cdn, cup -> up
+        format!(
+            "<path d=\"M {},{} C {},{} {},{} {},{}\" fill=\"none\" stroke=\"var(--aasvg-bg)\" stroke-width=\"3\"/>\n\
+             <path d=\"M {},{} C {},{} {},{} {},{}\" fill=\"none\" stroke=\"var(--aasvg-stroke)\"/>\n",
+            dn_x, dn_y, cdn_x, cdn_y, cup_x, cup_y, up_x, up_y,
+            dn_x, dn_y, cdn_x, cdn_y, cup_x, cup_y, up_x, up_y
+        )
     }
 
     fn gray_svg(&self, level: u8) -> String {

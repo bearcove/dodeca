@@ -15,12 +15,10 @@
     }
   }
 </style>
+<path d="M 8,16 L 8,48" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 48,16 L 48,48" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 8,16 L 48,16" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 8,48 L 48,48" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 12,16 C 8,16 8,16 8,24" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 44,16 C 48,16 48,16 48,24" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 12,48 C 8,48 8,48 8,40" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 44,48 C 48,48 48,48 48,40" fill="none" stroke="var(--aasvg-stroke)"/>
 <g fill="var(--aasvg-text)">
 </g>
 </svg>

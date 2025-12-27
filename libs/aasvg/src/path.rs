@@ -43,6 +43,14 @@ impl Vec2 {
         }
     }
 
+    /// Create from fractional grid coordinates (applies SCALE and ASPECT)
+    pub fn from_grid_frac(x: f64, y: f64) -> Self {
+        Self {
+            x: (x + 1.0) * SCALE,
+            y: (y + 1.0) * SCALE * ASPECT,
+        }
+    }
+
     /// Return a new Vec2 offset by dx, dy (in grid units)
     pub fn offset(&self, dx: f64, dy: f64) -> Self {
         Self {
@@ -61,13 +69,24 @@ impl Vec2 {
 
     /// Format as "x,y" for SVG path data
     pub fn coords(&self) -> String {
-        format!("{},{}", self.x, self.y)
+        format!("{},{}", format_coord(self.x), format_coord(self.y))
     }
 
     /// Format as "x,y " with trailing space for SVG path data
     pub fn to_svg(&self) -> String {
-        format!("{},{} ", self.x, self.y)
+        format!("{},{} ", format_coord(self.x), format_coord(self.y))
     }
+}
+
+/// Format a coordinate for SVG output, matching the JS behavior:
+/// - Use 5 decimal places max
+/// - Strip trailing zeros and decimal point
+fn format_coord(x: f64) -> String {
+    let s = format!("{:.5}", x);
+    // Strip trailing zeros and decimal point
+    let s = s.trim_end_matches('0');
+    let s = s.trim_end_matches('.');
+    s.to_string()
 }
 
 /// Line style flags
@@ -137,6 +156,11 @@ impl Path {
     pub fn with_squiggle(mut self, squiggle: bool) -> Self {
         self.style.squiggle = squiggle;
         self
+    }
+
+    /// Returns true if this is a degenerate (zero-length) path
+    pub fn is_degenerate(&self) -> bool {
+        (self.a.x - self.b.x).abs() < 0.01 && (self.a.y - self.b.y).abs() < 0.01
     }
 
     /// Returns true if this is a vertical line
@@ -315,31 +339,37 @@ impl Path {
     }
 
     /// Generate SVG path data for this path
-    pub fn to_svg_path(&self) -> String {
+    /// Returns a Vec because double lines generate two separate path elements
+    pub fn to_svg_paths(&self) -> Vec<String> {
         if self.style.squiggle && self.is_horizontal() {
-            return self.squiggle_svg();
+            return vec![self.squiggle_svg()];
         }
-
-        let mut result = String::new();
 
         if self.style.double {
-            // Draw two parallel lines
-            let (offset_x, offset_y) = if self.is_vertical() {
-                (1.0, 0.0)
-            } else if self.is_horizontal() {
-                (0.0, 1.0)
-            } else {
-                // Diagonal - perpendicular offset
-                (0.5, 0.5)
-            };
+            // Draw two parallel lines as separate path elements
+            // Compute perpendicular offset matching JS algorithm
+            let vx = self.b.x - self.a.x;
+            let vy = self.b.y - self.a.y;
+            let s = (vx * vx + vy * vy).sqrt();
 
-            result.push_str(&self.offset_line_svg(-offset_x, -offset_y));
-            result.push_str(&self.offset_line_svg(offset_x, offset_y));
+            // Normalize and scale to get perpendicular offset
+            // In JS: vx /= s * SCALE; vy /= s * SCALE / ASPECT
+            // Then offsetLine(vy, -vx) applies offset in screen coords
+            // The perpendicular is (vy, -vx) in normalized screen coords
+            let px = vy / (s * SCALE / ASPECT); // perpendicular x
+            let py = -vx / (s * SCALE); // perpendicular y
+
+            // Convert to pixel offset: multiply by SCALE for x, SCALE*ASPECT for y
+            let offset_x = px * SCALE;
+            let offset_y = py * SCALE * ASPECT;
+
+            vec![
+                self.offset_line_svg(offset_x, offset_y),
+                self.offset_line_svg(-offset_x, -offset_y),
+            ]
         } else {
-            result.push_str(&self.single_line_svg());
+            vec![self.single_line_svg()]
         }
-
-        result
     }
 
     fn single_line_svg(&self) -> String {
@@ -378,25 +408,55 @@ impl Path {
     }
 
     fn squiggle_svg(&self) -> String {
-        // Generate a wavy horizontal line
+        // Generate a wavy horizontal line matching JS behavior
+        // The JS iterates by full grid units and draws 2 Qs per unit
         let x0 = self.a.x.min(self.b.x);
         let x1 = self.a.x.max(self.b.x);
         let y = self.a.y;
         let amplitude = SCALE * ASPECT * 0.2;
 
-        let mut result = format!("M {},{}", x0, y);
-        let mut x = x0;
-        let step = SCALE / 2.0;
-        let mut up = true;
+        let mut result = format!("M {},{}", format_coord(x0), format_coord(y));
 
-        while x < x1 {
-            let next_x = (x + step).min(x1);
-            let next_y = if up { y - amplitude } else { y + amplitude };
-            let _ = write!(result, " Q {},{} {},{}", x + step / 2.0, next_y, next_x, y);
+        // Convert to grid coordinates for iteration
+        let grid_x0 = (x0 / SCALE - 1.0).round() as i32;
+        let grid_x1 = (x1 / SCALE - 1.0).ceil() as i32;
+
+        let step = SCALE / 4.0; // 0.25 grid units
+        let mut x = x0;
+
+        // Each grid unit gets 2 Q commands (up-mid and down-start pattern)
+        for _ in grid_x0..grid_x1 {
+            // First half: up to mid
+            let up_x = x + step;
+            let up_y = y - amplitude;
+            let mid_x = x + step * 2.0;
+            let _ = write!(
+                result,
+                " Q {},{} {},{}",
+                format_coord(up_x),
+                format_coord(up_y),
+                format_coord(mid_x),
+                format_coord(y)
+            );
+
+            // Second half: down to start
+            let down_x = mid_x + step;
+            let down_y = y + amplitude;
+            let next_x = mid_x + step * 2.0;
+            let _ = write!(
+                result,
+                " Q {},{} {},{}",
+                format_coord(down_x),
+                format_coord(down_y),
+                format_coord(next_x),
+                format_coord(y)
+            );
+
             x = next_x;
-            up = !up;
         }
 
+        // JS outputs a trailing space after the last Q command
+        result.push(' ');
         result
     }
 }
@@ -413,7 +473,10 @@ impl PathSet {
     }
 
     pub fn insert(&mut self, path: Path) {
-        self.paths.push(path);
+        // Don't insert degenerate (zero-length) lines
+        if !path.is_degenerate() {
+            self.paths.push(path);
+        }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Path> {
@@ -482,17 +545,19 @@ impl PathSet {
     pub fn to_svg(&self) -> String {
         let mut result = String::new();
         for path in &self.paths {
-            let path_data = path.to_svg_path();
             let dash = if path.style.dashed {
                 " stroke-dasharray=\"4,2\""
             } else {
                 ""
             };
-            let _ = write!(
-                result,
-                "<path d=\"{}\" fill=\"none\" stroke=\"var(--aasvg-stroke)\"{}/>\n",
-                path_data, dash
-            );
+            // Double lines generate two separate path elements
+            for path_data in path.to_svg_paths() {
+                let _ = write!(
+                    result,
+                    "<path d=\"{}\" fill=\"none\" stroke=\"var(--aasvg-stroke)\"{}/>\n",
+                    path_data, dash
+                );
+            }
         }
         result
     }
@@ -529,6 +594,6 @@ mod tests {
     #[test]
     fn test_path_svg() {
         let p = Path::line(Vec2::new(10.0, 20.0), Vec2::new(30.0, 40.0));
-        assert_eq!(p.to_svg_path(), "M 10,20 L 30,40");
+        assert_eq!(p.to_svg_paths(), vec!["M 10,20 L 30,40"]);
     }
 }

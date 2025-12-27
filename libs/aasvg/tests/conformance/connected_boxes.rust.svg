@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="176" height="80" viewBox="0 0 176 80" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="176" height="64" viewBox="0 0 176 64" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
 <style>
   :root {
     --aasvg-stroke: #000;
@@ -21,12 +21,12 @@
 <path d="M 168,16 L 168,48" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 8,16 L 64,16" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 112,16 L 168,16" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 72,32 L 96,32" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 72,32 L 104,32" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 8,48 L 64,48" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 112,48 L 168,48" fill="none" stroke="var(--aasvg-stroke)"/>
 <polygon points="8,0 -4,-3 -4,3" fill="var(--aasvg-fill)" transform="translate(104,32) rotate(0)"/>
 <g fill="var(--aasvg-text)">
-<text x="32" y="36" textLength="8" lengthAdjust="spacingAndGlyphs">A</text>
-<text x="136" y="36" textLength="8" lengthAdjust="spacingAndGlyphs">B</text>
+<text x="32" y="36">A</text>
+<text x="136" y="36">B</text>
 </g>
 </svg>

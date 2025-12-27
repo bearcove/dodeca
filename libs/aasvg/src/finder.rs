@@ -11,6 +11,7 @@ use crate::path::*;
 pub fn find_paths(grid: &mut Grid, paths: &mut PathSet) {
     find_solid_vertical_lines(grid, paths);
     find_double_vertical_lines(grid, paths);
+    find_circuit_diagram_short_lines(grid, paths); // Must come after vline finders
     find_solid_horizontal_lines(grid, paths);
     find_squiggle_horizontal_lines(grid, paths);
     find_double_horizontal_lines(grid, paths);
@@ -34,35 +35,153 @@ pub fn find_decorations(grid: &mut Grid, paths: &PathSet, decorations: &mut Deco
 // ============================================================================
 
 /// Check if a vertical line character at (x,y) is part of a vertical line
-/// Following JS logic: connects to another line char, vertex, point, arrow, or underscore
+/// Following JS logic from isVLineAt in markdeep-diagram.js lines 321-360
 fn is_solid_v_line_at(grid: &Grid, x: i32, y: i32) -> bool {
     let c = grid.get(x, y);
-    if !is_solid_v_line(c) {
-        return false;
-    }
-
     let up = grid.get(x, y - 1);
     let dn = grid.get(x, y + 1);
     let uprt = grid.get(x + 1, y - 1);
     let uplt = grid.get(x - 1, y - 1);
 
-    // Check connections above and below
-    is_top_vertex_or_decoration(up)
-        || is_solid_v_line(up)
-        || is_jump(up)
-        || is_bottom_vertex(dn)
-        || dn == 'v'
-        || dn == 'V'
-        || is_solid_v_line(dn)
-        || is_jump(dn)
-        || is_point(up)
-        || is_point(dn)
-        || up == '_'
-        || uplt == '_'
-        || uprt == '_'
-        // Special case: 1-high vertical on two curved corners
-        || ((is_top_vertex(uplt) || is_top_vertex(uprt))
-            && (is_bottom_vertex(grid.get(x - 1, y + 1)) || is_bottom_vertex(grid.get(x + 1, y + 1))))
+    if is_solid_v_line(c) {
+        // Looks like a vertical line...does it continue?
+        is_top_vertex_or_decoration(up)
+            || is_solid_v_line(up)
+            || is_jump(up)
+            || is_bottom_vertex(dn)
+            || dn == 'v'
+            || dn == 'V'
+            || is_solid_v_line(dn)
+            || is_jump(dn)
+            || is_point(up)
+            || is_point(dn)
+            || up == '_'
+            || uplt == '_'
+            || uprt == '_'
+            // Special case: 1-high vertical on two curved corners
+            || ((is_top_vertex(uplt) || is_top_vertex(uprt))
+                && (is_bottom_vertex(grid.get(x - 1, y + 1)) || is_bottom_vertex(grid.get(x + 1, y + 1))))
+    } else if is_top_vertex(c) || c == '^' {
+        // May be the top of a vertical line
+        is_solid_v_line(dn) || (is_jump(dn) && c != '.')
+    } else if is_bottom_vertex(c) || c == 'v' || c == 'V' {
+        // May be the bottom of a vertical line
+        is_solid_v_line(up) || (is_jump(up) && c != '\'')
+    } else if is_point(c) {
+        is_solid_v_line(up) || is_solid_v_line(dn)
+    } else {
+        false
+    }
+}
+
+/// Check if a double vertical line character at (x,y) is part of a vertical line
+/// Following JS logic from isVLineAt in markdeep-diagram.js lines 321-360
+/// Called as grid.isDoubleVLineAt(x, y)
+fn is_double_v_line_at(grid: &Grid, x: i32, y: i32) -> bool {
+    let c = grid.get(x, y);
+    let up = grid.get(x, y - 1);
+    let dn = grid.get(x, y + 1);
+    let uprt = grid.get(x + 1, y - 1);
+    let uplt = grid.get(x - 1, y - 1);
+
+    if is_double_v_line(c) {
+        // Looks like a vertical line...does it continue?
+        is_top_vertex_or_decoration(up)
+            || is_double_v_line(up)
+            || is_jump(up)
+            || is_bottom_vertex(dn)
+            || dn == 'v'
+            || dn == 'V'
+            || is_double_v_line(dn)
+            || is_jump(dn)
+            || is_point(up)
+            || is_point(dn)
+            || up == '_'
+            || uplt == '_'
+            || uprt == '_'
+            // Special case: 1-high vertical on two curved corners
+            || ((is_top_vertex(uplt) || is_top_vertex(uprt))
+                && (is_bottom_vertex(grid.get(x - 1, y + 1)) || is_bottom_vertex(grid.get(x + 1, y + 1))))
+    } else if is_top_vertex(c) || c == '^' {
+        // May be the top of a vertical line
+        is_double_v_line(dn) || (is_jump(dn) && c != '.')
+    } else if is_bottom_vertex(c) || c == 'v' || c == 'V' {
+        // May be the bottom of a vertical line
+        is_double_v_line(up) || (is_jump(up) && c != '\'')
+    } else if is_point(c) {
+        is_double_v_line(up) || is_double_v_line(dn)
+    } else {
+        false
+    }
+}
+
+/// Stretch vertical line endpoints to meet adjacent lines and decorations
+/// Returns (adjusted_start_y, adjusted_end_y) as fractional grid coordinates
+/// This implements the JS stretching logic from markdeep-diagram.js lines 847-864
+fn stretch_v_line_endpoints(grid: &Grid, x: i32, start_y: i32, end_y: i32) -> (f64, f64) {
+    let mut a = start_y as f64;
+    let mut b = end_y as f64;
+
+    let up = grid.get(x, start_y);
+    let upup = grid.get(x, start_y - 1);
+    let dn = grid.get(x, end_y);
+    let dndn = grid.get(x, end_y + 1);
+
+    // Box-drawing characters for vertical lines (from JS boxt/boxb params)
+    let is_box_top = |c: char| "╤╥╦┬┰".contains(c);
+    let is_box_bottom = |c: char| "╧╨╩┴┸".contains(c);
+
+    // Check for underscore to left or right of start
+    let has_underscore_above =
+        grid.get(x - 1, start_y - 1) == '_' || grid.get(x + 1, start_y - 1) == '_';
+    // Check for underscore to left or right of end
+    let has_underscore_at_end = grid.get(x - 1, end_y) == '_' || grid.get(x + 1, end_y) == '_';
+
+    // Check for alternate line type (double vs solid) at position
+    // JS: grid[alt](A.x, A.y - 1) which calls isDoubleVLineAt for solid lines
+    let alt_above = is_double_v_line_at(grid, x, start_y - 1);
+    let alt_below = is_double_v_line_at(grid, x, end_y + 1);
+
+    // === TOP (A) ADJUSTMENTS ===
+    // JS: if (!isVertex(up) && ((upup === '-') || (upup === '_') || (boxt.indexOf(upup) >= 0) ||
+    //         (grid(A.x - 1, A.y - 1) === '_') || (grid(A.x + 1, A.y - 1) === '_') ||
+    //         isBottomVertex(upup)) || isJump(upup) ||
+    //         (grid[alt](A.x, A.y - 1) && !isVertex(upup)))
+    let stretch_up = (!is_vertex(up)
+        && (upup == '-'
+            || upup == '_'
+            || is_box_top(upup)
+            || has_underscore_above
+            || is_bottom_vertex(upup)))
+        || is_jump(upup)
+        || (alt_above && !is_vertex(upup));
+
+    if stretch_up {
+        // JS: A.y -= (isVertex(upup) && grid[alt](A.x, A.y - 2) && !isTopVertexOrDecoration(up)) ? 1 : 0.5;
+        let alt_above_2 = is_double_v_line_at(grid, x, start_y - 2);
+        if is_vertex(upup) && alt_above_2 && !is_top_vertex(up) && up != '^' {
+            a -= 1.0;
+        } else {
+            a -= 0.5;
+        }
+    }
+
+    // === BOTTOM (B) ADJUSTMENTS ===
+    // JS: if (!isVertex(dn) && ((dndn === '-') || (boxb.indexOf(dndn) >= 0) || isTopVertex(dndn)) ||
+    //         isJump(dndn) ||
+    //         (grid(B.x - 1, B.y) === '_') || (grid(B.x + 1, B.y) === '_') ||
+    //         (grid[alt](B.x, B.y + 1) && !isVertex(dn)))
+    let stretch_down = (!is_vertex(dn)
+        && (dndn == '-' || is_box_bottom(dndn) || is_top_vertex(dndn)))
+        || is_jump(dndn)
+        || has_underscore_at_end
+        || (alt_below && !is_vertex(dn));
+
+    if stretch_down {
+        b += 0.5;
+    }
+
+    (a, b)
 }
 
 fn find_solid_vertical_lines(grid: &mut Grid, paths: &mut PathSet) {
@@ -77,21 +196,14 @@ fn find_solid_vertical_lines(grid: &mut Grid, paths: &mut PathSet) {
                 }
                 let end_y = y - 1;
 
-                // Adjust endpoints for vertices and mark them as used
-                let mut adj_start_y = start_y;
-                let mut adj_end_y = end_y;
+                // Apply stretching logic matching JS behavior
+                let (adj_start_y, adj_end_y) =
+                    stretch_v_line_endpoints(grid, x, start_y, end_y);
 
-                // Check if we should extend to connect with vertices
-                if is_top_vertex(grid.get(x, start_y - 1)) {
-                    adj_start_y = start_y - 1;
-                    grid.set_used(x, adj_start_y);
-                }
-                if is_bottom_vertex(grid.get(x, end_y + 1)) {
-                    adj_end_y = end_y + 1;
-                    grid.set_used(x, adj_end_y);
-                }
-
-                let path = Path::line_from_grid(x, adj_start_y, x, adj_end_y);
+                let path = Path::line(
+                    Vec2::from_grid_frac(x as f64, adj_start_y),
+                    Vec2::from_grid_frac(x as f64, adj_end_y),
+                );
                 paths.insert(path);
             } else {
                 y += 1;
@@ -124,15 +236,158 @@ fn find_double_vertical_lines(grid: &mut Grid, paths: &mut PathSet) {
     }
 }
 
+/// Find special short vertical lines for circuit diagrams
+/// JS markdeep-diagram.js lines 886-916
+fn find_circuit_diagram_short_lines(grid: &mut Grid, paths: &mut PathSet) {
+    for x in 0..grid.width as i32 {
+        for y in 0..grid.height as i32 {
+            let c = grid.get(x, y);
+
+            // Pattern:    _  _
+            //           -'    '-   -'
+            // Creates a short vertical line from (x, y-0.5) to (x, y)
+            if c == '\'' {
+                let lt = grid.get(x - 1, y);
+                let rt = grid.get(x + 1, y);
+                let uplt = grid.get(x - 1, y - 1);
+                let uprt = grid.get(x + 1, y - 1);
+
+                if (lt == '-' && uprt == '_' && !is_solid_v_line_or_jump_or_point(uplt))
+                    || (uplt == '_' && rt == '-' && !is_solid_v_line_or_jump_or_point(uprt))
+                {
+                    paths.insert(Path::line(
+                        Vec2::from_grid_frac(x as f64, y as f64 - 0.5),
+                        Vec2::from_grid(x, y),
+                    ));
+                }
+            }
+            // Pattern: _.-  -._
+            // Creates a short vertical line from (x, y) to (x, y+0.5)
+            else if c == '.' {
+                let lt = grid.get(x - 1, y);
+                let rt = grid.get(x + 1, y);
+                let dnlt = grid.get(x - 1, y + 1);
+                let dnrt = grid.get(x + 1, y + 1);
+
+                if (lt == '_' && rt == '-' && !is_solid_v_line_or_jump_or_point(dnrt))
+                    || (lt == '-' && rt == '_' && !is_solid_v_line_or_jump_or_point(dnlt))
+                {
+                    paths.insert(Path::line(
+                        Vec2::from_grid(x, y),
+                        Vec2::from_grid_frac(x as f64, y as f64 + 0.5),
+                    ));
+                }
+                // For drawing resistors: -.╱
+                else if lt == '-' && rt == '\u{2571}' {
+                    paths.insert(Path::line(
+                        Vec2::from_grid(x, y),
+                        Vec2::from_grid_frac(x as f64 + 0.5, y as f64 + 0.5),
+                    ));
+                }
+            }
+            // For drawing resistors: ╱'-
+            else if c == '\'' && grid.get(x + 1, y) == '-' && grid.get(x - 1, y) == '\u{2571}' {
+                paths.insert(Path::line(
+                    Vec2::from_grid(x, y),
+                    Vec2::from_grid_frac(x as f64 - 0.5, y as f64 - 0.5),
+                ));
+            }
+        }
+    }
+}
+
 // ============================================================================
 // Horizontal line finding
 // ============================================================================
 
+/// Stretch horizontal line endpoints to meet adjacent lines of different types
+/// Returns (adjusted_start, adjusted_end) as fractional grid coordinates
+/// This implements the full JS stretching logic from markdeep-diagram.js lines 933-962
+fn stretch_h_line_endpoints(grid: &Grid, start_x: i32, end_x: i32, y: i32) -> (f64, f64) {
+    let mut a = start_x as f64;
+    let mut b = end_x as f64;
+
+    let start_char = grid.get(start_x, y);
+    let end_char = grid.get(end_x, y);
+    let left_of_start = grid.get(start_x - 1, y);
+    let right_of_end = grid.get(end_x + 1, y);
+
+    // Box-drawing characters that extend solid horizontal lines
+    // JS: for solid/squiggle lines: boxl = '\u2523' (┣), boxr = '\u252b' (┫)
+    let is_box_left = |c: char| c == '┣';
+    let is_box_right = |c: char| c == '┫';
+
+    // === INDEPENDENT BOX-DRAWING EXTENSIONS (JS lines 933-934) ===
+    // These are checked first and independently of the else-if chains below
+    if is_box_right(right_of_end) {
+        b += 0.5;
+    }
+    if is_box_left(left_of_start) {
+        a -= 0.5;
+    }
+
+    // === LEFT SIDE (A) ADJUSTMENTS (JS lines 937-949) ===
+    // This is an else-if chain
+    // 1. Curve detection and shortening - if at a curve vertex, shorten by 1
+    if !is_vertex(left_of_start)
+        && ((is_top_vertex(start_char)
+            && is_solid_v_line_or_jump_or_point(grid.get(start_x - 1, y + 1)))
+            || (is_bottom_vertex(start_char)
+                && is_solid_v_line_or_jump_or_point(grid.get(start_x - 1, y - 1))))
+    {
+        a += 1.0;
+    }
+    // 2. Line continuation - if there's a vertex to the left with a line continuing
+    else if !is_vertex_or_left_decoration(start_char)
+        && is_vertex(left_of_start)
+        && is_any_h_line_at(grid, start_x - 2, y)
+    {
+        a -= 1.0;
+    }
+    // 3. Adjacent line stretching - extend by 0.5 to meet adjacent line type
+    else if is_any_h_line_at(grid, start_x - 1, y)
+        && !is_vertex_or_right_decoration(left_of_start)
+        && !is_vertex(start_char)
+    {
+        a -= 0.5;
+    }
+
+    // === RIGHT SIDE (B) ADJUSTMENTS (JS lines 951-957) ===
+    // This is an else-if chain
+    // 1. Curve detection and shortening
+    if !is_vertex(right_of_end)
+        && ((is_top_vertex(end_char)
+            && is_solid_v_line_or_jump_or_point(grid.get(end_x + 1, y + 1)))
+            || (is_bottom_vertex(end_char)
+                && is_solid_v_line_or_jump_or_point(grid.get(end_x + 1, y - 1))))
+    {
+        b -= 1.0;
+    }
+    // 2. Adjacent line stretching
+    else if is_any_h_line_at(grid, end_x + 1, y)
+        && !is_vertex_or_left_decoration(right_of_end)
+        && !is_vertex(end_char)
+    {
+        b += 0.5;
+    }
+
+    (a, b)
+}
+
+/// Check if character is a solid vertical line, jump, or point
+fn is_solid_v_line_or_jump_or_point(c: char) -> bool {
+    is_solid_v_line(c) || is_jump(c) || is_point(c)
+}
+
+/// Check if any horizontal line (solid, squiggle, or double) is at the position
+fn is_any_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
+    is_solid_h_line_at(grid, x, y)
+        || is_squiggle_h_line_at(grid, x, y)
+        || is_double_h_line_at(grid, x, y)
+}
+
 /// Check if position is part of a solid horizontal line
-/// Following JS logic: "We need three in a row"
-/// A position is part of a horizontal line if:
-/// - It's a solid horizontal line character (-) with proper continuation, OR
-/// - It's a vertex with at least 2 horizontal line chars on one side
+/// Following JS logic from isHLineAt in markdeep-diagram.js lines 362-389
 fn is_solid_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
     let c = grid.get(x, y);
 
@@ -141,8 +396,9 @@ fn is_solid_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
     let rt = grid.get(x + 1, y);
     let rtrt = grid.get(x + 2, y);
 
-    if is_solid_h_line(c) {
-        // Need three in a row (including vertices at ends)
+    // JS: if (f(c) || (f(lt) && isJump(c)))
+    if is_solid_h_line(c) || (is_solid_h_line(lt) && is_jump(c)) {
+        // Looks like a horizontal line...does it continue? We need three in a row.
         if is_solid_h_line(lt) {
             // Has line char to left - need line or vertex to right, or line to far left
             return is_solid_h_line(rt)
@@ -157,6 +413,12 @@ fn is_solid_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
             return is_solid_h_line(rt)
                 && (is_solid_h_line(rtrt) || is_vertex_or_right_decoration(rtrt));
         }
+    } else if c == '<' {
+        // Left arrow is part of solid line if there are two line chars to the right
+        is_solid_h_line(rt) && is_solid_h_line(rtrt)
+    } else if c == '>' {
+        // Right arrow is part of solid line if there are two line chars to the left
+        is_solid_h_line(lt) && is_solid_h_line(ltlt)
     } else if is_vertex(c) {
         // Vertex is part of line if there are 2 line chars on one side
         (is_solid_h_line(lt) && is_solid_h_line(ltlt))
@@ -170,7 +432,9 @@ fn find_solid_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
     for y in 0..grid.height as i32 {
         let mut x = 0;
         while x < grid.width as i32 {
-            if is_solid_h_line_at(grid, x, y) && !grid.is_used(x, y) {
+            // Note: JS doesn't check is_used before starting a line
+            // This allows vertices to be shared between vertical and horizontal lines
+            if is_solid_h_line_at(grid, x, y) {
                 let start_x = x;
                 while x < grid.width as i32 && is_solid_h_line_at(grid, x, y) {
                     grid.set_used(x, y);
@@ -178,10 +442,15 @@ fn find_solid_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
                 }
                 let end_x = x - 1;
 
-                if end_x > start_x {
-                    let path = Path::line_from_grid(start_x, y, end_x, y);
-                    paths.insert(path);
-                }
+                // Apply stretching logic matching JS behavior
+                let (adj_start, adj_end) =
+                    stretch_h_line_endpoints(grid, start_x, end_x, y);
+
+                let path = Path::line(
+                    Vec2::from_grid_frac(adj_start, y as f64),
+                    Vec2::from_grid_frac(adj_end, y as f64),
+                );
+                paths.insert(path);
             } else {
                 x += 1;
             }
@@ -189,22 +458,65 @@ fn find_solid_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
     }
 }
 
+/// Check if position is part of a squiggle horizontal line
+/// Following JS logic from isHLineAt
+fn is_squiggle_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
+    let c = grid.get(x, y);
+
+    let lt = grid.get(x - 1, y);
+    let ltlt = grid.get(x - 2, y);
+    let rt = grid.get(x + 1, y);
+    let rtrt = grid.get(x + 2, y);
+
+    // JS: if (f(c) || (f(lt) && isJump(c)))
+    if (is_squiggle_h_line(c) && c != '+') || (is_squiggle_h_line(lt) && is_jump(c)) {
+        // Looks like a horizontal line...does it continue? We need three in a row.
+        if is_squiggle_h_line(lt) {
+            return is_squiggle_h_line(rt)
+                || is_vertex_or_right_decoration(rt)
+                || is_squiggle_h_line(ltlt)
+                || is_vertex_or_left_decoration(ltlt);
+        } else if is_vertex_or_left_decoration(lt) {
+            return is_squiggle_h_line(rt);
+        } else {
+            return is_squiggle_h_line(rt)
+                && (is_squiggle_h_line(rtrt) || is_vertex_or_right_decoration(rtrt));
+        }
+    } else if c == '<' {
+        is_squiggle_h_line(rt) && is_squiggle_h_line(rtrt)
+    } else if c == '>' {
+        is_squiggle_h_line(lt) && is_squiggle_h_line(ltlt)
+    } else if is_vertex(c) {
+        (is_squiggle_h_line(lt) && is_squiggle_h_line(ltlt))
+            || (is_squiggle_h_line(rt) && is_squiggle_h_line(rtrt))
+    } else {
+        false
+    }
+}
+
 fn find_squiggle_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
     for y in 0..grid.height as i32 {
         let mut x = 0;
         while x < grid.width as i32 {
-            if grid.get(x, y) == '~' {
+            // Note: JS doesn't check is_used before starting a line
+            if is_squiggle_h_line_at(grid, x, y) {
                 let start_x = x;
-                while x < grid.width as i32 && grid.get(x, y) == '~' {
+                while x < grid.width as i32 && is_squiggle_h_line_at(grid, x, y) {
                     grid.set_used(x, y);
                     x += 1;
                 }
                 let end_x = x - 1;
 
-                if end_x > start_x {
-                    let path = Path::line_from_grid(start_x, y, end_x, y).with_squiggle(true);
-                    paths.insert(path);
-                }
+                // Apply stretching logic matching JS behavior
+                let (adj_start, adj_end) =
+                    stretch_h_line_endpoints(grid, start_x, end_x, y);
+
+                let path = Path::line(
+                    Vec2::from_grid_frac(adj_start, y as f64),
+                    Vec2::from_grid_frac(adj_end, y as f64),
+                )
+                .with_squiggle(true);
+                paths.insert(path);
             } else {
                 x += 1;
             }
@@ -213,7 +525,7 @@ fn find_squiggle_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
 }
 
 /// Check if position is part of a double horizontal line
-/// Similar to solid horizontal line logic but for = characters
+/// Following JS logic from isHLineAt
 fn is_double_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
     let c = grid.get(x, y);
 
@@ -222,8 +534,11 @@ fn is_double_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
     let rt = grid.get(x + 1, y);
     let rtrt = grid.get(x + 2, y);
 
-    if is_double_h_line(c) && c != '+' && c != '(' && c != ')' {
-        // Need three in a row (including vertices at ends)
+    // JS: if (f(c) || (f(lt) && isJump(c)))
+    if (is_double_h_line(c) && c != '+' && c != '(' && c != ')')
+        || (is_double_h_line(lt) && is_jump(c))
+    {
+        // Looks like a horizontal line...does it continue? We need three in a row.
         if is_double_h_line(lt) {
             return is_double_h_line(rt)
                 || is_vertex_or_right_decoration(rt)
@@ -235,8 +550,11 @@ fn is_double_h_line_at(grid: &Grid, x: i32, y: i32) -> bool {
             return is_double_h_line(rt)
                 && (is_double_h_line(rtrt) || is_vertex_or_right_decoration(rtrt));
         }
+    } else if c == '<' {
+        is_double_h_line(rt) && is_double_h_line(rtrt)
+    } else if c == '>' {
+        is_double_h_line(lt) && is_double_h_line(ltlt)
     } else if is_vertex(c) {
-        // Vertex is part of line if there are 2 line chars on one side
         (is_double_h_line(lt) && is_double_h_line(ltlt))
             || (is_double_h_line(rt) && is_double_h_line(rtrt))
     } else {
@@ -248,7 +566,8 @@ fn find_double_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
     for y in 0..grid.height as i32 {
         let mut x = 0;
         while x < grid.width as i32 {
-            if is_double_h_line_at(grid, x, y) && !grid.is_used(x, y) {
+            // Note: JS doesn't check is_used before starting a line
+            if is_double_h_line_at(grid, x, y) {
                 let start_x = x;
                 while x < grid.width as i32 && is_double_h_line_at(grid, x, y) {
                     grid.set_used(x, y);
@@ -256,10 +575,16 @@ fn find_double_horizontal_lines(grid: &mut Grid, paths: &mut PathSet) {
                 }
                 let end_x = x - 1;
 
-                if end_x > start_x {
-                    let path = Path::line_from_grid(start_x, y, end_x, y).with_double(true);
-                    paths.insert(path);
-                }
+                // Apply stretching logic matching JS behavior
+                let (adj_start, adj_end) =
+                    stretch_h_line_endpoints(grid, start_x, end_x, y);
+
+                let path = Path::line(
+                    Vec2::from_grid_frac(adj_start, y as f64),
+                    Vec2::from_grid_frac(adj_end, y as f64),
+                )
+                .with_double(true);
+                paths.insert(path);
             } else {
                 x += 1;
             }
@@ -539,12 +864,13 @@ fn find_curved_corners(grid: &mut Grid, paths: &mut PathSet) {
                 grid.set_used(x - 1, y + 1);
                 let start = Vec2::from_grid(x - 2, y - 1);
                 let end = Vec2::from_grid(x - 2, y + 1);
+                // JS: Vec2(x + 0.6, y - 1) -> pixel coords ((x + 0.6 + 1) * SCALE, ...)
                 let ctrl1 = Vec2::new(
-                    (x as f64 + 0.6) * crate::path::SCALE,
+                    (x as f64 + 0.6 + 1.0) * crate::path::SCALE,
                     start.y,
                 );
                 let ctrl2 = Vec2::new(
-                    (x as f64 + 0.6) * crate::path::SCALE,
+                    (x as f64 + 0.6 + 1.0) * crate::path::SCALE,
                     end.y,
                 );
                 let path = Path::curve(start, end, ctrl1, ctrl2);
@@ -560,12 +886,13 @@ fn find_curved_corners(grid: &mut Grid, paths: &mut PathSet) {
                 grid.set_used(x + 1, y + 1);
                 let start = Vec2::from_grid(x + 2, y - 1);
                 let end = Vec2::from_grid(x + 2, y + 1);
+                // JS: Vec2(x - 0.6, y - 1) -> pixel coords ((x - 0.6 + 1) * SCALE, ...)
                 let ctrl1 = Vec2::new(
-                    (x as f64 - 0.6) * crate::path::SCALE,
+                    (x as f64 - 0.6 + 1.0) * crate::path::SCALE,
                     start.y,
                 );
                 let ctrl2 = Vec2::new(
-                    (x as f64 - 0.6) * crate::path::SCALE,
+                    (x as f64 - 0.6 + 1.0) * crate::path::SCALE,
                     end.y,
                 );
                 let path = Path::curve(start, end, ctrl1, ctrl2);
@@ -624,28 +951,101 @@ fn find_curved_corners(grid: &mut Grid, paths: &mut PathSet) {
 // Underscore line finding
 // ============================================================================
 
+/// Find low horizontal lines marked with underscores
+/// JS markdeep-diagram.js lines 1205-1278
 fn find_underscore_lines(grid: &mut Grid, paths: &mut PathSet) {
+    fn is_ascii_letter(c: char) -> bool {
+        c.is_ascii_alphabetic()
+    }
+
     for y in 0..grid.height as i32 {
         let mut x = 0;
-        while x < grid.width as i32 {
-            if grid.get(x, y) == '_' {
+        while x < (grid.width as i32) - 2 {
+            let lt = grid.get(x - 1, y);
+            let c = grid.get(x, y);
+            let c1 = grid.get(x + 1, y);
+            let c2 = grid.get(x + 2, y);
+
+            // JS: (grid(x, y) === '_') && (grid(x + 1, y) === '_') &&
+            //     (!isASCIILetter(grid(x + 2, y)) || (lt === '_')) &&
+            //     (!isASCIILetter(lt) || (grid(x + 2, y) === '_'))
+            if c == '_'
+                && c1 == '_'
+                && (!is_ascii_letter(c2) || lt == '_')
+                && (!is_ascii_letter(lt) || c2 == '_')
+            {
+                let ltlt = grid.get(x - 2, y);
+
+                // Start position: Vec2(x - 0.5, y + 0.5)
+                let mut a_x = x as f64 - 0.5;
+
+                // Left side extension logic
+                if lt == '|'
+                    || grid.get(x - 1, y + 1) == '|'
+                    || lt == '.'
+                    || grid.get(x - 1, y + 1) == '\''
+                {
+                    // Extend to meet adjacent vertical
+                    a_x -= 0.5;
+
+                    // Very special case of overrunning into the side of a curve
+                    if lt == '.' && (ltlt == '-' || ltlt == '.') && grid.get(x - 2, y + 1) == '(' {
+                        a_x -= 0.5;
+                    }
+                } else if lt == '/' {
+                    a_x -= 1.0;
+                }
+
+                // Detect overrun of a tight double curve
+                if lt == '(' && ltlt == '(' && grid.get(x, y + 1) == '\'' && grid.get(x, y - 1) == '.'
+                {
+                    a_x += 0.5;
+                }
+
+                // Consume all underscores
                 let start_x = x;
                 while x < grid.width as i32 && grid.get(x, y) == '_' {
                     grid.set_used(x, y);
                     x += 1;
                 }
-                let end_x = x - 1;
 
-                if end_x > start_x {
-                    // Underscore is at the bottom of the cell
-                    let start = Vec2::from_grid(start_x, y).offset(0.0, 0.5);
-                    let end = Vec2::from_grid(end_x, y).offset(0.0, 0.5);
-                    let path = Path::line(start, end);
-                    paths.insert(path);
+                // End position: Vec2(x - 0.5, y + 0.5)
+                let mut b_x = x as f64 - 0.5;
+                let rt = grid.get(x, y);
+                let rt1 = grid.get(x + 1, y);
+                let dn = grid.get(x, y + 1);
+
+                // Right side extension logic
+                if rt == '|' || dn == '|' || rt == '.' || dn == '\'' {
+                    // Extend to meet adjacent vertical
+                    b_x += 0.5;
+
+                    // Very special case of overrunning into the side of a curve
+                    if rt == '.' && (rt1 == '-' || rt1 == '.') && grid.get(x + 1, y + 1) == ')' {
+                        b_x += 0.5;
+                    }
+                } else if rt == '\\' {
+                    b_x += 1.0;
                 }
-            } else {
-                x += 1;
+
+                // Detect overrun of a tight double curve
+                if rt == ')'
+                    && rt1 == ')'
+                    && grid.get(x - 1, y + 1) == '\''
+                    && grid.get(x - 1, y - 1) == '.'
+                {
+                    b_x -= 0.5;
+                }
+
+                // Create the path at y + 0.5 (bottom of cell)
+                let start = Vec2::from_grid_frac(a_x, y as f64 + 0.5);
+                let end = Vec2::from_grid_frac(b_x, y as f64 + 0.5);
+                paths.insert(Path::line(start, end));
+
+                // Don't increment x here, we already advanced past the underscores
+                continue;
             }
+            x += 1;
         }
     }
 }
@@ -824,13 +1224,19 @@ fn find_jumps(grid: &mut Grid, paths: &PathSet, decorations: &mut DecorationSet)
         for x in 0..width {
             let c = grid.get(x, y);
 
-            // Jump is a ( or ) that bridges a horizontal line crossing
+            // Jump is a ( or ) that bridges a vertical line
             if c == '(' || c == ')' {
-                // Check if there's a vertical line passing through
-                if paths.vertical_passes_through(x, y) {
-                    let from = Vec2::from_grid(x, y).offset(0.0, -0.5);
-                    let to = Vec2::from_grid(x, y).offset(0.0, 0.5);
-                    decorations.insert(Decoration::jump(x, y, from, to));
+                // Check if there's a vertical line above and below
+                // Either via paths or direct character check
+                let has_line_above = paths.down_ends_at(x, y)
+                    || is_solid_v_line(grid.get(x, y - 1))
+                    || is_double_v_line(grid.get(x, y - 1));
+                let has_line_below = paths.up_ends_at(x, y)
+                    || is_solid_v_line(grid.get(x, y + 1))
+                    || is_double_v_line(grid.get(x, y + 1));
+
+                if has_line_above && has_line_below {
+                    decorations.insert(Decoration::jump(x, y, c));
                     grid.set_used(x, y);
                 }
             }

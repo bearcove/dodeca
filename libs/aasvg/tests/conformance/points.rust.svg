@@ -18,8 +18,8 @@
 <path d="M 8,16 L 24,16" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 40,16 L 56,16" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 72,16 L 88,16" fill="none" stroke="var(--aasvg-stroke)"/>
+<circle cx="32" cy="16" r="6" fill="var(--aasvg-fill)"/>
+<circle cx="64" cy="16" r="6" fill="var(--aasvg-bg)" stroke="var(--aasvg-stroke)"/>
 <g fill="var(--aasvg-text)">
-<text x="32" y="20" textLength="8" lengthAdjust="spacingAndGlyphs">*</text>
-<text x="64" y="20" textLength="8" lengthAdjust="spacingAndGlyphs">o</text>
 </g>
 </svg>
