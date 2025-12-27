@@ -1615,27 +1615,6 @@ fn render_object_stmt(
         }
     }
 
-    // Apply automatic vertical layout to text if not explicitly positioned
-    // cref: pik_txt_vertical_layout (pikchr.c:2306-2385)
-    if text.len() >= 2 {
-        // Count how many have explicit vertical positioning
-        let has_positioning: Vec<bool> = text.iter().map(|t| t.above || t.below || t.center).collect();
-        let unpositioned_count = has_positioning.iter().filter(|&&x| !x).count();
-
-        if unpositioned_count == text.len() {
-            // All text is unpositioned - apply default layout
-            // For 2+ items, first goes above, rest go below (simplified from C's complex logic)
-            // cref: pikchr.c:2353-2385
-            for (i, t) in text.iter_mut().enumerate() {
-                if i == 0 {
-                    t.above = true;
-                } else {
-                    t.below = true;
-                }
-            }
-        }
-    }
-
     // Auto-fit when width or height <= 0 (matches C behavior)
     // cref: pikchr.c:4293-4311 - "A height or width less than or equal to zero means autofit"
     if !text.is_empty() {
@@ -1673,20 +1652,26 @@ fn render_object_stmt(
                 0.0
             };
 
+            // Use compute_text_vslots to get correct slot assignments
+            // cref: pik_txt_vertical_layout (pikchr.c:2306-2385)
+            let vslots = compute_text_vslots(&text);
+
             // Compute height allocations for each vertical position
             // cref: pik_append_txt (pikchr.c:2426-2466)
-            let mut ha1: f64 = 0.0;  // Height of first "above" row
+            let mut ha2: f64 = 0.0;  // Height of above2 row
+            let mut ha1: f64 = 0.0;  // Height of above row
             let mut hc: f64 = 0.0;   // Height of center row
-            let mut hb1: f64 = 0.0;  // Height of first "below" row
+            let mut hb1: f64 = 0.0;  // Height of below row
+            let mut hb2: f64 = 0.0;  // Height of below2 row
 
-            for t in &text {
+            for (i, t) in text.iter().enumerate() {
                 let s = t.font_scale() * charht;
-                if t.center {
-                    hc = hc.max(s);
-                } else if t.above {
-                    ha1 = ha1.max(s);
-                } else if t.below {
-                    hb1 = hb1.max(s);
+                match vslots.get(i).unwrap_or(&TextVSlot::Center) {
+                    TextVSlot::Above2 => ha2 = ha2.max(s),
+                    TextVSlot::Above => ha1 = ha1.max(s),
+                    TextVSlot::Center => hc = hc.max(s),
+                    TextVSlot::Below => hb1 = hb1.max(s),
+                    TextVSlot::Below2 => hb2 = hb2.max(s),
                 }
             }
 
@@ -1697,17 +1682,18 @@ fn render_object_stmt(
             let mut bbox_min_y = f64::MAX;
             let mut bbox_max_y = f64::MIN;
 
-            for t in &text {
+            for (i, t) in text.iter().enumerate() {
                 let cw = t.width_inches(charwid);
                 let ch = charht * 0.5 * t.font_scale();
 
-                // Compute y offset based on vertical position
-                let y = if t.above {
-                    0.5 * hc + 0.5 * ha1
-                } else if t.below {
-                    -(0.5 * hc + 0.5 * hb1)
-                } else {
-                    0.0  // center
+                // Compute y offset based on vertical slot
+                let slot = vslots.get(i).unwrap_or(&TextVSlot::Center);
+                let y = match slot {
+                    TextVSlot::Above2 => 0.5 * hc + ha1 + 0.5 * ha2,
+                    TextVSlot::Above => 0.5 * hc + 0.5 * ha1,
+                    TextVSlot::Center => 0.0,
+                    TextVSlot::Below => -(0.5 * hc + 0.5 * hb1),
+                    TextVSlot::Below2 => -(0.5 * hc + hb1 + 0.5 * hb2),
                 };
 
                 let nx = if t.ljust {
