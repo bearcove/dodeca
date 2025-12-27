@@ -1,4 +1,4 @@
-# aasvg
+# aasvg-rs
 
 [![Crates.io](https://img.shields.io/crates/v/aasvg.svg)](https://crates.io/crates/aasvg)
 [![Documentation](https://docs.rs/aasvg/badge.svg)](https://docs.rs/aasvg)
