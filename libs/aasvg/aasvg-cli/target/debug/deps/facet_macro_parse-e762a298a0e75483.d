@@ -1,0 +1,10 @@
+/Users/amos/bearcove/aasvg-rs/aasvg-cli/target/debug/deps/facet_macro_parse-e762a298a0e75483.d: /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/lib.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/parsed.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/generic_params.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/unescaping.rs
+
+/Users/amos/bearcove/aasvg-rs/aasvg-cli/target/debug/deps/libfacet_macro_parse-e762a298a0e75483.rlib: /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/lib.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/parsed.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/generic_params.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/unescaping.rs
+
+/Users/amos/bearcove/aasvg-rs/aasvg-cli/target/debug/deps/libfacet_macro_parse-e762a298a0e75483.rmeta: /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/lib.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/parsed.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/generic_params.rs /Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/unescaping.rs
+
+/Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/lib.rs:
+/Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/parsed.rs:
+/Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/generic_params.rs:
+/Users/amos/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/facet-macro-parse-0.34.0/src/unescaping.rs:

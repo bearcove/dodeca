@@ -1,0 +1,9 @@
+error[E0554]: `#![feature]` may not be used on the stable release channel
+ --> <anon>:2:13
+  |
+2 |             #![feature(portable_simd)]
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: aborting due to 1 previous error
+
+For more information about this error, try `rustc --explain E0554`.

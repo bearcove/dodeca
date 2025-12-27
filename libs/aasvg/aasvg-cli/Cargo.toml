@@ -1,0 +1,18 @@
+[package]
+name = "aasvg-cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "CLI tool to convert ASCII art diagrams to SVG"
+license = "BSD-2-Clause"
+repository = "https://github.com/bearcove/aasvg-rs"
+authors = ["Amos Wenger <amos@bearcove.eu>"]
+
+[[bin]]
+name = "aasvg"
+path = "src/main.rs"
+
+[dependencies]
+aasvg = { path = ".." }
+facet = "0.34"
+facet-args = "0.34"

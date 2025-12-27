@@ -6,9 +6,22 @@
 
 A Rust port of [aasvg](https://github.com/martinthomson/aasvg), which converts ASCII art diagrams into SVG.
 
+<!-- Generated with: cargo run -p aasvg-cli -- example.txt -o example.svg -->
 ![example](./example.svg)
 
-## Usage
+## CLI Usage
+
+```sh
+cargo install aasvg-cli
+
+# Convert a file
+aasvg input.txt -o output.svg
+
+# Or use stdin/stdout
+cat input.txt | aasvg > output.svg
+```
+
+## Library Usage
 
 ```rust
 use aasvg::render;
