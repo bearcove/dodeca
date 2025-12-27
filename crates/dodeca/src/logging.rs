@@ -466,12 +466,18 @@ fn parse_http_status(msg: &str) -> Option<u16> {
     }
 }
 
+/// Default log filter for TUI mode: quiet deps, info for dodeca
+const DEFAULT_TUI_FILTER: &str = "warn,dodeca=info";
+
 /// Initialize tracing for TUI mode
 /// Returns a FilterHandle for dynamic filter updates
 /// Starts with picante debug disabled - use 'd' key to toggle
 pub fn init_tui_tracing(event_tx: Sender<LogEvent>) -> FilterHandle {
     let tui_layer = TuiLayer::new(event_tx);
     let handle = tui_layer.filter_handle();
+
+    // Set the default filter
+    handle.set_filter(DEFAULT_TUI_FILTER);
 
     tracing_subscriber::registry().with(tui_layer).init();
 
