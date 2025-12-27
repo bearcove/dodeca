@@ -1208,8 +1208,9 @@ fn find_arrow_heads(grid: &mut Grid, paths: &PathSet, decorations: &mut Decorati
 
             match c {
                 '>' => {
-                    // Right arrow - check for horizontal line to the left
-                    if paths.left_ends_at(x, y) || paths.horizontal_passes_through(x - 1, y) {
+                    // Right arrow - check for horizontal line ending here (rightEndsAt in JS)
+                    // or passing through
+                    if paths.right_ends_at(x, y) || paths.horizontal_passes_through(x, y) {
                         decorations.insert(Decoration::arrow(x, y, ARROW_RIGHT));
                         grid.set_used(x, y);
                     }
@@ -1223,8 +1224,9 @@ fn find_arrow_heads(grid: &mut Grid, paths: &PathSet, decorations: &mut Decorati
                     }
                 }
                 '<' => {
-                    // Left arrow
-                    if paths.right_ends_at(x, y) || paths.horizontal_passes_through(x + 1, y) {
+                    // Left arrow - check for horizontal line ending here (leftEndsAt in JS)
+                    // or passing through
+                    if paths.left_ends_at(x, y) || paths.horizontal_passes_through(x, y) {
                         decorations.insert(Decoration::arrow(x, y, ARROW_LEFT));
                         grid.set_used(x, y);
                     }
@@ -1238,24 +1240,32 @@ fn find_arrow_heads(grid: &mut Grid, paths: &PathSet, decorations: &mut Decorati
                     }
                 }
                 '^' => {
-                    // Up arrow - check for vertical line below or solid line char directly below
-                    if paths.down_ends_at(x, y)
-                        || paths.vertical_passes_through(x, y + 1)
-                        || is_solid_v_line(grid.get(x, y + 1))
-                        || is_double_v_line(grid.get(x, y + 1))
-                    {
+                    // Up arrow - JS checks multiple positions due to aspect ratio
+                    // First check if line ends at y - 0.5 (between cells)
+                    if paths.up_ends_at_frac(x as f64, y as f64 - 0.5) {
+                        decorations.insert(Decoration::arrow_frac(x as f64, y as f64 - 0.5, ARROW_UP));
+                        grid.set_used(x, y);
+                    } else if paths.up_ends_at(x, y) {
                         decorations.insert(Decoration::arrow(x, y, ARROW_UP));
+                        grid.set_used(x, y);
+                    } else if paths.vertical_passes_through(x, y) {
+                        // Line passes through - position at y - 0.5
+                        decorations.insert(Decoration::arrow_frac(x as f64, y as f64 - 0.5, ARROW_UP));
                         grid.set_used(x, y);
                     }
                 }
                 'v' | 'V' => {
-                    // Down arrow - check for vertical line above or solid line char directly above
-                    if paths.up_ends_at(x, y)
-                        || paths.vertical_passes_through(x, y - 1)
-                        || is_solid_v_line(grid.get(x, y - 1))
-                        || is_double_v_line(grid.get(x, y - 1))
-                    {
+                    // Down arrow - JS checks multiple positions due to aspect ratio
+                    // First check if line ends at y + 0.5 (between cells)
+                    if paths.down_ends_at_frac(x as f64, y as f64 + 0.5) {
+                        decorations.insert(Decoration::arrow_frac(x as f64, y as f64 + 0.5, ARROW_DOWN));
+                        grid.set_used(x, y);
+                    } else if paths.down_ends_at(x, y) {
                         decorations.insert(Decoration::arrow(x, y, ARROW_DOWN));
+                        grid.set_used(x, y);
+                    } else if paths.vertical_passes_through(x, y) {
+                        // Line passes through - position at y + 0.5
+                        decorations.insert(Decoration::arrow_frac(x as f64, y as f64 + 0.5, ARROW_DOWN));
                         grid.set_used(x, y);
                     }
                 }

@@ -45,10 +45,21 @@ pub struct Decoration {
 }
 
 impl Decoration {
-    /// Create an arrow decoration
+    /// Create an arrow decoration at integer grid coordinates
     pub fn arrow(x: i32, y: i32, angle: f64) -> Self {
         Self {
             pos: Vec2::from_grid(x, y),
+            kind: DecorationType::Arrow,
+            angle,
+            jump_from: None,
+            jump_to: None,
+        }
+    }
+
+    /// Create an arrow decoration at fractional grid coordinates
+    pub fn arrow_frac(x: f64, y: f64, angle: f64) -> Self {
+        Self {
+            pos: Vec2::from_grid_frac(x, y),
             kind: DecorationType::Arrow,
             angle,
             jump_from: None,

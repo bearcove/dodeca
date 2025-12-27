@@ -212,28 +212,40 @@ impl Path {
             || ((self.b.x - target.x).abs() < eps && (self.b.y - target.y).abs() < eps)
     }
 
-    /// Check if a vertical path ends at the top of the given position
+    /// Check if a vertical path ends at the top (min Y) at the given position
+    /// JS semantics: checks if min(A.y, B.y) === y in grid coordinates
     pub fn up_ends_at(&self, x: i32, y: i32) -> bool {
-        if !self.is_vertical() {
-            return false;
-        }
-        let target = Vec2::from_grid(x, y);
-        let eps = SCALE / 2.0;
-        let top_y = target.y - SCALE * ASPECT / 2.0;
-        ((self.a.x - target.x).abs() < eps && (self.a.y - top_y).abs() < eps)
-            || ((self.b.x - target.x).abs() < eps && (self.b.y - top_y).abs() < eps)
+        self.up_ends_at_frac(x as f64, y as f64)
     }
 
-    /// Check if a vertical path ends at the bottom of the given position
-    pub fn down_ends_at(&self, x: i32, y: i32) -> bool {
+    /// Check if a vertical path ends at the top (min Y) at the given fractional position
+    pub fn up_ends_at_frac(&self, x: f64, y: f64) -> bool {
         if !self.is_vertical() {
             return false;
         }
-        let target = Vec2::from_grid(x, y);
+        let target = Vec2::from_grid_frac(x, y);
         let eps = SCALE / 2.0;
-        let bottom_y = target.y + SCALE * ASPECT / 2.0;
-        ((self.a.x - target.x).abs() < eps && (self.a.y - bottom_y).abs() < eps)
-            || ((self.b.x - target.x).abs() < eps && (self.b.y - bottom_y).abs() < eps)
+        // Check if path's min Y matches target Y (JS: min(A.y, B.y) === y)
+        let min_y = self.a.y.min(self.b.y);
+        (self.a.x - target.x).abs() < eps && (min_y - target.y).abs() < eps
+    }
+
+    /// Check if a vertical path ends at the bottom (max Y) at the given position
+    /// JS semantics: checks if max(A.y, B.y) === y in grid coordinates
+    pub fn down_ends_at(&self, x: i32, y: i32) -> bool {
+        self.down_ends_at_frac(x as f64, y as f64)
+    }
+
+    /// Check if a vertical path ends at the bottom (max Y) at the given fractional position
+    pub fn down_ends_at_frac(&self, x: f64, y: f64) -> bool {
+        if !self.is_vertical() {
+            return false;
+        }
+        let target = Vec2::from_grid_frac(x, y);
+        let eps = SCALE / 2.0;
+        // Check if path's max Y matches target Y (JS: max(A.y, B.y) === y)
+        let max_y = self.a.y.max(self.b.y);
+        (self.a.x - target.x).abs() < eps && (max_y - target.y).abs() < eps
     }
 
     /// Check if a horizontal path ends at the left of the given position
@@ -497,9 +509,19 @@ impl PathSet {
         self.paths.iter().any(|p| p.up_ends_at(x, y))
     }
 
+    /// Check if any path has its top end at the given fractional position
+    pub fn up_ends_at_frac(&self, x: f64, y: f64) -> bool {
+        self.paths.iter().any(|p| p.up_ends_at_frac(x, y))
+    }
+
     /// Check if any path has its bottom end at the given position
     pub fn down_ends_at(&self, x: i32, y: i32) -> bool {
         self.paths.iter().any(|p| p.down_ends_at(x, y))
+    }
+
+    /// Check if any path has its bottom end at the given fractional position
+    pub fn down_ends_at_frac(&self, x: f64, y: f64) -> bool {
+        self.paths.iter().any(|p| p.down_ends_at_frac(x, y))
     }
 
     /// Check if any path has its left end at the given position
