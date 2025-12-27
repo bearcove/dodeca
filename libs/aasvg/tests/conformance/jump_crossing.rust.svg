@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="96" height="80" viewBox="0 0 96 80" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+<style>
+  :root {
+    --aasvg-stroke: #000;
+    --aasvg-fill: #000;
+    --aasvg-bg: #fff;
+    --aasvg-text: #000;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --aasvg-stroke: #fff;
+      --aasvg-fill: #fff;
+      --aasvg-bg: #1a1a1a;
+      --aasvg-text: #fff;
+    }
+  }
+</style>
+<path d="M 48,16 L 48,48" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 8,32 L 88,32" fill="none" stroke="var(--aasvg-stroke)"/>
+<g fill="var(--aasvg-text)">
+</g>
+</svg>

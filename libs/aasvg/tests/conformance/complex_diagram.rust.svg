@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" width="96" height="128" viewBox="0 0 96 128" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+<style>
+  :root {
+    --aasvg-stroke: #000;
+    --aasvg-fill: #000;
+    --aasvg-bg: #fff;
+    --aasvg-text: #000;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --aasvg-stroke: #fff;
+      --aasvg-fill: #fff;
+      --aasvg-bg: #1a1a1a;
+      --aasvg-text: #fff;
+    }
+  }
+</style>
+<path d="M 32,16 L 64,16" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 32,112 L 64,112" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 72,32 L 80,48" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 16,80 L 24,96" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 16,48 L 24,32" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 72,96 L 80,80" fill="none" stroke="var(--aasvg-stroke)"/>
+<g fill="var(--aasvg-text)">
+<text x="32" y="20" textLength="8" lengthAdjust="spacingAndGlyphs">.</text>
+<text x="64" y="20" textLength="8" lengthAdjust="spacingAndGlyphs">.</text>
+<text x="48" y="68" textLength="8" lengthAdjust="spacingAndGlyphs">*</text>
+<text x="32" y="116" textLength="8" lengthAdjust="spacingAndGlyphs">&#39;</text>
+<text x="64" y="116" textLength="8" lengthAdjust="spacingAndGlyphs">&#39;</text>
+</g>
+</svg>
