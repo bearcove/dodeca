@@ -2209,34 +2209,50 @@ fn render_object_stmt(
                 // direction_offset = initial segment (before first "then")
                 // segments = accumulated offsets for each "then" segment
 
-                // If we have both to_positions and direction moves, the direction offset
-                // should be applied AFTER reaching the to_position (e.g., "move to X down 1in")
-                // BUT for Line/Arrow with "go DIR to POS", DIR is just the approach direction,
-                // not an additional segment to add after POS.
-                // cref: C pikchr handles this in pik_elem_new
+                // C pikchr processes attributes in source order:
+                // For "spline right .2 from X to Y to Z":
+                // 1. "right .2" creates waypoint at cursor + (0.2*linewid, 0)
+                // 2. "from X" sets start to X and mTPath=3
+                // 3. "to Y" sees mTPath=3, ADVANCES, then sets waypoint to Y
+                // 4. "to Z" sees mTPath=3, ADVANCES, then sets waypoint to Z
+                //
+                // The key is that when "from" is explicit, subsequent "to" clauses
+                // ADVANCE (create new waypoint) instead of overwriting the direction waypoint.
+                //
+                // cref: pik_set_from sets mTPath=3
+                // cref: pik_add_to checks mTPath==3 to decide whether to advance
+
+                // When we have from_position AND direction_offset AND to_positions,
+                // the direction creates a waypoint BEFORE the to_positions
+                let has_explicit_from = from_position.is_some();
+                if direction_offset != OffsetIn::ZERO && has_explicit_from && !to_positions.is_empty() {
+                    // "spline right .2 from X to Y to Z" pattern:
+                    // Create direction waypoint BEFORE adding to_positions
+                    let dir_point = start + direction_offset;
+                    tracing::debug!(
+                        start_x = start.x.raw(),
+                        start_y = start.y.raw(),
+                        dir_offset_dx = direction_offset.dx.raw(),
+                        dir_offset_dy = direction_offset.dy.raw(),
+                        dir_point_x = dir_point.x.raw(),
+                        dir_point_y = dir_point.y.raw(),
+                        "Rust: adding direction waypoint before to_positions"
+                    );
+                    points.push(dir_point);
+                    current_pos = dir_point;
+                }
+
                 if !to_positions.is_empty() {
-                    // Note: if start was set to to_positions[0], we've already pushed it
-                    // Skip the first to_position if it equals start to avoid duplicate
-                    for (i, pos) in to_positions.iter().enumerate() {
-                        if i == 0 && *pos == start {
-                            current_pos = *pos;
-                            continue; // Skip - already in points as start
-                        }
+                    // Add all to_positions as waypoints
+                    for pos in &to_positions {
                         points.push(*pos);
                         current_pos = *pos;
                     }
                 }
 
-                // Apply initial direction offset (segment before first "then")
-                // For Move: "move to X down 1in" creates waypoint at X, then X+down1in
-                // For Line/Arrow with to: "line go up to CW.s" - direction is approach only, don't add extra waypoint
-                let should_apply_direction_offset = if !to_positions.is_empty() {
-                    // Only apply direction_offset after to_position for Move class
-                    class == ClassName::Move
-                } else {
-                    // Always apply when no to_positions (normal direction moves)
-                    true
-                };
+                // Apply initial direction offset when there are no to_positions
+                // (normal direction moves like "arrow right 2in")
+                let should_apply_direction_offset = to_positions.is_empty();
 
                 if direction_offset != OffsetIn::ZERO && should_apply_direction_offset {
                     let next = current_pos + direction_offset;
