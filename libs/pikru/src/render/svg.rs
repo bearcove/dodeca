@@ -280,8 +280,10 @@ pub fn generate_svg(ctx: &RenderContext) -> Result<String, miette::Report> {
                 let svg_y_offset = scaler.px(Inches::inches(-y_offset));
 
 
-                let uses_box_justification =
-                    matches!(obj.class(), ClassName::Box | ClassName::Cylinder);
+                let uses_box_justification = matches!(
+                    obj.class(),
+                    ClassName::Box | ClassName::Cylinder | ClassName::File | ClassName::Oval
+                );
                 let jw_inches = if uses_box_justification {
                     0.5 * (obj.width().0 - 0.5 * (charwid + thickness))
                 } else {

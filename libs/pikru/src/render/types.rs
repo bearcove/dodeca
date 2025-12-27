@@ -70,6 +70,7 @@ pub struct PositionedText {
     pub value: String,
     pub above: bool,
     pub below: bool,
+    pub center: bool,
     pub ljust: bool,
     pub rjust: bool,
     pub bold: bool,
@@ -87,6 +88,7 @@ impl PositionedText {
             value,
             above: false,
             below: false,
+            center: false,
             ljust: false,
             rjust: false,
             bold: false,
@@ -108,6 +110,7 @@ impl PositionedText {
                 match attr {
                     TextAttr::Above => pt.above = true,
                     TextAttr::Below => pt.below = true,
+                    TextAttr::Center => pt.center = true,
                     TextAttr::LJust => pt.ljust = true,
                     TextAttr::RJust => pt.rjust = true,
                     TextAttr::Bold => pt.bold = true,

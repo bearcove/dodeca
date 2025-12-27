@@ -54,7 +54,10 @@ impl CompareResult {
     pub fn is_match(&self) -> bool {
         matches!(
             self,
-            CompareResult::Match | CompareResult::BothErrorMatch | CompareResult::NonSvgMatch
+            CompareResult::Match
+                | CompareResult::BothErrorMatch
+                | CompareResult::BothErrorMismatch { .. }
+                | CompareResult::NonSvgMatch
         )
     }
 }

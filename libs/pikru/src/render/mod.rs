@@ -334,6 +334,8 @@ pub fn compute_text_vslots(texts: &[PositionedText]) -> Vec<TextVSlot> {
                 Some(TextVSlot::Above)
             } else if t.below {
                 Some(TextVSlot::Below)
+            } else if t.center {
+                Some(TextVSlot::Center)
             } else {
                 None // unassigned
             }
@@ -342,12 +344,26 @@ pub fn compute_text_vslots(texts: &[PositionedText]) -> Vec<TextVSlot> {
 
     // cref: pik_txt_vertical_layout (pikchr.c:2321-2332)
     // If there is more than one TP_ABOVE, change the first to TP_ABOVE2.
-    // Scan from end: first ABOVE found stays as ABOVE, second becomes ABOVE2.
-    let mut found_above = false;
+    // BUT: if two texts have opposite justifications (ljust/rjust), allow both
+    // to stay at the same vertical slot since they won't overlap horizontally.
+    let mut j_above = 0;
+    let mut m_just_above: Option<bool> = None; // Some(true)=ljust, Some(false)=rjust, None=center
     for i in (0..n).rev() {
         if slots[i] == Some(TextVSlot::Above) {
-            if !found_above {
-                found_above = true;
+            let this_just = if texts[i].ljust {
+                Some(true)
+            } else if texts[i].rjust {
+                Some(false)
+            } else {
+                None
+            };
+
+            if j_above == 0 {
+                j_above = 1;
+                m_just_above = this_just;
+            } else if j_above == 1 && m_just_above.is_some() && m_just_above != this_just {
+                // Different justifications - allow both at same slot
+                j_above = 2;
             } else {
                 slots[i] = Some(TextVSlot::Above2);
                 break;
@@ -357,11 +373,24 @@ pub fn compute_text_vslots(texts: &[PositionedText]) -> Vec<TextVSlot> {
 
     // cref: pik_txt_vertical_layout (pikchr.c:2335-2346)
     // Same logic for BELOW -> BELOW2
-    let mut found_below = false;
+    let mut j_below = 0;
+    let mut m_just_below: Option<bool> = None;
     for i in 0..n {
         if slots[i] == Some(TextVSlot::Below) {
-            if !found_below {
-                found_below = true;
+            let this_just = if texts[i].ljust {
+                Some(true)
+            } else if texts[i].rjust {
+                Some(false)
+            } else {
+                None
+            };
+
+            if j_below == 0 {
+                j_below = 1;
+                m_just_below = this_just;
+            } else if j_below == 1 && m_just_below.is_some() && m_just_below != this_just {
+                // Different justifications - allow both at same slot
+                j_below = 2;
             } else {
                 slots[i] = Some(TextVSlot::Below2);
                 break;
@@ -390,22 +419,40 @@ pub fn compute_text_vslots(texts: &[PositionedText]) -> Vec<TextVSlot> {
         })
         .fold(0, |a, b| a | b);
 
+    // cref: pik_txt_vertical_layout (pikchr.c:2365-2371)
+    // Special case: if n==2 and both texts have opposite justifications (ljust/rjust),
+    // allow them both to float to center rather than splitting them vertically.
+    let has_opposite_just = if n == 2 {
+        let just0 = (texts[0].ljust, texts[0].rjust);
+        let just1 = (texts[1].ljust, texts[1].rjust);
+        (just0 == (true, false) && just1 == (false, true))
+            || (just0 == (false, true) && just1 == (true, false))
+    } else {
+        false
+    };
+
     let mut free_slots = Vec::new();
-    if n >= 4 && (all_slots_mask & 1) == 0 {
-        free_slots.push(TextVSlot::Above2);
-    }
-    if (all_slots_mask & 2) == 0 {
-        free_slots.push(TextVSlot::Above);
-    }
-    if (n & 1) != 0 {
-        // odd number of texts: include center slot
+    if has_opposite_just {
+        // Both texts get center slot
         free_slots.push(TextVSlot::Center);
-    }
-    if (all_slots_mask & 8) == 0 {
-        free_slots.push(TextVSlot::Below);
-    }
-    if n >= 4 && (all_slots_mask & 16) == 0 {
-        free_slots.push(TextVSlot::Below2);
+        free_slots.push(TextVSlot::Center);
+    } else {
+        if n >= 4 && (all_slots_mask & 1) == 0 {
+            free_slots.push(TextVSlot::Above2);
+        }
+        if (all_slots_mask & 2) == 0 {
+            free_slots.push(TextVSlot::Above);
+        }
+        if (n & 1) != 0 {
+            // odd number of texts: include center slot
+            free_slots.push(TextVSlot::Center);
+        }
+        if (all_slots_mask & 8) == 0 {
+            free_slots.push(TextVSlot::Below);
+        }
+        if n >= 4 && (all_slots_mask & 16) == 0 {
+            free_slots.push(TextVSlot::Below2);
+        }
     }
 
     // Assign free slots to unassigned texts
@@ -1257,7 +1304,8 @@ fn render_object_stmt(
 
                 if !text.is_empty() {
                     let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
-                    let charht = ctx.get_scalar("charht", defaults::FONT_SIZE);
+                    let fontscale = ctx.get_scalar("fontscale", 1.0);
+                    let charht = ctx.get_scalar("charht", defaults::FONT_SIZE) * fontscale;
                     let sw = style.stroke_width.raw();
 
                     // Calculate text bounding box width using jw offset like C does
@@ -1504,7 +1552,8 @@ fn render_object_stmt(
     let should_fit = class == ClassName::Text && !style.fit;
     if should_fit && !text.is_empty() {
         let charwid = ctx.get_scalar("charwid", defaults::CHARWID);
-        let charht = ctx.get_scalar("charht", defaults::FONT_SIZE);
+        let fontscale = ctx.get_scalar("fontscale", 1.0);
+        let charht = ctx.get_scalar("charht", defaults::FONT_SIZE) * fontscale;
 
         // For box-style shapes (eJust=1), C computes bbox with jw-based offsets
         // jw is computed from the CURRENT object width (default boxwid/cylwid)
