@@ -1,0 +1,22 @@
+[package]
+name = "aasvg"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "Convert ASCII art diagrams to SVG with automatic light/dark mode support"
+license = "BSD-2-Clause"
+repository = "https://github.com/bearcove/aasvg-rs"
+homepage = "https://github.com/bearcove/aasvg-rs"
+documentation = "https://docs.rs/aasvg"
+readme = "README.md"
+keywords = ["ascii", "svg", "diagram", "markdeep", "ascii-art"]
+categories = ["graphics", "text-processing", "visualization"]
+authors = ["Amos Wenger <amos@bearcove.net>"]
+
+[lib]
+name = "aasvg"
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
