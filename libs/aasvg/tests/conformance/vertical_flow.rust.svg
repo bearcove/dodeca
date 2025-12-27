@@ -24,7 +24,7 @@
 <path d="M 8,48 L 64,48" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 8,96 L 64,96" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 8,128 L 64,128" fill="none" stroke="var(--aasvg-stroke)"/>
-<polygon points="8,0 -4,-5.6 -4,5.6" fill="var(--aasvg-fill)" transform="translate(32,80) rotate(90)"/>
+<polygon points="40,80 28,74.4 28,85.6" fill="var(--aasvg-fill)" transform="rotate(90,32,80)"/>
 <g fill="var(--aasvg-text)">
 <text x="32" y="36">Top</text>
 <text x="32" y="116">Bot</text>

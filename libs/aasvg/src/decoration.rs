@@ -164,21 +164,22 @@ impl Decoration {
         let cx = self.pos.x;
         let cy = self.pos.y;
 
-        // Arrow head triangle points (matching JS: tip at +1 grid, back at -0.5 grid, up/down at ±0.35 grid)
-        // In pixels: tip_x = 1 * SCALE = 8, back_x = -0.5 * SCALE = -4
-        // up/down = 0.35 * SCALE * ASPECT = 0.35 * 8 * 2 = 5.6
-        let tip_x = SCALE;
-        let tip_y = 0.0;
-        let back_x = -0.5 * SCALE;
-        let back_y = 0.35 * SCALE * ASPECT;
+        // Arrow head triangle points in absolute coordinates (matching JS)
+        // JS: tip at C.x + 1, back at C.x - 0.5, up/down at C.y ± 0.35
+        // In pixels: tip offset = 1 * SCALE = 8, back offset = -0.5 * SCALE = -4
+        // up/down offset = 0.35 * SCALE * ASPECT = 5.6
+        let tip_x = cx + SCALE;
+        let tip_y = cy;
+        let back_x = cx - 0.5 * SCALE;
+        let back_up_y = cy - 0.35 * SCALE * ASPECT;
+        let back_dn_y = cy + 0.35 * SCALE * ASPECT;
 
         format!(
-            "<polygon points=\"{},{} {},{} {},{}\" fill=\"var(--aasvg-fill)\" transform=\"translate({},{}) rotate({})\"/>\n",
+            "<polygon points=\"{},{} {},{} {},{}\" fill=\"var(--aasvg-fill)\" transform=\"rotate({},{},{})\"/>\n",
             tip_x, tip_y,
-            back_x, -back_y,
-            back_x, back_y,
-            cx, cy,
-            self.angle
+            back_x, back_up_y,
+            back_x, back_dn_y,
+            self.angle, cx, cy
         )
     }
 
