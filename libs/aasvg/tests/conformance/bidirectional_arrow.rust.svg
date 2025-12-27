@@ -16,8 +16,8 @@
   }
 </style>
 <path d="M 8,16 L 80,16" fill="none" stroke="var(--aasvg-stroke)"/>
-<polygon points="8,0 -4,-3 -4,3" fill="var(--aasvg-fill)" transform="translate(8,16) rotate(180)"/>
-<polygon points="8,0 -4,-3 -4,3" fill="var(--aasvg-fill)" transform="translate(80,16) rotate(0)"/>
+<polygon points="8,0 -4,-5.6 -4,5.6" fill="var(--aasvg-fill)" transform="translate(8,16) rotate(180)"/>
+<polygon points="8,0 -4,-5.6 -4,5.6" fill="var(--aasvg-fill)" transform="translate(80,16) rotate(0)"/>
 <g fill="var(--aasvg-text)">
 </g>
 </svg>

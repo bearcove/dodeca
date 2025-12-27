@@ -662,6 +662,7 @@ fn is_solid_b_line_at(grid: &Grid, x: i32, y: i32) -> bool {
 
 fn find_backslash_diagonals(grid: &mut Grid, paths: &mut PathSet) {
     // Scan diagonals from top-left to bottom-right
+    // JS: markdeep-diagram.js lines 983-1055
     let width = grid.width as i32;
     let height = grid.height as i32;
 
@@ -677,12 +678,14 @@ fn find_backslash_diagonals(grid: &mut Grid, paths: &mut PathSet) {
         let mut y = start_y;
 
         while x < width && y < height {
-            if is_solid_b_line_at(grid, x, y) && !grid.is_used(x, y) {
+            // Note: JS doesn't check isUsed before starting a diagonal
+            // This allows vertices to be shared between backslash and forward-slash diagonals
+            if is_solid_b_line_at(grid, x, y) {
                 let line_start_x = x;
                 let line_start_y = y;
 
+                // Find the end of the line
                 while x < width && y < height && is_solid_b_line_at(grid, x, y) {
-                    grid.set_used(x, y);
                     x += 1;
                     y += 1;
                 }
@@ -690,30 +693,86 @@ fn find_backslash_diagonals(grid: &mut Grid, paths: &mut PathSet) {
                 let line_end_x = x - 1;
                 let line_end_y = y - 1;
 
-                // Check if we should extend to vertices at the ends
-                let mut adj_start_x = line_start_x;
-                let mut adj_start_y = line_start_y;
-                let mut adj_end_x = line_end_x;
-                let mut adj_end_y = line_end_y;
-
-                // Upper-left end: check for top vertex
-                let ul = grid.get(line_start_x - 1, line_start_y - 1);
-                if is_top_vertex(ul) || ul == '^' {
-                    adj_start_x = line_start_x - 1;
-                    adj_start_y = line_start_y - 1;
-                    grid.set_used(adj_start_x, adj_start_y);
+                // Check if the line contains at least one actual backslash
+                let mut has_backslash = false;
+                for j in line_start_x..=line_end_x {
+                    if grid.get(j, line_start_y + (j - line_start_x)) == '\\' {
+                        has_backslash = true;
+                        break;
+                    }
                 }
 
-                // Lower-right end: check for bottom vertex
-                let lr = grid.get(line_end_x + 1, line_end_y + 1);
-                if is_bottom_vertex(lr) || lr == 'v' || lr == 'V' {
-                    adj_end_x = line_end_x + 1;
-                    adj_end_y = line_end_y + 1;
-                    grid.set_used(adj_end_x, adj_end_y);
-                }
+                if has_backslash {
+                    // Mark cells as used
+                    for j in line_start_x..=line_end_x {
+                        let mark_y = line_start_y + (j - line_start_x);
+                        grid.set_used(j, mark_y);
+                    }
 
-                let path = Path::line_from_grid(adj_start_x, adj_start_y, adj_end_x, adj_end_y);
-                paths.insert(path);
+                    // Apply stretching logic (JS lines 997-1042)
+                    let mut adj_start_x = line_start_x as f64;
+                    let mut adj_start_y = line_start_y as f64;
+                    let mut adj_end_x = line_end_x as f64;
+                    let mut adj_end_y = line_end_y as f64;
+
+                    // Upper-left end stretching
+                    let top = grid.get(line_start_x, line_start_y);
+                    let up = grid.get(line_start_x, line_start_y - 1);
+                    let uplt = grid.get(line_start_x - 1, line_start_y - 1);
+
+                    if up == '/'
+                        || uplt == '_'
+                        || up == '_'
+                        || (!is_vertex(top)
+                            && (is_solid_h_line(uplt) || is_solid_v_line(uplt)))
+                    {
+                        // Continue half a cell more to connect
+                        adj_start_x -= 0.5;
+                        adj_start_y -= 0.5;
+                    } else if is_point(uplt) {
+                        // Continue 1/4 cell more for points
+                        adj_start_x -= 0.25;
+                        adj_start_y -= 0.25;
+                    } else if top == '\\' && is_solid_d_line_at(grid, line_start_x - 1, line_start_y)
+                    {
+                        // Cap a sharp vertex: \/ or similar
+                        adj_start_x -= 0.5;
+                        adj_start_y -= 0.5;
+                    }
+
+                    // Lower-right end stretching
+                    let bottom = grid.get(line_end_x, line_end_y);
+                    let dn = grid.get(line_end_x, line_end_y + 1);
+                    let dnrt = grid.get(line_end_x + 1, line_end_y + 1);
+                    let rt = grid.get(line_end_x + 1, line_end_y);
+                    let lt = grid.get(line_end_x - 1, line_end_y);
+
+                    if dn == '/'
+                        || rt == '_'
+                        || lt == '_'
+                        || (!is_vertex(bottom)
+                            && (is_solid_h_line(dnrt) || is_solid_v_line(dnrt)))
+                    {
+                        // Continue half a cell more to connect
+                        adj_end_x += 0.5;
+                        adj_end_y += 0.5;
+                    } else if is_point(dnrt) {
+                        // Continue 1/4 cell more for points
+                        adj_end_x += 0.25;
+                        adj_end_y += 0.25;
+                    } else if bottom == '\\' && is_solid_d_line_at(grid, line_end_x + 1, line_end_y)
+                    {
+                        // Cap a sharp vertex: /\ or similar
+                        adj_end_x += 0.5;
+                        adj_end_y += 0.5;
+                    }
+
+                    let path = Path::line(
+                        Vec2::from_grid_frac(adj_start_x, adj_start_y),
+                        Vec2::from_grid_frac(adj_end_x, adj_end_y),
+                    );
+                    paths.insert(path);
+                }
             } else {
                 x += 1;
                 y += 1;
@@ -757,65 +816,117 @@ fn is_solid_d_line_at(grid: &Grid, x: i32, y: i32) -> bool {
 }
 
 fn find_forward_slash_diagonals(grid: &mut Grid, paths: &mut PathSet) {
-    // Scan diagonals from top-right to bottom-left
-    // Forward slash / connects lower-left to upper-right of a cell
+    // Scan diagonals from bottom-left to top-right
+    // JS: markdeep-diagram.js lines 1058-1131
+    // In JS, it scans with x increasing and y decreasing
     let width = grid.width as i32;
     let height = grid.height as i32;
 
-    // Start from each cell in top row and right column
-    for start in 0..(width + height - 1) {
-        let (start_x, start_y) = if start < width {
-            (width - 1 - start, 0) // Top edge, right to left
-        } else {
-            (width - 1, start - width + 1) // Right edge, top to bottom
-        };
+    // JS scans with: for (var x = i, y = grid.height - 1; y >= 0; --y, ++x)
+    for i in (-height)..(width) {
+        let mut x = i;
+        let mut y = height - 1;
 
-        let mut x = start_x;
-        let mut y = start_y;
+        while y >= 0 {
+            // Note: JS doesn't check isUsed before starting a diagonal
+            // This allows vertices to be shared between backslash and forward-slash diagonals
+            if x >= 0 && x < width && is_solid_d_line_at(grid, x, y) {
+                // A is bottom-left start, B is top-right end (in JS convention)
+                let a_x = x;
+                let a_y = y;
 
-        // Move down-left (x decreases, y increases)
-        while x >= 0 && y < height {
-            if is_solid_d_line_at(grid, x, y) && !grid.is_used(x, y) {
-                let line_start_x = x;
-                let line_start_y = y;
-
-                while x >= 0 && y < height && is_solid_d_line_at(grid, x, y) {
-                    grid.set_used(x, y);
-                    x -= 1;
-                    y += 1;
+                // Find the end
+                while x < width && y >= 0 && is_solid_d_line_at(grid, x, y) {
+                    x += 1;
+                    y -= 1;
                 }
 
-                let line_end_x = x + 1;
-                let line_end_y = y - 1;
+                let b_x = x - 1;
+                let b_y = y + 1;
 
-                // Check if we should extend to vertices at the ends
-                let mut adj_start_x = line_start_x;
-                let mut adj_start_y = line_start_y;
-                let mut adj_end_x = line_end_x;
-                let mut adj_end_y = line_end_y;
-
-                // Upper-right end: check for top vertex
-                let ur = grid.get(line_start_x + 1, line_start_y - 1);
-                if is_top_vertex(ur) || ur == '^' {
-                    adj_start_x = line_start_x + 1;
-                    adj_start_y = line_start_y - 1;
-                    grid.set_used(adj_start_x, adj_start_y);
+                // Check if the line contains at least one actual forward slash
+                let mut has_slash = false;
+                for j in a_x..=b_x {
+                    if grid.get(j, a_y - (j - a_x)) == '/' {
+                        has_slash = true;
+                        break;
+                    }
                 }
 
-                // Lower-left end: check for bottom vertex
-                let ll = grid.get(line_end_x - 1, line_end_y + 1);
-                if is_bottom_vertex(ll) || ll == 'v' || ll == 'V' {
-                    adj_end_x = line_end_x - 1;
-                    adj_end_y = line_end_y + 1;
-                    grid.set_used(adj_end_x, adj_end_y);
-                }
+                if has_slash {
+                    // Mark cells as used
+                    for j in a_x..=b_x {
+                        grid.set_used(j, a_y - (j - a_x));
+                    }
 
-                // For forward slash: create path from bottom-left to top-right
-                let path = Path::line_from_grid(adj_end_x, adj_end_y, adj_start_x, adj_start_y);
-                paths.insert(path);
+                    // Apply stretching logic (JS lines 1073-1127)
+                    let mut adj_a_x = a_x as f64; // bottom-left
+                    let mut adj_a_y = a_y as f64;
+                    let mut adj_b_x = b_x as f64; // top-right
+                    let mut adj_b_y = b_y as f64;
+
+                    // Upper-right (B) end stretching
+                    let up = grid.get(b_x, b_y - 1);
+                    let uprt = grid.get(b_x + 1, b_y - 1);
+                    let bottom_b = grid.get(b_x, b_y);
+
+                    if up == '\\'
+                        || up == '_'
+                        || uprt == '_'
+                        || (!is_vertex(grid.get(b_x, b_y))
+                            && (is_solid_h_line(uprt) || is_solid_v_line(uprt)))
+                    {
+                        // Continue half a cell more to connect
+                        adj_b_x += 0.5;
+                        adj_b_y -= 0.5;
+                    } else if is_point(uprt) {
+                        // Continue 1/4 cell more for points
+                        adj_b_x += 0.25;
+                        adj_b_y -= 0.25;
+                    }
+                    // Note: this is a separate if in JS, not else if
+                    if bottom_b == '/' && is_solid_b_line_at(grid, b_x + 1, b_y) {
+                        // Cap a sharp vertex: \/ pattern
+                        adj_b_x += 0.5;
+                        adj_b_y -= 0.5;
+                    }
+
+                    // Lower-left (A) end stretching
+                    let dn = grid.get(a_x, a_y + 1);
+                    let dnlt = grid.get(a_x - 1, a_y + 1);
+                    let lt = grid.get(a_x - 1, a_y);
+                    let rt = grid.get(a_x + 1, a_y);
+                    let top_a = grid.get(a_x, a_y);
+
+                    if dn == '\\'
+                        || lt == '_'
+                        || rt == '_'
+                        || (!is_vertex(grid.get(a_x, a_y))
+                            && (is_solid_h_line(dnlt) || is_solid_v_line(dnlt)))
+                    {
+                        // Continue half a cell more to connect
+                        adj_a_x -= 0.5;
+                        adj_a_y += 0.5;
+                    } else if is_point(dnlt) {
+                        // Continue 1/4 cell more for points
+                        adj_a_x -= 0.25;
+                        adj_a_y += 0.25;
+                    } else if top_a == '/' && is_solid_b_line_at(grid, a_x - 1, a_y) {
+                        // Cap a sharp vertex: /\ pattern
+                        adj_a_x -= 0.5;
+                        adj_a_y += 0.5;
+                    }
+
+                    // Path goes from A (bottom-left) to B (top-right)
+                    let path = Path::line(
+                        Vec2::from_grid_frac(adj_a_x, adj_a_y),
+                        Vec2::from_grid_frac(adj_b_x, adj_b_y),
+                    );
+                    paths.insert(path);
+                }
             } else {
-                x -= 1;
-                y += 1;
+                x += 1;
+                y -= 1;
             }
         }
     }
@@ -1036,7 +1147,7 @@ fn find_underscore_lines(grid: &mut Grid, paths: &mut PathSet) {
                 }
 
                 // Consume all underscores
-                let start_x = x;
+                let _start_x = x;
                 while x < grid.width as i32 && grid.get(x, y) == '_' {
                     grid.set_used(x, y);
                     x += 1;

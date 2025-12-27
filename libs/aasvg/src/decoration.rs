@@ -164,18 +164,19 @@ impl Decoration {
         let cx = self.pos.x;
         let cy = self.pos.y;
 
-        // Arrow head triangle points
-        let tip_x = 8.0;
+        // Arrow head triangle points (matching JS: tip at +1 grid, back at -0.5 grid, up/down at ±0.35 grid)
+        // In pixels: tip_x = 1 * SCALE = 8, back_x = -0.5 * SCALE = -4
+        // up/down = 0.35 * SCALE * ASPECT = 0.35 * 8 * 2 = 5.6
+        let tip_x = SCALE;
         let tip_y = 0.0;
-        let back_x = -4.0;
-        let back_up_y = -3.0;
-        let back_down_y = 3.0;
+        let back_x = -0.5 * SCALE;
+        let back_y = 0.35 * SCALE * ASPECT;
 
         format!(
             "<polygon points=\"{},{} {},{} {},{}\" fill=\"var(--aasvg-fill)\" transform=\"translate({},{}) rotate({})\"/>\n",
             tip_x, tip_y,
-            back_x, back_up_y,
-            back_x, back_down_y,
+            back_x, -back_y,
+            back_x, back_y,
             cx, cy,
             self.angle
         )

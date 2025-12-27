@@ -15,8 +15,8 @@
     }
   }
 </style>
-<path d="M 48,16 L 80,80" fill="none" stroke="var(--aasvg-stroke)"/>
-<path d="M 8,80 L 40,16" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 44,8 L 80,80" fill="none" stroke="var(--aasvg-stroke)"/>
+<path d="M 8,80 L 44,8" fill="none" stroke="var(--aasvg-stroke)"/>
 <g fill="var(--aasvg-text)">
 </g>
 </svg>
