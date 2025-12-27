@@ -69,7 +69,7 @@ fn expand_macro_call(
     call: &MacroCall,
     depth: usize,
 ) -> Result<(), miette::Report> {
-    if depth > MAX_EXPANSION_DEPTH {
+    if depth >= MAX_EXPANSION_DEPTH {
         return Err(miette::miette!(
             "Macro expansion depth exceeded (max {}). Possible infinite recursion in macro '{}'",
             MAX_EXPANSION_DEPTH,
