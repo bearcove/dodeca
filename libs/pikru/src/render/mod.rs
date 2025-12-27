@@ -1718,38 +1718,79 @@ fn render_object_stmt(
                 bbox_max_y = bbox_max_y.max(y0.max(y1));
             }
 
+            // Compute fit dimensions for shape-specific logic
+            let fit_w = (bbox_max_x - bbox_min_x) + charwid;
+            let fit_h = 2.0 * bbox_max_y.max(bbox_min_y.abs()) + 0.5 * charht;
+
             // Apply autofit based on which dimension needs it
             // cref: pikchr.c:4296-4311
-            if needs_autofit_height {
-                if needs_autofit_width {
-                    // Both width and height need autofit
-                    width = Inches((bbox_max_x - bbox_min_x) + charwid);
-                    height = Inches(2.0 * bbox_max_y.max(bbox_min_y.abs()) + 0.5 * charht);
-                } else {
-                    // Only height needs autofit
-                    height = Inches(2.0 * bbox_max_y.max(bbox_min_y.abs()) + 0.5 * charht);
+            // Note: Diamond and Circle use special formulas, handled separately below
+            let uses_special_autofit = matches!(
+                class_name,
+                Some(ClassName::Diamond) | Some(ClassName::Circle)
+            );
+            if !uses_special_autofit {
+                if needs_autofit_height {
+                    if needs_autofit_width {
+                        // Both width and height need autofit
+                        width = Inches(fit_w);
+                        height = Inches(fit_h);
+                    } else {
+                        // Only height needs autofit
+                        height = Inches(fit_h);
+                    }
+                } else if needs_autofit_width {
+                    // Only width needs autofit
+                    width = Inches(fit_w);
                 }
-            } else if needs_autofit_width {
-                // Only width needs autofit
-                width = Inches((bbox_max_x - bbox_min_x) + charwid);
             }
 
             // Apply shape-specific fit adjustments
             match class_name {
+                Some(ClassName::Circle) => {
+                    // cref: circleFit (pikchr.c:3940)
+                    // Circle uses max(w, h) or hypot if both positive
+                    if needs_autofit_width || needs_autofit_height {
+                        let mut mx = fit_w.max(fit_h);
+                        if fit_w > 0.0 && fit_h > 0.0 && (fit_w * fit_w + fit_h * fit_h) > mx * mx {
+                            mx = fit_w.hypot(fit_h);
+                        }
+                        width = Inches(mx);
+                        height = Inches(mx);
+                    }
+                }
                 Some(ClassName::Cylinder) => {
                     height = height + style.corner_radius * 0.25 + style.stroke_width;
+                }
+                Some(ClassName::File) => {
+                    // cref: fileFit (pikchr.c:4147)
+                    // File height needs to account for the fold corner
+                    if needs_autofit_height {
+                        height = height + style.corner_radius * 2.0;
+                    }
                 }
                 Some(ClassName::Diamond) => {
                     // Diamond uses bAltAutoFit logic
                     // cref: diamondFit (pikchr.c:1418-1430)
                     let mut w = width.raw();
                     let mut h = height.raw();
-                    let fit_w = (bbox_max_x - bbox_min_x) + charwid;
-                    let fit_h = 2.0 * bbox_max_y.max(bbox_min_y.abs()) + 0.5 * charht;
-                    w = w * fit_h / h + fit_w;
-                    h = h * w / w;  // This maintains aspect ratio
-                    width = Inches(w * 1.5);
-                    height = Inches(h * 1.5);
+                    // Step 1: If width/height <= 0, initialize to 1.5 * fit dimension
+                    if w <= 0.0 {
+                        w = fit_w * 1.5;
+                    }
+                    if h <= 0.0 {
+                        h = fit_h * 1.5;
+                    }
+                    // Step 2: Apply the diamond formula if both dimensions are positive
+                    if w > 0.0 && h > 0.0 {
+                        let x = w * fit_h / h + fit_w;
+                        let y = h * x / w;
+                        width = Inches(x);
+                        height = Inches(y);
+                    } else {
+                        width = Inches(w);
+                        height = Inches(h);
+                    }
                 }
                 _ => {}
             }
