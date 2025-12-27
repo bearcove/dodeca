@@ -1986,10 +1986,16 @@ pub struct ParsedMarkdown {
 /// Returns frontmatter, HTML (with placeholders), headings, and code blocks.
 /// The caller is responsible for highlighting code blocks and replacing placeholders.
 #[tracing::instrument(level = "debug", skip(content), fields(content_len = content.len()))]
-pub async fn parse_and_render_markdown_cell(content: &str) -> Option<ParsedMarkdown> {
+pub async fn parse_and_render_markdown_cell(
+    source_path: &str,
+    content: &str,
+) -> Option<ParsedMarkdown> {
     let cell = all().await.markdown.as_ref()?;
 
-    match cell.parse_and_render(content.to_string()).await {
+    match cell
+        .parse_and_render(source_path.to_string(), content.to_string())
+        .await
+    {
         Ok(ParseResult::Success {
             frontmatter,
             html,
@@ -2015,6 +2021,7 @@ pub async fn parse_and_render_markdown_cell(content: &str) -> Option<ParsedMarkd
 /// Render markdown to HTML using the cell (without frontmatter parsing).
 #[tracing::instrument(level = "debug", skip(markdown), fields(markdown_len = markdown.len()))]
 async fn _render_markdown_cell(
+    source_path: &str,
     markdown: &str,
 ) -> Option<(
     String,
@@ -2023,7 +2030,10 @@ async fn _render_markdown_cell(
 )> {
     let cell = all().await.markdown.as_ref()?;
 
-    match cell.render_markdown(markdown.to_string()).await {
+    match cell
+        .render_markdown(source_path.to_string(), markdown.to_string())
+        .await
+    {
         Ok(MarkdownResult::Success {
             html,
             headings,

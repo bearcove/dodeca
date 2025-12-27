@@ -416,7 +416,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     let last_modified = source.last_modified(db)?;
 
     // Use the markdown cell to parse frontmatter and render markdown
-    let parsed = parse_and_render_markdown_cell(content.as_str())
+    let parsed = parse_and_render_markdown_cell(path.as_str(), content.as_str())
         .await
         .expect("markdown cell not loaded");
 

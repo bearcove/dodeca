@@ -37,8 +37,8 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         }
     }
 
-    async fn render_markdown(&self, markdown: String) -> MarkdownResult {
-        match render_markdown_impl(&markdown) {
+    async fn render_markdown(&self, source_path: String, markdown: String) -> MarkdownResult {
+        match render_markdown_impl(&source_path, &markdown) {
             Ok((html, headings, code_blocks)) => MarkdownResult::Success {
                 html,
                 headings,
@@ -48,7 +48,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         }
     }
 
-    async fn parse_and_render(&self, content: String) -> ParseResult {
+    async fn parse_and_render(&self, source_path: String, content: String) -> ParseResult {
         let (frontmatter_str, body) = split_frontmatter(&content);
 
         let frontmatter = if frontmatter_str.is_empty() {
@@ -62,7 +62,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
             }
         };
 
-        match render_markdown_impl(&body) {
+        match render_markdown_impl(&source_path, &body) {
             Ok((html, headings, code_blocks)) => ParseResult::Success {
                 frontmatter,
                 html,
@@ -128,7 +128,10 @@ fn parse_frontmatter_toml(toml_str: &str) -> Result<Frontmatter, String> {
 }
 
 /// Render markdown to HTML with heading and code block extraction
-fn render_markdown_impl(markdown: &str) -> Result<(String, Vec<Heading>, Vec<CodeBlock>), String> {
+fn render_markdown_impl(
+    source_path: &str,
+    markdown: &str,
+) -> Result<(String, Vec<Heading>, Vec<CodeBlock>), String> {
     let options = Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
@@ -216,8 +219,8 @@ fn render_markdown_impl(markdown: &str) -> Result<(String, Vec<Heading>, Vec<Cod
                 title,
                 id,
             }) => {
-                // Resolve internal @/ links
-                let resolved = resolve_internal_link(&dest_url);
+                // Resolve internal links (@/ absolute and relative .md)
+                let resolved = resolve_internal_link(&dest_url, source_path);
                 output_events.push(Event::Start(Tag::Link {
                     link_type,
                     dest_url: resolved.into(),
@@ -253,43 +256,107 @@ fn slugify(text: &str) -> String {
         .join("-")
 }
 
-/// Resolve internal @/ links to absolute paths
-fn resolve_internal_link(link: &str) -> String {
+/// Resolve internal links (both @/ absolute and relative .md links)
+fn resolve_internal_link(link: &str, source_path: &str) -> String {
+    // Handle absolute @/ links
     if let Some(path) = link.strip_prefix("@/") {
-        // Split off fragment
-        let (path_part, fragment) = match path.find('#') {
-            Some(idx) => (&path[..idx], Some(&path[idx..])),
-            None => (path, None),
-        };
+        return resolve_absolute_link(path);
+    }
 
-        let mut path = path_part.to_string();
+    // Handle relative .md links
+    if link.ends_with(".md") && !link.starts_with("http://") && !link.starts_with("https://") {
+        return resolve_relative_link(link, source_path);
+    }
 
-        // Remove .md extension
-        if path.ends_with(".md") {
-            path = path[..path.len() - 3].to_string();
-        }
+    // Pass through all other links unchanged (external URLs, fragments, etc.)
+    link.to_string()
+}
 
-        // Handle _index -> parent directory
-        if path.ends_with("/_index") {
-            path = path[..path.len() - 7].to_string();
-        } else if path == "_index" {
-            path = String::new();
-        }
+/// Resolve @/path/to/file.md links to absolute URLs
+fn resolve_absolute_link(path: &str) -> String {
+    // Split off fragment
+    let (path_part, fragment) = match path.find('#') {
+        Some(idx) => (&path[..idx], Some(&path[idx..])),
+        None => (path, None),
+    };
 
-        // Ensure leading slash
-        let result = if path.is_empty() {
-            "/".to_string()
-        } else {
-            format!("/{}/", path)
-        };
+    let mut path = path_part.to_string();
 
-        // Append fragment if present
-        match fragment {
-            Some(f) => format!("{}{}", result, f),
-            None => result,
-        }
+    // Remove .md extension
+    if path.ends_with(".md") {
+        path = path[..path.len() - 3].to_string();
+    }
+
+    // Handle _index -> parent directory
+    if path.ends_with("/_index") {
+        path = path[..path.len() - 7].to_string();
+    } else if path == "_index" {
+        path = String::new();
+    }
+
+    // Ensure leading slash
+    let result = if path.is_empty() {
+        "/".to_string()
     } else {
-        link.to_string()
+        format!("/{}/", path)
+    };
+
+    // Append fragment if present
+    match fragment {
+        Some(f) => format!("{}{}", result, f),
+        None => result,
+    }
+}
+
+/// Resolve relative .md links based on current file location
+fn resolve_relative_link(link: &str, source_path: &str) -> String {
+    use std::path::Path;
+
+    // Split off fragment
+    let (link_part, fragment) = match link.find('#') {
+        Some(idx) => (&link[..idx], Some(&link[idx..])),
+        None => (link, None),
+    };
+
+    // Get the directory of the source file
+    let source = Path::new(source_path);
+    let source_dir = source.parent().unwrap_or(Path::new(""));
+
+    // Resolve the relative link against the source directory
+    let resolved = source_dir.join(link_part);
+
+    // Convert to string and normalize
+    let mut path = resolved
+        .to_str()
+        .unwrap_or(link)
+        .to_string()
+        .replace('\\', "/"); // Normalize Windows paths
+
+    // Remove .md extension
+    if path.ends_with(".md") {
+        path = path[..path.len() - 3].to_string();
+    }
+
+    // Handle _index -> parent directory
+    if path.ends_with("/_index") {
+        path = path[..path.len() - 7].to_string();
+    } else if path == "_index" {
+        path = String::new();
+    }
+
+    // Ensure leading slash and trailing slash
+    let result = if path.is_empty() {
+        "/".to_string()
+    } else if path.starts_with('/') {
+        format!("{}/", path)
+    } else {
+        format!("/{}/", path)
+    };
+
+    // Append fragment if present
+    match fragment {
+        Some(f) => format!("{}{}", result, f),
+        None => result,
     }
 }
 

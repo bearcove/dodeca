@@ -114,10 +114,18 @@ pub trait MarkdownProcessor {
     ///
     /// Returns HTML with placeholders for code blocks, plus extracted headings
     /// and code blocks that need syntax highlighting.
-    async fn render_markdown(&self, markdown: String) -> MarkdownResult;
+    ///
+    /// # Parameters
+    /// - `source_path`: Path to the source file (e.g., "spec/_index.md") for resolving relative links
+    /// - `markdown`: The markdown content to render
+    async fn render_markdown(&self, source_path: String, markdown: String) -> MarkdownResult;
 
     /// Parse frontmatter and render markdown in one call.
     ///
     /// Convenience method that combines parse_frontmatter and render_markdown.
-    async fn parse_and_render(&self, content: String) -> ParseResult;
+    ///
+    /// # Parameters
+    /// - `source_path`: Path to the source file (e.g., "spec/_index.md") for resolving relative links
+    /// - `content`: The full content including frontmatter and markdown body
+    async fn parse_and_render(&self, source_path: String, content: String) -> ParseResult;
 }
