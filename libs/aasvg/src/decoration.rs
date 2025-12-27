@@ -213,16 +213,15 @@ impl Decoration {
     fn dotted_point_svg(&self) -> String {
         let r = SCALE - 2.0;
         format!(
-            "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"var(--aasvg-bg)\" stroke=\"var(--aasvg-stroke)\" stroke-dasharray=\"2,2\"/>\n",
+            "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"var(--aasvg-bg)\" stroke=\"var(--aasvg-stroke)\" stroke-dasharray=\"0,1.8\"/>\n",
             self.pos.x, self.pos.y, r
         )
     }
 
     fn shaded_point_svg(&self) -> String {
         let r = SCALE - 2.0;
-        // Shaded points use a gray fill that should work in both modes
         format!(
-            "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#888\" stroke=\"var(--aasvg-stroke)\"/>\n",
+            "<circle cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"#666\" stroke=\"var(--aasvg-stroke)\"/>\n",
             self.pos.x, self.pos.y, r
         )
     }

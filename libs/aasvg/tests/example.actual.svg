@@ -281,8 +281,8 @@
 <polygon points="720,416 708,410.4 708,421.6" fill="var(--aasvg-fill)" transform="rotate(180,712,416)"/>
 <circle cx="456" cy="48" r="6" fill="var(--aasvg-fill)"/>
 <circle cx="544" cy="80" r="6" fill="var(--aasvg-fill)"/>
-<circle cx="184" cy="304" r="6" fill="var(--aasvg-bg)" stroke="var(--aasvg-stroke)" stroke-dasharray="2,2"/>
-<circle cx="240" cy="304" r="6" fill="#888" stroke="var(--aasvg-stroke)"/>
+<circle cx="184" cy="304" r="6" fill="var(--aasvg-bg)" stroke="var(--aasvg-stroke)" stroke-dasharray="0,1.8"/>
+<circle cx="240" cy="304" r="6" fill="#666" stroke="var(--aasvg-stroke)"/>
 <path d="M 576,88 C 570,88 570,72 576,72" fill="none" stroke="var(--aasvg-bg)" stroke-width="3"/>
 <path d="M 576,88 C 570,88 570,72 576,72" fill="none" stroke="var(--aasvg-stroke)"/>
 <path d="M 592,136 C 598,136 598,120 592,120" fill="none" stroke="var(--aasvg-bg)" stroke-width="3"/>
