@@ -2163,17 +2163,52 @@ fn render_object_stmt(
             let mut points = vec![start];
             let mut current_pos = start;
 
-            // Handle even_clause first - it sets a coordinate without adding offset
+            // cref: pik_evenwith (pikchr.y:3374) and pik_add_direction (pikchr.y:3272)
+            // In C pikchr, both operations modify p->aTPath[n]:
+            // - pik_add_direction: p->aTPath[n].x += distance (incremental)
+            // - pik_evenwith: p->aTPath[n].x = target.x (absolute, creates new point if mTPath flag set)
+            //
+            // For "right right even with TN":
+            // 1. First "right" adds linewid to x, sets mTPath |= 1
+            // 2. Second "right even with TN" sees mTPath & 1, creates NEW point, sets x = TN.x
+            //
+            // So we get: start -> start+right -> (TN.x, y)
+            //
+            // When we have both direction_offset AND even_clause:
+            // 1. Apply direction_offset first to create intermediate waypoint
+            // 2. Then apply even_clause from that intermediate point
+
+            // Apply direction offset BEFORE even_clause if both exist
+            // This matches C behavior where horizontal/vertical flags determine whether
+            // to create a new path point
+            if direction_offset != OffsetIn::ZERO && even_clause.is_some() {
+                let intermediate = current_pos + direction_offset;
+                tracing::debug!(
+                    current_pos_x = current_pos.x.raw(),
+                    current_pos_y = current_pos.y.raw(),
+                    direction_offset_dx = direction_offset.dx.raw(),
+                    direction_offset_dy = direction_offset.dy.raw(),
+                    intermediate_x = intermediate.x.raw(),
+                    intermediate_y = intermediate.y.raw(),
+                    "Rust: direction before even_clause"
+                );
+                points.push(intermediate);
+                current_pos = intermediate;
+                // Clear direction_offset since we've applied it
+                direction_offset = OffsetIn::ZERO;
+            }
+
+            // Handle even_clause - sets a coordinate to target's value
             // cref: pik_evenwith (pikchr.y:3374) - uses = to SET, not +=
             if let Some((dir, pos_expr)) = even_clause.as_ref() {
                 let target = eval_position(ctx, pos_expr)?;
                 let even_point = match dir {
-                    Direction::Right | Direction::Left => Point::new(target.x, start.y),
-                    Direction::Up | Direction::Down => Point::new(start.x, target.y),
+                    Direction::Right | Direction::Left => Point::new(target.x, current_pos.y),
+                    Direction::Up | Direction::Down => Point::new(current_pos.x, target.y),
                 };
                 tracing::debug!(
-                    start_x = start.x.raw(),
-                    start_y = start.y.raw(),
+                    current_pos_x = current_pos.x.raw(),
+                    current_pos_y = current_pos.y.raw(),
                     target_x = target.x.raw(),
                     target_y = target.y.raw(),
                     even_point_x = even_point.x.raw(),
