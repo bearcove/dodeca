@@ -279,3 +279,53 @@ fn test_squiggle_line() {
     // Squiggle should have Q (quadratic curve) commands
     assert!(svg.contains(" Q "));
 }
+
+// ============================================================================
+// Reference comparison test
+// ============================================================================
+
+#[test]
+fn test_example_matches_reference() {
+    let input = std::fs::read_to_string("example.txt").expect("Failed to read example.txt");
+    let reference =
+        std::fs::read_to_string("tests/example.reference.svg").expect("Failed to read reference");
+
+    // Render with backdrop to match the reference (which has a backdrop)
+    let options = RenderOptions::new().with_backdrop(true);
+    let rendered = render_with_options(&input, &options);
+
+    // Compare the SVGs
+    // Note: This will likely fail initially as the implementations may differ
+    if rendered != reference {
+        // Write the actual output for comparison
+        std::fs::write("tests/example.actual.svg", &rendered).ok();
+
+        // Count differences for a helpful error message
+        let rendered_lines: Vec<&str> = rendered.lines().collect();
+        let reference_lines: Vec<&str> = reference.lines().collect();
+
+        let mut diff_count = 0;
+        let max_lines = rendered_lines.len().max(reference_lines.len());
+
+        for i in 0..max_lines {
+            let rendered_line = rendered_lines.get(i).unwrap_or(&"<missing>");
+            let reference_line = reference_lines.get(i).unwrap_or(&"<missing>");
+            if rendered_line != reference_line {
+                diff_count += 1;
+                if diff_count <= 10 {
+                    eprintln!("Line {} differs:", i + 1);
+                    eprintln!("  expected: {}", reference_line);
+                    eprintln!("  actual:   {}", rendered_line);
+                }
+            }
+        }
+
+        panic!(
+            "Rendered SVG does not match reference! {} lines differ out of {} (rendered) vs {} (reference). \
+             See tests/example.actual.svg for the actual output.",
+            diff_count,
+            rendered_lines.len(),
+            reference_lines.len()
+        );
+    }
+}
