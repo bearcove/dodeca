@@ -241,17 +241,20 @@ impl TuiApp {
             status_spans.push(Span::styled(symbol, Style::default().fg(color)));
         }
         // Cache size display
-        if self.server_status.picante_cache_size > 0 || self.server_status.cas_cache_size > 0 {
+        let has_cache = self.server_status.picante_cache_size > 0
+            || self.server_status.cas_cache_size > 0
+            || self.server_status.code_exec_cache_size > 0;
+        if has_cache {
             status_spans.push(Span::raw("  ").fg(FG_DARK));
             status_spans.push(Span::raw("💾 ").fg(FG));
-            status_spans.push(
-                Span::raw(format!(
-                    "{}+{}",
-                    format_size(self.server_status.picante_cache_size),
-                    format_size(self.server_status.cas_cache_size)
-                ))
-                .fg(FG_DARK),
-            );
+            let mut cache_parts = vec![
+                format_size(self.server_status.picante_cache_size),
+                format_size(self.server_status.cas_cache_size),
+            ];
+            if self.server_status.code_exec_cache_size > 0 {
+                cache_parts.push(format_size(self.server_status.code_exec_cache_size));
+            }
+            status_spans.push(Span::raw(cache_parts.join("+")).fg(FG_DARK));
         }
         let progress_widget = Paragraph::new(Line::from(status_spans)).block(
             Block::default()

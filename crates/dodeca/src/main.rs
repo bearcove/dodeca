@@ -2411,19 +2411,33 @@ async fn serve_with_tui(
     let base_dir = content_dir.parent().unwrap_or(content_dir);
     let picante_cache_path = base_dir.join(".cache/dodeca.bin");
     let cas_cache_dir = base_dir.join(".cache");
-    fn get_cache_sizes(picante_path: &Utf8Path, cas_dir: &Utf8Path) -> (usize, usize) {
+    let code_exec_cache_dir = base_dir.join(".cache/code-execution");
+    fn get_cache_sizes(
+        picante_path: &Utf8Path,
+        cas_dir: &Utf8Path,
+        code_exec_dir: &Utf8Path,
+    ) -> (usize, usize, usize) {
         let picante_size = picante_path
             .metadata()
             .map(|m| m.len() as usize)
             .unwrap_or(0);
-        let cas_size = if cas_dir.exists() {
-            dir_size(cas_dir).saturating_sub(picante_size) // Subtract picante file since it's inside .cache
+        let code_exec_size = if code_exec_dir.exists() {
+            dir_size(code_exec_dir)
         } else {
             0
         };
-        (picante_size, cas_size)
+        let cas_size = if cas_dir.exists() {
+            // Subtract picante file and code-execution dir since they're inside .cache
+            dir_size(cas_dir)
+                .saturating_sub(picante_size)
+                .saturating_sub(code_exec_size)
+        } else {
+            0
+        };
+        (picante_size, cas_size, code_exec_size)
     }
-    let (picante_size, cas_size) = get_cache_sizes(&picante_cache_path, &cas_cache_dir);
+    let (picante_size, cas_size, code_exec_size) =
+        get_cache_sizes(&picante_cache_path, &cas_cache_dir, &code_exec_cache_dir);
 
     // Set initial server status (use preferred port or 4000 as placeholder until bound)
     let initial_ips = get_bind_ips(initial_mode);
@@ -2434,6 +2448,7 @@ async fn serve_with_tui(
         bind_mode: initial_mode,
         picante_cache_size: picante_size,
         cas_cache_size: cas_size,
+        code_exec_cache_size: code_exec_size,
     });
 
     // Load source files into the server
@@ -2699,6 +2714,7 @@ async fn serve_with_tui(
                         event_tx: tui::EventTx,
                         picante_path: Utf8PathBuf,
                         cas_dir: Utf8PathBuf,
+                        code_exec_dir: Utf8PathBuf,
                         cell_path: std::path::PathBuf| {
         tokio::spawn(async move {
             let ips = get_bind_ips(mode);
@@ -2744,6 +2760,11 @@ async fn serve_with_tui(
                 .metadata()
                 .map(|m| m.len() as usize)
                 .unwrap_or(0);
+            let code_exec_size = if code_exec_dir.exists() {
+                dir_size(&code_exec_dir)
+            } else {
+                0
+            };
             let cas_size = WalkBuilder::new(&cas_dir)
                 .build()
                 .filter_map(|e| e.ok())
@@ -2751,7 +2772,8 @@ async fn serve_with_tui(
                 .filter(|m| m.is_file())
                 .map(|m| m.len() as usize)
                 .sum::<usize>()
-                .saturating_sub(picante_size);
+                .saturating_sub(picante_size)
+                .saturating_sub(code_exec_size);
 
             // Update server status
             let _ = server_tx.send(tui::ServerStatus {
@@ -2760,6 +2782,7 @@ async fn serve_with_tui(
                 bind_mode: mode,
                 picante_cache_size: picante_size,
                 cas_cache_size: cas_size,
+                code_exec_cache_size: code_exec_size,
             });
 
             // Log the binding
@@ -2784,6 +2807,7 @@ async fn serve_with_tui(
     };
 
     let cell_path_clone = cell_path.clone();
+    let code_exec_cache_dir_clone = code_exec_cache_dir.clone();
     let mut server_handle = start_server(
         server_for_http.clone(),
         initial_mode,
@@ -2793,6 +2817,7 @@ async fn serve_with_tui(
         event_tx_clone.clone(),
         picante_cache_path_clone.clone(),
         cas_cache_dir_clone.clone(),
+        code_exec_cache_dir_clone.clone(),
         cell_path_clone,
     );
 
@@ -2881,6 +2906,7 @@ async fn serve_with_tui(
     let event_tx_for_cmd = event_tx.clone();
     let picante_path_for_cmd = picante_cache_path_clone.clone();
     let cas_dir_for_cmd = cas_cache_dir_clone.clone();
+    let code_exec_dir_for_cmd = code_exec_cache_dir_clone.clone();
     let cell_path_for_cmd = cell_path.clone();
     // Use Arc<Mutex> for the shutdown sender so we can update it for each rebind
     let current_shutdown = Arc::new(std::sync::Mutex::new(shutdown_tx.clone()));
@@ -2923,6 +2949,7 @@ async fn serve_with_tui(
                 event_tx_for_cmd.clone(),
                 picante_path_for_cmd.clone(),
                 cas_dir_for_cmd.clone(),
+                code_exec_dir_for_cmd.clone(),
                 cell_path_for_cmd.clone(),
             );
         }

@@ -229,6 +229,8 @@ pub struct ServerStatus {
     pub picante_cache_size: u64,
     /// CAS/image cache size in bytes
     pub cas_cache_size: u64,
+    /// Code execution cache size in bytes
+    pub code_exec_cache_size: u64,
 }
 
 // ============================================================================

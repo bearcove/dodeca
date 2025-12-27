@@ -334,6 +334,8 @@ pub struct ServerStatus {
     pub picante_cache_size: usize,
     /// CAS/image cache size in bytes (.cache directory)
     pub cas_cache_size: usize,
+    /// Code execution cache size in bytes (.cache/code-execution)
+    pub code_exec_cache_size: usize,
 }
 
 /// Command sent from TUI to server

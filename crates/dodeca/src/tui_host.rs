@@ -243,6 +243,7 @@ pub fn convert_server_status(status: &crate::tui::ServerStatus) -> ServerStatus 
         bind_mode: convert_bind_mode(status.bind_mode),
         picante_cache_size: status.picante_cache_size as u64,
         cas_cache_size: status.cas_cache_size as u64,
+        code_exec_cache_size: status.code_exec_cache_size as u64,
     }
 }
 
@@ -384,6 +385,7 @@ mod tests {
             bind_mode: BindMode::Local,
             picante_cache_size: 1,
             cas_cache_size: 2,
+            code_exec_cache_size: 3,
         };
         host.send_status(status.clone());
 
@@ -402,6 +404,10 @@ mod tests {
         assert_eq!(first_status.bind_mode, status.bind_mode);
         assert_eq!(first_status.picante_cache_size, status.picante_cache_size);
         assert_eq!(first_status.cas_cache_size, status.cas_cache_size);
+        assert_eq!(
+            first_status.code_exec_cache_size,
+            status.code_exec_cache_size
+        );
     }
 
     #[tokio::test]
