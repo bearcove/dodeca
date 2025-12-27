@@ -3,7 +3,7 @@ name = "dodeca-devtools"
 version = "0.6.1"
 edition = "2024"
 rust-version = "1.91"
-description = "Dioxus-powered devtools overlay for dodeca"
+description = "Sycamore-powered devtools overlay for dodeca"
 publish = false
 
 [package.metadata.docs.rs]
@@ -20,16 +20,25 @@ crate-type = ["cdylib", "rlib"]
 dodeca-protocol = { path = "../dodeca-protocol" }
 livereload-client = { path = "../livereload-client" }
 
-# Workspace dependencies
-dioxus.workspace = true
-dioxus-web.workspace = true
+# UI framework
+sycamore = "0.9"
+
+# Utilities
 getrandom.workspace = true
-glade.workspace = true
 js-sys.workspace = true
 tracing.workspace = true
 tracing-wasm.workspace = true
 wasm-bindgen.workspace = true
-web-sys.workspace = true
+wasm-bindgen-futures = "0.4"
+
+[dependencies.web-sys]
+workspace = true
+features = [
+    "WebSocket",
+    "MessageEvent",
+    "ErrorEvent",
+    "CloseEvent",
+]
 
 [dev-dependencies]
 

@@ -1,8 +1,8 @@
 //! Devtools state management and WebSocket connection
 
-use dioxus::prelude::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use sycamore::prelude::*;
 use wasm_bindgen::prelude::*;
 use web_sys::{MessageEvent, WebSocket};
 
@@ -117,10 +117,16 @@ impl DevtoolsState {
 // Thread-local storage for WebSocket (WASM is single-threaded)
 thread_local! {
     static WEBSOCKET: RefCell<Option<WebSocket>> = const { RefCell::new(None) };
+    static STATE_SIGNAL: RefCell<Option<Signal<DevtoolsState>>> = const { RefCell::new(None) };
 }
 
 /// Connect to the devtools WebSocket endpoint
-pub async fn connect_websocket(mut state: Signal<DevtoolsState>) -> Result<(), String> {
+pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), String> {
+    // Store signal in thread-local for handlers to use
+    STATE_SIGNAL.with(|cell| {
+        *cell.borrow_mut() = Some(state);
+    });
+
     let window = web_sys::window().ok_or("no window")?;
     let location = window.location();
 
@@ -132,13 +138,12 @@ pub async fn connect_websocket(mut state: Signal<DevtoolsState>) -> Result<(), S
     let host = location.host().map_err(|_| "no host")?;
     let url = format!("{}//{host}/_/ws", protocol);
 
-    state.write().connection_state = ConnectionState::Connecting;
+    state.update(|s| s.connection_state = ConnectionState::Connecting);
 
     let ws = WebSocket::new(&url).map_err(|e| format!("WebSocket::new failed: {:?}", e))?;
     ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
 
     // Set up message handler
-    let state_clone = state;
     let onmessage = Closure::wrap(Box::new(move |event: MessageEvent| {
         let data = event.data();
 
@@ -147,7 +152,7 @@ pub async fn connect_websocket(mut state: Signal<DevtoolsState>) -> Result<(), S
             let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
 
             match facet_postcard::from_slice::<ServerMessage>(&bytes) {
-                Ok(msg) => handle_server_message(state_clone, msg),
+                Ok(msg) => handle_server_message(msg),
                 Err(e) => tracing::warn!("[devtools] failed to parse server message: {:?}", e),
             }
         }
@@ -157,9 +162,12 @@ pub async fn connect_websocket(mut state: Signal<DevtoolsState>) -> Result<(), S
     onmessage.forget();
 
     // Set up open handler
-    let mut state_clone = state;
     let onopen = Closure::wrap(Box::new(move |_| {
-        state_clone.write().connection_state = ConnectionState::Connected;
+        STATE_SIGNAL.with(|cell| {
+            if let Some(state) = cell.borrow().as_ref() {
+                state.update(|s| s.connection_state = ConnectionState::Connected);
+            }
+        });
         tracing::info!("[devtools] connected");
 
         // Send current route
@@ -173,9 +181,12 @@ pub async fn connect_websocket(mut state: Signal<DevtoolsState>) -> Result<(), S
     onopen.forget();
 
     // Set up close handler
-    let mut state_clone = state;
     let onclose = Closure::wrap(Box::new(move |_| {
-        state_clone.write().connection_state = ConnectionState::Disconnected;
+        STATE_SIGNAL.with(|cell| {
+            if let Some(state) = cell.borrow().as_ref() {
+                state.update(|s| s.connection_state = ConnectionState::Disconnected);
+            }
+        });
         tracing::info!("[devtools] disconnected");
         // TODO: reconnect logic
     }) as Box<dyn FnMut(JsValue)>);
@@ -265,90 +276,100 @@ fn hot_reload_css(new_path: &str) {
     }
 }
 
-fn handle_server_message(mut state: Signal<DevtoolsState>, msg: ServerMessage) {
-    match msg {
-        ServerMessage::Error(error) => {
-            let mut s = state.write();
-            // Remove any existing error for this route
-            s.errors.retain(|e| e.route != error.route);
-            s.errors.insert(0, error);
-            // Auto-show panel when errors occur
-            s.panel_visible = true;
-            s.active_tab = DevtoolsTab::Errors;
-        }
+fn handle_server_message(msg: ServerMessage) {
+    STATE_SIGNAL.with(|cell| {
+        let binding = cell.borrow();
+        let Some(state) = binding.as_ref() else {
+            return;
+        };
 
-        ServerMessage::ErrorResolved { route } => {
-            let mut s = state.write();
-            s.errors.retain(|e| e.route != route);
-            if s.errors.is_empty() && s.active_tab == DevtoolsTab::Errors {
-                s.panel_visible = false;
+        match msg {
+            ServerMessage::Error(error) => {
+                state.update(|s| {
+                    // Remove any existing error for this route
+                    s.errors.retain(|e| e.route != error.route);
+                    s.errors.insert(0, error);
+                    // Auto-show panel when errors occur
+                    s.panel_visible = true;
+                    s.active_tab = DevtoolsTab::Errors;
+                });
             }
-        }
 
-        ServerMessage::Reload => {
-            if let Some(window) = web_sys::window() {
-                let _ = window.location().reload();
+            ServerMessage::ErrorResolved { route } => {
+                state.update(|s| {
+                    s.errors.retain(|e| e.route != route);
+                    if s.errors.is_empty() && s.active_tab == DevtoolsTab::Errors {
+                        s.panel_visible = false;
+                    }
+                });
             }
-        }
 
-        ServerMessage::CssChanged { path } => {
-            hot_reload_css(&path);
-        }
-
-        ServerMessage::Patches(patches) => {
-            match livereload_client::apply_patches(patches) {
-                Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
-                Err(e) => {
-                    // Don't reload on patch failure - the devtools modifies the DOM
-                    // which can cause patch paths to be invalid. User can refresh manually.
-                    tracing::warn!(
-                        "[devtools] patch failed (manual refresh may be needed): {:?}",
-                        e
-                    );
+            ServerMessage::Reload => {
+                if let Some(window) = web_sys::window() {
+                    let _ = window.location().reload();
                 }
             }
-        }
 
-        ServerMessage::ScopeResponse { request_id, scope } => {
-            let mut s = state.write();
-
-            // Check if this is a response to a pending child request
-            if let Some(path) = s.pending_scope_requests.remove(&request_id) {
-                let path_key = path.join(".");
-                tracing::info!(
-                    "[devtools] scope children response for {}: {} entries",
-                    path_key,
-                    scope.len()
-                );
-                s.scope_children.insert(path_key, scope);
-            } else {
-                // Top-level scope response
-                s.scope_loading = false;
-                s.scope_entries = scope;
-                // Clear children cache when refreshing
-                s.scope_children.clear();
-                tracing::info!(
-                    "[devtools] scope response: {} entries",
-                    s.scope_entries.len()
-                );
+            ServerMessage::CssChanged { path } => {
+                hot_reload_css(&path);
             }
-        }
 
-        ServerMessage::EvalResponse { request_id, result } => {
-            let mut s = state.write();
-            // Find the pending entry and update it with the result
-            if let Some(expr) = s.pending_evals.remove(&request_id) {
-                // Find the entry in history and update it
-                if let Some(entry) = s
-                    .repl_history
-                    .iter_mut()
-                    .find(|e| e.expression == expr && e.result.is_none())
-                {
-                    // Convert EvalResult to Result<ScopeValue, String>
-                    entry.result = Some(result.clone().into());
+            ServerMessage::Patches(patches) => {
+                match livereload_client::apply_patches(patches) {
+                    Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
+                    Err(e) => {
+                        // Don't reload on patch failure - the devtools modifies the DOM
+                        // which can cause patch paths to be invalid. User can refresh manually.
+                        tracing::warn!(
+                            "[devtools] patch failed (manual refresh may be needed): {:?}",
+                            e
+                        );
+                    }
                 }
             }
-            tracing::info!("[devtools] eval response {request_id}: {:?}", result);
+
+            ServerMessage::ScopeResponse { request_id, scope } => {
+                state.update(|s| {
+                    // Check if this is a response to a pending child request
+                    if let Some(path) = s.pending_scope_requests.remove(&request_id) {
+                        let path_key = path.join(".");
+                        tracing::info!(
+                            "[devtools] scope children response for {}: {} entries",
+                            path_key,
+                            scope.len()
+                        );
+                        s.scope_children.insert(path_key, scope);
+                    } else {
+                        // Top-level scope response
+                        s.scope_loading = false;
+                        s.scope_entries = scope;
+                        // Clear children cache when refreshing
+                        s.scope_children.clear();
+                        tracing::info!(
+                            "[devtools] scope response: {} entries",
+                            s.scope_entries.len()
+                        );
+                    }
+                });
+            }
+
+            ServerMessage::EvalResponse { request_id, result } => {
+                state.update(|s| {
+                    // Find the pending entry and update it with the result
+                    if let Some(expr) = s.pending_evals.remove(&request_id) {
+                        // Find the entry in history and update it
+                        if let Some(entry) = s
+                            .repl_history
+                            .iter_mut()
+                            .find(|e| e.expression == expr && e.result.is_none())
+                        {
+                            // Convert EvalResult to Result<ScopeValue, String>
+                            entry.result = Some(result.clone().into());
+                        }
+                    }
+                    tracing::info!("[devtools] eval response {request_id}: {:?}", result);
+                });
+            }
         }
-    }
+    });
 }

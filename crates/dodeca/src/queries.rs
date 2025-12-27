@@ -1395,13 +1395,19 @@ pub async fn serve_html<DB: Db>(db: &DB, route: Route) -> PicanteResult<Option<S
                 image_variants.insert(
                     format!("/{path}"),
                     ResponsiveImageInfo {
-                        jxl_srcset,
-                        webp_srcset,
+                        jxl_srcset: jxl_srcset.clone(),
+                        webp_srcset: webp_srcset.clone(),
                         original_width: metadata.width,
                         original_height: metadata.height,
                         thumbhash_data_url: metadata.thumbhash_data_url.clone(),
                     },
                 );
+
+                // Also add to path_map for non-<img> contexts (like <link rel="icon">)
+                // Map original path to full-size WebP variant
+                if let Some((webp_url, _)) = webp_srcset.last() {
+                    path_map.insert(format!("/{path}"), webp_url.clone());
+                }
             }
         }
     }
