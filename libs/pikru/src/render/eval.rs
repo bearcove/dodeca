@@ -54,7 +54,7 @@ fn get_nth_vertex(obj: &RenderedObject, nth: &Nth) -> PointIn {
             }
         };
 
-        tracing::debug!(
+        crate::log::debug!(
             nth = ?nth,
             waypoints_len = len,
             index = index,
@@ -94,7 +94,10 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                 // Try parsing as a color name (always succeeds, returns Raw if unknown)
                 let color = name.parse::<crate::types::Color>().unwrap();
                 let rgb_str = color.to_rgb_string();
-                if let Some(rgb) = rgb_str.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
+                if let Some(rgb) = rgb_str
+                    .strip_prefix("rgb(")
+                    .and_then(|s| s.strip_suffix(')'))
+                {
                     let parts: Vec<&str> = rgb.split(',').collect();
                     if parts.len() == 3 {
                         if let (Ok(r), Ok(g), Ok(b)) = (
@@ -174,7 +177,7 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                 }
                 // Colors can't participate in mathematical operations
                 (Color(_), _, _) | (_, Color(_), _) => {
-                    return Err(miette::miette!("Cannot perform math operations on colors"))
+                    return Err(miette::miette!("Cannot perform math operations on colors"));
                 }
             };
             // Validate result is finite (catches overflow to infinity)
@@ -188,7 +191,7 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                 (UnaryOp::Neg, Value::Scalar(s)) => Value::Scalar(-s),
                 (UnaryOp::Pos, Value::Scalar(s)) => Value::Scalar(s),
                 (_, Value::Color(_)) => {
-                    return Err(miette::miette!("Cannot perform unary operations on colors"))
+                    return Err(miette::miette!("Cannot perform unary operations on colors"));
                 }
             })
         }
@@ -333,19 +336,22 @@ pub fn eval_scalar(ctx: &RenderContext, expr: &Expr) -> Result<f64, miette::Repo
 pub fn eval_rvalue(ctx: &RenderContext, rvalue: &RValue) -> Result<EvalValue, miette::Report> {
     match rvalue {
         RValue::Expr(e) => {
-            tracing::debug!("eval_rvalue: RValue::Expr({:?})", e);
+            crate::log::debug!("eval_rvalue: RValue::Expr({:?})", e);
             let value = eval_expr(ctx, e)?;
             let eval_val = EvalValue::from(value);
-            tracing::debug!("eval_rvalue: converted to {:?}", eval_val);
+            crate::log::debug!("eval_rvalue: converted to {:?}", eval_val);
             Ok(eval_val)
         }
         RValue::PlaceName(name) => {
-            tracing::debug!("eval_rvalue: RValue::PlaceName({})", name);
+            crate::log::debug!("eval_rvalue: RValue::PlaceName({})", name);
             // Try to parse as a color name
             let color = name.parse::<crate::types::Color>().unwrap();
             let rgb_str = color.to_rgb_string();
-            tracing::debug!("eval_rvalue: parsed color {} -> {}", name, rgb_str);
-            if let Some(rgb) = rgb_str.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
+            crate::log::debug!("eval_rvalue: parsed color {} -> {}", name, rgb_str);
+            if let Some(rgb) = rgb_str
+                .strip_prefix("rgb(")
+                .and_then(|s| s.strip_suffix(')'))
+            {
                 let parts: Vec<&str> = rgb.split(',').collect();
                 if parts.len() == 3 {
                     if let (Ok(r), Ok(g), Ok(b)) = (
@@ -354,12 +360,12 @@ pub fn eval_rvalue(ctx: &RenderContext, rvalue: &RValue) -> Result<EvalValue, mi
                         parts[2].trim().parse::<u32>(),
                     ) {
                         let color_val = (r << 16) | (g << 8) | b;
-                        tracing::debug!("eval_rvalue: returning Color({})", color_val);
+                        crate::log::debug!("eval_rvalue: returning Color({})", color_val);
                         return Ok(EvalValue::Color(color_val));
                     }
                 }
             }
-            tracing::debug!("eval_rvalue: failed to parse color, returning Scalar(0.0)");
+            crate::log::debug!("eval_rvalue: failed to parse color, returning Scalar(0.0)");
             Ok(EvalValue::Scalar(0.0))
         }
     }
@@ -374,7 +380,7 @@ pub fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, mie
         }
         Position::Place(place) => {
             let result = eval_place(ctx, place)?;
-            tracing::debug!(
+            crate::log::debug!(
                 ?place,
                 result_x = result.x.0,
                 result_y = result.y.0,
@@ -399,7 +405,7 @@ pub fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, mie
             let p2 = eval_position(ctx, pos2)?;
             // Interpolate: p1 + (p2 - p1) * f
             let result = p1 + (p2 - p1) * f;
-            tracing::debug!(
+            crate::log::debug!(
                 f = f,
                 p1_x = p1.x.0,
                 p1_y = p1.y.0,
@@ -503,7 +509,7 @@ fn endpoint_object_from_place(ctx: &RenderContext, place: &Place) -> Option<Endp
             if let Object::Named(name) = obj {
                 if !name.path.is_empty() {
                     // Object is inside a sublist (e.g., Ptr.A) - mark as dotted name
-                    tracing::debug!(
+                    crate::log::debug!(
                         ?name,
                         "endpoint_object_from_place: dotted name (explicit chop works, implicit autochop disabled)"
                     );
@@ -528,7 +534,7 @@ fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, miette::Rep
                 if let Object::Named(name) = obj {
                     if let ObjectNameBase::PlaceName(n) = &name.base {
                         if let Some(pos) = ctx.get_named_position(n) {
-                            tracing::debug!(
+                            crate::log::debug!(
                                 name = %n,
                                 x = pos.x.raw(),
                                 y = pos.y.raw(),
@@ -544,7 +550,7 @@ fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, miette::Rep
         Place::ObjectEdge(obj, edge) => {
             if let Some(rendered) = resolve_object(ctx, obj) {
                 let edge_point = get_edge_point(rendered, edge);
-                tracing::debug!(
+                crate::log::debug!(
                     ?edge,
                     center_x = rendered.center().x.raw(),
                     center_y = rendered.center().y.raw(),
@@ -599,7 +605,7 @@ pub fn resolve_object<'a>(ctx: &'a RenderContext, obj: &Object) -> Option<&'a Re
                 let oc = class.as_ref().and_then(|c| nth_class_to_class_name(c));
                 let obj = ctx.get_nth_object(1, oc);
                 if let Some(o) = obj {
-                    tracing::debug!(
+                    crate::log::debug!(
                         name = ?o.name,
                         class = ?o.class(),
                         start_x = o.start().x.0,
@@ -644,7 +650,7 @@ fn resolve_path_in_object<'a>(
         .iter()
         .find(|child| child.name.as_deref() == Some(next_name.as_str()))?;
 
-    tracing::debug!(
+    crate::log::debug!(
         parent_name = ?obj.name,
         child_name = next_name,
         child_center_x = child.center().x.raw(),
@@ -735,7 +741,7 @@ fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
         _ => obj.edge_point(resolved_edge.to_unit_vec()),
     };
 
-    tracing::debug!(
+    crate::log::debug!(
         ?edge,
         ?resolved_edge,
         result_x = result.x.raw(),
@@ -750,10 +756,7 @@ fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
 pub fn eval_color(ctx: &RenderContext, rvalue: &RValue) -> String {
     match rvalue {
         // Color name like "Red", "blue", "lightgray"
-        RValue::PlaceName(name) => name
-            .parse::<crate::types::Color>()
-            .unwrap()
-            .to_string(),
+        RValue::PlaceName(name) => name.parse::<crate::types::Color>().unwrap().to_string(),
         // Expression - could be a variable like $featurecolor or a hex literal
         RValue::Expr(expr) => match expr {
             Expr::Variable(name) => {
@@ -767,9 +770,7 @@ pub fn eval_color(ctx: &RenderContext, rvalue: &RValue) -> String {
                     }
                 } else {
                     // Undefined variable - fall back to parsing as color name
-                    name.parse::<crate::types::Color>()
-                        .unwrap()
-                        .to_string()
+                    name.parse::<crate::types::Color>().unwrap().to_string()
                 }
             }
             Expr::Number(n) => {

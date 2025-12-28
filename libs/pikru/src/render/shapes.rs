@@ -232,18 +232,12 @@ pub trait Shape {
                     .iter()
                     .map(|t| Inches(t.width_inches(charwid)) / 2.0)
                     .fold(Inches::ZERO, |acc, hw| if hw > acc { hw } else { acc });
-                bounds.expand_point(Point::new(
-                    center.x - max_hw,
-                    center.y - Inches(text_below),
-                ));
-                bounds.expand_point(Point::new(
-                    center.x + max_hw,
-                    center.y + Inches(text_above),
-                ));
+                bounds.expand_point(Point::new(center.x - max_hw, center.y - Inches(text_below)));
+                bounds.expand_point(Point::new(center.x + max_hw, center.y + Inches(text_above)));
             }
         }
 
-        tracing::debug!(
+        crate::log::debug!(
             old_min_x,
             new_min_x = bounds.min.x.0,
             center_x = center.x.0,
@@ -457,15 +451,18 @@ impl Shape for BoxShape {
 
             // Determine signs based on direction (Y-up: north=+Y, south=-Y)
             let (sign_x, sign_y) = match direction {
-                EdgeDirection::NorthEast => (1.0, 1.0),   // +x, +y (up in Y-up coords)
-                EdgeDirection::NorthWest => (-1.0, 1.0),  // -x, +y
-                EdgeDirection::SouthEast => (1.0, -1.0),  // +x, -y (down in Y-up coords)
+                EdgeDirection::NorthEast => (1.0, 1.0), // +x, +y (up in Y-up coords)
+                EdgeDirection::NorthWest => (-1.0, 1.0), // -x, +y
+                EdgeDirection::SouthEast => (1.0, -1.0), // +x, -y (down in Y-up coords)
                 EdgeDirection::SouthWest => (-1.0, -1.0), // -x, -y
                 _ => unreachable!(),
             };
 
             // Offset is (w2 - rx) for diagonal corners
-            (Inches(sign_x * (hw.0 - rx.0)), Inches(sign_y * (hh.0 - rx.0)))
+            (
+                Inches(sign_x * (hw.0 - rx.0)),
+                Inches(sign_y * (hh.0 - rx.0)),
+            )
         } else if is_diagonal {
             // Non-rounded box: diagonal corners at full (hw, hh)
             let (sign_x, sign_y) = match direction {
@@ -790,7 +787,7 @@ impl Shape for DiamondShape {
         let hw = ctx.scaler.px(self.width / 2.0);
         let hh = ctx.scaler.px(self.height / 2.0);
 
-        tracing::debug!(
+        crate::log::debug!(
             center_pikchr_x = self.center.x.0,
             center_pikchr_y = self.center.y.0,
             center_svg_x = center_svg.x,
@@ -1230,7 +1227,14 @@ impl Shape for LineShape {
         // For non-closed lines, fill should be "none" even if specified
         // cref: lineRender (pikchr.c:4228) - only closed paths can be filled
         let allow_fill = self.style.close_path;
-        let svg_style = build_svg_style_full(&self.style, ctx.scaler, ctx.dashwid, add_linejoin, allow_fill, ctx.use_css_vars);
+        let svg_style = build_svg_style_full(
+            &self.style,
+            ctx.scaler,
+            ctx.dashwid,
+            add_linejoin,
+            allow_fill,
+            ctx.use_css_vars,
+        );
 
         // cref: pik_draw_arrowhead (pikchr.c:4666-4667)
         // Arrow dimensions scale with object's stroke width relative to global thickness
@@ -1368,7 +1372,7 @@ impl Shape for LineShape {
             let n = svg_points.len();
             let i_last = if self.style.close_path { n } else { n - 1 };
 
-            tracing::debug!(
+            crate::log::debug!(
                 n,
                 r = corner_radius_px,
                 close = self.style.close_path,
@@ -1377,7 +1381,7 @@ impl Shape for LineShape {
 
             // Start at first waypoint
             path_data = path_data.m(svg_points[0].x, svg_points[0].y);
-            tracing::debug!(
+            crate::log::debug!(
                 x = svg_points[0].x,
                 y = svg_points[0].y,
                 "[Rust radiusPath] M"
@@ -1393,25 +1397,25 @@ impl Shape for LineShape {
                     let dir = delta.normalize();
                     // Clamp radius to half segment length, matching C behavior
                     let clamped_r = corner_radius_px.min(dist * 0.5);
-                    svg_points[1] - dir * clamped_r  // Go from wp1 back toward wp0
+                    svg_points[1] - dir * clamped_r // Go from wp1 back toward wp0
                 } else {
-                    svg_points[1]  // Degenerate: just use the point as-is
+                    svg_points[1] // Degenerate: just use the point as-is
                 };
                 path_data = path_data.l(m.x, m.y);
-                tracing::debug!(
-                    x = m.x,
-                    y = m.y,
-                    "[Rust radiusPath] L (before wp1)"
-                );
+                crate::log::debug!(x = m.x, y = m.y, "[Rust radiusPath] L (before wp1)");
             }
 
             // Loop through waypoints 1 to i_last-1, rounding each corner
             for i in 1..i_last {
                 let a_i = svg_points[i];
                 // Next waypoint (wraps to first for closed paths)
-                let a_n = if i < n - 1 { svg_points[i + 1] } else { svg_points[0] };
+                let a_n = if i < n - 1 {
+                    svg_points[i + 1]
+                } else {
+                    svg_points[0]
+                };
 
-                tracing::debug!(
+                crate::log::debug!(
                     i,
                     a_i_x = a_i.x,
                     a_i_y = a_i.y,
@@ -1429,15 +1433,15 @@ impl Shape for LineShape {
                     let dir_in = delta_in.normalize();
                     // Clamp radius to half segment length, matching C behavior
                     let clamped_r = corner_radius_px.min(dist_in * 0.5);
-                    let is_mid = clamped_r < corner_radius_px;  // Was clamped = we're at midpoint
+                    let is_mid = clamped_r < corner_radius_px; // Was clamped = we're at midpoint
                     (a_i - dir_in * clamped_r, is_mid)
                 } else {
-                    (a_i, false)  // Degenerate: points coincide, skip the curve
+                    (a_i, false) // Degenerate: points coincide, skip the curve
                 };
 
                 // Quadratic curve: control at a[i], end at entry point
                 path_data = path_data.q(a_i.x, a_i.y, m_entry.x, m_entry.y);
-                tracing::debug!(
+                crate::log::debug!(
                     ctrl_x = a_i.x,
                     ctrl_y = a_i.y,
                     end_x = m_entry.x,
@@ -1457,9 +1461,9 @@ impl Shape for LineShape {
                         let dir_out = delta_out.normalize();
                         // Clamp radius to half segment length, matching C behavior
                         let clamped_r = corner_radius_px.min(dist_out * 0.5);
-                        let m_exit = a_n - dir_out * clamped_r;  // near a_n, not a_i!
+                        let m_exit = a_n - dir_out * clamped_r; // near a_n, not a_i!
                         path_data = path_data.l(m_exit.x, m_exit.y);
-                        tracing::debug!(
+                        crate::log::debug!(
                             x = m_exit.x,
                             y = m_exit.y,
                             toward = i + 1,
@@ -1470,13 +1474,13 @@ impl Shape for LineShape {
             }
 
             // Line back to start (for closed paths)
-            let a_n = if i_last == n { svg_points[0] } else { svg_points[n - 1] };
+            let a_n = if i_last == n {
+                svg_points[0]
+            } else {
+                svg_points[n - 1]
+            };
             path_data = path_data.l(a_n.x, a_n.y);
-            tracing::debug!(
-                x = a_n.x,
-                y = a_n.y,
-                "[Rust radiusPath] L (final)"
-            );
+            crate::log::debug!(x = a_n.x, y = a_n.y, "[Rust radiusPath] L (final)");
         } else {
             // No rounding - simple polyline
             for (i, pt) in svg_points.iter().enumerate() {
@@ -1544,7 +1548,6 @@ impl Shape for LineShape {
                 bounds.expand_point(Point::new(pt.x + w_arrow, pt.y + w_arrow));
             }
         }
-
 
         // Include text labels with full horizontal and vertical extent
         // cref: pik_append_txt (pikchr.c:5169-5218) - text bbox expansion with justification
@@ -1632,7 +1635,12 @@ impl Shape for LineShape {
                     let new_y0 = line_dy * x0.0 - line_dx * y0.0;
                     let new_x1 = line_dx * x1.0 - line_dy * y1.0;
                     let new_y1 = line_dy * x1.0 - line_dx * y1.0;
-                    (Inches(new_x0), Inches(new_y0), Inches(new_x1), Inches(new_y1))
+                    (
+                        Inches(new_x0),
+                        Inches(new_y0),
+                        Inches(new_x1),
+                        Inches(new_y1),
+                    )
                 } else {
                     (x0, y0, x1, y1)
                 };
@@ -1784,18 +1792,28 @@ impl Shape for SplineShape {
         if self.style.arrow_start && n >= 2 {
             let p1 = self.waypoints[0].to_svg(ctx.scaler, ctx.offset_x, ctx.max_y);
             let p2 = self.waypoints[1].to_svg(ctx.scaler, ctx.offset_x, ctx.max_y);
-            if let Some(arrowhead) =
-                render_arrowhead_dom(p2, p1, &self.style, arrow_len_px, arrow_wid_px, ctx.use_css_vars)
-            {
+            if let Some(arrowhead) = render_arrowhead_dom(
+                p2,
+                p1,
+                &self.style,
+                arrow_len_px,
+                arrow_wid_px,
+                ctx.use_css_vars,
+            ) {
                 nodes.push(SvgNode::Polygon(arrowhead));
             }
         }
         if self.style.arrow_end && n >= 2 {
             let p1 = self.waypoints[n - 2].to_svg(ctx.scaler, ctx.offset_x, ctx.max_y);
             let p2 = self.waypoints[n - 1].to_svg(ctx.scaler, ctx.offset_x, ctx.max_y);
-            if let Some(arrowhead) =
-                render_arrowhead_dom(p1, p2, &self.style, arrow_len_px, arrow_wid_px, ctx.use_css_vars)
-            {
+            if let Some(arrowhead) = render_arrowhead_dom(
+                p1,
+                p2,
+                &self.style,
+                arrow_len_px,
+                arrow_wid_px,
+                ctx.use_css_vars,
+            ) {
                 nodes.push(SvgNode::Polygon(arrowhead));
             }
         }
@@ -1965,7 +1983,7 @@ impl Shape for DotShape {
         let center_svg = self.center.to_svg(ctx.scaler, ctx.offset_x, ctx.max_y);
         let r = ctx.scaler.px(self.radius);
 
-        tracing::debug!(
+        crate::log::debug!(
             fill = %self.style.fill,
             stroke = %self.style.stroke,
             "[Rust dot render] About to render dot"
@@ -2196,18 +2214,28 @@ impl Shape for ArcShape {
         // cref: arcRender (pikchr.c:1071-1076) - render arrowheads first, which modifies endpoints
         // pik_draw_arrowhead calls pik_chop to shorten the endpoint by h/2
         if self.style.arrow_start {
-            if let Some(arrowhead) =
-                render_arrowhead_dom(control, start_svg, &self.style, arrow_len_px, arrow_wid_px, ctx.use_css_vars)
-            {
+            if let Some(arrowhead) = render_arrowhead_dom(
+                control,
+                start_svg,
+                &self.style,
+                arrow_len_px,
+                arrow_wid_px,
+                ctx.use_css_vars,
+            ) {
                 nodes.push(SvgNode::Polygon(arrowhead));
             }
             // Chop start point: shorten from control toward start by arrow_chop
             start_svg = chop_point(control, start_svg, arrow_chop);
         }
         if self.style.arrow_end {
-            if let Some(arrowhead) =
-                render_arrowhead_dom(control, end_svg, &self.style, arrow_len_px, arrow_wid_px, ctx.use_css_vars)
-            {
+            if let Some(arrowhead) = render_arrowhead_dom(
+                control,
+                end_svg,
+                &self.style,
+                arrow_len_px,
+                arrow_wid_px,
+                ctx.use_css_vars,
+            ) {
                 nodes.push(SvgNode::Polygon(arrowhead));
             }
             // Chop end point: shorten from control toward end by arrow_chop
@@ -2632,7 +2660,12 @@ impl ShapeEnum {
 
 /// Build an SVG style from an ObjectStyle
 /// cref: pik_append_style (pikchr.c:2277)
-fn build_svg_style(style: &ObjectStyle, scaler: &Scaler, dashwid: Inches, use_css_vars: bool) -> SvgStyle {
+fn build_svg_style(
+    style: &ObjectStyle,
+    scaler: &Scaler,
+    dashwid: Inches,
+    use_css_vars: bool,
+) -> SvgStyle {
     build_svg_style_full(style, scaler, dashwid, false, true, use_css_vars)
 }
 
@@ -2655,7 +2688,7 @@ fn build_svg_style_full(
     };
     let stroke_rgb = color_to_string(&style.stroke, use_css_vars);
 
-    tracing::debug!(
+    crate::log::debug!(
         fill_input = %style.fill,
         fill_output = %fill_rgb,
         stroke_input = %style.stroke,
@@ -2666,10 +2699,7 @@ fn build_svg_style_full(
     let mut entries = vec![
         ("fill", fill_rgb),
         ("stroke", stroke_rgb),
-        (
-            "stroke-width",
-            format!("{}", scaler.px(style.stroke_width)),
-        ),
+        ("stroke-width", format!("{}", scaler.px(style.stroke_width))),
     ];
 
     // Dashed: dash and gap are both the stored width
@@ -2717,7 +2747,7 @@ pub(crate) fn svg_style_from_entries(entries: Vec<(&'static str, String)>) -> Sv
         match SvgStyle::parse(&css) {
             Ok(style) => style,
             Err(err) => {
-                tracing::warn!(css = %css, %err, "failed to parse generated SVG style");
+                crate::log::warn!(css = %css, %err, "failed to parse generated SVG style");
                 SvgStyle::default()
             }
         }

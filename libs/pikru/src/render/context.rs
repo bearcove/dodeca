@@ -226,7 +226,11 @@ impl RenderContext {
         // For shaped objects, this is the edge point in the travel direction
         // For line-like objects, this is already handled correctly by their end()
         let exit_point = match obj.class() {
-            ClassName::Line | ClassName::Arrow | ClassName::Spline | ClassName::Move | ClassName::Arc => {
+            ClassName::Line
+            | ClassName::Arrow
+            | ClassName::Spline
+            | ClassName::Move
+            | ClassName::Arc => {
                 // Check if this is a closed line (polygon)
                 // cref: pikchr.c:7122-7126 - closed lines use bbox edge as exit
                 let is_closed = obj.style().close_path;
@@ -271,7 +275,7 @@ impl RenderContext {
         };
         self.position = exit_point;
 
-        tracing::debug!(
+        crate::log::debug!(
             "{:?} {:?}: cursor ({:.3}, {:.3}) -> ({:.3}, {:.3})",
             obj.class(),
             obj.name.as_deref().unwrap_or("-"),
@@ -303,7 +307,7 @@ impl RenderContext {
 
     /// Add a named position (e.g., `OUT: 6.3in right of previous.e`)
     pub fn add_named_position(&mut self, name: String, pos: PointIn) {
-        tracing::debug!(
+        crate::log::debug!(
             name = %name,
             x = pos.x.raw(),
             y = pos.y.raw(),

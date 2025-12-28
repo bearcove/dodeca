@@ -4,22 +4,15 @@ use super::shapes::{Shape, ShapeRenderContext, svg_style_from_entries};
 use super::{TextVSlot, compute_text_vslots};
 use crate::types::{Length as Inches, Scaler};
 use facet_svg::facet_xml::SerializeOptions;
-use facet_svg::{Circle as SvgCircle, Points, Polygon, Style, Svg, SvgNode, SvgStyle, Text, facet_xml};
+use facet_svg::{
+    Circle as SvgCircle, Points, Polygon, Style, Svg, SvgNode, SvgStyle, Text, facet_xml,
+};
 use glam::{DVec2, dvec2};
-use time::{OffsetDateTime, format_description};
 
 use super::context::RenderContext;
 use super::defaults;
 use super::eval::{get_length, get_scalar};
 use super::types::*;
-
-/// Generate a UTC timestamp in YYYYMMDDhhmmss format for data-pikchr-date attribute
-fn utc_timestamp() -> String {
-    let now = OffsetDateTime::now_utc();
-    let format = format_description::parse("[year][month][day][hour][minute][second]")
-        .expect("valid format");
-    now.format(&format).unwrap_or_default()
-}
 
 /// Convert a color name to rgb() format like C pikchr
 pub fn color_to_rgb(color: &str) -> String {
@@ -245,7 +238,10 @@ fn generate_color_css() -> Style {
 
     let mut css = String::from(":root {\n");
     for (name, light, dark) in &colors {
-        css.push_str(&format!("  --pik-{}: light-dark({}, {});\n", name, light, dark));
+        css.push_str(&format!(
+            "  --pik-{}: light-dark({}, {});\n",
+            name, light, dark
+        ));
     }
     css.push_str("}\n");
 
@@ -284,7 +280,7 @@ pub fn generate_svg(
     let mut bounds = ctx.bounds;
 
     // Debug: compare with C bbox
-    tracing::debug!(
+    crate::log::debug!(
         sw_x = bounds.min.x.0,
         sw_y = bounds.min.y.0,
         ne_x = bounds.max.x.0,
@@ -308,7 +304,7 @@ pub fn generate_svg(
     //   svg_y = scaler.px(max_y - point.y) which gives the correct flipped coordinate
     let max_y = bounds.max.y;
 
-    tracing::debug!(
+    crate::log::debug!(
         bounds_min_x = bounds.min.x.0,
         bounds_min_y = bounds.min.y.0,
         bounds_max_x = bounds.max.x.0,
@@ -329,7 +325,6 @@ pub fn generate_svg(
     // SVG header - C pikchr only adds width/height when scale != 1.0
     let viewbox_width = scaler.px(view_width);
     let viewbox_height = scaler.px(view_height);
-    let _timestamp = utc_timestamp();
 
     // Create the main SVG element
     let viewbox = format!("0 0 {} {}", fmt_num(viewbox_width), fmt_num(viewbox_height));
@@ -440,7 +435,6 @@ pub fn generate_svg(
                 }
 
                 let svg_y_offset = scaler.px(Inches::inches(-y_offset));
-
 
                 let uses_box_justification = matches!(
                     obj.class(),
@@ -670,7 +664,8 @@ pub fn generate_svg(
 
     // cref: pik_elist_render (pikchr.c:4497-4518) - render debug labels if debug_label_color is set
     // If debug_label_color is defined and non-negative, render a dot + label at each named object/position
-    if let Some(crate::types::EvalValue::Color(color_val)) = ctx.variables.get("debug_label_color") {
+    if let Some(crate::types::EvalValue::Color(color_val)) = ctx.variables.get("debug_label_color")
+    {
         // Convert u32 color value to rgb() string
         let r = ((*color_val >> 16) & 0xFF) as u8;
         let g = ((*color_val >> 8) & 0xFF) as u8;

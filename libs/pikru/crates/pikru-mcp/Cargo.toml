@@ -2,6 +2,12 @@
 name = "pikru-mcp"
 version = "0.1.0"
 edition = "2024"
+publish = false
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
 # Official MCP SDK

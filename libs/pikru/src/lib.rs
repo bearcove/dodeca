@@ -1,11 +1,16 @@
+#![doc = include_str!("../README.md")]
+
 use pest_derive::Parser;
 
 pub mod ast;
 pub mod errors;
+pub(crate) mod log;
 pub mod macros;
 pub mod parse;
 pub mod render;
 pub mod types;
+
+pub use render::RenderOptions;
 
 #[derive(Parser)]
 #[grammar = "pikchr.pest"]
@@ -14,7 +19,34 @@ pub struct PikchrParser;
 /// Render pikchr source to SVG.
 ///
 /// Returns the SVG string on success, or an error with diagnostics.
+///
+/// # Example
+///
+/// ```
+/// let svg = pikru::pikchr(r#"box "Hello" arrow box "World""#).unwrap();
+/// assert!(svg.contains("<svg"));
+/// ```
 pub fn pikchr(source: &str) -> Result<String, miette::Report> {
+    pikchr_with_options(source, &RenderOptions::default())
+}
+
+/// Render pikchr source to SVG with custom options.
+///
+/// Use this to enable CSS variables for light/dark mode support:
+///
+/// # Example
+///
+/// ```
+/// use pikru::{pikchr_with_options, RenderOptions};
+///
+/// let options = RenderOptions { css_variables: true };
+/// let svg = pikchr_with_options(r#"box "Hello""#, &options).unwrap();
+/// assert!(svg.contains("light-dark("));
+/// ```
+pub fn pikchr_with_options(
+    source: &str,
+    options: &RenderOptions,
+) -> Result<String, miette::Report> {
     // Parse source into AST
     let program = parse::parse(source)?;
 
@@ -22,7 +54,7 @@ pub fn pikchr(source: &str) -> Result<String, miette::Report> {
     let program = macros::expand_macros(program)?;
 
     // Render to SVG
-    render::render(&program)
+    render::render_with_options(&program, options)
 }
 
 #[cfg(test)]

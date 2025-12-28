@@ -2,6 +2,12 @@
 name = "pikru-compare"
 version = "0.1.0"
 edition = "2024"
+publish = false
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }

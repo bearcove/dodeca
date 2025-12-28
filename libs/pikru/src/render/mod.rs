@@ -205,7 +205,7 @@ pub fn render_with_options(
         return Ok("<!-- empty pikchr diagram -->\n".to_string());
     }
 
-    tracing::debug!(
+    crate::log::debug!(
         bounds_min_x = ctx.bounds.min.x.raw(),
         bounds_min_y = ctx.bounds.min.y.raw(),
         bounds_max_x = ctx.bounds.max.x.raw(),
@@ -269,9 +269,16 @@ fn render_statement(
             // Apply compound assignment operators
             let eval_val = match assign.op {
                 AssignOp::Assign => rhs_val,
-                AssignOp::AddAssign | AssignOp::SubAssign | AssignOp::MulAssign | AssignOp::DivAssign => {
+                AssignOp::AddAssign
+                | AssignOp::SubAssign
+                | AssignOp::MulAssign
+                | AssignOp::DivAssign => {
                     // Get current value (with default of 0)
-                    let current = ctx.variables.get(&var_name).cloned().unwrap_or(EvalValue::Scalar(0.0));
+                    let current = ctx
+                        .variables
+                        .get(&var_name)
+                        .cloned()
+                        .unwrap_or(EvalValue::Scalar(0.0));
 
                     // Apply operation based on types
                     match (current, rhs_val) {
@@ -292,7 +299,13 @@ fn render_statement(
                                 AssignOp::AddAssign => lhs + rhs,
                                 AssignOp::SubAssign => lhs - rhs,
                                 AssignOp::MulAssign => lhs * rhs,
-                                AssignOp::DivAssign => if rhs == 0.0 { lhs } else { lhs / rhs },
+                                AssignOp::DivAssign => {
+                                    if rhs == 0.0 {
+                                        lhs
+                                    } else {
+                                        lhs / rhs
+                                    }
+                                }
                                 _ => unreachable!(),
                             };
                             EvalValue::Scalar(result)
@@ -316,19 +329,19 @@ fn render_statement(
 
             match &assign.lvalue {
                 LValue::Variable(name) => {
-                    tracing::debug!(op = ?assign.op, "Setting variable {} to {:?}", name, eval_val);
+                    crate::log::debug!(op = ?assign.op, "Setting variable {} to {:?}", name, eval_val);
                     ctx.variables.insert(name.clone(), eval_val);
                 }
                 LValue::Fill => {
-                    tracing::debug!(op = ?assign.op, "Setting global fill to {:?}", eval_val);
+                    crate::log::debug!(op = ?assign.op, "Setting global fill to {:?}", eval_val);
                     ctx.variables.insert("fill".to_string(), eval_val);
                 }
                 LValue::Color => {
-                    tracing::debug!(op = ?assign.op, "Setting global color to {:?}", eval_val);
+                    crate::log::debug!(op = ?assign.op, "Setting global color to {:?}", eval_val);
                     ctx.variables.insert("color".to_string(), eval_val);
                 }
                 LValue::Thickness => {
-                    tracing::debug!(op = ?assign.op, "Setting global thickness to {:?}", eval_val);
+                    crate::log::debug!(op = ?assign.op, "Setting global thickness to {:?}", eval_val);
                     ctx.variables.insert("thickness".to_string(), eval_val);
                 }
             }
@@ -716,7 +729,7 @@ fn make_partial_object(
         shape,
         start_attachment: None,
         end_attachment: None,
-        layer: 1000, // Default layer for partial objects
+        layer: 1000,                 // Default layer for partial objects
         direction: Direction::Right, // Default direction for partial objects
         class_name: class_name.unwrap_or(ClassName::Box),
     }
@@ -857,16 +870,20 @@ fn render_object_stmt(
         style.fill = match fill_val {
             EvalValue::Color(c) => {
                 let color_hex = format!("#{:06x}", c);
-                tracing::debug!("Applying global fill color: {} (from {:?})", color_hex, fill_val);
+                crate::log::debug!(
+                    "Applying global fill color: {} (from {:?})",
+                    color_hex,
+                    fill_val
+                );
                 color_hex
             }
             _ => {
-                tracing::debug!("Global fill is not a color: {:?}", fill_val);
+                crate::log::debug!("Global fill is not a color: {:?}", fill_val);
                 "none".to_string()
             }
         };
     } else {
-        tracing::debug!("No global fill variable found");
+        crate::log::debug!("No global fill variable found");
     }
     if let Some(color_val) = ctx.variables.get("color") {
         // color/stroke is a color value
@@ -957,7 +974,7 @@ fn render_object_stmt(
     // Dots render with both fill and stroke in the same color (stroke_width is NOT 0)
     if class_name == Some(ClassName::Dot) {
         style.fill = style.stroke.clone();
-        tracing::debug!(
+        crate::log::debug!(
             fill = %style.fill,
             "[Rust dot init] Set fill = stroke"
         );
@@ -1073,7 +1090,7 @@ fn render_object_stmt(
                         // For dots, when fill is set, also update stroke to match
                         if class_name == Some(ClassName::Dot) {
                             style.stroke = color.clone();
-                            tracing::debug!(
+                            crate::log::debug!(
                                 color = %color,
                                 "[Rust dot] Fill set, updating stroke to match"
                             );
@@ -1084,7 +1101,7 @@ fn render_object_stmt(
                         // For dots, when color (stroke) is set, also update fill to match
                         if class_name == Some(ClassName::Dot) {
                             style.fill = color.clone();
-                            tracing::debug!(
+                            crate::log::debug!(
                                 color = %color,
                                 "[Rust dot] Color set, updating fill to match"
                             );
@@ -1134,9 +1151,9 @@ fn render_object_stmt(
                 ));
             }
             Attribute::At(pos) => {
-                tracing::debug!(?pos, "Attribute::At position");
+                crate::log::debug!(?pos, "Attribute::At position");
                 if let Ok(p) = eval_position(ctx, pos) {
-                    tracing::debug!(x = p.x.0, y = p.y.0, "Attribute::At evaluated");
+                    crate::log::debug!(x = p.x.0, y = p.y.0, "Attribute::At evaluated");
                     explicit_position = Some(p);
                 }
             }
@@ -1150,11 +1167,7 @@ fn render_object_stmt(
             }
             Attribute::To(pos) => {
                 if let Ok(p) = eval_position(ctx, pos) {
-                    tracing::debug!(
-                        x = p.x.0,
-                        y = p.y.0,
-                        "Attribute::To evaluated position"
-                    );
+                    crate::log::debug!(x = p.x.0, y = p.y.0, "Attribute::To evaluated position");
                     to_positions.push(p);
                     if to_attachment.is_none() {
                         to_attachment = endpoint_object_from_position(ctx, pos);
@@ -1522,7 +1535,7 @@ fn render_object_stmt(
                     let h2 = -bbox_min_y;
                     let fit_height = Inches(2.0 * h1.max(h2) + 0.5 * charht);
 
-                    tracing::debug!(
+                    crate::log::debug!(
                         bbox_min_y = bbox_min_y,
                         bbox_max_y = bbox_max_y,
                         h1 = h1,
@@ -1608,7 +1621,7 @@ fn render_object_stmt(
                         if let Some(wpts) = source.waypoints() {
                             // Store the waypoints; they'll be translated to start position later
                             same_path_waypoints = Some(wpts.to_vec());
-                            tracing::debug!(
+                            crate::log::debug!(
                                 num_waypoints = wpts.len(),
                                 "same as: copied waypoints from source line"
                             );
@@ -1707,11 +1720,11 @@ fn render_object_stmt(
 
             // Compute height allocations for each vertical position
             // cref: pik_append_txt (pikchr.c:2426-2466)
-            let mut ha2: f64 = 0.0;  // Height of above2 row
-            let mut ha1: f64 = 0.0;  // Height of above row
-            let mut hc: f64 = 0.0;   // Height of center row
-            let mut hb1: f64 = 0.0;  // Height of below row
-            let mut hb2: f64 = 0.0;  // Height of below2 row
+            let mut ha2: f64 = 0.0; // Height of above2 row
+            let mut ha1: f64 = 0.0; // Height of above row
+            let mut hc: f64 = 0.0; // Height of center row
+            let mut hb1: f64 = 0.0; // Height of below row
+            let mut hb2: f64 = 0.0; // Height of below2 row
 
             for (i, t) in text.iter().enumerate() {
                 let s = t.font_scale() * charht;
@@ -1733,12 +1746,12 @@ fn render_object_stmt(
 
             // cref: pik_append_txt (pikchr.c:5102-5110) - yBase for cylinders
             // Cylinder text is shifted down by 0.75 * rad to account for top ellipse
-            let y_base = if class_name == Some(ClassName::Cylinder) && style.corner_radius.raw() > 0.0
-            {
-                -0.75 * style.corner_radius.raw()
-            } else {
-                0.0
-            };
+            let y_base =
+                if class_name == Some(ClassName::Cylinder) && style.corner_radius.raw() > 0.0 {
+                    -0.75 * style.corner_radius.raw()
+                } else {
+                    0.0
+                };
 
             for (i, t) in text.iter().enumerate() {
                 let cw = t.width_inches(charwid);
@@ -2003,14 +2016,14 @@ fn render_object_stmt(
                 let w = fit_width.raw();
                 let h = fit_height.raw();
                 let mut mx = w.max(h);
-                tracing::debug!(w, h, mx, "circleFit initial");
+                crate::log::debug!(w, h, mx, "circleFit initial");
                 if w > 0.0 && h > 0.0 && (w * w + h * h) > mx * mx {
                     mx = w.hypot(h);
-                    tracing::debug!(mx, "circleFit using hypot");
+                    crate::log::debug!(mx, "circleFit using hypot");
                 }
                 let diameter = Inches(mx);
                 let radius = diameter / 2.0;
-                tracing::debug!(
+                crate::log::debug!(
                     rad_inches = radius.raw(),
                     rad_px = radius.raw() * 144.0,
                     "circleFit final"
@@ -2023,7 +2036,7 @@ fn render_object_stmt(
                 // corner_radius was initialized to cylrad before attributes
                 width = fit_width;
                 height = fit_height + style.corner_radius * 0.25 + style.stroke_width;
-                tracing::debug!(
+                crate::log::debug!(
                     fit_height = fit_height.raw(),
                     rad = style.corner_radius.raw(),
                     sw = style.stroke_width.raw(),
@@ -2063,7 +2076,7 @@ fn render_object_stmt(
             }
         }
         if class == ClassName::Text {
-            tracing::debug!(
+            crate::log::debug!(
                 fit_width = fit_width.raw(),
                 fit_height = fit_height.raw(),
                 width = width.raw(),
@@ -2083,7 +2096,7 @@ fn render_object_stmt(
     }
 
     // Calculate position based on object type
-    tracing::debug!(
+    crate::log::debug!(
         ?class,
         from_position = from_position.is_some(),
         to_positions_count = to_positions.len(),
@@ -2104,7 +2117,7 @@ fn render_object_stmt(
         // Line-like objects with explicit from/to, direction moves, or then clauses
         // Determine start position based on direction of movement
         let start = if let Some(pos) = from_position {
-            tracing::debug!(
+            crate::log::debug!(
                 from_x = pos.x.raw(),
                 from_y = pos.y.raw(),
                 "start: from explicit from_position"
@@ -2114,7 +2127,7 @@ fn render_object_stmt(
             // "move to X down Y" - start FROM the to_position, not from current cursor
             // The direction offset will be applied from this point
             // This only applies to Move objects, not Line/Arrow
-            tracing::debug!(
+            crate::log::debug!(
                 to_x = to_positions[0].x.raw(),
                 to_y = to_positions[0].y.raw(),
                 "start: using to_position as start (move to X down Y case)"
@@ -2186,7 +2199,7 @@ fn render_object_stmt(
             // to create a new path point
             if direction_offset != OffsetIn::ZERO && even_clause.is_some() {
                 let intermediate = current_pos + direction_offset;
-                tracing::debug!(
+                crate::log::debug!(
                     current_pos_x = current_pos.x.raw(),
                     current_pos_y = current_pos.y.raw(),
                     direction_offset_dx = direction_offset.dx.raw(),
@@ -2209,7 +2222,7 @@ fn render_object_stmt(
                     Direction::Right | Direction::Left => Point::new(target.x, current_pos.y),
                     Direction::Up | Direction::Down => Point::new(current_pos.x, target.y),
                 };
-                tracing::debug!(
+                crate::log::debug!(
                     current_pos_x = current_pos.x.raw(),
                     current_pos_y = current_pos.y.raw(),
                     target_x = target.x.raw(),
@@ -2237,7 +2250,7 @@ fn render_object_stmt(
                     for wpt in same_wpts {
                         points.push(*wpt + translation);
                     }
-                    tracing::debug!(
+                    crate::log::debug!(
                         source_start_x = source_start.x.raw(),
                         source_start_y = source_start.y.raw(),
                         translation_dx = translation.dx.raw(),
@@ -2246,7 +2259,11 @@ fn render_object_stmt(
                         "same as: translated waypoints to start position"
                     );
                 }
-            } else if !to_positions.is_empty() && segments.is_empty() && !has_direction_move && even_clause.is_none() {
+            } else if !to_positions.is_empty()
+                && segments.is_empty()
+                && !has_direction_move
+                && even_clause.is_none()
+            {
                 // from X to Y [to Z...] - add all to_positions as waypoints
                 for pos in &to_positions {
                     points.push(*pos);
@@ -2272,11 +2289,14 @@ fn render_object_stmt(
                 // When we have from_position AND direction_offset AND to_positions,
                 // the direction creates a waypoint BEFORE the to_positions
                 let has_explicit_from = from_position.is_some();
-                if direction_offset != OffsetIn::ZERO && has_explicit_from && !to_positions.is_empty() {
+                if direction_offset != OffsetIn::ZERO
+                    && has_explicit_from
+                    && !to_positions.is_empty()
+                {
                     // "spline right .2 from X to Y to Z" pattern:
                     // Create direction waypoint BEFORE adding to_positions
                     let dir_point = start + direction_offset;
-                    tracing::debug!(
+                    crate::log::debug!(
                         start_x = start.x.raw(),
                         start_y = start.y.raw(),
                         dir_offset_dx = direction_offset.dx.raw(),
@@ -2311,7 +2331,7 @@ fn render_object_stmt(
 
                 if direction_offset != OffsetIn::ZERO && should_apply_direction_offset {
                     let next = current_pos + direction_offset;
-                    tracing::debug!(
+                    crate::log::debug!(
                         start_x = start.x.raw(),
                         start_y = start.y.raw(),
                         current_pos_x = current_pos.x.raw(),
@@ -2332,7 +2352,7 @@ fn render_object_stmt(
                     let next = match segment {
                         Segment::Offset(segment_offset, _segment_dir) => {
                             let next = current_pos + *segment_offset;
-                            tracing::debug!(
+                            crate::log::debug!(
                                 segment_index = i,
                                 current_pos_x = current_pos.x.raw(),
                                 current_pos_y = current_pos.y.raw(),
@@ -2345,7 +2365,7 @@ fn render_object_stmt(
                             next
                         }
                         Segment::AbsolutePosition(pos) => {
-                            tracing::debug!(
+                            crate::log::debug!(
                                 segment_index = i,
                                 current_pos_x = current_pos.x.raw(),
                                 current_pos_y = current_pos.y.raw(),
@@ -2367,7 +2387,7 @@ fn render_object_stmt(
                                     PointIn::new(target.x, current_pos.y)
                                 }
                             };
-                            tracing::debug!(
+                            crate::log::debug!(
                                 segment_index = i,
                                 direction = ?dir,
                                 current_pos_x = current_pos.x.raw(),
@@ -2390,7 +2410,7 @@ fn render_object_stmt(
                                 current_pos.x + Inches::inches(dx),
                                 current_pos.y + Inches::inches(dy),
                             );
-                            tracing::debug!(
+                            crate::log::debug!(
                                 segment_index = i,
                                 angle_deg = angle,
                                 distance = distance.raw(),
@@ -2411,7 +2431,7 @@ fn render_object_stmt(
             } else {
                 // No direction moves, no then clauses - default single segment
                 let next = move_in_direction(current_pos, ctx.direction, width);
-                tracing::debug!(
+                crate::log::debug!(
                     start_x = start.x.raw(),
                     start_y = start.y.raw(),
                     ctx_direction = ?ctx.direction,
@@ -2441,7 +2461,7 @@ fn render_object_stmt(
                 x: Inches((min_x + max_x) / 2.0),
                 y: Inches((min_y + max_y) / 2.0),
             };
-            tracing::debug!(
+            crate::log::debug!(
                 center_x = center.x.raw(),
                 center_y = center.y.raw(),
                 start_x = start.x.raw(),
@@ -2479,7 +2499,7 @@ fn render_object_stmt(
         // Center is midpoint of start and end
         let center = start.midpoint(end);
 
-        tracing::debug!(
+        crate::log::debug!(
             start_x = start.x.raw(),
             start_y = start.y.raw(),
             mid_x = mid_point.x.raw(),
@@ -2495,7 +2515,7 @@ fn render_object_stmt(
         (center, start, end, vec![start, end])
     } else {
         let (c, s, e) = calculate_object_position(ctx, class, width, height);
-        tracing::debug!(
+        crate::log::debug!(
             center_x = c.x.raw(),
             center_y = c.y.raw(),
             start_x = s.x.raw(),
@@ -2594,7 +2614,7 @@ fn render_object_stmt(
             waypoints[0] = autochop_inches(from_pt, to_pt, from_obj);
         }
 
-        tracing::debug!(
+        crate::log::debug!(
             start_x = waypoints[0].x.raw(),
             start_y = waypoints[0].y.raw(),
             end_x = waypoints[n - 1].x.raw(),
@@ -2695,7 +2715,7 @@ fn render_object_stmt(
             // C: renders with r = pObj->rad, but sets w = rad * 6
             // So: radius = width / 6
             let radius = width / 6.0;
-            tracing::debug!(
+            crate::log::debug!(
                 center_x = center.x.raw(),
                 center_y = center.y.raw(),
                 radius = radius.raw(),
@@ -2738,7 +2758,7 @@ fn render_object_stmt(
         object_direction
     };
 
-    tracing::debug!(
+    crate::log::debug!(
         name = ?final_name,
         class = ?class,
         layer = layer,
@@ -2873,7 +2893,7 @@ fn render_sublist(
                     }
                 };
 
-                tracing::debug!(
+                crate::log::debug!(
                     op = ?assign.op,
                     "Sublist: Setting variable {} to {:?}",
                     var_name,
@@ -2960,7 +2980,7 @@ fn calculate_center_from_edge(
     // Edge point = center + offset, so center = edge point - offset
     let center = target - offset;
 
-    tracing::debug!(
+    crate::log::debug!(
         ?edge,
         target_x = target.x.0,
         target_y = target.y.0,
@@ -3063,7 +3083,7 @@ fn calculate_object_position(
         }
     };
 
-    tracing::debug!(
+    crate::log::debug!(
         ?class,
         is_first_object,
         cursor_x = ctx.position.x.0,

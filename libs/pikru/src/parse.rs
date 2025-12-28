@@ -326,7 +326,7 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
     let pair_str = pair.as_str().to_string();
 
     // Debug: log what attribute we're parsing
-    tracing::debug!("parse_attribute: pair_str={:?}", pair_str);
+    crate::log::debug!("parse_attribute: pair_str={:?}", pair_str);
 
     let mut inner = pair.into_inner().peekable();
 
@@ -599,7 +599,7 @@ where
 
     // Debug: log what tokens we have
     if let Some(peek) = inner.peek() {
-        tracing::debug!(
+        crate::log::debug!(
             "parse_direction_attribute after direction: next rule={:?}, str={:?}, pair_str={:?}",
             peek.as_rule(),
             peek.as_str(),
@@ -616,10 +616,10 @@ where
                 // The keywords are consumed by pest as literals
                 let pos = parse_position(inner.next().unwrap())?;
                 if pair_str.contains("until") {
-                    tracing::debug!("Parsed DirectionUntilEven: {:?}", dir);
+                    crate::log::debug!("Parsed DirectionUntilEven: {:?}", dir);
                     Ok(Attribute::DirectionUntilEven(None, dir, pos))
                 } else if pair_str.contains("even") {
-                    tracing::debug!("Parsed DirectionEven: {:?}", dir);
+                    crate::log::debug!("Parsed DirectionEven: {:?}", dir);
                     Ok(Attribute::DirectionEven(None, dir, pos))
                 } else {
                     // Just "direction position" - shouldn't happen in valid grammar
@@ -687,12 +687,12 @@ where
                     // This is "then direction [until] even with position"
                     let pos = parse_position(inner.next().unwrap())?;
                     if pair_str.contains("until") {
-                        tracing::debug!("parse_then_clause: DirectionUntilEven {:?}", dir);
+                        crate::log::debug!("parse_then_clause: DirectionUntilEven {:?}", dir);
                         Ok(Attribute::Then(Some(ThenClause::DirectionUntilEven(
                             dir, pos,
                         ))))
                     } else if pair_str.contains("even") {
-                        tracing::debug!("parse_then_clause: DirectionEven {:?}", dir);
+                        crate::log::debug!("parse_then_clause: DirectionEven {:?}", dir);
                         Ok(Attribute::Then(Some(ThenClause::DirectionEven(dir, pos))))
                     } else {
                         // Shouldn't happen - direction followed by position without even
@@ -1431,7 +1431,7 @@ fn parse_nth(pair: Pair<Rule>) -> Result<Nth, miette::Report> {
             // not as a child node, so we need to check the original pair string
             let is_last = pair_str.contains(" last ");
             let class = inner.next().map(|p| parse_nth_class(p)).transpose()?;
-            tracing::debug!(num, is_last, ?class, pair_str, "parse_nth Ordinal");
+            crate::log::debug!(num, is_last, ?class, pair_str, "parse_nth Ordinal");
             Ok(Nth::Ordinal(num, is_last, class))
         }
         Rule::CLASSNAME => {
