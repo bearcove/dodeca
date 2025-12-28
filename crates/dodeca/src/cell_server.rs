@@ -316,6 +316,10 @@ pub async fn start_cell_server_with_shutdown(
     boot_state.set_phase(BootPhase::LoadingCells);
     let registry = all().await;
 
+    // Initialize gingembre cell (special case - has TemplateHost service)
+    // This must be done after the hub is available but before any render calls.
+    crate::cells::init_gingembre_cell().await;
+
     // Check that the http cell is loaded
     if registry.http.is_none() {
         panic!(

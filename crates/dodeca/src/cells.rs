@@ -558,6 +558,14 @@ fn find_cell_binary(binary_name: &str) -> Option<PathBuf> {
     #[cfg(not(target_os = "windows"))]
     let executable = binary_name.to_string();
 
+    // Try DODECA_CELL_PATH first (consistent with resolve_cell_path)
+    if let Ok(env_path) = std::env::var("DODECA_CELL_PATH") {
+        let path = PathBuf::from(&env_path).join(&executable);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
     // Try adjacent to current exe
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(dir) = exe_path.parent() {
@@ -2275,9 +2283,16 @@ impl ServiceDispatch for TemplateHostService {
 ///
 /// This must be called after the hub is initialized but before any render calls.
 pub async fn init_gingembre_cell() -> Option<()> {
-    let (hub, _hub_path) = get_hub().await?;
+    tracing::info!("init_gingembre_cell: starting");
+    let (hub, _hub_path) = get_hub().await.or_else(|| {
+        tracing::warn!("init_gingembre_cell: no hub available");
+        None
+    })?;
 
-    let binary_path = find_cell_binary("ddc-cell-gingembre")?;
+    let binary_path = find_cell_binary("ddc-cell-gingembre").or_else(|| {
+        tracing::warn!("init_gingembre_cell: could not find ddc-cell-gingembre binary");
+        None
+    })?;
     let binary_name = "ddc-cell-gingembre";
 
     let result = spawn_cell_core(&binary_path, binary_name, &hub, &CellSpawnConfig::default())?;

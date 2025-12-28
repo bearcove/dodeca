@@ -169,6 +169,14 @@ impl Context {
         }
     }
 
+    /// Get all variable names across all scopes
+    pub fn variable_names(&self) -> Vec<&str> {
+        self.scopes
+            .iter()
+            .flat_map(|scope| scope.keys().map(String::as_str))
+            .collect()
+    }
+
     /// Set a variable as "safe" (won't be HTML-escaped when rendered)
     /// If the value is a string, it will be converted to a VSafeString
     pub fn set_safe(&mut self, name: impl Into<String>, value: Value) {

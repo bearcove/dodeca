@@ -233,14 +233,21 @@ impl LazyValue {
                             .into()
                         })
                     }
-                    _ => Err(TypeError {
-                        expected: "object or dict".to_string(),
-                        found: self.type_name().to_string(),
-                        context: "field access".to_string(),
-                        span,
-                        src: source.named_source(),
+                    _ => {
+                        tracing::warn!(
+                            field = %name,
+                            value_type = %self.type_name(),
+                            "field access on non-object"
+                        );
+                        Err(TypeError {
+                            expected: "object or dict".to_string(),
+                            found: self.type_name().to_string(),
+                            context: "field access".to_string(),
+                            span,
+                            src: source.named_source(),
+                        }
+                        .into())
                     }
-                    .into()),
                 }
             }
         }

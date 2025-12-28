@@ -11,6 +11,7 @@ use crate::template::{
 use crate::template_host::{RenderContext, RenderContextGuard, render_context_registry};
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -799,12 +800,17 @@ pub async fn try_render_section_via_cell(
     templates: HashMap<String, String>,
 ) -> std::result::Result<String, String> {
     // Check if cell is available and we have a database from task-local
-    let db = match (
-        gingembre_cell().await,
-        crate::db::TASK_DB.try_with(|db| db.clone()).ok(),
-    ) {
-        (Some(_), Some(db)) => db,
-        _ => {
+    let cell_available = gingembre_cell().await.is_some();
+    let db_available = crate::db::TASK_DB.try_with(|db| db.clone()).ok();
+    let db = match (cell_available, db_available) {
+        (true, Some(db)) => db,
+        (cell, db) => {
+            tracing::debug!(
+                route = %section.route,
+                cell_available = cell,
+                db_available = db.is_some(),
+                "try_render_section_via_cell: falling back to direct rendering"
+            );
             // Fall back to direct rendering
             return try_render_section_with_loader(
                 section,
@@ -994,58 +1000,66 @@ fn build_render_context_base(site_tree: &SiteTree) -> Context {
             let route = path_to_route(&path);
             let base_url = &base_url_for_get_section;
 
-            let result = if let Some(section) = sections.get(&route) {
-                let mut section_map = VObject::new();
-                section_map.insert(VString::from("title"), Value::from(section.title.as_str()));
-                section_map.insert(
-                    VString::from("permalink"),
-                    Value::from(make_permalink(base_url, section.route.as_str()).as_str()),
-                );
-                section_map.insert(VString::from("path"), Value::from(section.route.as_str()));
-                section_map.insert(
-                    VString::from("content"),
-                    Value::from(section.body_html.as_str()),
-                );
-                section_map.insert(VString::from("toc"), headings_to_toc(&section.headings));
-
-                let section_pages: Vec<Value> = pages
-                    .values()
-                    .filter(|p| p.section_route == section.route)
-                    .map(|p| {
-                        let mut page_map = VObject::new();
-                        page_map.insert(VString::from("title"), Value::from(p.title.as_str()));
-                        page_map.insert(
-                            VString::from("permalink"),
-                            Value::from(make_permalink(base_url, p.route.as_str()).as_str()),
-                        );
-                        page_map.insert(VString::from("path"), Value::from(p.route.as_str()));
-                        page_map.insert(VString::from("weight"), Value::from(p.weight as i64));
-                        page_map.insert(VString::from("toc"), headings_to_toc(&p.headings));
-                        page_map.into()
-                    })
-                    .collect();
-                section_map.insert(VString::from("pages"), VArray::from_iter(section_pages));
-
-                let subsections: Vec<Value> = sections
-                    .values()
-                    .filter(|s| {
-                        s.route != section.route
-                            && s.route.as_str().starts_with(section.route.as_str())
-                            && s.route.as_str()[section.route.as_str().len()..]
-                                .trim_matches('/')
-                                .chars()
-                                .filter(|c| *c == '/')
-                                .count()
-                                == 0
-                    })
-                    .map(|s| Value::from(s.route.as_str()))
-                    .collect();
-                section_map.insert(VString::from("subsections"), VArray::from_iter(subsections));
-
-                section_map.into()
-            } else {
-                Value::NULL
+            let Some(section) = sections.get(&route) else {
+                let available: Vec<_> = sections.keys().map(|k| k.to_string()).collect();
+                return Box::pin(async move {
+                    Err(miette::miette!(
+                        "get_section: section not found for path={:?} (resolved to route={:?}). Available sections: {:?}",
+                        path,
+                        route,
+                        available
+                    ))
+                });
             };
+
+            let mut section_map = VObject::new();
+            section_map.insert(VString::from("title"), Value::from(section.title.as_str()));
+            section_map.insert(
+                VString::from("permalink"),
+                Value::from(make_permalink(base_url, section.route.as_str()).as_str()),
+            );
+            section_map.insert(VString::from("path"), Value::from(section.route.as_str()));
+            section_map.insert(
+                VString::from("content"),
+                Value::from(section.body_html.as_str()),
+            );
+            section_map.insert(VString::from("toc"), headings_to_toc(&section.headings));
+
+            let section_pages: Vec<Value> = pages
+                .values()
+                .filter(|p| p.section_route == section.route)
+                .map(|p| {
+                    let mut page_map = VObject::new();
+                    page_map.insert(VString::from("title"), Value::from(p.title.as_str()));
+                    page_map.insert(
+                        VString::from("permalink"),
+                        Value::from(make_permalink(base_url, p.route.as_str()).as_str()),
+                    );
+                    page_map.insert(VString::from("path"), Value::from(p.route.as_str()));
+                    page_map.insert(VString::from("weight"), Value::from(p.weight as i64));
+                    page_map.insert(VString::from("toc"), headings_to_toc(&p.headings));
+                    page_map.into()
+                })
+                .collect();
+            section_map.insert(VString::from("pages"), VArray::from_iter(section_pages));
+
+            let subsections: Vec<Value> = sections
+                .values()
+                .filter(|s| {
+                    s.route != section.route
+                        && s.route.as_str().starts_with(section.route.as_str())
+                        && s.route.as_str()[section.route.as_str().len()..]
+                            .trim_matches('/')
+                            .chars()
+                            .filter(|c| *c == '/')
+                            .count()
+                            == 0
+                })
+                .map(|s| Value::from(s.route.as_str()))
+                .collect();
+            section_map.insert(VString::from("subsections"), VArray::from_iter(subsections));
+
+            let result: Value = section_map.into();
             Box::pin(async move { Ok(result) })
         }),
     );
@@ -1298,7 +1312,18 @@ fn subsection_to_value(section: &Section, site_tree: &SiteTree, base_url: &str) 
 }
 
 /// Convert a source path like "learn/_index.md" to a route like "/learn"
+/// Also accepts routes directly (starting with "/") for convenience.
 pub fn path_to_route(path: &str) -> Route {
+    // If it already looks like a route (starts with /), use it directly
+    // (just normalize trailing slashes)
+    if path.starts_with('/') {
+        let normalized = path.trim_end_matches('/');
+        if normalized.is_empty() {
+            return Route::root();
+        }
+        return Route::new(normalized.to_string());
+    }
+
     let mut p = path.to_string();
 
     // Remove .md extension

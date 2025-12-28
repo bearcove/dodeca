@@ -21,6 +21,7 @@ camino.workspace = true
 facet-value.workspace = true
 miette.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 
 # Async support
 futures.workspace = true

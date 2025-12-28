@@ -177,9 +177,21 @@ impl TemplateRendererImpl {
 
         // Set initial context variables from the Value (should be a VObject)
         if let DestructuredRef::Object(obj) = initial_context.destructure_ref() {
+            let keys: Vec<_> = obj.iter().map(|(k, _)| k.to_string()).collect();
+            tracing::debug!(
+                context_id = context_id.0,
+                keys = ?keys,
+                "build_context: setting initial context variables"
+            );
             for (key, value) in obj.iter() {
                 ctx.set(key.to_string(), value.clone());
             }
+        } else {
+            tracing::warn!(
+                context_id = context_id.0,
+                initial_context_type = ?initial_context.destructure_ref(),
+                "build_context: initial_context is NOT an object!"
+            );
         }
 
         ctx

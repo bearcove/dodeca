@@ -263,6 +263,12 @@ impl<L: TemplateLoader> Engine<L> {
                 .await
         } else {
             // No inheritance, render directly
+            let context_vars = ctx.variable_names();
+            tracing::debug!(
+                template = %name,
+                context_vars = ?context_vars,
+                "Engine::render: rendering template"
+            );
             let mut output = String::new();
             let mut renderer = Renderer {
                 ctx: ctx.clone(),
@@ -570,7 +576,14 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                 }
                 Node::Import(import) => {
                     // Load macros from the imported template
-                    if let Some(loader) = &self.loader
+                    let loader = &self.loader;
+                    if loader.is_none() {
+                        tracing::warn!(
+                            import_path = %import.path.value,
+                            "Import: no loader available"
+                        );
+                    }
+                    if let Some(loader) = loader
                         && let Some(source) = loader.load(&import.path.value).await
                         && let Ok(template) = Template::parse(&import.path.value, source)
                     {
@@ -587,8 +600,19 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                                 );
                             }
                         }
+                        tracing::debug!(
+                            import_path = %import.path.value,
+                            alias = %import.alias.name,
+                            macros = namespace_macros.len(),
+                            "Import: loaded macros"
+                        );
                         self.macros
                             .insert(import.alias.name.clone(), namespace_macros);
+                    } else {
+                        tracing::warn!(
+                            import_path = %import.path.value,
+                            "Import: failed to load template"
+                        );
                     }
                 }
                 Node::Macro(_macro_def) => {
