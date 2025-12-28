@@ -4,9 +4,7 @@ use super::shapes::{Shape, ShapeRenderContext, svg_style_from_entries};
 use super::{TextVSlot, compute_text_vslots};
 use crate::types::{Length as Inches, Scaler};
 use facet_svg::facet_xml::SerializeOptions;
-use facet_svg::{
-    Circle as SvgCircle, Points, Polygon, Style, Svg, SvgNode, SvgStyle, Text, facet_xml,
-};
+use facet_svg::{Circle as SvgCircle, Points, Polygon, Style, Svg, SvgNode, Text, facet_xml};
 use glam::{DVec2, dvec2};
 
 use super::context::RenderContext;
@@ -525,7 +523,7 @@ pub fn generate_svg(
                     fill: Some(text_color.clone()),
                     stroke: None,
                     stroke_width: None,
-                    style: SvgStyle::default(),
+                    style: String::new(),
                     font_family,
                     font_style,
                     font_weight,
@@ -689,7 +687,7 @@ pub fn generate_svg(
                 stroke: Some(color_str.clone()),
                 stroke_width: Some(sw_px.clone()),
                 stroke_dasharray: None,
-                style: SvgStyle::default(),
+                style: String::new(),
             };
             svg_children.push(SvgNode::Circle(circle));
 
@@ -703,7 +701,7 @@ pub fn generate_svg(
                 fill: Some(color_str.clone()),
                 stroke: None,
                 stroke_width: None,
-                style: SvgStyle::default(),
+                style: String::new(),
                 font_family: None,
                 font_style: None,
                 font_weight: None,

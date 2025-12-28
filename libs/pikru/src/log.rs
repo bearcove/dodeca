@@ -4,7 +4,7 @@
 //! When disabled, they expand to no-ops for zero runtime overhead.
 
 #[cfg(feature = "tracing")]
-pub use tracing::{debug, warn};
+pub use tracing::debug;
 
 #[cfg(not(feature = "tracing"))]
 #[macro_export]
@@ -13,10 +13,4 @@ macro_rules! debug {
 }
 
 #[cfg(not(feature = "tracing"))]
-#[macro_export]
-macro_rules! warn {
-    ($($arg:tt)*) => {};
-}
-
-#[cfg(not(feature = "tracing"))]
-pub use crate::{debug, warn};
+pub use crate::debug;

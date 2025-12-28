@@ -6,7 +6,7 @@
 //! - Render itself to SVG
 
 use crate::types::{BoxIn, Length as Inches, OffsetIn, Point, Scaler, Size, UnitVec};
-use facet_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode, SvgStyle};
+use facet_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode};
 use glam::DVec2;
 
 use super::defaults;
@@ -2666,7 +2666,7 @@ fn build_svg_style(
     scaler: &Scaler,
     dashwid: Inches,
     use_css_vars: bool,
-) -> SvgStyle {
+) -> String {
     build_svg_style_full(style, scaler, dashwid, false, true, use_css_vars)
 }
 
@@ -2680,7 +2680,7 @@ fn build_svg_style_full(
     add_linejoin: bool,
     allow_fill: bool,
     use_css_vars: bool,
-) -> SvgStyle {
+) -> String {
     // For non-closed lines, force fill to "none"
     let fill_rgb = if allow_fill {
         color_to_string(&style.fill, use_css_vars)
@@ -2730,8 +2730,7 @@ fn build_svg_style_full(
     svg_style_from_entries(entries)
 }
 
-#[allow(unused_variables)]
-pub(crate) fn svg_style_from_entries(entries: Vec<(&'static str, String)>) -> SvgStyle {
+pub(crate) fn svg_style_from_entries(entries: Vec<(&'static str, String)>) -> String {
     let mut css = String::new();
     for (name, value) in entries {
         if value.is_empty() {
@@ -2742,18 +2741,7 @@ pub(crate) fn svg_style_from_entries(entries: Vec<(&'static str, String)>) -> Sv
         css.push_str(&value);
         css.push(';');
     }
-
-    if css.is_empty() {
-        SvgStyle::default()
-    } else {
-        match SvgStyle::parse(&css) {
-            Ok(style) => style,
-            Err(_err) => {
-                crate::log::warn!(css = %css, %_err, "failed to parse generated SVG style");
-                SvgStyle::default()
-            }
-        }
-    }
+    css
 }
 
 // ============================================================================
