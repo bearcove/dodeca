@@ -40,10 +40,11 @@ type _CellTransport = HubPeerTransport;
 const MAX_EVENTS: usize = 100;
 
 /// Preset log filter expressions (cycled with 'f' key)
+/// Note: The first preset matches DEFAULT_TRACING_FILTER in dodeca/src/logging.rs
 const FILTER_PRESETS: &[&str] = &[
-    "warn,dodeca=info",         // Quiet deps, info for dodeca (default)
-    "warn,dodeca=debug",        // Quiet deps, debug for dodeca
-    "warn,dodeca=trace",        // Quiet deps, trace for dodeca
+    "warn,ddc=info",            // Quiet deps, info for dodeca (default)
+    "warn,ddc=debug",           // Quiet deps, debug for dodeca
+    "warn,ddc=trace",           // Quiet deps, trace for dodeca
     "info",                     // Info level for everything
     "debug",                    // Debug everything
     "warn,hyper=off,tower=off", // Suppress HTTP noise

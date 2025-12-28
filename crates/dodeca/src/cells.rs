@@ -287,7 +287,8 @@ pub async fn init_and_wait_for_cells() -> eyre::Result<()> {
 }
 
 async fn push_tracing_filter_to_cells() {
-    let filter_str = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
+    let filter_str = std::env::var("RUST_LOG")
+        .unwrap_or_else(|_| crate::logging::DEFAULT_TRACING_FILTER.to_string());
 
     let Ok(peers) = PEER_DIAG_INFO.read() else {
         warn!("Failed to acquire peer info lock; skipping tracing filter push");
@@ -2128,30 +2129,6 @@ fn strip_ansi(s: &str) -> String {
     result
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_strip_ansi() {
-        // No escapes
-        assert_eq!(strip_ansi("hello world"), "hello world");
-
-        // Simple color
-        assert_eq!(strip_ansi("\x1b[31mred\x1b[0m"), "red");
-
-        // Multiple escapes
-        assert_eq!(
-            strip_ansi("\x1b[38;5;246m│\x1b[0m hello \x1b[31merror\x1b[0m"),
-            "│ hello error"
-        );
-
-        // The actual error format from the issue
-        let input = "\x1b[31mError:\x1b[0m Error at FrontmatterToml";
-        assert_eq!(strip_ansi(input), "Error: Error at FrontmatterToml");
-    }
-}
-
 /// Parse and render markdown content using the cell.
 ///
 /// Returns frontmatter, HTML (with placeholders), headings, and code blocks.
@@ -2444,4 +2421,28 @@ pub async fn dialoguer_client() -> Option<DialoguerClient<AnyTransport>> {
         .ok()?;
 
     Some(DialoguerClient::new(session))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_ansi() {
+        // No escapes
+        assert_eq!(strip_ansi("hello world"), "hello world");
+
+        // Simple color
+        assert_eq!(strip_ansi("\x1b[31mred\x1b[0m"), "red");
+
+        // Multiple escapes
+        assert_eq!(
+            strip_ansi("\x1b[38;5;246m│\x1b[0m hello \x1b[31merror\x1b[0m"),
+            "│ hello error"
+        );
+
+        // The actual error format from the issue
+        let input = "\x1b[31mError:\x1b[0m Error at FrontmatterToml";
+        assert_eq!(strip_ansi(input), "Error: Error at FrontmatterToml");
+    }
 }

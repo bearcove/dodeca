@@ -26,6 +26,15 @@ use tracing_subscriber::{
 /// Threshold for logging slow spans (in milliseconds)
 const SLOW_SPAN_THRESHOLD_MS: u128 = 50;
 
+/// Default tracing filter that silences noisy dependencies.
+/// Format: `warn,ddc=info` - warn for everything, info for dodeca code.
+/// This is used by:
+/// - `ddc build` (non-TUI mode)
+/// - `ddc serve --no-tui` (non-TUI mode)
+/// - `ddc serve` (TUI mode default)
+/// - Cells (pushed via TracingConfig RPC)
+pub const DEFAULT_TRACING_FILTER: &str = "warn,ddc=info";
+
 /// A tracing layer that sends formatted events to a channel (for TUI Activity panel)
 pub struct TuiLayer {
     tx: Sender<LogEvent>,
@@ -466,10 +475,7 @@ fn parse_http_status(msg: &str) -> Option<u16> {
     }
 }
 
-/// Default log filter for TUI mode: quiet deps, info for dodeca
-const DEFAULT_TUI_FILTER: &str = "warn,dodeca=info";
-
-/// Initialize tracing for TUI mode
+/// Initialize tracing for TUI mode (uses the centralized DEFAULT_TRACING_FILTER)
 /// Returns a FilterHandle for dynamic filter updates
 /// Starts with picante debug disabled - use 'd' key to toggle
 pub fn init_tui_tracing(event_tx: Sender<LogEvent>) -> FilterHandle {
@@ -477,18 +483,18 @@ pub fn init_tui_tracing(event_tx: Sender<LogEvent>) -> FilterHandle {
     let handle = tui_layer.filter_handle();
 
     // Set the default filter
-    handle.set_filter(DEFAULT_TUI_FILTER);
+    handle.set_filter(DEFAULT_TRACING_FILTER);
 
     tracing_subscriber::registry().with(tui_layer).init();
 
     handle
 }
 
-/// Initialize tracing for non-TUI mode (uses RUST_LOG env var)
+/// Initialize tracing for non-TUI mode (uses RUST_LOG env var or DEFAULT_TRACING_FILTER)
 pub fn init_standard_tracing() {
-    // Start with user's RUST_LOG or default to info, then add our noisy crate filters
+    // Start with user's RUST_LOG or our default filter that silences dependencies
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"))
+        .unwrap_or_else(|_| EnvFilter::new(DEFAULT_TRACING_FILTER))
         .add_directive("cranelift_jit=error".parse().unwrap());
     let log_format = std::env::var("DDC_LOG_FORMAT")
         .unwrap_or_default()

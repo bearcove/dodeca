@@ -44,7 +44,7 @@ ureq = { version = "3", default-features = false }
 
 # Logging/tracing
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt", "json", "smallvec", "std"] }
 
 # Serialization - Facet ecosystem (git)
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
