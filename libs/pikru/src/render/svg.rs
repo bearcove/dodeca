@@ -669,7 +669,7 @@ pub fn generate_svg(
     }
 
     // cref: pik_elist_render (pikchr.c:4497-4518) - render debug labels if debug_label_color is set
-    // If debug_label_color is defined and non-negative, render a dot + label at each named object
+    // If debug_label_color is defined and non-negative, render a dot + label at each named object/position
     if let Some(crate::types::EvalValue::Color(color_val)) = ctx.variables.get("debug_label_color") {
         // Convert u32 color value to rgb() string
         let r = ((*color_val >> 16) & 0xFF) as u8;
@@ -681,47 +681,57 @@ pub fn generate_svg(
         let dot_rad_px = scaler.px(Inches(dot_rad));
         let sw_px = fmt_num(scaler.px(Inches(0.015))); // Same as C: dot.sw = 0.015
 
+        // Helper to render a debug label at a position
+        let mut render_debug_label = |name: &str, center: DVec2| {
+            // Render dot (filled circle)
+            let circle = SvgCircle {
+                cx: Some(center.x),
+                cy: Some(center.y),
+                r: Some(dot_rad_px),
+                fill: Some(color_str.clone()),
+                stroke: Some(color_str.clone()),
+                stroke_width: Some(sw_px.clone()),
+                stroke_dasharray: None,
+                style: SvgStyle::default(),
+            };
+            svg_children.push(SvgNode::Circle(circle));
+
+            // Render label text above the dot
+            // cref: pik_elist_render (pikchr.c:4509) - aTxt[0].eCode = TP_ABOVE
+            let text_y = center.y - scaler.px(Inches(charht * 0.5));
+            let text_element = Text {
+                x: Some(center.x),
+                y: Some(text_y),
+                transform: None,
+                fill: Some(color_str.clone()),
+                stroke: None,
+                stroke_width: None,
+                style: SvgStyle::default(),
+                font_family: None,
+                font_style: None,
+                font_weight: None,
+                font_size: None,
+                text_anchor: Some("middle".to_string()),
+                dominant_baseline: Some("auto".to_string()),
+                content: name.to_string(),
+            };
+            svg_children.push(SvgNode::Text(text_element));
+        };
+
+        // Render debug labels for objects with explicit names
         for obj in sorted_objects.iter() {
-            // Only render for objects with explicit names (labels like `B1:`)
             if let Some(ref name) = obj.name {
                 if obj.name_is_explicit {
                     let center = obj.center().to_svg(&scaler, offset_x, max_y);
-
-                    // Render dot (filled circle)
-                    let circle = SvgCircle {
-                        cx: Some(center.x),
-                        cy: Some(center.y),
-                        r: Some(dot_rad_px),
-                        fill: Some(color_str.clone()),
-                        stroke: Some(color_str.clone()),
-                        stroke_width: Some(sw_px.clone()),
-                        stroke_dasharray: None,
-                        style: SvgStyle::default(),
-                    };
-                    svg_children.push(SvgNode::Circle(circle));
-
-                    // Render label text above the dot
-                    // cref: pik_elist_render (pikchr.c:4509) - aTxt[0].eCode = TP_ABOVE
-                    let text_y = center.y - scaler.px(Inches(charht * 0.5));
-                    let text_element = Text {
-                        x: Some(center.x),
-                        y: Some(text_y),
-                        transform: None,
-                        fill: Some(color_str.clone()),
-                        stroke: None,
-                        stroke_width: None,
-                        style: SvgStyle::default(),
-                        font_family: None,
-                        font_style: None,
-                        font_weight: None,
-                        font_size: None,
-                        text_anchor: Some("middle".to_string()),
-                        dominant_baseline: Some("auto".to_string()),
-                        content: name.clone(),
-                    };
-                    svg_children.push(SvgNode::Text(text_element));
+                    render_debug_label(name, center);
                 }
             }
+        }
+
+        // Render debug labels for named positions (e.g., `OUT: 6.3in right of previous.e`)
+        for (name, pos) in ctx.named_positions.iter() {
+            let center = pos.to_svg(&scaler, offset_x, max_y);
+            render_debug_label(name, center);
         }
     }
 
