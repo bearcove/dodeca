@@ -13,7 +13,7 @@ im = "15.1.0"
 divan = "0.1"
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-format-postcard = { git = "https://github.com/facet-rs/facet", branch = "main", features = ["jit"] }
 facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
 heck = "0.5.0"
 parking_lot = "0.12.4"
