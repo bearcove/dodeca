@@ -194,6 +194,7 @@ pub trait Shape {
     /// Used for final SVG bounding box computation.
     /// cref: pik_bbox_add_elist (pikchr.c:7206)
     /// Default implementation for box-like shapes
+    #[allow(unused_variables)]
     fn expand_bounds(&self, bounds: &mut BoundingBox) {
         let style = self.style();
         let text = self.text();
@@ -2729,6 +2730,7 @@ fn build_svg_style_full(
     svg_style_from_entries(entries)
 }
 
+#[allow(unused_variables)]
 pub(crate) fn svg_style_from_entries(entries: Vec<(&'static str, String)>) -> SvgStyle {
     let mut css = String::new();
     for (name, value) in entries {
@@ -2746,8 +2748,8 @@ pub(crate) fn svg_style_from_entries(entries: Vec<(&'static str, String)>) -> Sv
     } else {
         match SvgStyle::parse(&css) {
             Ok(style) => style,
-            Err(err) => {
-                crate::log::warn!(css = %css, %err, "failed to parse generated SVG style");
+            Err(_err) => {
+                crate::log::warn!(css = %css, %_err, "failed to parse generated SVG style");
                 SvgStyle::default()
             }
         }

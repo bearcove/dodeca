@@ -580,6 +580,7 @@ fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, miette::Rep
     }
 }
 
+#[allow(unused_variables)]
 pub fn resolve_object<'a>(ctx: &'a RenderContext, obj: &Object) -> Option<&'a RenderedObject> {
     match obj {
         Object::Named(name) => {
@@ -604,12 +605,12 @@ pub fn resolve_object<'a>(ctx: &'a RenderContext, obj: &Object) -> Option<&'a Re
             Nth::First(class) => {
                 let oc = class.as_ref().and_then(nth_class_to_class_name);
                 let obj = ctx.get_nth_object(1, oc);
-                if let Some(o) = obj {
+                if let Some(_o) = obj {
                     crate::log::debug!(
-                        name = ?o.name,
-                        class = ?o.class(),
-                        start_x = o.start().x.0,
-                        start_y = o.start().y.0,
+                        name = ?_o.name,
+                        class = ?_o.class(),
+                        start_x = _o.start().x.0,
+                        start_y = _o.start().y.0,
                         "resolve_object Nth::First"
                     );
                 }

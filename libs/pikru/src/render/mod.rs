@@ -746,6 +746,7 @@ fn update_current_object(
     ctx.current_object = Some(make_partial_object(class_name, width, height, style));
 }
 
+#[allow(unused_variables)]
 fn render_object_stmt(
     ctx: &mut RenderContext,
     obj_stmt: &ObjectStatement,
@@ -2022,10 +2023,10 @@ fn render_object_stmt(
                     crate::log::debug!(mx, "circleFit using hypot");
                 }
                 let diameter = Inches(mx);
-                let radius = diameter / 2.0;
+                let _radius = diameter / 2.0;
                 crate::log::debug!(
-                    rad_inches = radius.raw(),
-                    rad_px = radius.raw() * 144.0,
+                    rad_inches = _radius.raw(),
+                    rad_px = _radius.raw() * 144.0,
                     "circleFit final"
                 );
                 width = diameter;

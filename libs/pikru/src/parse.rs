@@ -582,6 +582,7 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
     }
 }
 
+#[allow(unused_variables)]
 fn parse_direction_attribute<'a, I>(
     inner: &mut std::iter::Peekable<I>,
     pair_str: &str,
@@ -598,11 +599,11 @@ where
     }
 
     // Debug: log what tokens we have
-    if let Some(peek) = inner.peek() {
+    if let Some(_peek) = inner.peek() {
         crate::log::debug!(
             "parse_direction_attribute after direction: next rule={:?}, str={:?}, pair_str={:?}",
-            peek.as_rule(),
-            peek.as_str(),
+            _peek.as_rule(),
+            _peek.as_str(),
             pair_str
         );
     }

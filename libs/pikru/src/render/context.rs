@@ -211,6 +211,7 @@ impl RenderContext {
 
     /// Add an object to the context
     // cref: pik_after_adding_element (pikchr.c:7095) - p->eDir = pObj->outDir
+    #[allow(unused_variables)]
     pub fn add_object(&mut self, obj: RenderedObject) {
         let old_cursor = self.position;
 
