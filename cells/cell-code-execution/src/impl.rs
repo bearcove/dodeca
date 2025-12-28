@@ -105,13 +105,30 @@ impl CodeExecutor for CodeExecutorImpl {
     }
 }
 
+/// Parse info string into base language and attributes.
+/// e.g., "rust,test" -> ("rust", ["test"])
+fn parse_info_string(info: &str) -> (&str, Vec<&str>) {
+    let mut parts = info.split(',');
+    let lang = parts.next().unwrap_or("");
+    let attrs: Vec<&str> = parts.collect();
+    (lang, attrs)
+}
+
 fn should_execute(language: &str) -> bool {
     // Disable all code execution with DODECA_NO_CODE_EXEC=1
     if std::env::var("DODECA_NO_CODE_EXEC").is_ok() {
         return false;
     }
 
-    matches!(language.to_lowercase().as_str(), "rust" | "rs")
+    let (lang, attrs) = parse_info_string(language);
+
+    // Must be a Rust code block
+    if !matches!(lang.to_lowercase().as_str(), "rust" | "rs") {
+        return false;
+    }
+
+    // Rust code execution is opt-in: requires the `test` attribute
+    attrs.contains(&"test")
 }
 
 /// Progress reporting interval
@@ -155,8 +172,9 @@ async fn execute_code_sample(
     let start_time = std::time::Instant::now();
     let source_info = format!("{}:{}", sample.source_path, sample.line);
 
-    // Only Rust is supported for now
-    if !matches!(sample.language.to_lowercase().as_str(), "rust" | "rs") {
+    // Only Rust with `test` attribute is supported
+    let (lang, _attrs) = parse_info_string(&sample.language);
+    if !matches!(lang.to_lowercase().as_str(), "rust" | "rs") {
         return ExecutionResult {
             status: ExecutionStatus::Skipped,
             exit_code: None,
