@@ -131,8 +131,8 @@ pub fn generate_theme_css(theme_name: &str) -> Result<String, String> {
         _ => unreachable!("resolve_theme_name returned invalid theme"),
     };
 
-    // Generate CSS with empty selector prefix (we use custom elements globally)
-    let css = theme.to_css("");
+    // Generate CSS with `pre` selector to scope themes to code blocks
+    let css = theme.to_css("pre");
 
     Ok(css)
 }
@@ -164,7 +164,8 @@ mod tests {
     fn test_generate_theme_css() {
         let css = generate_theme_css("tokyo-night").unwrap();
         assert!(!css.is_empty());
-        // CSS should contain custom element selectors
+        // CSS should contain `pre` selector and custom element selectors
+        assert!(css.contains("pre"));
         assert!(css.contains("a-"));
     }
 

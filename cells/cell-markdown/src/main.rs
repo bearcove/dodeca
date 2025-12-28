@@ -169,7 +169,8 @@ fn render_markdown_impl(
                     // Check if this is an ASCII diagram block
                     if code_block_lang == "aa" {
                         // Render ASCII art to SVG using aasvg
-                        let svg = aasvg::render(&code_block_content);
+                        let options = aasvg::RenderOptions::new().with_stretch(true);
+                        let svg = aasvg::render_with_options(&code_block_content, &options);
                         output_events.push(Event::Html(svg.into()));
                         code_block_content.clear();
                         code_block_lang.clear();

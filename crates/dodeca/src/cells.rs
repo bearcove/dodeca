@@ -40,7 +40,7 @@ use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
 use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
-use rapace::transport::shm::{HubConfig, HubHost, HubHostPeerTransport, close_peer_fd};
+use rapace::transport::shm::{AddPeerOptions, HubConfig, HubHost};
 use rapace::{AnyTransport, Frame, RpcError, RpcSession, Session};
 use rapace_cell::{CellLifecycle, CellLifecycleServer, ReadyAck, ReadyMsg};
 use rapace_cell::{DispatcherBuilder, ServiceDispatch};
@@ -394,6 +394,222 @@ pub async fn get_hub() -> Option<(Arc<HubHost>, PathBuf)> {
     Some((hub, hub_path))
 }
 
+// ============================================================================
+// Unified Cell Spawning
+// ============================================================================
+
+/// Configuration for spawning a cell.
+pub struct CellSpawnConfig {
+    /// Whether to inherit stdin/stdout/stderr (for terminal cells like TUI).
+    pub inherit_stdio: bool,
+    /// Whether to manage the child process internally (spawn wait task).
+    /// If false, the Child is returned for the caller to manage.
+    pub manage_child: bool,
+}
+
+impl Default for CellSpawnConfig {
+    fn default() -> Self {
+        Self {
+            inherit_stdio: false,
+            manage_child: true,
+        }
+    }
+}
+
+/// Result of spawning a cell.
+pub struct SpawnedCellResult {
+    pub peer_id: u16,
+    pub rpc_session: Arc<Session>,
+    /// Only Some if `manage_child` was false in config.
+    pub child: Option<tokio::process::Child>,
+}
+
+/// Core cell spawning function that handles all the common boilerplate.
+///
+/// This function:
+/// 1. Adds a peer to the hub with death detection
+/// 2. Spawns the cell process with appropriate args
+/// 3. Sets up stdio capture (unless inheriting)
+/// 4. Creates the RPC session and transport
+/// 5. Registers for diagnostics
+///
+/// The caller is responsible for setting up the dispatcher on the returned session.
+fn spawn_cell_core(
+    binary_path: &Path,
+    binary_name: &str,
+    hub: &Arc<HubHost>,
+    config: &CellSpawnConfig,
+) -> Option<SpawnedCellResult> {
+    // Add peer to hub with death detection
+    let cell_name = binary_name.to_string();
+    let (transport, ticket) = match hub.add_peer_transport_with_options(AddPeerOptions {
+        peer_name: Some(cell_name.clone()),
+        on_death: Some(Arc::new({
+            let cell_name = cell_name.clone();
+            move |peer_id| {
+                warn!(peer_id, cell = %cell_name, "cell died (doorbell signal failed)");
+            }
+        })),
+    }) {
+        Ok(result) => result,
+        Err(e) => {
+            warn!("failed to add peer for {}: {}", binary_name, e);
+            return None;
+        }
+    };
+
+    let peer_id = ticket.peer_id;
+
+    // Build command with hub args from ticket
+    let mut cmd = Command::new(binary_path);
+    cmd.arg(format!("--hub-path={}", ticket.hub_path.display()))
+        .arg(format!("--peer-id={}", ticket.peer_id))
+        .arg(format!("--doorbell-fd={}", ticket.doorbell_fd));
+
+    if config.inherit_stdio {
+        cmd.stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
+    } else {
+        cmd.stdin(Stdio::null());
+        if is_quiet_mode() {
+            cmd.stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .env("DODECA_QUIET", "1");
+        } else {
+            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        }
+    }
+
+    let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
+        Ok(child) => child,
+        Err(e) => {
+            warn!("failed to spawn {}: {}", binary_name, e);
+            return None;
+        }
+    };
+
+    // Register child PID for SIGUSR1 forwarding
+    if let Some(pid) = child.id() {
+        dodeca_debug::register_child_pid(pid);
+    }
+
+    // Capture stdio unless inheriting
+    if !config.inherit_stdio && !is_quiet_mode() {
+        capture_cell_stdio(binary_name, &mut child);
+    }
+
+    // Drop ticket to close our end of the peer's doorbell (child inherited it)
+    drop(ticket);
+
+    // Create RPC session
+    let rpc_session = Arc::new(RpcSession::with_channel_start(transport, 1));
+
+    // Register for diagnostics
+    register_peer_diag(peer_id, binary_name, rpc_session.clone());
+
+    debug!(
+        "spawned {} cell from {} (peer_id={})",
+        binary_name,
+        binary_path.display(),
+        peer_id
+    );
+
+    // Optionally manage child process internally
+    let child = if config.manage_child {
+        let cell_label = binary_name.to_string();
+        let hub_for_cleanup = hub.clone();
+        tokio::spawn(async move {
+            match child.wait().await {
+                Ok(status) => {
+                    if !status.success() {
+                        warn!("{} cell exited with status: {}", cell_label, status);
+                    }
+                }
+                Err(e) => {
+                    warn!("{} cell wait error: {}", cell_label, e);
+                }
+            }
+            hub_for_cleanup
+                .allocator()
+                .reclaim_peer_slots(peer_id as u32);
+            info!(
+                "{} cell exited, reclaimed slots for peer {}",
+                cell_label, peer_id
+            );
+        });
+        None
+    } else {
+        Some(child)
+    };
+
+    Some(SpawnedCellResult {
+        peer_id,
+        rpc_session,
+        child,
+    })
+}
+
+/// Find a cell binary by name, searching standard locations.
+fn find_cell_binary(binary_name: &str) -> Option<PathBuf> {
+    #[cfg(target_os = "windows")]
+    let executable = format!("{binary_name}.exe");
+    #[cfg(not(target_os = "windows"))]
+    let executable = binary_name.to_string();
+
+    // Try adjacent to current exe
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(dir) = exe_path.parent() {
+            let path = dir.join(&executable);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+    }
+
+    // Try development fallback
+    #[cfg(debug_assertions)]
+    let profile_dir = PathBuf::from("target/debug");
+    #[cfg(not(debug_assertions))]
+    let profile_dir = PathBuf::from("target/release");
+
+    let path = profile_dir.join(&executable);
+    if path.exists() {
+        return Some(path);
+    }
+
+    None
+}
+
+/// Start the RPC session runner task.
+fn start_session_runner(rpc_session: &Arc<Session>, cell_label: &str) {
+    let session_runner = rpc_session.clone();
+    let cell_label = cell_label.to_string();
+    tokio::spawn(async move {
+        if let Err(e) = session_runner.run().await {
+            warn!("{} cell RPC session error: {}", cell_label, e);
+        }
+    });
+}
+
+/// Create the standard dispatcher with TracingSink and CellLifecycle services.
+fn create_standard_dispatcher()
+-> impl Fn(Frame) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
++ Send
++ Sync
++ 'static {
+    let tracing_sink = ForwardingTracingSink::new();
+    let lifecycle_impl = HostCellLifecycle::new(cell_ready_registry().clone());
+
+    let buffer_pool = rapace::BufferPool::with_capacity(128, 256 * 1024);
+    DispatcherBuilder::new()
+        .add_service(TracingSinkService(Arc::new(TracingSinkServer::new(
+            tracing_sink,
+        ))))
+        .add_service(CellLifecycleServer::new(lifecycle_impl).into_dispatch())
+        .build(buffer_pool)
+}
+
 /// Spawn a cell binary through the hub with a custom dispatcher.
 ///
 /// This is used for cells like TUI that need a custom dispatcher rather than
@@ -416,102 +632,31 @@ where
         + Sync
         + 'static,
 {
-    let (hub, hub_path) = get_hub().await?;
+    let (hub, _hub_path) = get_hub().await?;
 
-    // Find the binary
-    let exe_path = std::env::current_exe().ok()?;
-    let dir = exe_path.parent()?;
+    let binary_path = find_cell_binary(binary_name)?;
 
-    #[cfg(target_os = "windows")]
-    let executable = format!("{binary_name}.exe");
-    #[cfg(not(target_os = "windows"))]
-    let executable = binary_name.to_string();
-
-    let path = dir.join(&executable);
-    if !path.exists() {
-        warn!("cell binary not found: {}", path.display());
-        return None;
-    }
-
-    // Add peer to hub
-    let peer_info = match hub.add_peer() {
-        Ok(info) => info,
-        Err(e) => {
-            warn!("failed to add peer for {}: {}", binary_name, e);
-            return None;
-        }
-    };
-
-    let peer_id = peer_info.peer_id;
-    let peer_doorbell_fd = peer_info.peer_doorbell_fd;
-
-    // Build command with hub args
-    let mut cmd = Command::new(&path);
-    cmd.arg(format!("--hub-path={}", hub_path.display()))
-        .arg(format!("--peer-id={}", peer_id))
-        .arg(format!("--doorbell-fd={}", peer_doorbell_fd));
-
-    if inherit_stdio {
-        // Terminal cells (like TUI) need direct access to stdin/stdout/stderr
-        // to render to the terminal and receive keyboard input
-        cmd.stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
-    } else {
-        cmd.stdin(Stdio::null());
-        if is_quiet_mode() {
-            cmd.stdout(Stdio::null()).stderr(Stdio::null());
-            cmd.env("DODECA_QUIET", "1");
-        } else {
-            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-        }
-    }
-
-    let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
-        Ok(child) => child,
-        Err(e) => {
-            warn!("failed to spawn {}: {}", executable, e);
-            return None;
-        }
-    };
-
-    // Register child PID for SIGUSR1 forwarding
-    if let Some(pid) = child.id() {
-        dodeca_debug::register_child_pid(pid);
-    }
-
-    if !inherit_stdio && !is_quiet_mode() {
-        capture_cell_stdio(binary_name, &mut child);
-    }
-
-    // Close our end of the peer's doorbell
-    close_peer_fd(peer_doorbell_fd);
-
-    // Create transport
-    let peer_transport = HubHostPeerTransport::new(hub.clone(), peer_id, peer_info.doorbell);
-    let transport = rapace::transport::shm::ShmTransport::HubHostPeer(peer_transport.clone());
-
-    let rpc_session = Arc::new(RpcSession::with_channel_start(
-        AnyTransport::new(transport),
-        1,
-    ));
-
-    // Register for diagnostics
-    register_peer_diag(peer_id, binary_name, rpc_session.clone());
+    let result = spawn_cell_core(
+        &binary_path,
+        binary_name,
+        &hub,
+        &CellSpawnConfig {
+            inherit_stdio,
+            manage_child: false, // We return the child
+        },
+    )?;
 
     // Set up the custom dispatcher combined with CellLifecycle service
-    // (cells using run_with_session send a ready signal that needs handling)
-    let custom_dispatcher = dispatcher_factory(rpc_session.clone());
+    let custom_dispatcher = dispatcher_factory(result.rpc_session.clone());
     let lifecycle_impl = HostCellLifecycle::new(cell_ready_registry().clone());
     let lifecycle_service: Arc<dyn ServiceDispatch> =
         Arc::new(CellLifecycleServer::new(lifecycle_impl).into_dispatch());
     let lifecycle_method_ids = lifecycle_service.method_ids();
-    let buffer_pool = rpc_session.buffer_pool().clone();
+    let buffer_pool = result.rpc_session.buffer_pool().clone();
 
     let combined_dispatcher = move |request: Frame| {
         let method_id = request.desc.method_id;
 
-        // Check if this is a CellLifecycle method
         if lifecycle_method_ids.contains(&method_id) {
             let service = lifecycle_service.clone();
             let pool = buffer_pool.clone();
@@ -531,27 +676,17 @@ where
         }
     };
 
-    rpc_session.set_dispatcher(combined_dispatcher);
-
-    // Spawn the RPC session runner
-    {
-        let session_runner = rpc_session.clone();
-        let cell_label = binary_name.to_string();
-        tokio::spawn(async move {
-            if let Err(e) = session_runner.run().await {
-                warn!("{} RPC session error: {}", cell_label, e);
-            }
-        });
-    }
+    result.rpc_session.set_dispatcher(combined_dispatcher);
+    start_session_runner(&result.rpc_session, binary_name);
 
     info!(
         "launched {} from {} (peer_id={})",
         binary_name,
-        path.display(),
-        peer_id
+        binary_path.display(),
+        result.peer_id
     );
 
-    Some((rpc_session, child))
+    Some((result.rpc_session, result.child.expect("child not managed")))
 }
 
 /// Dump hub transport diagnostics to stderr (called on SIGUSR1).
@@ -707,7 +842,7 @@ impl CellRegistry {
         dir: &Path,
         binary_name: &str,
         hub: &Arc<HubHost>,
-        hub_path: &Path,
+        _hub_path: &Path, // now provided by ticket
     ) -> Option<SpawnedCell> {
         #[cfg(target_os = "windows")]
         let executable = format!("{binary_name}.exe");
@@ -720,136 +855,17 @@ impl CellRegistry {
             return None;
         }
 
-        // Add peer to hub and get peer info (peer_id, doorbells)
-        let peer_info = match hub.add_peer() {
-            Ok(info) => info,
-            Err(e) => {
-                warn!("failed to add peer for {} cell: {}", binary_name, e);
-                return None;
-            }
-        };
+        let result = spawn_cell_core(&path, binary_name, hub, &CellSpawnConfig::default())?;
 
-        let peer_id = peer_info.peer_id;
-        let peer_doorbell_fd = peer_info.peer_doorbell_fd;
-
-        // Build command with hub args
-        let mut cmd = Command::new(&path);
-        cmd.arg(format!("--hub-path={}", hub_path.display()))
-            .arg(format!("--peer-id={}", peer_id))
-            .arg(format!("--doorbell-fd={}", peer_doorbell_fd))
-            .stdin(Stdio::null());
-
-        if is_quiet_mode() {
-            cmd.stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .env("DODECA_QUIET", "1");
-        } else {
-            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-        }
-
-        let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
-            Ok(child) => child,
-            Err(e) => {
-                warn!("failed to spawn {}: {}", executable, e);
-                return None;
-            }
-        };
-
-        // Register child PID for SIGUSR1 forwarding (debugging)
-        if let Some(pid) = child.id() {
-            dodeca_debug::register_child_pid(pid);
-        }
-
-        if !is_quiet_mode() {
-            capture_cell_stdio(binary_name, &mut child);
-        }
-
-        // Close our end of the peer's doorbell (cell inherits it)
-        close_peer_fd(peer_doorbell_fd);
-
-        // CRITICAL: Create transport and start RPC session IMMEDIATELY after spawn.
-        // This allows the host to process incoming messages (tracing events, etc.)
-        // from the cell right away, preventing slot exhaustion on the current_thread
-        // tokio runtime.
-        let peer_transport = HubHostPeerTransport::new(hub.clone(), peer_id, peer_info.doorbell);
-        let transport = rapace::transport::shm::ShmTransport::HubHostPeer(peer_transport.clone());
-
-        let rpc_session = Arc::new(RpcSession::with_channel_start(
-            AnyTransport::new(transport),
-            1,
-        ));
-
-        // Register for SIGUSR1 diagnostics
-        register_peer_diag(peer_id, binary_name, rpc_session.clone());
-
-        // Set up multi-service dispatcher for tracing and cell lifecycle
-        let tracing_sink = ForwardingTracingSink::new();
-        let lifecycle_impl = HostCellLifecycle::new(cell_ready_registry().clone());
-
-        // Use 256KB buffer pool to handle larger payloads (fonts, search indexes, etc.)
-        // Default 64KB is too small for some assets (e.g., fonts/test.woff2 is 73KB)
-        let buffer_pool = rapace::BufferPool::with_capacity(128, 256 * 1024);
-        let dispatcher = DispatcherBuilder::new()
-            .add_service(TracingSinkService(Arc::new(TracingSinkServer::new(
-                tracing_sink,
-            ))))
-            .add_service(CellLifecycleServer::new(lifecycle_impl).into_dispatch())
-            .build(buffer_pool);
-
-        rpc_session.set_dispatcher(dispatcher);
-
-        // NOTE: Filter push is disabled during startup to avoid slot contention.
-        // Cells default to "trace" level anyway, and we'd need to add the tracing service
-        // back to their dispatcher for filter updates to work.
-        // TODO: Add a separate post-startup filter push mechanism if needed.
-
-        // Start the RPC session runner (processes incoming messages)
-        {
-            let session_runner = rpc_session.clone();
-            let cell_label = binary_name.to_string();
-            tokio::spawn(async move {
-                if let Err(e) = session_runner.run().await {
-                    warn!("{} cell RPC session error: {}", cell_label, e);
-                }
-            });
-        }
-
-        // Wait on the child asynchronously and reclaim slots when it dies
-        {
-            let cell_label = binary_name.to_string();
-            let hub_for_cleanup = hub.clone();
-            tokio::spawn(async move {
-                match child.wait().await {
-                    Ok(status) => {
-                        if !status.success() {
-                            warn!("{} cell exited with status: {}", cell_label, status);
-                        }
-                    }
-                    Err(e) => {
-                        warn!("{} cell wait error: {}", cell_label, e);
-                    }
-                }
-                // Reclaim peer slots when cell dies
-                hub_for_cleanup
-                    .allocator()
-                    .reclaim_peer_slots(peer_id as u32);
-                info!(
-                    "{} cell exited, reclaimed slots for peer {}",
-                    cell_label, peer_id
-                );
-            });
-        }
-
-        debug!(
-            "launched {} cell from {} (peer_id={})",
-            binary_name,
-            path.display(),
-            peer_id
-        );
+        // Set up standard dispatcher with tracing and lifecycle services
+        result
+            .rpc_session
+            .set_dispatcher(create_standard_dispatcher());
+        start_session_runner(&result.rpc_session, binary_name);
 
         Some(SpawnedCell {
-            peer_id,
-            rpc_session,
+            peer_id: result.peer_id,
+            rpc_session: result.rpc_session,
         })
     }
 
@@ -2129,107 +2145,18 @@ impl ServiceDispatch for TemplateHostService {
 ///
 /// This must be called after the hub is initialized but before any render calls.
 pub async fn init_gingembre_cell() -> Option<()> {
-    let (hub, hub_path) = get_hub().await?;
+    let (hub, _hub_path) = get_hub().await?;
 
-    // Find the cell directory
-    let exe_path = std::env::current_exe().ok()?;
-    let dir = exe_path.parent()?;
-
-    #[cfg(target_os = "windows")]
-    let binary_name = "ddc-cell-gingembre.exe";
-    #[cfg(not(target_os = "windows"))]
+    let binary_path = find_cell_binary("ddc-cell-gingembre")?;
     let binary_name = "ddc-cell-gingembre";
 
-    let path = dir.join(binary_name);
-    if !path.exists() {
-        // Try development fallback
-        #[cfg(debug_assertions)]
-        let profile_dir = PathBuf::from("target/debug");
-        #[cfg(not(debug_assertions))]
-        let profile_dir = PathBuf::from("target/release");
+    let result = spawn_cell_core(&binary_path, binary_name, &hub, &CellSpawnConfig::default())?;
 
-        let dev_path = profile_dir.join(binary_name);
-        if !dev_path.exists() {
-            debug!(
-                "gingembre cell not found at {} or {}",
-                path.display(),
-                dev_path.display()
-            );
-            return None;
-        }
-        return spawn_gingembre_cell(&dev_path, &hub, &hub_path).await;
-    }
-
-    spawn_gingembre_cell(&path, &hub, &hub_path).await
-}
-
-/// Spawn the gingembre cell with a custom dispatcher including TemplateHost.
-async fn spawn_gingembre_cell(path: &Path, hub: &Arc<HubHost>, hub_path: &Path) -> Option<()> {
-    // Add peer to hub
-    let peer_info = match hub.add_peer() {
-        Ok(info) => info,
-        Err(e) => {
-            warn!("failed to add peer for gingembre cell: {}", e);
-            return None;
-        }
-    };
-
-    let peer_id = peer_info.peer_id;
-    let peer_doorbell_fd = peer_info.peer_doorbell_fd;
-
-    // Build command with hub args
-    let mut cmd = Command::new(path);
-    cmd.arg(format!("--hub-path={}", hub_path.display()))
-        .arg(format!("--peer-id={}", peer_id))
-        .arg(format!("--doorbell-fd={}", peer_doorbell_fd))
-        .stdin(Stdio::null());
-
-    if is_quiet_mode() {
-        cmd.stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .env("DODECA_QUIET", "1");
-    } else {
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    }
-
-    let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
-        Ok(child) => child,
-        Err(e) => {
-            warn!("failed to spawn gingembre cell: {}", e);
-            return None;
-        }
-    };
-
-    // Register child PID for SIGUSR1 forwarding
-    if let Some(pid) = child.id() {
-        dodeca_debug::register_child_pid(pid);
-    }
-
-    if !is_quiet_mode() {
-        capture_cell_stdio("ddc-cell-gingembre", &mut child);
-    }
-
-    // Close our end of the peer's doorbell
-    close_peer_fd(peer_doorbell_fd);
-
-    // Create transport
-    let peer_transport = HubHostPeerTransport::new(hub.clone(), peer_id, peer_info.doorbell);
-    let transport = rapace::transport::shm::ShmTransport::HubHostPeer(peer_transport);
-
-    let rpc_session = Arc::new(RpcSession::with_channel_start(
-        AnyTransport::new(transport),
-        1,
-    ));
-
-    // Register for diagnostics
-    register_peer_diag(peer_id, "ddc-cell-gingembre", rpc_session.clone());
-
-    // Set up multi-service dispatcher with TemplateHost
+    // Set up dispatcher with TemplateHost in addition to standard services
     let tracing_sink = ForwardingTracingSink::new();
     let lifecycle_impl = HostCellLifecycle::new(cell_ready_registry().clone());
     let template_host_impl = TemplateHostImpl::new(render_context_registry());
 
-    // Use 256KB buffer pool for larger payloads
     let buffer_pool = rapace::BufferPool::with_capacity(128, 256 * 1024);
     let dispatcher = DispatcherBuilder::new()
         .add_service(TracingSinkService(Arc::new(TracingSinkServer::new(
@@ -2241,50 +2168,17 @@ async fn spawn_gingembre_cell(path: &Path, hub: &Arc<HubHost>, hub_path: &Path) 
         ))))
         .build(buffer_pool);
 
-    rpc_session.set_dispatcher(dispatcher);
-
-    // Start the RPC session runner
-    {
-        let session_runner = rpc_session.clone();
-        tokio::spawn(async move {
-            if let Err(e) = session_runner.run().await {
-                warn!("gingembre cell RPC session error: {}", e);
-            }
-        });
-    }
-
-    // Wait on the child asynchronously
-    {
-        let hub_for_cleanup = hub.clone();
-        tokio::spawn(async move {
-            match child.wait().await {
-                Ok(status) => {
-                    if !status.success() {
-                        warn!("gingembre cell exited with status: {}", status);
-                    }
-                }
-                Err(e) => {
-                    warn!("gingembre cell wait error: {}", e);
-                }
-            }
-            hub_for_cleanup
-                .allocator()
-                .reclaim_peer_slots(peer_id as u32);
-            info!(
-                "gingembre cell exited, reclaimed slots for peer {}",
-                peer_id
-            );
-        });
-    }
+    result.rpc_session.set_dispatcher(dispatcher);
+    start_session_runner(&result.rpc_session, binary_name);
 
     // Create and store the client
-    let client = Arc::new(TemplateRendererClient::new(rpc_session));
+    let client = Arc::new(TemplateRendererClient::new(result.rpc_session));
     let _ = GINGEMBRE_CELL.set(client);
 
     info!(
         "launched gingembre cell from {} (peer_id={})",
-        path.display(),
-        peer_id
+        binary_path.display(),
+        result.peer_id
     );
 
     Some(())
