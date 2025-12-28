@@ -27,7 +27,8 @@ if $FULL; then
 fi
 
 echo "==> Building C pikchr (required for comparison tests)..."
-make -C vendor/pikchr-c pikchr
+# pikchr.c is pre-generated, just compile it directly
+cc -O0 -g -Wall -Wextra -DPIKCHR_SHELL vendor/pikchr-c/pikchr.c -o vendor/pikchr-c/pikchr -lm
 
 echo ""
 echo "==> Running tests (cargo test --all --locked)..."
