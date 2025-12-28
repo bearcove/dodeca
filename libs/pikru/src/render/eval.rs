@@ -672,6 +672,7 @@ fn nth_class_to_class_name(nc: &NthClass) -> Option<ClassName> {
 }
 
 // cref: pik_set_at (pikchr.c:6195-6199) - converts Start/End to compass points
+#[allow(clippy::let_and_return)] // We want the binding for debug logging
 fn get_edge_point(obj: &RenderedObject, edge: &EdgePoint) -> PointIn {
     use crate::ast::Direction;
     use crate::render::shapes::ShapeEnum;

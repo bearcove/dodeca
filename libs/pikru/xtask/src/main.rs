@@ -285,7 +285,87 @@ fn compare_html() {
             border-radius: 4px;
         }}
 
-        /* Fixed stats badge */
+        /* Hero header */
+        .hero {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 32px 24px;
+            margin-bottom: 24px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.3);
+        }}
+        .hero-content {{
+            max-width: 800px;
+        }}
+        .hero h1 {{
+            font-size: 28px;
+            font-weight: 700;
+            margin: 0 0 8px 0;
+            color: white;
+        }}
+        .hero-subtitle {{
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 16px;
+        }}
+        .hero-stats {{
+            display: flex;
+            gap: 24px;
+            margin-bottom: 20px;
+        }}
+        .hero-stat {{
+            text-align: center;
+        }}
+        .hero-stat-value {{
+            font-size: 32px;
+            font-weight: 700;
+            line-height: 1;
+        }}
+        .hero-stat-label {{
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.8;
+            margin-top: 4px;
+        }}
+        .hero-links {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }}
+        .hero-link {{
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: rgba(255,255,255,0.15);
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            transition: background 0.15s ease;
+        }}
+        .hero-link:hover {{
+            background: rgba(255,255,255,0.25);
+        }}
+        .hero-link svg {{
+            width: 16px;
+            height: 16px;
+            fill: currentColor;
+        }}
+        .hero-meta {{
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+            font-size: 11px;
+            opacity: 0.8;
+        }}
+        .hero-meta a {{
+            color: white;
+        }}
+
+        /* Fixed stats badge - now just for quick reference */
         .stats-badge {{
             position: fixed;
             top: 16px;
@@ -401,9 +481,51 @@ fn compare_html() {
             name_str, status_class, name_str
         ));
     }
-    html.push_str(
-        "    </div>\n</nav>\n\n<div class=\"page\">\n<h1>Pikchr C vs Rust Comparison</h1>\n",
-    );
+    html.push_str("    </div>\n</nav>\n\n<div class=\"page\">\n");
+
+    // Hero section with project info
+    html.push_str(&format!(
+        r#"<div class="hero">
+    <div class="hero-content">
+        <h1>pikru</h1>
+        <p class="hero-subtitle">A pure Rust implementation of <a href="https://pikchr.org/" style="color: white; text-decoration: underline;">Pikchr</a>, the PIC-like diagram language</p>
+        <div class="hero-stats">
+            <div class="hero-stat">
+                <div class="hero-stat-value">{:.0}%</div>
+                <div class="hero-stat-label">Compatibility</div>
+            </div>
+            <div class="hero-stat">
+                <div class="hero-stat-value">{}</div>
+                <div class="hero-stat-label">Tests Passing</div>
+            </div>
+            <div class="hero-stat">
+                <div class="hero-stat-value">{}</div>
+                <div class="hero-stat-label">Total Tests</div>
+            </div>
+        </div>
+        <div class="hero-links">
+            <a href="https://github.com/bearcove/pikru" class="hero-link">
+                <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+                GitHub
+            </a>
+            <a href="https://crates.io/crates/pikru" class="hero-link">
+                <svg viewBox="0 0 512 512"><path d="M239.1 6.3l-208 78c-18.7 7-31.1 25-31.1 45v225.1c0 18.2 10.3 34.8 26.5 42.9l208 104c13.5 6.8 29.4 6.8 42.9 0l208-104c16.3-8.1 26.5-24.8 26.5-42.9V129.3c0-20-12.4-37.9-31.1-44.9l-208-78C262 2.2 250 2.2 239.1 6.3zM256 68.4l192 72v1.1l-192 78-192-78v-1.1l192-72zm32 356V275.5l160-65v133.9l-160 80z"/></svg>
+                crates.io
+            </a>
+            <a href="https://docs.rs/pikru" class="hero-link">
+                <svg viewBox="0 0 512 512"><path d="M96 96c0-35.3 28.7-64 64-64H448c35.3 0 64 28.7 64 64V416c0 35.3-28.7 64-64 64H80c-44.2 0-80-35.8-80-80V128c0-17.7 14.3-32 32-32s32 14.3 32 32V400c0 8.8 7.2 16 16 16s16-7.2 16-16V96zm64 24v80c0 13.3 10.7 24 24 24H296c13.3 0 24-10.7 24-24V120c0-13.3-10.7-24-24-24H184c-13.3 0-24 10.7-24 24z"/></svg>
+                docs.rs
+            </a>
+        </div>
+        <div class="hero-meta">
+            Licensed under <a href="https://github.com/bearcove/pikru/blob/main/LICENSE-MIT">MIT</a> or <a href="https://github.com/bearcove/pikru/blob/main/LICENSE-APACHE">Apache-2.0</a>
+        </div>
+    </div>
+</div>
+
+"#,
+        pass_rate, passed, total
+    ));
 
     // Test content
     for (name_str, source, c_output, rust_output, rust_is_err, compare_result) in &results {

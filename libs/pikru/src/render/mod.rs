@@ -746,7 +746,7 @@ fn update_current_object(
     ctx.current_object = Some(make_partial_object(class_name, width, height, style));
 }
 
-#[allow(unused_variables)]
+#[allow(unused_variables, clippy::let_and_return)] // let bindings needed for debug logging
 fn render_object_stmt(
     ctx: &mut RenderContext,
     obj_stmt: &ObjectStatement,
@@ -2913,6 +2913,7 @@ fn render_sublist(
 /// Calculate center position given that a specific edge should be at target
 /// cref: pik_place_adjust (pikchr.c:5829) - adjusts position based on edge
 /// cref: pik_set_at (pikchr.c:6195-6199) - converts Start/End to compass points
+#[allow(clippy::let_and_return)] // We want the binding for debug logging
 fn calculate_center_from_edge(
     edge: EdgePoint,
     target: PointIn,
