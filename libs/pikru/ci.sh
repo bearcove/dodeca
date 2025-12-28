@@ -4,7 +4,7 @@ set -euo pipefail
 # CI test script - runs the same tests as CI to catch issues before pushing
 # Usage: ./ci.sh [--full]
 #
-# By default, runs only what CI runs: cargo test --all --locked
+# By default, runs only what CI runs: build C pikchr + cargo test --all --locked
 # With --full, also runs fmt check and clippy
 
 FULL=false
@@ -26,6 +26,10 @@ if $FULL; then
     echo ""
 fi
 
+echo "==> Building C pikchr (required for comparison tests)..."
+make -C vendor/pikchr-c pikchr
+
+echo ""
 echo "==> Running tests (cargo test --all --locked)..."
 cargo test --all --locked
 
