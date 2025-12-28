@@ -10,9 +10,8 @@ publish = false
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-facet-svg = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-format-svg = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-assert = { git = "https://github.com/facet-rs/facet", branch = "main" }
-miette = { version = "7.6.0", features = ["fancy"] }
 camino = "1.2.1"
 
 # Visual comparison

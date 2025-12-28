@@ -1,4 +1,4 @@
-use facet_svg::{Svg, SvgNode, facet_xml};
+use facet_format_svg::{Svg, SvgNode};
 
 fn main() {
     let input = std::fs::read_to_string("vendor/pikchr-c/tests/test03.pikchr").unwrap();
@@ -7,7 +7,7 @@ fn main() {
     println!("SVG length: {}", rust_svg.len());
 
     // Try parsing
-    match facet_xml::from_str::<Svg>(&rust_svg) {
+    match facet_format_svg::from_str::<Svg>(&rust_svg) {
         Ok(doc) => {
             let count = count_elements(&doc.children);
             println!("Elements found: {}", count);

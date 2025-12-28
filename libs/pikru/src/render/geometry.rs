@@ -1,7 +1,7 @@
 //! Geometry functions: chop calculations and path creation
 
 use crate::types::{Length as Inches, Point, Scaler};
-use facet_svg::PathData;
+use facet_format_svg::PathData;
 use glam::{DVec2, dvec2};
 
 use super::defaults;

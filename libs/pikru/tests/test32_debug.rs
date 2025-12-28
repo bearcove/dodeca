@@ -12,11 +12,26 @@ const TEST32: &str = include_str!("../vendor/pikchr-c/tests/test32.pikchr");
 fn extract_circles(svg_str: &str) -> Vec<(f64, f64, f64, String)> {
     let mut circles = Vec::new();
 
-    // Find each <circle .../> element
+    // Find each <circle .../> or <circle ...></circle> element
     let mut rest = svg_str;
     while let Some(start) = rest.find("<circle") {
         rest = &rest[start..];
-        let end = rest.find("/>").unwrap_or(rest.len()) + 2;
+        // Handle both self-closing /> and explicit </circle>
+        let end = if let Some(self_close) = rest.find("/>") {
+            if let Some(explicit_close) = rest.find("</circle>") {
+                if self_close < explicit_close {
+                    self_close + 2
+                } else {
+                    explicit_close + 9
+                }
+            } else {
+                self_close + 2
+            }
+        } else if let Some(explicit_close) = rest.find("</circle>") {
+            explicit_close + 9
+        } else {
+            rest.len()
+        };
         let circle_elem = &rest[..end];
 
         let cx = extract_attr(circle_elem, "cx")

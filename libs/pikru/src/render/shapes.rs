@@ -6,7 +6,7 @@
 //! - Render itself to SVG
 
 use crate::types::{BoxIn, Length as Inches, OffsetIn, Point, Scaler, Size, UnitVec};
-use facet_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode};
+use facet_format_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode};
 use glam::DVec2;
 
 use super::defaults;
@@ -363,7 +363,7 @@ impl Shape for CircleShape {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: svg_style,
+            style: Some(svg_style),
         };
         nodes.push(SvgNode::Circle(circle));
 
@@ -515,7 +515,7 @@ impl Shape for BoxShape {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: svg_style,
+            style: Some(svg_style),
         };
         nodes.push(SvgNode::Path(path));
 
@@ -585,7 +585,7 @@ impl Shape for EllipseShape {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: svg_style,
+            style: Some(svg_style),
         };
         nodes.push(SvgNode::Ellipse(ellipse));
 
@@ -700,7 +700,7 @@ impl Shape for OvalShape {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: svg_style,
+            style: Some(svg_style),
         };
         nodes.push(SvgNode::Path(path));
 
@@ -819,7 +819,7 @@ impl Shape for DiamondShape {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: svg_style,
+            style: Some(svg_style),
         };
         nodes.push(SvgNode::Path(path));
 
@@ -895,7 +895,7 @@ impl Shape for CylinderShape {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: svg_style.clone(),
+            style: Some(svg_style.clone()),
         };
         nodes.push(SvgNode::Path(body));
 
@@ -906,7 +906,7 @@ impl Shape for CylinderShape {
                 stroke: None,
                 stroke_width: None,
                 stroke_dasharray: None,
-                style: svg_style,
+                style: Some(svg_style),
             };
             nodes.push(SvgNode::Path(bottom_arc));
         }
@@ -1073,7 +1073,7 @@ impl Shape for FileShape {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: svg_style.clone(),
+            style: Some(svg_style.clone()),
         };
         nodes.push(SvgNode::Path(main));
 
@@ -1093,7 +1093,7 @@ impl Shape for FileShape {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: fold_style,
+            style: Some(fold_style),
         };
         nodes.push(SvgNode::Path(fold));
 
@@ -1309,7 +1309,7 @@ impl Shape for LineShape {
                 stroke: None,
                 stroke_width: None,
                 stroke_dasharray: None,
-                style: svg_style,
+                style: Some(svg_style),
             };
             nodes.push(SvgNode::Path(path));
             return nodes;
@@ -1503,7 +1503,7 @@ impl Shape for LineShape {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: svg_style,
+            style: Some(svg_style),
         };
         nodes.push(SvgNode::Path(path));
 
@@ -1846,7 +1846,7 @@ impl Shape for SplineShape {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: svg_style,
+            style: Some(svg_style),
         };
         nodes.push(SvgNode::Path(path));
 
@@ -2000,7 +2000,7 @@ impl Shape for DotShape {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: svg_style,
+            style: Some(svg_style),
         };
         nodes.push(SvgNode::Circle(circle));
 
@@ -2254,7 +2254,7 @@ impl Shape for ArcShape {
             stroke: None,
             stroke_width: None,
             stroke_dasharray: None,
-            style: svg_style,
+            style: Some(svg_style),
         };
         nodes.push(SvgNode::Path(arc_path));
 

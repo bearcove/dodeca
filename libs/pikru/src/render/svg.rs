@@ -3,8 +3,10 @@
 use super::shapes::{Shape, ShapeRenderContext, svg_style_from_entries};
 use super::{TextVSlot, compute_text_vslots};
 use crate::types::{Length as Inches, Scaler};
-use facet_svg::facet_xml::SerializeOptions;
-use facet_svg::{Circle as SvgCircle, Points, Polygon, Style, Svg, SvgNode, Text, facet_xml};
+use facet_format_svg::facet_format_xml::SerializeOptions;
+use facet_format_svg::{
+    Circle as SvgCircle, Points, Polygon, Style, Svg, SvgNode, Text, facet_format_xml,
+};
 use glam::{DVec2, dvec2};
 
 use super::context::RenderContext;
@@ -245,7 +247,7 @@ fn generate_color_css() -> Style {
 
     Style {
         type_: Some("text/css".to_string()),
-        content: css,
+        content: Some(css),
     }
 }
 
@@ -523,19 +525,19 @@ pub fn generate_svg(
                     fill: Some(text_color.clone()),
                     stroke: None,
                     stroke_width: None,
-                    style: String::new(),
+                    style: None,
                     font_family,
                     font_style,
                     font_weight,
                     font_size,
                     text_anchor: Some(anchor.to_string()),
                     dominant_baseline: Some("central".to_string()),
-                    content: {
+                    content: Some({
                         // Process in order: backslash escapes first, then entities for SVG, then spaces
                         let text = process_backslash_escapes(&positioned_text.value);
                         let text = process_entities_for_svg(&text);
                         text.replace(' ', "\u{00A0}")
-                    },
+                    }),
                 };
                 svg_children.push(SvgNode::Text(text_element));
             }
@@ -687,7 +689,7 @@ pub fn generate_svg(
                 stroke: Some(color_str.clone()),
                 stroke_width: Some(sw_px.clone()),
                 stroke_dasharray: None,
-                style: String::new(),
+                style: None,
             };
             svg_children.push(SvgNode::Circle(circle));
 
@@ -701,14 +703,14 @@ pub fn generate_svg(
                 fill: Some(color_str.clone()),
                 stroke: None,
                 stroke_width: None,
-                style: String::new(),
+                style: None,
                 font_family: None,
                 font_style: None,
                 font_weight: None,
                 font_size: None,
                 text_anchor: Some("middle".to_string()),
                 dominant_baseline: Some("auto".to_string()),
-                content: name.to_string(),
+                content: Some(name.to_string()),
             };
             svg_children.push(SvgNode::Text(text_element));
         };
@@ -744,7 +746,7 @@ pub fn generate_svg(
         preserve_entities: true,
         ..Default::default()
     };
-    facet_xml::to_string_with_options(&svg, &options_ser)
+    facet_format_xml::to_string_with_options(&svg, &options_ser)
         .map_err(|e| miette::miette!("XML serialization error: {}", e))
 }
 
@@ -794,7 +796,7 @@ pub fn render_arrowhead_dom(
         stroke: None,
         stroke_width: None,
         stroke_dasharray: None,
-        style: svg_style_from_entries(vec![("fill", fill_color)]),
+        style: Some(svg_style_from_entries(vec![("fill", fill_color)])),
     })
 }
 
