@@ -188,6 +188,16 @@ opt-level = 2
 [profile.dev]
 debug = "line-tables-only"
 opt-level = 1
+# On macOS, split debug info for faster linking
+split-debuginfo = "unpacked"
+
+# Fast compilation profile for rapid iteration
+# Uses cranelift backend (faster than LLVM, less optimized output)
+# Usage: cargo +nightly build --profile fast -Zcodegen-backend
+[profile.fast]
+inherits = "dev"
+opt-level = 0
+debug = "line-tables-only"
 
 
 # Test profile with full debug symbols for profiling

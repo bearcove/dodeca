@@ -50,13 +50,3 @@ Use `cargo build` to build everything. This will automatically:
 - Build all cells (they're in the workspace)
 - Build the main dodeca binary
 
-## Running
-
-IMPERATIVE: When running dodeca or tests, always go through
-
-```
-systemd-run --user --scope -p MemoryMax=4G COMMAND
-```
-
-...to avoid OOM problems which would take down the whole machine.
-
