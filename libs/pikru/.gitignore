@@ -2,3 +2,12 @@
 .handoffs
 debug-svg/
 *.dSYM
+
+# Debug/test artifacts
+debug_*.pikchr
+debug_*.svg
+debug_*.png
+debug_*.rs
+test*_c.svg
+test*_rust.svg
+comparison.html
