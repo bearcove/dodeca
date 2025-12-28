@@ -436,7 +436,7 @@ dependencies = [
 [[package]]
 name = "facet"
 version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#f994ae2b16d2630d06e6527006ebf781ad848a6b"
+source = "git+https://github.com/facet-rs/facet?branch=main#30faf3b260cddff3223b603346c326115be75d6f"
 dependencies = [
  "autocfg",
  "facet-core",
@@ -447,7 +447,7 @@ dependencies = [
 [[package]]
 name = "facet-core"
 version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#f994ae2b16d2630d06e6527006ebf781ad848a6b"
+source = "git+https://github.com/facet-rs/facet?branch=main#30faf3b260cddff3223b603346c326115be75d6f"
 dependencies = [
  "autocfg",
  "impls",
@@ -456,7 +456,7 @@ dependencies = [
 [[package]]
 name = "facet-format"
 version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#f994ae2b16d2630d06e6527006ebf781ad848a6b"
+source = "git+https://github.com/facet-rs/facet?branch=main#30faf3b260cddff3223b603346c326115be75d6f"
 dependencies = [
  "cranelift",
  "cranelift-jit",
@@ -473,7 +473,7 @@ dependencies = [
 [[package]]
 name = "facet-format-postcard"
 version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#f994ae2b16d2630d06e6527006ebf781ad848a6b"
+source = "git+https://github.com/facet-rs/facet?branch=main#30faf3b260cddff3223b603346c326115be75d6f"
 dependencies = [
  "facet-core",
  "facet-format",
@@ -486,7 +486,7 @@ dependencies = [
 [[package]]
 name = "facet-macro-parse"
 version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#f994ae2b16d2630d06e6527006ebf781ad848a6b"
+source = "git+https://github.com/facet-rs/facet?branch=main#30faf3b260cddff3223b603346c326115be75d6f"
 dependencies = [
  "facet-macro-types",
  "proc-macro2",
@@ -496,7 +496,7 @@ dependencies = [
 [[package]]
 name = "facet-macro-types"
 version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#f994ae2b16d2630d06e6527006ebf781ad848a6b"
+source = "git+https://github.com/facet-rs/facet?branch=main#30faf3b260cddff3223b603346c326115be75d6f"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -506,7 +506,7 @@ dependencies = [
 [[package]]
 name = "facet-macros"
 version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#f994ae2b16d2630d06e6527006ebf781ad848a6b"
+source = "git+https://github.com/facet-rs/facet?branch=main#30faf3b260cddff3223b603346c326115be75d6f"
 dependencies = [
  "facet-macros-impl",
 ]
@@ -514,7 +514,7 @@ dependencies = [
 [[package]]
 name = "facet-macros-impl"
 version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#f994ae2b16d2630d06e6527006ebf781ad848a6b"
+source = "git+https://github.com/facet-rs/facet?branch=main#30faf3b260cddff3223b603346c326115be75d6f"
 dependencies = [
  "facet-macro-parse",
  "facet-macro-types",
@@ -527,7 +527,7 @@ dependencies = [
 [[package]]
 name = "facet-path"
 version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#f994ae2b16d2630d06e6527006ebf781ad848a6b"
+source = "git+https://github.com/facet-rs/facet?branch=main#30faf3b260cddff3223b603346c326115be75d6f"
 dependencies = [
  "arborium",
  "facet-core",
@@ -539,7 +539,7 @@ dependencies = [
 [[package]]
 name = "facet-pretty"
 version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#f994ae2b16d2630d06e6527006ebf781ad848a6b"
+source = "git+https://github.com/facet-rs/facet?branch=main#30faf3b260cddff3223b603346c326115be75d6f"
 dependencies = [
  "facet-core",
  "facet-reflect",
@@ -549,7 +549,7 @@ dependencies = [
 [[package]]
 name = "facet-reflect"
 version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#f994ae2b16d2630d06e6527006ebf781ad848a6b"
+source = "git+https://github.com/facet-rs/facet?branch=main#30faf3b260cddff3223b603346c326115be75d6f"
 dependencies = [
  "facet-core",
  "miette",
@@ -558,7 +558,7 @@ dependencies = [
 [[package]]
 name = "facet-solver"
 version = "0.35.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#f994ae2b16d2630d06e6527006ebf781ad848a6b"
+source = "git+https://github.com/facet-rs/facet?branch=main#30faf3b260cddff3223b603346c326115be75d6f"
 dependencies = [
  "facet-core",
  "facet-reflect",
