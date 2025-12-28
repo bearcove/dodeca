@@ -4,7 +4,7 @@
 [![docs.rs](https://docs.rs/pikru/badge.svg)](https://docs.rs/pikru)
 [![MIT/Apache 2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](./LICENSE-MIT)
 
-A pure Rust implementation of [pikchr](https://pikchr.org/), a PIC-like diagram
+A Rust implementation of [pikchr](https://pikchr.org/), a PIC-like diagram
 markup language for creating technical diagrams that generates SVG.
 
 ## Usage
@@ -13,14 +13,6 @@ markup language for creating technical diagrams that generates SVG.
 let svg = pikru::pikchr(r#"box "Hello" arrow box "World""#).unwrap();
 assert!(svg.contains("<svg"));
 ```
-
-## Features
-
-- **Pure Rust** - No C dependencies, safe and portable
-- **Light/Dark Mode Support** - Generate SVGs with CSS variables that
-  automatically adapt to `prefers-color-scheme`
-- **Drop-in Compatible** - Aims for full compatibility with the original
-  C implementation
 
 ## Light/Dark Mode
 
@@ -36,24 +28,6 @@ assert!(svg.contains("light-dark("));
 
 The generated SVG includes a `<style>` block with CSS variables using
 `light-dark()`, so colors automatically adapt to the user's color scheme.
-
-## Dependencies
-
-pikru has a minimal dependency footprint (7 direct dependencies by default):
-
-| Crate | Purpose |
-|-------|---------|
-| [glam](https://crates.io/crates/glam) | 2D vector math for coordinates and geometry |
-| [pest](https://crates.io/crates/pest) | PEG parser generator for the pikchr grammar |
-| [facet-svg](https://github.com/facet-rs/facet) | SVG DOM generation and XML serialization |
-| [miette](https://crates.io/crates/miette) | Error reporting with source snippets |
-| [thiserror](https://crates.io/crates/thiserror) | Derive macro for error types |
-| [enum_dispatch](https://crates.io/crates/enum_dispatch) | Efficient shape rendering dispatch |
-
-### Optional Features
-
-- **`tracing`** - Enable debug logging via the [tracing](https://crates.io/crates/tracing) crate.
-  Disabled by default for smaller builds.
 
 ## Development
 
@@ -77,16 +51,17 @@ See `comparison.html` for a side-by-side visual comparison of C vs Rust output.
 
 ## Attribution
 
-pikru is a clean-room Rust implementation inspired by:
+pikru is a direct Rust port of:
 
 - **[pikchr](https://pikchr.org/)** by D. Richard Hipp - The original C
   implementation, released under the
   [0-clause BSD license](https://pikchr.org/home/doc/trunk/doc/license.md).
-  The C source is vendored in `vendor/pikchr-c/` for reference during development.
+  The C source is vendored in `vendor/pikchr-c/` for reference.
+
+Also referenced during development:
 
 - **[gopikchr](https://github.com/gopikchr/gopikchr)** - A Go port of pikchr
-  by [@zellyn](https://github.com/zellyn), which served as inspiration for
-  this Rust implementation.
+  by [@zellyn](https://github.com/zellyn).
 
 ## Continuous Integration
 
