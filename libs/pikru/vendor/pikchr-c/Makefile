@@ -1,3 +1,7 @@
+# Disable built-in rules (especially yacc/lex) - pikchr.y is Lemon syntax, not yacc
+MAKEFLAGS += --no-builtin-rules
+.SUFFIXES:
+
 CC = cc
 CFLAGS = -O0 -g -Wall -Wextra
 LIBS = -lm
