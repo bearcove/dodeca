@@ -21,7 +21,7 @@ const CONFIG_FILE: &str = "dodeca.kdl";
 /// Dodeca configuration from `.config/dodeca.kdl`
 #[derive(Debug, Clone, Facet)]
 pub struct DodecaConfig {
-    /// Base URL for the site (e.g., "https://example.com")
+    /// Base URL for the site (e.g., `https://example.com`)
     /// Used to generate permalinks. Defaults to "/" for local development.
     #[facet(kdl::child, default)]
     pub base_url: Option<BaseUrl>,
@@ -128,7 +128,7 @@ pub struct BaseUrl {
 pub struct ResolvedConfig {
     /// Project root (parent of .config/)
     pub _root: Utf8PathBuf,
-    /// Base URL for the site (e.g., "https://example.com" or "/" for local dev)
+    /// Base URL for the site (e.g., `https://example.com` or `/` for local dev)
     pub base_url: String,
     /// Absolute path to content directory
     pub content_dir: Utf8PathBuf,

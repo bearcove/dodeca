@@ -1327,8 +1327,8 @@ pub fn route_to_path(route: &str) -> String {
 }
 
 /// Create a permalink from base_url and route
-/// e.g., ("https://example.com", "/spec/core/") -> "https://example.com/spec/core/"
-/// e.g., ("/", "/spec/core/") -> "/spec/core/"
+/// e.g., `("https://example.com", "/spec/core/")` -> `"https://example.com/spec/core/"`
+/// e.g., `("/", "/spec/core/")` -> `"/spec/core/"`
 fn make_permalink(base_url: &str, route: &str) -> String {
     if base_url == "/" {
         route.to_string()
