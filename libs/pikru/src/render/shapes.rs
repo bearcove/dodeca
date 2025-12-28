@@ -52,7 +52,7 @@ fn chop_point(from: DVec2, to: DVec2, amount: f64) -> DVec2 {
 
 /// Shorten a waypoint list from the start (for start arrows)
 /// cref: pik_chop (pikchr.c:1958-1970)
-fn chop_waypoint_start(waypoints: &mut Vec<PointIn>, amount: Inches) {
+fn chop_waypoint_start(waypoints: &mut [PointIn], amount: Inches) {
     if waypoints.len() < 2 {
         return;
     }
@@ -75,7 +75,7 @@ fn chop_waypoint_start(waypoints: &mut Vec<PointIn>, amount: Inches) {
 
 /// Shorten a waypoint list from the end (for end arrows)
 /// cref: pik_chop (pikchr.c:1958-1970)
-fn chop_waypoint_end(waypoints: &mut Vec<PointIn>, amount: Inches) {
+fn chop_waypoint_end(waypoints: &mut [PointIn], amount: Inches) {
     if waypoints.len() < 2 {
         return;
     }
@@ -447,7 +447,7 @@ impl Shape for BoxShape {
             // Clamp radius like C does: rad = min(rad, w2, h2)
             let rad = self.corner_radius.min(hw).min(hh);
             // rx = (1 - 1/√2) * rad ≈ 0.29289 * rad
-            let rx = Inches(0.29289321881345252392 * rad.0);
+            let rx = Inches(0.292_893_218_813_452_54 * rad.0);
 
             // Determine signs based on direction (Y-up: north=+Y, south=-Y)
             let (sign_x, sign_y) = match direction {
@@ -652,7 +652,7 @@ impl Shape for OvalShape {
 
         // rx = (1 - cos(45°)) * rad ≈ 0.29289 * rad
         // cref: boxOffset lines 1181-1183
-        let rx = Inches(0.29289321881345252392 * rad.0);
+        let rx = Inches(0.292_893_218_813_452_54 * rad.0);
 
         let (offset_x, offset_y) = match direction {
             // Cardinal directions use full half-dimensions

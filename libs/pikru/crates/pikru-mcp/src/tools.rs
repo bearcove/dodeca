@@ -1,11 +1,10 @@
 use facet::Facet;
 use rmcp::{
-    ServerHandler,
+    ErrorData as McpError, ServerHandler,
     handler::server::{router::tool::ToolRouter, wrapper::Parameters},
     model::{CallToolResult, Content, ServerCapabilities, ServerInfo},
-    tool, tool_handler, tool_router,
     schemars::{self, JsonSchema},
-    ErrorData as McpError,
+    tool, tool_handler, tool_router,
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -159,12 +158,11 @@ impl PikruServer {
         // Walk up looking for Cargo.toml with pikru
         while let Some(ref path) = project_root {
             let cargo_toml = path.join("Cargo.toml");
-            if cargo_toml.exists() {
-                if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
-                    if content.contains("name = \"pikru\"") {
-                        break;
-                    }
-                }
+            if cargo_toml.exists()
+                && let Ok(content) = std::fs::read_to_string(&cargo_toml)
+                && content.contains("name = \"pikru\"")
+            {
+                break;
             }
             project_root = path.parent().map(|p| p.to_path_buf());
         }
@@ -196,7 +194,9 @@ impl PikruServer {
     }
 
     /// List all available pikru compliance tests
-    #[tool(description = "List all available pikru compliance tests. Returns test names grouped by category.")]
+    #[tool(
+        description = "List all available pikru compliance tests. Returns test names grouped by category."
+    )]
     async fn list_pikru_tests(&self) -> Result<CallToolResult, McpError> {
         let tests = get_available_tests(&self.paths.tests_dir);
 
@@ -228,7 +228,9 @@ impl PikruServer {
     }
 
     /// Run a single pikru compliance test
-    #[tool(description = "Run a single pikru compliance test comparing C and Rust implementations. Returns side-by-side comparison images and detailed diff information.")]
+    #[tool(
+        description = "Run a single pikru compliance test comparing C and Rust implementations. Returns side-by-side comparison images and detailed diff information."
+    )]
     async fn run_pikru_test(
         &self,
         Parameters(params): Parameters<RunTestParams>,
@@ -365,18 +367,20 @@ impl PikruServer {
         }
 
         // Create diff image
-        if let (Some(c), Some(r)) = (&c_png, &rust_png) {
-            if let Some(diff_img) = create_diff_image(c, r) {
-                let b64 = base64::engine::general_purpose::STANDARD.encode(&diff_img);
-                content.push(Content::image(b64, "image/png"));
-            }
+        if let (Some(c), Some(r)) = (&c_png, &rust_png)
+            && let Some(diff_img) = create_diff_image(c, r)
+        {
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&diff_img);
+            content.push(Content::image(b64, "image/png"));
         }
 
         Ok(CallToolResult::success(content))
     }
 
     /// Debug a pikru test with trace output
-    #[tool(description = "Run a pikru test with RUST_LOG=debug to capture trace output. Writes full trace to /tmp/pikru-trace-{test}.txt and returns the path.")]
+    #[tool(
+        description = "Run a pikru test with RUST_LOG=debug to capture trace output. Writes full trace to /tmp/pikru-trace-{test}.txt and returns the path."
+    )]
     async fn debug_pikru_test(
         &self,
         Parameters(params): Parameters<DebugTestParams>,
@@ -474,10 +478,10 @@ fn get_available_tests(tests_dir: &Path) -> Vec<String> {
     if let Ok(entries) = std::fs::read_dir(tests_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.extension().is_some_and(|e| e == "pikchr") {
-                if let Some(stem) = path.file_stem() {
-                    tests.push(stem.to_string_lossy().to_string());
-                }
+            if path.extension().is_some_and(|e| e == "pikchr")
+                && let Some(stem) = path.file_stem()
+            {
+                tests.push(stem.to_string_lossy().to_string());
             }
         }
     }
@@ -630,34 +634,22 @@ fn extract_viewbox(svg: &str) -> Option<Viewbox> {
 }
 
 fn count_svg_elements(svg: &str) -> ElementCounts {
-    let mut counts = ElementCounts::default();
+    let count_element = |pattern: &str| -> u32 {
+        regex_lite::Regex::new(pattern)
+            .map(|r| r.find_iter(svg).count() as u32)
+            .unwrap_or(0)
+    };
 
-    counts.circle = regex_lite::Regex::new(r"<circle\b")
-        .map(|r| r.find_iter(svg).count() as u32)
-        .unwrap_or(0);
-    counts.ellipse = regex_lite::Regex::new(r"<ellipse\b")
-        .map(|r| r.find_iter(svg).count() as u32)
-        .unwrap_or(0);
-    counts.line = regex_lite::Regex::new(r"<line\b")
-        .map(|r| r.find_iter(svg).count() as u32)
-        .unwrap_or(0);
-    counts.path = regex_lite::Regex::new(r"<path\b")
-        .map(|r| r.find_iter(svg).count() as u32)
-        .unwrap_or(0);
-    counts.polygon = regex_lite::Regex::new(r"<polygon\b")
-        .map(|r| r.find_iter(svg).count() as u32)
-        .unwrap_or(0);
-    counts.polyline = regex_lite::Regex::new(r"<polyline\b")
-        .map(|r| r.find_iter(svg).count() as u32)
-        .unwrap_or(0);
-    counts.rect = regex_lite::Regex::new(r"<rect\b")
-        .map(|r| r.find_iter(svg).count() as u32)
-        .unwrap_or(0);
-    counts.text = regex_lite::Regex::new(r"<text\b")
-        .map(|r| r.find_iter(svg).count() as u32)
-        .unwrap_or(0);
-
-    counts
+    ElementCounts {
+        circle: count_element(r"<circle\b"),
+        ellipse: count_element(r"<ellipse\b"),
+        line: count_element(r"<line\b"),
+        path: count_element(r"<path\b"),
+        polygon: count_element(r"<polygon\b"),
+        polyline: count_element(r"<polyline\b"),
+        rect: count_element(r"<rect\b"),
+        text: count_element(r"<text\b"),
+    }
 }
 
 fn extract_text_content(svg: &str) -> Vec<String> {

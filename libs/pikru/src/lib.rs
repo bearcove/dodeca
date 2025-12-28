@@ -358,7 +358,7 @@ mod tests {
         // Create a simple path
         let path_data = PathData::parse("M10,10L50,50").unwrap();
         println!("PathData: {:?}", path_data);
-        println!("PathData to_string: {}", path_data.to_string());
+        println!("PathData to_string: {}", path_data);
 
         let path = Path {
             d: Some(path_data),

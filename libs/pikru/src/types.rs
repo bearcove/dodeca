@@ -62,7 +62,7 @@ impl Span {
 
 impl From<Span> for SourceSpan {
     fn from(s: Span) -> Self {
-        SourceSpan::new(s.start.into(), s.len().into())
+        SourceSpan::new(s.start.into(), s.len())
     }
 }
 
@@ -789,6 +789,12 @@ pub struct BBox<T> {
     pub max: Point<T>,
 }
 
+impl Default for BBox<Length> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BBox<Length> {
     /// Create an empty bounding box (will expand on first point)
     pub fn new() -> Self {
@@ -841,7 +847,7 @@ impl BBox<Length> {
         self.max.y - self.min.y
     }
 
-    /// Get the size as a typed Size<Length>
+    /// Get the size as a typed `Size<Length>`
     pub fn size(&self) -> Size<Length> {
         Size {
             w: self.width(),

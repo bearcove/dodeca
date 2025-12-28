@@ -75,16 +75,16 @@ impl CompareResult {
 /// Extract SVG portion from output (skipping any print statements before it)
 pub fn extract_svg(output: &str) -> Option<&str> {
     // Try lowercase <svg> first (standard/C implementation)
-    if let Some(start) = output.find("<svg") {
-        if let Some(end) = output.rfind("</svg>") {
-            return Some(&output[start..end + 6]);
-        }
+    if let Some(start) = output.find("<svg")
+        && let Some(end) = output.rfind("</svg>")
+    {
+        return Some(&output[start..end + 6]);
     }
     // Try capitalized <Svg> (facet-xml output before namespace fix)
-    if let Some(start) = output.find("<Svg") {
-        if let Some(end) = output.rfind("</Svg>") {
-            return Some(&output[start..end + 6]);
-        }
+    if let Some(start) = output.find("<Svg")
+        && let Some(end) = output.rfind("</Svg>")
+    {
+        return Some(&output[start..end + 6]);
     }
     None
 }
@@ -123,13 +123,13 @@ pub fn is_error_output(output: &str) -> bool {
 /// SVG only defines &lt; &gt; &amp; &quot; &apos; - everything else needs conversion.
 fn normalize_html_entities(svg: &str) -> String {
     let mut result = svg.to_string();
-    
+
     // Common HTML entities that might appear in pikchr text
     let entities = [
-        ("&sup1;", "¹"),    // superscript 1
-        ("&sup2;", "²"),    // superscript 2  
-        ("&sup3;", "³"),    // superscript 3
-        ("&lambda;", "λ"),  // Greek lambda
+        ("&sup1;", "¹"),   // superscript 1
+        ("&sup2;", "²"),   // superscript 2
+        ("&sup3;", "³"),   // superscript 3
+        ("&lambda;", "λ"), // Greek lambda
         ("&alpha;", "α"),
         ("&beta;", "β"),
         ("&gamma;", "γ"),
@@ -160,11 +160,11 @@ fn normalize_html_entities(svg: &str) -> String {
         ("&hellip;", "…"),
         ("&bull;", "•"),
     ];
-    
+
     for (entity, unicode) in entities {
         result = result.replace(entity, unicode);
     }
-    
+
     result
 }
 
@@ -172,7 +172,7 @@ fn normalize_html_entities(svg: &str) -> String {
 fn render_svg_to_pixels(svg_content: &str) -> Result<image::RgbaImage, String> {
     // Normalize HTML entities to Unicode
     let normalized = normalize_html_entities(svg_content);
-    
+
     // Parse SVG with usvg
     let options = usvg::Options::default();
     let tree = usvg::Tree::from_str(&normalized, &options)
@@ -181,7 +181,7 @@ fn render_svg_to_pixels(svg_content: &str) -> Result<image::RgbaImage, String> {
     // Get the SVG size and calculate scale to fit RENDER_SIZE
     let svg_size = tree.size();
     let scale = (RENDER_SIZE as f32 / svg_size.width().max(svg_size.height())).min(2.0);
-    
+
     let width = (svg_size.width() * scale).ceil() as u32;
     let height = (svg_size.height() * scale).ceil() as u32;
 
@@ -192,7 +192,7 @@ fn render_svg_to_pixels(svg_content: &str) -> Result<image::RgbaImage, String> {
     // Create pixmap and render
     let mut pixmap = tiny_skia::Pixmap::new(width, height)
         .ok_or_else(|| "Failed to create pixmap".to_string())?;
-    
+
     // Fill with white background (like a browser would)
     pixmap.fill(tiny_skia::Color::WHITE);
 
@@ -218,14 +218,12 @@ fn compare_images_ssim(img1: &image::RgbaImage, img2: &image::RgbaImage) -> Resu
         // Resize both to the larger dimensions to avoid losing detail
         let w = w1.max(w2);
         let h = h1.max(h2);
-        
-        let img1_resized = image::imageops::resize(
-            img1, w, h, image::imageops::FilterType::Lanczos3
-        );
-        let img2_resized = image::imageops::resize(
-            img2, w, h, image::imageops::FilterType::Lanczos3
-        );
-        
+
+        let img1_resized =
+            image::imageops::resize(img1, w, h, image::imageops::FilterType::Lanczos3);
+        let img2_resized =
+            image::imageops::resize(img2, w, h, image::imageops::FilterType::Lanczos3);
+
         (img1_resized, img2_resized)
     };
 
@@ -275,16 +273,14 @@ pub fn compare_outputs(c_output: &str, rust_output: &str, rust_is_err: bool) -> 
     }
 
     // Neither errored - compare outputs
-    if !c_has_svg && !rust_has_svg {
-        if c_has_comment || rust_has_comment {
-            if c_output.trim() == rust_output.trim() {
-                return CompareResult::NonSvgMatch;
-            } else {
-                return CompareResult::NonSvgMismatch {
-                    c_output: c_output.to_string(),
-                    rust_output: rust_output.to_string(),
-                };
-            }
+    if !c_has_svg && !rust_has_svg && (c_has_comment || rust_has_comment) {
+        if c_output.trim() == rust_output.trim() {
+            return CompareResult::NonSvgMatch;
+        } else {
+            return CompareResult::NonSvgMismatch {
+                c_output: c_output.to_string(),
+                rust_output: rust_output.to_string(),
+            };
         }
     }
 
@@ -344,7 +340,9 @@ pub fn compare_outputs(c_output: &str, rust_output: &str, rust_is_err: bool) -> 
     let details = match (parse_svg(c_output), parse_svg(rust_output)) {
         (Ok(c_parsed), Ok(rust_parsed)) => {
             match check_same_with_report(&c_parsed, &rust_parsed, svg_compare_options()) {
-                SameReport::Same => "Structural comparison shows match (but SSIM failed)".to_string(),
+                SameReport::Same => {
+                    "Structural comparison shows match (but SSIM failed)".to_string()
+                }
                 SameReport::Different(report) => report.render_ansi_xml(),
                 SameReport::Opaque { type_name } => {
                     format!("Opaque type comparison not supported: {}", type_name)

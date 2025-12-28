@@ -29,7 +29,7 @@ impl CompassPoint {
     ///
     /// # Arguments
     /// * `dir` - Direction vector where x is east (+) / west (-) and y is north (+) / south (-).
-    ///           Should be pre-normalized for aspect ratio if the shape isn't square.
+    ///   Should be pre-normalized for aspect ratio if the shape isn't square.
     pub fn from_direction(dir: DVec2) -> Self {
         let (dx, dy) = (dir.x, dir.y);
         if dx > 0.0 {
@@ -186,7 +186,7 @@ fn chop_against_box_compass_point(
     // Matches C pikchr's boxOffset function
     let rad = corner_radius.min(half_size.x).min(half_size.y);
     let rx = if rad > 0.0 {
-        0.29289321881345252392 * rad
+        0.292_893_218_813_452_54 * rad
     } else {
         0.0
     };
@@ -733,18 +733,16 @@ pub fn autochop_inches(from: PointIn, to: PointIn, endpoint: &EndpointObject) ->
 
     let chopped = match endpoint.class {
         // boxChop is used by: box, cylinder, diamond, file, oval, text
-        ClassName::Box | ClassName::Cylinder | ClassName::Diamond | ClassName::File
-        | ClassName::Oval | ClassName::Text => {
-            box_chop_inches(endpoint, from_vec)
-        }
+        ClassName::Box
+        | ClassName::Cylinder
+        | ClassName::Diamond
+        | ClassName::File
+        | ClassName::Oval
+        | ClassName::Text => box_chop_inches(endpoint, from_vec),
         // circleChop is used by: circle, dot
-        ClassName::Circle | ClassName::Dot => {
-            circle_chop_inches(endpoint, from_vec)
-        }
+        ClassName::Circle | ClassName::Dot => circle_chop_inches(endpoint, from_vec),
         // ellipseChop is used by: ellipse
-        ClassName::Ellipse => {
-            ellipse_chop_inches(endpoint, from_vec)
-        }
+        ClassName::Ellipse => ellipse_chop_inches(endpoint, from_vec),
         // Lines, arrows, splines, moves, arcs, sublists have no xChop
         _ => None,
     };
@@ -866,7 +864,7 @@ fn box_offset_inches(obj: &EndpointObject, cp: CompassPoint) -> DVec2 {
     let mn = w2.min(h2);
     let rad_clamped = rad.min(mn);
     let rx = if rad_clamped > 0.0 {
-        0.29289321881345252392 * rad_clamped
+        0.292_893_218_813_452_54 * rad_clamped
     } else {
         0.0
     };
@@ -971,7 +969,7 @@ fn oval_offset_inches(obj: &EndpointObject, cp: CompassPoint) -> DVec2 {
     let rad = w2.min(h2);
 
     // rx = (1 - cos(45°)) * rad ≈ 0.29289 * rad
-    let rx = 0.29289321881345252392 * rad;
+    let rx = 0.292_893_218_813_452_54 * rad;
 
     match cp {
         CompassPoint::North => dvec2(0.0, h2),

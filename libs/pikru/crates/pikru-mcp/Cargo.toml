@@ -4,7 +4,9 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-[package.metadata]
+[package.metadata.cargo-shear]
+# Used by rmcp macros
+ignored = ["serde_json"]
 
 [package.metadata."docs.rs"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
@@ -35,9 +37,6 @@ usvg = "0.45"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# Process management
-which = "7"
 
 # Regex for SVG parsing
 regex-lite = "0.1"

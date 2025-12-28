@@ -121,7 +121,7 @@ pub struct PathBuilder {
 impl PathBuilder {
     /// Create a new path builder starting at the given point.
     ///
-    /// cref: pikchr.y:5641 - Initial aTPath[0] setup
+    /// cref: pikchr.y:5641 - Initial aTPath\[0\] setup
     pub fn new(start: PointIn) -> Self {
         Self {
             points: vec![start],
@@ -305,8 +305,8 @@ impl PathBuilder {
         let dy = distance.raw() * angle_rad.cos();
 
         let pt = self.current_point_mut();
-        pt.x = pt.x + Inches::inches(dx);
-        pt.y = pt.y + Inches::inches(dy);
+        pt.x += Inches::inches(dx);
+        pt.y += Inches::inches(dy);
 
         // cref: pikchr.y:3350-3360 - Determine cardinal direction from angle
         let normalized = angle_degrees.rem_euclid(360.0);

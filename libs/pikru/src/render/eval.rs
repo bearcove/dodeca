@@ -598,11 +598,11 @@ pub fn resolve_object<'a>(ctx: &'a RenderContext, obj: &Object) -> Option<&'a Re
         }
         Object::Nth(nth) => match nth {
             Nth::Last(class) => {
-                let oc = class.as_ref().and_then(|c| nth_class_to_class_name(c));
+                let oc = class.as_ref().and_then(nth_class_to_class_name);
                 ctx.get_last_object(oc)
             }
             Nth::First(class) => {
-                let oc = class.as_ref().and_then(|c| nth_class_to_class_name(c));
+                let oc = class.as_ref().and_then(nth_class_to_class_name);
                 let obj = ctx.get_nth_object(1, oc);
                 if let Some(o) = obj {
                     crate::log::debug!(
@@ -616,7 +616,7 @@ pub fn resolve_object<'a>(ctx: &'a RenderContext, obj: &Object) -> Option<&'a Re
                 obj
             }
             Nth::Ordinal(n, is_last, class) => {
-                let oc = class.as_ref().and_then(|c| nth_class_to_class_name(c));
+                let oc = class.as_ref().and_then(nth_class_to_class_name);
                 if *is_last {
                     // "3rd last box" - count from end
                     ctx.get_nth_last_object(*n as usize, oc)

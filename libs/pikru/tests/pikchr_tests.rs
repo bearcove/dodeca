@@ -1,5 +1,4 @@
 use camino::Utf8Path;
-use datatest_stable;
 use pikru_compare::{CompareResult, compare_outputs, run_c_pikchr, write_debug_svgs};
 use std::sync::Once;
 
@@ -62,10 +61,7 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
 
     match result {
         CompareResult::SvgMismatch { ssim, details } => {
-            panic!(
-                "SVG mismatch for {} (SSIM: {:.6})\n{}",
-                path, ssim, details
-            );
+            panic!("SVG mismatch for {} (SSIM: {:.6})\n{}", path, ssim, details);
         }
         CompareResult::ParseError { details } => {
             panic!("Parse error for {}\n{}", path, details);
@@ -103,9 +99,9 @@ fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
                 path, c_output, rust_output
             );
         }
-        CompareResult::Match
-        | CompareResult::BothErrorMatch
-        | CompareResult::NonSvgMatch => unreachable!(),
+        CompareResult::Match | CompareResult::BothErrorMatch | CompareResult::NonSvgMatch => {
+            unreachable!()
+        }
     }
 }
 

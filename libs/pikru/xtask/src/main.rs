@@ -1,5 +1,8 @@
 use camino::Utf8Path;
-use pikru_compare::{compare_outputs, extract_pre_svg_text, extract_svg, run_c_pikchr, write_debug_svgs, CompareResult};
+use pikru_compare::{
+    CompareResult, compare_outputs, extract_pre_svg_text, extract_svg, run_c_pikchr,
+    write_debug_svgs,
+};
 use rayon::prelude::*;
 use std::fs;
 use std::path::Path;
@@ -553,7 +556,9 @@ fn generate_pngs() {
         .output()
         .is_err()
     {
-        eprintln!("rsvg-convert not found. Please install librsvg2-bin (Ubuntu/Debian) or librsvg (macOS)");
+        eprintln!(
+            "rsvg-convert not found. Please install librsvg2-bin (Ubuntu/Debian) or librsvg (macOS)"
+        );
         std::process::exit(1);
     }
 
@@ -586,7 +591,7 @@ fn generate_pngs() {
             .arg("400") // Set width to 400px for consistent sizing
             .arg("-h")
             .arg("400") // Set height to 400px
-            .arg(&svg_file)
+            .arg(svg_file)
             .arg("-o")
             .arg(&png_file)
             .output()

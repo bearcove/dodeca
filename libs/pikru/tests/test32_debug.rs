@@ -2,8 +2,8 @@
 //!
 //! Run with: cargo test test32_debug -- --nocapture
 
-use pikru_compare::{extract_svg, run_c_pikchr};
 use camino::Utf8Path;
+use pikru_compare::{extract_svg, run_c_pikchr};
 
 const C_PIKCHR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/vendor/pikchr-c/pikchr");
 const TEST32: &str = include_str!("../vendor/pikchr-c/tests/test32.pikchr");
@@ -19,9 +19,15 @@ fn extract_circles(svg_str: &str) -> Vec<(f64, f64, f64, String)> {
         let end = rest.find("/>").unwrap_or(rest.len()) + 2;
         let circle_elem = &rest[..end];
 
-        let cx = extract_attr(circle_elem, "cx").and_then(|s| s.parse().ok()).unwrap_or(0.0);
-        let cy = extract_attr(circle_elem, "cy").and_then(|s| s.parse().ok()).unwrap_or(0.0);
-        let r = extract_attr(circle_elem, "r").and_then(|s| s.parse().ok()).unwrap_or(0.0);
+        let cx = extract_attr(circle_elem, "cx")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.0);
+        let cy = extract_attr(circle_elem, "cy")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.0);
+        let r = extract_attr(circle_elem, "r")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.0);
         let fill = extract_style_prop(circle_elem, "fill").unwrap_or_else(|| "unknown".to_string());
 
         circles.push((cx, cy, r, fill));
@@ -92,7 +98,7 @@ fn debug_test32_circles() {
 
     // Compare viewboxes
     let c_vb = extract_viewbox(c_svg);
-    let rust_vb = extract_viewbox(&rust_svg);
+    let rust_vb = extract_viewbox(rust_svg);
 
     println!("\n=== VIEWBOX COMPARISON ===");
     println!("C:    {:?}", c_vb);
@@ -100,19 +106,29 @@ fn debug_test32_circles() {
 
     // Compare circles
     let c_circles = extract_circles(c_svg);
-    let rust_circles = extract_circles(&rust_svg);
+    let rust_circles = extract_circles(rust_svg);
 
     println!("\n=== CIRCLE COMPARISON ===");
-    println!("C has {} circles, Rust has {} circles", c_circles.len(), rust_circles.len());
+    println!(
+        "C has {} circles, Rust has {} circles",
+        c_circles.len(),
+        rust_circles.len()
+    );
 
     println!("\n--- C Circles ---");
     for (i, (cx, cy, r, fill)) in c_circles.iter().enumerate() {
-        println!("  {}: cx={:.3} cy={:.3} r={:.3} fill={}", i, cx, cy, r, fill);
+        println!(
+            "  {}: cx={:.3} cy={:.3} r={:.3} fill={}",
+            i, cx, cy, r, fill
+        );
     }
 
     println!("\n--- Rust Circles ---");
     for (i, (cx, cy, r, fill)) in rust_circles.iter().enumerate() {
-        println!("  {}: cx={:.3} cy={:.3} r={:.3} fill={}", i, cx, cy, r, fill);
+        println!(
+            "  {}: cx={:.3} cy={:.3} r={:.3} fill={}",
+            i, cx, cy, r, fill
+        );
     }
 
     // Show differences
@@ -128,10 +144,18 @@ fn debug_test32_circles() {
 
         if cx_diff > 0.01 || cy_diff > 0.01 || r_diff > 0.01 || c_fill != r_fill {
             println!("Circle {}:", i);
-            if cx_diff > 0.01 { println!("  cx: C={:.3} Rust={:.3} diff={:.3}", c_cx, r_cx, cx_diff); }
-            if cy_diff > 0.01 { println!("  cy: C={:.3} Rust={:.3} diff={:.3}", c_cy, r_cy, cy_diff); }
-            if r_diff > 0.01 { println!("  r:  C={:.3} Rust={:.3} diff={:.3}", c_r, r_r, r_diff); }
-            if c_fill != r_fill { println!("  fill: C={} Rust={}", c_fill, r_fill); }
+            if cx_diff > 0.01 {
+                println!("  cx: C={:.3} Rust={:.3} diff={:.3}", c_cx, r_cx, cx_diff);
+            }
+            if cy_diff > 0.01 {
+                println!("  cy: C={:.3} Rust={:.3} diff={:.3}", c_cy, r_cy, cy_diff);
+            }
+            if r_diff > 0.01 {
+                println!("  r:  C={:.3} Rust={:.3} diff={:.3}", c_r, r_r, r_diff);
+            }
+            if c_fill != r_fill {
+                println!("  fill: C={} Rust={}", c_fill, r_fill);
+            }
         }
     }
 }
@@ -189,7 +213,9 @@ dot same
             assert!(
                 (first_r - r).abs() < 0.001,
                 "Dot {} radius {:.6} should equal first dot radius {:.6}",
-                i, r, first_r
+                i,
+                r,
+                first_r
             );
         }
     }

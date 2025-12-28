@@ -45,14 +45,8 @@ thiserror = "2.0.17"
 enum_dispatch = "0.3"
 
 [dev-dependencies]
-# Snapshot testing
-insta = { version = "1.42", features = ["glob"] }
 # Data-driven test harness for comparing against C pikchr
 datatest-stable = "0.3"
-# Diff algorithm for comparing SVG output
-dissimilar = "1.0"
-# Regex for test output parsing
-regex-lite = "0.1.8"
 # Comparison utilities for C vs Rust output
 pikru-compare = { path = "crates/pikru-compare" }
 # UTF-8 paths for test file handling

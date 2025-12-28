@@ -338,7 +338,7 @@ pub fn generate_svg(
     // C pikchr: when scale != 1.0, display width = viewBox width * scale
     // cref: pik_render (pikchr.c:4626-4633) - C rounds viewbox to int first, then scales and rounds again
     // This matches the two-step rounding: wSVG = pik_round(rScale*w), then wSVG = pik_round(wSVG*pikScale)
-    let is_scaled = scale < 0.99 || scale > 1.01;
+    let is_scaled = !(0.99..=1.01).contains(&scale);
     if is_scaled {
         let viewbox_width_int = viewbox_width as i32;
         let viewbox_height_int = viewbox_height as i32;
@@ -351,6 +351,7 @@ pub fn generate_svg(
     // Arrowheads are now rendered inline as polygon elements (matching C pikchr)
 
     // Helper to render text for an object (and recursively for sublist children)
+    #[allow(clippy::too_many_arguments)]
     fn render_object_text(
         obj: &RenderedObject,
         scaler: &Scaler,
@@ -358,7 +359,7 @@ pub fn generate_svg(
         max_y: Inches,
         charht: f64,
         charwid: f64,
-        thickness: f64,
+        _thickness: f64,
         fontscale: f64,
         use_css_vars: bool,
         svg_children: &mut Vec<SvgNode>,
@@ -552,7 +553,7 @@ pub fn generate_svg(
                     max_y,
                     charht,
                     charwid,
-                    thickness,
+                    _thickness,
                     fontscale,
                     use_css_vars,
                     svg_children,
@@ -569,6 +570,7 @@ pub fn generate_svg(
     // Helper to render a single object (shape + text), recursing into sublist children
     // This ensures text is rendered inline with each shape, matching C pikchr order
     // cref: boxRender (pikchr.c:3850), lineRender (pikchr.c:4266) - each xRender renders shape then calls pik_append_txt
+    #[allow(clippy::too_many_arguments)]
     fn render_object_full(
         obj: &RenderedObject,
         scaler: &Scaler,

@@ -206,7 +206,7 @@ fn parse_assert(pair: Pair<Rule>) -> Result<Assert, miette::Report> {
             .next()
             .ok_or_else(|| miette::miette!("Missing right side of assert"))?;
         let right = parse_position(right_pair)?;
-        AssertCondition::PositionEqual(left, right)
+        AssertCondition::PositionEqual(Box::new(left), Box::new(right))
     } else {
         return Err(miette::miette!(
             "Invalid assert condition: {:?}",

@@ -21,12 +21,11 @@ fn main() {
                         // Show first non-comment line
                         let first_line = input
                             .lines()
-                            .filter(|l| {
+                            .find(|l| {
                                 !l.trim().is_empty()
                                     && !l.trim().starts_with('#')
                                     && !l.trim().starts_with("//")
                             })
-                            .next()
                             .unwrap_or("");
                         println!(
                             "  {}: \"{}\"",

@@ -206,7 +206,7 @@ impl RenderContext {
 
     /// Move position in the current direction
     pub fn advance(&mut self, distance: Inches) {
-        self.position = self.position + self.direction.offset(distance);
+        self.position += self.direction.offset(distance);
     }
 
     /// Add an object to the context

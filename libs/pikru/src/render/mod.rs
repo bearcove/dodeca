@@ -34,7 +34,7 @@ use svg::generate_svg;
 #[derive(Debug, Clone, Default)]
 pub struct RenderOptions {
     /// Emit CSS variables for colors instead of direct color values.
-    /// When enabled, generates a <style> block with all colors defined using light-dark().
+    /// When enabled, generates a `<style>` block with all colors defined using `light-dark()`.
     pub css_variables: bool,
 }
 
@@ -83,7 +83,7 @@ fn proportional_text_length(text: &str) -> u32 {
                 // Backslash followed by other char -> skip backslash, count the char
                 i += 1;
                 let next_c = bytes[i] as char;
-                if next_c >= ' ' && next_c <= '~' {
+                if (' '..='~').contains(&next_c) {
                     cnt += AW_CHAR[(next_c as usize) - 0x20] as u32;
                 } else {
                     cnt += STD_AVG;
@@ -117,7 +117,7 @@ fn proportional_text_length(text: &str) -> u32 {
         }
 
         // Count the character width
-        if c >= ' ' && c <= '~' {
+        if (' '..='~').contains(&c) {
             cnt += AW_CHAR[(c as usize) - 0x20] as u32;
         } else {
             cnt += STD_AVG;
@@ -1288,8 +1288,8 @@ fn render_object_stmt(
                     let angle_rad = angle.to_radians();
                     let dx = distance.raw() * angle_rad.sin();
                     let dy = distance.raw() * angle_rad.cos();
-                    direction_offset.dx = direction_offset.dx + Inches::inches(dx);
-                    direction_offset.dy = direction_offset.dy + Inches::inches(dy);
+                    direction_offset.dx += Inches::inches(dx);
+                    direction_offset.dy += Inches::inches(dy);
                 }
             }
             Attribute::Then(Some(clause)) => {
@@ -1851,7 +1851,7 @@ fn render_object_stmt(
                     // cref: fileFit (pikchr.c:4147)
                     // File height needs to account for the fold corner
                     if needs_autofit_height {
-                        height = height + style.corner_radius * 2.0;
+                        height += style.corner_radius * 2.0;
                     }
                 }
                 Some(ClassName::Diamond) => {
@@ -2088,11 +2088,10 @@ fn render_object_stmt(
 
     // Save final pending then segment if there is one
     // cref: C pikchr saves the current path point when processing completes
-    if in_then_segment && current_segment_direction.is_some() {
-        segments.push(Segment::Offset(
-            current_segment_offset,
-            current_segment_direction.unwrap(),
-        ));
+    if let Some(direction) = current_segment_direction {
+        if in_then_segment {
+            segments.push(Segment::Offset(current_segment_offset, direction));
+        }
     }
 
     // Calculate position based on object type

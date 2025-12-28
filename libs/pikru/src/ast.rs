@@ -56,6 +56,7 @@ impl Direction {
     /// - Down = (0, -1)
     /// - Right = (+1, 0)
     /// - Left = (-1, 0)
+    ///
     /// The Y-flip to SVG (Y-down) happens in `Point::to_svg()`.
     #[inline]
     pub fn unit_vector(self) -> DVec2 {
@@ -201,7 +202,7 @@ pub struct Assert {
 #[derive(Debug, Clone)]
 pub enum AssertCondition {
     ExprEqual(Expr, Expr),
-    PositionEqual(Position, Position),
+    PositionEqual(Box<Position>, Box<Position>),
 }
 
 /// Print statement
@@ -246,7 +247,7 @@ pub enum BaseType {
     Class(ClassName),
     /// String text object
     Text(StringLit, Option<TextPosition>),
-    /// Sublist: [ statements ]
+    /// Sublist: \[ statements \]
     Sublist(Vec<Statement>),
 }
 
