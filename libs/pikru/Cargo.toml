@@ -36,7 +36,7 @@ miette = { version = "7.6.0", features = ["fancy"] }
 pest = "2.8.4"
 pest_derive = "2.8.4"
 # SVG DOM generation and XML serialization
-facet-svg = { version = "0.35.0" }
+facet-svg = { git = "https://github.com/facet-rs/facet", branch = "main" }
 # Debug logging (only emits when RUST_LOG is set) - optional
 tracing = { version = "0.1.43", optional = true }
 # Derive macro for custom error types
