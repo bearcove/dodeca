@@ -78,6 +78,8 @@ pub enum ServeContent {
         mime: String,
         generation: u64,
     },
+    /// Redirect to another URL (302 temporary redirect)
+    Redirect { location: String, generation: u64 },
     /// Not found - rendered 404 HTML page
     NotFound { html: String, generation: u64 },
 }

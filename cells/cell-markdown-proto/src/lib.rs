@@ -34,6 +34,18 @@ pub struct CodeBlock {
     pub placeholder: String,
 }
 
+/// A rule definition for specification traceability.
+///
+/// Rules are declared with `r[rule.name]` syntax on their own line,
+/// similar to the Rust Reference's mdbook-spec.
+#[derive(Debug, Clone, Facet)]
+pub struct RuleDefinition {
+    /// The rule identifier (e.g., "channel.id.allocation")
+    pub id: String,
+    /// The anchor ID for linking (e.g., "r-channel.id.allocation")
+    pub anchor_id: String,
+}
+
 /// Parsed frontmatter fields
 #[derive(Debug, Clone, Default, Facet)]
 pub struct Frontmatter {
@@ -61,6 +73,8 @@ pub enum MarkdownResult {
         headings: Vec<Heading>,
         /// Code blocks that need highlighting (host will call arborium)
         code_blocks: Vec<CodeBlock>,
+        /// Rule definitions for specification traceability
+        rules: Vec<RuleDefinition>,
     },
     /// Error during rendering
     Error { message: String },
@@ -90,6 +104,8 @@ pub enum ParseResult {
         html: String,
         headings: Vec<Heading>,
         code_blocks: Vec<CodeBlock>,
+        /// Rule definitions for specification traceability
+        rules: Vec<RuleDefinition>,
     },
     /// Error during parsing
     Error { message: String },

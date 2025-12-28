@@ -58,6 +58,7 @@ dashmap.workspace = true
 eyre.workspace = true
 facet.workspace = true
 facet-args.workspace = true
+facet-format-json.workspace = true
 facet-json.workspace = true
 facet-kdl.workspace = true
 facet-postcard.workspace = true
@@ -89,7 +90,6 @@ ur-taking-me-with-you.workspace = true
 
 [dev-dependencies]
 divan.workspace = true
-futures.workspace = true
 minijinja.workspace = true
 regex.workspace = true
 tokio.workspace = true

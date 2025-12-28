@@ -162,6 +162,16 @@ fn build_router(ctx: Arc<CellContext>) -> axum::Router {
                 .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
+            ServeContent::Redirect {
+                location,
+                generation,
+            } => Response::builder()
+                .status(StatusCode::FOUND) // 302 Temporary Redirect
+                .header(header::LOCATION, location)
+                .header(header::CACHE_CONTROL, CACHE_NO_CACHE)
+                .header("x-picante-generation", generation.to_string())
+                .body(Body::empty())
+                .unwrap(),
             ServeContent::NotFound { html, generation } => Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .header(header::CONTENT_TYPE, "text/html; charset=utf-8")

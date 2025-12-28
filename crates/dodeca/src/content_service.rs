@@ -50,6 +50,16 @@ impl ContentService for HostContentService {
             };
         }
 
+        // Check for rule redirects (/@rule.id -> /page/#r-rule.id)
+        if let Some(rule_id) = path.strip_prefix("/@") {
+            if let Some(location) = self.server.find_rule_redirect(rule_id).await {
+                return ServeContent::Redirect {
+                    location,
+                    generation,
+                };
+            }
+        }
+
         // Try finding content through the main find_content path
         self.server.find_content_for_rpc(&path).await
     }

@@ -18,7 +18,6 @@ chrono = { version = "0.4", default-features = false, features = ["std", "clock"
 dashmap = "6"
 indexmap = "2"
 regex = "1.12"
-serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 url = "2"
 
@@ -49,15 +48,13 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["a
 # Serialization - Facet ecosystem (git)
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-format-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
-
-# Serialization - other
-postcard = { version = "1", features = ["alloc"] }
 
 # RPC framework (git)
 rapace = { git = "https://github.com/bearcove/rapace", branch = "main", default-features = false }

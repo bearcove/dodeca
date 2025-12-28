@@ -1250,6 +1250,39 @@ impl SiteServer {
             .map(|(route, title, _score)| (route, title))
             .collect()
     }
+
+    /// Find the redirect URL for a rule identifier.
+    ///
+    /// Returns the full URL (e.g., "/spec/core/#r-channel.id.allocation")
+    /// if the rule exists, or None if not found.
+    pub async fn find_rule_redirect(&self, rule_id: &str) -> Option<String> {
+        let snapshot = DatabaseSnapshot::from_database(&self.db).await;
+
+        let site_tree = match build_tree(&snapshot).await {
+            Ok(Ok(tree)) => tree,
+            Ok(Err(_)) | Err(_) => return None,
+        };
+
+        // Search for the rule in sections
+        for (route, section) in &site_tree.sections {
+            for rule in &section.rules {
+                if rule.id == rule_id {
+                    return Some(format!("{}#{}", route.as_str(), rule.anchor_id));
+                }
+            }
+        }
+
+        // Search for the rule in pages
+        for (route, page) in &site_tree.pages {
+            for rule in &page.rules {
+                if rule.id == rule_id {
+                    return Some(format!("{}#{}", route.as_str(), rule.anchor_id));
+                }
+            }
+        }
+
+        None
+    }
 }
 
 /// Calculate similarity score between requested path and a route

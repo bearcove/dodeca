@@ -10,7 +10,7 @@ use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, h
 
 use cell_markdown_proto::{
     CodeBlock, Frontmatter, FrontmatterResult, Heading, MarkdownProcessor, MarkdownProcessorServer,
-    MarkdownResult, ParseResult,
+    MarkdownResult, ParseResult, RuleDefinition,
 };
 
 /// Markdown processor implementation
@@ -39,10 +39,11 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
 
     async fn render_markdown(&self, source_path: String, markdown: String) -> MarkdownResult {
         match render_markdown_impl(&source_path, &markdown) {
-            Ok((html, headings, code_blocks)) => MarkdownResult::Success {
+            Ok((html, headings, code_blocks, rules)) => MarkdownResult::Success {
                 html,
                 headings,
                 code_blocks,
+                rules,
             },
             Err(e) => MarkdownResult::Error { message: e },
         }
@@ -63,11 +64,12 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         };
 
         match render_markdown_impl(&source_path, &body) {
-            Ok((html, headings, code_blocks)) => ParseResult::Success {
+            Ok((html, headings, code_blocks, rules)) => ParseResult::Success {
                 frontmatter,
                 html,
                 headings,
                 code_blocks,
+                rules,
             },
             Err(e) => ParseResult::Error { message: e },
         }
@@ -127,17 +129,73 @@ fn parse_frontmatter_toml(toml_str: &str) -> Result<Frontmatter, String> {
     })
 }
 
+/// Preprocess markdown to extract rule identifiers.
+///
+/// Rules are lines matching `r[rule.id]` (optionally followed by content on the next line).
+/// We replace them with HTML directly since pulldown_cmark would merge them with following text.
+///
+/// Returns (processed_markdown, rules).
+fn preprocess_rules(markdown: &str) -> Result<(String, Vec<RuleDefinition>), String> {
+    use std::collections::HashSet;
+
+    let mut result = String::with_capacity(markdown.len());
+    let mut rules = Vec::new();
+    let mut seen_rule_ids: HashSet<String> = HashSet::new();
+
+    for line in markdown.lines() {
+        let trimmed = line.trim();
+
+        // Check if this line is a rule identifier: r[rule.id]
+        if trimmed.starts_with("r[") && trimmed.ends_with(']') && trimmed.len() > 3 {
+            let rule_id = &trimmed[2..trimmed.len() - 1];
+
+            // Check for duplicates
+            if !seen_rule_ids.insert(rule_id.to_string()) {
+                return Err(format!("duplicate rule identifier: r[{}]", rule_id));
+            }
+
+            let anchor_id = format!("r-{}", rule_id);
+            rules.push(RuleDefinition {
+                id: rule_id.to_string(),
+                anchor_id: anchor_id.clone(),
+            });
+
+            // Emit rule HTML directly (will pass through pulldown_cmark as raw HTML)
+            result.push_str(&rule_to_html(rule_id, &anchor_id));
+            result.push('\n');
+        } else {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+
+    Ok((result, rules))
+}
+
+/// Generate HTML for a rule anchor badge
+fn rule_to_html(rule_id: &str, anchor_id: &str) -> String {
+    // Insert <wbr> after dots for better line breaking
+    let display_id = rule_id.replace('.', ".<wbr>");
+    format!(
+        "<div class=\"rule\" id=\"{anchor_id}\"><a class=\"rule-link\" href=\"#{anchor_id}\" title=\"{rule_id}\"><span>[{display_id}]</span></a></div>"
+    )
+}
+
 /// Render markdown to HTML with heading and code block extraction
+#[allow(clippy::type_complexity)]
 fn render_markdown_impl(
     source_path: &str,
     markdown: &str,
-) -> Result<(String, Vec<Heading>, Vec<CodeBlock>), String> {
+) -> Result<(String, Vec<Heading>, Vec<CodeBlock>, Vec<RuleDefinition>), String> {
+    // Preprocess to extract rule identifiers before pulldown_cmark
+    let (preprocessed, rules) = preprocess_rules(markdown)?;
+
     let options = Options::ENABLE_TABLES
         | Options::ENABLE_FOOTNOTES
         | Options::ENABLE_STRIKETHROUGH
         | Options::ENABLE_HEADING_ATTRIBUTES;
 
-    let parser = Parser::new_ext(markdown, options);
+    let parser = Parser::new_ext(&preprocessed, options);
 
     let mut headings = Vec::new();
     let mut current_heading: Option<(u8, String, String)> = None; // (level, id, text)
@@ -251,7 +309,7 @@ fn render_markdown_impl(
     // Inject id attributes into headings
     let html_output = inject_heading_ids(&html_output, &headings);
 
-    Ok((html_output, headings, code_blocks))
+    Ok((html_output, headings, code_blocks, rules))
 }
 
 /// Convert text to a URL-safe slug for heading IDs

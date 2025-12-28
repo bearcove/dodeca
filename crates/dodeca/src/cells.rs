@@ -2078,6 +2078,8 @@ pub struct ParsedMarkdown {
     pub headings: Vec<cell_markdown_proto::Heading>,
     /// Code blocks that need syntax highlighting
     pub code_blocks: Vec<cell_markdown_proto::CodeBlock>,
+    /// Rule definitions for specification traceability
+    pub rules: Vec<cell_markdown_proto::RuleDefinition>,
 }
 
 /// Error from markdown parsing
@@ -2153,11 +2155,13 @@ pub async fn parse_and_render_markdown_cell(
             html,
             headings,
             code_blocks,
+            rules,
         }) => Ok(ParsedMarkdown {
             frontmatter,
             html,
             headings,
             code_blocks,
+            rules,
         }),
         Ok(ParseResult::Error { message }) => Err(MarkdownParseError::ParseError(message)),
         Err(e) => Err(MarkdownParseError::CellCallFailed(format!("{:?}", e))),
@@ -2166,6 +2170,7 @@ pub async fn parse_and_render_markdown_cell(
 
 /// Render markdown to HTML using the cell (without frontmatter parsing).
 #[tracing::instrument(level = "debug", skip(markdown), fields(markdown_len = markdown.len()))]
+#[allow(clippy::type_complexity)]
 async fn _render_markdown_cell(
     source_path: &str,
     markdown: &str,
@@ -2173,6 +2178,7 @@ async fn _render_markdown_cell(
     String,
     Vec<cell_markdown_proto::Heading>,
     Vec<cell_markdown_proto::CodeBlock>,
+    Vec<cell_markdown_proto::RuleDefinition>,
 )> {
     let cell = all().await.markdown.as_ref()?;
 
@@ -2184,7 +2190,8 @@ async fn _render_markdown_cell(
             html,
             headings,
             code_blocks,
-        }) => Some((html, headings, code_blocks)),
+            rules,
+        }) => Some((html, headings, code_blocks, rules)),
         Ok(MarkdownResult::Error { message }) => {
             warn!("markdown render cell error: {}", message);
             None
