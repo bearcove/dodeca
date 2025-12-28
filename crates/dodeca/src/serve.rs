@@ -681,7 +681,7 @@ impl SiteServer {
 
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
-            let site_tree = build_tree(&snapshot).await.ok()?;
+            let site_tree = build_tree(&snapshot).await.ok()?.ok()?;
             let routes: HashSet<String> = site_tree
                 .sections
                 .keys()
@@ -911,8 +911,8 @@ impl SiteServer {
         };
 
         let site_tree = match build_tree(&snapshot).await {
-            Ok(tree) => tree,
-            Err(_) => return vec![],
+            Ok(Ok(tree)) => tree,
+            Ok(Err(_)) | Err(_) => return vec![],
         };
 
         // Normalize route
@@ -1103,7 +1103,8 @@ impl SiteServer {
 
         let site_tree = build_tree(&snapshot)
             .await
-            .map_err(|e| format!("Failed to build tree: {:?}", e))?;
+            .map_err(|e| format!("Failed to build tree: {:?}", e))?
+            .map_err(|e| format!("Source parse errors: {:?}", e))?;
 
         // Normalize route
         let route_str = if route_path == "/" {
@@ -1256,8 +1257,8 @@ impl SiteServer {
         };
 
         let site_tree = match build_tree(&snapshot).await {
-            Ok(tree) => tree,
-            Err(_) => return Vec::new(),
+            Ok(Ok(tree)) => tree,
+            Ok(Err(_)) | Err(_) => return Vec::new(),
         };
 
         let requested = path.trim_matches('/').to_lowercase();

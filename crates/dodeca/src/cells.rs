@@ -2079,6 +2079,79 @@ pub struct ParsedMarkdown {
     pub code_blocks: Vec<cell_markdown_proto::CodeBlock>,
 }
 
+/// Error from markdown parsing
+#[derive(Debug, Clone, facet::Facet)]
+#[repr(u8)]
+pub enum MarkdownParseError {
+    /// The markdown cell is not available
+    CellNotAvailable,
+    /// The cell returned an error (e.g., invalid frontmatter)
+    ParseError(String),
+    /// The cell call itself failed
+    CellCallFailed(String),
+}
+
+impl std::fmt::Display for MarkdownParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MarkdownParseError::CellNotAvailable => write!(f, "markdown cell not available"),
+            MarkdownParseError::ParseError(msg) => write!(f, "{}", strip_ansi(msg)),
+            MarkdownParseError::CellCallFailed(msg) => write!(f, "cell call failed: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for MarkdownParseError {}
+
+/// Strip ANSI escape codes from a string (they don't render in logs)
+fn strip_ansi(s: &str) -> String {
+    // Match ANSI escape sequences: ESC [ ... m (and similar)
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            // Skip until we hit the end of the escape sequence
+            if chars.peek() == Some(&'[') {
+                chars.next(); // consume '['
+                // Skip until we hit a letter (the terminator)
+                while let Some(&next) = chars.peek() {
+                    chars.next();
+                    if next.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_strip_ansi() {
+        // No escapes
+        assert_eq!(strip_ansi("hello world"), "hello world");
+
+        // Simple color
+        assert_eq!(strip_ansi("\x1b[31mred\x1b[0m"), "red");
+
+        // Multiple escapes
+        assert_eq!(
+            strip_ansi("\x1b[38;5;246m│\x1b[0m hello \x1b[31merror\x1b[0m"),
+            "│ hello error"
+        );
+
+        // The actual error format from the issue
+        let input = "\x1b[31mError:\x1b[0m Error at FrontmatterToml";
+        assert_eq!(strip_ansi(input), "Error: Error at FrontmatterToml");
+    }
+}
+
 /// Parse and render markdown content using the cell.
 ///
 /// Returns frontmatter, HTML (with placeholders), headings, and code blocks.
@@ -2087,8 +2160,12 @@ pub struct ParsedMarkdown {
 pub async fn parse_and_render_markdown_cell(
     source_path: &str,
     content: &str,
-) -> Option<ParsedMarkdown> {
-    let cell = all().await.markdown.as_ref()?;
+) -> Result<ParsedMarkdown, MarkdownParseError> {
+    let cell = all()
+        .await
+        .markdown
+        .as_ref()
+        .ok_or(MarkdownParseError::CellNotAvailable)?;
 
     match cell
         .parse_and_render(source_path.to_string(), content.to_string())
@@ -2099,20 +2176,14 @@ pub async fn parse_and_render_markdown_cell(
             html,
             headings,
             code_blocks,
-        }) => Some(ParsedMarkdown {
+        }) => Ok(ParsedMarkdown {
             frontmatter,
             html,
             headings,
             code_blocks,
         }),
-        Ok(ParseResult::Error { message }) => {
-            warn!("markdown parse_and_render cell error: {}", message);
-            None
-        }
-        Err(e) => {
-            warn!("markdown parse_and_render cell call failed: {:?}", e);
-            None
-        }
+        Ok(ParseResult::Error { message }) => Err(MarkdownParseError::ParseError(message)),
+        Err(e) => Err(MarkdownParseError::CellCallFailed(format!("{:?}", e))),
     }
 }
 

@@ -407,18 +407,22 @@ pub struct Frontmatter {
     pub extra: Value,
 }
 
+/// Result of parsing a source file
+pub type ParseFileResult = Result<ParsedData, crate::cells::MarkdownParseError>;
+
 /// Parse a source file into ParsedData
 /// This is the main tracked function - memoizes the result
 #[picante::tracked]
-pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<ParsedData> {
+pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<ParseFileResult> {
     let content = source.content(db)?;
     let path = source.path(db)?;
     let last_modified = source.last_modified(db)?;
 
     // Use the markdown cell to parse frontmatter and render markdown
-    let parsed = parse_and_render_markdown_cell(path.as_str(), content.as_str())
-        .await
-        .expect("markdown cell not loaded");
+    let parsed = match parse_and_render_markdown_cell(path.as_str(), content.as_str()).await {
+        Ok(p) => p,
+        Err(e) => return Ok(Err(e)),
+    };
 
     // Convert frontmatter from cell type
     let extra: Value = if parsed.frontmatter.extra_json.is_empty() {
@@ -462,7 +466,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     // Compute URL route
     let route = path.to_route();
 
-    Ok(ParsedData {
+    Ok(Ok(ParsedData {
         source_path: (*path).clone(),
         route,
         title: Title::new(parsed.frontmatter.title),
@@ -473,7 +477,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
         headings,
         last_updated: last_modified,
         extra,
-    })
+    }))
 }
 
 /// Highlight a code block using the syntax highlighting cell
@@ -524,18 +528,47 @@ async fn highlight_code_block_for_cell(code: &str, language: &str) -> String {
     }
 }
 
+/// A parse error with its source file path
+#[derive(Debug, Clone, facet::Facet)]
+pub struct SourceParseError {
+    pub path: String,
+    pub error: crate::cells::MarkdownParseError,
+}
+
+impl std::fmt::Display for SourceParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.path, self.error)
+    }
+}
+
+/// Result of building the site tree
+pub type BuildTreeResult = Result<SiteTree, Vec<SourceParseError>>;
+
 /// Build the site tree from all source files
 /// This tracked query depends on all parse_file results
 #[picante::tracked]
-pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<SiteTree> {
+pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
     let mut sections: BTreeMap<Route, Section> = BTreeMap::new();
     let mut pages: BTreeMap<Route, Page> = BTreeMap::new();
 
     // Parse all files - this creates dependencies on each parse_file
     let sources = SourceRegistry::sources(db)?.unwrap_or_default();
     let mut parsed = Vec::new();
+    let mut errors = Vec::new();
+
     for source in sources.iter() {
-        parsed.push(parse_file(db, *source).await?);
+        let path = source.path(db)?;
+        match parse_file(db, *source).await? {
+            Ok(data) => parsed.push(data),
+            Err(e) => errors.push(SourceParseError {
+                path: path.to_string(),
+                error: e,
+            }),
+        }
+    }
+
+    if !errors.is_empty() {
+        return Ok(Err(errors));
     }
 
     // First pass: create all sections
@@ -585,7 +618,7 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<SiteTree> {
         );
     }
 
-    Ok(SiteTree { sections, pages })
+    Ok(Ok(SiteTree { sections, pages }))
 }
 
 /// Find the nearest parent section for a route
@@ -614,7 +647,9 @@ pub async fn render_page<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rendere
     use crate::render::{render_page_via_cell, render_page_with_resolver};
 
     // Build tree (cached)
-    let site_tree = build_tree(db).await?;
+    let site_tree = build_tree(db)
+        .await?
+        .expect("parse errors should be caught at build time");
 
     // Pre-load all templates for sync access during rendering
     let templates = load_all_templates(db).await?;
@@ -652,7 +687,9 @@ pub async fn render_section<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rend
     use crate::render::{render_section_via_cell, render_section_with_resolver};
 
     // Build tree (cached)
-    let site_tree = build_tree(db).await?;
+    let site_tree = build_tree(db)
+        .await?
+        .expect("parse errors should be caught at build time");
 
     // Pre-load all templates for sync access during rendering
     let templates = load_all_templates(db).await?;
@@ -929,7 +966,9 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<SiteOutput> {
     let mut files = Vec::new();
 
     // Build the site tree to get all routes
-    let site_tree = build_tree(db).await?;
+    let site_tree = build_tree(db)
+        .await?
+        .expect("parse errors should be caught at build time");
 
     // --- Phase 1: Render all HTML pages using serve_html ---
     // This reuses the exact same pipeline as `ddc serve`, ensuring consistency
@@ -1053,7 +1092,9 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<SiteOutput> {
 #[picante::tracked]
 pub async fn all_rendered_html<DB: Db>(db: &DB) -> PicanteResult<AllRenderedHtml> {
     tracing::debug!("🔄 all_rendered_html: EXECUTING (not cached)");
-    let site_tree = build_tree(db).await?;
+    let site_tree = build_tree(db)
+        .await?
+        .expect("parse errors should be caught at build time");
     let template_map = load_all_templates(db).await?;
 
     // Load data files and convert to template Value
@@ -1296,7 +1337,9 @@ pub async fn serve_html<DB: Db>(db: &DB, route: Route) -> PicanteResult<Option<S
         ResponsiveImageInfo, rewrite_urls_in_html, transform_images_to_picture,
     };
 
-    let site_tree = build_tree(db).await?;
+    let site_tree = build_tree(db)
+        .await?
+        .expect("parse errors should be caught at build time");
 
     // Check if route exists in site tree
     let route_exists =
