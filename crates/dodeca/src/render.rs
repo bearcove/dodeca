@@ -496,7 +496,7 @@ pub async fn inject_livereload_with_build_info(
     }
 }
 
-/// Inject content after the opening <head> tag.
+/// Inject content after the opening `<head>` tag.
 /// Handles both `<head>` and `<head ...>` with attributes.
 fn inject_into_head(html: &str, content: &str) -> String {
     let lower = html.to_lowercase();
