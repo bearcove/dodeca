@@ -6,7 +6,7 @@ title = "Successful Code Sample"
 
 This page has a code sample that compiles and runs successfully.
 
-```rust
+```rust,test
 fn main() {
     println!("Hello from code execution!");
     println!("This output should be captured.");
