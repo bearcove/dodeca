@@ -100,7 +100,16 @@ test.describe("Livereload and DOM Patching", () => {
   });
 
   test("page structure remains valid after DOM patch", async ({ page }) => {
+    // Capture console logs
+    page.on("console", (msg) => {
+      console.log(`[browser ${msg.type()}] ${msg.text()}`);
+    });
+
     await page.goto(site.url);
+
+    // Wait for devtools to connect (the connection status indicator)
+    // Give it a bit more time to establish the WebSocket connection
+    await page.waitForTimeout(2000);
 
     // Set marker
     await page.evaluate(() => {
@@ -161,6 +170,9 @@ test.describe("Livereload and DOM Patching", () => {
   test("multiple rapid edits result in correct final state", async ({ page }) => {
     await page.goto(site.url);
 
+    // Wait for devtools to connect
+    await page.waitForTimeout(2000);
+
     await page.evaluate(() => {
       (window as any).__testMarker = "rapid-edits";
     });
@@ -214,6 +226,9 @@ test.describe("DOM Patching Edge Cases", () => {
 
   test("adding new paragraph preserves existing content", async ({ page }) => {
     await page.goto(site.url);
+
+    // Wait for devtools to connect
+    await page.waitForTimeout(2000);
 
     await page.evaluate(() => {
       (window as any).__testMarker = "add-paragraph";

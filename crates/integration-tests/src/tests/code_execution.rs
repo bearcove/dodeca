@@ -11,7 +11,7 @@ title = "Home"
 
 # Home
 
-```rust
+```rust,test
 fn main() {
     println!("Hello from code execution!");
 }
@@ -38,7 +38,7 @@ title = "Home"
 
 # Colored Output
 
-```rust
+```rust,test
 fn main() {
     // Output with ANSI escape codes for colors
     println!("\x1b[32mGreen text\x1b[0m");
@@ -63,7 +63,7 @@ title = "Home"
 
 # Type Error
 
-```rust
+```rust,test
 fn main() {
     let x: i32 = "not a number";
     println!("{}", x);
@@ -95,7 +95,7 @@ title = "Home"
 
 # Compilation Error
 
-```rust
+```rust,test
 fn main() {
     let undefined_variable;
     println!("{}", undefined_variable);
@@ -125,7 +125,7 @@ title = "Home"
 
 The following code is supposed to work but has a typo:
 
-```rust
+```rust,test
 fn main() {
     // Intentional error - calling non-existent method
     let numbers = vec![1, 2, 3];
@@ -157,7 +157,7 @@ title = "Home"
 
 First sample:
 
-```rust
+```rust,test
 fn main() {
     println!("Sample 1");
 }
@@ -165,7 +165,7 @@ fn main() {
 
 Second sample:
 
-```rust
+```rust,test
 fn main() {
     println!("Sample 2");
 }
@@ -227,7 +227,7 @@ title = "Home"
 
 # Panic Test
 
-```rust
+```rust,test
 fn main() {
     panic!("Intentional panic for testing!");
 }
