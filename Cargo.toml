@@ -48,7 +48,10 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["a
 # Serialization - Facet ecosystem (git)
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-format-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-format-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-format-xml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -159,8 +162,12 @@ rust-version = "1.91"
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-diff-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-format = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-format-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-format-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-format-xml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macro-parse = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -168,6 +175,7 @@ facet-macro-types = { git = "https://github.com/facet-rs/facet", branch = "main"
 facet-macros = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macros-impl = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-pretty = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-singularize = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-solver = { git = "https://github.com/facet-rs/facet", branch = "main" }
