@@ -57,27 +57,21 @@ fn detect_attr_changes(edit_ops: &[EditOp], new_doc: &Html) -> Vec<Patch> {
         if let EditOp::Insert { path, .. } = op {
             let segments = &path.0;
 
-            if segments.len() >= 2 {
-                // Check if path ends with attrs.<attr_name>
-                if let (Some(PathSegment::Field(field)), Some(PathSegment::Field(attr_name))) =
+            if segments.len() >= 2
+                && let (Some(PathSegment::Field(field)), Some(PathSegment::Field(attr_name))) =
                     (segments.get(segments.len() - 2), segments.last())
-                {
-                    if field == "attrs" {
-                        if let Some(patch) = try_attr_change(edit_ops, new_doc, segments, attr_name)
-                        {
-                            patches.push(patch);
-                        }
-                    }
-                }
+                && field == "attrs"
+                && let Some(patch) = try_attr_change(edit_ops, new_doc, segments, attr_name)
+            {
+                patches.push(patch);
             }
 
             // Check if path ends with a direct attribute field
-            if let Some(PathSegment::Field(attr_name)) = segments.last() {
-                if direct_attrs.contains(&attr_name.as_ref()) {
-                    if let Some(patch) = try_attr_change(edit_ops, new_doc, segments, attr_name) {
-                        patches.push(patch);
-                    }
-                }
+            if let Some(PathSegment::Field(attr_name)) = segments.last()
+                && direct_attrs.contains(&attr_name.as_ref())
+                && let Some(patch) = try_attr_change(edit_ops, new_doc, segments, attr_name)
+            {
+                patches.push(patch);
             }
         }
     }
@@ -188,13 +182,13 @@ fn get_attr_from_flow_content_nav<'a>(
 
 fn get_direct_attr_from_element(elem: &FlowContent, attr_name: &str) -> Option<String> {
     match elem {
-        FlowContent::A(a) => match attr_name.as_ref() {
+        FlowContent::A(a) => match attr_name {
             "href" => a.href.clone(),
             "target" => a.target.clone(),
             "rel" => a.rel.clone(),
             _ => None,
         },
-        FlowContent::Img(img) => match attr_name.as_ref() {
+        FlowContent::Img(img) => match attr_name {
             "src" => img.src.clone(),
             "alt" => img.alt.clone(),
             _ => None,
@@ -253,29 +247,29 @@ fn detect_text_changes(edit_ops: &[EditOp], new_doc: &Html) -> Vec<Patch> {
             let segments = &path.0;
 
             // Check if path ends with .children (not .children.[n])
-            if let Some(PathSegment::Field(f)) = segments.last() {
-                if f == "children" {
-                    // This is an insert into a children array
-                    // Check if there's a matching Delete (indicating replacement, not addition)
-                    let has_matching_delete = edit_ops.iter().any(|other| {
-                        if let EditOp::Delete { path: del_path, .. } = other {
-                            del_path.0 == path.0
-                        } else {
-                            false
-                        }
-                    });
+            if let Some(PathSegment::Field(f)) = segments.last()
+                && f == "children"
+            {
+                // This is an insert into a children array
+                // Check if there's a matching Delete (indicating replacement, not addition)
+                let has_matching_delete = edit_ops.iter().any(|other| {
+                    if let EditOp::Delete { path: del_path, .. } = other {
+                        del_path.0 == path.0
+                    } else {
+                        false
+                    }
+                });
 
-                    if has_matching_delete {
-                        // This is a text change (or element swap)
-                        // Try to get the new text content
-                        if let Some(text) = get_text_from_children(new_doc, segments) {
-                            let dom_path = extract_dom_path(segments);
-                            if !dom_path.is_empty() {
-                                patches.push(Patch::SetText {
-                                    path: NodePath(dom_path),
-                                    text,
-                                });
-                            }
+                if has_matching_delete {
+                    // This is a text change (or element swap)
+                    // Try to get the new text content
+                    if let Some(text) = get_text_from_children(new_doc, segments) {
+                        let dom_path = extract_dom_path(segments);
+                        if !dom_path.is_empty() {
+                            patches.push(Patch::SetText {
+                                path: NodePath(dom_path),
+                                text,
+                            });
                         }
                     }
                 }
@@ -422,10 +416,10 @@ fn get_phrasing_element_text_content(elem: &PhrasingContent) -> Option<String> {
 
 fn collect_phrasing_text(children: &[PhrasingContent]) -> Option<String> {
     // For simple case: single text child
-    if children.len() == 1 {
-        if let PhrasingContent::Text(t) = &children[0] {
-            return Some(t.clone());
-        }
+    if children.len() == 1
+        && let PhrasingContent::Text(t) = &children[0]
+    {
+        return Some(t.clone());
     }
     // For mixed content, we can't easily do SetText - return None to fall back to Replace
     None
@@ -1025,18 +1019,20 @@ pub fn diff_html_debug(old_html: &str, new_html: &str, debug: bool) -> Result<Ve
 #[cfg(test)]
 pub mod jsdom {
     use super::*;
-    use serde::{Deserialize, Serialize};
+    use facet::Facet;
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    #[derive(Serialize)]
+    #[derive(Facet)]
     struct JsdomInput {
         html: String,
         patches: Vec<JsPatch>,
     }
 
-    #[derive(Serialize)]
-    #[serde(tag = "type")]
+    #[derive(Facet)]
+    #[facet(tag = "type")]
+    #[repr(u8)]
+    #[allow(dead_code)] // Fields are serialized via Facet
     enum JsPatch {
         SetText {
             path: Vec<usize>,
@@ -1111,7 +1107,7 @@ pub mod jsdom {
         }
     }
 
-    #[derive(Deserialize)]
+    #[derive(Facet)]
     struct JsdomOutput {
         success: bool,
         html: Option<String>,
@@ -1139,7 +1135,7 @@ pub mod jsdom {
 
         {
             let stdin = child.stdin.as_mut().unwrap();
-            let json = serde_json::to_string(&input).unwrap();
+            let json = facet_json::to_string(&input);
             stdin
                 .write_all(json.as_bytes())
                 .map_err(|e| format!("Write failed: {e}"))?;
@@ -1154,7 +1150,7 @@ pub mod jsdom {
             return Err(format!("Node failed: {stderr}"));
         }
 
-        let result: JsdomOutput = serde_json::from_slice(&output.stdout)
+        let result: JsdomOutput = facet_json::from_slice(&output.stdout)
             .map_err(|e| format!("JSON parse failed: {e}"))?;
 
         if result.success {
@@ -1498,13 +1494,14 @@ mod tests {
 
         #[test]
         fn test_dodeca_real_html() {
-            // Real HTML from dodeca - has style/script before <html> tag
-            let html = r#"<!DOCTYPE html><style>
+            // Real HTML from dodeca - with style/script inside <head>
+            // (Previously had style/script before <html> which was fixed in render.rs)
+            let html = r#"<!DOCTYPE html><html><head><title>Home</title><style>
 /* Some CSS */
 pre { background: #fff; }
 </style><script>
 console.log('hello');
-</script><html><head><title>Home</title></head><body><h1>Welcome</h1><p>This is the home page.</p></body></html>"#;
+</script></head><body><h1>Welcome</h1><p>This is the home page.</p></body></html>"#;
 
             match crate::diff_html(html, html) {
                 Ok(patches) => {

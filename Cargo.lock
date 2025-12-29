@@ -3857,9 +3857,8 @@ dependencies = [
  "facet",
  "facet-diff",
  "facet-format-html",
+ "facet-json",
  "insta",
- "serde",
- "serde_json",
 ]
 
 [[package]]
