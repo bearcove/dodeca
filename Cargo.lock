@@ -1397,9 +1397,6 @@ version = "0.6.1"
 dependencies = [
  "cell-html-diff-proto",
  "dodeca-protocol",
- "facet",
- "facet-diff",
- "facet-format-html",
  "html-diff-tests",
  "rapace-cell",
  "tokio",
@@ -3858,7 +3855,6 @@ dependencies = [
  "facet-diff",
  "facet-format-html",
  "facet-json",
- "insta",
 ]
 
 [[package]]
@@ -4383,18 +4379,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e05c02b5e89bff3b946cedeca278abc628fe811e604f027c45a8aa3cf793d0eb"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "insta"
-version = "1.45.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "983e3b24350c84ab8a65151f537d67afbbf7153bb9f1110e03e9fa9b07f67a5c"
-dependencies = [
- "console",
- "once_cell",
- "similar",
- "tempfile",
 ]
 
 [[package]]
@@ -8141,12 +8125,6 @@ name = "simdutf8"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
-
-[[package]]
-name = "similar"
-version = "2.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
 
 [[package]]
 name = "siphasher"

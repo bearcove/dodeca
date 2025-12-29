@@ -11,5 +11,4 @@ facet-diff.workspace = true
 facet-format-html.workspace = true
 
 [dev-dependencies]
-insta = "1"
 facet-json.workspace = true
