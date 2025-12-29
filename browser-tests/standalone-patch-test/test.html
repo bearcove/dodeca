@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Standalone Patch Test</title>
+</head>
+<body>
+    <nav>
+        <h1>Home</h1>
+    </nav>
+    <main>
+        <h1>Welcome</h1>
+        <p>This is the home page.</p>
+        <ul>
+            <li><a href="/guide/">Guide</a></li>
+            <li><a href="/guide/getting-started/">Getting Started</a></li>
+        </ul>
+    </main>
+    <img src="/images/test.png" alt="Test Image">
+    
+    <script type="module">
+        // Import the WASM module
+        import init, { apply_patches } from '../../crates/dodeca-devtools/pkg/dodeca_devtools.js';
+        
+        async function runTest() {
+            await init();
+            
+            console.log("WASM loaded, body before patch:", document.body.innerHTML);
+            
+            // The patch we're testing - Replace at empty path with body content
+            const patches = [
+                {
+                    type: "Replace",
+                    path: [],
+                    html: `<body>
+    <nav>
+        <h1>Home</h1>
+    </nav>
+    <main>
+        <h1>Welcome</h1>
+        <p>This is the UPDATED home page.</p>
+        <ul>
+            <li><a href="/guide/">Guide</a></li>
+            <li><a href="/guide/getting-started/">Getting Started</a></li>
+        </ul>
+    </main>
+    <img src="/images/test.png" alt="Test Image">
+</body>`
+                }
+            ];
+            
+            console.log("Applying patches:", JSON.stringify(patches, null, 2));
+            
+            try {
+                // Note: apply_patches expects Vec<Patch> from Rust
+                // We need to check how to call it from JS
+                const result = apply_patches(patches);
+                console.log("Patches applied, count:", result);
+            } catch (e) {
+                console.error("Error applying patches:", e);
+            }
+            
+            console.log("Body after patch:", document.body.innerHTML);
+            
+            // Check result
+            if (document.body.innerHTML.includes("UPDATED")) {
+                console.log("SUCCESS: Body contains UPDATED");
+            } else {
+                console.error("FAILURE: Body does not contain UPDATED");
+            }
+        }
+        
+        runTest();
+    </script>
+</body>
+</html>

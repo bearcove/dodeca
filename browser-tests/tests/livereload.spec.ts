@@ -46,6 +46,11 @@ test.describe("Livereload and DOM Patching", () => {
     // Track page reloads
     let reloadCount = 0;
     page.on("load", () => reloadCount++);
+    
+    // Capture console logs
+    page.on("console", (msg) => {
+      console.log(`[browser ${msg.type()}] ${msg.text()}`);
+    });
 
     // Navigate to home page
     await page.goto(site.url);

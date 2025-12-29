@@ -15,9 +15,10 @@ path = "src/main.rs"
 [dependencies]
 cell-html-diff-proto = { path = "../cell-html-diff-proto" }
 dodeca-protocol = { path = "../../crates/dodeca-protocol" }
+html-diff-tests = { path = "../../crates/html-diff-tests" }
 facet.workspace = true
 facet-diff.workspace = true
 facet-format-html.workspace = true
-facet-format-xml.workspace = true
 rapace-cell.workspace = true
 tokio.workspace = true
+tracing.workspace = true

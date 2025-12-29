@@ -455,17 +455,12 @@ pub async fn inject_livereload_with_build_info(
     };
 
     // Always inject copy button script and syntax highlighting styles for code blocks
-    // Try to inject after <html, but fall back to after <!doctype html> if <html not found
+    // Inject after opening <head> tag so content is properly inside <head>
     let config = crate::config::global_config().expect("Config not initialized");
     let syntax_css = generate_syntax_highlight_css(&config.light_theme_css, &config.dark_theme_css);
     let scripts_to_inject =
         format!("{syntax_css}{COPY_BUTTON_STYLES}{COPY_BUTTON_SCRIPT}{build_info_assets}");
-    if result.contains("<html") {
-        result = result.replacen("<html", &format!("{scripts_to_inject}<html"), 1);
-    } else if let Some(pos) = result.to_lowercase().find("<!doctype html>") {
-        let end = pos + "<!doctype html>".len();
-        result.insert_str(end, &scripts_to_inject);
-    }
+    result = inject_into_head(&result, &scripts_to_inject);
 
     if options.livereload {
         // Only inject dead link styles if there are actually dead links
@@ -494,11 +489,28 @@ pub async fn inject_livereload_with_build_info(
 }})();
 </script>"##
         );
-        // Inject styles and script after <html> - always present even after minification
-        result.replacen("<html", &format!("{styles}{devtools_script}<html"), 1)
+        // Inject styles and script into <head>
+        inject_into_head(&result, &format!("{styles}{devtools_script}"))
     } else {
         result
     }
+}
+
+/// Inject content after the opening <head> tag.
+/// Handles both `<head>` and `<head ...>` with attributes.
+fn inject_into_head(html: &str, content: &str) -> String {
+    let lower = html.to_lowercase();
+    if let Some(head_start) = lower.find("<head") {
+        // Find the closing > of the <head> tag
+        if let Some(rel_end) = lower[head_start..].find('>') {
+            let insert_pos = head_start + rel_end + 1;
+            let mut result = html.to_string();
+            result.insert_str(insert_pos, content);
+            return result;
+        }
+    }
+    // Fallback: prepend (shouldn't happen with valid HTML)
+    format!("{content}{html}")
 }
 
 // ============================================================================
