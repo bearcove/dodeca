@@ -1,12 +1,20 @@
 //! RPC protocol for dodeca HTML processing cell
 //!
-//! This cell handles HTML transformations:
+//! This cell handles all HTML transformations:
+//! - Parsing and serialization (via facet-format-html)
 //! - URL rewriting (href, src, srcset attributes)
 //! - Dead link marking
-//! - Build info button injection
+//! - Code button injection (copy + build info)
+//! - Script/style injection
+//! - Inline CSS/JS minification (via callbacks to host)
+//! - HTML structural minification
+//! - DOM diffing for live reload
 
 use facet::Facet;
 use std::collections::{HashMap, HashSet};
+
+// Re-export patch types from protocol
+pub use dodeca_protocol::{NodePath, Patch};
 
 // ============================================================================
 // Result types
@@ -23,6 +31,120 @@ pub enum HtmlResult {
     /// Error during processing
     Error { message: String },
 }
+
+/// Result of diffing two DOM trees
+#[derive(Debug, Clone, Facet)]
+pub struct DiffResult {
+    /// Patches to apply (in order)
+    pub patches: Vec<Patch>,
+    /// Stats for debugging
+    pub nodes_compared: usize,
+    pub nodes_skipped: usize,
+}
+
+/// Result of HTML diff operations
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum HtmlDiffResult {
+    /// Successfully diffed HTML
+    Success { result: DiffResult },
+    /// Error during diffing
+    Error { message: String },
+}
+
+/// Result of CSS minification (from host)
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum MinifyCssResult {
+    /// Successfully minified
+    Success { css: String },
+    /// Minification failed (return original)
+    Error { message: String },
+}
+
+/// Result of JS minification (from host)
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum MinifyJsResult {
+    /// Successfully minified
+    Success { js: String },
+    /// Minification failed (return original)
+    Error { message: String },
+}
+
+// ============================================================================
+// Processing input types
+// ============================================================================
+
+/// Options for HTML minification
+#[derive(Debug, Clone, Default, Facet)]
+pub struct MinifyOptions {
+    /// Minify inline `<style>` content via host callback
+    pub minify_inline_css: bool,
+    /// Minify inline `<script>` content via host callback
+    pub minify_inline_js: bool,
+    /// Minify HTML structure (remove unnecessary whitespace)
+    pub minify_html: bool,
+}
+
+/// Typed injection for HTML documents
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum Injection {
+    /// Inject a `<style>` element into `<head>`
+    HeadStyle { css: String },
+    /// Inject a `<script>` element into `<head>`
+    HeadScript { js: String, module: bool },
+    /// Inject a `<script>` element at end of `<body>` (for deferred loading)
+    BodyScript { js: String, module: bool },
+}
+
+/// Input for the unified process() method
+#[derive(Debug, Clone, Facet)]
+pub struct HtmlProcessInput {
+    /// The HTML to process
+    pub html: String,
+
+    /// URL rewriting map (old path -> new path)
+    #[facet(default)]
+    pub path_map: Option<HashMap<String, String>>,
+
+    /// Known routes for dead link detection
+    #[facet(default)]
+    pub known_routes: Option<HashSet<String>>,
+
+    /// Code execution metadata for build info buttons
+    #[facet(default)]
+    pub code_metadata: Option<HashMap<String, CodeExecutionMetadata>>,
+
+    /// Content to inject into the document
+    #[facet(default)]
+    pub injections: Vec<Injection>,
+
+    /// Minification options
+    #[facet(default)]
+    pub minify: Option<MinifyOptions>,
+}
+
+/// Result of the unified process() method
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
+pub enum HtmlProcessResult {
+    /// Successfully processed HTML
+    Success {
+        html: String,
+        /// Whether any dead links were found
+        had_dead_links: bool,
+        /// Whether any code buttons were injected
+        had_code_buttons: bool,
+    },
+    /// Error during processing
+    Error { message: String },
+}
+
+// ============================================================================
+// Code execution metadata (for build info buttons)
+// ============================================================================
 
 /// Code execution metadata for build info buttons
 #[derive(Debug, Clone, Facet)]
@@ -69,42 +191,61 @@ pub enum DependencySource {
 /// HTML processing service implemented by the CELL.
 ///
 /// The host calls these methods to process HTML content.
-/// All required data is passed as parameters.
+/// For operations that need CSS/JS minification, the cell calls back
+/// to the HtmlHost service.
 #[allow(async_fn_in_trait)]
 #[rapace::service]
 pub trait HtmlProcessor {
-    /// Rewrite URLs in HTML (href, src, srcset attributes).
+    /// Unified HTML processing: parse, transform, serialize.
     ///
-    /// Takes the HTML and a path map for rewriting URLs.
+    /// This method handles all HTML transformations in a single call:
+    /// - URL rewriting (if path_map provided)
+    /// - Dead link marking (if known_routes provided)
+    /// - Code button injection (if code_metadata provided)
+    /// - Content injection (if injections provided)
+    /// - Inline CSS/JS minification (if minify options set, calls HtmlHost)
+    /// - HTML structural minification (if minify.minify_html set)
+    async fn process(&self, input: HtmlProcessInput) -> HtmlProcessResult;
+
+    /// Diff two HTML documents and produce patches to transform old into new.
+    ///
+    /// Used for live reload to send minimal DOM updates to the browser.
+    async fn diff(&self, old_html: String, new_html: String) -> HtmlDiffResult;
+
+    // === Legacy methods (for backward compatibility during migration) ===
+
+    /// Rewrite URLs in HTML (href, src, srcset attributes).
     async fn rewrite_urls(&self, html: String, path_map: HashMap<String, String>) -> HtmlResult;
 
     /// Mark dead internal links by adding `data-dead` attribute.
-    ///
-    /// Takes the HTML and a set of known routes.
-    /// Returns the modified HTML and whether any dead links were found.
     async fn mark_dead_links(&self, html: String, known_routes: HashSet<String>) -> HtmlResult;
 
-    /// Inject build info buttons into code blocks.
-    ///
-    /// Takes the HTML and a map of normalized code -> metadata.
-    /// Returns the modified HTML and whether any buttons were added.
-    async fn inject_build_info(
-        &self,
-        html: String,
-        code_metadata: HashMap<String, CodeExecutionMetadata>,
-    ) -> HtmlResult;
-
     /// Inject copy buttons (and optionally build info buttons) into all pre blocks.
-    ///
-    /// This is a single-pass operation that:
-    /// - Adds a copy button to every pre block
-    /// - Adds inline style for position:relative to pre blocks
-    /// - Optionally adds build info buttons if code_metadata matches
-    ///
-    /// Returns the modified HTML and whether any buttons were added.
     async fn inject_code_buttons(
         &self,
         html: String,
         code_metadata: HashMap<String, CodeExecutionMetadata>,
     ) -> HtmlResult;
+}
+
+// ============================================================================
+// Host service (cell calls these)
+// ============================================================================
+
+/// Service implemented by the HOST (dodeca) that the cell can call.
+///
+/// This enables the cell to delegate CSS/JS minification to specialized cells
+/// without needing direct cell-to-cell communication.
+#[allow(async_fn_in_trait)]
+#[rapace::service]
+pub trait HtmlHost {
+    /// Minify CSS content.
+    ///
+    /// The host dispatches this to cell-css.
+    async fn minify_css(&self, css: String) -> MinifyCssResult;
+
+    /// Minify JavaScript content.
+    ///
+    /// The host dispatches this to cell-js.
+    async fn minify_js(&self, js: String) -> MinifyJsResult;
 }

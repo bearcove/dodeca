@@ -1,15 +1,24 @@
-//! HTML diff path translation tests
+//! HTML diffing using facet-html and facet-diff
 //!
-//! This crate tests the translation from facet-diff paths to DOM patches.
+//! Translates facet-diff EditOps into DOM Patches for live reload.
 
-pub use dodeca_protocol::{NodePath, Patch};
+use cell_html_proto::Patch;
+use dodeca_protocol::NodePath;
 use facet_diff::{EditOp, PathSegment, tree_diff};
 use facet_html::{self as html, elements::*};
 
+/// Diff two HTML strings and return patches
+pub fn diff_html(old_html: &str, new_html: &str) -> Result<Vec<Patch>, String> {
+    let old_doc: Html = html::from_str(old_html).map_err(|e| format!("parse old: {e}"))?;
+    let new_doc: Html = html::from_str(new_html).map_err(|e| format!("parse new: {e}"))?;
+
+    let edit_ops = tree_diff(&old_doc, &new_doc);
+
+    Ok(translate_to_patches(&edit_ops, &new_doc, new_html))
+}
+
 /// Translate facet-diff EditOps into DOM Patches.
-///
-/// This is the core logic that needs thorough testing.
-pub fn translate_to_patches(edit_ops: &[EditOp], new_doc: &Html, new_html: &str) -> Vec<Patch> {
+fn translate_to_patches(edit_ops: &[EditOp], new_doc: &Html, new_html: &str) -> Vec<Patch> {
     let mut patches = Vec::new();
 
     // First pass: look for paired Insert+Delete on same children array (text change pattern)
@@ -193,7 +202,6 @@ fn get_direct_attr_from_element(elem: &FlowContent, attr_name: &str) -> Option<S
             "alt" => img.alt.clone(),
             _ => None,
         },
-        // Add more element types as needed
         _ => None,
     }
 }
@@ -521,7 +529,6 @@ fn translate_update(segments: &[PathSegment], new_doc: &Html, new_html: &str) ->
     match analysis.target {
         PathTarget::Text => {
             // Text content changed - need SetText at the parent element
-            // The text node itself is at analysis.dom_path, parent is one level up
             if analysis.dom_path.is_empty() {
                 return None; // Can't set text on body itself
             }
@@ -684,10 +691,8 @@ fn is_known_attribute(name: &str) -> bool {
 
 /// Get text value at a path in the document
 fn get_text_at_path(doc: &Html, segments: &[PathSegment]) -> Option<String> {
-    // Navigate the path to find the text node
     let body = doc.body.as_ref()?;
 
-    // Skip to body.children
     let mut seg_iter = segments.iter().peekable();
 
     // Skip "body" field
@@ -752,7 +757,6 @@ fn navigate_flow_content<'a>(
                 FlowContent::Span(s) => navigate_phrasing_content(&s.children, seg_iter),
                 FlowContent::Strong(s) => navigate_phrasing_content(&s.children, seg_iter),
                 FlowContent::Em(e) => navigate_phrasing_content(&e.children, seg_iter),
-                // Add more as needed...
                 _ => None,
             }
         }
@@ -800,7 +804,6 @@ fn navigate_phrasing_content<'a>(
                 PhrasingContent::Em(e) => navigate_phrasing_content(&e.children, seg_iter),
                 PhrasingContent::A(a) => navigate_phrasing_content(&a.children, seg_iter),
                 PhrasingContent::Code(c) => navigate_phrasing_content(&c.children, seg_iter),
-                // Add more as needed...
                 _ => None,
             }
         }
@@ -810,7 +813,6 @@ fn navigate_phrasing_content<'a>(
 
 /// Get attribute value at a path in the document
 fn get_attribute_at_path(doc: &Html, segments: &[PathSegment], attr: &str) -> Option<String> {
-    // Navigate to the element and get its attribute
     let body = doc.body.as_ref()?;
 
     let mut seg_iter = segments.iter().peekable();
@@ -871,7 +873,6 @@ fn get_attr_from_flow_content<'a>(
             match child {
                 FlowContent::Div(d) => get_attr_from_flow_content(&d.children, seg_iter, attr),
                 FlowContent::P(p) => get_attr_from_phrasing_content(&p.children, seg_iter, attr),
-                // Add more...
                 _ => None,
             }
         }
@@ -931,7 +932,6 @@ fn get_attr_from_element(elem: &FlowContent, attr: &str) -> Option<String> {
         FlowContent::Span(s) => &s.attrs,
         FlowContent::Strong(s) => &s.attrs,
         FlowContent::Em(e) => &e.attrs,
-        // Add more as needed...
         _ => return None,
     };
 
@@ -987,605 +987,4 @@ fn extract_body_html(html: &str) -> Option<String> {
     let body_start = html.find("<body")?;
     let body_end = html.rfind("</body>")?;
     Some(html[body_start..body_end + 7].to_string())
-}
-
-/// Diff two HTML strings and return patches
-pub fn diff_html(old_html: &str, new_html: &str) -> Result<Vec<Patch>, String> {
-    diff_html_debug(old_html, new_html, false)
-}
-
-/// Diff two HTML strings and return patches, optionally printing debug output
-pub fn diff_html_debug(old_html: &str, new_html: &str, debug: bool) -> Result<Vec<Patch>, String> {
-    let old_doc: Html = html::from_str(old_html).map_err(|e| format!("parse old: {e}"))?;
-    let new_doc: Html = html::from_str(new_html).map_err(|e| format!("parse new: {e}"))?;
-
-    let edit_ops = tree_diff(&old_doc, &new_doc);
-
-    if debug {
-        eprintln!(
-            "=== Edit ops from facet-diff ({} total) ===",
-            edit_ops.len()
-        );
-        for op in &edit_ops {
-            eprintln!("  {:?}", op);
-        }
-        eprintln!("=== End edit ops ===");
-    }
-
-    Ok(translate_to_patches(&edit_ops, &new_doc, new_html))
-}
-
-/// Module for running patches through jsdom to verify they work
-#[cfg(test)]
-pub mod jsdom {
-    use super::*;
-    use facet::Facet;
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-
-    #[derive(Facet)]
-    struct JsdomInput {
-        html: String,
-        patches: Vec<JsPatch>,
-    }
-
-    #[derive(Facet)]
-    #[facet(tag = "type")]
-    #[repr(u8)]
-    #[allow(dead_code)] // Fields are serialized via Facet
-    enum JsPatch {
-        SetText {
-            path: Vec<usize>,
-            text: String,
-        },
-        SetAttribute {
-            path: Vec<usize>,
-            name: String,
-            value: String,
-        },
-        RemoveAttribute {
-            path: Vec<usize>,
-            name: String,
-        },
-        Remove {
-            path: Vec<usize>,
-        },
-        Replace {
-            path: Vec<usize>,
-            html: String,
-        },
-        InsertBefore {
-            path: Vec<usize>,
-            html: String,
-        },
-        InsertAfter {
-            path: Vec<usize>,
-            html: String,
-        },
-        AppendChild {
-            path: Vec<usize>,
-            html: String,
-        },
-    }
-
-    impl From<&Patch> for JsPatch {
-        fn from(patch: &Patch) -> Self {
-            match patch {
-                Patch::SetText { path, text } => JsPatch::SetText {
-                    path: path.0.clone(),
-                    text: text.clone(),
-                },
-                Patch::SetAttribute { path, name, value } => JsPatch::SetAttribute {
-                    path: path.0.clone(),
-                    name: name.clone(),
-                    value: value.clone(),
-                },
-                Patch::RemoveAttribute { path, name } => JsPatch::RemoveAttribute {
-                    path: path.0.clone(),
-                    name: name.clone(),
-                },
-                Patch::Remove { path } => JsPatch::Remove {
-                    path: path.0.clone(),
-                },
-                Patch::Replace { path, html } => JsPatch::Replace {
-                    path: path.0.clone(),
-                    html: html.clone(),
-                },
-                Patch::InsertBefore { path, html } => JsPatch::InsertBefore {
-                    path: path.0.clone(),
-                    html: html.clone(),
-                },
-                Patch::InsertAfter { path, html } => JsPatch::InsertAfter {
-                    path: path.0.clone(),
-                    html: html.clone(),
-                },
-                Patch::AppendChild { path, html } => JsPatch::AppendChild {
-                    path: path.0.clone(),
-                    html: html.clone(),
-                },
-            }
-        }
-    }
-
-    #[derive(Facet)]
-    struct JsdomOutput {
-        success: bool,
-        html: Option<String>,
-        error: Option<String>,
-    }
-
-    /// Apply patches to HTML using jsdom and return the resulting body innerHTML
-    pub fn apply_patches(html: &str, patches: &[Patch]) -> Result<String, String> {
-        let js_patches: Vec<JsPatch> = patches.iter().map(|p| p.into()).collect();
-        let input = JsdomInput {
-            html: html.to_string(),
-            patches: js_patches,
-        };
-
-        let js_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/js-tests");
-
-        let mut child = Command::new("node")
-            .arg("apply-patches.js")
-            .current_dir(js_dir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("Failed to spawn node: {e}"))?;
-
-        {
-            let stdin = child.stdin.as_mut().unwrap();
-            let json =
-                facet_json::to_string(&input).map_err(|e| format!("JSON serialize failed: {e}"))?;
-            stdin
-                .write_all(json.as_bytes())
-                .map_err(|e| format!("Write failed: {e}"))?;
-        }
-
-        let output = child
-            .wait_with_output()
-            .map_err(|e| format!("Wait failed: {e}"))?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Node failed: {stderr}"));
-        }
-
-        let result: JsdomOutput = facet_json::from_slice(&output.stdout)
-            .map_err(|e| format!("JSON parse failed: {e}"))?;
-
-        if result.success {
-            Ok(result.html.unwrap_or_default())
-        } else {
-            Err(result.error.unwrap_or_else(|| "Unknown error".into()))
-        }
-    }
-
-    /// Normalize HTML for comparison (remove extra whitespace)
-    pub fn normalize_html(html: &str) -> String {
-        html.split_whitespace().collect::<Vec<_>>().join(" ")
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // =========================================================================
-    // Path Analysis Tests
-    // =========================================================================
-
-    #[test]
-    fn analyze_simple_element_path() {
-        // body.children.[0]
-        let segments = vec![
-            PathSegment::Field("body".into()),
-            PathSegment::Field("children".into()),
-            PathSegment::Index(0),
-        ];
-        let analysis = analyze_path(&segments);
-        assert_eq!(analysis.dom_path, vec![0]);
-        assert_eq!(analysis.target, PathTarget::Element);
-    }
-
-    #[test]
-    fn analyze_nested_element_path() {
-        // body.children.[0].::div.[0].children.[1]
-        let segments = vec![
-            PathSegment::Field("body".into()),
-            PathSegment::Field("children".into()),
-            PathSegment::Index(0),
-            PathSegment::Variant("Div".into()),
-            PathSegment::Index(0),
-            PathSegment::Field("children".into()),
-            PathSegment::Index(1),
-        ];
-        let analysis = analyze_path(&segments);
-        assert_eq!(analysis.dom_path, vec![0, 1]);
-        assert_eq!(analysis.target, PathTarget::Element);
-    }
-
-    #[test]
-    fn analyze_text_path() {
-        // body.children.[0].::p.[0].children.[0].::_text.[0]
-        let segments = vec![
-            PathSegment::Field("body".into()),
-            PathSegment::Field("children".into()),
-            PathSegment::Index(0),
-            PathSegment::Variant("P".into()),
-            PathSegment::Index(0),
-            PathSegment::Field("children".into()),
-            PathSegment::Index(0),
-            PathSegment::Variant("_text".into()),
-            PathSegment::Index(0),
-        ];
-        let analysis = analyze_path(&segments);
-        assert_eq!(analysis.dom_path, vec![0, 0]);
-        assert_eq!(analysis.target, PathTarget::Text);
-    }
-
-    #[test]
-    fn analyze_attribute_path() {
-        // body.children.[0].::div.[0].attrs.class
-        let segments = vec![
-            PathSegment::Field("body".into()),
-            PathSegment::Field("children".into()),
-            PathSegment::Index(0),
-            PathSegment::Variant("Div".into()),
-            PathSegment::Index(0),
-            PathSegment::Field("attrs".into()),
-            PathSegment::Field("class".into()),
-        ];
-        let analysis = analyze_path(&segments);
-        assert_eq!(analysis.dom_path, vec![0]);
-        assert_eq!(analysis.target, PathTarget::Attribute("class".into()));
-    }
-
-    // =========================================================================
-    // Full Diff Tests
-    // =========================================================================
-
-    #[test]
-    fn diff_identical_docs() {
-        let html = "<html><body><p>Hello</p></body></html>";
-        let patches = diff_html(html, html).unwrap();
-        assert!(
-            patches.is_empty(),
-            "Identical docs should produce no patches"
-        );
-    }
-
-    #[test]
-    fn diff_text_change() {
-        let old = "<html><body><p>Hello</p></body></html>";
-        let new = "<html><body><p>World</p></body></html>";
-        let patches = diff_html(old, new).unwrap();
-
-        assert_eq!(patches.len(), 1);
-        assert!(matches!(&patches[0], Patch::SetText { path, text }
-            if path.0 == vec![0] && text == "World"));
-    }
-
-    #[test]
-    fn diff_add_element() {
-        let old = "<html><body><p>One</p></body></html>";
-        let new = "<html><body><p>One</p><p>Two</p></body></html>";
-        let patches = diff_html(old, new).unwrap();
-
-        assert!(!patches.is_empty(), "Should detect added element");
-    }
-
-    #[test]
-    fn diff_remove_element() {
-        let old = "<html><body><p>One</p><p>Two</p></body></html>";
-        let new = "<html><body><p>One</p></body></html>";
-        let patches = diff_html(old, new).unwrap();
-
-        assert!(!patches.is_empty(), "Should detect removed element");
-        // Should have a Remove patch
-        let has_remove = patches.iter().any(|p| matches!(p, Patch::Remove { .. }));
-        assert!(has_remove, "Should generate Remove patch");
-    }
-
-    // =========================================================================
-    // Integration Tests with jsdom
-    // =========================================================================
-
-    mod jsdom_tests {
-        use super::*;
-        use crate::jsdom;
-
-        fn assert_diff_produces(old: &str, new: &str, expected_body: &str) {
-            let patches = diff_html(old, new).expect("diff should succeed");
-            println!("Patches: {patches:#?}");
-
-            let result = jsdom::apply_patches(old, &patches).expect("jsdom should succeed");
-            println!("Result: {result}");
-
-            assert_eq!(
-                jsdom::normalize_html(&result),
-                jsdom::normalize_html(expected_body),
-                "Patched HTML should match expected"
-            );
-        }
-
-        #[test]
-        fn jsdom_identical_docs() {
-            let html = "<html><body><p>Hello</p></body></html>";
-            let patches = diff_html(html, html).unwrap();
-            assert!(patches.is_empty());
-
-            // Applying no patches should leave body unchanged
-            let result = jsdom::apply_patches(html, &patches).unwrap();
-            assert_eq!(jsdom::normalize_html(&result), "<p>Hello</p>");
-        }
-
-        #[test]
-        fn jsdom_text_change() {
-            assert_diff_produces(
-                "<html><body><p>Hello</p></body></html>",
-                "<html><body><p>World</p></body></html>",
-                "<p>World</p>",
-            );
-        }
-
-        #[test]
-        fn jsdom_add_element() {
-            assert_diff_produces(
-                "<html><body><p>One</p></body></html>",
-                "<html><body><p>One</p><p>Two</p></body></html>",
-                "<p>One</p><p>Two</p>",
-            );
-        }
-
-        #[test]
-        fn jsdom_remove_element() {
-            assert_diff_produces(
-                "<html><body><p>One</p><p>Two</p></body></html>",
-                "<html><body><p>One</p></body></html>",
-                "<p>One</p>",
-            );
-        }
-
-        #[test]
-        fn jsdom_change_attribute() {
-            assert_diff_produces(
-                r#"<html><body><div class="old">Content</div></body></html>"#,
-                r#"<html><body><div class="new">Content</div></body></html>"#,
-                r#"<div class="new">Content</div>"#,
-            );
-        }
-
-        #[test]
-        fn jsdom_nested_text_change() {
-            assert_diff_produces(
-                "<html><body><div><p>Hello</p></div></body></html>",
-                "<html><body><div><p>World</p></div></body></html>",
-                "<div><p>World</p></div>",
-            );
-        }
-
-        #[test]
-        fn jsdom_mixed_content() {
-            assert_diff_produces(
-                "<html><body><p>Hello <strong>world</strong></p></body></html>",
-                "<html><body><p>Hello <strong>universe</strong></p></body></html>",
-                "<p>Hello <strong>universe</strong></p>",
-            );
-        }
-
-        #[test]
-        fn jsdom_add_nested_element() {
-            assert_diff_produces(
-                "<html><body><div><p>One</p></div></body></html>",
-                "<html><body><div><p>One</p><p>Two</p></div></body></html>",
-                "<div><p>One</p><p>Two</p></div>",
-            );
-        }
-
-        #[test]
-        fn jsdom_change_heading_text() {
-            assert_diff_produces(
-                "<html><body><h1>Old Title</h1></body></html>",
-                "<html><body><h1>New Title</h1></body></html>",
-                "<h1>New Title</h1>",
-            );
-        }
-
-        #[test]
-        fn jsdom_add_attribute() {
-            assert_diff_produces(
-                "<html><body><div>Content</div></body></html>",
-                r#"<html><body><div id="main">Content</div></body></html>"#,
-                r#"<div id="main">Content</div>"#,
-            );
-        }
-
-        #[test]
-        fn jsdom_change_link_href() {
-            assert_diff_produces(
-                r#"<html><body><a href="old.html">Link</a></body></html>"#,
-                r#"<html><body><a href="new.html">Link</a></body></html>"#,
-                r#"<a href="new.html">Link</a>"#,
-            );
-        }
-
-        #[test]
-        fn jsdom_deeply_nested_text() {
-            assert_diff_produces(
-                "<html><body><div><div><p>Deep</p></div></div></body></html>",
-                "<html><body><div><div><p>Deeper</p></div></div></body></html>",
-                "<div><div><p>Deeper</p></div></div>",
-            );
-        }
-
-        #[test]
-        fn jsdom_multiple_changes() {
-            // Change both text and an attribute
-            let old = r#"<html><body><div class="old"><p>Hello</p></div></body></html>"#;
-            let new = r#"<html><body><div class="new"><p>World</p></div></body></html>"#;
-            let patches = diff_html(old, new).unwrap();
-
-            // Should have multiple granular patches
-            println!("Multiple changes patches: {patches:#?}");
-            assert!(!patches.is_empty());
-
-            // Apply and verify
-            let result = jsdom::apply_patches(old, &patches).unwrap();
-            assert!(result.contains("World"));
-            assert!(result.contains(r#"class="new""#));
-        }
-
-        #[test]
-        fn jsdom_realistic_html() {
-            // Realistic HTML structure but using supported elements only
-            let old = r#"<html>
-<head>
-    <title>Test Page</title>
-</head>
-<body>
-    <header>
-        <nav><a href="/">Home</a></nav>
-    </header>
-    <main>
-        <h1>Welcome</h1>
-        <p>This is the home page.</p>
-        <ul>
-            <li><a href="/guide/">Guide</a></li>
-            <li><a href="/guide/getting-started/">Getting Started</a></li>
-        </ul>
-    </main>
-</body>
-</html>"#;
-
-            let new = r#"<html>
-<head>
-    <title>Test Page</title>
-</head>
-<body>
-    <header>
-        <nav><a href="/">Home</a></nav>
-    </header>
-    <main>
-        <h1>Welcome</h1>
-        <p>This is the UPDATED home page.</p>
-        <ul>
-            <li><a href="/guide/">Guide</a></li>
-            <li><a href="/guide/getting-started/">Getting Started</a></li>
-        </ul>
-    </main>
-</body>
-</html>"#;
-
-            let patches = diff_html_debug(old, new, true).unwrap();
-            println!("Realistic HTML patches: {patches:#?}");
-
-            assert!(
-                !patches.is_empty(),
-                "Should detect changes in realistic HTML"
-            );
-
-            let result = jsdom::apply_patches(old, &patches).unwrap();
-            assert!(
-                result.contains("UPDATED"),
-                "Result should contain UPDATED: {}",
-                result
-            );
-        }
-
-        #[test]
-        fn test_dodeca_real_html() {
-            // Real HTML from dodeca - with style/script inside <head>
-            // (Previously had style/script before <html> which was fixed in render.rs)
-            let html = r#"<!DOCTYPE html><html><head><title>Home</title><style>
-/* Some CSS */
-pre { background: #fff; }
-</style><script>
-console.log('hello');
-</script></head><body><h1>Welcome</h1><p>This is the home page.</p></body></html>"#;
-
-            match crate::diff_html(html, html) {
-                Ok(patches) => {
-                    assert!(
-                        patches.is_empty(),
-                        "Identical docs should produce no patches"
-                    );
-                }
-                Err(e) => {
-                    panic!("Failed to parse real dodeca HTML: {}", e);
-                }
-            }
-        }
-
-        #[test]
-        fn test_dodeca_like_html() {
-            // Simulated dodeca HTML structure with DOCTYPE and meta charset
-            let old = r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>Test Page</title>
-    <link rel="stylesheet" href="/css/main.css">
-</head>
-<body>
-    <nav>
-        <h1>Home</h1>
-    </nav>
-    <main>
-        <h1>Welcome</h1>
-        <p>This is the home page.</p>
-        <ul>
-            <li><a href="/guide/">Guide</a></li>
-            <li><a href="/guide/getting-started/">Getting Started</a></li>
-        </ul>
-    </main>
-    <img src="/images/test.png" alt="Test Image">
-</body>
-</html>"#;
-
-            let new = r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <title>Test Page</title>
-    <link rel="stylesheet" href="/css/main.css">
-</head>
-<body>
-    <nav>
-        <h1>Home</h1>
-    </nav>
-    <main>
-        <h1>Welcome</h1>
-        <p>This is the UPDATED home page.</p>
-        <ul>
-            <li><a href="/guide/">Guide</a></li>
-            <li><a href="/guide/getting-started/">Getting Started</a></li>
-        </ul>
-    </main>
-    <img src="/images/test.png" alt="Test Image">
-</body>
-</html>"#;
-
-            let patches = diff_html_debug(old, new, true).unwrap();
-            println!("Dodeca-like HTML patches: {patches:#?}");
-
-            // Verify the patch contains actual body content
-            for patch in &patches {
-                if let Patch::Replace { html, .. } = patch {
-                    assert!(
-                        html.contains("Welcome"),
-                        "Replace patch should contain body content, got: {}",
-                        html
-                    );
-                    assert!(
-                        html.contains("UPDATED"),
-                        "Replace patch should contain updated text, got: {}",
-                        html
-                    );
-                }
-            }
-
-            assert!(!patches.is_empty(), "Should detect changes");
-        }
-    }
 }

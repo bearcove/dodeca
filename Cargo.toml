@@ -49,8 +49,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["a
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-format-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-format-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -80,11 +79,7 @@ include_dir = "0.7"
 owo-colors = "4"
 ratatui = "0.30"
 structstruck = "0.5"
-
-# Web/HTML processing
-html5ever = "0.36"
-lol_html = "2.7"
-markup5ever_rcdom = "0.36"
+html-escape = "0.2"
 minify-html = "0.18"
 
 # CSS processing
@@ -141,7 +136,7 @@ libc = "0.2"
 passfd = "0.1"
 rapidhash = "4"
 socket2 = "0.6"
-strid = "4.0"
+strid = "5.0"
 
 # Misc utilities
 open = "5"
@@ -162,9 +157,7 @@ facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-format = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-format-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-format-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macro-parse = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -174,10 +167,11 @@ facet-macros-impl = { git = "https://github.com/facet-rs/facet", branch = "main"
 facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-pretty = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-singularize = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-solver = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-svg = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-xml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
 # Optimize dependencies in dev mode for faster tests
