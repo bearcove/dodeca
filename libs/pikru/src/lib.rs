@@ -60,7 +60,7 @@ pub fn pikchr_with_options(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use facet_format_svg::facet_format_xml::SerializeOptions;
+    use facet_svg::facet_xml::SerializeOptions;
     use pest::Parser;
 
     #[test]
@@ -353,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_pathdata_serialization() {
-        use facet_format_svg::{Path, PathData, Svg, SvgNode, facet_format_xml};
+        use facet_svg::{Path, PathData, Svg, SvgNode, facet_xml};
 
         // Create a simple path
         let path_data = PathData::parse("M10,10L50,50").unwrap();
@@ -376,7 +376,7 @@ mod tests {
             children: vec![SvgNode::Path(path)],
         };
 
-        let xml = facet_format_xml::to_string_with_options(
+        let xml = facet_xml::to_string_with_options(
             &svg,
             &SerializeOptions {
                 pretty: true,
@@ -393,7 +393,7 @@ mod tests {
     #[test]
     fn test_facet_xml_namespace_issue() {
         // Minimal reproduction of namespace prefixing issue with facet-xml
-        use facet_format_svg::{Circle, Svg, SvgNode, facet_format_xml};
+        use facet_svg::{Circle, Svg, SvgNode, facet_xml};
 
         let svg = Svg {
             width: None,
@@ -411,7 +411,7 @@ mod tests {
             })],
         };
 
-        let xml = facet_format_xml::to_string_with_options(
+        let xml = facet_xml::to_string_with_options(
             &svg,
             &SerializeOptions {
                 pretty: true,

@@ -6,7 +6,7 @@
 //! - Render itself to SVG
 
 use crate::types::{BoxIn, Length as Inches, OffsetIn, Point, Scaler, Size, UnitVec};
-use facet_format_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode};
+use facet_svg::{Circle as SvgCircle, Ellipse as SvgEllipse, Path, PathData, SvgNode};
 use glam::DVec2;
 
 use super::defaults;

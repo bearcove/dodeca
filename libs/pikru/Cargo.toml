@@ -5,7 +5,7 @@ members = ["xtask", "crates/pikru-mcp", "crates/pikru-compare"]
 name = "pikru"
 version = "1.0.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 authors = ["Amos Wenger <amos@bearcove.eu>"]
 description = "A pure Rust implementation of pikchr, a PIC-like diagram markup language that generates SVG"
 license = "MIT OR Apache-2.0"
@@ -36,7 +36,7 @@ miette = { version = "7.6.0", features = ["fancy"] }
 pest = "2.8.4"
 pest_derive = "2.8.4"
 # SVG DOM generation and XML serialization
-facet-format-svg = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-svg = { git = "https://github.com/facet-rs/facet", branch = "main" }
 # Debug logging (only emits when RUST_LOG is set) - optional
 tracing = { version = "0.1.43", optional = true }
 # Derive macro for custom error types

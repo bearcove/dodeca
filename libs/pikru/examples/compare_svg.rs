@@ -2,7 +2,7 @@
 //!
 //! Parses both SVGs and compares semantic values (positions, sizes, colors)
 
-use facet_format_svg::{Svg, SvgNode};
+use facet_svg::{Svg, SvgNode};
 use std::process::Command;
 
 fn main() {
@@ -65,7 +65,7 @@ fn compare_file(path: &str) {
 }
 
 fn parse_svg_elements(svg: &str) -> Vec<String> {
-    let doc: Svg = match facet_format_svg::from_str(svg) {
+    let doc: Svg = match facet_svg::from_str(svg) {
         Ok(d) => d,
         Err(_) => return vec![],
     };

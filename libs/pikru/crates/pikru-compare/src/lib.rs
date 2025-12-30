@@ -9,7 +9,7 @@
 
 use camino::Utf8Path;
 use facet_assert::{SameOptions, SameReport, check_same_with_report};
-use facet_format_svg::Svg;
+use facet_svg::Svg;
 use std::fs;
 use std::process::Command;
 
@@ -103,7 +103,7 @@ pub fn extract_pre_svg_text(output: &str) -> Option<&str> {
 /// Parse SVG string into typed Svg struct (for structural comparison)
 pub fn parse_svg(svg: &str) -> Result<Svg, String> {
     let svg_only = extract_svg(svg).unwrap_or(svg);
-    facet_format_svg::from_str(svg_only).map_err(|e| format!("XML parse error: {:?}", e))
+    facet_svg::from_str(svg_only).map_err(|e| format!("XML parse error: {:?}", e))
 }
 
 /// Options for SVG structural comparison with float tolerance
