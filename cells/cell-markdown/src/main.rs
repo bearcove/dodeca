@@ -118,7 +118,8 @@ fn parse_frontmatter_toml(toml_str: &str) -> Result<Frontmatter, String> {
         facet_toml::from_str(toml_str).map_err(|e| format!("TOML parse error: {}", e))?;
 
     // Convert extra Value to JSON string
-    let extra_json = facet_json::to_string(&parsed.extra);
+    let extra_json = facet_json::to_string(&parsed.extra)
+        .map_err(|e| format!("Failed to serialize extra: {e}"))?;
 
     Ok(Frontmatter {
         title: parsed.title,

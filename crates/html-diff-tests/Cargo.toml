@@ -8,7 +8,7 @@ publish = false
 dodeca-protocol = { path = "../dodeca-protocol" }
 facet.workspace = true
 facet-diff.workspace = true
-facet-format-html.workspace = true
+facet-html.workspace = true
 
 [dev-dependencies]
 facet-json.workspace = true

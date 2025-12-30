@@ -48,7 +48,7 @@ pub struct DodecaConfig {
     pub code_execution: CodeExecutionConfig,
 
     /// Syntax highlighting theme configuration
-    #[facet(kdl::child("syntax-highlight"), default)]
+    #[facet(kdl::child, rename = "syntax-highlight", default)]
     pub syntax_highlight: SyntaxHighlightConfig,
 }
 
@@ -208,13 +208,8 @@ fn find_config_file() -> Result<Option<Utf8PathBuf>> {
 fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
     let content = fs::read_to_string(config_path)?;
 
-    let config: DodecaConfig = kdl::from_str(&content).map_err(|e| {
-        eyre!(
-            "Failed to parse {}: {:?}",
-            config_path,
-            miette::Report::new(e)
-        )
-    })?;
+    let config: DodecaConfig =
+        kdl::from_str(&content).map_err(|e| eyre!("Failed to parse {}: {}", config_path, e))?;
 
     // Project root is the parent of .config/
     let config_dir = config_path

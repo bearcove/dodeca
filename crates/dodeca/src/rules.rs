@@ -79,7 +79,7 @@ pub struct DuplicateRule {
 /// Serialize the rules manifest to pretty-printed JSON.
 pub fn manifest_to_json(manifest: &RulesManifest) -> String {
     // This should never fail for our simple types
-    facet_format_json::to_string(manifest).expect("failed to serialize rules manifest to JSON")
+    facet_json::to_string(manifest).expect("failed to serialize rules manifest to JSON")
 }
 
 /// Generate an HTML redirect page for a rule.
