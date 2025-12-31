@@ -9,8 +9,8 @@ use std::collections::HashMap;
 
 // Re-export config types from the config crate
 pub use dodeca_code_execution_config::{
-    CodeExecutionConfig as KdlCodeExecutionConfig, DependenciesConfig, DependencySpec, RustConfig,
-    default_rust_dependencies,
+    CodeExecutionConfig as KdlCodeExecutionConfig, DependenciesConfig, DependencySpec, MultiValue,
+    RustConfig, SingleValue, default_rust_dependencies,
 };
 
 /// Runtime configuration for code sample execution (used by the plugin)
@@ -75,26 +75,44 @@ impl CodeExecutionConfig {
             command: kdl
                 .rust
                 .command
-                .clone()
+                .as_ref()
+                .map(|c| c.value.clone())
                 .unwrap_or_else(|| "cargo".to_string()),
             args: kdl
                 .rust
                 .args
-                .clone()
+                .as_ref()
+                .map(|a| a.values.clone())
                 .unwrap_or_else(|| vec!["run".to_string(), "--release".to_string()]),
             extension: kdl
                 .rust
                 .extension
-                .clone()
+                .as_ref()
+                .map(|e| e.value.clone())
                 .unwrap_or_else(|| "rs".to_string()),
-            prepare_code: kdl.rust.prepare_code.unwrap_or(true),
-            auto_imports: kdl.rust.auto_imports.clone().unwrap_or_else(|| {
-                vec![
-                    "use std::collections::HashMap;".to_string(),
-                    "use facet::Facet;".to_string(),
-                ]
-            }),
-            show_output: kdl.rust.show_output.unwrap_or(true),
+            prepare_code: kdl
+                .rust
+                .prepare_code
+                .as_ref()
+                .map(|p| p.value)
+                .unwrap_or(true),
+            auto_imports: kdl
+                .rust
+                .auto_imports
+                .as_ref()
+                .map(|a| a.values.clone())
+                .unwrap_or_else(|| {
+                    vec![
+                        "use std::collections::HashMap;".to_string(),
+                        "use facet::Facet;".to_string(),
+                    ]
+                }),
+            show_output: kdl
+                .rust
+                .show_output
+                .as_ref()
+                .map(|s| s.value)
+                .unwrap_or(true),
             expected_compile_errors: vec![],
         };
         language_config.insert("rust".to_string(), rust_config);

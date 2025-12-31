@@ -193,33 +193,61 @@ impl DependencySpec {
     }
 }
 
+/// Wrapper for single-argument child nodes (e.g., `command "cargo"`)
+#[derive(Debug, Clone, Facet)]
+pub struct SingleValue<T: 'static> {
+    #[facet(kdl::argument)]
+    pub value: T,
+}
+
+/// Wrapper for multi-argument child nodes (e.g., `args "run" "--quiet" "--release"`)
+#[derive(Debug, Clone, Default, Facet)]
+#[facet(traits(Default))]
+pub struct MultiValue<T: Default + 'static> {
+    #[facet(kdl::arguments, default)]
+    pub values: Vec<T>,
+}
+
 /// Rust-specific configuration
+///
+/// All fields are child nodes with arguments (not properties).
+/// Example KDL:
+/// ```kdl
+/// rust {
+///     command "cargo"
+///     args "run" "--quiet" "--release"
+///     extension "rs"
+///     prepare_code #true
+///     auto_imports "use std::*;"
+///     show_output #true
+/// }
+/// ```
 #[derive(Debug, Clone, Default, Facet)]
 #[facet(traits(Default))]
 pub struct RustConfig {
-    /// Cargo command
-    #[facet(kdl::property, default)]
-    pub command: Option<String>,
+    /// Cargo command: `command "cargo"`
+    #[facet(kdl::child, default)]
+    pub command: Option<SingleValue<String>>,
 
-    /// Cargo arguments
-    #[facet(kdl::property, default)]
-    pub args: Option<Vec<String>>,
+    /// Cargo arguments: `args "run" "--quiet" "--release"`
+    #[facet(kdl::child, default)]
+    pub args: Option<MultiValue<String>>,
 
-    /// File extension
-    #[facet(kdl::property, default)]
-    pub extension: Option<String>,
+    /// File extension: `extension "rs"`
+    #[facet(kdl::child, default)]
+    pub extension: Option<SingleValue<String>>,
 
-    /// Auto-wrap code without main function
-    #[facet(kdl::property, default)]
-    pub prepare_code: Option<bool>,
+    /// Auto-wrap code without main function: `prepare_code #true`
+    #[facet(kdl::child, default)]
+    pub prepare_code: Option<SingleValue<bool>>,
 
-    /// Auto-imports
-    #[facet(kdl::property, default)]
-    pub auto_imports: Option<Vec<String>>,
+    /// Auto-imports: `auto_imports "use std::*;" "use facet::*;"`
+    #[facet(kdl::child, default)]
+    pub auto_imports: Option<MultiValue<String>>,
 
-    /// Show output in build
-    #[facet(kdl::property, default)]
-    pub show_output: Option<bool>,
+    /// Show output in build: `show_output #true`
+    #[facet(kdl::child, default)]
+    pub show_output: Option<SingleValue<bool>>,
 }
 
 /// Default dependencies for Rust code samples
@@ -286,5 +314,74 @@ mod tests {
         assert_eq!(deps[0].name, "facet");
         assert_eq!(deps[1].name, "facet-json");
         assert_eq!(deps[2].name, "facet-kdl");
+    }
+
+    /// Wrapper to test RustConfig as it appears in actual KDL files
+    #[derive(Debug, Facet)]
+    struct RustConfigWrapper {
+        #[facet(kdl::child)]
+        rust: RustConfig,
+    }
+
+    #[test]
+    fn test_rust_config_child_nodes() {
+        // This KDL matches the rapace config format where all fields
+        // are child nodes with positional arguments
+        let kdl = r#"
+rust {
+    command "cargo"
+    args "run" "--quiet" "--release"
+    extension "rs"
+    prepare_code #true
+    auto_imports "use std::collections::HashMap;"
+    show_output #true
+}
+"#;
+
+        let wrapper: RustConfigWrapper = facet_kdl::from_str(kdl).unwrap();
+        let config = wrapper.rust;
+
+        // Single-value child nodes
+        assert_eq!(
+            config.command.as_ref().map(|c| c.value.as_str()),
+            Some("cargo")
+        );
+        assert_eq!(
+            config.extension.as_ref().map(|e| e.value.as_str()),
+            Some("rs")
+        );
+        assert_eq!(config.prepare_code.as_ref().map(|p| p.value), Some(true));
+        assert_eq!(config.show_output.as_ref().map(|s| s.value), Some(true));
+
+        // Multi-value child nodes
+        let args = config.args.expect("args should be present");
+        assert_eq!(args.values, vec!["run", "--quiet", "--release"]);
+
+        let imports = config.auto_imports.expect("auto_imports should be present");
+        assert_eq!(imports.values, vec!["use std::collections::HashMap;"]);
+    }
+
+    #[test]
+    fn test_rust_config_empty_children() {
+        // Config without optional children should still work
+        let kdl = r#"
+rust {
+    command "cargo"
+    extension "rs"
+}
+"#;
+
+        let wrapper: RustConfigWrapper = facet_kdl::from_str(kdl).unwrap();
+        let config = wrapper.rust;
+        assert_eq!(
+            config.command.as_ref().map(|c| c.value.as_str()),
+            Some("cargo")
+        );
+        assert_eq!(
+            config.extension.as_ref().map(|e| e.value.as_str()),
+            Some("rs")
+        );
+        assert!(config.args.is_none());
+        assert!(config.auto_imports.is_none());
     }
 }
