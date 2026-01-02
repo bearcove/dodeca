@@ -7,7 +7,7 @@ use crate::db::{
 };
 use picante::PicanteResult;
 
-use crate::cells::{highlight_code, parse_and_render_markdown_cell, render_pikru};
+use crate::cells::parse_and_render_markdown_cell;
 use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
 use crate::url_rewrite::rewrite_urls_in_css;
@@ -425,27 +425,10 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     };
 
     // Convert frontmatter from cell type
-    let extra: Value = if parsed.frontmatter.extra_json.is_empty() {
-        Value::NULL
-    } else {
-        facet_json::from_str(&parsed.frontmatter.extra_json).unwrap_or(Value::NULL)
-    };
+    let extra: Value = parsed.frontmatter.extra.clone();
 
-    // Highlight code blocks in parallel using the arborium cell
-    let mut html_output = parsed.html;
-    if !parsed.code_blocks.is_empty() {
-        let highlight_futures: Vec<_> = parsed
-            .code_blocks
-            .iter()
-            .map(|cb| highlight_code_block_for_cell(&cb.code, &cb.language))
-            .collect();
-        let highlighted_blocks = futures_util::future::join_all(highlight_futures).await;
-
-        // Replace placeholders with highlighted code
-        for (cb, highlighted_html) in parsed.code_blocks.iter().zip(highlighted_blocks) {
-            html_output = html_output.replace(&cb.placeholder, &highlighted_html);
-        }
-    }
+    // HTML is already fully rendered by bearmark with code blocks highlighted
+    let html_output = parsed.html;
 
     // Convert headings from cell type to internal type
     let headings: Vec<Heading> = parsed
@@ -489,54 +472,6 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
         last_updated: last_modified,
         extra,
     }))
-}
-
-/// Highlight a code block using the syntax highlighting cell
-async fn highlight_code_block_for_cell(code: &str, language: &str) -> String {
-    // Handle pikchr diagrams specially - render to SVG
-    if language == "pik" || language == "pikchr" {
-        if let Some(result) = render_pikru(code).await {
-            return match result {
-                cell_pikru_proto::PikruResult::Success { svg } => svg,
-                cell_pikru_proto::PikruResult::Error { message } => {
-                    // Render error as visible HTML
-                    format!(
-                        "<div class=\"pikru-error\" style=\"border: 2px solid red; padding: 1em; margin: 1em 0; background: #fee;\">\
-                        <strong>Pikru rendering error:</strong><pre>{}</pre></div>",
-                        html_escape_content(&message)
-                    )
-                }
-            };
-        }
-        // Fallback if pikru cell not available
-        return format!(
-            "<pre><code class=\"language-pik\">{}</code></pre>",
-            html_escape_content(code)
-        );
-    }
-
-    // Normal syntax highlighting for other languages
-    if let Some(result) = highlight_code(code, language).await {
-        // Wrap in pre/code tags with language class
-        let lang_class = if language.is_empty() {
-            String::new()
-        } else {
-            format!(" class=\"language-{}\"", html_escape_attr(language))
-        };
-        format!("<pre><code{}>{}</code></pre>", lang_class, result.html)
-    } else {
-        // Fallback: escape HTML and wrap in pre/code
-        let lang_class = if language.is_empty() {
-            String::new()
-        } else {
-            format!(" class=\"language-{}\"", html_escape_attr(language))
-        };
-        format!(
-            "<pre><code{}>{}</code></pre>",
-            lang_class,
-            html_escape_content(code)
-        )
-    }
 }
 
 /// A parse error with its source file path

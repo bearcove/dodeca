@@ -1295,24 +1295,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cell-arborium"
-version = "0.6.1"
-dependencies = [
- "arborium",
- "cell-arborium-proto",
- "rapace-cell",
- "tokio",
-]
-
-[[package]]
-name = "cell-arborium-proto"
-version = "0.6.1"
-dependencies = [
- "facet",
- "rapace",
-]
-
-[[package]]
 name = "cell-code-execution"
 version = "0.6.1"
 dependencies = [
@@ -1570,13 +1552,10 @@ dependencies = [
 name = "cell-markdown"
 version = "0.6.1"
 dependencies = [
- "aasvg",
+ "bearmark",
  "cell-markdown-proto",
  "facet",
- "facet-json",
- "facet-toml",
  "facet-value",
- "pulldown-cmark",
  "rapace-cell",
  "tokio",
 ]
@@ -1586,6 +1565,7 @@ name = "cell-markdown-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
+ "facet-value",
  "rapace",
 ]
 
@@ -1619,24 +1599,6 @@ dependencies = [
 
 [[package]]
 name = "cell-pagefind-proto"
-version = "0.6.1"
-dependencies = [
- "facet",
- "rapace",
-]
-
-[[package]]
-name = "cell-pikru"
-version = "0.6.1"
-dependencies = [
- "cell-pikru-proto",
- "pikru",
- "rapace-cell",
- "tokio",
-]
-
-[[package]]
-name = "cell-pikru-proto"
 version = "0.6.1"
 dependencies = [
  "facet",

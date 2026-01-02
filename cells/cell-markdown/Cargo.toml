@@ -14,11 +14,8 @@ path = "src/main.rs"
 
 [dependencies]
 cell-markdown-proto = { path = "../cell-markdown-proto" }
+bearmark = { path = "../../crates/bearmark", features = ["aasvg", "highlight", "pikru"] }
 facet.workspace = true
-facet-json.workspace = true
-facet-toml.workspace = true
 facet-value.workspace = true
-pulldown-cmark.workspace = true
-aasvg.workspace = true
 rapace-cell.workspace = true
 tokio.workspace = true

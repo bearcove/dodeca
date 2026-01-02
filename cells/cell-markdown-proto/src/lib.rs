@@ -1,12 +1,13 @@
 //! RPC protocol for dodeca markdown processing cell
 //!
-//! This cell handles:
-//! - Markdown to HTML conversion (pulldown-cmark)
+//! This cell uses bearmark for:
+//! - Markdown to HTML conversion with syntax highlighting
 //! - Frontmatter parsing (TOML/YAML)
 //! - Heading extraction
-//! - Code block extraction (for syntax highlighting by host)
+//! - Rule definition extraction
 
 use facet::Facet;
+use facet_value::Value;
 
 // ============================================================================
 // Types
@@ -21,17 +22,6 @@ pub struct Heading {
     pub id: String,
     /// The heading level (1-6)
     pub level: u8,
-}
-
-/// A code block that needs syntax highlighting
-#[derive(Debug, Clone, Facet)]
-pub struct CodeBlock {
-    /// The code content
-    pub code: String,
-    /// The language (may be empty)
-    pub language: String,
-    /// Placeholder string to replace in the HTML output
-    pub placeholder: String,
 }
 
 /// A rule definition for specification traceability.
@@ -53,8 +43,8 @@ pub struct Frontmatter {
     pub weight: i32,
     pub description: Option<String>,
     pub template: Option<String>,
-    /// Extra fields as JSON string (for flexibility)
-    pub extra_json: String,
+    /// Extra fields from frontmatter
+    pub extra: Value,
 }
 
 // ============================================================================
@@ -67,12 +57,10 @@ pub struct Frontmatter {
 pub enum MarkdownResult {
     /// Successfully rendered markdown
     Success {
-        /// HTML output (may contain code block placeholders)
+        /// Fully rendered HTML output (code blocks already highlighted)
         html: String,
         /// Extracted headings
         headings: Vec<Heading>,
-        /// Code blocks that need highlighting (host will call arborium)
-        code_blocks: Vec<CodeBlock>,
         /// Rule definitions for specification traceability
         rules: Vec<RuleDefinition>,
     },
@@ -103,7 +91,6 @@ pub enum ParseResult {
         frontmatter: Frontmatter,
         html: String,
         headings: Vec<Heading>,
-        code_blocks: Vec<CodeBlock>,
         /// Rule definitions for specification traceability
         rules: Vec<RuleDefinition>,
     },

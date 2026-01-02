@@ -11,7 +11,6 @@
 
 use crate::cell_server::ForwardingTracingSink;
 
-use cell_arborium_proto::{HighlightResult, SyntaxHighlightServiceClient};
 use cell_code_execution_proto::{
     CodeExecutionResult, CodeExecutorClient, ExecuteSamplesInput, ExtractSamplesInput,
 };
@@ -35,7 +34,6 @@ use cell_minify_proto::{MinifierClient, MinifyResult};
 use cell_pagefind_proto::{
     SearchFile, SearchIndexInput, SearchIndexResult, SearchIndexerClient, SearchPage,
 };
-use cell_pikru_proto::{PikruProcessorClient, PikruResult};
 use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
 use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
@@ -830,7 +828,6 @@ define_cells! {
     css             => CssProcessorClient,
     js              => JsProcessorClient,
     pagefind        => SearchIndexerClient,
-    pikru           => PikruProcessorClient,
     image           => ImageProcessorClient,
     fonts           => FontProcessorClient,
     linkcheck       => LinkCheckerClient,
@@ -838,7 +835,6 @@ define_cells! {
     html_diff       => HtmlDifferClient,
     html            => HtmlProcessorClient,
     markdown        => MarkdownProcessorClient,
-    syntax_highlight=> SyntaxHighlightServiceClient,
     http            => TcpTunnelClient,
 }
 
@@ -1161,7 +1157,6 @@ pub async fn all() -> &'static CellRegistry {
                 registry.html_diff.is_some(),
                 registry.html.is_some(),
                 registry.markdown.is_some(),
-                registry.syntax_highlight.is_some(),
                 registry.http.is_some(),
             ]
             .iter()
@@ -1997,95 +1992,17 @@ pub async fn inject_code_buttons_cell(
 }
 
 // ============================================================================
-// Syntax highlighting cell functions
-// ============================================================================
-
-/// Highlight source code using the rapace syntax highlight service.
-///
-/// Returns the code with syntax highlighting applied as HTML, or None if no service is available.
-pub async fn highlight_code(code: &str, language: &str) -> Option<HighlightResult> {
-    let client = syntax_highlight_client().await?;
-    let code_len = code.len();
-    tracing::debug!(
-        language = language,
-        code_len = code_len,
-        "highlight_code: sending RPC request"
-    );
-    match client
-        .highlight_code(code.to_string(), language.to_string())
-        .await
-    {
-        Ok(result) => {
-            tracing::debug!(
-                language = language,
-                code_len = code_len,
-                html_len = result.html.len(),
-                "highlight_code: RPC success"
-            );
-            Some(result)
-        }
-        Err(e) => {
-            warn!(
-                language = language,
-                code_len = code_len,
-                error = %e,
-                "highlight_code: RPC failed"
-            );
-            None
-        }
-    }
-}
-
-/// Get the syntax highlight service client, if available
-async fn syntax_highlight_client() -> Option<Arc<SyntaxHighlightServiceClient<AnyTransport>>> {
-    all().await.syntax_highlight.clone()
-}
-
-// ============================================================================
-// Pikru diagram rendering cell functions
-// ============================================================================
-
-/// Render a Pikchr diagram to SVG using the pikru cell.
-///
-/// Returns the rendered SVG, or None if no service is available.
-pub async fn render_pikru(source: &str) -> Option<PikruResult> {
-    let client = pikru_client().await?;
-    tracing::debug!(
-        source_len = source.len(),
-        "render_pikru: sending RPC request"
-    );
-    // Enable CSS variables for automatic light/dark mode theme switching
-    match client.render(source.to_string(), true).await {
-        Ok(result) => {
-            tracing::debug!("render_pikru: RPC request succeeded");
-            Some(result)
-        }
-        Err(e) => {
-            tracing::warn!(error = ?e, "render_pikru: RPC request failed");
-            None
-        }
-    }
-}
-
-/// Get the pikru service client, if available
-async fn pikru_client() -> Option<Arc<PikruProcessorClient<AnyTransport>>> {
-    all().await.pikru.clone()
-}
-
-// ============================================================================
 // Markdown processing cell functions
 // ============================================================================
 
-/// Parsed markdown result with code blocks that need highlighting
+/// Parsed markdown result from bearmark
 pub struct ParsedMarkdown {
     /// The frontmatter parsed from the content
     pub frontmatter: cell_markdown_proto::Frontmatter,
-    /// HTML output (with code block placeholders)
+    /// Fully rendered HTML output (code blocks already highlighted)
     pub html: String,
     /// Extracted headings
     pub headings: Vec<cell_markdown_proto::Heading>,
-    /// Code blocks that need syntax highlighting
-    pub code_blocks: Vec<cell_markdown_proto::CodeBlock>,
     /// Rule definitions for specification traceability
     pub rules: Vec<cell_markdown_proto::RuleDefinition>,
 }
@@ -2162,13 +2079,11 @@ pub async fn parse_and_render_markdown_cell(
             frontmatter,
             html,
             headings,
-            code_blocks,
             rules,
         }) => Ok(ParsedMarkdown {
             frontmatter,
             html,
             headings,
-            code_blocks,
             rules,
         }),
         Ok(ParseResult::Error { message }) => Err(MarkdownParseError::ParseError(message)),
@@ -2185,7 +2100,6 @@ async fn _render_markdown_cell(
 ) -> Option<(
     String,
     Vec<cell_markdown_proto::Heading>,
-    Vec<cell_markdown_proto::CodeBlock>,
     Vec<cell_markdown_proto::RuleDefinition>,
 )> {
     let cell = all().await.markdown.as_ref()?;
@@ -2197,9 +2111,8 @@ async fn _render_markdown_cell(
         Ok(MarkdownResult::Success {
             html,
             headings,
-            code_blocks,
             rules,
-        }) => Some((html, headings, code_blocks, rules)),
+        }) => Some((html, headings, rules)),
         Ok(MarkdownResult::Error { message }) => {
             warn!("markdown render cell error: {}", message);
             None
