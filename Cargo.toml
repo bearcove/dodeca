@@ -10,8 +10,7 @@ resolver = "3"
 # but cargo-shear doesn't detect it since it's feature-activated, not imported
 [workspace.metadata.cargo-shear]
 # getrandom: required for wasm32 targets (feature-activated)
-# cell-arborium-proto, cell-pikru-proto: used for type imports, not detected by shear
-ignored = ["getrandom", "cell-arborium-proto", "cell-pikru-proto"]
+ignored = ["getrandom"]
 
 [workspace.dependencies]
 # Core utilities

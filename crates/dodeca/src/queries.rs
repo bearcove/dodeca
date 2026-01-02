@@ -1455,21 +1455,6 @@ fn find_chars_for_font_file(
     None
 }
 
-/// Escape HTML attribute value
-fn html_escape_attr(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
-/// Escape HTML content
-fn html_escape_content(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
 // ============================================================================
 // Code execution integration
 // ============================================================================

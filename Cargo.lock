@@ -1554,8 +1554,6 @@ version = "0.6.1"
 dependencies = [
  "bearmark",
  "cell-markdown-proto",
- "facet",
- "facet-value",
  "rapace-cell",
  "tokio",
 ]
