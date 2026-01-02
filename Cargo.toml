@@ -9,7 +9,9 @@ resolver = "3"
 # getrandom is required for wasm32 targets (enables wasm_js feature)
 # but cargo-shear doesn't detect it since it's feature-activated, not imported
 [workspace.metadata.cargo-shear]
-ignored = ["getrandom"]
+# getrandom: required for wasm32 targets (feature-activated)
+# cell-arborium-proto, cell-pikru-proto: used for type imports, not detected by shear
+ignored = ["getrandom", "cell-arborium-proto", "cell-pikru-proto"]
 
 [workspace.dependencies]
 # Core utilities
@@ -105,6 +107,9 @@ pulldown-cmark = "0.13"
 # ASCII diagrams to SVG
 aasvg = "1.0"
 
+# Pikchr diagrams (git for facet compat)
+pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
+
 # Syntax highlighting
 arborium = { version = "2", features = [
     "lang-bash", "lang-c", "lang-cpp", "lang-css", "lang-dockerfile",
@@ -173,6 +178,7 @@ facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-xml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 
 # Optimize dependencies in dev mode for faster tests
 # (keeps main crate unoptimized for fast incremental builds)

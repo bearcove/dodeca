@@ -38,7 +38,7 @@ thiserror.workspace = true
 # Optional handlers
 arborium = { workspace = true, optional = true }
 aasvg = { workspace = true, optional = true }
-pikru = { version = "1.0", optional = true }
+pikru = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros"] }

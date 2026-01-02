@@ -40,11 +40,13 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+use facet::Facet;
+
 use crate::handler::BoxedRuleHandler;
 use crate::{Error, Result};
 
 /// Byte offset and length in source content.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Facet)]
 pub struct SourceSpan {
     /// Byte offset from start of content
     pub offset: usize,
@@ -53,7 +55,8 @@ pub struct SourceSpan {
 }
 
 /// RFC 2119 keyword found in rule text.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Facet)]
+#[repr(u8)]
 pub enum Rfc2119Keyword {
     /// MUST, SHALL, REQUIRED
     Must,
@@ -133,7 +136,8 @@ pub fn detect_rfc2119_keywords(text: &str) -> Vec<Rfc2119Keyword> {
 /// Lifecycle status of a rule.
 ///
 /// Rules progress through these states as the specification evolves.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Facet)]
+#[repr(u8)]
 pub enum RuleStatus {
     /// Rule is proposed but not yet finalized
     Draft,
@@ -178,7 +182,8 @@ impl std::fmt::Display for RuleStatus {
 /// RFC 2119 requirement level for a rule.
 ///
 /// See <https://www.ietf.org/rfc/rfc2119.txt> for the specification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Facet)]
+#[repr(u8)]
 pub enum RequirementLevel {
     /// Absolute requirement (MUST, SHALL, REQUIRED)
     #[default]
@@ -217,7 +222,7 @@ impl std::fmt::Display for RequirementLevel {
 }
 
 /// Metadata attributes for a rule.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Facet)]
 pub struct RuleMetadata {
     /// Lifecycle status (draft, stable, deprecated, removed)
     pub status: Option<RuleStatus>,
@@ -254,7 +259,7 @@ impl RuleMetadata {
 }
 
 /// A rule definition extracted from the markdown.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Facet)]
 pub struct RuleDefinition {
     /// The rule identifier (e.g., "channel.id.allocation")
     pub id: String,
@@ -271,7 +276,7 @@ pub struct RuleDefinition {
 }
 
 /// Warning about rule quality.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 pub struct RuleWarning {
     /// File where the warning occurred
     pub file: PathBuf,
@@ -286,7 +291,8 @@ pub struct RuleWarning {
 }
 
 /// Types of rule warnings.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
+#[repr(u8)]
 pub enum RuleWarningKind {
     /// Rule text contains no RFC 2119 keywords
     NoRfc2119Keyword,
@@ -295,7 +301,7 @@ pub enum RuleWarningKind {
 }
 
 /// Result of extracting rules from markdown.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Facet)]
 pub struct ExtractedRules {
     /// Transformed markdown with rule markers replaced by HTML
     pub output: String,
