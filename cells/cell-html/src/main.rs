@@ -48,6 +48,11 @@ impl HtmlProcessor for HtmlProcessorImpl {
         let mut doc: Html = match fhtml::from_str(&input.html) {
             Ok(doc) => doc,
             Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    html_len = input.html.len(),
+                    "facet-html parse failed"
+                );
                 return HtmlProcessResult::Error {
                     message: format!("HTML parse error: {}", e),
                 };
@@ -156,6 +161,11 @@ impl HtmlProcessor for HtmlProcessorImpl {
         let mut doc: Html = match fhtml::from_str(&html) {
             Ok(doc) => doc,
             Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    html_len = html.len(),
+                    "facet-html parse failed in rewrite_urls"
+                );
                 return HtmlResult::Error {
                     message: format!("HTML parse error: {}", e),
                 };

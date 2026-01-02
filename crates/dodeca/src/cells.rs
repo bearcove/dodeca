@@ -446,7 +446,17 @@ fn spawn_cell_core(
         on_death: Some(Arc::new({
             let cell_name = cell_name.clone();
             move |peer_id| {
-                warn!(peer_id, cell = %cell_name, "cell died (doorbell signal failed)");
+                eprintln!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                eprintln!(
+                    "FATAL: {} cell died unexpectedly (peer_id={})",
+                    cell_name, peer_id
+                );
+                eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                eprintln!();
+                eprintln!("The cell's doorbell signal failed, indicating it crashed or hung.");
+                eprintln!("Check the logs above for error messages from the cell.");
+                eprintln!();
+                std::process::exit(1);
             }
         })),
     }) {
@@ -522,11 +532,24 @@ fn spawn_cell_core(
             match child.wait().await {
                 Ok(status) => {
                     if !status.success() {
-                        warn!("{} cell exited with status: {}", cell_label, status);
+                        eprintln!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        eprintln!("FATAL: {} cell crashed with status: {}", cell_label, status);
+                        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        eprintln!();
+                        eprintln!("A critical cell process has terminated unexpectedly.");
+                        eprintln!("Check the logs above for error messages from the cell.");
+                        eprintln!();
+                        eprintln!("Cell: {}", cell_label);
+                        eprintln!("Exit status: {}", status);
+                        eprintln!();
+                        std::process::exit(1);
                     }
                 }
                 Err(e) => {
-                    warn!("{} cell wait error: {}", cell_label, e);
+                    eprintln!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    eprintln!("FATAL: {} cell wait error: {}", cell_label, e);
+                    eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    std::process::exit(1);
                 }
             }
             hub_for_cleanup
