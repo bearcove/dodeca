@@ -998,7 +998,6 @@ dependencies = [
  "facet-toml",
  "facet-value",
  "facet-yaml",
- "futures",
  "pikru 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "pulldown-cmark",
  "thiserror 2.0.17",
