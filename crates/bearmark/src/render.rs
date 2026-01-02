@@ -179,11 +179,11 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                     continue; // Don't add to events
                 }
                 // If we're in a code block, accumulate the code
-                if let Some((_, _, code)) = code_blocks.last_mut() {
-                    if matches!(events.last(), Some(Event::Start(Tag::CodeBlock(_)))) {
-                        code.push_str(text);
-                        continue; // Don't add text event, we'll replace the whole block
-                    }
+                if let Some((_, _, code)) = code_blocks.last_mut()
+                    && matches!(events.last(), Some(Event::Start(Tag::CodeBlock(_))))
+                {
+                    code.push_str(text);
+                    continue; // Don't add text event, we'll replace the whole block
                 }
             }
             Event::End(TagEnd::CodeBlock) => {

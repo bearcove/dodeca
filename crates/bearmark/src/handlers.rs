@@ -166,7 +166,6 @@ impl CodeBlockHandler for PikruHandler {
             // Render to SVG
             let options = pikru::render::RenderOptions {
                 css_variables: self.css_variables,
-                ..Default::default()
             };
             match pikru::render::render_with_options(&program, &options) {
                 Ok(svg) => Ok(svg),
