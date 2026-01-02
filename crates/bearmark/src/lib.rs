@@ -37,7 +37,10 @@ pub use handler::{
 pub use headings::{Heading, slugify};
 pub use links::resolve_link;
 pub use render::{Document, RenderOptions, render};
-pub use rules::RuleDefinition;
+pub use rules::{
+    ExtractedRules, RequirementLevel, Rfc2119Keyword, RuleDefinition, RuleMetadata, RuleStatus,
+    RuleWarning, RuleWarningKind, SourceSpan, detect_rfc2119_keywords, extract_rules_with_warnings,
+};
 
 // Feature-gated handler exports
 #[cfg(feature = "highlight")]
