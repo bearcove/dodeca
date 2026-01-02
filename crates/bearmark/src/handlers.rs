@@ -55,6 +55,14 @@ impl CodeBlockHandler for ArboriumHandler {
         code: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
         Box::pin(async move {
+            // Empty language means no syntax highlighting requested - render as plain
+            if language.is_empty() {
+                use crate::handler::html_escape;
+                let escaped = html_escape(code);
+                return Ok(format!("<pre><code>{escaped}</code></pre>"));
+            }
+
+            // Try to highlight with arborium
             let mut hl = self.highlighter.lock().unwrap();
             match hl.highlight(language, code) {
                 Ok(html) => Ok(html),

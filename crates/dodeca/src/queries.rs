@@ -487,6 +487,24 @@ impl std::fmt::Display for SourceParseError {
     }
 }
 
+/// Error when building site tree due to parse errors
+#[derive(Debug, Clone, facet::Facet)]
+pub struct BuildError {
+    pub errors: Vec<SourceParseError>,
+}
+
+impl std::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Failed to parse {} file(s):", self.errors.len())?;
+        for err in &self.errors {
+            writeln!(f, "  - {}", err)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for BuildError {}
+
 /// Result of building the site tree
 pub type BuildTreeResult = Result<SiteTree, Vec<SourceParseError>>;
 
@@ -592,13 +610,17 @@ fn find_parent_section(route: &Route, sections: &BTreeMap<Route, Section>) -> Ro
 /// Data dependencies are also tracked lazily - only data paths actually accessed become dependencies.
 #[picante::tracked]
 #[tracing::instrument(skip_all, name = "render_page")]
-pub async fn render_page<DB: Db>(db: &DB, route: Route) -> PicanteResult<RenderedHtml> {
+pub async fn render_page<DB: Db>(
+    db: &DB,
+    route: Route,
+) -> PicanteResult<Result<RenderedHtml, BuildError>> {
     use crate::render::{render_page_via_cell, render_page_with_resolver};
 
     // Build tree (cached)
-    let site_tree = build_tree(db)
-        .await?
-        .expect("parse errors should be caught at build time");
+    let site_tree = match build_tree(db).await? {
+        Ok(tree) => tree,
+        Err(errors) => return Ok(Err(BuildError { errors })),
+    };
 
     // Pre-load all templates for sync access during rendering
     let templates = load_all_templates(db).await?;
@@ -620,9 +642,9 @@ pub async fn render_page<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rendere
         let resolver = SyncDataResolver::new(data_value);
         let loader = PicanteTemplateLoader::new(templates);
         let html = render_page_with_resolver(page, &site_tree, loader, resolver).await;
-        Ok(RenderedHtml(html))
+        Ok(Ok(RenderedHtml(html)))
     } else {
-        Ok(RenderedHtml(html))
+        Ok(Ok(RenderedHtml(html)))
     }
 }
 
@@ -632,13 +654,17 @@ pub async fn render_page<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rendere
 /// Data dependencies are also tracked lazily - only data paths actually accessed become dependencies.
 #[picante::tracked]
 #[tracing::instrument(skip_all, name = "render_section")]
-pub async fn render_section<DB: Db>(db: &DB, route: Route) -> PicanteResult<RenderedHtml> {
+pub async fn render_section<DB: Db>(
+    db: &DB,
+    route: Route,
+) -> PicanteResult<Result<RenderedHtml, BuildError>> {
     use crate::render::{render_section_via_cell, render_section_with_resolver};
 
     // Build tree (cached)
-    let site_tree = build_tree(db)
-        .await?
-        .expect("parse errors should be caught at build time");
+    let site_tree = match build_tree(db).await? {
+        Ok(tree) => tree,
+        Err(errors) => return Ok(Err(BuildError { errors })),
+    };
 
     // Pre-load all templates for sync access during rendering
     let templates = load_all_templates(db).await?;
@@ -660,9 +686,9 @@ pub async fn render_section<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rend
         let resolver = SyncDataResolver::new(data_value);
         let loader = PicanteTemplateLoader::new(templates);
         let html = render_section_with_resolver(section, &site_tree, loader, resolver).await;
-        Ok(RenderedHtml(html))
+        Ok(Ok(RenderedHtml(html)))
     } else {
-        Ok(RenderedHtml(html))
+        Ok(Ok(RenderedHtml(html)))
     }
 }
 
@@ -911,27 +937,13 @@ pub async fn process_image<DB: Db>(
 /// This reuses the same queries as the serve pipeline (serve_html, css_output,
 /// static_file_output) to ensure consistency between `ddc build` and `ddc serve`.
 #[picante::tracked]
-pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<SiteOutput> {
+pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, BuildError>> {
     let mut files = Vec::new();
 
     // Build the site tree to get all routes
     let site_tree = match build_tree(db).await? {
         Ok(tree) => tree,
-        Err(errors) => {
-            // Format all parse errors into a readable error message
-            let error_messages: Vec<String> = errors
-                .iter()
-                .map(|e| format!("  - {}: {}", e.path, e.error))
-                .collect();
-            let message = format!(
-                "Failed to parse {} file(s):\n{}",
-                errors.len(),
-                error_messages.join("\n")
-            );
-            return Err(std::sync::Arc::new(picante::PicanteError::Panic {
-                message,
-            }));
-        }
+        Err(errors) => return Ok(Err(BuildError { errors })),
     };
 
     // --- Phase 1: Render all HTML pages using serve_html ---
@@ -1041,10 +1053,10 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<SiteOutput> {
     // --- Phase 4: Execute code samples for validation ---
     let code_execution_results = execute_all_code_samples(db).await?;
 
-    Ok(SiteOutput {
+    Ok(Ok(SiteOutput {
         files,
         code_execution_results,
-    })
+    }))
 }
 
 // ============================================================================
@@ -1054,11 +1066,14 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<SiteOutput> {
 /// Render all pages and sections to HTML (without URL rewriting)
 /// This is cached globally and used for font character analysis
 #[picante::tracked]
-pub async fn all_rendered_html<DB: Db>(db: &DB) -> PicanteResult<AllRenderedHtml> {
+pub async fn all_rendered_html<DB: Db>(
+    db: &DB,
+) -> PicanteResult<Result<AllRenderedHtml, BuildError>> {
     tracing::debug!("🔄 all_rendered_html: EXECUTING (not cached)");
-    let site_tree = build_tree(db)
-        .await?
-        .expect("parse errors should be caught at build time");
+    let site_tree = match build_tree(db).await? {
+        Ok(tree) => tree,
+        Err(errors) => return Ok(Err(BuildError { errors })),
+    };
     let template_map = load_all_templates(db).await?;
 
     // Load data files and convert to template Value
@@ -1089,7 +1104,7 @@ pub async fn all_rendered_html<DB: Db>(db: &DB) -> PicanteResult<AllRenderedHtml
         pages.insert(route.clone(), html);
     }
 
-    Ok(AllRenderedHtml { pages })
+    Ok(Ok(AllRenderedHtml { pages }))
 }
 
 /// Local font-face representation for picante tracking
@@ -1296,26 +1311,33 @@ pub async fn css_output<DB: Db>(db: &DB) -> PicanteResult<Option<CssOutput>> {
 /// This is the main entry point for lazy page serving
 #[picante::tracked]
 #[tracing::instrument(skip(db), name = "serve_html")]
-pub async fn serve_html<DB: Db>(db: &DB, route: Route) -> PicanteResult<Option<String>> {
+pub async fn serve_html<DB: Db>(
+    db: &DB,
+    route: Route,
+) -> PicanteResult<Result<Option<String>, BuildError>> {
     use crate::url_rewrite::{
         ResponsiveImageInfo, rewrite_urls_in_html, transform_images_to_picture,
     };
 
-    let site_tree = build_tree(db)
-        .await?
-        .expect("parse errors should be caught at build time");
+    let site_tree = match build_tree(db).await? {
+        Ok(tree) => tree,
+        Err(errors) => return Ok(Err(BuildError { errors })),
+    };
 
     // Check if route exists in site tree
     let route_exists =
         site_tree.sections.contains_key(&route) || site_tree.pages.contains_key(&route);
     if !route_exists {
-        return Ok(None);
+        return Ok(Ok(None));
     }
 
     // Get the raw HTML for this route
-    let all_html = all_rendered_html(db).await?;
+    let all_html = match all_rendered_html(db).await? {
+        Ok(html) => html,
+        Err(e) => return Ok(Err(e)),
+    };
     let Some(raw_html) = all_html.pages.get(&route).cloned() else {
-        return Ok(None);
+        return Ok(Ok(None));
     };
 
     // Build the full URL rewrite map
@@ -1432,7 +1454,7 @@ pub async fn serve_html<DB: Db>(db: &DB, route: Route) -> PicanteResult<Option<S
         crate::svg::minify_html(&transformed_html).await
     };
 
-    Ok(Some(final_html))
+    Ok(Ok(Some(final_html)))
 }
 
 /// Check if a path is a font file
