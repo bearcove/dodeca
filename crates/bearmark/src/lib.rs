@@ -11,31 +11,15 @@
 //!
 //! ## Example
 //!
-//! ```rust,ignore
-//! use bearmark::{render, RenderOptions, Document};
+//! ```text
+//! use bearmark::{render, RenderOptions};
 //!
-//! let markdown = r#"
-//! +++
-//! title = "My Document"
-//! +++
-//!
-//! # Hello World
-//!
-//! r[my.rule]
-//! This rule MUST be followed.
-//!
-//! ```rust
-//! fn main() {}
-//! ```
-//! "#;
-//!
+//! let markdown = "# Hello World\n\nSome content.";
 //! let opts = RenderOptions::default();
 //! let doc = render(markdown, &opts).await?;
 //!
-//! println!("Title: {:?}", doc.frontmatter.map(|f| f.title));
-//! println!("Headings: {:?}", doc.headings);
-//! println!("Rules: {:?}", doc.rules);
 //! println!("HTML: {}", doc.html);
+//! println!("Headings: {:?}", doc.headings);
 //! ```
 
 mod frontmatter;
