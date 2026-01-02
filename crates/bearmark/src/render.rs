@@ -36,14 +36,17 @@ impl RenderOptions {
         Self::default()
     }
 
-    /// Register a handler for a specific language.
+    /// Register a handler for one or more languages.
     pub fn with_handler<H: CodeBlockHandler + 'static>(
         mut self,
-        language: &str,
+        languages: &[&str],
         handler: H,
     ) -> Self {
-        self.code_handlers
-            .insert(language.to_string(), Arc::new(handler));
+        let handler = Arc::new(handler);
+        for language in languages {
+            self.code_handlers
+                .insert(language.to_string(), handler.clone());
+        }
         self
     }
 

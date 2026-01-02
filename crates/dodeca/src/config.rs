@@ -57,11 +57,11 @@ pub struct DodecaConfig {
 #[facet(traits(Default), rename_all = "kebab-case")]
 pub struct SyntaxHighlightConfig {
     /// Light theme name (e.g., "github-light", "catppuccin-latte")
-    #[facet(default)]
+    #[facet(kdl::child)]
     pub light_theme: Option<String>,
 
     /// Dark theme name (e.g., "tokyo-night", "catppuccin-mocha")
-    #[facet(default)]
+    #[facet(kdl::child)]
     pub dark_theme: Option<String>,
 }
 

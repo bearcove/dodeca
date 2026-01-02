@@ -915,9 +915,24 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<SiteOutput> {
     let mut files = Vec::new();
 
     // Build the site tree to get all routes
-    let site_tree = build_tree(db)
-        .await?
-        .expect("parse errors should be caught at build time");
+    let site_tree = match build_tree(db).await? {
+        Ok(tree) => tree,
+        Err(errors) => {
+            // Format all parse errors into a readable error message
+            let error_messages: Vec<String> = errors
+                .iter()
+                .map(|e| format!("  - {}: {}", e.path, e.error))
+                .collect();
+            let message = format!(
+                "Failed to parse {} file(s):\n{}",
+                errors.len(),
+                error_messages.join("\n")
+            );
+            return Err(std::sync::Arc::new(picante::PicanteError::Panic {
+                message,
+            }));
+        }
+    };
 
     // --- Phase 1: Render all HTML pages using serve_html ---
     // This reuses the exact same pipeline as `ddc serve`, ensuring consistency

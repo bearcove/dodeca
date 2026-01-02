@@ -24,8 +24,8 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
     async fn render_markdown(&self, source_path: String, markdown: String) -> MarkdownResult {
         // Configure bearmark with real handlers (no placeholders!)
         let mut opts = RenderOptions::new()
-            .with_handler("aasvg", AasvgHandler::new())
-            .with_handler("pikchr", PikruHandler::new())
+            .with_handler(&["aa", "aasvg"], AasvgHandler::new())
+            .with_handler(&["pikchr"], PikruHandler::new())
             .with_default_handler(ArboriumHandler::new());
 
         // Set source path for link resolution
