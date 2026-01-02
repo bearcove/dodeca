@@ -949,20 +949,28 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Bui
     // --- Phase 1: Render all HTML pages using serve_html ---
     // This reuses the exact same pipeline as `ddc serve`, ensuring consistency
     for route in site_tree.sections.keys() {
-        if let Some(html) = serve_html(db, route.clone()).await? {
-            files.push(OutputFile::Html {
-                route: route.clone(),
-                content: html,
-            });
+        match serve_html(db, route.clone()).await? {
+            Ok(Some(html)) => {
+                files.push(OutputFile::Html {
+                    route: route.clone(),
+                    content: html,
+                });
+            }
+            Ok(None) => {}
+            Err(e) => return Ok(Err(e)),
         }
     }
 
     for route in site_tree.pages.keys() {
-        if let Some(html) = serve_html(db, route.clone()).await? {
-            files.push(OutputFile::Html {
-                route: route.clone(),
-                content: html,
-            });
+        match serve_html(db, route.clone()).await? {
+            Ok(Some(html)) => {
+                files.push(OutputFile::Html {
+                    route: route.clone(),
+                    content: html,
+                });
+            }
+            Ok(None) => {}
+            Err(e) => return Ok(Err(e)),
         }
     }
 
@@ -1127,7 +1135,9 @@ pub struct LocalFontAnalysis {
 /// Returns the FontAnalysis needed for font subsetting
 #[picante::tracked]
 pub async fn font_char_analysis<DB: Db>(db: &DB) -> PicanteResult<LocalFontAnalysis> {
-    let all_html = all_rendered_html(db).await?;
+    let all_html = all_rendered_html(db)
+        .await?
+        .expect("build errors should be caught before font analysis");
     let sass_css = compile_sass(db).await?;
     let sass_str = sass_css.as_ref().map(|c| c.0.as_str()).unwrap_or("");
 

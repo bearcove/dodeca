@@ -62,9 +62,15 @@ impl CodeBlockHandler for ArboriumHandler {
                 return Ok(format!("<pre><code>{escaped}</code></pre>"));
             }
 
+            // Map common language aliases to arborium language names
+            let arborium_lang = match language {
+                "jinja" => "jinja2",
+                _ => language,
+            };
+
             // Try to highlight with arborium
             let mut hl = self.highlighter.lock().unwrap();
-            match hl.highlight(language, code) {
+            match hl.highlight(arborium_lang, code) {
                 Ok(html) => Ok(html),
                 Err(e) => Err(crate::Error::CodeBlockHandler {
                     language: language.to_string(),

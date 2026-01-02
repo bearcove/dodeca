@@ -111,11 +111,31 @@ pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 
 # Syntax highlighting
 arborium = { version = "2", features = [
-    "lang-bash", "lang-c", "lang-cpp", "lang-css", "lang-dockerfile",
-    "lang-go", "lang-haskell", "lang-html", "lang-java", "lang-javascript",
-    "lang-json", "lang-kdl", "lang-kotlin", "lang-lua", "lang-markdown",
-    "lang-python", "lang-ruby", "lang-rust", "lang-scala", "lang-sql",
-    "lang-swift", "lang-toml", "lang-typescript", "lang-yaml", "lang-zig",
+    # Systems & Low-level
+    "lang-asm", "lang-c", "lang-cpp", "lang-rust", "lang-zig",
+    # Shells & Scripts
+    "lang-bash", "lang-fish", "lang-powershell", "lang-zsh",
+    # Web Frontend
+    "lang-css", "lang-html", "lang-javascript", "lang-scss", "lang-svelte",
+    "lang-typescript", "lang-tsx", "lang-vue",
+    # Web Backend & APIs
+    "lang-elixir", "lang-go", "lang-graphql", "lang-java", "lang-php",
+    "lang-python", "lang-ruby",
+    # Functional & Academic
+    "lang-clojure", "lang-haskell", "lang-ocaml", "lang-scala",
+    # Data & Scientific
+    "lang-julia", "lang-r", "lang-sql",
+    # Config & Markup
+    "lang-dockerfile", "lang-ini", "lang-jinja2", "lang-json", "lang-kdl",
+    "lang-markdown", "lang-nginx", "lang-toml", "lang-typst", "lang-xml",
+    "lang-yaml",
+    # Build Systems & Tools
+    "lang-cmake", "lang-meson", "lang-nix",
+    # Protocol/Data Formats
+    "lang-capnp", "lang-textproto", "lang-thrift",
+    # Misc
+    "lang-diff", "lang-kotlin", "lang-lua", "lang-perl", "lang-swift",
+    "lang-vim",
 ] }
 arborium-theme = "2"
 

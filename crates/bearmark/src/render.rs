@@ -63,6 +63,17 @@ impl RenderOptions {
     }
 }
 
+/// A code sample extracted from markdown
+#[derive(Debug, Clone)]
+pub struct CodeSample {
+    /// Line number where this code block starts (1-indexed)
+    pub line: usize,
+    /// Full language string (e.g., "rust,test", "python,ignore")
+    pub language: String,
+    /// The raw code content
+    pub code: String,
+}
+
 /// A rendered markdown document.
 #[derive(Debug, Clone)]
 pub struct Document {
@@ -83,6 +94,9 @@ pub struct Document {
 
     /// Extracted rule definitions
     pub rules: Vec<RuleDefinition>,
+
+    /// Code samples found in the document
+    pub code_samples: Vec<CodeSample>,
 }
 
 /// Render markdown to HTML.
@@ -122,7 +136,10 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
 
     // Collect events, noting code blocks and metadata for processing
     let mut events: Vec<Event<'_>> = Vec::new();
-    let mut code_blocks: Vec<(usize, String, String)> = Vec::new(); // (index, language, code)
+    // (index, full_language, base_language, code, line_number)
+    // full_language: e.g., "rust,test" - the complete language string from markdown
+    // base_language: e.g., "rust" - the part before comma, used for syntax highlighting
+    let mut code_blocks: Vec<(usize, String, String, String, usize)> = Vec::new();
     let mut headings: Vec<Heading> = Vec::new();
 
     // Metadata tracking
@@ -133,6 +150,9 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
     // Track heading text accumulation
     let mut in_heading: Option<u8> = None;
     let mut heading_text = String::new();
+
+    // Track line numbers for code samples
+    let mut current_line = 1usize;
 
     for event in parser {
         match &event {
@@ -156,12 +176,21 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                 heading_text.push_str(code);
             }
             Event::Start(Tag::CodeBlock(kind)) => {
-                let language = match kind {
+                let full_language = match kind {
                     CodeBlockKind::Fenced(lang) => lang.split_whitespace().next().unwrap_or(""),
                     CodeBlockKind::Indented => "",
                 };
-                // Mark position for later replacement
-                code_blocks.push((events.len(), language.to_string(), String::new()));
+                // Extract base language (before comma) for syntax highlighting
+                // e.g., "rust,test" -> "rust", "python,ignore" -> "python"
+                let base_language = full_language.split(',').next().unwrap_or(full_language);
+                // Mark position for later replacement, recording current line number
+                code_blocks.push((
+                    events.len(),
+                    full_language.to_string(),
+                    base_language.to_string(),
+                    String::new(),
+                    current_line,
+                ));
             }
             Event::Start(Tag::MetadataBlock(kind)) => {
                 in_metadata_block = Some(*kind);
@@ -182,12 +211,14 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                     continue; // Don't add to events
                 }
                 // If we're in a code block, accumulate the code
-                if let Some((_, _, code)) = code_blocks.last_mut()
+                if let Some((_, _, _, code, _)) = code_blocks.last_mut()
                     && matches!(events.last(), Some(Event::Start(Tag::CodeBlock(_))))
                 {
                     code.push_str(text);
                     continue; // Don't add text event, we'll replace the whole block
                 }
+                // Track line numbers for accurate code sample locations
+                current_line += text.matches('\n').count();
             }
             Event::End(TagEnd::CodeBlock) => {
                 // Code block ends - we'll process it separately
@@ -202,16 +233,28 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
 
     let mut rendered_blocks: HashMap<usize, String> = HashMap::new();
 
-    for (idx, language, code) in &code_blocks {
+    for (idx, _full_language, base_language, code, _line) in &code_blocks {
+        // Use base_language (before comma) to look up the handler
         let handler = options
             .code_handlers
-            .get(language.as_str())
+            .get(base_language.as_str())
             .or(options.default_handler.as_ref())
             .unwrap_or(&fallback);
 
-        let rendered = handler.render(language, code).await?;
+        // Pass base_language to the handler for syntax highlighting
+        let rendered = handler.render(base_language, code).await?;
         rendered_blocks.insert(*idx, rendered);
     }
+
+    // 4b. Build code samples for callers
+    let code_samples: Vec<CodeSample> = code_blocks
+        .iter()
+        .map(|(_, full_language, _, code, line)| CodeSample {
+            line: *line,
+            language: full_language.clone(),
+            code: code.clone(),
+        })
+        .collect();
 
     // 5. Generate final HTML
     let mut html = String::new();
@@ -298,6 +341,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
         html,
         headings,
         rules,
+        code_samples,
     })
 }
 
