@@ -12,7 +12,7 @@ use facet_kdl as kdl;
 /// Code execution configuration.
 ///
 /// Uses `SingleValue<T>` wrappers for child nodes with arguments until
-/// facet-kdl supports primitives directly: https://github.com/facet-rs/facet/issues/1560
+/// facet-kdl supports primitives directly: <https://github.com/facet-rs/facet/issues/1560>
 #[derive(Debug, Clone, Default, Facet)]
 #[facet(traits(Default))]
 pub struct CodeExecutionConfig {
