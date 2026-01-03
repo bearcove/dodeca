@@ -4,7 +4,8 @@
 
 pub use dodeca_protocol::{NodePath, Patch};
 use facet_diff::{EditOp, PathSegment, tree_diff};
-use facet_html::{self as html, elements::*};
+use facet_html::{self as html};
+use facet_html_dom::*;
 
 /// Translate facet-diff EditOps into DOM Patches.
 ///

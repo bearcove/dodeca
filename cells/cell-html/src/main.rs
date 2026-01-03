@@ -13,7 +13,8 @@
 use std::collections::{HashMap, HashSet};
 
 use color_eyre::Result;
-use facet_html::{self as fhtml, elements::*};
+use facet_html::{self as fhtml};
+use facet_html_dom::*;
 
 use cell_html_proto::{
     CodeExecutionMetadata, DiffResult, HtmlDiffResult, HtmlHostClient, HtmlProcessInput,
