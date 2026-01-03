@@ -82,7 +82,6 @@ owo-colors = "4"
 ratatui = "0.30"
 structstruck = "0.5"
 html-escape = "0.2"
-minify-html = "0.18"
 
 # CSS processing
 lightningcss = { version = "1.0.0-alpha.68", features = ["visitor"] }
