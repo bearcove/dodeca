@@ -42,3 +42,4 @@ pikru = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "macros"] }
+facet-postcard.workspace = true

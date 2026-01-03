@@ -1046,3 +1046,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_data_attributes_preserved() {
+        let html = r#"<!DOCTYPE html><html><head></head><body><div class="test" data-icon="book" data-custom="42">Hello</div></body></html>"#;
+
+        // Parse with facet-html
+        let doc: Html = fhtml::from_str(html).expect("parse");
+
+        // Check that data-* attributes are captured
+        if let Some(body) = &doc.body {
+            for child in &body.children {
+                if let FlowContent::Div(div) = child {
+                    eprintln!("div.attrs.class = {:?}", div.attrs.class);
+                    eprintln!("div.attrs.extra = {:?}", div.attrs.extra);
+                    assert!(
+                        div.attrs.extra.contains_key("data-icon"),
+                        "data-icon should be in extra"
+                    );
+                    assert_eq!(div.attrs.extra.get("data-icon").unwrap(), "book");
+                    assert!(
+                        div.attrs.extra.contains_key("data-custom"),
+                        "data-custom should be in extra"
+                    );
+                    assert_eq!(div.attrs.extra.get("data-custom").unwrap(), "42");
+                }
+            }
+        }
+
+        // Serialize back
+        let output = fhtml::to_string_pretty(&doc).expect("serialize");
+        eprintln!("Output HTML:\n{}", output);
+
+        // Check that data-* attributes are preserved
+        assert!(
+            output.contains("data-icon"),
+            "data-icon should be in output"
+        );
+        assert!(output.contains("book"), "book value should be in output");
+        assert!(
+            output.contains("data-custom"),
+            "data-custom should be in output"
+        );
+        assert!(output.contains("42"), "42 value should be in output");
+    }
+}

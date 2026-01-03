@@ -171,7 +171,6 @@ pub struct Section {
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
-    #[facet(transparent)]
     pub extra: facet_value::Value,
 }
 
@@ -190,7 +189,6 @@ pub struct Page {
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
-    #[facet(transparent)]
     pub extra: facet_value::Value,
 }
 
@@ -229,7 +227,6 @@ pub struct ParsedData {
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
-    #[facet(transparent)]
     pub extra: facet_value::Value,
 }
 
