@@ -5,7 +5,8 @@
 use cell_html_proto::Patch;
 use dodeca_protocol::NodePath;
 use facet_diff::{EditOp, PathSegment, tree_diff};
-use facet_html::{self as html, elements::*};
+use facet_html::{self as html};
+use facet_html_dom::*;
 
 /// Diff two HTML strings and return patches
 pub fn diff_html(old_html: &str, new_html: &str) -> Result<Vec<Patch>, String> {

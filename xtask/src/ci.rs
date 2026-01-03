@@ -212,7 +212,7 @@ pub fn discover_cdylib_cells(repo_root: &Utf8Path) -> Vec<String> {
 /// Returns (package_name, binary_name) pairs.
 pub fn discover_rapace_cells(repo_root: &Utf8Path) -> Vec<(String, String)> {
     let mut cells = Vec::new();
-    let cells_dir = repo_root.join("mods");
+    let cells_dir = repo_root.join("cells");
 
     if let Ok(entries) = std::fs::read_dir(&cells_dir) {
         for entry in entries.flatten() {
@@ -239,10 +239,11 @@ pub fn discover_rapace_cells(repo_root: &Utf8Path) -> Vec<(String, String)> {
 
 /// All plugins sorted alphabetically (package_name, binary_name).
 pub const ALL_CELLS: &[(&str, &str)] = &[
-    ("cell-arborium", "ddc-cell-arborium"),
     ("cell-code-execution", "ddc-cell-code-execution"),
     ("cell-css", "ddc-cell-css"),
+    ("cell-dialoguer", "ddc-cell-dialoguer"),
     ("cell-fonts", "ddc-cell-fonts"),
+    ("cell-gingembre", "ddc-cell-gingembre"),
     ("cell-html", "ddc-cell-html"),
     ("cell-html-diff", "ddc-cell-html-diff"),
     ("cell-http", "ddc-cell-http"),

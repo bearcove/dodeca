@@ -18,6 +18,7 @@ color-eyre.workspace = true
 dodeca-protocol = { path = "../../crates/dodeca-protocol" }
 facet-diff.workspace = true
 facet-html.workspace = true
+facet-html-dom.workspace = true
 html-escape.workspace = true
 rapace.workspace = true
 rapace-cell.workspace = true

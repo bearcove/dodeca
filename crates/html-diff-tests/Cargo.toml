@@ -9,6 +9,7 @@ dodeca-protocol = { path = "../dodeca-protocol" }
 facet.workspace = true
 facet-diff.workspace = true
 facet-html.workspace = true
+facet-html-dom.workspace = true
 
 [dev-dependencies]
 facet-json.workspace = true

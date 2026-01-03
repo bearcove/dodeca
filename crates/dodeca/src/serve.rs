@@ -692,7 +692,39 @@ impl SiteServer {
             .scope(db, serve_html(&snapshot, route))
             .await;
         tracing::debug!(route = %route_path, has_result = serve_html_result.is_ok(), "find_content: serve_html returned");
-        if let Some(html) = serve_html_result.ok().flatten() {
+
+        if let Some(html) = match serve_html_result {
+            Ok(Ok(Some(html))) => Some(html),
+            Ok(Ok(None)) => None,
+            Ok(Err(build_error)) => {
+                // Format parse errors as an HTML error page for the browser
+                let error_list: Vec<String> = build_error
+                    .errors
+                    .iter()
+                    .map(|e| {
+                        format!(
+                            "<li><strong>{}</strong>: {}</li>",
+                            html_escape::encode_text(&e.path),
+                            html_escape::encode_text(&e.error.to_string())
+                        )
+                    })
+                    .collect();
+                Some(format!(
+                    r#"<!DOCTYPE html>
+<html><head><title>Parse Errors</title></head>
+<body style="font-family: monospace; padding: 2rem; background: #1e1e1e; color: #d4d4d4;">
+<h1 style="color: #f48771;">Failed to parse {} file(s)</h1>
+<ul style="line-height: 1.8;">{}</ul>
+</body></html>"#,
+                    build_error.errors.len(),
+                    error_list.join("\n")
+                ))
+            }
+            Err(e) => {
+                tracing::error!(error = ?e, "serve_html returned PicanteError");
+                return None;
+            }
+        } {
             // Check if this is an error page and notify devtools
             if html.contains(crate::render::RENDER_ERROR_MARKER) {
                 // Extract error message HTML from between <pre> tags

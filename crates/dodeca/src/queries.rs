@@ -7,7 +7,7 @@ use crate::db::{
 };
 use picante::PicanteResult;
 
-use crate::cells::{highlight_code, parse_and_render_markdown_cell, render_pikru};
+use crate::cells::parse_and_render_markdown_cell;
 use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
 use crate::url_rewrite::rewrite_urls_in_css;
@@ -425,27 +425,10 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     };
 
     // Convert frontmatter from cell type
-    let extra: Value = if parsed.frontmatter.extra_json.is_empty() {
-        Value::NULL
-    } else {
-        facet_json::from_str(&parsed.frontmatter.extra_json).unwrap_or(Value::NULL)
-    };
+    let extra: Value = parsed.frontmatter.extra.clone();
 
-    // Highlight code blocks in parallel using the arborium cell
-    let mut html_output = parsed.html;
-    if !parsed.code_blocks.is_empty() {
-        let highlight_futures: Vec<_> = parsed
-            .code_blocks
-            .iter()
-            .map(|cb| highlight_code_block_for_cell(&cb.code, &cb.language))
-            .collect();
-        let highlighted_blocks = futures_util::future::join_all(highlight_futures).await;
-
-        // Replace placeholders with highlighted code
-        for (cb, highlighted_html) in parsed.code_blocks.iter().zip(highlighted_blocks) {
-            html_output = html_output.replace(&cb.placeholder, &highlighted_html);
-        }
-    }
+    // HTML is already fully rendered by bearmark with code blocks highlighted
+    let html_output = parsed.html;
 
     // Convert headings from cell type to internal type
     let headings: Vec<Heading> = parsed
@@ -491,54 +474,6 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     }))
 }
 
-/// Highlight a code block using the syntax highlighting cell
-async fn highlight_code_block_for_cell(code: &str, language: &str) -> String {
-    // Handle pikchr diagrams specially - render to SVG
-    if language == "pik" || language == "pikchr" {
-        if let Some(result) = render_pikru(code).await {
-            return match result {
-                cell_pikru_proto::PikruResult::Success { svg } => svg,
-                cell_pikru_proto::PikruResult::Error { message } => {
-                    // Render error as visible HTML
-                    format!(
-                        "<div class=\"pikru-error\" style=\"border: 2px solid red; padding: 1em; margin: 1em 0; background: #fee;\">\
-                        <strong>Pikru rendering error:</strong><pre>{}</pre></div>",
-                        html_escape_content(&message)
-                    )
-                }
-            };
-        }
-        // Fallback if pikru cell not available
-        return format!(
-            "<pre><code class=\"language-pik\">{}</code></pre>",
-            html_escape_content(code)
-        );
-    }
-
-    // Normal syntax highlighting for other languages
-    if let Some(result) = highlight_code(code, language).await {
-        // Wrap in pre/code tags with language class
-        let lang_class = if language.is_empty() {
-            String::new()
-        } else {
-            format!(" class=\"language-{}\"", html_escape_attr(language))
-        };
-        format!("<pre><code{}>{}</code></pre>", lang_class, result.html)
-    } else {
-        // Fallback: escape HTML and wrap in pre/code
-        let lang_class = if language.is_empty() {
-            String::new()
-        } else {
-            format!(" class=\"language-{}\"", html_escape_attr(language))
-        };
-        format!(
-            "<pre><code{}>{}</code></pre>",
-            lang_class,
-            html_escape_content(code)
-        )
-    }
-}
-
 /// A parse error with its source file path
 #[derive(Debug, Clone, facet::Facet)]
 pub struct SourceParseError {
@@ -551,6 +486,24 @@ impl std::fmt::Display for SourceParseError {
         write!(f, "{}: {}", self.path, self.error)
     }
 }
+
+/// Error when building site tree due to parse errors
+#[derive(Debug, Clone, facet::Facet)]
+pub struct BuildError {
+    pub errors: Vec<SourceParseError>,
+}
+
+impl std::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Failed to parse {} file(s):", self.errors.len())?;
+        for err in &self.errors {
+            writeln!(f, "  - {}", err)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for BuildError {}
 
 /// Result of building the site tree
 pub type BuildTreeResult = Result<SiteTree, Vec<SourceParseError>>;
@@ -657,13 +610,17 @@ fn find_parent_section(route: &Route, sections: &BTreeMap<Route, Section>) -> Ro
 /// Data dependencies are also tracked lazily - only data paths actually accessed become dependencies.
 #[picante::tracked]
 #[tracing::instrument(skip_all, name = "render_page")]
-pub async fn render_page<DB: Db>(db: &DB, route: Route) -> PicanteResult<RenderedHtml> {
+pub async fn render_page<DB: Db>(
+    db: &DB,
+    route: Route,
+) -> PicanteResult<Result<RenderedHtml, BuildError>> {
     use crate::render::{render_page_via_cell, render_page_with_resolver};
 
     // Build tree (cached)
-    let site_tree = build_tree(db)
-        .await?
-        .expect("parse errors should be caught at build time");
+    let site_tree = match build_tree(db).await? {
+        Ok(tree) => tree,
+        Err(errors) => return Ok(Err(BuildError { errors })),
+    };
 
     // Pre-load all templates for sync access during rendering
     let templates = load_all_templates(db).await?;
@@ -685,9 +642,9 @@ pub async fn render_page<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rendere
         let resolver = SyncDataResolver::new(data_value);
         let loader = PicanteTemplateLoader::new(templates);
         let html = render_page_with_resolver(page, &site_tree, loader, resolver).await;
-        Ok(RenderedHtml(html))
+        Ok(Ok(RenderedHtml(html)))
     } else {
-        Ok(RenderedHtml(html))
+        Ok(Ok(RenderedHtml(html)))
     }
 }
 
@@ -697,13 +654,17 @@ pub async fn render_page<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rendere
 /// Data dependencies are also tracked lazily - only data paths actually accessed become dependencies.
 #[picante::tracked]
 #[tracing::instrument(skip_all, name = "render_section")]
-pub async fn render_section<DB: Db>(db: &DB, route: Route) -> PicanteResult<RenderedHtml> {
+pub async fn render_section<DB: Db>(
+    db: &DB,
+    route: Route,
+) -> PicanteResult<Result<RenderedHtml, BuildError>> {
     use crate::render::{render_section_via_cell, render_section_with_resolver};
 
     // Build tree (cached)
-    let site_tree = build_tree(db)
-        .await?
-        .expect("parse errors should be caught at build time");
+    let site_tree = match build_tree(db).await? {
+        Ok(tree) => tree,
+        Err(errors) => return Ok(Err(BuildError { errors })),
+    };
 
     // Pre-load all templates for sync access during rendering
     let templates = load_all_templates(db).await?;
@@ -725,9 +686,9 @@ pub async fn render_section<DB: Db>(db: &DB, route: Route) -> PicanteResult<Rend
         let resolver = SyncDataResolver::new(data_value);
         let loader = PicanteTemplateLoader::new(templates);
         let html = render_section_with_resolver(section, &site_tree, loader, resolver).await;
-        Ok(RenderedHtml(html))
+        Ok(Ok(RenderedHtml(html)))
     } else {
-        Ok(RenderedHtml(html))
+        Ok(Ok(RenderedHtml(html)))
     }
 }
 
@@ -976,31 +937,40 @@ pub async fn process_image<DB: Db>(
 /// This reuses the same queries as the serve pipeline (serve_html, css_output,
 /// static_file_output) to ensure consistency between `ddc build` and `ddc serve`.
 #[picante::tracked]
-pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<SiteOutput> {
+pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, BuildError>> {
     let mut files = Vec::new();
 
     // Build the site tree to get all routes
-    let site_tree = build_tree(db)
-        .await?
-        .expect("parse errors should be caught at build time");
+    let site_tree = match build_tree(db).await? {
+        Ok(tree) => tree,
+        Err(errors) => return Ok(Err(BuildError { errors })),
+    };
 
     // --- Phase 1: Render all HTML pages using serve_html ---
     // This reuses the exact same pipeline as `ddc serve`, ensuring consistency
     for route in site_tree.sections.keys() {
-        if let Some(html) = serve_html(db, route.clone()).await? {
-            files.push(OutputFile::Html {
-                route: route.clone(),
-                content: html,
-            });
+        match serve_html(db, route.clone()).await? {
+            Ok(Some(html)) => {
+                files.push(OutputFile::Html {
+                    route: route.clone(),
+                    content: html,
+                });
+            }
+            Ok(None) => {}
+            Err(e) => return Ok(Err(e)),
         }
     }
 
     for route in site_tree.pages.keys() {
-        if let Some(html) = serve_html(db, route.clone()).await? {
-            files.push(OutputFile::Html {
-                route: route.clone(),
-                content: html,
-            });
+        match serve_html(db, route.clone()).await? {
+            Ok(Some(html)) => {
+                files.push(OutputFile::Html {
+                    route: route.clone(),
+                    content: html,
+                });
+            }
+            Ok(None) => {}
+            Err(e) => return Ok(Err(e)),
         }
     }
 
@@ -1091,10 +1061,10 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<SiteOutput> {
     // --- Phase 4: Execute code samples for validation ---
     let code_execution_results = execute_all_code_samples(db).await?;
 
-    Ok(SiteOutput {
+    Ok(Ok(SiteOutput {
         files,
         code_execution_results,
-    })
+    }))
 }
 
 // ============================================================================
@@ -1104,11 +1074,14 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<SiteOutput> {
 /// Render all pages and sections to HTML (without URL rewriting)
 /// This is cached globally and used for font character analysis
 #[picante::tracked]
-pub async fn all_rendered_html<DB: Db>(db: &DB) -> PicanteResult<AllRenderedHtml> {
+pub async fn all_rendered_html<DB: Db>(
+    db: &DB,
+) -> PicanteResult<Result<AllRenderedHtml, BuildError>> {
     tracing::debug!("🔄 all_rendered_html: EXECUTING (not cached)");
-    let site_tree = build_tree(db)
-        .await?
-        .expect("parse errors should be caught at build time");
+    let site_tree = match build_tree(db).await? {
+        Ok(tree) => tree,
+        Err(errors) => return Ok(Err(BuildError { errors })),
+    };
     let template_map = load_all_templates(db).await?;
 
     // Load data files and convert to template Value
@@ -1139,7 +1112,7 @@ pub async fn all_rendered_html<DB: Db>(db: &DB) -> PicanteResult<AllRenderedHtml
         pages.insert(route.clone(), html);
     }
 
-    Ok(AllRenderedHtml { pages })
+    Ok(Ok(AllRenderedHtml { pages }))
 }
 
 /// Local font-face representation for picante tracking
@@ -1162,7 +1135,9 @@ pub struct LocalFontAnalysis {
 /// Returns the FontAnalysis needed for font subsetting
 #[picante::tracked]
 pub async fn font_char_analysis<DB: Db>(db: &DB) -> PicanteResult<LocalFontAnalysis> {
-    let all_html = all_rendered_html(db).await?;
+    let all_html = all_rendered_html(db)
+        .await?
+        .expect("build errors should be caught before font analysis");
     let sass_css = compile_sass(db).await?;
     let sass_str = sass_css.as_ref().map(|c| c.0.as_str()).unwrap_or("");
 
@@ -1346,26 +1321,33 @@ pub async fn css_output<DB: Db>(db: &DB) -> PicanteResult<Option<CssOutput>> {
 /// This is the main entry point for lazy page serving
 #[picante::tracked]
 #[tracing::instrument(skip(db), name = "serve_html")]
-pub async fn serve_html<DB: Db>(db: &DB, route: Route) -> PicanteResult<Option<String>> {
+pub async fn serve_html<DB: Db>(
+    db: &DB,
+    route: Route,
+) -> PicanteResult<Result<Option<String>, BuildError>> {
     use crate::url_rewrite::{
         ResponsiveImageInfo, rewrite_urls_in_html, transform_images_to_picture,
     };
 
-    let site_tree = build_tree(db)
-        .await?
-        .expect("parse errors should be caught at build time");
+    let site_tree = match build_tree(db).await? {
+        Ok(tree) => tree,
+        Err(errors) => return Ok(Err(BuildError { errors })),
+    };
 
     // Check if route exists in site tree
     let route_exists =
         site_tree.sections.contains_key(&route) || site_tree.pages.contains_key(&route);
     if !route_exists {
-        return Ok(None);
+        return Ok(Ok(None));
     }
 
     // Get the raw HTML for this route
-    let all_html = all_rendered_html(db).await?;
+    let all_html = match all_rendered_html(db).await? {
+        Ok(html) => html,
+        Err(e) => return Ok(Err(e)),
+    };
     let Some(raw_html) = all_html.pages.get(&route).cloned() else {
-        return Ok(None);
+        return Ok(Ok(None));
     };
 
     // Build the full URL rewrite map
@@ -1482,7 +1464,7 @@ pub async fn serve_html<DB: Db>(db: &DB, route: Route) -> PicanteResult<Option<S
         crate::svg::minify_html(&transformed_html).await
     };
 
-    Ok(Some(final_html))
+    Ok(Ok(Some(final_html)))
 }
 
 /// Check if a path is a font file
@@ -1518,21 +1500,6 @@ fn find_chars_for_font_file(
     }
 
     None
-}
-
-/// Escape HTML attribute value
-fn html_escape_attr(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
-/// Escape HTML content
-fn html_escape_content(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
 }
 
 // ============================================================================
