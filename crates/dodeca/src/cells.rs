@@ -2004,8 +2004,16 @@ pub async fn inject_code_buttons_cell(
         Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, flag }) => Some((html, flag)),
         Ok(cell_html_proto::HtmlResult::Success { html }) => Some((html, false)),
         Ok(cell_html_proto::HtmlResult::Error { message }) => {
-            warn!("html inject_code_buttons cell error: {}", message);
-            None
+            eprintln!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            eprintln!("FATAL: HTML processing failed");
+            eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+            eprintln!();
+            eprintln!("Error: {}", message);
+            eprintln!();
+            eprintln!("This is typically caused by invalid HTML or a bug in facet-html.");
+            eprintln!("Please check the HTML being processed and file an issue if needed.");
+            eprintln!();
+            std::process::exit(1);
         }
         Err(e) => {
             warn!("html inject_code_buttons cell call failed: {:?}", e);
