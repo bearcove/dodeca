@@ -568,11 +568,7 @@ fn collect_tests() -> Vec<Test> {
             name: "adding_page_updates_section_pages_list",
             module: "section_pages",
             func: section_pages::adding_page_updates_section_pages_list,
-            // FIXME: This test fails due to a caching/invalidation bug where
-            // the picante query system returns stale HTML after template updates.
-            // The test was broken before the CI was fixed - marking as ignored
-            // to unblock CI while the root cause is investigated.
-            ignored: true,
+            ignored: false,
         },
         Test {
             name: "adding_page_updates_via_get_section_macro",
