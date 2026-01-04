@@ -9,6 +9,52 @@
 use facet::Facet;
 use facet_value::Value;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use facet_value::{DestructuredRef, VObject, VString};
+    use rapace::facet_postcard;
+
+    #[test]
+    fn test_frontmatter_extra_roundtrip() {
+        // Create a Frontmatter with extra fields
+        let mut extra = VObject::new();
+        extra.insert(VString::from("sidebar"), Value::from(true));
+        extra.insert(VString::from("icon"), Value::from("book"));
+        extra.insert(VString::from("custom_value"), Value::from(42i64));
+
+        let fm = Frontmatter {
+            title: "Test".to_string(),
+            weight: 0,
+            description: None,
+            template: None,
+            extra: Value::from(extra),
+        };
+
+        // Serialize with facet_postcard
+        let bytes = facet_postcard::to_vec(&fm).expect("serialize");
+
+        // Deserialize
+        let fm2: Frontmatter = facet_postcard::from_slice(&bytes).expect("deserialize");
+
+        // Verify extra fields survived
+        assert_eq!(fm2.title, "Test");
+        match fm2.extra.destructure_ref() {
+            DestructuredRef::Object(obj) => {
+                let sidebar = obj.get("sidebar").expect("sidebar should exist");
+                assert_eq!(sidebar.as_bool(), Some(true));
+
+                let icon = obj.get("icon").expect("icon should exist");
+                assert_eq!(icon.as_string().unwrap().as_str(), "book");
+
+                let custom_value = obj.get("custom_value").expect("custom_value should exist");
+                assert_eq!(custom_value.as_number().and_then(|n| n.to_i64()), Some(42));
+            }
+            other => panic!("expected object, got {:?}", other),
+        }
+    }
+}
+
 // ============================================================================
 // Types
 // ============================================================================

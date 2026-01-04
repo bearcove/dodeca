@@ -14,6 +14,5 @@ path = "src/main.rs"
 
 [dependencies]
 cell-minify-proto = { path = "../cell-minify-proto" }
-minify-html.workspace = true
 rapace-cell.workspace = true
 tokio.workspace = true

@@ -41,6 +41,7 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use facet::Facet;
+use pulldown_cmark::{Options, Parser};
 
 use crate::handler::BoxedRuleHandler;
 use crate::{Error, Result};
@@ -271,8 +272,10 @@ pub struct RuleDefinition {
     pub line: usize,
     /// Rule metadata (status, level, since, until, tags)
     pub metadata: RuleMetadata,
-    /// The text content following the rule marker (first paragraph)
+    /// The markdown text content following the rule marker (first paragraph)
     pub text: String,
+    /// The rendered HTML of the paragraph following the rule marker
+    pub paragraph_html: String,
 }
 
 /// Warning about rule quality.
@@ -296,7 +299,7 @@ pub struct RuleWarning {
 pub enum RuleWarningKind {
     /// Rule text contains no RFC 2119 keywords
     NoRfc2119Keyword,
-    /// Rule text contains MUST NOT or SHALL NOT (hard to verify)
+    /// Rule text contains a negative requirement (MUST NOT, SHALL NOT, etc.) — these are hard to test
     NegativeRequirement(Rfc2119Keyword),
 }
 
@@ -350,10 +353,17 @@ pub async fn extract_rules_with_warnings(
     // Collect lines for lookahead (to extract rule text)
     let lines: Vec<&str> = content.lines().collect();
     let mut byte_offset = 0usize;
+    let mut skip_until_line = 0usize; // Track lines consumed by rules
 
     for (line_idx, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         let line_byte_len = line.len();
+
+        // Skip lines that were consumed by a previous rule's paragraph
+        if line_idx < skip_until_line {
+            byte_offset += line_byte_len + 1;
+            continue;
+        }
 
         // Check for rule marker: r[rule.id] or r[rule.id attrs...] on its own line
         if trimmed.starts_with("r[") && trimmed.ends_with(']') && trimmed.len() > 3 {
@@ -393,7 +403,20 @@ pub async fn extract_rules_with_warnings(
             };
 
             // Extract rule text (paragraph after rule marker)
-            let text = extract_rule_text(&lines[line_idx + 1..]);
+            let (text, lines_consumed) = extract_rule_text(&lines[line_idx + 1..]);
+
+            // Mark lines as consumed so we skip them in the main loop
+            skip_until_line = line_idx + 1 + lines_consumed;
+
+            // Render the paragraph text to HTML
+            let paragraph_html = if text.is_empty() {
+                String::new()
+            } else {
+                let parser = Parser::new_ext(&text, Options::empty());
+                let mut html = String::new();
+                pulldown_cmark::html::push_html(&mut html, parser);
+                html
+            };
 
             // Check for RFC 2119 keywords and emit warnings
             let keywords = detect_rfc2119_keywords(&text);
@@ -427,6 +450,7 @@ pub async fn extract_rules_with_warnings(
                 line: line_idx + 1, // 1-indexed
                 metadata,
                 text,
+                paragraph_html,
             };
 
             // Render the rule using the handler or default
@@ -462,8 +486,12 @@ pub async fn extract_rules_with_warnings(
 /// - Another rule marker (r[...])
 /// - A heading (# ...)
 /// - End of content
-fn extract_rule_text(lines: &[&str]) -> String {
+///
+/// Returns (text, lines_consumed) where lines_consumed is the number of lines
+/// that should be skipped in the main loop.
+fn extract_rule_text(lines: &[&str]) -> (String, usize) {
     let mut text_lines = Vec::new();
+    let mut lines_consumed = 0;
 
     for line in lines {
         let trimmed = line.trim();
@@ -484,9 +512,10 @@ fn extract_rule_text(lines: &[&str]) -> String {
         }
 
         text_lines.push(trimmed);
+        lines_consumed += 1;
     }
 
-    text_lines.join(" ")
+    (text_lines.join(" "), lines_consumed)
 }
 
 /// Parse a rule marker content (inside r[...]).
@@ -604,7 +633,10 @@ mod tests {
         assert_eq!(rules[0].id, "my.rule");
         assert_eq!(rules[0].anchor_id, "r-my.rule");
         assert_eq!(rules[0].text, "This is the rule text.");
+        assert_eq!(rules[0].paragraph_html, "<p>This is the rule text.</p>\n");
         assert!(output.contains("id=\"r-my.rule\""));
+        // Verify the paragraph was consumed and not duplicated in output
+        assert!(!output.contains("This is the rule text."));
     }
 
     #[tokio::test]
@@ -695,6 +727,34 @@ mod tests {
             .unwrap();
 
         assert_eq!(result.rules[0].text, "First line. Second line.");
+        assert_eq!(
+            result.rules[0].paragraph_html,
+            "<p>First line. Second line.</p>\n"
+        );
+        // Verify the "Next paragraph" is still in the output (wasn't consumed)
+        assert!(result.output.contains("Next paragraph"));
+    }
+
+    #[tokio::test]
+    async fn test_rule_paragraph_html_with_formatting() {
+        let content =
+            "r[formatted.rule]\nThis is **bold** and *italic* text with a `code` snippet.\n";
+        let result = extract_rules_with_warnings(content, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(result.rules.len(), 1);
+        assert_eq!(result.rules[0].id, "formatted.rule");
+        // Verify the paragraph HTML contains proper formatting
+        assert!(
+            result.rules[0]
+                .paragraph_html
+                .contains("<strong>bold</strong>")
+        );
+        assert!(result.rules[0].paragraph_html.contains("<em>italic</em>"));
+        assert!(result.rules[0].paragraph_html.contains("<code>code</code>"));
+        // Verify the formatted text was consumed and not duplicated
+        assert!(!result.output.contains("**bold**"));
     }
 
     // RFC 2119 keyword detection tests

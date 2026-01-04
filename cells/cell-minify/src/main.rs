@@ -9,21 +9,9 @@ pub struct MinifierImpl;
 
 impl Minifier for MinifierImpl {
     async fn minify_html(&self, html: String) -> MinifyResult {
-        let cfg = minify_html::Cfg {
-            minify_css: true,
-            minify_js: true,
-            // Preserve template syntax for compatibility
-            preserve_brace_template_syntax: true,
-            ..minify_html::Cfg::default()
-        };
-
-        let result = minify_html::minify(html.as_bytes(), &cfg);
-        match String::from_utf8(result) {
-            Ok(minified) => MinifyResult::Success { content: minified },
-            Err(_) => MinifyResult::Error {
-                message: "minification produced invalid UTF-8".to_string(),
-            },
-        }
+        // TODO: Use facet-html for minification instead
+        // For now, just return the input unchanged (no-op)
+        MinifyResult::Success { content: html }
     }
 }
 

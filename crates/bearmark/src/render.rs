@@ -259,6 +259,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
     // 5. Generate final HTML
     let mut html = String::new();
     let mut skip_until_code_block_end = false;
+    let mut heading_index = 0usize;
 
     for (idx, event) in events.iter().enumerate() {
         // Check if this is a code block start we need to replace
@@ -279,10 +280,11 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
         match event {
             Event::Start(Tag::Heading { level, id, .. }) => {
                 let level_num = *level as u8;
-                // Find matching heading to get the slug
-                if let Some(heading) = headings.iter().find(|h| h.level == level_num) {
+                // Use the heading at current index (headings were collected in order)
+                if let Some(heading) = headings.get(heading_index) {
                     let id_attr = id.as_ref().map(|s| s.as_ref()).unwrap_or(&heading.id);
                     html.push_str(&format!("<h{} id=\"{}\">", level_num, html_escape(id_attr)));
+                    heading_index += 1;
                 } else {
                     html.push_str(&format!("<h{}>", level_num));
                 }
@@ -424,5 +426,43 @@ mod tests {
         assert_eq!(doc.rules[0].id, "custom.test");
         assert!(doc.html.contains("class=\"custom-rule\""));
         assert!(doc.html.contains("data-rule=\"custom.test\""));
+    }
+
+    #[tokio::test]
+    async fn test_render_unique_heading_ids() {
+        let md = r#"# Main Title
+
+## Section A
+
+Content A.
+
+## Section B
+
+Content B.
+
+### Subsection B1
+
+Details 1.
+
+### Subsection B2
+
+Details 2.
+"#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        // Each heading should have its own unique ID
+        assert_eq!(doc.headings.len(), 5);
+        assert_eq!(doc.headings[0].id, "main-title");
+        assert_eq!(doc.headings[1].id, "section-a");
+        assert_eq!(doc.headings[2].id, "section-b");
+        assert_eq!(doc.headings[3].id, "subsection-b1");
+        assert_eq!(doc.headings[4].id, "subsection-b2");
+
+        // Verify HTML has correct IDs
+        assert!(doc.html.contains(r#"id="main-title""#));
+        assert!(doc.html.contains(r#"id="section-a""#));
+        assert!(doc.html.contains(r#"id="section-b""#));
+        assert!(doc.html.contains(r#"id="subsection-b1""#));
+        assert!(doc.html.contains(r#"id="subsection-b2""#));
     }
 }

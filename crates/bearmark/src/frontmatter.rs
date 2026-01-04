@@ -230,6 +230,112 @@ mod tests {
         let (fm, _) = parse_frontmatter(md).unwrap();
 
         assert_eq!(fm.title, "Test");
+
         // extra field should be captured in the Value
+        use facet_value::DestructuredRef;
+        match fm.extra.destructure_ref() {
+            DestructuredRef::Object(obj) => {
+                let custom_field = obj.get("custom_field").expect("custom_field should exist");
+                assert_eq!(custom_field.as_string().unwrap().as_str(), "value");
+            }
+            other => panic!("expected object, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_frontmatter_extra_with_integration_test_content() {
+        // This is the exact content from the integration test
+        let md = r#"+++
+title = "Guide"
+[extra]
+sidebar = true
+icon = "book"
+custom_value = 42
++++
+
+# Guide
+
+This is the guide section.
+"#;
+        let (fm, body) = parse_frontmatter(md).unwrap();
+
+        assert_eq!(fm.title, "Guide");
+        assert!(body.contains("# Guide"));
+
+        // extra field should contain all the [extra] fields
+        use facet_value::DestructuredRef;
+        match fm.extra.destructure_ref() {
+            DestructuredRef::Object(obj) => {
+                eprintln!(
+                    "Extra fields: {:?}",
+                    obj.iter().map(|(k, _)| k.to_string()).collect::<Vec<_>>()
+                );
+
+                let sidebar = obj.get("sidebar").expect("sidebar should exist");
+                assert_eq!(sidebar.as_bool(), Some(true), "sidebar should be true");
+
+                let icon = obj.get("icon").expect("icon should exist");
+                assert_eq!(
+                    icon.as_string().unwrap().as_str(),
+                    "book",
+                    "icon should be 'book'"
+                );
+
+                let custom_value = obj.get("custom_value").expect("custom_value should exist");
+                assert_eq!(
+                    custom_value.as_number().and_then(|n| n.to_i64()),
+                    Some(42),
+                    "custom_value should be 42"
+                );
+            }
+            other => panic!("expected object for extra, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_frontmatter_extra_survives_postcard_roundtrip() {
+        use facet_postcard;
+        use facet_value::DestructuredRef;
+
+        // Parse the same content as the integration test
+        let md = r#"+++
+title = "Guide"
+[extra]
+sidebar = true
+icon = "book"
+custom_value = 42
++++
+
+# Guide
+"#;
+        let (fm, _) = parse_frontmatter(md).unwrap();
+
+        // Print what we got before serialization
+        eprintln!("Before postcard: extra = {:?}", fm.extra);
+
+        // Serialize just the Frontmatter
+        let bytes = facet_postcard::to_vec(&fm).expect("serialize Frontmatter");
+        eprintln!("Serialized {} bytes", bytes.len());
+
+        // Deserialize
+        let fm2: Frontmatter = facet_postcard::from_slice(&bytes).expect("deserialize Frontmatter");
+
+        // Print what we got after deserialization
+        eprintln!("After postcard: extra = {:?}", fm2.extra);
+
+        // Verify extra survived
+        match fm2.extra.destructure_ref() {
+            DestructuredRef::Object(obj) => {
+                let keys: Vec<_> = obj.iter().map(|(k, _)| k.to_string()).collect();
+                eprintln!("After roundtrip, extra has keys: {:?}", keys);
+
+                let sidebar = obj.get("sidebar").expect("sidebar should exist");
+                assert_eq!(sidebar.as_bool(), Some(true), "sidebar should be true");
+
+                let icon = obj.get("icon").expect("icon should exist");
+                assert_eq!(icon.as_string().unwrap().as_str(), "book");
+            }
+            other => panic!("expected object after roundtrip, got {:?}", other),
+        }
     }
 }
