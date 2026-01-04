@@ -71,7 +71,14 @@ impl CodeBlockHandler for ArboriumHandler {
             // Try to highlight with arborium
             let mut hl = self.highlighter.lock().unwrap();
             match hl.highlight(arborium_lang, code) {
-                Ok(html) => Ok(html),
+                Ok(html) => {
+                    // Wrap arborium's highlighted output in pre/code tags
+                    use crate::handler::html_escape;
+                    let escaped_lang = html_escape(language);
+                    Ok(format!(
+                        "<pre><code class=\"language-{escaped_lang}\">{html}</code></pre>"
+                    ))
+                }
                 Err(e) => Err(crate::Error::CodeBlockHandler {
                     language: language.to_string(),
                     message: e.to_string(),
