@@ -1121,7 +1121,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
     let targets = targets_for_platform(platform);
 
     let mut jobs = IndexMap::new();
-    let groups = cell_groups(4);
+    let groups = cell_groups(1);
 
     // Track jobs required before release (assemble + integration per target)
     let mut all_release_needs: Vec<String> = Vec::new();
@@ -1557,7 +1557,7 @@ pub fn build_forgejo_workflow() -> Workflow {
         .find(|target| target.triple == "x86_64-unknown-linux-gnu")
         .map(|target| target.cache_base_path())
         .unwrap_or("/home/amos/.cache");
-    let groups = cell_groups(4);
+    let groups = cell_groups(1);
 
     // CAS env vars used by all artifact steps (SSH-based content-addressed storage)
     let cas_env = cas_env();
