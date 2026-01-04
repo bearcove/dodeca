@@ -577,9 +577,7 @@ fn collect_tests() -> Vec<Test> {
             ignored: false,
         },
         // error_detection tests
-        // FIXME: These tests fail due to the same caching/invalidation bug as
-        // section_pages::adding_page_updates_section_pages_list - template changes
-        // are not properly propagated through the picante query system.
+        // FIXME: These tests fail - see https://github.com/bearcove/dodeca/issues/182
         Test {
             name: "template_syntax_error_shows_error_page",
             module: "error_detection",
