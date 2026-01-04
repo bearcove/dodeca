@@ -397,6 +397,14 @@ structstruck::strike! {
             pub branches: Option<Vec<String>>,
         }>,
 
+        /// Trigger on merge group events (for merge queues).
+        #[facet(default, skip_serializing_if = Option::is_none)]
+        pub merge_group: Option<pub struct MergeGroupTrigger {
+            /// Branches to trigger on.
+            #[facet(default, skip_serializing_if = Option::is_none)]
+            pub branches: Option<Vec<String>>,
+        }>,
+
         /// Trigger on workflow dispatch (manual).
         #[facet(default, skip_serializing_if = Option::is_none)]
         pub workflow_dispatch: Option<pub struct WorkflowDispatchTrigger {}>,
@@ -1544,6 +1552,9 @@ gh release create "{ref_name}" \
             pull_request: Some(PullRequestTrigger {
                 branches: Some(vec!["main".into()]),
             }),
+            merge_group: Some(MergeGroupTrigger {
+                branches: Some(vec!["main".into()]),
+            }),
             workflow_dispatch: Some(WorkflowDispatchTrigger {}),
         },
         permissions: Some(
@@ -1947,6 +1958,8 @@ ls -la dist/"#
             pull_request: Some(PullRequestTrigger {
                 branches: Some(vec!["main".into()]),
             }),
+            // Forgejo doesn't support merge_group yet
+            merge_group: None,
             workflow_dispatch: Some(WorkflowDispatchTrigger {}),
         },
         permissions: Some(
