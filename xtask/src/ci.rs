@@ -76,17 +76,8 @@ impl CiPlatform {
         }
     }
 
-    /// The pinned nightly toolchain version to use.
-    /// Using nightly for -Z checksum-freshness support (mtime-independent caching).
-    pub const RUST_TOOLCHAIN: &'static str = "nightly-2025-12-19";
-
-    /// Cargo flags for nightly features we rely on.
-    /// +nightly: Explicitly use nightly toolchain (runner default may be stable).
-    /// -Z checksum-freshness: Use file checksums instead of mtimes for freshness checks.
-    /// -Z mtime-on-use: Update mtimes when Cargo actually uses artifacts (for sweep).
-    /// This allows caching to work properly even when git checkout changes file mtimes.
-    pub const CARGO_NIGHTLY_FLAGS: &'static str =
-        "+nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use";
+    /// The pinned stable toolchain version to use.
+    pub const RUST_TOOLCHAIN: &'static str = "1.92.0";
 
     /// Get the local cache action for this platform (for self-hosted runners).
     pub fn local_cache_action(&self) -> &'static str {
@@ -1130,7 +1121,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
     let targets = targets_for_platform(platform);
 
     let mut jobs = IndexMap::new();
-    let groups = cell_groups(9);
+    let groups = cell_groups(4);
 
     // Track jobs required before release (assemble + integration per target)
     let mut all_release_needs: Vec<String> = Vec::new();
@@ -1162,10 +1153,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                 ci_linux_cache.clone(),
                 Step::run(
                     "Clippy",
-                    format!(
-                        "cargo {} clippy --all-features --all-targets -- -D warnings",
-                        CiPlatform::CARGO_NIGHTLY_FLAGS
-                    ),
+                    "cargo clippy --all-features --all-targets -- -D warnings",
                 ),
             ]),
     );
@@ -1222,22 +1210,10 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                     } else {
                         rust_cache_with_targets(platform, false, target)
                     },
-                    Step::run(
-                        "Build ddc",
-                        format!(
-                            "cargo {} build --release -p dodeca --verbose",
-                            CiPlatform::CARGO_NIGHTLY_FLAGS
-                        ),
-                    ),
+                    Step::run("Build ddc", "cargo build --release -p dodeca --verbose"),
                     // Only run binary unit tests here - integration tests (serve/) need cells
                     // and run in the integration phase after assembly
-                    Step::run(
-                        "Test ddc",
-                        format!(
-                            "cargo {} test --release -p dodeca --bins",
-                            CiPlatform::CARGO_NIGHTLY_FLAGS
-                        ),
-                    ),
+                    Step::run("Test ddc", "cargo test --release -p dodeca --bins"),
                     upload_artifact(platform, format!("ddc-{short}"), "target/release/ddc"),
                 ]),
         );
@@ -1292,18 +1268,9 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                         },
                         Step::run(
                             "Build cells",
-                            format!(
-                                "cargo {} build --release {build_args} --verbose",
-                                CiPlatform::CARGO_NIGHTLY_FLAGS
-                            ),
+                            format!("cargo build --release {build_args} --verbose"),
                         ),
-                        Step::run(
-                            "Test cells",
-                            format!(
-                                "cargo {} test --release {test_args}",
-                                CiPlatform::CARGO_NIGHTLY_FLAGS
-                            ),
-                        ),
+                        Step::run("Test cells", format!("cargo test --release {test_args}")),
                         upload_artifact(
                             platform,
                             format!("cells-{short}-{group_num}"),
@@ -1347,10 +1314,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                     // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
                     Step::run(
                         "Build integration-tests",
-                        format!(
-                            "cargo {} build -p integration-tests",
-                            CiPlatform::CARGO_NIGHTLY_FLAGS
-                        ),
+                        "cargo build -p integration-tests",
                     ),
                     Step::uses("Download ddc", platform.download_artifact_action())
                         .with_inputs([("name", format!("ddc-{short}")), ("path", "dist".into())]),
@@ -1593,7 +1557,7 @@ pub fn build_forgejo_workflow() -> Workflow {
         .find(|target| target.triple == "x86_64-unknown-linux-gnu")
         .map(|target| target.cache_base_path())
         .unwrap_or("/home/amos/.cache");
-    let groups = cell_groups(9);
+    let groups = cell_groups(4);
 
     // CAS env vars used by all artifact steps (SSH-based content-addressed storage)
     let cas_env = cas_env();
@@ -1626,10 +1590,7 @@ pub fn build_forgejo_workflow() -> Workflow {
                 cargo_sweep_cache_stamp("clippy", linux_cache_base),
                 Step::run(
                     "Clippy",
-                    format!(
-                        "cargo {} clippy --all-features --all-targets -- -D warnings",
-                        CiPlatform::CARGO_NIGHTLY_FLAGS
-                    ),
+                    "cargo clippy --all-features --all-targets -- -D warnings",
                 ),
                 ctree_cache_save("clippy", linux_cache_base),
                 cargo_sweep_cache_trim("clippy", linux_cache_base),
@@ -1704,11 +1665,11 @@ else
 fi"#,
                     )
                     .shell("bash"),
-                    Step::run("Build ddc", format!("cargo {} build --release -p dodeca --verbose", CiPlatform::CARGO_NIGHTLY_FLAGS)),
+                    Step::run("Build ddc", "cargo build --release -p dodeca --verbose"),
                     // Save cache immediately after build (before tests/uploads that might fail)
                     ctree_cache_save(&format!("ddc-{short}"), cache_base),
                     cargo_sweep_cache_trim(&format!("ddc-{short}"), cache_base),
-                    Step::run("Test ddc", format!("cargo {} test --release -p dodeca --bins", CiPlatform::CARGO_NIGHTLY_FLAGS)),
+                    Step::run("Test ddc", "cargo test --release -p dodeca --bins"),
                     Step::run(
                         "Upload ddc to CAS",
                         format!(
@@ -1767,21 +1728,12 @@ fi"#,
                         cargo_sweep_cache_stamp(&format!("cells-{short}-{group_num}"), cache_base),
                         Step::run(
                             "Build cells",
-                            format!(
-                                "cargo {} build --release {build_args} --verbose",
-                                CiPlatform::CARGO_NIGHTLY_FLAGS
-                            ),
+                            format!("cargo build --release {build_args} --verbose"),
                         ),
                         // Save cache immediately after build (before tests/uploads that might fail)
                         ctree_cache_save(&format!("cells-{short}-{group_num}"), cache_base),
                         cargo_sweep_cache_trim(&format!("cells-{short}-{group_num}"), cache_base),
-                        Step::run(
-                            "Test cells",
-                            format!(
-                                "cargo {} test --release {test_args}",
-                                CiPlatform::CARGO_NIGHTLY_FLAGS
-                            ),
-                        ),
+                        Step::run("Test cells", format!("cargo test --release {test_args}")),
                         Step::run("Upload cells to CAS", upload_script),
                     ]),
             );
@@ -1813,10 +1765,7 @@ fi"#,
                     // Build integration-tests binary (xtask will be built in debug, so build integration-tests in debug too)
                     Step::run(
                         "Build integration-tests",
-                        format!(
-                            "cargo {} build -p integration-tests",
-                            CiPlatform::CARGO_NIGHTLY_FLAGS
-                        ),
+                        "cargo build -p integration-tests",
                     ),
                     // Download ddc from CAS
                     Step::run(

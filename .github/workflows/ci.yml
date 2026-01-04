@@ -33,7 +33,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
           components: clippy
           targets: wasm32-unknown-unknown
       - name: Rust cache
@@ -42,7 +42,7 @@ jobs:
           cache-on-failure: "true"
           cache-targets: "false"
       - name: Clippy
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use clippy --all-features --all-targets -- -D warnings
+        run: cargo clippy --all-features --all-targets -- -D warnings
   build-wasm: 
     name: Build WASM
     runs-on: 
@@ -54,7 +54,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
           targets: wasm32-unknown-unknown
       - name: Add WASM target
         run: rustup target add wasm32-unknown-unknown
@@ -83,23 +83,23 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
           cache-targets: "false"
       - name: Build ddc
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p dodeca --verbose
+        run: cargo build --release -p dodeca --verbose
       - name: Test ddc
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p dodeca --bins
+        run: cargo test --release -p dodeca --bins
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
           name: ddc-linux-x64
           path: target/release/ddc
   build-cells-linux-x64-1: 
-    name: Build cells (linux-x64) [cell-code-execution, cell-css, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image]
+    name: Build cells (linux-x64) [cell-code-execution, cell-css, cell-dialoguer, cell-fonts]
     runs-on: 
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -109,16 +109,16 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
           cache-targets: "true"
       - name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image --verbose
+        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts --verbose
       - name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-code-execution -p cell-css -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image
+        run: cargo test --release -p cell-code-execution -p cell-css -p cell-dialoguer -p cell-fonts
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
@@ -128,13 +128,8 @@ jobs:
             target/release/ddc-cell-css
             target/release/ddc-cell-dialoguer
             target/release/ddc-cell-fonts
-            target/release/ddc-cell-gingembre
-            target/release/ddc-cell-html
-            target/release/ddc-cell-html-diff
-            target/release/ddc-cell-http
-            target/release/ddc-cell-image
   build-cells-linux-x64-2: 
-    name: Build cells (linux-x64) [cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-pagefind, cell-sass, cell-svgo, cell-tui]
+    name: Build cells (linux-x64) [cell-gingembre, cell-html, cell-html-diff, cell-http]
     runs-on: 
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -144,32 +139,27 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
           cache-targets: "true"
       - name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui --verbose
+        run: cargo build --release -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http --verbose
       - name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui
+        run: cargo test --release -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
           name: cells-linux-x64-2
           path: |-
-            target/release/ddc-cell-js
-            target/release/ddc-cell-jxl
-            target/release/ddc-cell-linkcheck
-            target/release/ddc-cell-markdown
-            target/release/ddc-cell-minify
-            target/release/ddc-cell-pagefind
-            target/release/ddc-cell-sass
-            target/release/ddc-cell-svgo
-            target/release/ddc-cell-tui
+            target/release/ddc-cell-gingembre
+            target/release/ddc-cell-html
+            target/release/ddc-cell-html-diff
+            target/release/ddc-cell-http
   build-cells-linux-x64-3: 
-    name: Build cells (linux-x64) [cell-webp]
+    name: Build cells (linux-x64) [cell-image, cell-js, cell-jxl, cell-linkcheck]
     runs-on: 
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -179,21 +169,84 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
           cache-targets: "true"
       - name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-webp --bin ddc-cell-webp --verbose
+        run: cargo build --release -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck --verbose
       - name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-webp
+        run: cargo test --release -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
           name: cells-linux-x64-3
-          path: target/release/ddc-cell-webp
+          path: |-
+            target/release/ddc-cell-image
+            target/release/ddc-cell-js
+            target/release/ddc-cell-jxl
+            target/release/ddc-cell-linkcheck
+  build-cells-linux-x64-4: 
+    name: Build cells (linux-x64) [cell-markdown, cell-minify, cell-pagefind, cell-sass]
+    runs-on: 
+      - depot-ubuntu-24.04-32
+    timeout-minutes: 30
+    steps: 
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with: 
+          toolchain: 1.92.0
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with: 
+          cache-on-failure: "true"
+          cache-targets: "true"
+      - name: Build cells
+        run: cargo build --release -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass --verbose
+      - name: Test cells
+        run: cargo test --release -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with: 
+          name: cells-linux-x64-4
+          path: |-
+            target/release/ddc-cell-markdown
+            target/release/ddc-cell-minify
+            target/release/ddc-cell-pagefind
+            target/release/ddc-cell-sass
+  build-cells-linux-x64-5: 
+    name: Build cells (linux-x64) [cell-svgo, cell-tui, cell-webp]
+    runs-on: 
+      - depot-ubuntu-24.04-32
+    timeout-minutes: 30
+    steps: 
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with: 
+          toolchain: 1.92.0
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with: 
+          cache-on-failure: "true"
+          cache-targets: "true"
+      - name: Build cells
+        run: cargo build --release -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
+      - name: Test cells
+        run: cargo test --release -p cell-svgo -p cell-tui -p cell-webp
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with: 
+          name: cells-linux-x64-5
+          path: |-
+            target/release/ddc-cell-svgo
+            target/release/ddc-cell-tui
+            target/release/ddc-cell-webp
   integration-linux-x64: 
     name: Integration (linux-x64)
     runs-on: 
@@ -204,20 +257,22 @@ jobs:
       - build-cells-linux-x64-1
       - build-cells-linux-x64-2
       - build-cells-linux-x64-3
+      - build-cells-linux-x64-4
+      - build-cells-linux-x64-5
     steps: 
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
           cache-on-failure: "true"
           cache-targets: "false"
       - name: Build integration-tests
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build -p integration-tests
+        run: cargo build -p integration-tests
       - name: Download ddc
         uses: actions/download-artifact@v4
         with: 
@@ -407,6 +462,8 @@ jobs:
       - build-cells-linux-x64-1
       - build-cells-linux-x64-2
       - build-cells-linux-x64-3
+      - build-cells-linux-x64-4
+      - build-cells-linux-x64-5
     steps: 
       - name: Checkout
         uses: actions/checkout@v4
@@ -492,7 +549,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
@@ -500,16 +557,16 @@ jobs:
           cache-targets: "false"
           cache-bin: "false"
       - name: Build ddc
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p dodeca --verbose
+        run: cargo build --release -p dodeca --verbose
       - name: Test ddc
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p dodeca --bins
+        run: cargo test --release -p dodeca --bins
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
           name: ddc-macos-arm64
           path: target/release/ddc
   build-cells-macos-arm64-1: 
-    name: Build cells (macos-arm64) [cell-code-execution, cell-css, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image]
+    name: Build cells (macos-arm64) [cell-code-execution, cell-css, cell-dialoguer, cell-fonts]
     runs-on: 
       - mac-arm64-oakhost
     timeout-minutes: 30
@@ -519,7 +576,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
@@ -527,9 +584,9 @@ jobs:
           cache-targets: "true"
           cache-bin: "false"
       - name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image --verbose
+        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts --verbose
       - name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-code-execution -p cell-css -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image
+        run: cargo test --release -p cell-code-execution -p cell-css -p cell-dialoguer -p cell-fonts
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
@@ -539,13 +596,8 @@ jobs:
             target/release/ddc-cell-css
             target/release/ddc-cell-dialoguer
             target/release/ddc-cell-fonts
-            target/release/ddc-cell-gingembre
-            target/release/ddc-cell-html
-            target/release/ddc-cell-html-diff
-            target/release/ddc-cell-http
-            target/release/ddc-cell-image
   build-cells-macos-arm64-2: 
-    name: Build cells (macos-arm64) [cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-pagefind, cell-sass, cell-svgo, cell-tui]
+    name: Build cells (macos-arm64) [cell-gingembre, cell-html, cell-html-diff, cell-http]
     runs-on: 
       - mac-arm64-oakhost
     timeout-minutes: 30
@@ -555,7 +607,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
@@ -563,25 +615,20 @@ jobs:
           cache-targets: "true"
           cache-bin: "false"
       - name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui --verbose
+        run: cargo build --release -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http --verbose
       - name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui
+        run: cargo test --release -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
           name: cells-macos-arm64-2
           path: |-
-            target/release/ddc-cell-js
-            target/release/ddc-cell-jxl
-            target/release/ddc-cell-linkcheck
-            target/release/ddc-cell-markdown
-            target/release/ddc-cell-minify
-            target/release/ddc-cell-pagefind
-            target/release/ddc-cell-sass
-            target/release/ddc-cell-svgo
-            target/release/ddc-cell-tui
+            target/release/ddc-cell-gingembre
+            target/release/ddc-cell-html
+            target/release/ddc-cell-html-diff
+            target/release/ddc-cell-http
   build-cells-macos-arm64-3: 
-    name: Build cells (macos-arm64) [cell-webp]
+    name: Build cells (macos-arm64) [cell-image, cell-js, cell-jxl, cell-linkcheck]
     runs-on: 
       - mac-arm64-oakhost
     timeout-minutes: 30
@@ -591,7 +638,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
@@ -599,14 +646,79 @@ jobs:
           cache-targets: "true"
           cache-bin: "false"
       - name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-webp --bin ddc-cell-webp --verbose
+        run: cargo build --release -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck --verbose
       - name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-webp
+        run: cargo test --release -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
           name: cells-macos-arm64-3
-          path: target/release/ddc-cell-webp
+          path: |-
+            target/release/ddc-cell-image
+            target/release/ddc-cell-js
+            target/release/ddc-cell-jxl
+            target/release/ddc-cell-linkcheck
+  build-cells-macos-arm64-4: 
+    name: Build cells (macos-arm64) [cell-markdown, cell-minify, cell-pagefind, cell-sass]
+    runs-on: 
+      - mac-arm64-oakhost
+    timeout-minutes: 30
+    steps: 
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with: 
+          toolchain: 1.92.0
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with: 
+          cache-on-failure: "true"
+          cache-targets: "true"
+          cache-bin: "false"
+      - name: Build cells
+        run: cargo build --release -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass --verbose
+      - name: Test cells
+        run: cargo test --release -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with: 
+          name: cells-macos-arm64-4
+          path: |-
+            target/release/ddc-cell-markdown
+            target/release/ddc-cell-minify
+            target/release/ddc-cell-pagefind
+            target/release/ddc-cell-sass
+  build-cells-macos-arm64-5: 
+    name: Build cells (macos-arm64) [cell-svgo, cell-tui, cell-webp]
+    runs-on: 
+      - mac-arm64-oakhost
+    timeout-minutes: 30
+    steps: 
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with: 
+          toolchain: 1.92.0
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with: 
+          cache-on-failure: "true"
+          cache-targets: "true"
+          cache-bin: "false"
+      - name: Build cells
+        run: cargo build --release -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
+      - name: Test cells
+        run: cargo test --release -p cell-svgo -p cell-tui -p cell-webp
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with: 
+          name: cells-macos-arm64-5
+          path: |-
+            target/release/ddc-cell-svgo
+            target/release/ddc-cell-tui
+            target/release/ddc-cell-webp
   integration-macos-arm64: 
     name: Integration (macos-arm64)
     runs-on: 
@@ -617,13 +729,15 @@ jobs:
       - build-cells-macos-arm64-1
       - build-cells-macos-arm64-2
       - build-cells-macos-arm64-3
+      - build-cells-macos-arm64-4
+      - build-cells-macos-arm64-5
     steps: 
       - name: Checkout
         uses: actions/checkout@v4
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with: 
@@ -631,7 +745,7 @@ jobs:
           cache-targets: "false"
           cache-bin: "false"
       - name: Build integration-tests
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build -p integration-tests
+        run: cargo build -p integration-tests
       - name: Download ddc
         uses: actions/download-artifact@v4
         with: 

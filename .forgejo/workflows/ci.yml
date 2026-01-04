@@ -7,630 +7,1556 @@ name: CI
   push: 
     tags: 
       - v*
-
     branches: 
       - main
-
   pull_request: 
     branches: 
       - main
-
-  workflow_dispatch: 
+  workflow_dispatch: {}
 permissions: 
   contents: read
-
 env: 
   CARGO_TERM_COLOR: always
-
 jobs: 
   clippy: 
     name: Clippy
     runs-on: 
       - linux-amd64-metal
-
     timeout-minutes: 30
     continue-on-error: true
     steps: 
-      - 
-        name: Checkout
+      - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
-      - 
-        name: Install Rust
+      - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
           components: clippy
           targets: wasm32-unknown-unknown
-
-      - 
-        name: Restore cache (ctree)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/clippy\" ]; then\n  echo \"Restoring cache from /home/amos/.cache/dodeca-ci/clippy...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/clippy\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/clippy\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/clippy\"\nfi"
-      - 
-        name: Timelord cache info (before sync)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord\"\nfi"
-      - 
-        name: Restore source mtimes (timelord)
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/clippy" ]; then
+            echo "Restoring cache from /home/amos/.cache/dodeca-ci/clippy..."
+            rm -rf target 2>/dev/null || true
+            ctree "/home/amos/.cache/dodeca-ci/clippy" target && echo "Cache restored via ctree from /home/amos/.cache/dodeca-ci/clippy" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/clippy"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/home/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
         run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
-      - 
-        name: Stamp cache artifacts (cargo sweep)
-        run: "mkdir -p \"/home/amos/.cache/dodeca-ci/clippy\"\nCARGO_TARGET_DIR=\"/home/amos/.cache/dodeca-ci/clippy\" cargo sweep --stamp"
-      - 
-        name: Clippy
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use clippy --all-features --all-targets -- -D warnings
-      - 
-        name: Save cache (ctree)
-        run: "echo \"=== Cache contents before save ===\"\ndu -sh target 2>/dev/null || true\ntree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\nmkdir -p \"$(dirname \"/home/amos/.cache/dodeca-ci/clippy\")\"\nrm -rf \"/home/amos/.cache/dodeca-ci/clippy\" 2>/dev/null || true\nctree target \"/home/amos/.cache/dodeca-ci/clippy\" && echo \"Cache saved via ctree to /home/amos/.cache/dodeca-ci/clippy\" || echo \"ctree save failed (non-fatal)\""
-      - 
-        name: Trim cache (cargo sweep)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/clippy\" ]; then\n  CARGO_TARGET_DIR=\"/home/amos/.cache/dodeca-ci/clippy\" cargo sweep --file || true\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/clippy to trim\"\nfi"
-
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/home/amos/.cache/dodeca-ci/clippy"
+          CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/clippy" cargo sweep --stamp
+      - name: Clippy
+        run: cargo clippy --all-features --all-targets -- -D warnings
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/home/amos/.cache/dodeca-ci/clippy")"
+          rm -rf "/home/amos/.cache/dodeca-ci/clippy" 2>/dev/null || true
+          ctree target "/home/amos/.cache/dodeca-ci/clippy" && echo "Cache saved via ctree to /home/amos/.cache/dodeca-ci/clippy" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/clippy" ]; then
+            CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/clippy" cargo sweep --file || true
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/clippy to trim"
+          fi
   build-wasm: 
     name: Build WASM
     runs-on: 
       - linux-amd64-metal
-
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-
     steps: 
-      - 
-        name: Checkout
+      - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
-      - 
-        name: Install Rust
+      - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
         with: 
-          toolchain: nightly-2025-12-19
+          toolchain: 1.92.0
           targets: wasm32-unknown-unknown
-
-      - 
-        name: Restore cache (ctree)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/wasm\" ]; then\n  echo \"Restoring cache from /home/amos/.cache/dodeca-ci/wasm...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/wasm\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/wasm\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/wasm\"\nfi"
-      - 
-        name: Timelord cache info (before sync)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord\"\nfi"
-      - 
-        name: Restore source mtimes (timelord)
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/wasm" ]; then
+            echo "Restoring cache from /home/amos/.cache/dodeca-ci/wasm..."
+            rm -rf target 2>/dev/null || true
+            ctree "/home/amos/.cache/dodeca-ci/wasm" target && echo "Cache restored via ctree from /home/amos/.cache/dodeca-ci/wasm" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/wasm"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/home/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
         run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
-      - 
-        name: Stamp cache artifacts (cargo sweep)
-        run: "mkdir -p \"/home/amos/.cache/dodeca-ci/wasm\"\nCARGO_TARGET_DIR=\"/home/amos/.cache/dodeca-ci/wasm\" cargo sweep --stamp"
-      - 
-        name: Build WASM
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/home/amos/.cache/dodeca-ci/wasm"
+          CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/wasm" cargo sweep --stamp
+      - name: Build WASM
         run: cargo xtask wasm
-      - 
-        name: Save cache (ctree)
-        run: "echo \"=== Cache contents before save ===\"\ndu -sh target 2>/dev/null || true\ntree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\nmkdir -p \"$(dirname \"/home/amos/.cache/dodeca-ci/wasm\")\"\nrm -rf \"/home/amos/.cache/dodeca-ci/wasm\" 2>/dev/null || true\nctree target \"/home/amos/.cache/dodeca-ci/wasm\" && echo \"Cache saved via ctree to /home/amos/.cache/dodeca-ci/wasm\" || echo \"ctree save failed (non-fatal)\""
-      - 
-        name: Trim cache (cargo sweep)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/wasm\" ]; then\n  CARGO_TARGET_DIR=\"/home/amos/.cache/dodeca-ci/wasm\" cargo sweep --file || true\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/wasm to trim\"\nfi"
-      - 
-        name: Upload WASM to CAS
-        run: "tar -czf /tmp/wasm.tar.gz -C crates/dodeca-devtools pkg\n./scripts/cas-upload.ts /tmp/wasm.tar.gz \"ci/${{ github.run_id }}/wasm.tar.gz\""
-
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/home/amos/.cache/dodeca-ci/wasm")"
+          rm -rf "/home/amos/.cache/dodeca-ci/wasm" 2>/dev/null || true
+          ctree target "/home/amos/.cache/dodeca-ci/wasm" && echo "Cache saved via ctree to /home/amos/.cache/dodeca-ci/wasm" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/wasm" ]; then
+            CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/wasm" cargo sweep --file || true
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/wasm to trim"
+          fi
+      - name: Upload WASM to CAS
+        run: |-
+          tar -czf /tmp/wasm.tar.gz -C crates/dodeca-devtools pkg
+          ./scripts/cas-upload.ts /tmp/wasm.tar.gz "ci/${{ github.run_id }}/wasm.tar.gz"
   build-ddc-linux-x64: 
     name: Build ddc (linux-x64)
     runs-on: 
       - depot-ubuntu-24.04-32
-
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-
     steps: 
-      - 
-        name: Checkout
+      - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
-      - 
-        name: Install Rust
+      - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
         with: 
-          toolchain: nightly-2025-12-19
-
-      - 
-        name: Restore cache (ctree)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" ]; then\n  echo \"Restoring cache from /home/amos/.cache/dodeca-ci/ddc-linux-x64...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/ddc-linux-x64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/ddc-linux-x64\"\nfi"
-      - 
-        name: Timelord cache info (before sync)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord\"\nfi"
-      - 
-        name: Restore source mtimes (timelord)
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/ddc-linux-x64" ]; then
+            echo "Restoring cache from /home/amos/.cache/dodeca-ci/ddc-linux-x64..."
+            rm -rf target 2>/dev/null || true
+            ctree "/home/amos/.cache/dodeca-ci/ddc-linux-x64" target && echo "Cache restored via ctree from /home/amos/.cache/dodeca-ci/ddc-linux-x64" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/ddc-linux-x64"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/home/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
         run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
-      - 
-        name: Stamp cache artifacts (cargo sweep)
-        run: "mkdir -p \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\"\nCARGO_TARGET_DIR=\"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" cargo sweep --stamp"
-      - 
-        name: Debug proc-macro2 mtimes
-        run: "set -euo pipefail\nif ls target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then\n  if stat -c %y target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then\n    stat -c %y target/debug/build/proc-macro2-*/build-script-build\n  else\n    stat -f %m target/debug/build/proc-macro2-*/build-script-build\n  fi\nelse\n  echo \"No proc-macro2 build-script-build file found\"\nfi"
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/home/amos/.cache/dodeca-ci/ddc-linux-x64"
+          CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/ddc-linux-x64" cargo sweep --stamp
+      - name: Debug proc-macro2 mtimes
+        run: |-
+          set -euo pipefail
+          if ls target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then
+            if stat -c %y target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then
+              stat -c %y target/debug/build/proc-macro2-*/build-script-build
+            else
+              stat -f %m target/debug/build/proc-macro2-*/build-script-build
+            fi
+          else
+            echo "No proc-macro2 build-script-build file found"
+          fi
         shell: bash
-      - 
-        name: Build ddc
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p dodeca --verbose
-      - 
-        name: Save cache (ctree)
-        run: "echo \"=== Cache contents before save ===\"\ndu -sh target 2>/dev/null || true\ntree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\nmkdir -p \"$(dirname \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\")\"\nrm -rf \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" 2>/dev/null || true\nctree target \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" && echo \"Cache saved via ctree to /home/amos/.cache/dodeca-ci/ddc-linux-x64\" || echo \"ctree save failed (non-fatal)\""
-      - 
-        name: Trim cache (cargo sweep)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" ]; then\n  CARGO_TARGET_DIR=\"/home/amos/.cache/dodeca-ci/ddc-linux-x64\" cargo sweep --file || true\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/ddc-linux-x64 to trim\"\nfi"
-      - 
-        name: Test ddc
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p dodeca --bins
-      - 
-        name: Upload ddc to CAS
+      - name: Build ddc
+        run: cargo build --release -p dodeca --verbose
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/home/amos/.cache/dodeca-ci/ddc-linux-x64")"
+          rm -rf "/home/amos/.cache/dodeca-ci/ddc-linux-x64" 2>/dev/null || true
+          ctree target "/home/amos/.cache/dodeca-ci/ddc-linux-x64" && echo "Cache saved via ctree to /home/amos/.cache/dodeca-ci/ddc-linux-x64" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/ddc-linux-x64" ]; then
+            CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/ddc-linux-x64" cargo sweep --file || true
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/ddc-linux-x64 to trim"
+          fi
+      - name: Test ddc
+        run: cargo test --release -p dodeca --bins
+      - name: Upload ddc to CAS
         run: "./scripts/cas-upload.ts target/release/ddc \"ci/${{ github.run_id }}/ddc-linux-x64\""
-
   build-cells-linux-x64-1: 
-    name: Build cells (linux-x64) [cell-arborium, cell-code-execution, cell-css, cell-fonts, cell-html, cell-html-diff, cell-http, cell-image, cell-js]
+    name: Build cells (linux-x64) [cell-code-execution, cell-css, cell-dialoguer, cell-fonts]
     runs-on: 
       - depot-ubuntu-24.04-32
-
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-
     steps: 
-      - 
-        name: Checkout
+      - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
-      - 
-        name: Install Rust
+      - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
         with: 
-          toolchain: nightly-2025-12-19
-
-      - 
-        name: Restore cache (ctree)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" ]; then\n  echo \"Restoring cache from /home/amos/.cache/dodeca-ci/cells-linux-x64-1...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-1\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-1\"\nfi"
-      - 
-        name: Timelord cache info (before sync)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord\"\nfi"
-      - 
-        name: Restore source mtimes (timelord)
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/cells-linux-x64-1" ]; then
+            echo "Restoring cache from /home/amos/.cache/dodeca-ci/cells-linux-x64-1..."
+            rm -rf target 2>/dev/null || true
+            ctree "/home/amos/.cache/dodeca-ci/cells-linux-x64-1" target && echo "Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-1" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-1"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/home/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
         run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
-      - 
-        name: Stamp cache artifacts (cargo sweep)
-        run: "mkdir -p \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\"\nCARGO_TARGET_DIR=\"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" cargo sweep --stamp"
-      - 
-        name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js --verbose
-      - 
-        name: Save cache (ctree)
-        run: "echo \"=== Cache contents before save ===\"\ndu -sh target 2>/dev/null || true\ntree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\nmkdir -p \"$(dirname \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\")\"\nrm -rf \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" 2>/dev/null || true\nctree target \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" && echo \"Cache saved via ctree to /home/amos/.cache/dodeca-ci/cells-linux-x64-1\" || echo \"ctree save failed (non-fatal)\""
-      - 
-        name: Trim cache (cargo sweep)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" ]; then\n  CARGO_TARGET_DIR=\"/home/amos/.cache/dodeca-ci/cells-linux-x64-1\" cargo sweep --file || true\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-1 to trim\"\nfi"
-      - 
-        name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
-      - 
-        name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-1\" target/release/ddc-cell-arborium target/release/ddc-cell-code-execution target/release/ddc-cell-css target/release/ddc-cell-fonts target/release/ddc-cell-html target/release/ddc-cell-html-diff target/release/ddc-cell-http target/release/ddc-cell-image target/release/ddc-cell-js"
-
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-1"
+          CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-1" cargo sweep --stamp
+      - name: Build cells
+        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts --verbose
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/home/amos/.cache/dodeca-ci/cells-linux-x64-1")"
+          rm -rf "/home/amos/.cache/dodeca-ci/cells-linux-x64-1" 2>/dev/null || true
+          ctree target "/home/amos/.cache/dodeca-ci/cells-linux-x64-1" && echo "Cache saved via ctree to /home/amos/.cache/dodeca-ci/cells-linux-x64-1" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/cells-linux-x64-1" ]; then
+            CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-1" cargo sweep --file || true
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-1 to trim"
+          fi
+      - name: Test cells
+        run: cargo test --release -p cell-code-execution -p cell-css -p cell-dialoguer -p cell-fonts
+      - name: Upload cells to CAS
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-1\" target/release/ddc-cell-code-execution target/release/ddc-cell-css target/release/ddc-cell-dialoguer target/release/ddc-cell-fonts"
   build-cells-linux-x64-2: 
-    name: Build cells (linux-x64) [cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-pagefind, cell-sass, cell-svgo, cell-tui, cell-webp]
+    name: Build cells (linux-x64) [cell-gingembre, cell-html, cell-html-diff, cell-http]
     runs-on: 
       - depot-ubuntu-24.04-32
-
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-
     steps: 
-      - 
-        name: Checkout
+      - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
-      - 
-        name: Install Rust
+      - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
         with: 
-          toolchain: nightly-2025-12-19
-
-      - 
-        name: Restore cache (ctree)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" ]; then\n  echo \"Restoring cache from /home/amos/.cache/dodeca-ci/cells-linux-x64-2...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-2\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-2\"\nfi"
-      - 
-        name: Timelord cache info (before sync)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord\"\nfi"
-      - 
-        name: Restore source mtimes (timelord)
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/cells-linux-x64-2" ]; then
+            echo "Restoring cache from /home/amos/.cache/dodeca-ci/cells-linux-x64-2..."
+            rm -rf target 2>/dev/null || true
+            ctree "/home/amos/.cache/dodeca-ci/cells-linux-x64-2" target && echo "Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-2" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-2"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/home/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
         run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
-      - 
-        name: Stamp cache artifacts (cargo sweep)
-        run: "mkdir -p \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\"\nCARGO_TARGET_DIR=\"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" cargo sweep --stamp"
-      - 
-        name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
-      - 
-        name: Save cache (ctree)
-        run: "echo \"=== Cache contents before save ===\"\ndu -sh target 2>/dev/null || true\ntree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\nmkdir -p \"$(dirname \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\")\"\nrm -rf \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" 2>/dev/null || true\nctree target \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" && echo \"Cache saved via ctree to /home/amos/.cache/dodeca-ci/cells-linux-x64-2\" || echo \"ctree save failed (non-fatal)\""
-      - 
-        name: Trim cache (cargo sweep)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" ]; then\n  CARGO_TARGET_DIR=\"/home/amos/.cache/dodeca-ci/cells-linux-x64-2\" cargo sweep --file || true\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-2 to trim\"\nfi"
-      - 
-        name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
-      - 
-        name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-2\" target/release/ddc-cell-jxl target/release/ddc-cell-linkcheck target/release/ddc-cell-markdown target/release/ddc-cell-minify target/release/ddc-cell-pagefind target/release/ddc-cell-sass target/release/ddc-cell-svgo target/release/ddc-cell-tui target/release/ddc-cell-webp"
-
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-2"
+          CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-2" cargo sweep --stamp
+      - name: Build cells
+        run: cargo build --release -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http --verbose
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/home/amos/.cache/dodeca-ci/cells-linux-x64-2")"
+          rm -rf "/home/amos/.cache/dodeca-ci/cells-linux-x64-2" 2>/dev/null || true
+          ctree target "/home/amos/.cache/dodeca-ci/cells-linux-x64-2" && echo "Cache saved via ctree to /home/amos/.cache/dodeca-ci/cells-linux-x64-2" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/cells-linux-x64-2" ]; then
+            CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-2" cargo sweep --file || true
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-2 to trim"
+          fi
+      - name: Test cells
+        run: cargo test --release -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http
+      - name: Upload cells to CAS
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-2\" target/release/ddc-cell-gingembre target/release/ddc-cell-html target/release/ddc-cell-html-diff target/release/ddc-cell-http"
+  build-cells-linux-x64-3: 
+    name: Build cells (linux-x64) [cell-image, cell-js, cell-jxl, cell-linkcheck]
+    runs-on: 
+      - depot-ubuntu-24.04-32
+    timeout-minutes: 30
+    env: 
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
+    steps: 
+      - name: Checkout
+        uses: "https://github.com/actions/checkout@v4"
+      - name: Install Rust
+        uses: "https://github.com/dtolnay/rust-toolchain@master"
+        with: 
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/cells-linux-x64-3" ]; then
+            echo "Restoring cache from /home/amos/.cache/dodeca-ci/cells-linux-x64-3..."
+            rm -rf target 2>/dev/null || true
+            ctree "/home/amos/.cache/dodeca-ci/cells-linux-x64-3" target && echo "Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-3" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-3"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/home/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
+        run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-3"
+          CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-3" cargo sweep --stamp
+      - name: Build cells
+        run: cargo build --release -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck --verbose
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/home/amos/.cache/dodeca-ci/cells-linux-x64-3")"
+          rm -rf "/home/amos/.cache/dodeca-ci/cells-linux-x64-3" 2>/dev/null || true
+          ctree target "/home/amos/.cache/dodeca-ci/cells-linux-x64-3" && echo "Cache saved via ctree to /home/amos/.cache/dodeca-ci/cells-linux-x64-3" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/cells-linux-x64-3" ]; then
+            CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-3" cargo sweep --file || true
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-3 to trim"
+          fi
+      - name: Test cells
+        run: cargo test --release -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck
+      - name: Upload cells to CAS
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-3\" target/release/ddc-cell-image target/release/ddc-cell-js target/release/ddc-cell-jxl target/release/ddc-cell-linkcheck"
+  build-cells-linux-x64-4: 
+    name: Build cells (linux-x64) [cell-markdown, cell-minify, cell-pagefind, cell-sass]
+    runs-on: 
+      - depot-ubuntu-24.04-32
+    timeout-minutes: 30
+    env: 
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
+    steps: 
+      - name: Checkout
+        uses: "https://github.com/actions/checkout@v4"
+      - name: Install Rust
+        uses: "https://github.com/dtolnay/rust-toolchain@master"
+        with: 
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/cells-linux-x64-4" ]; then
+            echo "Restoring cache from /home/amos/.cache/dodeca-ci/cells-linux-x64-4..."
+            rm -rf target 2>/dev/null || true
+            ctree "/home/amos/.cache/dodeca-ci/cells-linux-x64-4" target && echo "Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-4" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-4"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/home/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
+        run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-4"
+          CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-4" cargo sweep --stamp
+      - name: Build cells
+        run: cargo build --release -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass --verbose
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/home/amos/.cache/dodeca-ci/cells-linux-x64-4")"
+          rm -rf "/home/amos/.cache/dodeca-ci/cells-linux-x64-4" 2>/dev/null || true
+          ctree target "/home/amos/.cache/dodeca-ci/cells-linux-x64-4" && echo "Cache saved via ctree to /home/amos/.cache/dodeca-ci/cells-linux-x64-4" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/cells-linux-x64-4" ]; then
+            CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-4" cargo sweep --file || true
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-4 to trim"
+          fi
+      - name: Test cells
+        run: cargo test --release -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass
+      - name: Upload cells to CAS
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-4\" target/release/ddc-cell-markdown target/release/ddc-cell-minify target/release/ddc-cell-pagefind target/release/ddc-cell-sass"
+  build-cells-linux-x64-5: 
+    name: Build cells (linux-x64) [cell-svgo, cell-tui, cell-webp]
+    runs-on: 
+      - depot-ubuntu-24.04-32
+    timeout-minutes: 30
+    env: 
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
+    steps: 
+      - name: Checkout
+        uses: "https://github.com/actions/checkout@v4"
+      - name: Install Rust
+        uses: "https://github.com/dtolnay/rust-toolchain@master"
+        with: 
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/cells-linux-x64-5" ]; then
+            echo "Restoring cache from /home/amos/.cache/dodeca-ci/cells-linux-x64-5..."
+            rm -rf target 2>/dev/null || true
+            ctree "/home/amos/.cache/dodeca-ci/cells-linux-x64-5" target && echo "Cache restored via ctree from /home/amos/.cache/dodeca-ci/cells-linux-x64-5" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-5"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/home/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
+        run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/home/amos/.cache/dodeca-ci/cells-linux-x64-5"
+          CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-5" cargo sweep --stamp
+      - name: Build cells
+        run: cargo build --release -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/home/amos/.cache/dodeca-ci/cells-linux-x64-5")"
+          rm -rf "/home/amos/.cache/dodeca-ci/cells-linux-x64-5" 2>/dev/null || true
+          ctree target "/home/amos/.cache/dodeca-ci/cells-linux-x64-5" && echo "Cache saved via ctree to /home/amos/.cache/dodeca-ci/cells-linux-x64-5" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/cells-linux-x64-5" ]; then
+            CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/cells-linux-x64-5" cargo sweep --file || true
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/cells-linux-x64-5 to trim"
+          fi
+      - name: Test cells
+        run: cargo test --release -p cell-svgo -p cell-tui -p cell-webp
+      - name: Upload cells to CAS
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-5\" target/release/ddc-cell-svgo target/release/ddc-cell-tui target/release/ddc-cell-webp"
   integration-linux-x64: 
     name: Integration (linux-x64)
     runs-on: 
       - depot-ubuntu-24.04-32
-
     timeout-minutes: 30
     needs: 
       - build-ddc-linux-x64
       - build-cells-linux-x64-1
       - build-cells-linux-x64-2
-
+      - build-cells-linux-x64-3
+      - build-cells-linux-x64-4
+      - build-cells-linux-x64-5
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-
     steps: 
-      - 
-        name: Checkout
+      - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
-      - 
-        name: Install Rust
+      - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
         with: 
-          toolchain: nightly-2025-12-19
-
-      - 
-        name: Restore cache (ctree)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/integration-linux-x64\" ]; then\n  echo \"Restoring cache from /home/amos/.cache/dodeca-ci/integration-linux-x64...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/home/amos/.cache/dodeca-ci/integration-linux-x64\" target && echo \"Cache restored via ctree from /home/amos/.cache/dodeca-ci/integration-linux-x64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/integration-linux-x64\"\nfi"
-      - 
-        name: Timelord cache info (before sync)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord\"\nfi"
-      - 
-        name: Restore source mtimes (timelord)
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/integration-linux-x64" ]; then
+            echo "Restoring cache from /home/amos/.cache/dodeca-ci/integration-linux-x64..."
+            rm -rf target 2>/dev/null || true
+            ctree "/home/amos/.cache/dodeca-ci/integration-linux-x64" target && echo "Cache restored via ctree from /home/amos/.cache/dodeca-ci/integration-linux-x64" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/integration-linux-x64"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/home/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /home/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
         run: "timelord sync --source-dir . --cache-dir \"/home/amos/.cache/dodeca-ci/timelord\""
-      - 
-        name: Stamp cache artifacts (cargo sweep)
-        run: "mkdir -p \"/home/amos/.cache/dodeca-ci/integration-linux-x64\"\nCARGO_TARGET_DIR=\"/home/amos/.cache/dodeca-ci/integration-linux-x64\" cargo sweep --stamp"
-      - 
-        name: Build integration-tests
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build -p integration-tests
-      - 
-        name: Download ddc from CAS
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/home/amos/.cache/dodeca-ci/integration-linux-x64"
+          CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/integration-linux-x64" cargo sweep --stamp
+      - name: Build integration-tests
+        run: cargo build -p integration-tests
+      - name: Download ddc from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-linux-x64\" dist/ddc"
-      - 
-        name: Download cells from CAS
-        run: "./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-1\" dist/\n./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-2\" dist/"
-      - 
-        name: List binaries
+      - name: Download cells from CAS
+        run: |-
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-1" dist/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-2" dist/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-3" dist/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-4" dist/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-5" dist/
+      - name: List binaries
         run: ls -la dist/
-      - 
-        name: Verify artifacts
-        run: "#!/bin/bash\nset -euo pipefail\n\necho 'Verifying all required binaries exist in dist/'\nmissing=0\n\nif [[ ! -x dist/ddc ]]; then\n  echo '❌ MISSING: ddc'\n  missing=1\nelse\n  echo '✓ ddc'\nfi\n\nif [[ ! -x dist/ddc-cell-arborium ]]; then\n  echo '❌ MISSING: ddc-cell-arborium'\n  missing=1\nelse\n  echo '✓ ddc-cell-arborium'\nfi\n\nif [[ ! -x dist/ddc-cell-code-execution ]]; then\n  echo '❌ MISSING: ddc-cell-code-execution'\n  missing=1\nelse\n  echo '✓ ddc-cell-code-execution'\nfi\n\nif [[ ! -x dist/ddc-cell-css ]]; then\n  echo '❌ MISSING: ddc-cell-css'\n  missing=1\nelse\n  echo '✓ ddc-cell-css'\nfi\n\nif [[ ! -x dist/ddc-cell-fonts ]]; then\n  echo '❌ MISSING: ddc-cell-fonts'\n  missing=1\nelse\n  echo '✓ ddc-cell-fonts'\nfi\n\nif [[ ! -x dist/ddc-cell-html ]]; then\n  echo '❌ MISSING: ddc-cell-html'\n  missing=1\nelse\n  echo '✓ ddc-cell-html'\nfi\n\nif [[ ! -x dist/ddc-cell-html-diff ]]; then\n  echo '❌ MISSING: ddc-cell-html-diff'\n  missing=1\nelse\n  echo '✓ ddc-cell-html-diff'\nfi\n\nif [[ ! -x dist/ddc-cell-http ]]; then\n  echo '❌ MISSING: ddc-cell-http'\n  missing=1\nelse\n  echo '✓ ddc-cell-http'\nfi\n\nif [[ ! -x dist/ddc-cell-image ]]; then\n  echo '❌ MISSING: ddc-cell-image'\n  missing=1\nelse\n  echo '✓ ddc-cell-image'\nfi\n\nif [[ ! -x dist/ddc-cell-js ]]; then\n  echo '❌ MISSING: ddc-cell-js'\n  missing=1\nelse\n  echo '✓ ddc-cell-js'\nfi\n\nif [[ ! -x dist/ddc-cell-jxl ]]; then\n  echo '❌ MISSING: ddc-cell-jxl'\n  missing=1\nelse\n  echo '✓ ddc-cell-jxl'\nfi\n\nif [[ ! -x dist/ddc-cell-linkcheck ]]; then\n  echo '❌ MISSING: ddc-cell-linkcheck'\n  missing=1\nelse\n  echo '✓ ddc-cell-linkcheck'\nfi\n\nif [[ ! -x dist/ddc-cell-markdown ]]; then\n  echo '❌ MISSING: ddc-cell-markdown'\n  missing=1\nelse\n  echo '✓ ddc-cell-markdown'\nfi\n\nif [[ ! -x dist/ddc-cell-minify ]]; then\n  echo '❌ MISSING: ddc-cell-minify'\n  missing=1\nelse\n  echo '✓ ddc-cell-minify'\nfi\n\nif [[ ! -x dist/ddc-cell-pagefind ]]; then\n  echo '❌ MISSING: ddc-cell-pagefind'\n  missing=1\nelse\n  echo '✓ ddc-cell-pagefind'\nfi\n\nif [[ ! -x dist/ddc-cell-sass ]]; then\n  echo '❌ MISSING: ddc-cell-sass'\n  missing=1\nelse\n  echo '✓ ddc-cell-sass'\nfi\n\nif [[ ! -x dist/ddc-cell-svgo ]]; then\n  echo '❌ MISSING: ddc-cell-svgo'\n  missing=1\nelse\n  echo '✓ ddc-cell-svgo'\nfi\n\nif [[ ! -x dist/ddc-cell-tui ]]; then\n  echo '❌ MISSING: ddc-cell-tui'\n  missing=1\nelse\n  echo '✓ ddc-cell-tui'\nfi\n\nif [[ ! -x dist/ddc-cell-webp ]]; then\n  echo '❌ MISSING: ddc-cell-webp'\n  missing=1\nelse\n  echo '✓ ddc-cell-webp'\nfi\n\nif [[ $missing -eq 1 ]]; then\n  echo ''\n  echo 'ERROR: Some required binaries are missing!'\n  echo 'This usually means a cell build job failed or artifact upload was incomplete.'\n  exit 1\nfi\n\necho ''\necho 'All 19 binaries verified.'\n"
-      - 
-        name: Run integration tests
+      - name: Verify artifacts
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          
+          echo 'Verifying all required binaries exist in dist/'
+          missing=0
+          
+          if [[ ! -x dist/ddc ]]; then
+            echo '❌ MISSING: ddc'
+            missing=1
+          else
+            echo '✓ ddc'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-code-execution ]]; then
+            echo '❌ MISSING: ddc-cell-code-execution'
+            missing=1
+          else
+            echo '✓ ddc-cell-code-execution'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-css ]]; then
+            echo '❌ MISSING: ddc-cell-css'
+            missing=1
+          else
+            echo '✓ ddc-cell-css'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-dialoguer ]]; then
+            echo '❌ MISSING: ddc-cell-dialoguer'
+            missing=1
+          else
+            echo '✓ ddc-cell-dialoguer'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-fonts ]]; then
+            echo '❌ MISSING: ddc-cell-fonts'
+            missing=1
+          else
+            echo '✓ ddc-cell-fonts'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-gingembre ]]; then
+            echo '❌ MISSING: ddc-cell-gingembre'
+            missing=1
+          else
+            echo '✓ ddc-cell-gingembre'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-html ]]; then
+            echo '❌ MISSING: ddc-cell-html'
+            missing=1
+          else
+            echo '✓ ddc-cell-html'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-html-diff ]]; then
+            echo '❌ MISSING: ddc-cell-html-diff'
+            missing=1
+          else
+            echo '✓ ddc-cell-html-diff'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-http ]]; then
+            echo '❌ MISSING: ddc-cell-http'
+            missing=1
+          else
+            echo '✓ ddc-cell-http'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-image ]]; then
+            echo '❌ MISSING: ddc-cell-image'
+            missing=1
+          else
+            echo '✓ ddc-cell-image'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-js ]]; then
+            echo '❌ MISSING: ddc-cell-js'
+            missing=1
+          else
+            echo '✓ ddc-cell-js'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-jxl ]]; then
+            echo '❌ MISSING: ddc-cell-jxl'
+            missing=1
+          else
+            echo '✓ ddc-cell-jxl'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-linkcheck ]]; then
+            echo '❌ MISSING: ddc-cell-linkcheck'
+            missing=1
+          else
+            echo '✓ ddc-cell-linkcheck'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-markdown ]]; then
+            echo '❌ MISSING: ddc-cell-markdown'
+            missing=1
+          else
+            echo '✓ ddc-cell-markdown'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-minify ]]; then
+            echo '❌ MISSING: ddc-cell-minify'
+            missing=1
+          else
+            echo '✓ ddc-cell-minify'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-pagefind ]]; then
+            echo '❌ MISSING: ddc-cell-pagefind'
+            missing=1
+          else
+            echo '✓ ddc-cell-pagefind'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-sass ]]; then
+            echo '❌ MISSING: ddc-cell-sass'
+            missing=1
+          else
+            echo '✓ ddc-cell-sass'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-svgo ]]; then
+            echo '❌ MISSING: ddc-cell-svgo'
+            missing=1
+          else
+            echo '✓ ddc-cell-svgo'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-tui ]]; then
+            echo '❌ MISSING: ddc-cell-tui'
+            missing=1
+          else
+            echo '✓ ddc-cell-tui'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-webp ]]; then
+            echo '❌ MISSING: ddc-cell-webp'
+            missing=1
+          else
+            echo '✓ ddc-cell-webp'
+          fi
+          
+          if [[ $missing -eq 1 ]]; then
+            echo ''
+            echo 'ERROR: Some required binaries are missing!'
+            echo 'This usually means a cell build job failed or artifact upload was incomplete.'
+            exit 1
+          fi
+          
+          echo ''
+          echo 'All 20 binaries verified.'
+      - name: Run integration tests
         run: cargo xtask integration --no-build
         env: 
           DODECA_BIN: ${{ github.workspace }}/dist/ddc
           DODECA_CELL_PATH: ${{ github.workspace }}/dist
           DODECA_TEST_FIXTURES_DIR: ${{ github.workspace }}/crates/integration-tests/fixtures
-
-      - 
-        name: Save cache (ctree)
-        run: "echo \"=== Cache contents before save ===\"\ndu -sh target 2>/dev/null || true\ntree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\nmkdir -p \"$(dirname \"/home/amos/.cache/dodeca-ci/integration-linux-x64\")\"\nrm -rf \"/home/amos/.cache/dodeca-ci/integration-linux-x64\" 2>/dev/null || true\nctree target \"/home/amos/.cache/dodeca-ci/integration-linux-x64\" && echo \"Cache saved via ctree to /home/amos/.cache/dodeca-ci/integration-linux-x64\" || echo \"ctree save failed (non-fatal)\""
-      - 
-        name: Trim cache (cargo sweep)
-        run: "if [ -d \"/home/amos/.cache/dodeca-ci/integration-linux-x64\" ]; then\n  CARGO_TARGET_DIR=\"/home/amos/.cache/dodeca-ci/integration-linux-x64\" cargo sweep --file || true\nelse\n  echo \"No cache found at /home/amos/.cache/dodeca-ci/integration-linux-x64 to trim\"\nfi"
-
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/home/amos/.cache/dodeca-ci/integration-linux-x64")"
+          rm -rf "/home/amos/.cache/dodeca-ci/integration-linux-x64" 2>/dev/null || true
+          ctree target "/home/amos/.cache/dodeca-ci/integration-linux-x64" && echo "Cache saved via ctree to /home/amos/.cache/dodeca-ci/integration-linux-x64" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/home/amos/.cache/dodeca-ci/integration-linux-x64" ]; then
+            CARGO_TARGET_DIR="/home/amos/.cache/dodeca-ci/integration-linux-x64" cargo sweep --file || true
+          else
+            echo "No cache found at /home/amos/.cache/dodeca-ci/integration-linux-x64 to trim"
+          fi
   assemble-linux-x64: 
     name: Assemble (linux-x64)
     runs-on: 
       - depot-ubuntu-24.04-32
-
     timeout-minutes: 30
     needs: 
       - integration-linux-x64
       - build-wasm
-
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-
     steps: 
-      - 
-        name: Checkout
+      - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
-      - 
-        name: Download ddc from CAS
+      - name: Download ddc from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-linux-x64\" target/release/ddc"
-      - 
-        name: Download cells from CAS
-        run: "./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-1\" target/release/\n./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-linux-x64-2\" target/release/"
-      - 
-        name: Download WASM from CAS
-        run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/wasm.tar.gz\" /tmp/wasm.tar.gz\nmkdir -p crates/dodeca-devtools\ntar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"
-      - 
-        name: Install xz (macOS)
+      - name: Download cells from CAS
+        run: |-
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-1" target/release/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-2" target/release/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-3" target/release/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-4" target/release/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-linux-x64-5" target/release/
+      - name: Download WASM from CAS
+        run: |-
+          ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
+          mkdir -p crates/dodeca-devtools
+          tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools
+      - name: Install xz (macOS)
         run: if command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install xz; fi
-      - 
-        name: List binaries
+      - name: List binaries
         run: ls -la target/release/
-      - 
-        name: Assemble archive
+      - name: Assemble archive
         run: bash scripts/assemble-archive.sh x86_64-unknown-linux-gnu
-      - 
-        name: Upload archive to CAS
+      - name: Upload archive to CAS
         run: "./scripts/cas-upload.ts \"dodeca-x86_64-unknown-linux-gnu.tar.xz\" \"ci/${{ github.run_id }}/dodeca-x86_64-unknown-linux-gnu.tar.xz\""
-
   build-ddc-macos-arm64: 
     name: Build ddc (macos-arm64)
     runs-on: 
       - mac-arm64-oakhost
-
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-
     steps: 
-      - 
-        name: Checkout
+      - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
-      - 
-        name: Install Rust
+      - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
         with: 
-          toolchain: nightly-2025-12-19
-
-      - 
-        name: Restore cache (ctree)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" ]; then\n  echo \"Restoring cache from /Users/amos/.cache/dodeca-ci/ddc-macos-arm64...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/ddc-macos-arm64\"\nfi"
-      - 
-        name: Timelord cache info (before sync)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord\"\nfi"
-      - 
-        name: Restore source mtimes (timelord)
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/ddc-macos-arm64" ]; then
+            echo "Restoring cache from /Users/amos/.cache/dodeca-ci/ddc-macos-arm64..."
+            rm -rf target 2>/dev/null || true
+            ctree "/Users/amos/.cache/dodeca-ci/ddc-macos-arm64" target && echo "Cache restored via ctree from /Users/amos/.cache/dodeca-ci/ddc-macos-arm64" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/ddc-macos-arm64"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/Users/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
         run: "timelord sync --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
-      - 
-        name: Stamp cache artifacts (cargo sweep)
-        run: "mkdir -p \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\"\nCARGO_TARGET_DIR=\"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" cargo sweep --stamp"
-      - 
-        name: Debug proc-macro2 mtimes
-        run: "set -euo pipefail\nif ls target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then\n  if stat -c %y target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then\n    stat -c %y target/debug/build/proc-macro2-*/build-script-build\n  else\n    stat -f %m target/debug/build/proc-macro2-*/build-script-build\n  fi\nelse\n  echo \"No proc-macro2 build-script-build file found\"\nfi"
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/Users/amos/.cache/dodeca-ci/ddc-macos-arm64"
+          CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/ddc-macos-arm64" cargo sweep --stamp
+      - name: Debug proc-macro2 mtimes
+        run: |-
+          set -euo pipefail
+          if ls target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then
+            if stat -c %y target/debug/build/proc-macro2-*/build-script-build >/dev/null 2>&1; then
+              stat -c %y target/debug/build/proc-macro2-*/build-script-build
+            else
+              stat -f %m target/debug/build/proc-macro2-*/build-script-build
+            fi
+          else
+            echo "No proc-macro2 build-script-build file found"
+          fi
         shell: bash
-      - 
-        name: Build ddc
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p dodeca --verbose
-      - 
-        name: Save cache (ctree)
-        run: "echo \"=== Cache contents before save ===\"\ndu -sh target 2>/dev/null || true\ntree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\nmkdir -p \"$(dirname \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\")\"\nrm -rf \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" 2>/dev/null || true\nctree target \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" && echo \"Cache saved via ctree to /Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" || echo \"ctree save failed (non-fatal)\""
-      - 
-        name: Trim cache (cargo sweep)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" ]; then\n  CARGO_TARGET_DIR=\"/Users/amos/.cache/dodeca-ci/ddc-macos-arm64\" cargo sweep --file || true\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/ddc-macos-arm64 to trim\"\nfi"
-      - 
-        name: Test ddc
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p dodeca --bins
-      - 
-        name: Upload ddc to CAS
+      - name: Build ddc
+        run: cargo build --release -p dodeca --verbose
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/Users/amos/.cache/dodeca-ci/ddc-macos-arm64")"
+          rm -rf "/Users/amos/.cache/dodeca-ci/ddc-macos-arm64" 2>/dev/null || true
+          ctree target "/Users/amos/.cache/dodeca-ci/ddc-macos-arm64" && echo "Cache saved via ctree to /Users/amos/.cache/dodeca-ci/ddc-macos-arm64" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/ddc-macos-arm64" ]; then
+            CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/ddc-macos-arm64" cargo sweep --file || true
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/ddc-macos-arm64 to trim"
+          fi
+      - name: Test ddc
+        run: cargo test --release -p dodeca --bins
+      - name: Upload ddc to CAS
         run: "./scripts/cas-upload.ts target/release/ddc \"ci/${{ github.run_id }}/ddc-macos-arm64\""
-
   build-cells-macos-arm64-1: 
-    name: Build cells (macos-arm64) [cell-arborium, cell-code-execution, cell-css, cell-fonts, cell-html, cell-html-diff, cell-http, cell-image, cell-js]
+    name: Build cells (macos-arm64) [cell-code-execution, cell-css, cell-dialoguer, cell-fonts]
     runs-on: 
       - mac-arm64-oakhost
-
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-
     steps: 
-      - 
-        name: Checkout
+      - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
-      - 
-        name: Install Rust
+      - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
         with: 
-          toolchain: nightly-2025-12-19
-
-      - 
-        name: Restore cache (ctree)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" ]; then\n  echo \"Restoring cache from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\"\nfi"
-      - 
-        name: Timelord cache info (before sync)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord\"\nfi"
-      - 
-        name: Restore source mtimes (timelord)
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1" ]; then
+            echo "Restoring cache from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1..."
+            rm -rf target 2>/dev/null || true
+            ctree "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1" target && echo "Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/Users/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
         run: "timelord sync --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
-      - 
-        name: Stamp cache artifacts (cargo sweep)
-        run: "mkdir -p \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\"\nCARGO_TARGET_DIR=\"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" cargo sweep --stamp"
-      - 
-        name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-arborium --bin ddc-cell-arborium -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-fonts --bin ddc-cell-fonts -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js --verbose
-      - 
-        name: Save cache (ctree)
-        run: "echo \"=== Cache contents before save ===\"\ndu -sh target 2>/dev/null || true\ntree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\nmkdir -p \"$(dirname \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\")\"\nrm -rf \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" 2>/dev/null || true\nctree target \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" && echo \"Cache saved via ctree to /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" || echo \"ctree save failed (non-fatal)\""
-      - 
-        name: Trim cache (cargo sweep)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" ]; then\n  CARGO_TARGET_DIR=\"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1\" cargo sweep --file || true\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1 to trim\"\nfi"
-      - 
-        name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-arborium -p cell-code-execution -p cell-css -p cell-fonts -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js
-      - 
-        name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-1\" target/release/ddc-cell-arborium target/release/ddc-cell-code-execution target/release/ddc-cell-css target/release/ddc-cell-fonts target/release/ddc-cell-html target/release/ddc-cell-html-diff target/release/ddc-cell-http target/release/ddc-cell-image target/release/ddc-cell-js"
-
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1"
+          CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1" cargo sweep --stamp
+      - name: Build cells
+        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts --verbose
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1")"
+          rm -rf "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1" 2>/dev/null || true
+          ctree target "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1" && echo "Cache saved via ctree to /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1" ]; then
+            CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-1" cargo sweep --file || true
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-1 to trim"
+          fi
+      - name: Test cells
+        run: cargo test --release -p cell-code-execution -p cell-css -p cell-dialoguer -p cell-fonts
+      - name: Upload cells to CAS
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-1\" target/release/ddc-cell-code-execution target/release/ddc-cell-css target/release/ddc-cell-dialoguer target/release/ddc-cell-fonts"
   build-cells-macos-arm64-2: 
-    name: Build cells (macos-arm64) [cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-pagefind, cell-sass, cell-svgo, cell-tui, cell-webp]
+    name: Build cells (macos-arm64) [cell-gingembre, cell-html, cell-html-diff, cell-http]
     runs-on: 
       - mac-arm64-oakhost
-
     timeout-minutes: 30
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-
     steps: 
-      - 
-        name: Checkout
+      - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
-      - 
-        name: Install Rust
+      - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
         with: 
-          toolchain: nightly-2025-12-19
-
-      - 
-        name: Restore cache (ctree)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" ]; then\n  echo \"Restoring cache from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\"\nfi"
-      - 
-        name: Timelord cache info (before sync)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord\"\nfi"
-      - 
-        name: Restore source mtimes (timelord)
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2" ]; then
+            echo "Restoring cache from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2..."
+            rm -rf target 2>/dev/null || true
+            ctree "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2" target && echo "Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/Users/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
         run: "timelord sync --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
-      - 
-        name: Stamp cache artifacts (cargo sweep)
-        run: "mkdir -p \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\"\nCARGO_TARGET_DIR=\"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" cargo sweep --stamp"
-      - 
-        name: Build cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build --release -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
-      - 
-        name: Save cache (ctree)
-        run: "echo \"=== Cache contents before save ===\"\ndu -sh target 2>/dev/null || true\ntree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\nmkdir -p \"$(dirname \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\")\"\nrm -rf \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" 2>/dev/null || true\nctree target \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" && echo \"Cache saved via ctree to /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" || echo \"ctree save failed (non-fatal)\""
-      - 
-        name: Trim cache (cargo sweep)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" ]; then\n  CARGO_TARGET_DIR=\"/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2\" cargo sweep --file || true\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2 to trim\"\nfi"
-      - 
-        name: Test cells
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use test --release -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
-      - 
-        name: Upload cells to CAS
-        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-2\" target/release/ddc-cell-jxl target/release/ddc-cell-linkcheck target/release/ddc-cell-markdown target/release/ddc-cell-minify target/release/ddc-cell-pagefind target/release/ddc-cell-sass target/release/ddc-cell-svgo target/release/ddc-cell-tui target/release/ddc-cell-webp"
-
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2"
+          CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2" cargo sweep --stamp
+      - name: Build cells
+        run: cargo build --release -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http --verbose
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2")"
+          rm -rf "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2" 2>/dev/null || true
+          ctree target "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2" && echo "Cache saved via ctree to /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2" ]; then
+            CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-2" cargo sweep --file || true
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-2 to trim"
+          fi
+      - name: Test cells
+        run: cargo test --release -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http
+      - name: Upload cells to CAS
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-2\" target/release/ddc-cell-gingembre target/release/ddc-cell-html target/release/ddc-cell-html-diff target/release/ddc-cell-http"
+  build-cells-macos-arm64-3: 
+    name: Build cells (macos-arm64) [cell-image, cell-js, cell-jxl, cell-linkcheck]
+    runs-on: 
+      - mac-arm64-oakhost
+    timeout-minutes: 30
+    env: 
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
+    steps: 
+      - name: Checkout
+        uses: "https://github.com/actions/checkout@v4"
+      - name: Install Rust
+        uses: "https://github.com/dtolnay/rust-toolchain@master"
+        with: 
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-3" ]; then
+            echo "Restoring cache from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-3..."
+            rm -rf target 2>/dev/null || true
+            ctree "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-3" target && echo "Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-3" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-3"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/Users/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
+        run: "timelord sync --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-3"
+          CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-3" cargo sweep --stamp
+      - name: Build cells
+        run: cargo build --release -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck --verbose
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-3")"
+          rm -rf "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-3" 2>/dev/null || true
+          ctree target "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-3" && echo "Cache saved via ctree to /Users/amos/.cache/dodeca-ci/cells-macos-arm64-3" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-3" ]; then
+            CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-3" cargo sweep --file || true
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-3 to trim"
+          fi
+      - name: Test cells
+        run: cargo test --release -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck
+      - name: Upload cells to CAS
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-3\" target/release/ddc-cell-image target/release/ddc-cell-js target/release/ddc-cell-jxl target/release/ddc-cell-linkcheck"
+  build-cells-macos-arm64-4: 
+    name: Build cells (macos-arm64) [cell-markdown, cell-minify, cell-pagefind, cell-sass]
+    runs-on: 
+      - mac-arm64-oakhost
+    timeout-minutes: 30
+    env: 
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
+    steps: 
+      - name: Checkout
+        uses: "https://github.com/actions/checkout@v4"
+      - name: Install Rust
+        uses: "https://github.com/dtolnay/rust-toolchain@master"
+        with: 
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-4" ]; then
+            echo "Restoring cache from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-4..."
+            rm -rf target 2>/dev/null || true
+            ctree "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-4" target && echo "Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-4" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-4"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/Users/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
+        run: "timelord sync --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-4"
+          CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-4" cargo sweep --stamp
+      - name: Build cells
+        run: cargo build --release -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-pagefind --bin ddc-cell-pagefind -p cell-sass --bin ddc-cell-sass --verbose
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-4")"
+          rm -rf "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-4" 2>/dev/null || true
+          ctree target "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-4" && echo "Cache saved via ctree to /Users/amos/.cache/dodeca-ci/cells-macos-arm64-4" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-4" ]; then
+            CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-4" cargo sweep --file || true
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-4 to trim"
+          fi
+      - name: Test cells
+        run: cargo test --release -p cell-markdown -p cell-minify -p cell-pagefind -p cell-sass
+      - name: Upload cells to CAS
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-4\" target/release/ddc-cell-markdown target/release/ddc-cell-minify target/release/ddc-cell-pagefind target/release/ddc-cell-sass"
+  build-cells-macos-arm64-5: 
+    name: Build cells (macos-arm64) [cell-svgo, cell-tui, cell-webp]
+    runs-on: 
+      - mac-arm64-oakhost
+    timeout-minutes: 30
+    env: 
+      CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
+    steps: 
+      - name: Checkout
+        uses: "https://github.com/actions/checkout@v4"
+      - name: Install Rust
+        uses: "https://github.com/dtolnay/rust-toolchain@master"
+        with: 
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-5" ]; then
+            echo "Restoring cache from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-5..."
+            rm -rf target 2>/dev/null || true
+            ctree "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-5" target && echo "Cache restored via ctree from /Users/amos/.cache/dodeca-ci/cells-macos-arm64-5" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-5"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/Users/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
+        run: "timelord sync --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-5"
+          CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-5" cargo sweep --stamp
+      - name: Build cells
+        run: cargo build --release -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-5")"
+          rm -rf "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-5" 2>/dev/null || true
+          ctree target "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-5" && echo "Cache saved via ctree to /Users/amos/.cache/dodeca-ci/cells-macos-arm64-5" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/cells-macos-arm64-5" ]; then
+            CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/cells-macos-arm64-5" cargo sweep --file || true
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/cells-macos-arm64-5 to trim"
+          fi
+      - name: Test cells
+        run: cargo test --release -p cell-svgo -p cell-tui -p cell-webp
+      - name: Upload cells to CAS
+        run: "./scripts/cas-upload-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-5\" target/release/ddc-cell-svgo target/release/ddc-cell-tui target/release/ddc-cell-webp"
   integration-macos-arm64: 
     name: Integration (macos-arm64)
     runs-on: 
       - mac-arm64-oakhost
-
     timeout-minutes: 30
     needs: 
       - build-ddc-macos-arm64
       - build-cells-macos-arm64-1
       - build-cells-macos-arm64-2
-
+      - build-cells-macos-arm64-3
+      - build-cells-macos-arm64-4
+      - build-cells-macos-arm64-5
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-
     steps: 
-      - 
-        name: Checkout
+      - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
-      - 
-        name: Install Rust
+      - name: Install Rust
         uses: "https://github.com/dtolnay/rust-toolchain@master"
         with: 
-          toolchain: nightly-2025-12-19
-
-      - 
-        name: Restore cache (ctree)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" ]; then\n  echo \"Restoring cache from /Users/amos/.cache/dodeca-ci/integration-macos-arm64...\"\n  rm -rf target 2>/dev/null || true\n  ctree \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" target && echo \"Cache restored via ctree from /Users/amos/.cache/dodeca-ci/integration-macos-arm64\" || echo \"ctree failed, starting fresh\"\n  du -sh target 2>/dev/null || true\n  echo \"=== Cache contents after restore ===\"\n  tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\n\n  # CMake build directories are not relocatable - they contain absolute paths.\n  # Nuke them to force a fresh CMake configure on path changes.\n  find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true\n  find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true\n  echo \"Cleaned CMake caches (non-relocatable)\"\n\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/integration-macos-arm64\"\nfi"
-      - 
-        name: Timelord cache info (before sync)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/timelord\" ]; then\n  timelord cache-info --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\"\nelse\n  echo \"No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord\"\nfi"
-      - 
-        name: Restore source mtimes (timelord)
+          toolchain: 1.92.0
+      - name: Restore cache (ctree)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/integration-macos-arm64" ]; then
+            echo "Restoring cache from /Users/amos/.cache/dodeca-ci/integration-macos-arm64..."
+            rm -rf target 2>/dev/null || true
+            ctree "/Users/amos/.cache/dodeca-ci/integration-macos-arm64" target && echo "Cache restored via ctree from /Users/amos/.cache/dodeca-ci/integration-macos-arm64" || echo "ctree failed, starting fresh"
+            du -sh target 2>/dev/null || true
+            echo "=== Cache contents after restore ==="
+            tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          
+            # CMake build directories are not relocatable - they contain absolute paths.
+            # Nuke them to force a fresh CMake configure on path changes.
+            find target -path '*/build/*/out/build/CMakeCache.txt' -delete 2>/dev/null || true
+            find target -path '*/build/*/out/build/CMakeFiles' -type d -exec rm -rf {} + 2>/dev/null || true
+            echo "Cleaned CMake caches (non-relocatable)"
+          
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/integration-macos-arm64"
+          fi
+      - name: Timelord cache info (before sync)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/timelord" ]; then
+            timelord cache-info --cache-dir "/Users/amos/.cache/dodeca-ci/timelord"
+          else
+            echo "No timelord cache dir at /Users/amos/.cache/dodeca-ci/timelord"
+          fi
+      - name: Restore source mtimes (timelord)
         run: "timelord sync --source-dir . --cache-dir \"/Users/amos/.cache/dodeca-ci/timelord\""
-      - 
-        name: Stamp cache artifacts (cargo sweep)
-        run: "mkdir -p \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\"\nCARGO_TARGET_DIR=\"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" cargo sweep --stamp"
-      - 
-        name: Build integration-tests
-        run: cargo +nightly-2025-12-19 -Z checksum-freshness -Z mtime-on-use build -p integration-tests
-      - 
-        name: Download ddc from CAS
+      - name: Stamp cache artifacts (cargo sweep)
+        run: |-
+          mkdir -p "/Users/amos/.cache/dodeca-ci/integration-macos-arm64"
+          CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/integration-macos-arm64" cargo sweep --stamp
+      - name: Build integration-tests
+        run: cargo build -p integration-tests
+      - name: Download ddc from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-macos-arm64\" dist/ddc"
-      - 
-        name: Download cells from CAS
-        run: "./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-1\" dist/\n./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-2\" dist/"
-      - 
-        name: List binaries
+      - name: Download cells from CAS
+        run: |-
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-1" dist/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-2" dist/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-3" dist/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-4" dist/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-5" dist/
+      - name: List binaries
         run: ls -la dist/
-      - 
-        name: Verify artifacts
-        run: "#!/bin/bash\nset -euo pipefail\n\necho 'Verifying all required binaries exist in dist/'\nmissing=0\n\nif [[ ! -x dist/ddc ]]; then\n  echo '❌ MISSING: ddc'\n  missing=1\nelse\n  echo '✓ ddc'\nfi\n\nif [[ ! -x dist/ddc-cell-arborium ]]; then\n  echo '❌ MISSING: ddc-cell-arborium'\n  missing=1\nelse\n  echo '✓ ddc-cell-arborium'\nfi\n\nif [[ ! -x dist/ddc-cell-code-execution ]]; then\n  echo '❌ MISSING: ddc-cell-code-execution'\n  missing=1\nelse\n  echo '✓ ddc-cell-code-execution'\nfi\n\nif [[ ! -x dist/ddc-cell-css ]]; then\n  echo '❌ MISSING: ddc-cell-css'\n  missing=1\nelse\n  echo '✓ ddc-cell-css'\nfi\n\nif [[ ! -x dist/ddc-cell-fonts ]]; then\n  echo '❌ MISSING: ddc-cell-fonts'\n  missing=1\nelse\n  echo '✓ ddc-cell-fonts'\nfi\n\nif [[ ! -x dist/ddc-cell-html ]]; then\n  echo '❌ MISSING: ddc-cell-html'\n  missing=1\nelse\n  echo '✓ ddc-cell-html'\nfi\n\nif [[ ! -x dist/ddc-cell-html-diff ]]; then\n  echo '❌ MISSING: ddc-cell-html-diff'\n  missing=1\nelse\n  echo '✓ ddc-cell-html-diff'\nfi\n\nif [[ ! -x dist/ddc-cell-http ]]; then\n  echo '❌ MISSING: ddc-cell-http'\n  missing=1\nelse\n  echo '✓ ddc-cell-http'\nfi\n\nif [[ ! -x dist/ddc-cell-image ]]; then\n  echo '❌ MISSING: ddc-cell-image'\n  missing=1\nelse\n  echo '✓ ddc-cell-image'\nfi\n\nif [[ ! -x dist/ddc-cell-js ]]; then\n  echo '❌ MISSING: ddc-cell-js'\n  missing=1\nelse\n  echo '✓ ddc-cell-js'\nfi\n\nif [[ ! -x dist/ddc-cell-jxl ]]; then\n  echo '❌ MISSING: ddc-cell-jxl'\n  missing=1\nelse\n  echo '✓ ddc-cell-jxl'\nfi\n\nif [[ ! -x dist/ddc-cell-linkcheck ]]; then\n  echo '❌ MISSING: ddc-cell-linkcheck'\n  missing=1\nelse\n  echo '✓ ddc-cell-linkcheck'\nfi\n\nif [[ ! -x dist/ddc-cell-markdown ]]; then\n  echo '❌ MISSING: ddc-cell-markdown'\n  missing=1\nelse\n  echo '✓ ddc-cell-markdown'\nfi\n\nif [[ ! -x dist/ddc-cell-minify ]]; then\n  echo '❌ MISSING: ddc-cell-minify'\n  missing=1\nelse\n  echo '✓ ddc-cell-minify'\nfi\n\nif [[ ! -x dist/ddc-cell-pagefind ]]; then\n  echo '❌ MISSING: ddc-cell-pagefind'\n  missing=1\nelse\n  echo '✓ ddc-cell-pagefind'\nfi\n\nif [[ ! -x dist/ddc-cell-sass ]]; then\n  echo '❌ MISSING: ddc-cell-sass'\n  missing=1\nelse\n  echo '✓ ddc-cell-sass'\nfi\n\nif [[ ! -x dist/ddc-cell-svgo ]]; then\n  echo '❌ MISSING: ddc-cell-svgo'\n  missing=1\nelse\n  echo '✓ ddc-cell-svgo'\nfi\n\nif [[ ! -x dist/ddc-cell-tui ]]; then\n  echo '❌ MISSING: ddc-cell-tui'\n  missing=1\nelse\n  echo '✓ ddc-cell-tui'\nfi\n\nif [[ ! -x dist/ddc-cell-webp ]]; then\n  echo '❌ MISSING: ddc-cell-webp'\n  missing=1\nelse\n  echo '✓ ddc-cell-webp'\nfi\n\nif [[ $missing -eq 1 ]]; then\n  echo ''\n  echo 'ERROR: Some required binaries are missing!'\n  echo 'This usually means a cell build job failed or artifact upload was incomplete.'\n  exit 1\nfi\n\necho ''\necho 'All 19 binaries verified.'\n"
-      - 
-        name: Run integration tests
+      - name: Verify artifacts
+        run: |
+          #!/bin/bash
+          set -euo pipefail
+          
+          echo 'Verifying all required binaries exist in dist/'
+          missing=0
+          
+          if [[ ! -x dist/ddc ]]; then
+            echo '❌ MISSING: ddc'
+            missing=1
+          else
+            echo '✓ ddc'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-code-execution ]]; then
+            echo '❌ MISSING: ddc-cell-code-execution'
+            missing=1
+          else
+            echo '✓ ddc-cell-code-execution'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-css ]]; then
+            echo '❌ MISSING: ddc-cell-css'
+            missing=1
+          else
+            echo '✓ ddc-cell-css'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-dialoguer ]]; then
+            echo '❌ MISSING: ddc-cell-dialoguer'
+            missing=1
+          else
+            echo '✓ ddc-cell-dialoguer'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-fonts ]]; then
+            echo '❌ MISSING: ddc-cell-fonts'
+            missing=1
+          else
+            echo '✓ ddc-cell-fonts'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-gingembre ]]; then
+            echo '❌ MISSING: ddc-cell-gingembre'
+            missing=1
+          else
+            echo '✓ ddc-cell-gingembre'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-html ]]; then
+            echo '❌ MISSING: ddc-cell-html'
+            missing=1
+          else
+            echo '✓ ddc-cell-html'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-html-diff ]]; then
+            echo '❌ MISSING: ddc-cell-html-diff'
+            missing=1
+          else
+            echo '✓ ddc-cell-html-diff'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-http ]]; then
+            echo '❌ MISSING: ddc-cell-http'
+            missing=1
+          else
+            echo '✓ ddc-cell-http'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-image ]]; then
+            echo '❌ MISSING: ddc-cell-image'
+            missing=1
+          else
+            echo '✓ ddc-cell-image'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-js ]]; then
+            echo '❌ MISSING: ddc-cell-js'
+            missing=1
+          else
+            echo '✓ ddc-cell-js'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-jxl ]]; then
+            echo '❌ MISSING: ddc-cell-jxl'
+            missing=1
+          else
+            echo '✓ ddc-cell-jxl'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-linkcheck ]]; then
+            echo '❌ MISSING: ddc-cell-linkcheck'
+            missing=1
+          else
+            echo '✓ ddc-cell-linkcheck'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-markdown ]]; then
+            echo '❌ MISSING: ddc-cell-markdown'
+            missing=1
+          else
+            echo '✓ ddc-cell-markdown'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-minify ]]; then
+            echo '❌ MISSING: ddc-cell-minify'
+            missing=1
+          else
+            echo '✓ ddc-cell-minify'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-pagefind ]]; then
+            echo '❌ MISSING: ddc-cell-pagefind'
+            missing=1
+          else
+            echo '✓ ddc-cell-pagefind'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-sass ]]; then
+            echo '❌ MISSING: ddc-cell-sass'
+            missing=1
+          else
+            echo '✓ ddc-cell-sass'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-svgo ]]; then
+            echo '❌ MISSING: ddc-cell-svgo'
+            missing=1
+          else
+            echo '✓ ddc-cell-svgo'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-tui ]]; then
+            echo '❌ MISSING: ddc-cell-tui'
+            missing=1
+          else
+            echo '✓ ddc-cell-tui'
+          fi
+          
+          if [[ ! -x dist/ddc-cell-webp ]]; then
+            echo '❌ MISSING: ddc-cell-webp'
+            missing=1
+          else
+            echo '✓ ddc-cell-webp'
+          fi
+          
+          if [[ $missing -eq 1 ]]; then
+            echo ''
+            echo 'ERROR: Some required binaries are missing!'
+            echo 'This usually means a cell build job failed or artifact upload was incomplete.'
+            exit 1
+          fi
+          
+          echo ''
+          echo 'All 20 binaries verified.'
+      - name: Run integration tests
         run: cargo xtask integration --no-build
         env: 
           DODECA_BIN: ${{ github.workspace }}/dist/ddc
           DODECA_CELL_PATH: ${{ github.workspace }}/dist
           DODECA_TEST_FIXTURES_DIR: ${{ github.workspace }}/crates/integration-tests/fixtures
-
-      - 
-        name: Save cache (ctree)
-        run: "echo \"=== Cache contents before save ===\"\ndu -sh target 2>/dev/null || true\ntree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d\nmkdir -p \"$(dirname \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\")\"\nrm -rf \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" 2>/dev/null || true\nctree target \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" && echo \"Cache saved via ctree to /Users/amos/.cache/dodeca-ci/integration-macos-arm64\" || echo \"ctree save failed (non-fatal)\""
-      - 
-        name: Trim cache (cargo sweep)
-        run: "if [ -d \"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" ]; then\n  CARGO_TARGET_DIR=\"/Users/amos/.cache/dodeca-ci/integration-macos-arm64\" cargo sweep --file || true\nelse\n  echo \"No cache found at /Users/amos/.cache/dodeca-ci/integration-macos-arm64 to trim\"\nfi"
-
+      - name: Save cache (ctree)
+        run: |-
+          echo "=== Cache contents before save ==="
+          du -sh target 2>/dev/null || true
+          tree -ah -L 2 target/ 2>/dev/null || find target -maxdepth 2 -type d
+          mkdir -p "$(dirname "/Users/amos/.cache/dodeca-ci/integration-macos-arm64")"
+          rm -rf "/Users/amos/.cache/dodeca-ci/integration-macos-arm64" 2>/dev/null || true
+          ctree target "/Users/amos/.cache/dodeca-ci/integration-macos-arm64" && echo "Cache saved via ctree to /Users/amos/.cache/dodeca-ci/integration-macos-arm64" || echo "ctree save failed (non-fatal)"
+      - name: Trim cache (cargo sweep)
+        run: |-
+          if [ -d "/Users/amos/.cache/dodeca-ci/integration-macos-arm64" ]; then
+            CARGO_TARGET_DIR="/Users/amos/.cache/dodeca-ci/integration-macos-arm64" cargo sweep --file || true
+          else
+            echo "No cache found at /Users/amos/.cache/dodeca-ci/integration-macos-arm64 to trim"
+          fi
   assemble-macos-arm64: 
     name: Assemble (macos-arm64)
     runs-on: 
       - mac-arm64-oakhost
-
     timeout-minutes: 30
     needs: 
       - integration-macos-arm64
       - build-wasm
-
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-
     steps: 
-      - 
-        name: Checkout
+      - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
-      - 
-        name: Download ddc from CAS
+      - name: Download ddc from CAS
         run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/ddc-macos-arm64\" target/release/ddc"
-      - 
-        name: Download cells from CAS
-        run: "./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-1\" target/release/\n./scripts/cas-download-batch.ts \"ci/${{ github.run_id }}/cells-macos-arm64-2\" target/release/"
-      - 
-        name: Download WASM from CAS
-        run: "./scripts/cas-download.ts \"ci/${{ github.run_id }}/wasm.tar.gz\" /tmp/wasm.tar.gz\nmkdir -p crates/dodeca-devtools\ntar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools"
-      - 
-        name: Install xz (macOS)
+      - name: Download cells from CAS
+        run: |-
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-1" target/release/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-2" target/release/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-3" target/release/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-4" target/release/
+          ./scripts/cas-download-batch.ts "ci/${{ github.run_id }}/cells-macos-arm64-5" target/release/
+      - name: Download WASM from CAS
+        run: |-
+          ./scripts/cas-download.ts "ci/${{ github.run_id }}/wasm.tar.gz" /tmp/wasm.tar.gz
+          mkdir -p crates/dodeca-devtools
+          tar -xzf /tmp/wasm.tar.gz -C crates/dodeca-devtools
+      - name: Install xz (macOS)
         run: if command -v brew >/dev/null 2>&1; then HOMEBREW_NO_AUTO_UPDATE=1 brew install xz; fi
-      - 
-        name: List binaries
+      - name: List binaries
         run: ls -la target/release/
-      - 
-        name: Assemble archive
+      - name: Assemble archive
         run: bash scripts/assemble-archive.sh aarch64-apple-darwin
-      - 
-        name: Upload archive to CAS
+      - name: Upload archive to CAS
         run: "./scripts/cas-upload.ts \"dodeca-aarch64-apple-darwin.tar.xz\" \"ci/${{ github.run_id }}/dodeca-aarch64-apple-darwin.tar.xz\""
-
   release: 
     name: Release
     runs-on: 
       - linux-amd64-metal
-
     timeout-minutes: 30
     needs: 
       - assemble-linux-x64
       - assemble-macos-arm64
-
     if: "startsWith(github.ref, 'refs/tags/')"
     env: 
       CAS_SSH_KEY: ${{ secrets.CAS_SSH_KEY }}
-
     steps: 
-      - 
-        name: Checkout
+      - name: Checkout
         uses: "https://github.com/actions/checkout@v4"
-      - 
-        name: Download archives from CAS
-        run: "mkdir -p dist\n./scripts/cas-download.ts \"ci/${{ github.run_id }}/dodeca-x86_64-unknown-linux-gnu.tar.xz\" dist/dodeca-x86_64-unknown-linux-gnu.tar.xz\n./scripts/cas-download.ts \"ci/${{ github.run_id }}/dodeca-aarch64-apple-darwin.tar.xz\" dist/dodeca-aarch64-apple-darwin.tar.xz\nls -la dist/"
-      - 
-        name: Show release info
+      - name: Download archives from CAS
+        run: |-
+          mkdir -p dist
+          ./scripts/cas-download.ts "ci/${{ github.run_id }}/dodeca-x86_64-unknown-linux-gnu.tar.xz" dist/dodeca-x86_64-unknown-linux-gnu.tar.xz
+          ./scripts/cas-download.ts "ci/${{ github.run_id }}/dodeca-aarch64-apple-darwin.tar.xz" dist/dodeca-aarch64-apple-darwin.tar.xz
+          ls -la dist/
+      - name: Show release info
         run: "echo \"Release: ${{ github.ref_name }}\"; ls -la dist/"
-
