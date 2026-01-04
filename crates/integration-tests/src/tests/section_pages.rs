@@ -5,13 +5,14 @@ pub fn adding_page_updates_section_pages_list() {
 
     // Helper function to extract and log page titles consistently
     let extract_page_titles = |html: &str, context: &str| -> Vec<String> {
-        let nav_re = regex::Regex::new(r#"<nav id="page-list">(.*?)</nav>"#).unwrap();
+        // (?s) enables DOTALL mode so .* matches across newlines (minification is disabled)
+        let nav_re = regex::Regex::new(r#"(?s)<nav id="page-list">(.*?)</nav>"#).unwrap();
         if let Some(caps) = nav_re.captures(html) {
             let nav_html = &caps[1];
             let title_re = regex::Regex::new(r#">([^<]+)</a>"#).unwrap();
             let titles: Vec<String> = title_re
                 .captures_iter(nav_html)
-                .map(|c| c.get(1).unwrap().as_str().to_string())
+                .map(|c| c.get(1).unwrap().as_str().trim().to_string())
                 .collect();
             tracing::debug!("{}: Found {} pages: {:?}", context, titles.len(), titles);
             titles
@@ -66,7 +67,8 @@ pub fn adding_page_updates_section_pages_list() {
                 return None;
             }
 
-            let nav_re = regex::Regex::new(r#"<nav id="page-list">(.*?)</nav>"#).unwrap();
+            // (?s) enables DOTALL mode so .* matches across newlines (minification is disabled)
+            let nav_re = regex::Regex::new(r#"(?s)<nav id="page-list">(.*?)</nav>"#).unwrap();
             if nav_re.is_match(&html.body) {
                 tracing::debug!("Found page-list nav, template successfully applied");
                 Some(html)

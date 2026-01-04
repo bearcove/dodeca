@@ -22,19 +22,7 @@ pub async fn load_template<DB: Db>(
     db: &DB,
     template: TemplateFile,
 ) -> PicanteResult<TemplateContent> {
-    let content = template.content(db)?;
-    let content_hash = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        content.as_str().hash(&mut hasher);
-        hasher.finish()
-    };
-    tracing::debug!(
-        "🔄 load_template: {} (content hash: {:016x})",
-        template.path(db)?.as_str(),
-        content_hash
-    );
-    Ok(content)
+    template.content(db)
 }
 
 /// Load all templates and return a map of path -> content
@@ -1077,7 +1065,6 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Bui
 pub async fn all_rendered_html<DB: Db>(
     db: &DB,
 ) -> PicanteResult<Result<AllRenderedHtml, BuildError>> {
-    tracing::debug!("🔄 all_rendered_html: EXECUTING (not cached)");
     let site_tree = match build_tree(db).await? {
         Ok(tree) => tree,
         Err(errors) => return Ok(Err(BuildError { errors })),
