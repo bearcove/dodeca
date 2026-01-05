@@ -171,6 +171,10 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
     let mut heading_text = String::new();
     let mut heading_start_offset: usize = 0;
 
+    // Track parent heading slugs for hierarchical IDs
+    // Each entry is (level, slug) - we keep ancestors with level < current
+    let mut heading_stack: Vec<(u8, String)> = Vec::new();
+
     // Paragraph/rule tracking
     let mut in_paragraph = false;
     let mut paragraph_start_offset: usize = 0;
@@ -193,12 +197,38 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                 events_with_offsets.push((event, range));
             }
             Event::End(TagEnd::Heading(level)) => {
-                let id = slugify(&heading_text);
+                let current_level = *level as u8;
+                let slug = slugify(&heading_text);
+
+                // Pop any headings at same or higher level (lower in hierarchy)
+                while heading_stack
+                    .last()
+                    .is_some_and(|(lvl, _)| *lvl >= current_level)
+                {
+                    heading_stack.pop();
+                }
+
+                // Build hierarchical ID: parent1--parent2--current
+                let id = if heading_stack.is_empty() {
+                    slug.clone()
+                } else {
+                    let mut id = String::new();
+                    for (_, parent_slug) in &heading_stack {
+                        id.push_str(parent_slug);
+                        id.push_str("--");
+                    }
+                    id.push_str(&slug);
+                    id
+                };
+
+                // Push current heading onto stack for children
+                heading_stack.push((current_level, slug));
+
                 let line = offset_to_line(markdown, heading_start_offset);
                 let heading = Heading {
                     title: heading_text.clone(),
                     id,
-                    level: *level as u8,
+                    level: current_level,
                     line,
                 };
                 headings.push(heading.clone());
@@ -631,7 +661,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_render_unique_heading_ids() {
+    async fn test_render_hierarchical_heading_ids() {
         let md = r#"# Main Title
 
 ## Section A
@@ -653,17 +683,51 @@ Details 2.
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
         assert_eq!(doc.headings.len(), 5);
+        // Top-level heading has no parent prefix
         assert_eq!(doc.headings[0].id, "main-title");
-        assert_eq!(doc.headings[1].id, "section-a");
-        assert_eq!(doc.headings[2].id, "section-b");
-        assert_eq!(doc.headings[3].id, "subsection-b1");
-        assert_eq!(doc.headings[4].id, "subsection-b2");
+        // Level 2 headings include level 1 parent
+        assert_eq!(doc.headings[1].id, "main-title--section-a");
+        assert_eq!(doc.headings[2].id, "main-title--section-b");
+        // Level 3 headings include both level 1 and level 2 parents
+        assert_eq!(doc.headings[3].id, "main-title--section-b--subsection-b1");
+        assert_eq!(doc.headings[4].id, "main-title--section-b--subsection-b2");
 
         assert!(doc.html.contains(r#"id="main-title""#));
-        assert!(doc.html.contains(r#"id="section-a""#));
-        assert!(doc.html.contains(r#"id="section-b""#));
-        assert!(doc.html.contains(r#"id="subsection-b1""#));
-        assert!(doc.html.contains(r#"id="subsection-b2""#));
+        assert!(doc.html.contains(r#"id="main-title--section-a""#));
+        assert!(doc.html.contains(r#"id="main-title--section-b""#));
+        assert!(
+            doc.html
+                .contains(r#"id="main-title--section-b--subsection-b1""#)
+        );
+        assert!(
+            doc.html
+                .contains(r#"id="main-title--section-b--subsection-b2""#)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_hierarchical_ids_reset_on_same_level() {
+        // When we go back to the same level, the parent should change
+        let md = r#"# Foo
+
+## Bar
+
+### Baz
+
+## Qux
+
+### Quux
+"#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.headings.len(), 5);
+        assert_eq!(doc.headings[0].id, "foo");
+        assert_eq!(doc.headings[1].id, "foo--bar");
+        assert_eq!(doc.headings[2].id, "foo--bar--baz");
+        // Qux is at level 2, so it resets the h3 context
+        assert_eq!(doc.headings[3].id, "foo--qux");
+        // Quux is under Qux, not under Bar
+        assert_eq!(doc.headings[4].id, "foo--qux--quux");
     }
 
     #[tokio::test]
