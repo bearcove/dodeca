@@ -729,38 +729,91 @@ struct SourceInfo {
     line: usize,
 }
 
+/// Regex to match rule markers like r[rule.id] or r[rule.id attr=value]
+fn rule_marker_regex() -> &'static regex::Regex {
+    static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RE.get_or_init(|| regex::Regex::new(r"^r\[[^\]]+\]\s*").unwrap())
+}
+
+/// Strip rule marker from text if present, returns owned String
+fn strip_rule_marker(text: &str) -> String {
+    rule_marker_regex().replace(text, "").into_owned()
+}
+
 /// Render the content of a paragraph rule (stripping the r[...] marker)
+///
+/// Uses a text buffer to accumulate consecutive text events (pulldown-cmark
+/// splits text across multiple events), then strips the rule marker when flushing.
 fn render_paragraph_rule_content(
     events: &[(Event<'_>, Range<usize>)],
     options: &RenderOptions,
 ) -> String {
     let mut html = String::new();
-    let mut found_first_text = false;
+    let mut text_buffer = String::new();
+    let mut marker_stripped = false;
+
+    // Flush the text buffer, stripping the rule marker if we haven't yet
+    let flush_text = |html: &mut String, buffer: &mut String, stripped: &mut bool| {
+        if buffer.is_empty() {
+            return;
+        }
+        let text = if !*stripped {
+            *stripped = true;
+            strip_rule_marker(buffer)
+        } else {
+            std::mem::take(buffer)
+        };
+        if !text.is_empty() {
+            html.push_str(&html_escape(&text));
+        }
+        buffer.clear();
+    };
 
     for (event, _range) in events {
         match event {
-            Event::Start(Tag::Paragraph) | Event::End(TagEnd::Paragraph) => {
-                // Skip paragraph wrapper for rules
+            Event::Text(t) => {
+                text_buffer.push_str(t.as_ref());
             }
-            Event::Text(t) if !found_first_text => {
-                found_first_text = true;
-                // Strip the r[...] marker from the first text
-                let t_str = t.as_ref();
-                if let Some(marker_end) = t_str.find(']') {
-                    let remaining = t_str[marker_end + 1..].trim_start();
-                    if !remaining.is_empty() {
-                        html.push_str("<p>");
-                        html.push_str(&html_escape(remaining));
-                    }
-                }
+            Event::SoftBreak => {
+                text_buffer.push('\n');
+            }
+            Event::HardBreak => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("<br />\n");
+            }
+            Event::Code(code) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("<code>");
+                html.push_str(&html_escape(code));
+                html.push_str("</code>");
+            }
+            Event::Start(Tag::Paragraph) => {
+                html.push_str("<p>");
+            }
+            Event::End(TagEnd::Paragraph) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("</p>\n");
+            }
+            Event::Start(Tag::Emphasis) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("<em>");
+            }
+            Event::End(TagEnd::Emphasis) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("</em>");
+            }
+            Event::Start(Tag::Strong) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("<strong>");
+            }
+            Event::End(TagEnd::Strong) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("</strong>");
             }
             Event::Start(Tag::Link {
                 dest_url, title, ..
             }) => {
-                if !found_first_text {
-                    found_first_text = true;
-                    html.push_str("<p>");
-                }
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
                 let resolved = resolve_link(dest_url, options.source_path.as_deref());
                 let title_attr = if title.is_empty() {
                     String::new()
@@ -774,35 +827,54 @@ fn render_paragraph_rule_content(
                 ));
             }
             Event::End(TagEnd::Link) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
                 html.push_str("</a>");
             }
             _ => {
-                if found_first_text {
-                    pulldown_cmark::html::push_html(&mut html, std::iter::once(event.clone()));
-                }
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                pulldown_cmark::html::push_html(&mut html, std::iter::once(event.clone()));
             }
         }
     }
 
-    if found_first_text && !html.is_empty() {
-        html.push_str("</p>\n");
-    }
+    // Final flush
+    flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
 
     html
 }
 
 /// Render the content of a blockquote rule (stripping blockquote wrapper and r[...] marker)
+///
+/// Uses a text buffer to accumulate consecutive text events, then strips the rule marker.
 async fn render_blockquote_rule_content(
     events: &[(Event<'_>, Range<usize>)],
     options: &RenderOptions,
     default_code_handler: &BoxedHandler,
 ) -> Result<String> {
     let mut html = String::new();
-    let mut found_first_text = false;
-    let mut in_first_paragraph = false;
+    let mut text_buffer = String::new();
+    let mut marker_stripped = false;
+    let mut in_paragraph = false;
     let mut in_code_block = false;
     let mut code_block_lang = String::new();
     let mut code_block_content = String::new();
+
+    // Flush the text buffer, stripping the rule marker if we haven't yet
+    let flush_text = |html: &mut String, buffer: &mut String, stripped: &mut bool| {
+        if buffer.is_empty() {
+            return;
+        }
+        let text = if !*stripped {
+            *stripped = true;
+            strip_rule_marker(buffer)
+        } else {
+            std::mem::take(buffer)
+        };
+        if !text.is_empty() {
+            html.push_str(&html_escape(&text));
+        }
+        buffer.clear();
+    };
 
     for (event, _range) in events {
         match event {
@@ -810,23 +882,16 @@ async fn render_blockquote_rule_content(
                 // Skip blockquote wrapper
             }
             Event::Start(Tag::Paragraph) => {
-                if !found_first_text {
-                    in_first_paragraph = true;
-                } else {
-                    html.push_str("<p>");
-                }
+                html.push_str("<p>");
+                in_paragraph = true;
             }
             Event::End(TagEnd::Paragraph) => {
-                if in_first_paragraph {
-                    in_first_paragraph = false;
-                    if !html.is_empty() {
-                        html.push_str("</p>\n");
-                    }
-                } else {
-                    html.push_str("</p>\n");
-                }
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("</p>\n");
+                in_paragraph = false;
             }
             Event::Start(Tag::CodeBlock(kind)) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
                 in_code_block = true;
                 code_block_lang = match kind {
                     CodeBlockKind::Fenced(lang) => lang.split(',').next().unwrap_or("").to_string(),
@@ -836,7 +901,6 @@ async fn render_blockquote_rule_content(
             }
             Event::End(TagEnd::CodeBlock) => {
                 in_code_block = false;
-                // Render the code block
                 let handler = options
                     .code_handlers
                     .get(&code_block_lang)
@@ -850,25 +914,42 @@ async fn render_blockquote_rule_content(
             Event::Text(t) if in_code_block => {
                 code_block_content.push_str(t);
             }
-            Event::Text(t) if !found_first_text => {
-                found_first_text = true;
-                // Strip the r[...] marker from the first text
-                let t_str = t.as_ref();
-                if let Some(marker_end) = t_str.find(']') {
-                    let remaining = t_str[marker_end + 1..].trim_start();
-                    if !remaining.is_empty() {
-                        html.push_str("<p>");
-                        html.push_str(&html_escape(remaining));
-                    }
-                }
+            Event::Text(t) => {
+                text_buffer.push_str(t.as_ref());
+            }
+            Event::SoftBreak if in_paragraph => {
+                text_buffer.push('\n');
+            }
+            Event::HardBreak if in_paragraph => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("<br />\n");
+            }
+            Event::Code(code) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("<code>");
+                html.push_str(&html_escape(code));
+                html.push_str("</code>");
+            }
+            Event::Start(Tag::Emphasis) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("<em>");
+            }
+            Event::End(TagEnd::Emphasis) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("</em>");
+            }
+            Event::Start(Tag::Strong) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("<strong>");
+            }
+            Event::End(TagEnd::Strong) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
+                html.push_str("</strong>");
             }
             Event::Start(Tag::Link {
                 dest_url, title, ..
             }) => {
-                if !found_first_text {
-                    found_first_text = true;
-                    html.push_str("<p>");
-                }
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
                 let resolved = resolve_link(dest_url, options.source_path.as_deref());
                 let title_attr = if title.is_empty() {
                     String::new()
@@ -882,15 +963,20 @@ async fn render_blockquote_rule_content(
                 ));
             }
             Event::End(TagEnd::Link) => {
+                flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
                 html.push_str("</a>");
             }
             _ => {
                 if !in_code_block {
+                    flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
                     pulldown_cmark::html::push_html(&mut html, std::iter::once(event.clone()));
                 }
             }
         }
     }
+
+    // Final flush
+    flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
 
     Ok(html)
 }
@@ -1542,6 +1628,258 @@ Third paragraph.
         assert!(
             doc.html.contains(r#"data-source-file="docs/test.md""#),
             "Should have file attribute: {}",
+            doc.html
+        );
+    }
+
+    // =========================================================================
+    // Rule marker stripping tests - comprehensive edge cases
+    // =========================================================================
+
+    #[test]
+    fn test_strip_rule_marker_basic() {
+        assert_eq!(strip_rule_marker("r[foo] bar"), "bar");
+        assert_eq!(strip_rule_marker("r[foo.bar] text"), "text");
+        assert_eq!(strip_rule_marker("r[foo]"), "");
+        assert_eq!(
+            strip_rule_marker("r[foo.bar.baz status=stable] text"),
+            "text"
+        );
+        assert_eq!(strip_rule_marker("no marker here"), "no marker here");
+        assert_eq!(strip_rule_marker(""), "");
+    }
+
+    #[tokio::test]
+    async fn test_rule_marker_same_line() {
+        // r[id] and text on same line
+        let md = "r[same.line] This text is on the same line.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.rules[0].id, "same.line");
+        // Should NOT contain the raw marker
+        assert!(
+            !doc.html.contains("r[same.line]"),
+            "Raw marker should be stripped: {}",
+            doc.html
+        );
+        assert!(
+            !doc.html.contains("[same.line]"),
+            "Marker brackets should be stripped from content: {}",
+            doc.html
+        );
+        // Should contain the text
+        assert!(
+            doc.html.contains("This text is on the same line"),
+            "Text should be present: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rule_marker_on_own_line() {
+        // r[id] on its own line, text on next line
+        let md = "r[own.line]\nText on next line.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.rules[0].id, "own.line");
+        assert!(
+            !doc.html.contains("r[own.line]"),
+            "Raw marker should be stripped: {}",
+            doc.html
+        );
+        assert!(
+            !doc.html.contains("[own.line]"),
+            "Marker brackets should be stripped: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("Text on next line"),
+            "Text should be present: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rule_marker_with_blank_line() {
+        // r[id] followed by blank line then text (separate paragraph)
+        let md = "r[blank.after]\n\nText after blank line.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.rules[0].id, "blank.after");
+        assert!(
+            !doc.html.contains("r[blank.after]"),
+            "Raw marker should be stripped: {}",
+            doc.html
+        );
+        assert!(
+            !doc.html.contains("[blank.after]"),
+            "Marker brackets should be stripped: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rule_marker_with_metadata() {
+        // r[id attr=value] with metadata
+        let md = "r[meta.rule status=stable level=must] Rule with metadata.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.rules[0].id, "meta.rule");
+        assert!(
+            !doc.html.contains("r[meta.rule"),
+            "Raw marker should be stripped: {}",
+            doc.html
+        );
+        assert!(
+            !doc.html.contains("status=stable"),
+            "Metadata should be stripped from content: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("Rule with metadata"),
+            "Text should be present: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rule_in_blockquote_marker_stripped() {
+        // > r[id] text - blockquote rule
+        let md = "> r[quote.rule] Text in blockquote rule.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.rules[0].id, "quote.rule");
+        assert!(
+            !doc.html.contains("r[quote.rule]"),
+            "Raw marker should be stripped: {}",
+            doc.html
+        );
+        assert!(
+            !doc.html.contains("[quote.rule]"),
+            "Marker brackets should be stripped: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("Text in blockquote rule"),
+            "Text should be present: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rule_in_blockquote_multiline_marker_stripped() {
+        // > r[id]
+        // > text on next line
+        let md = "> r[multiline.quote]\n> Text continues here.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.rules[0].id, "multiline.quote");
+        assert!(
+            !doc.html.contains("r[multiline.quote]"),
+            "Raw marker should be stripped: {}",
+            doc.html
+        );
+        assert!(
+            !doc.html.contains("[multiline.quote]"),
+            "Marker brackets should be stripped: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("Text continues here"),
+            "Text should be present: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_multiple_rules_markers_stripped() {
+        // Multiple rules in document
+        let md = "r[first.rule] First rule text.\n\nr[second.rule] Second rule text.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert_eq!(doc.rules.len(), 2);
+        assert!(
+            !doc.html.contains("r[first.rule]"),
+            "First marker should be stripped: {}",
+            doc.html
+        );
+        assert!(
+            !doc.html.contains("r[second.rule]"),
+            "Second marker should be stripped: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("First rule text"),
+            "First text should be present: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("Second rule text"),
+            "Second text should be present: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rule_only_marker_no_text() {
+        // Just r[id] with nothing else
+        let md = "r[lonely.rule]";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.rules[0].id, "lonely.rule");
+        // The anchor link will contain [lonely.rule] but not raw r[...]
+        assert!(
+            !doc.html.contains("r[lonely.rule]"),
+            "Raw marker should not appear: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rule_with_formatting_after_marker() {
+        // r[id] with **bold** and *italic* after
+        let md = "r[fmt.after] Text with **bold** and *italic*.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert_eq!(doc.rules.len(), 1);
+        assert!(
+            !doc.html.contains("r[fmt.after]"),
+            "Marker should be stripped: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("<strong>bold</strong>"),
+            "Bold should be rendered: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("<em>italic</em>"),
+            "Italic should be rendered: {}",
             doc.html
         );
     }

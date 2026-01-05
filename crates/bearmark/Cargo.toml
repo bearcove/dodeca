@@ -35,6 +35,9 @@ facet-value.workspace = true
 # Error handling
 thiserror.workspace = true
 
+# Regex for stripping rule markers
+regex.workspace = true
+
 # Optional handlers
 arborium = { workspace = true, optional = true }
 aasvg = { workspace = true, optional = true }
