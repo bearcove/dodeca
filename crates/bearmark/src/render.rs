@@ -266,6 +266,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                         markdown,
                         paragraph_start_offset,
                         &mut seen_rule_ids,
+                        &paragraph_events,
                     ) {
                         match rule_result {
                             Ok(rule) => {
@@ -519,11 +520,12 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
 /// Try to parse a paragraph as a rule definition.
 /// Returns Some(Ok(rule)) if successful, Some(Err) if it looks like a rule but is invalid,
 /// or None if it's not a rule at all.
-fn try_parse_rule(
+fn try_parse_rule<'a>(
     text: &str,
     markdown: &str,
     offset: usize,
     seen_ids: &mut std::collections::HashSet<String>,
+    paragraph_events: &[(Event<'a>, std::ops::Range<usize>)],
 ) -> Option<Result<RuleDefinition>> {
     // Must start with r[ and have a closing ]
     if !text.starts_with("r[") {
@@ -549,13 +551,49 @@ fn try_parse_rule(
     // Extract the rule text (everything after the marker)
     let rule_text = text[marker_end + 1..].trim().to_string();
 
-    // Render the rule text as HTML
-    let paragraph_html = if rule_text.is_empty() {
-        String::new()
-    } else {
-        let parser = Parser::new_ext(&rule_text, Options::empty());
+    // Generate paragraph_html from the already-parsed events (preserves links, formatting, etc.)
+    // We strip the r[...] marker from the first text event and skip the paragraph wrapper
+    let paragraph_html = {
         let mut html = String::new();
-        pulldown_cmark::html::push_html(&mut html, parser);
+
+        // Build modified events: skip Start/End Paragraph, strip marker from first Text
+        let mut modified_events: Vec<Event<'_>> = Vec::new();
+        let mut found_first_text = false;
+
+        for (event, _range) in paragraph_events {
+            match event {
+                Event::Start(Tag::Paragraph) | Event::End(TagEnd::Paragraph) => {
+                    // Skip paragraph wrapper - we'll wrap in our own rule container
+                }
+                Event::Text(t) if !found_first_text => {
+                    found_first_text = true;
+                    // Strip the r[...] marker from the first text
+                    let t_str = t.as_ref();
+                    if let Some(marker_end_in_text) = t_str.find(']') {
+                        let remaining = t_str[marker_end_in_text + 1..].trim_start();
+                        if !remaining.is_empty() {
+                            modified_events.push(Event::Text(remaining.to_string().into()));
+                        }
+                    }
+                }
+                _ => {
+                    modified_events.push(event.clone());
+                }
+            }
+        }
+
+        if !modified_events.is_empty() {
+            // Wrap in <p> tags for consistent output
+            html.push_str("<p>");
+            pulldown_cmark::html::push_html(&mut html, modified_events.into_iter());
+            // push_html adds a trailing newline after </p>, but we're manually wrapping
+            // so we need to close our <p> tag
+            if html.ends_with('\n') {
+                html.pop();
+            }
+            html.push_str("</p>\n");
+        }
+
         html
     };
 
@@ -616,6 +654,53 @@ mod tests {
         assert_eq!(doc.rules[0].id, "my.rule");
         assert_eq!(doc.rules[0].line, 1);
         assert!(doc.html.contains("id=\"r-my.rule\""));
+    }
+
+    #[tokio::test]
+    async fn test_render_rule_with_links() {
+        let md = "r[data.postcard] All payloads MUST use [Postcard](https://postcard.jamesmunns.com/wire-format).\n";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.rules[0].id, "data.postcard");
+        // The paragraph_html should preserve the link
+        assert!(
+            doc.rules[0]
+                .paragraph_html
+                .contains("<a href=\"https://postcard.jamesmunns.com/wire-format\">"),
+            "Link should be preserved in paragraph_html: {}",
+            doc.rules[0].paragraph_html
+        );
+        assert!(
+            doc.rules[0].paragraph_html.contains("Postcard</a>"),
+            "Link text should be preserved: {}",
+            doc.rules[0].paragraph_html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_render_rule_with_formatting() {
+        let md = "r[fmt.rule] Text with **bold**, *italic*, and `code`.\n";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.rules.len(), 1);
+        assert!(
+            doc.rules[0]
+                .paragraph_html
+                .contains("<strong>bold</strong>"),
+            "Bold should be preserved: {}",
+            doc.rules[0].paragraph_html
+        );
+        assert!(
+            doc.rules[0].paragraph_html.contains("<em>italic</em>"),
+            "Italic should be preserved: {}",
+            doc.rules[0].paragraph_html
+        );
+        assert!(
+            doc.rules[0].paragraph_html.contains("<code>code</code>"),
+            "Code should be preserved: {}",
+            doc.rules[0].paragraph_html
+        );
     }
 
     #[tokio::test]
