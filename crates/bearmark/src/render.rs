@@ -147,6 +147,12 @@ impl RenderOptions {
         self.rule_handler = Some(Arc::new(handler));
         self
     }
+
+    /// Set the source file path for link resolution and paragraph source attributes.
+    pub fn with_source_path(mut self, path: &str) -> Self {
+        self.source_path = Some(path.to_string());
+        self
+    }
 }
 
 /// A code sample extracted from markdown
