@@ -9,6 +9,8 @@ pub struct Heading {
     pub id: String,
     /// The heading level (1-6)
     pub level: u8,
+    /// Line number where this heading appears (1-indexed)
+    pub line: usize,
 }
 
 /// Generate a URL-safe slug from text.

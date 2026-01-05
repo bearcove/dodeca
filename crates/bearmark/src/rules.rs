@@ -325,6 +325,7 @@ pub struct ExtractedRules {
 /// * `source_path` - Optional source file path for warnings
 ///
 /// Returns the transformed content, list of extracted rules, and any warnings.
+#[allow(dead_code)]
 pub(crate) async fn extract_rules(
     content: &str,
     rule_handler: Option<&BoxedRuleHandler>,
@@ -523,7 +524,7 @@ fn extract_rule_text(lines: &[&str]) -> (String, usize) {
 /// Supports formats:
 /// - `rule.id` - simple rule ID
 /// - `rule.id status=stable level=must` - rule ID with attributes
-fn parse_rule_marker(inner: &str) -> Result<(&str, RuleMetadata)> {
+pub fn parse_rule_marker(inner: &str) -> Result<(&str, RuleMetadata)> {
     let inner = inner.trim();
 
     // Find where the rule ID ends (at first space or end of string)
@@ -610,7 +611,7 @@ fn is_valid_rule_id(id: &str) -> bool {
 }
 
 /// Generate default HTML for a rule anchor.
-pub(crate) fn default_rule_html(rule: &RuleDefinition) -> String {
+pub fn default_rule_html(rule: &RuleDefinition) -> String {
     // Insert <wbr> after dots for better line breaking in narrow displays
     let display_id = rule.id.replace('.', ".<wbr>");
 
