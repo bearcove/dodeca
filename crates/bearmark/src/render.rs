@@ -345,7 +345,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                                 parent_events.append(&mut events);
                             }
                         } else {
-                            render_events_to_html(&mut html, &events, options);
+                            render_events_to_html(&mut html, &events, options, None);
                         }
                     }
                     continue;
@@ -523,7 +523,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                         line,
                         offset: start_offset,
                     }));
-                    render_events_to_html(&mut html, &events, options);
+                    render_events_to_html(&mut html, &events, options, Some(SourceInfo { line }));
                 }
             }
 
@@ -675,9 +675,24 @@ fn render_events_to_html(
     html: &mut String,
     events: &[(Event<'_>, Range<usize>)],
     options: &RenderOptions,
+    source_info: Option<SourceInfo>,
 ) {
     for (event, _range) in events {
         match event {
+            Event::Start(Tag::Paragraph) => {
+                // Custom paragraph rendering with source location attributes
+                let mut attrs = String::new();
+                if let Some(ref info) = source_info {
+                    attrs.push_str(&format!(" data-source-line=\"{}\"", info.line));
+                    if let Some(ref file) = options.source_path {
+                        attrs.push_str(&format!(" data-source-file=\"{}\"", html_escape(file)));
+                    }
+                }
+                html.push_str(&format!("<p{}>", attrs));
+            }
+            Event::End(TagEnd::Paragraph) => {
+                html.push_str("</p>\n");
+            }
             Event::Start(Tag::Link {
                 dest_url, title, ..
             }) => {
@@ -701,6 +716,11 @@ fn render_events_to_html(
             }
         }
     }
+}
+
+/// Source location information for rendered elements
+struct SourceInfo {
+    line: usize,
 }
 
 /// Render the content of a paragraph rule (stripping the r[...] marker)
@@ -1469,5 +1489,54 @@ Another paragraph.
         assert!(matches!(&doc.elements[2], DocElement::Rule(r) if r.id == "my.rule"));
         assert!(matches!(&doc.elements[3], DocElement::Paragraph(p) if p.line == 7));
         assert!(matches!(&doc.elements[4], DocElement::Heading(h) if h.title == "Heading 2"));
+    }
+
+    #[tokio::test]
+    async fn test_paragraph_html_has_source_line_attribute() {
+        let md = r#"First paragraph.
+
+Second paragraph.
+
+Third paragraph.
+"#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        // Check that paragraphs have data-source-line attributes
+        assert!(
+            doc.html.contains(r#"<p data-source-line="1">"#),
+            "First paragraph should have data-source-line=\"1\": {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains(r#"<p data-source-line="3">"#),
+            "Second paragraph should have data-source-line=\"3\": {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains(r#"<p data-source-line="5">"#),
+            "Third paragraph should have data-source-line=\"5\": {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_paragraph_html_has_source_file_attribute() {
+        let md = "A paragraph with source file info.";
+        let opts = RenderOptions {
+            source_path: Some("docs/test.md".to_string()),
+            ..Default::default()
+        };
+        let doc = render(md, &opts).await.unwrap();
+
+        assert!(
+            doc.html.contains(r#"data-source-line="1""#),
+            "Should have line attribute: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains(r#"data-source-file="docs/test.md""#),
+            "Should have file attribute: {}",
+            doc.html
+        );
     }
 }
