@@ -1092,6 +1092,271 @@ fn try_parse_blockquote_rule(
     Some(Ok(rule))
 }
 
+/// Result of extracting rules from markdown (sync version).
+#[derive(Debug, Clone)]
+pub struct ExtractedRulesResult {
+    /// All rules found in the document
+    pub rules: Vec<RuleDefinition>,
+    /// Warnings about rule quality (missing RFC 2119 keywords, etc.)
+    pub warnings: Vec<crate::rules::RuleWarning>,
+}
+
+/// Extract rules from markdown without rendering (sync version).
+///
+/// This uses the same pulldown-cmark based parsing as `render()` but doesn't
+/// generate HTML or require async handlers. It correctly handles rules in:
+/// - Standalone paragraphs: `r[rule.id] text...`
+/// - Blockquotes: `> r[rule.id] text...`
+///
+/// # Arguments
+/// * `markdown` - The markdown content to parse
+/// * `source_path` - Optional source file path for warnings
+///
+/// # Returns
+/// The extracted rules and any warnings about rule quality.
+pub fn extract_rules_only(
+    markdown: &str,
+    source_path: Option<&std::path::Path>,
+) -> Result<ExtractedRulesResult> {
+    use crate::rules::{RuleWarning, RuleWarningKind, detect_rfc2119_keywords};
+
+    let parser_options = Options::ENABLE_TABLES
+        | Options::ENABLE_FOOTNOTES
+        | Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_HEADING_ATTRIBUTES
+        | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
+        | Options::ENABLE_PLUSES_DELIMITED_METADATA_BLOCKS;
+
+    let parser = Parser::new_ext(markdown, parser_options).into_offset_iter();
+
+    let mut rules: Vec<RuleDefinition> = Vec::new();
+    let mut warnings: Vec<RuleWarning> = Vec::new();
+    let mut seen_rule_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let file_path = source_path
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("<unknown>"));
+
+    // Simplified context - we only track blockquotes and paragraphs for rule detection
+    enum Context {
+        Paragraph {
+            text: String,
+            start_offset: usize,
+        },
+        BlockQuote {
+            start_offset: usize,
+            first_para_text: String,
+            first_para_done: bool,
+            nested_depth: usize,
+        },
+    }
+
+    let mut context_stack: Vec<Context> = Vec::new();
+
+    // Helper to check if inside blockquote
+    let is_inside_blockquote = |stack: &[Context]| {
+        stack
+            .iter()
+            .any(|c| matches!(c, Context::BlockQuote { .. }))
+    };
+
+    for (event, range) in parser {
+        // If inside a blockquote, route events there
+        if is_inside_blockquote(&context_stack) {
+            match &event {
+                Event::Start(Tag::BlockQuote(_)) => {
+                    // Nested blockquote - increase depth
+                    if let Some(Context::BlockQuote { nested_depth, .. }) = context_stack.last_mut()
+                    {
+                        *nested_depth += 1;
+                    }
+                    continue;
+                }
+                Event::End(TagEnd::BlockQuote(_)) => {
+                    // Check if this closes a nested blockquote or the main one
+                    if let Some(Context::BlockQuote { nested_depth, .. }) = context_stack.last_mut()
+                        && *nested_depth > 0
+                    {
+                        *nested_depth -= 1;
+                        continue;
+                    }
+
+                    // Pop and process the blockquote
+                    if let Some(Context::BlockQuote {
+                        start_offset,
+                        first_para_text,
+                        ..
+                    }) = context_stack.pop()
+                    {
+                        // Check if this is a rule
+                        let trimmed = first_para_text.trim();
+                        if trimmed.starts_with("r[")
+                            && let Some(rule_result) = try_parse_blockquote_rule(
+                                trimmed,
+                                markdown,
+                                start_offset,
+                                &mut seen_rule_ids,
+                            )
+                        {
+                            match rule_result {
+                                Ok(rule) => {
+                                    // Check for RFC 2119 keywords
+                                    let keywords = detect_rfc2119_keywords(&rule.text);
+                                    if keywords.is_empty() && !rule.text.is_empty() {
+                                        warnings.push(RuleWarning {
+                                            file: file_path.clone(),
+                                            rule_id: rule.id.clone(),
+                                            line: rule.line,
+                                            span: rule.span,
+                                            kind: RuleWarningKind::NoRfc2119Keyword,
+                                        });
+                                    }
+                                    for keyword in &keywords {
+                                        if keyword.is_negative() {
+                                            warnings.push(RuleWarning {
+                                                file: file_path.clone(),
+                                                rule_id: rule.id.clone(),
+                                                line: rule.line,
+                                                span: rule.span,
+                                                kind: RuleWarningKind::NegativeRequirement(
+                                                    *keyword,
+                                                ),
+                                            });
+                                        }
+                                    }
+                                    rules.push(rule);
+                                }
+                                Err(e) => return Err(e),
+                            }
+                        }
+                    }
+                    continue;
+                }
+                Event::Start(Tag::Paragraph) => {
+                    // Mark that we're starting a paragraph inside the blockquote
+                    continue;
+                }
+                Event::End(TagEnd::Paragraph) => {
+                    // Mark first paragraph as done
+                    if let Some(Context::BlockQuote {
+                        first_para_done, ..
+                    }) = context_stack.last_mut()
+                    {
+                        *first_para_done = true;
+                    }
+                    continue;
+                }
+                Event::Text(t) => {
+                    // Accumulate text in first paragraph
+                    if let Some(Context::BlockQuote {
+                        first_para_text,
+                        first_para_done,
+                        ..
+                    }) = context_stack.last_mut()
+                        && !*first_para_done
+                    {
+                        first_para_text.push_str(t.as_ref());
+                    }
+                    continue;
+                }
+                Event::SoftBreak | Event::HardBreak => {
+                    // Add space for line breaks in first paragraph
+                    if let Some(Context::BlockQuote {
+                        first_para_text,
+                        first_para_done,
+                        ..
+                    }) = context_stack.last_mut()
+                        && !*first_para_done
+                    {
+                        first_para_text.push(' ');
+                    }
+                    continue;
+                }
+                _ => continue,
+            }
+        }
+
+        // Top-level event handling
+        match &event {
+            Event::Start(Tag::BlockQuote(_)) => {
+                context_stack.push(Context::BlockQuote {
+                    start_offset: range.start,
+                    first_para_text: String::new(),
+                    first_para_done: false,
+                    nested_depth: 0,
+                });
+            }
+            Event::Start(Tag::Paragraph) => {
+                context_stack.push(Context::Paragraph {
+                    text: String::new(),
+                    start_offset: range.start,
+                });
+            }
+            Event::End(TagEnd::Paragraph) => {
+                if let Some(Context::Paragraph { text, start_offset }) = context_stack.pop() {
+                    let trimmed = text.trim();
+                    if trimmed.starts_with("r[")
+                        && let Some(rule_result) = try_parse_paragraph_rule(
+                            trimmed,
+                            markdown,
+                            start_offset,
+                            &mut seen_rule_ids,
+                            &[], // events not needed for extraction
+                        )
+                    {
+                        match rule_result {
+                            Ok(rule) => {
+                                // Check for RFC 2119 keywords
+                                let keywords = detect_rfc2119_keywords(&rule.text);
+                                if keywords.is_empty() && !rule.text.is_empty() {
+                                    warnings.push(RuleWarning {
+                                        file: file_path.clone(),
+                                        rule_id: rule.id.clone(),
+                                        line: rule.line,
+                                        span: rule.span,
+                                        kind: RuleWarningKind::NoRfc2119Keyword,
+                                    });
+                                }
+                                for keyword in &keywords {
+                                    if keyword.is_negative() {
+                                        warnings.push(RuleWarning {
+                                            file: file_path.clone(),
+                                            rule_id: rule.id.clone(),
+                                            line: rule.line,
+                                            span: rule.span,
+                                            kind: RuleWarningKind::NegativeRequirement(*keyword),
+                                        });
+                                    }
+                                }
+                                rules.push(rule);
+                            }
+                            Err(e) => return Err(e),
+                        }
+                    }
+                }
+            }
+            Event::Text(t) => {
+                if let Some(Context::Paragraph { text, .. }) = context_stack.last_mut() {
+                    text.push_str(t.as_ref());
+                }
+            }
+            Event::SoftBreak | Event::HardBreak => {
+                if let Some(Context::Paragraph { text, .. }) = context_stack.last_mut() {
+                    text.push(' ');
+                }
+            }
+            Event::Code(code) => {
+                if let Some(Context::Paragraph { text, .. }) = context_stack.last_mut() {
+                    text.push_str(code.as_ref());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(ExtractedRulesResult { rules, warnings })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1881,6 +2146,104 @@ Third paragraph.
             doc.html.contains("<em>italic</em>"),
             "Italic should be rendered: {}",
             doc.html
+        );
+    }
+
+    // Tests for extract_rules_only (sync rule extraction)
+
+    #[test]
+    fn test_extract_rules_only_paragraph() {
+        let md = r#"# Introduction
+
+r[my.rule] This MUST be followed.
+
+Some other text.
+"#;
+        let result = extract_rules_only(md, None).unwrap();
+
+        assert_eq!(result.rules.len(), 1);
+        assert_eq!(result.rules[0].id, "my.rule");
+        assert_eq!(result.rules[0].text, "This MUST be followed.");
+    }
+
+    #[test]
+    fn test_extract_rules_only_blockquote() {
+        let md = r#"> r[quote.rule] This SHOULD be implemented."#;
+        let result = extract_rules_only(md, None).unwrap();
+
+        assert_eq!(result.rules.len(), 1);
+        assert_eq!(result.rules[0].id, "quote.rule");
+        assert_eq!(result.rules[0].text, "This SHOULD be implemented.");
+    }
+
+    #[test]
+    fn test_extract_rules_only_mixed() {
+        let md = r#"r[para.rule] Paragraph rule MUST work.
+
+> r[quote.rule] Blockquote rule SHOULD work.
+
+r[another.rule] Another paragraph rule MAY exist.
+"#;
+        let result = extract_rules_only(md, None).unwrap();
+
+        assert_eq!(result.rules.len(), 3);
+        assert_eq!(result.rules[0].id, "para.rule");
+        assert_eq!(result.rules[1].id, "quote.rule");
+        assert_eq!(result.rules[2].id, "another.rule");
+    }
+
+    #[test]
+    fn test_extract_rules_only_multiline_blockquote() {
+        let md = r#"> r[multi.rule] First line MUST continue.
+> Second line is part of the rule.
+> Third line too."#;
+        let result = extract_rules_only(md, None).unwrap();
+
+        assert_eq!(result.rules.len(), 1);
+        assert_eq!(result.rules[0].id, "multi.rule");
+        // First paragraph text only captures first line
+        assert!(result.rules[0].text.contains("First line MUST continue"));
+    }
+
+    #[test]
+    fn test_extract_rules_only_no_rules() {
+        let md = r#"# Just a heading
+
+Some regular text without any rules.
+
+> A regular blockquote, not a rule.
+"#;
+        let result = extract_rules_only(md, None).unwrap();
+        assert_eq!(result.rules.len(), 0);
+    }
+
+    #[test]
+    fn test_extract_rules_only_warnings() {
+        let md = r#"r[no.keyword] This has no RFC 2119 keyword."#;
+        let result = extract_rules_only(md, None).unwrap();
+
+        assert_eq!(result.rules.len(), 1);
+        assert_eq!(result.warnings.len(), 1);
+        assert!(matches!(
+            result.warnings[0].kind,
+            crate::rules::RuleWarningKind::NoRfc2119Keyword
+        ));
+    }
+
+    #[test]
+    fn test_extract_rules_only_with_metadata() {
+        let md = r#"r[stable.rule status=stable level=must] This MUST be stable."#;
+        let result = extract_rules_only(md, None).unwrap();
+
+        assert_eq!(result.rules.len(), 1);
+        assert_eq!(result.rules[0].id, "stable.rule");
+        assert_eq!(
+            result.rules[0].metadata.status,
+            Some(crate::rules::RuleStatus::Stable)
+        );
+        assert_eq!(
+            result.rules[0].metadata.level,
+            Some(crate::rules::RequirementLevel::Must)
         );
     }
 }
