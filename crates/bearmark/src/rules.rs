@@ -272,10 +272,8 @@ pub struct RuleDefinition {
     pub line: usize,
     /// Rule metadata (status, level, since, until, tags)
     pub metadata: RuleMetadata,
-    /// The markdown text content following the rule marker (first paragraph)
-    pub text: String,
-    /// The rendered HTML of the paragraph following the rule marker
-    pub paragraph_html: String,
+    /// The rendered HTML of the content following the rule marker
+    pub html: String,
 }
 
 /// Warning about rule quality.
@@ -367,6 +365,9 @@ pub async fn extract_rules_with_warnings(
         }
 
         // Check for rule marker: r[rule.id] or r[rule.id attrs...] on its own line
+        // [impl markdown.syntax.marker] - rule definition written as r[rule.id]
+        // [impl markdown.syntax.standalone] - must appear on its own line (after trimming whitespace)
+        // [impl markdown.syntax.inline-ignored] - inline markers aren't matched since we check the whole trimmed line
         if trimmed.starts_with("r[") && trimmed.ends_with(']') && trimmed.len() > 3 {
             let inner = &trimmed[2..trimmed.len() - 1];
 
@@ -410,13 +411,13 @@ pub async fn extract_rules_with_warnings(
             skip_until_line = line_idx + 1 + lines_consumed;
 
             // Render the paragraph text to HTML
-            let paragraph_html = if text.is_empty() {
+            let html = if text.is_empty() {
                 String::new()
             } else {
                 let parser = Parser::new_ext(&text, Options::empty());
-                let mut html = String::new();
-                pulldown_cmark::html::push_html(&mut html, parser);
-                html
+                let mut html_out = String::new();
+                pulldown_cmark::html::push_html(&mut html_out, parser);
+                html_out
             };
 
             // Check for RFC 2119 keywords and emit warnings
@@ -450,19 +451,18 @@ pub async fn extract_rules_with_warnings(
                 span,
                 line: line_idx + 1, // 1-indexed
                 metadata,
-                text,
-                paragraph_html,
+                html,
             };
 
             // Render the rule using the handler or default
             let rendered = if let Some(handler) = rule_handler {
                 let start = handler.start(&rule).await?;
                 let end = handler.end(&rule).await?;
-                format!("{}{}{}", start, rule.paragraph_html, end)
+                format!("{}{}{}", start, rule.html, end)
             } else {
                 let start = default_rule_html_start(&rule);
                 let end = default_rule_html_end();
-                format!("{}{}{}", start, rule.paragraph_html, end)
+                format!("{}{}{}", start, rule.html, end)
             };
 
             rules.push(rule);
@@ -634,6 +634,8 @@ pub fn default_rule_html_end() -> &'static str {
 mod tests {
     use super::*;
 
+    // [verify markdown.syntax.marker]
+    // [verify markdown.syntax.standalone]
     #[tokio::test]
     async fn test_extract_single_rule() {
         let content = "# Heading\n\nr[my.rule]\nThis is the rule text.\n";
@@ -642,8 +644,7 @@ mod tests {
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].id, "my.rule");
         assert_eq!(rules[0].anchor_id, "r-my.rule");
-        assert_eq!(rules[0].text, "This is the rule text.");
-        assert_eq!(rules[0].paragraph_html, "<p>This is the rule text.</p>\n");
+        assert_eq!(rules[0].html, "<p>This is the rule text.</p>\n");
         assert!(output.contains("id=\"r-my.rule\""));
         // Rule content should be included in the output (wrapped by rule handler)
         assert!(output.contains("This is the rule text."));
@@ -659,6 +660,7 @@ mod tests {
         assert_eq!(rules[1].id, "second.rule");
     }
 
+    // [verify markdown.duplicates.same-file]
     #[tokio::test]
     async fn test_duplicate_rule_error() {
         let content = "r[dup.rule]\nFirst.\n\nr[dup.rule]\nSecond.\n";
@@ -668,6 +670,7 @@ mod tests {
         assert!(matches!(result.unwrap_err(), Error::DuplicateRule(id) if id == "dup.rule"));
     }
 
+    // [verify markdown.syntax.inline-ignored]
     #[tokio::test]
     async fn test_inline_rule_ignored() {
         // Rule marker inline within text should not be extracted
@@ -736,17 +739,14 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(result.rules[0].text, "First line. Second line.");
-        assert_eq!(
-            result.rules[0].paragraph_html,
-            "<p>First line. Second line.</p>\n"
-        );
+        // Verify HTML rendering of rule content
+        assert_eq!(result.rules[0].html, "<p>First line. Second line.</p>\n");
         // Verify the "Next paragraph" is still in the output (wasn't consumed)
         assert!(result.output.contains("Next paragraph"));
     }
 
     #[tokio::test]
-    async fn test_rule_paragraph_html_with_formatting() {
+    async fn test_rule_html_with_formatting() {
         let content =
             "r[formatted.rule]\nThis is **bold** and *italic* text with a `code` snippet.\n";
         let result = extract_rules_with_warnings(content, None, None)
@@ -755,14 +755,10 @@ mod tests {
 
         assert_eq!(result.rules.len(), 1);
         assert_eq!(result.rules[0].id, "formatted.rule");
-        // Verify the paragraph HTML contains proper formatting
-        assert!(
-            result.rules[0]
-                .paragraph_html
-                .contains("<strong>bold</strong>")
-        );
-        assert!(result.rules[0].paragraph_html.contains("<em>italic</em>"));
-        assert!(result.rules[0].paragraph_html.contains("<code>code</code>"));
+        // Verify the HTML contains proper formatting
+        assert!(result.rules[0].html.contains("<strong>bold</strong>"));
+        assert!(result.rules[0].html.contains("<em>italic</em>"));
+        assert!(result.rules[0].html.contains("<code>code</code>"));
         // Verify the formatted text was consumed and not duplicated
         assert!(!result.output.contains("**bold**"));
     }
