@@ -1,6 +1,7 @@
 //! Main rendering pipeline.
 
 use std::collections::HashMap;
+use std::ops::Range;
 use std::sync::Arc;
 
 use pulldown_cmark::{CodeBlockKind, Event, MetadataBlockKind, Options, Parser, Tag, TagEnd};
@@ -8,11 +9,83 @@ use pulldown_cmark::{CodeBlockKind, Event, MetadataBlockKind, Options, Parser, T
 use crate::Result;
 use crate::frontmatter::{Frontmatter, FrontmatterFormat};
 use crate::handler::{
-    BoxedHandler, BoxedRuleHandler, CodeBlockHandler, RawCodeHandler, RuleHandler, html_escape,
+    BoxedHandler, BoxedRuleHandler, CodeBlockHandler, DefaultRuleHandler, RawCodeHandler,
+    RuleHandler, html_escape,
 };
 use crate::headings::{Heading, slugify};
 use crate::links::resolve_link;
-use crate::rules::{RuleDefinition, SourceSpan, default_rule_html, parse_rule_marker};
+use crate::rules::{RuleDefinition, SourceSpan, parse_rule_marker};
+
+/// Parse context representing the current nested structure we're inside.
+/// This replaces the ad-hoc state variables with a proper stack.
+#[derive(Debug)]
+#[allow(dead_code)] // Some fields are structural markers not yet used
+enum ParseContext<'a> {
+    /// Inside a metadata block (YAML/TOML frontmatter)
+    Metadata { kind: MetadataBlockKind },
+
+    /// Inside a heading
+    Heading {
+        level: u8,
+        text: String,
+        start_offset: usize,
+    },
+
+    /// Inside a paragraph (potential rule)
+    Paragraph {
+        text: String,
+        start_offset: usize,
+        events: Vec<(Event<'a>, Range<usize>)>,
+    },
+
+    /// Inside a blockquote (potential rule container)
+    BlockQuote {
+        start_offset: usize,
+        events: Vec<(Event<'a>, Range<usize>)>,
+        /// Text from first paragraph, used to detect r[...] marker
+        first_para_text: String,
+        /// Whether first paragraph has been completed
+        first_para_done: bool,
+    },
+
+    /// Inside a code block
+    CodeBlock {
+        full_language: String,
+        base_language: String,
+        code: String,
+        line: usize,
+    },
+}
+
+impl<'a> ParseContext<'a> {
+    /// Check if this context is a metadata block
+    fn is_metadata(&self) -> bool {
+        matches!(self, ParseContext::Metadata { .. })
+    }
+
+    /// Check if this context is a blockquote
+    fn is_blockquote(&self) -> bool {
+        matches!(self, ParseContext::BlockQuote { .. })
+    }
+}
+
+/// Helper to check if any context in the stack matches a predicate
+fn stack_contains<'a>(
+    stack: &[ParseContext<'a>],
+    predicate: impl Fn(&ParseContext<'a>) -> bool,
+) -> bool {
+    stack.iter().any(predicate)
+}
+
+/// A paragraph extracted from the markdown document.
+/// This allows click-to-navigate features in tools like Tracy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paragraph {
+    /// Line number where this paragraph starts (1-indexed)
+    pub line: usize,
+    /// Byte offset where this paragraph starts
+    pub offset: usize,
+}
 
 /// An element in the document, in document order.
 /// This allows consumers to build hierarchical structures (like outlines)
@@ -23,6 +96,8 @@ pub enum DocElement {
     Heading(Heading),
     /// A rule definition (r[rule.id])
     Rule(RuleDefinition),
+    /// A regular paragraph (not a rule)
+    Paragraph(Paragraph),
 }
 
 /// Options for rendering markdown.
@@ -154,164 +229,302 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
     let mut headings: Vec<Heading> = Vec::new();
     let mut rules: Vec<RuleDefinition> = Vec::new();
     let mut elements: Vec<DocElement> = Vec::new();
+    let mut code_samples: Vec<CodeSample> = Vec::new();
 
-    // Events to render (may be modified for rules)
-    let mut events_with_offsets: Vec<(Event<'_>, std::ops::Range<usize>)> = Vec::new();
+    // Output HTML - built directly as we process
+    let mut html = String::new();
 
-    // Code blocks: (event_index, full_language, base_language, code, line_number)
-    let mut code_blocks: Vec<(usize, String, String, String, usize)> = Vec::new();
-
-    // Metadata tracking
+    // Metadata tracking (document-level, not nested)
     let mut raw_metadata: Option<String> = None;
     let mut metadata_format: Option<FrontmatterFormat> = None;
-    let mut in_metadata_block: Option<MetadataBlockKind> = None;
-
-    // Heading tracking
-    let mut in_heading: Option<u8> = None;
-    let mut heading_text = String::new();
-    let mut heading_start_offset: usize = 0;
 
     // Track parent heading slugs for hierarchical IDs
-    // Each entry is (level, slug) - we keep ancestors with level < current
     let mut heading_stack: Vec<(u8, String)> = Vec::new();
-
-    // Paragraph/rule tracking
-    let mut in_paragraph = false;
-    let mut paragraph_start_offset: usize = 0;
-    let mut paragraph_text = String::new();
-    let mut paragraph_events: Vec<(Event<'_>, std::ops::Range<usize>)> = Vec::new();
 
     // Track seen rule IDs for duplicate detection
     let mut seen_rule_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    // Track rule event indices for later replacement with rendered HTML
-    let mut rule_event_indices: Vec<(usize, String)> = Vec::new();
+    // The context stack
+    let mut context_stack: Vec<ParseContext<'_>> = Vec::new();
+
+    // Default rule handler
+    let default_rule_handler: Arc<dyn RuleHandler> = Arc::new(DefaultRuleHandler);
+    let rule_handler = options
+        .rule_handler
+        .as_ref()
+        .unwrap_or(&default_rule_handler);
+
+    // Default code handler
+    let default_code_handler: BoxedHandler = Arc::new(RawCodeHandler);
+
+    // Helper to check if inside blockquote
+    let is_inside_blockquote =
+        |stack: &[ParseContext<'_>]| stack_contains(stack, |c| c.is_blockquote());
 
     for (event, range) in parser {
+        // If inside a blockquote, route events there
+        if is_inside_blockquote(&context_stack) {
+            match &event {
+                Event::Start(Tag::BlockQuote(_)) => {
+                    // Nested blockquote
+                    context_stack.push(ParseContext::BlockQuote {
+                        start_offset: range.start,
+                        events: vec![(event, range)],
+                        first_para_text: String::new(),
+                        first_para_done: false,
+                    });
+                    continue;
+                }
+                Event::End(TagEnd::BlockQuote(_)) => {
+                    // Pop and process the blockquote
+                    if let Some(ParseContext::BlockQuote {
+                        start_offset,
+                        mut events,
+                        first_para_text,
+                        ..
+                    }) = context_stack.pop()
+                    {
+                        events.push((event, range.clone()));
+
+                        // Check if this is a rule
+                        let trimmed = first_para_text.trim();
+                        if trimmed.starts_with("r[")
+                            && let Some(rule_result) = try_parse_blockquote_rule(
+                                trimmed,
+                                markdown,
+                                start_offset,
+                                &mut seen_rule_ids,
+                            )
+                        {
+                            match rule_result {
+                                Ok(rule) => {
+                                    // Render rule with start/end
+                                    let start_html = rule_handler.start(&rule).await?;
+                                    let content_html = render_blockquote_rule_content(
+                                        &events,
+                                        options,
+                                        &default_code_handler,
+                                    )
+                                    .await?;
+                                    let end_html = rule_handler.end(&rule).await?;
+
+                                    let rule_html =
+                                        format!("{}{}{}", start_html, content_html, end_html);
+
+                                    // Check if nested in another blockquote
+                                    if is_inside_blockquote(&context_stack) {
+                                        if let Some(ParseContext::BlockQuote {
+                                            events: parent_events,
+                                            ..
+                                        }) = context_stack.last_mut()
+                                        {
+                                            parent_events
+                                                .push((Event::Html(rule_html.into()), range));
+                                        }
+                                    } else {
+                                        html.push_str(&rule_html);
+                                    }
+
+                                    rules.push(rule.clone());
+                                    elements.push(DocElement::Rule(rule));
+                                    continue;
+                                }
+                                Err(_) => {
+                                    // Invalid rule, treat as normal blockquote
+                                }
+                            }
+                        }
+
+                        // Normal blockquote - render or add to parent
+                        if is_inside_blockquote(&context_stack) {
+                            if let Some(ParseContext::BlockQuote {
+                                events: parent_events,
+                                ..
+                            }) = context_stack.last_mut()
+                            {
+                                parent_events.append(&mut events);
+                            }
+                        } else {
+                            render_events_to_html(&mut html, &events, options);
+                        }
+                    }
+                    continue;
+                }
+                Event::Start(Tag::Paragraph) => {
+                    if let Some(ParseContext::BlockQuote { events, .. }) = context_stack.last_mut()
+                    {
+                        events.push((event, range));
+                    }
+                    continue;
+                }
+                Event::End(TagEnd::Paragraph) => {
+                    if let Some(ParseContext::BlockQuote {
+                        events,
+                        first_para_done,
+                        ..
+                    }) = context_stack.last_mut()
+                    {
+                        events.push((event, range));
+                        *first_para_done = true;
+                    }
+                    continue;
+                }
+                Event::Text(text) => {
+                    if let Some(ParseContext::BlockQuote {
+                        events,
+                        first_para_text,
+                        first_para_done,
+                        ..
+                    }) = context_stack.last_mut()
+                    {
+                        if !*first_para_done {
+                            first_para_text.push_str(text);
+                        }
+                        events.push((event, range));
+                    }
+                    continue;
+                }
+                _ => {
+                    if let Some(ParseContext::BlockQuote { events, .. }) = context_stack.last_mut()
+                    {
+                        events.push((event, range));
+                    }
+                    continue;
+                }
+            }
+        }
+
+        // Not inside blockquote - normal processing
         match &event {
+            // ===== Blockquotes =====
+            Event::Start(Tag::BlockQuote(_)) => {
+                context_stack.push(ParseContext::BlockQuote {
+                    start_offset: range.start,
+                    events: vec![(event, range)],
+                    first_para_text: String::new(),
+                    first_para_done: false,
+                });
+            }
+
             // ===== Headings =====
             Event::Start(Tag::Heading { level, .. }) => {
-                in_heading = Some(*level as u8);
-                heading_text.clear();
-                heading_start_offset = range.start;
-                events_with_offsets.push((event, range));
+                context_stack.push(ParseContext::Heading {
+                    level: *level as u8,
+                    text: String::new(),
+                    start_offset: range.start,
+                });
+                // We'll emit the <h*> tag when we have the full heading text
             }
             Event::End(TagEnd::Heading(level)) => {
                 let current_level = *level as u8;
-                let slug = slugify(&heading_text);
 
-                // Pop any headings at same or higher level (lower in hierarchy)
-                while heading_stack
-                    .last()
-                    .is_some_and(|(lvl, _)| *lvl >= current_level)
+                if let Some(ParseContext::Heading {
+                    text: heading_text,
+                    start_offset,
+                    ..
+                }) = context_stack.pop()
                 {
-                    heading_stack.pop();
-                }
+                    let slug = slugify(&heading_text);
 
-                // Build hierarchical ID: parent1--parent2--current
-                let id = if heading_stack.is_empty() {
-                    slug.clone()
-                } else {
-                    let mut id = String::new();
-                    for (_, parent_slug) in &heading_stack {
-                        id.push_str(parent_slug);
-                        id.push_str("--");
+                    // Maintain heading hierarchy
+                    while heading_stack
+                        .last()
+                        .is_some_and(|(lvl, _)| *lvl >= current_level)
+                    {
+                        heading_stack.pop();
                     }
-                    id.push_str(&slug);
-                    id
-                };
 
-                // Push current heading onto stack for children
-                heading_stack.push((current_level, slug));
+                    let id = if heading_stack.is_empty() {
+                        slug.clone()
+                    } else {
+                        let mut id = String::new();
+                        for (_, parent_slug) in &heading_stack {
+                            id.push_str(parent_slug);
+                            id.push_str("--");
+                        }
+                        id.push_str(&slug);
+                        id
+                    };
 
-                let line = offset_to_line(markdown, heading_start_offset);
-                let heading = Heading {
-                    title: heading_text.clone(),
-                    id,
-                    level: current_level,
-                    line,
-                };
-                headings.push(heading.clone());
-                elements.push(DocElement::Heading(heading));
-                in_heading = None;
-                events_with_offsets.push((event, range));
-            }
-            Event::Text(text) if in_heading.is_some() => {
-                heading_text.push_str(text);
-                events_with_offsets.push((event, range));
-            }
-            Event::Code(code) if in_heading.is_some() => {
-                heading_text.push_str(code);
-                events_with_offsets.push((event, range));
+                    heading_stack.push((current_level, slug));
+
+                    let line = offset_to_line(markdown, start_offset);
+                    let heading = Heading {
+                        title: heading_text.clone(),
+                        id: id.clone(),
+                        level: current_level,
+                        line,
+                    };
+                    headings.push(heading.clone());
+                    elements.push(DocElement::Heading(heading));
+
+                    // Emit the heading HTML
+                    html.push_str(&format!(
+                        "<h{} id=\"{}\">{}</h{}>",
+                        current_level,
+                        html_escape(&id),
+                        html_escape(&heading_text),
+                        current_level
+                    ));
+                }
             }
 
             // ===== Paragraphs (potential rules) =====
             Event::Start(Tag::Paragraph) => {
-                in_paragraph = true;
-                paragraph_start_offset = range.start;
-                paragraph_text.clear();
-                paragraph_events.clear();
-                paragraph_events.push((event, range));
+                context_stack.push(ParseContext::Paragraph {
+                    text: String::new(),
+                    start_offset: range.start,
+                    events: vec![(event, range)],
+                });
             }
             Event::End(TagEnd::Paragraph) => {
-                in_paragraph = false;
-                paragraph_events.push((event, range));
+                if let Some(ParseContext::Paragraph {
+                    text: paragraph_text,
+                    start_offset,
+                    mut events,
+                }) = context_stack.pop()
+                {
+                    events.push((event, range));
 
-                // Check if this paragraph is a rule definition
-                let trimmed = paragraph_text.trim();
-                if trimmed.starts_with("r[") {
-                    // Try to parse as a rule
-                    if let Some(rule_result) = try_parse_rule(
-                        trimmed,
-                        markdown,
-                        paragraph_start_offset,
-                        &mut seen_rule_ids,
-                        &paragraph_events,
-                    ) {
+                    let trimmed = paragraph_text.trim();
+                    if trimmed.starts_with("r[")
+                        && let Some(rule_result) = try_parse_paragraph_rule(
+                            trimmed,
+                            markdown,
+                            start_offset,
+                            &mut seen_rule_ids,
+                            &events,
+                        )
+                    {
                         match rule_result {
                             Ok(rule) => {
-                                // Store the event index where we'll insert the rule HTML
-                                let rule_event_idx = events_with_offsets.len();
-                                rule_event_indices.push((rule_event_idx, rule.id.clone()));
+                                // Render rule with start/end
+                                let start_html = rule_handler.start(&rule).await?;
+                                let content_html = render_paragraph_rule_content(&events, options);
+                                let end_html = rule_handler.end(&rule).await?;
 
-                                // Add rule to collections
+                                html.push_str(&start_html);
+                                html.push_str(&content_html);
+                                html.push_str(&end_html);
+
                                 rules.push(rule.clone());
                                 elements.push(DocElement::Rule(rule));
-
-                                // Push a placeholder that we'll replace later
-                                events_with_offsets.push((
-                                    Event::Html("".into()),
-                                    paragraph_start_offset..paragraph_start_offset,
-                                ));
-                                continue; // Don't add the paragraph events
+                                continue;
                             }
                             Err(_) => {
-                                // Not a valid rule, treat as normal paragraph
+                                // Invalid rule, treat as normal paragraph
                             }
                         }
                     }
-                }
 
-                // Normal paragraph - add all collected events
-                events_with_offsets.append(&mut paragraph_events);
-            }
-            Event::Text(text) if in_paragraph => {
-                paragraph_text.push_str(text);
-                paragraph_events.push((event, range));
-            }
-            Event::Code(code) if in_paragraph => {
-                paragraph_text.push('`');
-                paragraph_text.push_str(code);
-                paragraph_text.push('`');
-                paragraph_events.push((event, range));
-            }
-            Event::SoftBreak if in_paragraph => {
-                paragraph_text.push(' ');
-                paragraph_events.push((event, range));
-            }
-            Event::HardBreak if in_paragraph => {
-                paragraph_text.push('\n');
-                paragraph_events.push((event, range));
+                    // Normal paragraph
+                    let line = offset_to_line(markdown, start_offset);
+                    elements.push(DocElement::Paragraph(Paragraph {
+                        line,
+                        offset: start_offset,
+                    }));
+                    render_events_to_html(&mut html, &events, options);
+                }
             }
 
             // ===== Code blocks =====
@@ -322,178 +535,118 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                 };
                 let base_language = full_language.split(',').next().unwrap_or(full_language);
                 let line = offset_to_line(markdown, range.start);
-                code_blocks.push((
-                    events_with_offsets.len(),
-                    full_language.to_string(),
-                    base_language.to_string(),
-                    String::new(),
+                context_stack.push(ParseContext::CodeBlock {
+                    full_language: full_language.to_string(),
+                    base_language: base_language.to_string(),
+                    code: String::new(),
                     line,
-                ));
-                events_with_offsets.push((event, range));
-            }
-            Event::Text(text)
-                if !code_blocks.is_empty()
-                    && matches!(
-                        events_with_offsets.last(),
-                        Some((Event::Start(Tag::CodeBlock(_)), _))
-                    ) =>
-            {
-                // Accumulate code block content
-                if let Some((_, _, _, code, _)) = code_blocks.last_mut() {
-                    code.push_str(text);
-                }
-                // Don't add to events - we'll replace the whole block
-                continue;
+                });
             }
             Event::End(TagEnd::CodeBlock) => {
-                events_with_offsets.push((event, range));
+                if let Some(ParseContext::CodeBlock {
+                    full_language,
+                    base_language,
+                    code,
+                    line,
+                }) = context_stack.pop()
+                {
+                    // Render code block
+                    let handler = options
+                        .code_handlers
+                        .get(&base_language)
+                        .or(options.default_handler.as_ref())
+                        .unwrap_or(&default_code_handler);
+
+                    let rendered = handler.render(&base_language, &code).await?;
+                    html.push_str(&rendered);
+
+                    code_samples.push(CodeSample {
+                        line,
+                        language: full_language,
+                        code,
+                    });
+                }
             }
 
             // ===== Metadata blocks =====
             Event::Start(Tag::MetadataBlock(kind)) => {
-                in_metadata_block = Some(*kind);
                 metadata_format = Some(match kind {
                     MetadataBlockKind::YamlStyle => FrontmatterFormat::Yaml,
                     MetadataBlockKind::PlusesStyle => FrontmatterFormat::Toml,
                 });
-                // Don't add metadata events to output
-                continue;
+                context_stack.push(ParseContext::Metadata { kind: *kind });
             }
             Event::End(TagEnd::MetadataBlock(_)) => {
-                in_metadata_block = None;
-                continue;
+                context_stack.pop();
             }
-            Event::Text(text) if in_metadata_block.is_some() => {
-                raw_metadata = Some(text.to_string());
-                continue;
+
+            // ===== Text and content events =====
+            Event::Text(text) => match context_stack.last_mut() {
+                Some(ParseContext::Heading { text: t, .. }) => {
+                    t.push_str(text);
+                }
+                Some(ParseContext::Paragraph {
+                    text: t, events, ..
+                }) => {
+                    t.push_str(text);
+                    events.push((event, range));
+                }
+                Some(ParseContext::CodeBlock { code, .. }) => {
+                    code.push_str(text);
+                }
+                Some(ParseContext::Metadata { .. }) => {
+                    raw_metadata = Some(text.to_string());
+                }
+                Some(ParseContext::BlockQuote { .. }) => {
+                    unreachable!("BlockQuote text should be handled in blockquote branch");
+                }
+                None => {
+                    html.push_str(&html_escape(text));
+                }
+            },
+            Event::Code(code) => match context_stack.last_mut() {
+                Some(ParseContext::Heading { text, .. }) => {
+                    text.push_str(code);
+                }
+                Some(ParseContext::Paragraph { text, events, .. }) => {
+                    text.push('`');
+                    text.push_str(code);
+                    text.push('`');
+                    events.push((event, range));
+                }
+                _ => {
+                    html.push_str("<code>");
+                    html.push_str(&html_escape(code));
+                    html.push_str("</code>");
+                }
+            },
+            Event::SoftBreak => {
+                if let Some(ParseContext::Paragraph { text, events, .. }) = context_stack.last_mut()
+                {
+                    text.push(' ');
+                    events.push((event, range));
+                } else {
+                    html.push('\n');
+                }
+            }
+            Event::HardBreak => {
+                if let Some(ParseContext::Paragraph { text, events, .. }) = context_stack.last_mut()
+                {
+                    text.push('\n');
+                    events.push((event, range));
+                } else {
+                    html.push_str("<br />\n");
+                }
             }
 
             // ===== Everything else =====
             _ => {
-                if in_paragraph {
-                    paragraph_events.push((event, range));
-                } else {
-                    events_with_offsets.push((event, range));
+                if let Some(ParseContext::Paragraph { events, .. }) = context_stack.last_mut() {
+                    events.push((event, range));
+                } else if !stack_contains(&context_stack, |c| c.is_metadata()) {
+                    // Render directly using pulldown_cmark for other events
+                    pulldown_cmark::html::push_html(&mut html, std::iter::once(event.clone()));
                 }
-            }
-        }
-    }
-
-    // Process code blocks with handlers
-    let fallback: BoxedHandler = Arc::new(RawCodeHandler);
-    let mut rendered_blocks: HashMap<usize, String> = HashMap::new();
-
-    for (idx, _full_language, base_language, code, _line) in &code_blocks {
-        let handler = options
-            .code_handlers
-            .get(base_language.as_str())
-            .or(options.default_handler.as_ref())
-            .unwrap_or(&fallback);
-
-        let rendered = handler.render(base_language, code).await?;
-        rendered_blocks.insert(*idx, rendered);
-    }
-
-    // Build code samples
-    let code_samples: Vec<CodeSample> = code_blocks
-        .iter()
-        .map(|(_, full_language, _, code, line)| CodeSample {
-            line: *line,
-            language: full_language.clone(),
-            code: code.clone(),
-        })
-        .collect();
-
-    // Render rules with custom handler if provided
-    // We need to re-process rules through the handler now
-    let mut rule_html_map: HashMap<String, String> = HashMap::new();
-    for rule in &rules {
-        let rendered = if let Some(handler) = &options.rule_handler {
-            handler.render(rule).await?
-        } else {
-            default_rule_html(rule)
-        };
-        rule_html_map.insert(rule.id.clone(), rendered);
-    }
-
-    // Build a map from event index to rule ID for quick lookup
-    let rule_idx_map: HashMap<usize, String> = rule_event_indices.into_iter().collect();
-
-    // Generate final HTML
-    let mut html = String::new();
-    let mut skip_until_code_block_end = false;
-    let mut heading_index = 0usize;
-
-    for (idx, (event, _range)) in events_with_offsets.iter().enumerate() {
-        // Check if this is a rule placeholder we need to replace
-        if let Some(rule_id) = rule_idx_map.get(&idx) {
-            if let Some(rendered) = rule_html_map.get(rule_id) {
-                html.push_str(rendered);
-            }
-            continue;
-        }
-
-        // Check if this is a code block start we need to replace
-        if let Some(rendered) = rendered_blocks.get(&idx) {
-            html.push_str(rendered);
-            skip_until_code_block_end = true;
-            continue;
-        }
-
-        if skip_until_code_block_end {
-            if matches!(event, Event::End(TagEnd::CodeBlock)) {
-                skip_until_code_block_end = false;
-            }
-            continue;
-        }
-
-        match event {
-            Event::Start(Tag::Heading { level, id, .. }) => {
-                let level_num = *level as u8;
-                if let Some(heading) = headings.get(heading_index) {
-                    let id_attr = id.as_ref().map(|s| s.as_ref()).unwrap_or(&heading.id);
-                    html.push_str(&format!("<h{} id=\"{}\">", level_num, html_escape(id_attr)));
-                    heading_index += 1;
-                } else {
-                    html.push_str(&format!("<h{}>", level_num));
-                }
-            }
-            Event::End(TagEnd::Heading(level)) => {
-                html.push_str(&format!("</h{}>", *level as u8));
-            }
-            Event::Start(Tag::Link {
-                link_type,
-                dest_url,
-                title,
-                id,
-            }) => {
-                let resolved = resolve_link(dest_url, options.source_path.as_deref());
-                let title_attr = if title.is_empty() {
-                    String::new()
-                } else {
-                    format!(" title=\"{}\"", html_escape(title))
-                };
-                let id_attr = if id.is_empty() {
-                    String::new()
-                } else {
-                    format!(" id=\"{}\"", html_escape(id))
-                };
-                html.push_str(&format!(
-                    "<a href=\"{}\"{}{}>",
-                    html_escape(&resolved),
-                    title_attr,
-                    id_attr
-                ));
-                let _ = link_type;
-            }
-            Event::End(TagEnd::Link) => {
-                html.push_str("</a>");
-            }
-            Event::Html(raw_html) => {
-                html.push_str(raw_html);
-            }
-            _ => {
-                pulldown_cmark::html::push_html(&mut html, std::iter::once(event.clone()));
             }
         }
     }
@@ -517,15 +670,214 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
     })
 }
 
+/// Render a list of events to HTML string
+fn render_events_to_html(
+    html: &mut String,
+    events: &[(Event<'_>, Range<usize>)],
+    options: &RenderOptions,
+) {
+    for (event, _range) in events {
+        match event {
+            Event::Start(Tag::Link {
+                dest_url, title, ..
+            }) => {
+                let resolved = resolve_link(dest_url, options.source_path.as_deref());
+                let title_attr = if title.is_empty() {
+                    String::new()
+                } else {
+                    format!(" title=\"{}\"", html_escape(title))
+                };
+                html.push_str(&format!(
+                    "<a href=\"{}\"{}>",
+                    html_escape(&resolved),
+                    title_attr
+                ));
+            }
+            Event::End(TagEnd::Link) => {
+                html.push_str("</a>");
+            }
+            _ => {
+                pulldown_cmark::html::push_html(html, std::iter::once(event.clone()));
+            }
+        }
+    }
+}
+
+/// Render the content of a paragraph rule (stripping the r[...] marker)
+fn render_paragraph_rule_content(
+    events: &[(Event<'_>, Range<usize>)],
+    options: &RenderOptions,
+) -> String {
+    let mut html = String::new();
+    let mut found_first_text = false;
+
+    for (event, _range) in events {
+        match event {
+            Event::Start(Tag::Paragraph) | Event::End(TagEnd::Paragraph) => {
+                // Skip paragraph wrapper for rules
+            }
+            Event::Text(t) if !found_first_text => {
+                found_first_text = true;
+                // Strip the r[...] marker from the first text
+                let t_str = t.as_ref();
+                if let Some(marker_end) = t_str.find(']') {
+                    let remaining = t_str[marker_end + 1..].trim_start();
+                    if !remaining.is_empty() {
+                        html.push_str("<p>");
+                        html.push_str(&html_escape(remaining));
+                    }
+                }
+            }
+            Event::Start(Tag::Link {
+                dest_url, title, ..
+            }) => {
+                if !found_first_text {
+                    found_first_text = true;
+                    html.push_str("<p>");
+                }
+                let resolved = resolve_link(dest_url, options.source_path.as_deref());
+                let title_attr = if title.is_empty() {
+                    String::new()
+                } else {
+                    format!(" title=\"{}\"", html_escape(title))
+                };
+                html.push_str(&format!(
+                    "<a href=\"{}\"{}>",
+                    html_escape(&resolved),
+                    title_attr
+                ));
+            }
+            Event::End(TagEnd::Link) => {
+                html.push_str("</a>");
+            }
+            _ => {
+                if found_first_text {
+                    pulldown_cmark::html::push_html(&mut html, std::iter::once(event.clone()));
+                }
+            }
+        }
+    }
+
+    if found_first_text && !html.is_empty() {
+        html.push_str("</p>\n");
+    }
+
+    html
+}
+
+/// Render the content of a blockquote rule (stripping blockquote wrapper and r[...] marker)
+async fn render_blockquote_rule_content(
+    events: &[(Event<'_>, Range<usize>)],
+    options: &RenderOptions,
+    default_code_handler: &BoxedHandler,
+) -> Result<String> {
+    let mut html = String::new();
+    let mut found_first_text = false;
+    let mut in_first_paragraph = false;
+    let mut in_code_block = false;
+    let mut code_block_lang = String::new();
+    let mut code_block_content = String::new();
+
+    for (event, _range) in events {
+        match event {
+            Event::Start(Tag::BlockQuote(_)) | Event::End(TagEnd::BlockQuote(_)) => {
+                // Skip blockquote wrapper
+            }
+            Event::Start(Tag::Paragraph) => {
+                if !found_first_text {
+                    in_first_paragraph = true;
+                } else {
+                    html.push_str("<p>");
+                }
+            }
+            Event::End(TagEnd::Paragraph) => {
+                if in_first_paragraph {
+                    in_first_paragraph = false;
+                    if !html.is_empty() {
+                        html.push_str("</p>\n");
+                    }
+                } else {
+                    html.push_str("</p>\n");
+                }
+            }
+            Event::Start(Tag::CodeBlock(kind)) => {
+                in_code_block = true;
+                code_block_lang = match kind {
+                    CodeBlockKind::Fenced(lang) => lang.split(',').next().unwrap_or("").to_string(),
+                    CodeBlockKind::Indented => String::new(),
+                };
+                code_block_content.clear();
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                in_code_block = false;
+                // Render the code block
+                let handler = options
+                    .code_handlers
+                    .get(&code_block_lang)
+                    .or(options.default_handler.as_ref())
+                    .unwrap_or(default_code_handler);
+                let rendered = handler
+                    .render(&code_block_lang, &code_block_content)
+                    .await?;
+                html.push_str(&rendered);
+            }
+            Event::Text(t) if in_code_block => {
+                code_block_content.push_str(t);
+            }
+            Event::Text(t) if !found_first_text => {
+                found_first_text = true;
+                // Strip the r[...] marker from the first text
+                let t_str = t.as_ref();
+                if let Some(marker_end) = t_str.find(']') {
+                    let remaining = t_str[marker_end + 1..].trim_start();
+                    if !remaining.is_empty() {
+                        html.push_str("<p>");
+                        html.push_str(&html_escape(remaining));
+                    }
+                }
+            }
+            Event::Start(Tag::Link {
+                dest_url, title, ..
+            }) => {
+                if !found_first_text {
+                    found_first_text = true;
+                    html.push_str("<p>");
+                }
+                let resolved = resolve_link(dest_url, options.source_path.as_deref());
+                let title_attr = if title.is_empty() {
+                    String::new()
+                } else {
+                    format!(" title=\"{}\"", html_escape(title))
+                };
+                html.push_str(&format!(
+                    "<a href=\"{}\"{}>",
+                    html_escape(&resolved),
+                    title_attr
+                ));
+            }
+            Event::End(TagEnd::Link) => {
+                html.push_str("</a>");
+            }
+            _ => {
+                if !in_code_block {
+                    pulldown_cmark::html::push_html(&mut html, std::iter::once(event.clone()));
+                }
+            }
+        }
+    }
+
+    Ok(html)
+}
+
 /// Try to parse a paragraph as a rule definition.
 /// Returns Some(Ok(rule)) if successful, Some(Err) if it looks like a rule but is invalid,
 /// or None if it's not a rule at all.
-fn try_parse_rule<'a>(
+fn try_parse_paragraph_rule<'a>(
     text: &str,
     markdown: &str,
     offset: usize,
     seen_ids: &mut std::collections::HashSet<String>,
-    paragraph_events: &[(Event<'a>, std::ops::Range<usize>)],
+    _paragraph_events: &[(Event<'a>, std::ops::Range<usize>)],
 ) -> Option<Result<RuleDefinition>> {
     // Must start with r[ and have a closing ]
     if !text.starts_with("r[") {
@@ -551,51 +903,8 @@ fn try_parse_rule<'a>(
     // Extract the rule text (everything after the marker)
     let rule_text = text[marker_end + 1..].trim().to_string();
 
-    // Generate paragraph_html from the already-parsed events (preserves links, formatting, etc.)
-    // We strip the r[...] marker from the first text event and skip the paragraph wrapper
-    let paragraph_html = {
-        let mut html = String::new();
-
-        // Build modified events: skip Start/End Paragraph, strip marker from first Text
-        let mut modified_events: Vec<Event<'_>> = Vec::new();
-        let mut found_first_text = false;
-
-        for (event, _range) in paragraph_events {
-            match event {
-                Event::Start(Tag::Paragraph) | Event::End(TagEnd::Paragraph) => {
-                    // Skip paragraph wrapper - we'll wrap in our own rule container
-                }
-                Event::Text(t) if !found_first_text => {
-                    found_first_text = true;
-                    // Strip the r[...] marker from the first text
-                    let t_str = t.as_ref();
-                    if let Some(marker_end_in_text) = t_str.find(']') {
-                        let remaining = t_str[marker_end_in_text + 1..].trim_start();
-                        if !remaining.is_empty() {
-                            modified_events.push(Event::Text(remaining.to_string().into()));
-                        }
-                    }
-                }
-                _ => {
-                    modified_events.push(event.clone());
-                }
-            }
-        }
-
-        if !modified_events.is_empty() {
-            // Wrap in <p> tags for consistent output
-            html.push_str("<p>");
-            pulldown_cmark::html::push_html(&mut html, modified_events.into_iter());
-            // push_html adds a trailing newline after </p>, but we're manually wrapping
-            // so we need to close our <p> tag
-            if html.ends_with('\n') {
-                html.pop();
-            }
-            html.push_str("</p>\n");
-        }
-
-        html
-    };
+    // paragraph_html is now generated separately by render_paragraph_rule_content
+    let paragraph_html = String::new();
 
     let line = offset_to_line(markdown, offset);
     let anchor_id = format!("r-{}", rule_id);
@@ -606,6 +915,61 @@ fn try_parse_rule<'a>(
         span: SourceSpan {
             offset,
             length: text.len(),
+        },
+        line,
+        metadata,
+        text: rule_text,
+        paragraph_html,
+    };
+
+    Some(Ok(rule))
+}
+
+/// Try to parse a blockquote as a rule definition.
+/// Returns Some(Ok(rule)) if successful, Some(Err) if it looks like a rule but is invalid,
+/// or None if it's not a rule at all.
+fn try_parse_blockquote_rule(
+    first_para_text: &str,
+    markdown: &str,
+    offset: usize,
+    seen_ids: &mut std::collections::HashSet<String>,
+) -> Option<Result<RuleDefinition>> {
+    // Must start with r[ and have a closing ]
+    if !first_para_text.starts_with("r[") {
+        return None;
+    }
+
+    // Find the end of the rule marker
+    let marker_end = first_para_text.find(']')?;
+    let marker_content = &first_para_text[2..marker_end];
+
+    // Parse the rule marker
+    let (rule_id, metadata) = match parse_rule_marker(marker_content) {
+        Ok(result) => result,
+        Err(e) => return Some(Err(e)),
+    };
+
+    // Check for duplicates
+    if seen_ids.contains(rule_id) {
+        return Some(Err(crate::Error::DuplicateRule(rule_id.to_string())));
+    }
+    seen_ids.insert(rule_id.to_string());
+
+    // Extract the rule text (everything after the marker in first para)
+    let rule_text = first_para_text[marker_end + 1..].trim().to_string();
+
+    // paragraph_html is now generated separately by render_blockquote_rule_content
+    let paragraph_html = String::new();
+
+    let line = offset_to_line(markdown, offset);
+    let anchor_id = format!("r-{}", rule_id);
+
+    let rule = RuleDefinition {
+        id: rule_id.to_string(),
+        anchor_id,
+        span: SourceSpan {
+            offset,
+            length: first_para_text.len(),
         },
         line,
         metadata,
@@ -663,18 +1027,17 @@ mod tests {
 
         assert_eq!(doc.rules.len(), 1);
         assert_eq!(doc.rules[0].id, "data.postcard");
-        // The paragraph_html should preserve the link
+        // The HTML should preserve the link
         assert!(
-            doc.rules[0]
-                .paragraph_html
+            doc.html
                 .contains("<a href=\"https://postcard.jamesmunns.com/wire-format\">"),
-            "Link should be preserved in paragraph_html: {}",
-            doc.rules[0].paragraph_html
+            "Link should be preserved in HTML: {}",
+            doc.html
         );
         assert!(
-            doc.rules[0].paragraph_html.contains("Postcard</a>"),
+            doc.html.contains("Postcard</a>"),
             "Link text should be preserved: {}",
-            doc.rules[0].paragraph_html
+            doc.html
         );
     }
 
@@ -685,21 +1048,19 @@ mod tests {
 
         assert_eq!(doc.rules.len(), 1);
         assert!(
-            doc.rules[0]
-                .paragraph_html
-                .contains("<strong>bold</strong>"),
+            doc.html.contains("<strong>bold</strong>"),
             "Bold should be preserved: {}",
-            doc.rules[0].paragraph_html
+            doc.html
         );
         assert!(
-            doc.rules[0].paragraph_html.contains("<em>italic</em>"),
+            doc.html.contains("<em>italic</em>"),
             "Italic should be preserved: {}",
-            doc.rules[0].paragraph_html
+            doc.html
         );
         assert!(
-            doc.rules[0].paragraph_html.contains("<code>code</code>"),
+            doc.html.contains("<code>code</code>"),
             "Code should be preserved: {}",
-            doc.rules[0].paragraph_html
+            doc.html
         );
     }
 
@@ -722,16 +1083,23 @@ mod tests {
         struct CustomRuleHandler;
 
         impl RuleHandler for CustomRuleHandler {
-            fn render<'a>(
+            fn start<'a>(
                 &'a self,
                 rule: &'a RuleDefinition,
             ) -> Pin<Box<dyn Future<Output = crate::Result<String>> + Send + 'a>> {
                 Box::pin(async move {
                     Ok(format!(
-                        "<div class=\"custom-rule\" data-rule=\"{}\"></div>",
+                        "<div class=\"custom-rule\" data-rule=\"{}\">",
                         rule.id
                     ))
                 })
+            }
+
+            fn end<'a>(
+                &'a self,
+                _rule: &'a RuleDefinition,
+            ) -> Pin<Box<dyn Future<Output = crate::Result<String>> + Send + 'a>> {
+                Box::pin(async move { Ok("</div>".to_string()) })
             }
         }
 
@@ -877,5 +1245,229 @@ r[rule.two] Second.
         assert_eq!(doc.rules.len(), 2);
         assert_eq!(doc.rules[0].line, 3);
         assert_eq!(doc.rules[1].line, 7);
+    }
+
+    // =========================================================================
+    // Blockquote rule tests
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_rule_in_blockquote_simple() {
+        let md = "> r[my.rule] This is a rule in a blockquote.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+        eprintln!("Rules: {:?}", doc.rules);
+
+        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.rules[0].id, "my.rule");
+        // Should NOT have blockquote wrapper in HTML - the whole blockquote IS the rule
+        assert!(
+            !doc.html.contains("<blockquote>"),
+            "Blockquote wrapper should be removed when it's a rule. HTML: {}",
+            doc.html
+        );
+        assert!(doc.html.contains("id=\"r-my.rule\""));
+    }
+
+    #[tokio::test]
+    async fn test_rule_in_blockquote_multiline() {
+        let md = r#"> r[my.rule] First line of rule.
+> Second line continues.
+> Third line ends."#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.rules[0].id, "my.rule");
+        // All lines should be in the rendered HTML
+        assert!(
+            doc.html.contains("First line"),
+            "Should contain first line: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("Second line"),
+            "Should contain second line: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("Third line"),
+            "Should contain third line: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rule_in_blockquote_with_code_block() {
+        let md = r#"> r[my.rule] Rule with code:
+>
+> ```rust
+> fn main() {}
+> ```"#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.rules[0].id, "my.rule");
+        // The code block should be part of the rule's HTML
+        assert!(
+            doc.html.contains("fn main()"),
+            "Code block should be in HTML: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_rule_in_blockquote_with_formatting() {
+        let md = "> r[fmt.rule] Text with **bold** and *italic*.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.rules.len(), 1);
+        assert!(
+            doc.html.contains("<strong>bold</strong>"),
+            "Bold should be preserved: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("<em>italic</em>"),
+            "Italic should be preserved: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_regular_blockquote_not_rule() {
+        let md = r#"> This is just a regular blockquote.
+> Not a rule."#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.rules.len(), 0);
+        assert!(
+            doc.html.contains("<blockquote>"),
+            "Regular blockquote should be preserved: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mixed_rules_paragraph_and_blockquote() {
+        let md = r#"r[para.rule] This is a paragraph rule.
+
+> r[quote.rule] This is a blockquote rule."#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.rules.len(), 2);
+        assert_eq!(doc.rules[0].id, "para.rule");
+        assert_eq!(doc.rules[1].id, "quote.rule");
+    }
+
+    #[tokio::test]
+    async fn test_blockquote_rule_with_link() {
+        let md = "> r[link.rule] See [the docs](https://example.com) for details.";
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.rules.len(), 1);
+        assert!(
+            doc.html.contains("<a href=\"https://example.com\">"),
+            "Link should be preserved: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_blockquote_rule_in_document_order() {
+        let md = r#"# Heading 1
+
+r[para.rule] Paragraph rule.
+
+> r[quote.rule] Blockquote rule.
+
+## Heading 2
+"#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        assert_eq!(doc.elements.len(), 4);
+        assert!(matches!(&doc.elements[0], DocElement::Heading(h) if h.title == "Heading 1"));
+        assert!(matches!(&doc.elements[1], DocElement::Rule(r) if r.id == "para.rule"));
+        assert!(matches!(&doc.elements[2], DocElement::Rule(r) if r.id == "quote.rule"));
+        assert!(matches!(&doc.elements[3], DocElement::Heading(h) if h.title == "Heading 2"));
+    }
+
+    #[tokio::test]
+    async fn test_paragraph_line_numbers() {
+        let md = r#"First paragraph.
+
+Second paragraph.
+
+# Heading
+
+Third paragraph.
+"#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        // Should have 3 paragraphs and 1 heading in elements
+        let paragraphs: Vec<_> = doc
+            .elements
+            .iter()
+            .filter_map(|e| match e {
+                DocElement::Paragraph(p) => Some(p),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(paragraphs.len(), 3);
+        assert_eq!(paragraphs[0].line, 1);
+        assert_eq!(paragraphs[0].offset, 0);
+        assert_eq!(paragraphs[1].line, 3);
+        assert_eq!(paragraphs[2].line, 7);
+    }
+
+    #[tokio::test]
+    async fn test_paragraph_with_frontmatter_offset() {
+        let md = r#"+++
+title = "Test"
++++
+
+First paragraph after frontmatter.
+
+Second paragraph.
+"#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        let paragraphs: Vec<_> = doc
+            .elements
+            .iter()
+            .filter_map(|e| match e {
+                DocElement::Paragraph(p) => Some(p),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(paragraphs.len(), 2);
+        // First paragraph starts after frontmatter
+        assert_eq!(paragraphs[0].line, 5);
+        assert_eq!(paragraphs[1].line, 7);
+    }
+
+    #[tokio::test]
+    async fn test_elements_include_paragraphs_in_order() {
+        let md = r#"# Heading 1
+
+Regular paragraph.
+
+r[my.rule] A rule definition.
+
+Another paragraph.
+
+## Heading 2
+"#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        // Order: Heading 1, Paragraph, Rule, Paragraph, Heading 2
+        assert_eq!(doc.elements.len(), 5);
+        assert!(matches!(&doc.elements[0], DocElement::Heading(h) if h.title == "Heading 1"));
+        assert!(matches!(&doc.elements[1], DocElement::Paragraph(p) if p.line == 3));
+        assert!(matches!(&doc.elements[2], DocElement::Rule(r) if r.id == "my.rule"));
+        assert!(matches!(&doc.elements[3], DocElement::Paragraph(p) if p.line == 7));
+        assert!(matches!(&doc.elements[4], DocElement::Heading(h) if h.title == "Heading 2"));
     }
 }

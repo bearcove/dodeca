@@ -56,8 +56,8 @@ pub type BoxedHandler = Arc<dyn CodeBlockHandler>;
 
 /// A handler for rendering rule definitions.
 ///
-/// Implementations can provide custom rule rendering with additional context
-/// such as coverage status, implementation references, etc.
+/// Rules are rendered with opening and closing HTML, allowing the rule content
+/// (paragraphs, code blocks, etc.) to be rendered in between.
 ///
 /// # Example
 ///
@@ -69,29 +69,58 @@ pub type BoxedHandler = Arc<dyn CodeBlockHandler>;
 /// }
 ///
 /// impl RuleHandler for TraceyRuleHandler {
-///     fn render<'a>(
+///     fn start<'a>(
 ///         &'a self,
 ///         rule: &'a RuleDefinition,
 ///     ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
 ///         Box::pin(async move {
 ///             let status = self.coverage.get(&rule.id);
-///             // Render with covered/uncovered class, impl/verify links, etc.
-///             Ok(format!("<div class=\"rule {}\" id=\"{}\">...</div>",
+///             // Opening tag with covered/uncovered class, rule link, etc.
+///             Ok(format!(
+///                 "<div class=\"rule {}\" id=\"{}\"><a href=\"#{}\">[{}]</a>",
 ///                 if status.is_covered() { "covered" } else { "uncovered" },
-///                 rule.anchor_id))
+///                 rule.anchor_id, rule.anchor_id, rule.id
+///             ))
+///         })
+///     }
+///
+///     fn end<'a>(
+///         &'a self,
+///         rule: &'a RuleDefinition,
+///     ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
+///         Box::pin(async move {
+///             Ok("</div>".to_string())
 ///         })
 ///     }
 /// }
 /// ```
 pub trait RuleHandler: Send + Sync {
-    /// Render a rule definition to HTML.
+    /// Render the opening HTML for a rule definition.
+    ///
+    /// This is called when a rule is first detected. The returned HTML should
+    /// contain the opening tags that will wrap the rule content.
     ///
     /// # Arguments
-    /// * `rule` - The rule definition containing id and anchor_id
+    /// * `rule` - The rule definition containing id, anchor_id, metadata, etc.
     ///
     /// # Returns
-    /// The rendered HTML string, or an error if rendering fails.
-    fn render<'a>(
+    /// The opening HTML string (e.g., `<div class="rule" id="r-my.rule">`).
+    fn start<'a>(
+        &'a self,
+        rule: &'a RuleDefinition,
+    ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>>;
+
+    /// Render the closing HTML for a rule definition.
+    ///
+    /// This is called when the rule content is finished. The returned HTML
+    /// should close any tags opened by `start`.
+    ///
+    /// # Arguments
+    /// * `rule` - The rule definition (same as passed to `start`)
+    ///
+    /// # Returns
+    /// The closing HTML string (e.g., `</div>`).
+    fn end<'a>(
         &'a self,
         rule: &'a RuleDefinition,
     ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>>;
@@ -106,7 +135,7 @@ pub type BoxedRuleHandler = Arc<dyn RuleHandler>;
 pub struct DefaultRuleHandler;
 
 impl RuleHandler for DefaultRuleHandler {
-    fn render<'a>(
+    fn start<'a>(
         &'a self,
         rule: &'a RuleDefinition,
     ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
@@ -115,10 +144,17 @@ impl RuleHandler for DefaultRuleHandler {
             let display_id = rule.id.replace('.', ".<wbr>");
 
             Ok(format!(
-                "<div class=\"rule\" id=\"{}\"><a class=\"rule-link\" href=\"#{}\" title=\"{}\"><span>[{}]</span></a></div>",
+                "<div class=\"rule\" id=\"{}\"><a class=\"rule-link\" href=\"#{}\" title=\"{}\"><span>[{}]</span></a>",
                 rule.anchor_id, rule.anchor_id, rule.id, display_id
             ))
         })
+    }
+
+    fn end<'a>(
+        &'a self,
+        _rule: &'a RuleDefinition,
+    ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
+        Box::pin(async move { Ok("</div>".to_string()) })
     }
 }
 

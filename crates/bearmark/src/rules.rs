@@ -456,9 +456,13 @@ pub async fn extract_rules_with_warnings(
 
             // Render the rule using the handler or default
             let rendered = if let Some(handler) = rule_handler {
-                handler.render(&rule).await?
+                let start = handler.start(&rule).await?;
+                let end = handler.end(&rule).await?;
+                format!("{}{}{}", start, rule.paragraph_html, end)
             } else {
-                default_rule_html(&rule)
+                let start = default_rule_html_start(&rule);
+                let end = default_rule_html_end();
+                format!("{}{}{}", start, rule.paragraph_html, end)
             };
 
             rules.push(rule);
@@ -610,15 +614,20 @@ fn is_valid_rule_id(id: &str) -> bool {
             .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
 }
 
-/// Generate default HTML for a rule anchor.
-pub fn default_rule_html(rule: &RuleDefinition) -> String {
+/// Generate default opening HTML for a rule.
+pub fn default_rule_html_start(rule: &RuleDefinition) -> String {
     // Insert <wbr> after dots for better line breaking in narrow displays
     let display_id = rule.id.replace('.', ".<wbr>");
 
     format!(
-        "<div class=\"rule\" id=\"{}\"><a class=\"rule-link\" href=\"#{}\" title=\"{}\"><span>[{}]</span></a></div>",
+        "<div class=\"rule\" id=\"{}\"><a class=\"rule-link\" href=\"#{}\" title=\"{}\"><span>[{}]</span></a>",
         rule.anchor_id, rule.anchor_id, rule.id, display_id
     )
+}
+
+/// Generate default closing HTML for a rule.
+pub fn default_rule_html_end() -> &'static str {
+    "</div>"
 }
 
 #[cfg(test)]
@@ -636,8 +645,8 @@ mod tests {
         assert_eq!(rules[0].text, "This is the rule text.");
         assert_eq!(rules[0].paragraph_html, "<p>This is the rule text.</p>\n");
         assert!(output.contains("id=\"r-my.rule\""));
-        // Verify the paragraph was consumed and not duplicated in output
-        assert!(!output.contains("This is the rule text."));
+        // Rule content should be included in the output (wrapped by rule handler)
+        assert!(output.contains("This is the rule text."));
     }
 
     #[tokio::test]
