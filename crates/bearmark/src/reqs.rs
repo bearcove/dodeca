@@ -398,14 +398,14 @@ pub async fn extract_reqs_with_warnings(
 
             let anchor_id = format!("r--{}", req_id);
 
-            // Calculate span
+            // Extract requirement text (paragraph after requirement marker)
+            let (text, lines_consumed, content_bytes) = extract_req_text(&lines[line_idx + 1..]);
+
+            // Calculate span including marker line + content lines
             let span = SourceSpan {
                 offset: byte_offset,
-                length: line_byte_len,
+                length: line_byte_len + content_bytes,
             };
-
-            // Extract requirement text (paragraph after requirement marker)
-            let (text, lines_consumed) = extract_req_text(&lines[line_idx + 1..]);
 
             // Mark lines as consumed so we skip them in the main loop
             skip_until_line = line_idx + 1 + lines_consumed;
@@ -492,11 +492,14 @@ pub async fn extract_reqs_with_warnings(
 /// - A heading (# ...)
 /// - End of content
 ///
-/// Returns (text, lines_consumed) where lines_consumed is the number of lines
-/// that should be skipped in the main loop.
-fn extract_req_text(lines: &[&str]) -> (String, usize) {
+/// Returns (text, lines_consumed, bytes_consumed) where:
+/// - text: the concatenated requirement text
+/// - lines_consumed: number of lines that should be skipped
+/// - bytes_consumed: total bytes including newlines
+fn extract_req_text(lines: &[&str]) -> (String, usize, usize) {
     let mut text_lines = Vec::new();
     let mut lines_consumed = 0;
+    let mut bytes_consumed = 0;
 
     for line in lines {
         let trimmed = line.trim();
@@ -518,9 +521,10 @@ fn extract_req_text(lines: &[&str]) -> (String, usize) {
 
         text_lines.push(trimmed);
         lines_consumed += 1;
+        bytes_consumed += line.len() + 1; // +1 for newline
     }
 
-    (text_lines.join(" "), lines_consumed)
+    (text_lines.join(" "), lines_consumed, bytes_consumed)
 }
 
 /// Parse a requirement marker content (inside r[...]).
