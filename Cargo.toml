@@ -102,41 +102,6 @@ fontcull = { version = "2.0", default-features = false, features = ["static-anal
 
 # Markdown
 pulldown-cmark = "0.13"
-
-# ASCII diagrams to SVG
-aasvg = "1.0"
-
-# Pikchr diagrams (git for facet compat)
-pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
-
-# Syntax highlighting
-arborium = { version = "2", features = [
-    # Systems & Low-level
-    "lang-asm", "lang-c", "lang-cpp", "lang-rust", "lang-zig",
-    # Shells & Scripts
-    "lang-bash", "lang-fish", "lang-powershell", "lang-zsh",
-    # Web Frontend
-    "lang-css", "lang-html", "lang-javascript", "lang-scss", "lang-svelte",
-    "lang-typescript", "lang-tsx", "lang-vue",
-    # Web Backend & APIs
-    "lang-elixir", "lang-go", "lang-graphql", "lang-java", "lang-php",
-    "lang-python", "lang-ruby",
-    # Functional & Academic
-    "lang-clojure", "lang-haskell", "lang-ocaml", "lang-scala",
-    # Data & Scientific
-    "lang-julia", "lang-r", "lang-sql",
-    # Config & Markup
-    "lang-dockerfile", "lang-ini", "lang-jinja2", "lang-json", "lang-kdl",
-    "lang-markdown", "lang-nginx", "lang-toml", "lang-typst", "lang-xml",
-    "lang-yaml",
-    # Build Systems & Tools
-    "lang-cmake", "lang-meson", "lang-nix",
-    # Protocol/Data Formats
-    "lang-capnp", "lang-textproto", "lang-thrift",
-    # Misc
-    "lang-diff", "lang-kotlin", "lang-lua", "lang-perl", "lang-swift",
-    "lang-vim",
-] }
 arborium-theme = "2"
 
 # Search indexing
