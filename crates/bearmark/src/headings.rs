@@ -15,8 +15,8 @@ pub struct Heading {
 
 /// Generate a URL-safe slug from text.
 ///
-/// Converts to lowercase, replaces non-alphanumeric characters with hyphens,
-/// and removes leading/trailing hyphens.
+/// Converts to lowercase, replaces non-alphanumeric characters (except dots)
+/// with hyphens, and removes leading/trailing hyphens.
 ///
 /// # Example
 ///
@@ -26,13 +26,14 @@ pub struct Heading {
 /// assert_eq!(slugify("Hello World"), "hello-world");
 /// assert_eq!(slugify("My API (v2)"), "my-api-v2");
 /// assert_eq!(slugify("  Spaced  Out  "), "spaced-out");
+/// assert_eq!(slugify("i.have.dots"), "i.have.dots");
 /// ```
 pub fn slugify(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut last_was_hyphen = true; // Start true to skip leading hyphens
 
     for c in text.chars() {
-        if c.is_alphanumeric() {
+        if c.is_alphanumeric() || c == '.' {
             result.push(c.to_ascii_lowercase());
             last_was_hyphen = false;
         } else if !last_was_hyphen {
@@ -88,5 +89,11 @@ mod tests {
     fn test_slugify_empty() {
         assert_eq!(slugify(""), "");
         assert_eq!(slugify("   "), "");
+    }
+
+    #[test]
+    fn test_slugify_dots() {
+        assert_eq!(slugify("i.have.dots"), "i.have.dots");
+        assert_eq!(slugify("config.path.default"), "config.path.default");
     }
 }

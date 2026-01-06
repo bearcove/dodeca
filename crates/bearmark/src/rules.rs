@@ -264,7 +264,7 @@ impl RuleMetadata {
 pub struct RuleDefinition {
     /// The rule identifier (e.g., "channel.id.allocation")
     pub id: String,
-    /// The anchor ID for HTML linking (e.g., "r-channel.id.allocation")
+    /// The anchor ID for HTML linking (e.g., "r--channel.id.allocation")
     pub anchor_id: String,
     /// Source location of this rule in the original markdown
     pub span: SourceSpan,
@@ -365,9 +365,9 @@ pub async fn extract_rules_with_warnings(
         }
 
         // Check for rule marker: r[rule.id] or r[rule.id attrs...] on its own line
-        // [impl markdown.syntax.marker] - rule definition written as r[rule.id]
-        // [impl markdown.syntax.standalone] - must appear on its own line (after trimming whitespace)
-        // [impl markdown.syntax.inline-ignored] - inline markers aren't matched since we check the whole trimmed line
+        // r[impl markdown.syntax.marker] - rule definition written as r[rule.id]
+        // r[impl markdown.syntax.standalone] - must appear on its own line (after trimming whitespace)
+        // r[impl markdown.syntax.inline-ignored] - inline markers aren't matched since we check the whole trimmed line
         if trimmed.starts_with("r[") && trimmed.ends_with(']') && trimmed.len() > 3 {
             let inner = &trimmed[2..trimmed.len() - 1];
 
@@ -396,7 +396,7 @@ pub async fn extract_rules_with_warnings(
                 return Err(Error::DuplicateRule(rule_id.to_string()));
             }
 
-            let anchor_id = format!("r-{}", rule_id);
+            let anchor_id = format!("r--{}", rule_id);
 
             // Calculate span
             let span = SourceSpan {
@@ -634,8 +634,8 @@ pub fn default_rule_html_end() -> &'static str {
 mod tests {
     use super::*;
 
-    // [verify markdown.syntax.marker]
-    // [verify markdown.syntax.standalone]
+    // r[verify markdown.syntax.marker]
+    // r[verify markdown.syntax.standalone]
     #[tokio::test]
     async fn test_extract_single_rule() {
         let content = "# Heading\n\nr[my.rule]\nThis is the rule text.\n";
@@ -643,9 +643,9 @@ mod tests {
 
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].id, "my.rule");
-        assert_eq!(rules[0].anchor_id, "r-my.rule");
+        assert_eq!(rules[0].anchor_id, "r--my.rule");
         assert_eq!(rules[0].html, "<p>This is the rule text.</p>\n");
-        assert!(output.contains("id=\"r-my.rule\""));
+        assert!(output.contains("id=\"r--my.rule\""));
         // Rule content should be included in the output (wrapped by rule handler)
         assert!(output.contains("This is the rule text."));
     }
@@ -660,7 +660,7 @@ mod tests {
         assert_eq!(rules[1].id, "second.rule");
     }
 
-    // [verify markdown.duplicates.same-file]
+    // r[verify markdown.duplicates.same-file]
     #[tokio::test]
     async fn test_duplicate_rule_error() {
         let content = "r[dup.rule]\nFirst.\n\nr[dup.rule]\nSecond.\n";
@@ -670,7 +670,7 @@ mod tests {
         assert!(matches!(result.unwrap_err(), Error::DuplicateRule(id) if id == "dup.rule"));
     }
 
-    // [verify markdown.syntax.inline-ignored]
+    // r[verify markdown.syntax.inline-ignored]
     #[tokio::test]
     async fn test_inline_rule_ignored() {
         // Rule marker inline within text should not be extracted
