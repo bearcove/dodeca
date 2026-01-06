@@ -570,7 +570,11 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                         .or(options.default_handler.as_ref())
                         .unwrap_or(&default_code_handler);
 
-                    let rendered = handler.render(&base_language, &code).await?;
+                    // Strip trailing newline from code - markdown typically includes
+                    // a newline before the closing ``` fence, which would otherwise
+                    // render as extra whitespace inside the <code> element.
+                    let code_trimmed = code.trim_end_matches('\n');
+                    let rendered = handler.render(&base_language, code_trimmed).await?;
                     html.push_str(&rendered);
 
                     code_samples.push(CodeSample {
@@ -912,9 +916,9 @@ async fn render_blockquote_req_content(
                     .get(&code_block_lang)
                     .or(options.default_handler.as_ref())
                     .unwrap_or(default_code_handler);
-                let rendered = handler
-                    .render(&code_block_lang, &code_block_content)
-                    .await?;
+                // Strip trailing newline from code
+                let code_trimmed = code_block_content.trim_end_matches('\n');
+                let rendered = handler.render(&code_block_lang, code_trimmed).await?;
                 html.push_str(&rendered);
             }
             Event::Text(t) if in_code_block => {
