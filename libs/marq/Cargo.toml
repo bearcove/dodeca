@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Markdown rendering with pluggable code block handlers"
-repository = "https://github.com/bearcove/dodeca"
+repository = "https://github.com/bearcove/marq"
 
 [package.metadata]
 

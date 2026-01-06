@@ -104,12 +104,9 @@ impl ReqHandler for DefaultReqHandler {
         req: &'a ReqDefinition,
     ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
         Box::pin(async move {
-            // Insert <wbr> after dots for better line breaking in narrow displays
-            let display_id = req.id.replace('.', ".<wbr>");
-
             Ok(format!(
-                "<div class=\"req\" id=\"{}\"><a class=\"req-link\" href=\"#{}\" title=\"{}\"><span>[{}]</span></a>",
-                req.anchor_id, req.anchor_id, req.id, display_id
+                "<div class=\"req\" id=\"{}\"><a class=\"req-link\" href=\"#{}\" title=\"{}\"><span>{}</span></a>",
+                req.anchor_id, req.anchor_id, req.id, req.id
             ))
         })
     }
