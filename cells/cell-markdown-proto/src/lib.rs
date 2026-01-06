@@ -1,6 +1,6 @@
 //! RPC protocol for dodeca markdown processing cell
 //!
-//! This cell uses bearmark for:
+//! This cell uses marq for:
 //! - Markdown to HTML conversion with syntax highlighting
 //! - Frontmatter parsing (TOML/YAML)
 //! - Heading extraction

@@ -1,16 +1,16 @@
 //! Dodeca markdown processing cell (cell-markdown)
 //!
-//! This cell uses bearmark for markdown rendering with direct code block rendering.
+//! This cell uses marq for markdown rendering with direct code block rendering.
 
-use bearmark::{AasvgHandler, ArboriumHandler, PikruHandler, RenderOptions, render};
 use cell_markdown_proto::*;
+use marq::{AasvgHandler, ArboriumHandler, PikruHandler, RenderOptions, render};
 
 #[derive(Clone)]
 pub struct MarkdownProcessorImpl;
 
 impl MarkdownProcessor for MarkdownProcessorImpl {
     async fn parse_frontmatter(&self, content: String) -> FrontmatterResult {
-        match bearmark::parse_frontmatter(&content) {
+        match marq::parse_frontmatter(&content) {
             Ok((fm, body)) => FrontmatterResult::Success {
                 frontmatter: convert_frontmatter(fm),
                 body: body.to_string(),
@@ -22,7 +22,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
     }
 
     async fn render_markdown(&self, source_path: String, markdown: String) -> MarkdownResult {
-        // Configure bearmark with real handlers (no placeholders!)
+        // Configure marq with real handlers (no placeholders!)
         let mut opts = RenderOptions::new()
             .with_handler(&["aa", "aasvg"], AasvgHandler::new())
             .with_handler(&["pikchr"], PikruHandler::new())
@@ -46,7 +46,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
 
     async fn parse_and_render(&self, source_path: String, content: String) -> ParseResult {
         // Parse frontmatter
-        let (fm, body) = match bearmark::parse_frontmatter(&content) {
+        let (fm, body) = match marq::parse_frontmatter(&content) {
             Ok(result) => result,
             Err(e) => {
                 return ParseResult::Error {
@@ -72,8 +72,8 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
     }
 }
 
-// Helper functions to convert bearmark types to protocol types
-fn convert_frontmatter(fm: bearmark::Frontmatter) -> Frontmatter {
+// Helper functions to convert marq types to protocol types
+fn convert_frontmatter(fm: marq::Frontmatter) -> Frontmatter {
     Frontmatter {
         title: fm.title,
         weight: fm.weight,
@@ -83,7 +83,7 @@ fn convert_frontmatter(fm: bearmark::Frontmatter) -> Frontmatter {
     }
 }
 
-fn convert_heading(h: bearmark::Heading) -> Heading {
+fn convert_heading(h: marq::Heading) -> Heading {
     Heading {
         title: h.title,
         id: h.id,
@@ -91,7 +91,7 @@ fn convert_heading(h: bearmark::Heading) -> Heading {
     }
 }
 
-fn convert_req(r: bearmark::ReqDefinition) -> ReqDefinition {
+fn convert_req(r: marq::ReqDefinition) -> ReqDefinition {
     ReqDefinition {
         id: r.id,
         anchor_id: r.anchor_id,

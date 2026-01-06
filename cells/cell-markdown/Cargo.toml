@@ -14,6 +14,6 @@ path = "src/main.rs"
 
 [dependencies]
 cell-markdown-proto = { path = "../cell-markdown-proto" }
-bearmark = { path = "../../crates/bearmark", features = ["aasvg", "highlight", "pikru"] }
+marq = { git = "https://github.com/bearcove/marq", features = ["aasvg", "highlight", "pikru"] }
 rapace-cell.workspace = true
 tokio.workspace = true

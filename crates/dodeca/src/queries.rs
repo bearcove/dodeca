@@ -415,7 +415,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     // Convert frontmatter from cell type
     let extra: Value = parsed.frontmatter.extra.clone();
 
-    // HTML is already fully rendered by bearmark with code blocks highlighted
+    // HTML is already fully rendered by marq with code blocks highlighted
     let html_output = parsed.html;
 
     // Convert headings from cell type to internal type

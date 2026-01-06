@@ -2026,7 +2026,7 @@ pub async fn inject_code_buttons_cell(
 // Markdown processing cell functions
 // ============================================================================
 
-/// Parsed markdown result from bearmark
+/// Parsed markdown result from marq
 pub struct ParsedMarkdown {
     /// The frontmatter parsed from the content
     pub frontmatter: cell_markdown_proto::Frontmatter,

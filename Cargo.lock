@@ -1349,24 +1349,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bearmark"
-version = "0.1.0"
-dependencies = [
- "aasvg",
- "arborium",
- "facet",
- "facet-postcard",
- "facet-toml",
- "facet-value",
- "facet-yaml",
- "pikru",
- "pulldown-cmark",
- "regex",
- "thiserror 2.0.17",
- "tokio",
-]
-
-[[package]]
 name = "bincode"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1915,8 +1897,8 @@ dependencies = [
 name = "cell-markdown"
 version = "0.6.1"
 dependencies = [
- "bearmark",
  "cell-markdown-proto",
+ "marq",
  "rapace-cell",
  "tokio",
 ]
@@ -5292,6 +5274,23 @@ dependencies = [
  "log",
  "tendril",
  "web_atoms",
+]
+
+[[package]]
+name = "marq"
+version = "0.1.0"
+source = "git+https://github.com/bearcove/marq#470bbbb8d5624f03cdb155b957594c965e8986fd"
+dependencies = [
+ "aasvg",
+ "arborium",
+ "facet",
+ "facet-toml",
+ "facet-value",
+ "facet-yaml",
+ "pikru",
+ "pulldown-cmark",
+ "regex",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
