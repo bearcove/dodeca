@@ -513,6 +513,12 @@ fn collect_tests() -> Vec<Test> {
             func: templates::code_blocks_have_copy_button_script,
             ignored: false,
         },
+        Test {
+            name: "code_blocks_preserve_newlines",
+            module: "templates",
+            func: templates::code_blocks_preserve_newlines,
+            ignored: false,
+        },
         // static_assets tests
         Test {
             name: "svg_files_served",
