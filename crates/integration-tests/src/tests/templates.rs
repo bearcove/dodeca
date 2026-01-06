@@ -158,3 +158,76 @@ fn main() {
     html.assert_contains("<code");
     html.assert_contains("Hello, world!");
 }
+
+/// Test that syntax-highlighted code blocks preserve newlines
+pub fn code_blocks_preserve_newlines() {
+    let site = TestSite::with_files(
+        "sample-site",
+        &[(
+            "content/guide/code-newlines.md",
+            r#"+++
+title = "Code Newlines"
++++
+
+# Multi-line Code
+
+```rust
+fn greet(name: &str) {
+    println!("Hello, {}!", name);
+    println!("Welcome!");
+}
+
+fn main() {
+    greet("World");
+}
+```
+"#,
+        )],
+    );
+
+    let html = site.get("/guide/code-newlines/");
+    html.assert_ok();
+
+    let full_body = html.text();
+
+    // Extract just the <body> section for debugging
+    let body_start = full_body.find("<body>").unwrap_or(0);
+    let body = &full_body[body_start..];
+
+    // Find the <code> block content
+    assert!(
+        body.contains("<code"),
+        "Should have a <code> element. Body section:\n{}",
+        &body[..body.len().min(3000)]
+    );
+
+    // Extract the code block for analysis
+    let code_start = body.find("<code").unwrap_or(0);
+    let code_end = body[code_start..]
+        .find("</code>")
+        .map(|i| code_start + i + 7)
+        .unwrap_or(body.len());
+    let code_block = &body[code_start..code_end];
+
+    // The code should contain our function names (may be split by highlighting tags)
+    // "greet" and "println" should both be present
+    assert!(
+        code_block.contains("greet") && code_block.contains("println"),
+        "Code content should be present. Code block:\n{}",
+        code_block
+    );
+
+    // Check for actual newline preservation.
+    // The code has 8 lines (including blank line between functions).
+    // If newlines are preserved, we should see them in the HTML.
+    // If not, all code will be on a single line.
+    let has_newlines = code_block.contains('\n');
+
+    assert!(
+        has_newlines,
+        "Code blocks should preserve newlines between lines of code.\n\
+         The code block appears to have all content on a single line.\n\
+         Code block:\n{}",
+        code_block
+    );
+}
