@@ -19,7 +19,6 @@ mod logging;
 mod queries;
 mod render;
 mod revision;
-mod rules;
 mod search;
 mod serve;
 mod svg;
@@ -36,7 +35,7 @@ use crate::db::{
     DataFile, DataRegistry, Database, OutputFile, QueryStats, SassFile, SassRegistry, SourceFile,
     SourceRegistry, StaticFile, StaticRegistry, TemplateFile, TemplateRegistry,
 };
-use crate::queries::{build_site, build_tree};
+use crate::queries::build_site;
 use crate::tui::LogEvent;
 use crate::types::{
     DataContent, DataPath, Route, SassContent, SassPath, SassPathRef, SourceContent, SourcePath,
@@ -1188,56 +1187,6 @@ pub async fn build(
         if let Some(ref p) = progress {
             p.update(|prog| prog.search.finish());
         }
-
-        // Generate rules manifest (for specification traceability)
-        let site_tree = db::TASK_DB
-            .scope(ctx.db_arc(), build_tree(&*ctx.db))
-            .await?
-            .expect("parse errors should be caught at build time");
-
-        let (manifest, duplicates) = rules::collect_rules(&site_tree);
-
-        // Report duplicate rule IDs (cross-file duplicates)
-        if !duplicates.is_empty() {
-            for dup in &duplicates {
-                eprintln!(
-                    "{}: duplicate rule r[{}] defined at {} and {}",
-                    "error".red().bold(),
-                    dup.id,
-                    dup.first_url,
-                    dup.second_url
-                );
-            }
-            return Err(eyre!(
-                "Build failed: {} duplicate rule ID(s)",
-                duplicates.len()
-            ));
-        }
-
-        // Write rules manifest and redirect files if there are any rules
-        if !manifest.rules.is_empty() {
-            // Write manifest
-            let json = rules::manifest_to_json(&manifest);
-            let dest = output_dir.join("_rules.json");
-            store.write_if_changed(&dest, json.as_bytes())?;
-
-            // Write redirect HTML files for each rule (/@rule.id/index.html)
-            for (rule_id, entry) in &manifest.rules {
-                let redirect_html = rules::generate_redirect_html(rule_id, &entry.url);
-                let redirect_dir = output_dir.join("@").join(rule_id);
-                tokio::fs::create_dir_all(&redirect_dir).await?;
-                let redirect_path = redirect_dir.join("index.html");
-                store.write_if_changed(&redirect_path, redirect_html.as_bytes())?;
-            }
-
-            if verbose {
-                println!(
-                    "{} {} rules to _rules.json + redirects",
-                    "Wrote".cyan(),
-                    manifest.rules.len()
-                );
-            }
-        }
     }
 
     if verbose {
@@ -1522,48 +1471,6 @@ async fn build_with_mini_tui(
     for (path, content) in &search_files {
         let dest = output_dir.join(path.trim_start_matches('/'));
         store.write_if_changed(&dest, content)?;
-    }
-
-    // Generate rules manifest (for specification traceability)
-    let site_tree = db::TASK_DB
-        .scope(ctx.db_arc(), build_tree(&*ctx.db))
-        .await?
-        .expect("parse errors should be caught at build time");
-
-    let (manifest, duplicates) = rules::collect_rules(&site_tree);
-
-    // Report duplicate rule IDs (cross-file duplicates)
-    if !duplicates.is_empty() {
-        for dup in &duplicates {
-            eprintln!(
-                "{}: duplicate rule r[{}] defined at {} and {}",
-                "error".red().bold(),
-                dup.id,
-                dup.first_url,
-                dup.second_url
-            );
-        }
-        return Err(eyre!(
-            "Build failed: {} duplicate rule ID(s)",
-            duplicates.len()
-        ));
-    }
-
-    // Write rules manifest and redirect files if there are any rules
-    if !manifest.rules.is_empty() {
-        // Write manifest
-        let json = rules::manifest_to_json(&manifest);
-        let dest = output_dir.join("_rules.json");
-        store.write_if_changed(&dest, json.as_bytes())?;
-
-        // Write redirect HTML files for each rule (/@rule.id/index.html)
-        for (rule_id, entry) in &manifest.rules {
-            let redirect_html = rules::generate_redirect_html(rule_id, &entry.url);
-            let redirect_dir = output_dir.join("@").join(rule_id);
-            tokio::fs::create_dir_all(&redirect_dir).await?;
-            let redirect_path = redirect_dir.join("index.html");
-            store.write_if_changed(&redirect_path, redirect_html.as_bytes())?;
-        }
     }
 
     // Calculate output directory size

@@ -1,17 +1,17 @@
-//! Rule definition extraction for specification traceability.
+//! Requirement definition extraction for specification traceability.
 //!
-//! Supports the `r[rule.id]` syntax used by mdbook-spec and similar tools.
+//! Supports the `r[req.id]` syntax used by mdbook-spec and similar tools.
 //!
-//! # Rule Syntax
+//! # Requirement Syntax
 //!
-//! Rules are defined using the `r[rule.id]` syntax on their own line:
+//! Requirements are defined using the `r[req.id]` syntax on their own line:
 //!
 //! ```markdown
 //! r[channel.id.allocation]
 //! Channel IDs MUST be allocated sequentially starting from 0.
 //! ```
 //!
-//! Rules can also include metadata attributes:
+//! Requirements can also include metadata attributes:
 //!
 //! ```markdown
 //! r[channel.id.allocation status=stable level=must since=1.0]
@@ -33,8 +33,8 @@
 //! |-----------|--------|-------------|
 //! | `status`  | `draft`, `stable`, `deprecated`, `removed` | Lifecycle stage |
 //! | `level`   | `must`, `should`, `may` | RFC 2119 requirement level |
-//! | `since`   | version string | When the rule was introduced |
-//! | `until`   | version string | When the rule will be deprecated/removed |
+//! | `since`   | version string | When the requirement was introduced |
+//! | `until`   | version string | When the requirement will be deprecated/removed |
 //! | `tags`    | comma-separated | Custom tags for categorization |
 
 use std::collections::HashSet;
@@ -43,7 +43,7 @@ use std::path::PathBuf;
 use facet::Facet;
 use pulldown_cmark::{Options, Parser};
 
-use crate::handler::BoxedRuleHandler;
+use crate::handler::BoxedReqHandler;
 use crate::{Error, Result};
 
 /// Byte offset and length in source content.
@@ -55,7 +55,7 @@ pub struct SourceSpan {
     pub length: usize,
 }
 
-/// RFC 2119 keyword found in rule text.
+/// RFC 2119 keyword found in requirement text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Facet)]
 #[repr(u8)]
 pub enum Rfc2119Keyword {
@@ -134,31 +134,31 @@ pub fn detect_rfc2119_keywords(text: &str) -> Vec<Rfc2119Keyword> {
     keywords
 }
 
-/// Lifecycle status of a rule.
+/// Lifecycle status of a requirement.
 ///
-/// Rules progress through these states as the specification evolves.
+/// Requirements progress through these states as the specification evolves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Facet)]
 #[repr(u8)]
-pub enum RuleStatus {
-    /// Rule is proposed but not yet finalized
+pub enum ReqStatus {
+    /// Requirement is proposed but not yet finalized
     Draft,
-    /// Rule is active and enforced
+    /// Requirement is active and enforced
     #[default]
     Stable,
-    /// Rule is being phased out
+    /// Requirement is being phased out
     Deprecated,
-    /// Rule has been removed (kept for historical reference)
+    /// Requirement has been removed (kept for historical reference)
     Removed,
 }
 
-impl RuleStatus {
+impl ReqStatus {
     /// Parse a status from its string representation.
     pub fn parse(s: &str) -> Option<Self> {
         match s {
-            "draft" => Some(RuleStatus::Draft),
-            "stable" => Some(RuleStatus::Stable),
-            "deprecated" => Some(RuleStatus::Deprecated),
-            "removed" => Some(RuleStatus::Removed),
+            "draft" => Some(ReqStatus::Draft),
+            "stable" => Some(ReqStatus::Stable),
+            "deprecated" => Some(ReqStatus::Deprecated),
+            "removed" => Some(ReqStatus::Removed),
             _ => None,
         }
     }
@@ -166,26 +166,26 @@ impl RuleStatus {
     /// Get the string representation of this status.
     pub fn as_str(&self) -> &'static str {
         match self {
-            RuleStatus::Draft => "draft",
-            RuleStatus::Stable => "stable",
-            RuleStatus::Deprecated => "deprecated",
-            RuleStatus::Removed => "removed",
+            ReqStatus::Draft => "draft",
+            ReqStatus::Stable => "stable",
+            ReqStatus::Deprecated => "deprecated",
+            ReqStatus::Removed => "removed",
         }
     }
 }
 
-impl std::fmt::Display for RuleStatus {
+impl std::fmt::Display for ReqStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
 }
 
-/// RFC 2119 requirement level for a rule.
+/// RFC 2119 requirement level for a requirement.
 ///
 /// See <https://www.ietf.org/rfc/rfc2119.txt> for the specification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Facet)]
 #[repr(u8)]
-pub enum RequirementLevel {
+pub enum ReqLevel {
     /// Absolute requirement (MUST, SHALL, REQUIRED)
     #[default]
     Must,
@@ -195,13 +195,13 @@ pub enum RequirementLevel {
     May,
 }
 
-impl RequirementLevel {
+impl ReqLevel {
     /// Parse a level from its string representation.
     pub fn parse(s: &str) -> Option<Self> {
         match s {
-            "must" | "shall" | "required" => Some(RequirementLevel::Must),
-            "should" | "recommended" => Some(RequirementLevel::Should),
-            "may" | "optional" => Some(RequirementLevel::May),
+            "must" | "shall" | "required" => Some(ReqLevel::Must),
+            "should" | "recommended" => Some(ReqLevel::Should),
+            "may" | "optional" => Some(ReqLevel::May),
             _ => None,
         }
     }
@@ -209,139 +209,139 @@ impl RequirementLevel {
     /// Get the string representation of this level.
     pub fn as_str(&self) -> &'static str {
         match self {
-            RequirementLevel::Must => "must",
-            RequirementLevel::Should => "should",
-            RequirementLevel::May => "may",
+            ReqLevel::Must => "must",
+            ReqLevel::Should => "should",
+            ReqLevel::May => "may",
         }
     }
 }
 
-impl std::fmt::Display for RequirementLevel {
+impl std::fmt::Display for ReqLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.as_str())
     }
 }
 
-/// Metadata attributes for a rule.
+/// Metadata attributes for a requirement.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Facet)]
-pub struct RuleMetadata {
+pub struct ReqMetadata {
     /// Lifecycle status (draft, stable, deprecated, removed)
-    pub status: Option<RuleStatus>,
+    pub status: Option<ReqStatus>,
     /// RFC 2119 requirement level (must, should, may)
-    pub level: Option<RequirementLevel>,
-    /// Version when this rule was introduced
+    pub level: Option<ReqLevel>,
+    /// Version when this requirement was introduced
     pub since: Option<String>,
-    /// Version when this rule will be/was deprecated or removed
+    /// Version when this requirement will be/was deprecated or removed
     pub until: Option<String>,
     /// Custom tags for categorization
     pub tags: Vec<String>,
 }
 
-impl RuleMetadata {
-    /// Returns true if this rule should be counted in coverage by default.
+impl ReqMetadata {
+    /// Returns true if this requirement should be counted in coverage by default.
     ///
-    /// Draft and removed rules are excluded from coverage by default.
+    /// Draft and removed requirements are excluded from coverage by default.
     pub fn counts_for_coverage(&self) -> bool {
         !matches!(
             self.status,
-            Some(RuleStatus::Draft) | Some(RuleStatus::Removed)
+            Some(ReqStatus::Draft) | Some(ReqStatus::Removed)
         )
     }
 
-    /// Returns true if this rule is required (must be covered for passing builds).
+    /// Returns true if this requirement is required (must be covered for passing builds).
     ///
-    /// Only `must` level rules are required; `should` and `may` are optional.
+    /// Only `must` level requirements are required; `should` and `may` are optional.
     pub fn is_required(&self) -> bool {
         match self.level {
-            Some(RequirementLevel::Must) | None => true,
-            Some(RequirementLevel::Should) | Some(RequirementLevel::May) => false,
+            Some(ReqLevel::Must) | None => true,
+            Some(ReqLevel::Should) | Some(ReqLevel::May) => false,
         }
     }
 }
 
-/// A rule definition extracted from the markdown.
+/// A requirement definition extracted from the markdown.
 #[derive(Debug, Clone, PartialEq, Eq, Facet)]
-pub struct RuleDefinition {
-    /// The rule identifier (e.g., "channel.id.allocation")
+pub struct ReqDefinition {
+    /// The requirement identifier (e.g., "channel.id.allocation")
     pub id: String,
     /// The anchor ID for HTML linking (e.g., "r--channel.id.allocation")
     pub anchor_id: String,
-    /// Source location of this rule in the original markdown
+    /// Source location of this requirement in the original markdown
     pub span: SourceSpan,
-    /// Line number where this rule is defined (1-indexed)
+    /// Line number where this requirement is defined (1-indexed)
     pub line: usize,
-    /// Rule metadata (status, level, since, until, tags)
-    pub metadata: RuleMetadata,
-    /// The rendered HTML of the content following the rule marker
+    /// Requirement metadata (status, level, since, until, tags)
+    pub metadata: ReqMetadata,
+    /// The rendered HTML of the content following the requirement marker
     pub html: String,
 }
 
-/// Warning about rule quality.
+/// Warning about requirement quality.
 #[derive(Debug, Clone, Facet)]
-pub struct RuleWarning {
+pub struct ReqWarning {
     /// File where the warning occurred
     pub file: PathBuf,
-    /// Rule ID this warning relates to
-    pub rule_id: String,
+    /// Requirement ID this warning relates to
+    pub req_id: String,
     /// Line number (1-indexed)
     pub line: usize,
-    /// Byte span of the rule
+    /// Byte span of the requirement
     pub span: SourceSpan,
     /// What kind of warning
-    pub kind: RuleWarningKind,
+    pub kind: ReqWarningKind,
 }
 
-/// Types of rule warnings.
+/// Types of requirement warnings.
 #[derive(Debug, Clone, Facet)]
 #[repr(u8)]
-pub enum RuleWarningKind {
-    /// Rule text contains no RFC 2119 keywords
+pub enum ReqWarningKind {
+    /// Requirement text contains no RFC 2119 keywords
     NoRfc2119Keyword,
-    /// Rule text contains a negative requirement (MUST NOT, SHALL NOT, etc.) — these are hard to test
-    NegativeRequirement(Rfc2119Keyword),
+    /// Requirement text contains a negative requirement (MUST NOT, SHALL NOT, etc.) — these are hard to test
+    NegativeReq(Rfc2119Keyword),
 }
 
-/// Result of extracting rules from markdown.
+/// Result of extracting requirements from markdown.
 #[derive(Debug, Clone, Facet)]
-pub struct ExtractedRules {
-    /// Transformed markdown with rule markers replaced by HTML
+pub struct ExtractedReqs {
+    /// Transformed markdown with requirement markers replaced by HTML
     pub output: String,
-    /// All rules found in the document
-    pub rules: Vec<RuleDefinition>,
-    /// Warnings about rule quality
-    pub warnings: Vec<RuleWarning>,
+    /// All requirements found in the document
+    pub reqs: Vec<ReqDefinition>,
+    /// Warnings about requirement quality
+    pub warnings: Vec<ReqWarning>,
 }
 
-/// Extract and transform rule definitions in markdown.
+/// Extract and transform requirement definitions in markdown.
 ///
-/// Rules are lines matching `r[rule.id]` or `r[rule.id attr=value ...]` at the start of a line.
+/// Requirements are lines matching `r[req.id]` or `r[req.id attr=value ...]` at the start of a line.
 /// They are replaced with HTML anchor divs for linking.
 ///
 /// # Arguments
 /// * `content` - The markdown content to process
-/// * `rule_handler` - Optional custom handler for rendering rules. If None, uses default rendering.
+/// * `req_handler` - Optional custom handler for rendering requirements. If None, uses default rendering.
 /// * `source_path` - Optional source file path for warnings
 ///
-/// Returns the transformed content, list of extracted rules, and any warnings.
+/// Returns the transformed content, list of extracted requirements, and any warnings.
 #[allow(dead_code)]
-pub(crate) async fn extract_rules(
+pub(crate) async fn extract_reqs(
     content: &str,
-    rule_handler: Option<&BoxedRuleHandler>,
-) -> Result<(String, Vec<RuleDefinition>)> {
-    let result = extract_rules_with_warnings(content, rule_handler, None).await?;
-    Ok((result.output, result.rules))
+    req_handler: Option<&BoxedReqHandler>,
+) -> Result<(String, Vec<ReqDefinition>)> {
+    let result = extract_reqs_with_warnings(content, req_handler, None).await?;
+    Ok((result.output, result.reqs))
 }
 
-/// Extract rules with full warning support.
+/// Extract requirements with full warning support.
 ///
-/// This is the full version that also returns warnings about rule quality.
-pub async fn extract_rules_with_warnings(
+/// This is the full version that also returns warnings about requirement quality.
+pub async fn extract_reqs_with_warnings(
     content: &str,
-    rule_handler: Option<&BoxedRuleHandler>,
+    req_handler: Option<&BoxedReqHandler>,
     source_path: Option<&std::path::Path>,
-) -> Result<ExtractedRules> {
+) -> Result<ExtractedReqs> {
     let mut output = String::with_capacity(content.len());
-    let mut rules = Vec::new();
+    let mut reqs = Vec::new();
     let mut warnings = Vec::new();
     let mut seen_ids: HashSet<String> = HashSet::new();
 
@@ -349,33 +349,33 @@ pub async fn extract_rules_with_warnings(
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("<unknown>"));
 
-    // Collect lines for lookahead (to extract rule text)
+    // Collect lines for lookahead (to extract requirement text)
     let lines: Vec<&str> = content.lines().collect();
     let mut byte_offset = 0usize;
-    let mut skip_until_line = 0usize; // Track lines consumed by rules
+    let mut skip_until_line = 0usize; // Track lines consumed by requirements
 
     for (line_idx, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         let line_byte_len = line.len();
 
-        // Skip lines that were consumed by a previous rule's paragraph
+        // Skip lines that were consumed by a previous requirement's paragraph
         if line_idx < skip_until_line {
             byte_offset += line_byte_len + 1;
             continue;
         }
 
-        // Check for rule marker: r[rule.id] or r[rule.id attrs...] on its own line
-        // r[impl markdown.syntax.marker] - rule definition written as r[rule.id]
+        // Check for requirement marker: r[req.id] or r[req.id attrs...] on its own line
+        // r[impl markdown.syntax.marker] - requirement definition written as r[req.id]
         // r[impl markdown.syntax.standalone] - must appear on its own line (after trimming whitespace)
         // r[impl markdown.syntax.inline-ignored] - inline markers aren't matched since we check the whole trimmed line
         if trimmed.starts_with("r[") && trimmed.ends_with(']') && trimmed.len() > 3 {
             let inner = &trimmed[2..trimmed.len() - 1];
 
-            // Parse rule ID and optional attributes
-            let (rule_id, metadata) = match parse_rule_marker(inner) {
+            // Parse requirement ID and optional attributes
+            let (req_id, metadata) = match parse_req_marker(inner) {
                 Ok(result) => result,
                 Err(_) => {
-                    // Not a valid rule marker, keep as-is
+                    // Not a valid requirement marker, keep as-is
                     output.push_str(line);
                     output.push('\n');
                     byte_offset += line_byte_len + 1;
@@ -383,8 +383,8 @@ pub async fn extract_rules_with_warnings(
                 }
             };
 
-            // Validate rule ID
-            if !is_valid_rule_id(rule_id) {
+            // Validate requirement ID
+            if !is_valid_req_id(req_id) {
                 output.push_str(line);
                 output.push('\n');
                 byte_offset += line_byte_len + 1;
@@ -392,11 +392,11 @@ pub async fn extract_rules_with_warnings(
             }
 
             // Check for duplicates
-            if !seen_ids.insert(rule_id.to_string()) {
-                return Err(Error::DuplicateRule(rule_id.to_string()));
+            if !seen_ids.insert(req_id.to_string()) {
+                return Err(Error::DuplicateReq(req_id.to_string()));
             }
 
-            let anchor_id = format!("r--{}", rule_id);
+            let anchor_id = format!("r--{}", req_id);
 
             // Calculate span
             let span = SourceSpan {
@@ -404,8 +404,8 @@ pub async fn extract_rules_with_warnings(
                 length: line_byte_len,
             };
 
-            // Extract rule text (paragraph after rule marker)
-            let (text, lines_consumed) = extract_rule_text(&lines[line_idx + 1..]);
+            // Extract requirement text (paragraph after requirement marker)
+            let (text, lines_consumed) = extract_req_text(&lines[line_idx + 1..]);
 
             // Mark lines as consumed so we skip them in the main loop
             skip_until_line = line_idx + 1 + lines_consumed;
@@ -424,29 +424,29 @@ pub async fn extract_rules_with_warnings(
             let keywords = detect_rfc2119_keywords(&text);
 
             if keywords.is_empty() && !text.is_empty() {
-                warnings.push(RuleWarning {
+                warnings.push(ReqWarning {
                     file: file_path.clone(),
-                    rule_id: rule_id.to_string(),
+                    req_id: req_id.to_string(),
                     line: line_idx + 1,
                     span,
-                    kind: RuleWarningKind::NoRfc2119Keyword,
+                    kind: ReqWarningKind::NoRfc2119Keyword,
                 });
             }
 
             for keyword in &keywords {
                 if keyword.is_negative() {
-                    warnings.push(RuleWarning {
+                    warnings.push(ReqWarning {
                         file: file_path.clone(),
-                        rule_id: rule_id.to_string(),
+                        req_id: req_id.to_string(),
                         line: line_idx + 1,
                         span,
-                        kind: RuleWarningKind::NegativeRequirement(*keyword),
+                        kind: ReqWarningKind::NegativeReq(*keyword),
                     });
                 }
             }
 
-            let rule = RuleDefinition {
-                id: rule_id.to_string(),
+            let req = ReqDefinition {
+                id: req_id.to_string(),
                 anchor_id: anchor_id.clone(),
                 span,
                 line: line_idx + 1, // 1-indexed
@@ -454,18 +454,18 @@ pub async fn extract_rules_with_warnings(
                 html,
             };
 
-            // Render the rule using the handler or default
-            let rendered = if let Some(handler) = rule_handler {
-                let start = handler.start(&rule).await?;
-                let end = handler.end(&rule).await?;
-                format!("{}{}{}", start, rule.html, end)
+            // Render the requirement using the handler or default
+            let rendered = if let Some(handler) = req_handler {
+                let start = handler.start(&req).await?;
+                let end = handler.end(&req).await?;
+                format!("{}{}{}", start, req.html, end)
             } else {
-                let start = default_rule_html_start(&rule);
-                let end = default_rule_html_end();
-                format!("{}{}{}", start, rule.html, end)
+                let start = default_req_html_start(&req);
+                let end = default_req_html_end();
+                format!("{}{}{}", start, req.html, end)
             };
 
-            rules.push(rule);
+            reqs.push(req);
 
             output.push_str(&rendered);
             output.push_str("\n\n"); // Ensure following text becomes a paragraph
@@ -477,24 +477,24 @@ pub async fn extract_rules_with_warnings(
         byte_offset += line_byte_len + 1;
     }
 
-    Ok(ExtractedRules {
+    Ok(ExtractedReqs {
         output,
-        rules,
+        reqs,
         warnings,
     })
 }
 
-/// Extract the rule text from lines following a rule marker.
+/// Extract the requirement text from lines following a requirement marker.
 ///
 /// Collects text until we hit:
 /// - A blank line
-/// - Another rule marker (r[...])
+/// - Another requirement marker (r[...])
 /// - A heading (# ...)
 /// - End of content
 ///
 /// Returns (text, lines_consumed) where lines_consumed is the number of lines
 /// that should be skipped in the main loop.
-fn extract_rule_text(lines: &[&str]) -> (String, usize) {
+fn extract_req_text(lines: &[&str]) -> (String, usize) {
     let mut text_lines = Vec::new();
     let mut lines_consumed = 0;
 
@@ -506,7 +506,7 @@ fn extract_rule_text(lines: &[&str]) -> (String, usize) {
             break;
         }
 
-        // Stop at another rule marker
+        // Stop at another requirement marker
         if trimmed.starts_with("r[") && trimmed.ends_with(']') {
             break;
         }
@@ -523,49 +523,51 @@ fn extract_rule_text(lines: &[&str]) -> (String, usize) {
     (text_lines.join(" "), lines_consumed)
 }
 
-/// Parse a rule marker content (inside r[...]).
+/// Parse a requirement marker content (inside r[...]).
 ///
 /// Supports formats:
-/// - `rule.id` - simple rule ID
-/// - `rule.id status=stable level=must` - rule ID with attributes
-pub fn parse_rule_marker(inner: &str) -> Result<(&str, RuleMetadata)> {
+/// - `req.id` - simple requirement ID
+/// - `req.id status=stable level=must` - requirement ID with attributes
+pub fn parse_req_marker(inner: &str) -> Result<(&str, ReqMetadata)> {
     let inner = inner.trim();
 
-    // Find where the rule ID ends (at first space or end of string)
-    let (rule_id, attrs_str) = match inner.find(' ') {
+    // Find where the requirement ID ends (at first space or end of string)
+    let (req_id, attrs_str) = match inner.find(' ') {
         Some(idx) => (&inner[..idx], inner[idx + 1..].trim()),
         None => (inner, ""),
     };
 
-    if rule_id.is_empty() {
-        return Err(Error::DuplicateRule("empty rule identifier".to_string()));
+    if req_id.is_empty() {
+        return Err(Error::DuplicateReq(
+            "empty requirement identifier".to_string(),
+        ));
     }
 
     // Parse attributes if present
-    let mut metadata = RuleMetadata::default();
+    let mut metadata = ReqMetadata::default();
 
     if !attrs_str.is_empty() {
         for attr in attrs_str.split_whitespace() {
             if let Some((key, value)) = attr.split_once('=') {
                 match key {
                     "status" => {
-                        metadata.status = Some(RuleStatus::parse(value).ok_or_else(|| {
+                        metadata.status = Some(ReqStatus::parse(value).ok_or_else(|| {
                             Error::CodeBlockHandler {
-                                language: "rule".to_string(),
+                                language: "req".to_string(),
                                 message: format!(
-                                    "invalid status '{}' for rule '{}', expected: draft, stable, deprecated, removed",
-                                    value, rule_id
+                                    "invalid status '{}' for requirement '{}', expected: draft, stable, deprecated, removed",
+                                    value, req_id
                                 ),
                             }
                         })?);
                     }
                     "level" => {
-                        metadata.level = Some(RequirementLevel::parse(value).ok_or_else(|| {
+                        metadata.level = Some(ReqLevel::parse(value).ok_or_else(|| {
                             Error::CodeBlockHandler {
-                                language: "rule".to_string(),
+                                language: "req".to_string(),
                                 message: format!(
-                                    "invalid level '{}' for rule '{}', expected: must, should, may",
-                                    value, rule_id
+                                    "invalid level '{}' for requirement '{}', expected: must, should, may",
+                                    value, req_id
                                 ),
                             }
                         })?);
@@ -581,52 +583,52 @@ pub fn parse_rule_marker(inner: &str) -> Result<(&str, RuleMetadata)> {
                     }
                     _ => {
                         return Err(Error::CodeBlockHandler {
-                            language: "rule".to_string(),
+                            language: "req".to_string(),
                             message: format!(
-                                "unknown attribute '{}' for rule '{}', expected: status, level, since, until, tags",
-                                key, rule_id
+                                "unknown attribute '{}' for requirement '{}', expected: status, level, since, until, tags",
+                                key, req_id
                             ),
                         });
                     }
                 }
             } else {
                 return Err(Error::CodeBlockHandler {
-                    language: "rule".to_string(),
+                    language: "req".to_string(),
                     message: format!(
-                        "invalid attribute format '{}' for rule '{}', expected: key=value",
-                        attr, rule_id
+                        "invalid attribute format '{}' for requirement '{}', expected: key=value",
+                        attr, req_id
                     ),
                 });
             }
         }
     }
 
-    Ok((rule_id, metadata))
+    Ok((req_id, metadata))
 }
 
-/// Check if a rule ID is valid.
+/// Check if a requirement ID is valid.
 ///
-/// Valid rule IDs contain only alphanumeric characters, dots, hyphens, and underscores.
-fn is_valid_rule_id(id: &str) -> bool {
+/// Valid requirement IDs contain only alphanumeric characters, dots, hyphens, and underscores.
+fn is_valid_req_id(id: &str) -> bool {
     !id.is_empty()
         && id
             .chars()
             .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
 }
 
-/// Generate default opening HTML for a rule.
-pub fn default_rule_html_start(rule: &RuleDefinition) -> String {
+/// Generate default opening HTML for a requirement.
+pub fn default_req_html_start(req: &ReqDefinition) -> String {
     // Insert <wbr> after dots for better line breaking in narrow displays
-    let display_id = rule.id.replace('.', ".<wbr>");
+    let display_id = req.id.replace('.', ".<wbr>");
 
     format!(
-        "<div class=\"rule\" id=\"{}\"><a class=\"rule-link\" href=\"#{}\" title=\"{}\"><span>[{}]</span></a>",
-        rule.anchor_id, rule.anchor_id, rule.id, display_id
+        "<div class=\"req\" id=\"{}\"><a class=\"req-link\" href=\"#{}\" title=\"{}\"><span>[{}]</span></a>",
+        req.anchor_id, req.anchor_id, req.id, display_id
     )
 }
 
-/// Generate default closing HTML for a rule.
-pub fn default_rule_html_end() -> &'static str {
+/// Generate default closing HTML for a requirement.
+pub fn default_req_html_end() -> &'static str {
     "</div>"
 }
 
@@ -637,128 +639,128 @@ mod tests {
     // r[verify markdown.syntax.marker]
     // r[verify markdown.syntax.standalone]
     #[tokio::test]
-    async fn test_extract_single_rule() {
-        let content = "# Heading\n\nr[my.rule]\nThis is the rule text.\n";
-        let (output, rules) = extract_rules(content, None).await.unwrap();
+    async fn test_extract_single_req() {
+        let content = "# Heading\n\nr[my.req]\nThis is the requirement text.\n";
+        let (output, reqs) = extract_reqs(content, None).await.unwrap();
 
-        assert_eq!(rules.len(), 1);
-        assert_eq!(rules[0].id, "my.rule");
-        assert_eq!(rules[0].anchor_id, "r--my.rule");
-        assert_eq!(rules[0].html, "<p>This is the rule text.</p>\n");
-        assert!(output.contains("id=\"r--my.rule\""));
-        // Rule content should be included in the output (wrapped by rule handler)
-        assert!(output.contains("This is the rule text."));
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].id, "my.req");
+        assert_eq!(reqs[0].anchor_id, "r--my.req");
+        assert_eq!(reqs[0].html, "<p>This is the requirement text.</p>\n");
+        assert!(output.contains("id=\"r--my.req\""));
+        // Requirement content should be included in the output (wrapped by req handler)
+        assert!(output.contains("This is the requirement text."));
     }
 
     #[tokio::test]
-    async fn test_extract_multiple_rules() {
-        let content = "r[first.rule]\nText.\n\nr[second.rule]\nMore text.\n";
-        let (_, rules) = extract_rules(content, None).await.unwrap();
+    async fn test_extract_multiple_reqs() {
+        let content = "r[first.req]\nText.\n\nr[second.req]\nMore text.\n";
+        let (_, reqs) = extract_reqs(content, None).await.unwrap();
 
-        assert_eq!(rules.len(), 2);
-        assert_eq!(rules[0].id, "first.rule");
-        assert_eq!(rules[1].id, "second.rule");
+        assert_eq!(reqs.len(), 2);
+        assert_eq!(reqs[0].id, "first.req");
+        assert_eq!(reqs[1].id, "second.req");
     }
 
     // r[verify markdown.duplicates.same-file]
     #[tokio::test]
-    async fn test_duplicate_rule_error() {
-        let content = "r[dup.rule]\nFirst.\n\nr[dup.rule]\nSecond.\n";
-        let result = extract_rules(content, None).await;
+    async fn test_duplicate_req_error() {
+        let content = "r[dup.req]\nFirst.\n\nr[dup.req]\nSecond.\n";
+        let result = extract_reqs(content, None).await;
 
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), Error::DuplicateRule(id) if id == "dup.rule"));
+        assert!(matches!(result.unwrap_err(), Error::DuplicateReq(id) if id == "dup.req"));
     }
 
     // r[verify markdown.syntax.inline-ignored]
     #[tokio::test]
-    async fn test_inline_rule_ignored() {
-        // Rule marker inline within text should not be extracted
-        let content = "This is r[inline.rule] in text.\n";
-        let (output, rules) = extract_rules(content, None).await.unwrap();
+    async fn test_inline_req_ignored() {
+        // Requirement marker inline within text should not be extracted
+        let content = "This is r[inline.req] in text.\n";
+        let (output, reqs) = extract_reqs(content, None).await.unwrap();
 
-        assert!(rules.is_empty());
-        assert!(output.contains("r[inline.rule]"));
+        assert!(reqs.is_empty());
+        assert!(output.contains("r[inline.req]"));
     }
 
     #[tokio::test]
-    async fn test_rule_with_hyphens_underscores() {
-        let content = "r[my-rule_id.sub-part]\nText.\n";
-        let (_, rules) = extract_rules(content, None).await.unwrap();
+    async fn test_req_with_hyphens_underscores() {
+        let content = "r[my-req_id.sub-part]\nText.\n";
+        let (_, reqs) = extract_reqs(content, None).await.unwrap();
 
-        assert_eq!(rules.len(), 1);
-        assert_eq!(rules[0].id, "my-rule_id.sub-part");
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].id, "my-req_id.sub-part");
     }
 
     #[tokio::test]
     async fn test_wbr_insertion() {
         let content = "r[a.b.c]\n";
-        let (output, _) = extract_rules(content, None).await.unwrap();
+        let (output, _) = extract_reqs(content, None).await.unwrap();
 
         assert!(output.contains("[a.<wbr>b.<wbr>c]"));
     }
 
     #[tokio::test]
-    async fn test_invalid_rule_id_ignored() {
-        // Rule with invalid characters should be left as-is
-        let content = "r[invalid rule!]\n";
-        let (output, rules) = extract_rules(content, None).await.unwrap();
+    async fn test_invalid_req_id_ignored() {
+        // Requirement with invalid characters should be left as-is
+        let content = "r[invalid req!]\n";
+        let (output, reqs) = extract_reqs(content, None).await.unwrap();
 
-        assert!(rules.is_empty());
-        assert!(output.contains("r[invalid rule!]"));
+        assert!(reqs.is_empty());
+        assert!(output.contains("r[invalid req!]"));
     }
 
     #[tokio::test]
-    async fn test_rule_with_metadata() {
-        let content = "r[test.rule status=stable level=must since=1.0]\nThis MUST be done.\n";
-        let result = extract_rules_with_warnings(content, None, None)
+    async fn test_req_with_metadata() {
+        let content = "r[test.req status=stable level=must since=1.0]\nThis MUST be done.\n";
+        let result = extract_reqs_with_warnings(content, None, None)
             .await
             .unwrap();
 
-        assert_eq!(result.rules.len(), 1);
-        assert_eq!(result.rules[0].id, "test.rule");
-        assert_eq!(result.rules[0].metadata.status, Some(RuleStatus::Stable));
-        assert_eq!(result.rules[0].metadata.level, Some(RequirementLevel::Must));
-        assert_eq!(result.rules[0].metadata.since, Some("1.0".to_string()));
+        assert_eq!(result.reqs.len(), 1);
+        assert_eq!(result.reqs[0].id, "test.req");
+        assert_eq!(result.reqs[0].metadata.status, Some(ReqStatus::Stable));
+        assert_eq!(result.reqs[0].metadata.level, Some(ReqLevel::Must));
+        assert_eq!(result.reqs[0].metadata.since, Some("1.0".to_string()));
     }
 
     #[tokio::test]
-    async fn test_rule_with_tags() {
-        let content = "r[test.rule tags=foo,bar,baz]\nOptional.\n";
-        let result = extract_rules_with_warnings(content, None, None)
+    async fn test_req_with_tags() {
+        let content = "r[test.req tags=foo,bar,baz]\nOptional.\n";
+        let result = extract_reqs_with_warnings(content, None, None)
             .await
             .unwrap();
 
-        assert_eq!(result.rules[0].metadata.tags, vec!["foo", "bar", "baz"]);
+        assert_eq!(result.reqs[0].metadata.tags, vec!["foo", "bar", "baz"]);
     }
 
     #[tokio::test]
-    async fn test_rule_text_extraction() {
+    async fn test_req_text_extraction() {
         let content = "r[multi.line]\nFirst line.\nSecond line.\n\nNext paragraph.\n";
-        let result = extract_rules_with_warnings(content, None, None)
+        let result = extract_reqs_with_warnings(content, None, None)
             .await
             .unwrap();
 
-        // Verify HTML rendering of rule content
-        assert_eq!(result.rules[0].html, "<p>First line. Second line.</p>\n");
+        // Verify HTML rendering of requirement content
+        assert_eq!(result.reqs[0].html, "<p>First line. Second line.</p>\n");
         // Verify the "Next paragraph" is still in the output (wasn't consumed)
         assert!(result.output.contains("Next paragraph"));
     }
 
     #[tokio::test]
-    async fn test_rule_html_with_formatting() {
+    async fn test_req_html_with_formatting() {
         let content =
-            "r[formatted.rule]\nThis is **bold** and *italic* text with a `code` snippet.\n";
-        let result = extract_rules_with_warnings(content, None, None)
+            "r[formatted.req]\nThis is **bold** and *italic* text with a `code` snippet.\n";
+        let result = extract_reqs_with_warnings(content, None, None)
             .await
             .unwrap();
 
-        assert_eq!(result.rules.len(), 1);
-        assert_eq!(result.rules[0].id, "formatted.rule");
+        assert_eq!(result.reqs.len(), 1);
+        assert_eq!(result.reqs[0].id, "formatted.req");
         // Verify the HTML contains proper formatting
-        assert!(result.rules[0].html.contains("<strong>bold</strong>"));
-        assert!(result.rules[0].html.contains("<em>italic</em>"));
-        assert!(result.rules[0].html.contains("<code>code</code>"));
+        assert!(result.reqs[0].html.contains("<strong>bold</strong>"));
+        assert!(result.reqs[0].html.contains("<em>italic</em>"));
+        assert!(result.reqs[0].html.contains("<code>code</code>"));
         // Verify the formatted text was consumed and not duplicated
         assert!(!result.output.contains("**bold**"));
     }
@@ -811,38 +813,38 @@ mod tests {
 
     #[tokio::test]
     async fn test_warning_no_keyword() {
-        let content = "r[missing.keyword]\nThis rule has no RFC 2119 keyword.\n";
-        let result = extract_rules_with_warnings(content, None, None)
+        let content = "r[missing.keyword]\nThis requirement has no RFC 2119 keyword.\n";
+        let result = extract_reqs_with_warnings(content, None, None)
             .await
             .unwrap();
 
         assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].rule_id, "missing.keyword");
+        assert_eq!(result.warnings[0].req_id, "missing.keyword");
         assert!(matches!(
             result.warnings[0].kind,
-            RuleWarningKind::NoRfc2119Keyword
+            ReqWarningKind::NoRfc2119Keyword
         ));
     }
 
     #[tokio::test]
     async fn test_warning_negative_requirement() {
         let content = "r[negative.must.not]\nClients MUST NOT send invalid data.\n";
-        let result = extract_rules_with_warnings(content, None, None)
+        let result = extract_reqs_with_warnings(content, None, None)
             .await
             .unwrap();
 
         assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].rule_id, "negative.must.not");
+        assert_eq!(result.warnings[0].req_id, "negative.must.not");
         assert!(matches!(
             result.warnings[0].kind,
-            RuleWarningKind::NegativeRequirement(Rfc2119Keyword::MustNot)
+            ReqWarningKind::NegativeReq(Rfc2119Keyword::MustNot)
         ));
     }
 
     #[tokio::test]
     async fn test_no_warning_for_positive_must() {
         let content = "r[positive.must]\nClients MUST validate input.\n";
-        let result = extract_rules_with_warnings(content, None, None)
+        let result = extract_reqs_with_warnings(content, None, None)
             .await
             .unwrap();
 
@@ -853,34 +855,34 @@ mod tests {
 
     #[test]
     fn test_metadata_counts_for_coverage() {
-        let mut meta = RuleMetadata::default();
+        let mut meta = ReqMetadata::default();
         assert!(meta.counts_for_coverage()); // default is stable
 
-        meta.status = Some(RuleStatus::Stable);
+        meta.status = Some(ReqStatus::Stable);
         assert!(meta.counts_for_coverage());
 
-        meta.status = Some(RuleStatus::Deprecated);
+        meta.status = Some(ReqStatus::Deprecated);
         assert!(meta.counts_for_coverage());
 
-        meta.status = Some(RuleStatus::Draft);
+        meta.status = Some(ReqStatus::Draft);
         assert!(!meta.counts_for_coverage());
 
-        meta.status = Some(RuleStatus::Removed);
+        meta.status = Some(ReqStatus::Removed);
         assert!(!meta.counts_for_coverage());
     }
 
     #[test]
     fn test_metadata_is_required() {
-        let mut meta = RuleMetadata::default();
+        let mut meta = ReqMetadata::default();
         assert!(meta.is_required()); // default level is Must
 
-        meta.level = Some(RequirementLevel::Must);
+        meta.level = Some(ReqLevel::Must);
         assert!(meta.is_required());
 
-        meta.level = Some(RequirementLevel::Should);
+        meta.level = Some(ReqLevel::Should);
         assert!(!meta.is_required());
 
-        meta.level = Some(RequirementLevel::May);
+        meta.level = Some(ReqLevel::May);
         assert!(!meta.is_required());
     }
 }

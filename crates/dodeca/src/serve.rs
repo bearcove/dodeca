@@ -1307,7 +1307,7 @@ impl SiteServer {
 
         // Search for the rule in sections
         for (route, section) in &site_tree.sections {
-            for rule in &section.rules {
+            for rule in &section.reqs {
                 if rule.id == rule_id {
                     return Some(format!("{}#{}", route.as_str(), rule.anchor_id));
                 }

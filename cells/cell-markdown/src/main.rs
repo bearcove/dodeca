@@ -36,7 +36,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
             Ok(doc) => MarkdownResult::Success {
                 html: doc.html, // Fully rendered, no placeholders
                 headings: doc.headings.into_iter().map(convert_heading).collect(),
-                rules: doc.rules.into_iter().map(convert_rule).collect(),
+                reqs: doc.reqs.into_iter().map(convert_req).collect(),
             },
             Err(e) => MarkdownResult::Error {
                 message: e.to_string(),
@@ -60,12 +60,12 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
             MarkdownResult::Success {
                 html,
                 headings,
-                rules,
+                reqs,
             } => ParseResult::Success {
                 frontmatter: convert_frontmatter(fm),
                 html,
                 headings,
-                rules,
+                reqs,
             },
             MarkdownResult::Error { message } => ParseResult::Error { message },
         }
@@ -91,8 +91,8 @@ fn convert_heading(h: bearmark::Heading) -> Heading {
     }
 }
 
-fn convert_rule(r: bearmark::RuleDefinition) -> RuleDefinition {
-    RuleDefinition {
+fn convert_req(r: bearmark::ReqDefinition) -> ReqDefinition {
+    ReqDefinition {
         id: r.id,
         anchor_id: r.anchor_id,
     }

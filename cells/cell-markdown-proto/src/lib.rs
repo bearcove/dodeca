@@ -70,13 +70,13 @@ pub struct Heading {
     pub level: u8,
 }
 
-/// A rule definition for specification traceability.
+/// A requirement definition for specification traceability.
 ///
-/// Rules are declared with `r[rule.name]` syntax on their own line,
+/// Requirements are declared with `r[req.name]` syntax on their own line,
 /// similar to the Rust Reference's mdbook-spec.
 #[derive(Debug, Clone, Facet)]
-pub struct RuleDefinition {
-    /// The rule identifier (e.g., "channel.id.allocation")
+pub struct ReqDefinition {
+    /// The requirement identifier (e.g., "channel.id.allocation")
     pub id: String,
     /// The anchor ID for linking (e.g., "r-channel.id.allocation")
     pub anchor_id: String,
@@ -107,8 +107,8 @@ pub enum MarkdownResult {
         html: String,
         /// Extracted headings
         headings: Vec<Heading>,
-        /// Rule definitions for specification traceability
-        rules: Vec<RuleDefinition>,
+        /// Requirement definitions for specification traceability
+        reqs: Vec<ReqDefinition>,
     },
     /// Error during rendering
     Error { message: String },
@@ -137,8 +137,8 @@ pub enum ParseResult {
         frontmatter: Frontmatter,
         html: String,
         headings: Vec<Heading>,
-        /// Rule definitions for specification traceability
-        rules: Vec<RuleDefinition>,
+        /// Requirement definitions for specification traceability
+        reqs: Vec<ReqDefinition>,
     },
     /// Error during parsing
     Error { message: String },

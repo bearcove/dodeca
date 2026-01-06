@@ -9,12 +9,12 @@ use pulldown_cmark::{CodeBlockKind, Event, MetadataBlockKind, Options, Parser, T
 use crate::Result;
 use crate::frontmatter::{Frontmatter, FrontmatterFormat};
 use crate::handler::{
-    BoxedHandler, BoxedRuleHandler, CodeBlockHandler, DefaultRuleHandler, RawCodeHandler,
-    RuleHandler, html_escape,
+    BoxedHandler, BoxedReqHandler, CodeBlockHandler, DefaultReqHandler, RawCodeHandler, ReqHandler,
+    html_escape,
 };
 use crate::headings::{Heading, slugify};
 use crate::links::resolve_link;
-use crate::rules::{RuleDefinition, SourceSpan, parse_rule_marker};
+use crate::reqs::{ReqDefinition, SourceSpan, parse_req_marker};
 
 /// Parse context representing the current nested structure we're inside.
 /// This replaces the ad-hoc state variables with a proper stack.
@@ -31,14 +31,14 @@ enum ParseContext<'a> {
         start_offset: usize,
     },
 
-    /// Inside a paragraph (potential rule)
+    /// Inside a paragraph (potential requirement)
     Paragraph {
         text: String,
         start_offset: usize,
         events: Vec<(Event<'a>, Range<usize>)>,
     },
 
-    /// Inside a blockquote (potential rule container)
+    /// Inside a blockquote (potential requirement container)
     BlockQuote {
         start_offset: usize,
         events: Vec<(Event<'a>, Range<usize>)>,
@@ -94,9 +94,9 @@ pub struct Paragraph {
 pub enum DocElement {
     /// A heading (h1-h6)
     Heading(Heading),
-    /// A rule definition (r[rule.id])
-    Rule(RuleDefinition),
-    /// A regular paragraph (not a rule)
+    /// A requirement definition (r[req.id])
+    Req(ReqDefinition),
+    /// A regular paragraph (not a requirement)
     Paragraph(Paragraph),
 }
 
@@ -112,8 +112,8 @@ pub struct RenderOptions {
     /// Default handler for languages without a specific handler
     pub default_handler: Option<BoxedHandler>,
 
-    /// Custom handler for rendering rule definitions
-    pub rule_handler: Option<BoxedRuleHandler>,
+    /// Custom handler for rendering requirement definitions
+    pub req_handler: Option<BoxedReqHandler>,
 }
 
 impl RenderOptions {
@@ -142,9 +142,9 @@ impl RenderOptions {
         self
     }
 
-    /// Set a custom handler for rule definitions.
-    pub fn with_rule_handler<H: RuleHandler + 'static>(mut self, handler: H) -> Self {
-        self.rule_handler = Some(Arc::new(handler));
+    /// Set a custom handler for requirement definitions.
+    pub fn with_req_handler<H: ReqHandler + 'static>(mut self, handler: H) -> Self {
+        self.req_handler = Some(Arc::new(handler));
         self
     }
 
@@ -184,13 +184,13 @@ pub struct Document {
     /// Extracted headings for TOC generation
     pub headings: Vec<Heading>,
 
-    /// Extracted rule definitions
-    pub rules: Vec<RuleDefinition>,
+    /// Extracted requirement definitions
+    pub reqs: Vec<ReqDefinition>,
 
     /// Code samples found in the document
     pub code_samples: Vec<CodeSample>,
 
-    /// All document elements (headings and rules) in document order.
+    /// All document elements (headings and requirements) in document order.
     /// Useful for building hierarchical structures like outlines with coverage.
     pub elements: Vec<DocElement>,
 }
@@ -233,7 +233,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
 
     // Collected data
     let mut headings: Vec<Heading> = Vec::new();
-    let mut rules: Vec<RuleDefinition> = Vec::new();
+    let mut reqs: Vec<ReqDefinition> = Vec::new();
     let mut elements: Vec<DocElement> = Vec::new();
     let mut code_samples: Vec<CodeSample> = Vec::new();
 
@@ -247,18 +247,15 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
     // Track parent heading slugs for hierarchical IDs
     let mut heading_stack: Vec<(u8, String)> = Vec::new();
 
-    // Track seen rule IDs for duplicate detection
-    let mut seen_rule_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Track seen req IDs for duplicate detection
+    let mut seen_req_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // The context stack
     let mut context_stack: Vec<ParseContext<'_>> = Vec::new();
 
-    // Default rule handler
-    let default_rule_handler: Arc<dyn RuleHandler> = Arc::new(DefaultRuleHandler);
-    let rule_handler = options
-        .rule_handler
-        .as_ref()
-        .unwrap_or(&default_rule_handler);
+    // Default req handler
+    let default_req_handler: Arc<dyn ReqHandler> = Arc::new(DefaultReqHandler);
+    let req_handler = options.req_handler.as_ref().unwrap_or(&default_req_handler);
 
     // Default code handler
     let default_code_handler: BoxedHandler = Arc::new(RawCodeHandler);
@@ -292,34 +289,34 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                     {
                         events.push((event, range.clone()));
 
-                        // Check if this is a rule
+                        // Check if this is a req
                         let trimmed = first_para_text.trim();
                         if trimmed.starts_with("r[")
-                            && let Some(rule_result) = try_parse_blockquote_rule(
+                            && let Some(req_result) = try_parse_blockquote_req(
                                 trimmed,
                                 markdown,
                                 start_offset,
-                                &mut seen_rule_ids,
+                                &mut seen_req_ids,
                             )
                         {
-                            match rule_result {
-                                Ok(mut rule) => {
-                                    // Render rule content HTML
-                                    let content_html = render_blockquote_rule_content(
+                            match req_result {
+                                Ok(mut req) => {
+                                    // Render req content HTML
+                                    let content_html = render_blockquote_req_content(
                                         &events,
                                         options,
                                         &default_code_handler,
                                     )
                                     .await?;
 
-                                    // Store content in rule.html for API access
-                                    rule.html = content_html.clone();
+                                    // Store content in req.html for API access
+                                    req.html = content_html.clone();
 
-                                    // Render rule with start/end wrappers
-                                    let start_html = rule_handler.start(&rule).await?;
-                                    let end_html = rule_handler.end(&rule).await?;
+                                    // Render req with start/end wrappers
+                                    let start_html = req_handler.start(&req).await?;
+                                    let end_html = req_handler.end(&req).await?;
 
-                                    let rule_html =
+                                    let req_html =
                                         format!("{}{}{}", start_html, content_html, end_html);
 
                                     // Check if nested in another blockquote
@@ -330,18 +327,18 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                                         }) = context_stack.last_mut()
                                         {
                                             parent_events
-                                                .push((Event::Html(rule_html.into()), range));
+                                                .push((Event::Html(req_html.into()), range));
                                         }
                                     } else {
-                                        html.push_str(&rule_html);
+                                        html.push_str(&req_html);
                                     }
 
-                                    rules.push(rule.clone());
-                                    elements.push(DocElement::Rule(rule));
+                                    reqs.push(req.clone());
+                                    elements.push(DocElement::Req(req));
                                     continue;
                                 }
                                 Err(_) => {
-                                    // Invalid rule, treat as normal blockquote
+                                    // Invalid req, treat as normal blockquote
                                 }
                             }
                         }
@@ -480,7 +477,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                 }
             }
 
-            // ===== Paragraphs (potential rules) =====
+            // ===== Paragraphs (potential requirements) =====
             Event::Start(Tag::Paragraph) => {
                 context_stack.push(ParseContext::Paragraph {
                     text: String::new(),
@@ -499,36 +496,36 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
 
                     let trimmed = paragraph_text.trim();
                     if trimmed.starts_with("r[")
-                        && let Some(rule_result) = try_parse_paragraph_rule(
+                        && let Some(req_result) = try_parse_paragraph_req(
                             trimmed,
                             markdown,
                             start_offset,
-                            &mut seen_rule_ids,
+                            &mut seen_req_ids,
                             &events,
                         )
                     {
-                        match rule_result {
-                            Ok(mut rule) => {
-                                // Render rule content HTML
-                                let content_html = render_paragraph_rule_content(&events, options);
+                        match req_result {
+                            Ok(mut req) => {
+                                // Render req content HTML
+                                let content_html = render_paragraph_req_content(&events, options);
 
-                                // Store content in rule.html for API access
-                                rule.html = content_html.clone();
+                                // Store content in req.html for API access
+                                req.html = content_html.clone();
 
-                                // Render rule with start/end wrappers
-                                let start_html = rule_handler.start(&rule).await?;
-                                let end_html = rule_handler.end(&rule).await?;
+                                // Render req with start/end wrappers
+                                let start_html = req_handler.start(&req).await?;
+                                let end_html = req_handler.end(&req).await?;
 
                                 html.push_str(&start_html);
                                 html.push_str(&content_html);
                                 html.push_str(&end_html);
 
-                                rules.push(rule.clone());
-                                elements.push(DocElement::Rule(rule));
+                                reqs.push(req.clone());
+                                elements.push(DocElement::Req(req));
                                 continue;
                             }
                             Err(_) => {
-                                // Invalid rule, treat as normal paragraph
+                                // Invalid req, treat as normal paragraph
                             }
                         }
                     }
@@ -680,7 +677,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
         frontmatter,
         html,
         headings,
-        rules,
+        reqs,
         code_samples,
         elements,
     })
@@ -739,22 +736,21 @@ struct SourceInfo {
     line: usize,
 }
 
-/// Regex to match rule markers like r[rule.id] or r[rule.id attr=value]
-fn rule_marker_regex() -> &'static regex::Regex {
+/// Regex to match req markers like r[req.id] or r[req.id attr=value]
+fn req_marker_regex() -> &'static regex::Regex {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     RE.get_or_init(|| regex::Regex::new(r"^r\[[^\]]+\]\s*").unwrap())
 }
 
-/// Strip rule marker from text if present, returns owned String
-fn strip_rule_marker(text: &str) -> String {
-    rule_marker_regex().replace(text, "").into_owned()
+/// Strip req marker from text if present, returns owned String
+fn strip_req_marker(text: &str) -> String {
+    req_marker_regex().replace(text, "").into_owned()
 }
-
-/// Render the content of a paragraph rule (stripping the r[...] marker)
+/// Render the content of a paragraph req (stripping the r[...] marker)
 ///
 /// Uses a text buffer to accumulate consecutive text events (pulldown-cmark
-/// splits text across multiple events), then strips the rule marker when flushing.
-fn render_paragraph_rule_content(
+/// splits text across multiple events), then strips the req marker when flushing.
+fn render_paragraph_req_content(
     events: &[(Event<'_>, Range<usize>)],
     options: &RenderOptions,
 ) -> String {
@@ -762,14 +758,14 @@ fn render_paragraph_rule_content(
     let mut text_buffer = String::new();
     let mut marker_stripped = false;
 
-    // Flush the text buffer, stripping the rule marker if we haven't yet
+    // Flush the text buffer, stripping the req marker if we haven't yet
     let flush_text = |html: &mut String, buffer: &mut String, stripped: &mut bool| {
         if buffer.is_empty() {
             return;
         }
         let text = if !*stripped {
             *stripped = true;
-            strip_rule_marker(buffer)
+            strip_req_marker(buffer)
         } else {
             std::mem::take(buffer)
         };
@@ -853,10 +849,10 @@ fn render_paragraph_rule_content(
     html
 }
 
-/// Render the content of a blockquote rule (stripping blockquote wrapper and r[...] marker)
+/// Render the content of a blockquote req (stripping blockquote wrapper and r[...] marker)
 ///
-/// Uses a text buffer to accumulate consecutive text events, then strips the rule marker.
-async fn render_blockquote_rule_content(
+/// Uses a text buffer to accumulate consecutive text events, then strips the req marker.
+async fn render_blockquote_req_content(
     events: &[(Event<'_>, Range<usize>)],
     options: &RenderOptions,
     default_code_handler: &BoxedHandler,
@@ -869,14 +865,14 @@ async fn render_blockquote_rule_content(
     let mut code_block_lang = String::new();
     let mut code_block_content = String::new();
 
-    // Flush the text buffer, stripping the rule marker if we haven't yet
+    // Flush the text buffer, stripping the req marker if we haven't yet
     let flush_text = |html: &mut String, buffer: &mut String, stripped: &mut bool| {
         if buffer.is_empty() {
             return;
         }
         let text = if !*stripped {
             *stripped = true;
-            strip_rule_marker(buffer)
+            strip_req_marker(buffer)
         } else {
             std::mem::take(buffer)
         };
@@ -991,45 +987,45 @@ async fn render_blockquote_rule_content(
     Ok(html)
 }
 
-/// Try to parse a paragraph as a rule definition.
-/// Returns Some(Ok(rule)) if successful, Some(Err) if it looks like a rule but is invalid,
-/// or None if it's not a rule at all.
-fn try_parse_paragraph_rule<'a>(
+/// Try to parse a paragraph as a requirement definition.
+/// Returns Some(Ok(req)) if successful, Some(Err) if it looks like a req but is invalid,
+/// or None if it's not a req at all.
+fn try_parse_paragraph_req<'a>(
     text: &str,
     markdown: &str,
     offset: usize,
     seen_ids: &mut std::collections::HashSet<String>,
     _paragraph_events: &[(Event<'a>, std::ops::Range<usize>)],
-) -> Option<Result<RuleDefinition>> {
+) -> Option<Result<ReqDefinition>> {
     // Must start with r[ and have a closing ]
     if !text.starts_with("r[") {
         return None;
     }
 
-    // Find the end of the rule marker
+    // Find the end of the req marker
     let marker_end = text.find(']')?;
     let marker_content = &text[2..marker_end];
 
-    // Parse the rule marker
-    let (rule_id, metadata) = match parse_rule_marker(marker_content) {
+    // Parse the req marker
+    let (req_id, metadata) = match parse_req_marker(marker_content) {
         Ok(result) => result,
         Err(e) => return Some(Err(e)),
     };
 
     // Check for duplicates
-    if seen_ids.contains(rule_id) {
-        return Some(Err(crate::Error::DuplicateRule(rule_id.to_string())));
+    if seen_ids.contains(req_id) {
+        return Some(Err(crate::Error::DuplicateReq(req_id.to_string())));
     }
-    seen_ids.insert(rule_id.to_string());
+    seen_ids.insert(req_id.to_string());
 
-    // html is now generated separately by render_paragraph_rule_content
+    // html is now generated separately by render_paragraph_req_content
     let html = String::new();
 
     let line = offset_to_line(markdown, offset);
-    let anchor_id = format!("r-{}", rule_id);
+    let anchor_id = format!("r-{}", req_id);
 
-    let rule = RuleDefinition {
-        id: rule_id.to_string(),
+    let req = ReqDefinition {
+        id: req_id.to_string(),
         anchor_id,
         span: SourceSpan {
             offset,
@@ -1040,47 +1036,47 @@ fn try_parse_paragraph_rule<'a>(
         html,
     };
 
-    Some(Ok(rule))
+    Some(Ok(req))
 }
 
-/// Try to parse a blockquote as a rule definition.
-/// Returns Some(Ok(rule)) if successful, Some(Err) if it looks like a rule but is invalid,
-/// or None if it's not a rule at all.
-fn try_parse_blockquote_rule(
+/// Try to parse a blockquote as a requirement definition.
+/// Returns Some(Ok(req)) if successful, Some(Err) if it looks like a req but is invalid,
+/// or None if it's not a req at all.
+fn try_parse_blockquote_req(
     first_para_text: &str,
     markdown: &str,
     offset: usize,
     seen_ids: &mut std::collections::HashSet<String>,
-) -> Option<Result<RuleDefinition>> {
+) -> Option<Result<ReqDefinition>> {
     // Must start with r[ and have a closing ]
     if !first_para_text.starts_with("r[") {
         return None;
     }
 
-    // Find the end of the rule marker
+    // Find the end of the req marker
     let marker_end = first_para_text.find(']')?;
     let marker_content = &first_para_text[2..marker_end];
 
-    // Parse the rule marker
-    let (rule_id, metadata) = match parse_rule_marker(marker_content) {
+    // Parse the req marker
+    let (req_id, metadata) = match parse_req_marker(marker_content) {
         Ok(result) => result,
         Err(e) => return Some(Err(e)),
     };
 
     // Check for duplicates
-    if seen_ids.contains(rule_id) {
-        return Some(Err(crate::Error::DuplicateRule(rule_id.to_string())));
+    if seen_ids.contains(req_id) {
+        return Some(Err(crate::Error::DuplicateReq(req_id.to_string())));
     }
-    seen_ids.insert(rule_id.to_string());
+    seen_ids.insert(req_id.to_string());
 
-    // html is now generated separately by render_blockquote_rule_content
+    // html is now generated separately by render_blockquote_req_content
     let html = String::new();
 
     let line = offset_to_line(markdown, offset);
-    let anchor_id = format!("r-{}", rule_id);
+    let anchor_id = format!("r-{}", req_id);
 
-    let rule = RuleDefinition {
-        id: rule_id.to_string(),
+    let req = ReqDefinition {
+        id: req_id.to_string(),
         anchor_id,
         span: SourceSpan {
             offset,
@@ -1091,7 +1087,7 @@ fn try_parse_blockquote_rule(
         html,
     };
 
-    Some(Ok(rule))
+    Some(Ok(req))
 }
 
 #[cfg(test)]
@@ -1124,23 +1120,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_render_with_rules() {
-        let md = "r[my.rule] This MUST be followed.\n";
+    async fn test_render_with_reqs() {
+        let md = "r[my.req] This MUST be followed.\n";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
-        assert_eq!(doc.rules.len(), 1);
-        assert_eq!(doc.rules[0].id, "my.rule");
-        assert_eq!(doc.rules[0].line, 1);
-        assert!(doc.html.contains("id=\"r-my.rule\""));
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "my.req");
+        assert_eq!(doc.reqs[0].line, 1);
+        assert!(doc.html.contains("id=\"r-my.req\""));
     }
 
     #[tokio::test]
-    async fn test_render_rule_with_links() {
+    async fn test_render_req_with_links() {
         let md = "r[data.postcard] All payloads MUST use [Postcard](https://postcard.jamesmunns.com/wire-format).\n";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
-        assert_eq!(doc.rules.len(), 1);
-        assert_eq!(doc.rules[0].id, "data.postcard");
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "data.postcard");
         // The HTML should preserve the link
         assert!(
             doc.html
@@ -1156,11 +1152,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_render_rule_with_formatting() {
-        let md = "r[fmt.rule] Text with **bold**, *italic*, and `code`.\n";
+    async fn test_render_req_with_formatting() {
+        let md = "r[fmt.req] Text with **bold**, *italic*, and `code`.\n";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
-        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.reqs.len(), 1);
         assert!(
             doc.html.contains("<strong>bold</strong>"),
             "Bold should be preserved: {}",
@@ -1188,43 +1184,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_render_with_custom_rule_handler() {
-        use crate::handler::RuleHandler;
-        use crate::rules::RuleDefinition;
+    async fn test_render_with_custom_req_handler() {
+        use crate::handler::ReqHandler;
+        use crate::reqs::ReqDefinition;
         use std::future::Future;
         use std::pin::Pin;
 
-        struct CustomRuleHandler;
+        struct CustomReqHandler;
 
-        impl RuleHandler for CustomRuleHandler {
+        impl ReqHandler for CustomReqHandler {
             fn start<'a>(
                 &'a self,
-                rule: &'a RuleDefinition,
+                req: &'a ReqDefinition,
             ) -> Pin<Box<dyn Future<Output = crate::Result<String>> + Send + 'a>> {
                 Box::pin(async move {
                     Ok(format!(
-                        "<div class=\"custom-rule\" data-rule=\"{}\">",
-                        rule.id
+                        "<div class=\"custom-req\" data-req=\"{}\">",
+                        req.id
                     ))
                 })
             }
 
             fn end<'a>(
                 &'a self,
-                _rule: &'a RuleDefinition,
+                _req: &'a ReqDefinition,
             ) -> Pin<Box<dyn Future<Output = crate::Result<String>> + Send + 'a>> {
                 Box::pin(async move { Ok("</div>".to_string()) })
             }
         }
 
-        let md = "r[custom.test] Some rule text.\n";
-        let opts = RenderOptions::new().with_rule_handler(CustomRuleHandler);
+        let md = "r[custom.test] Some requirement text.\n";
+        let opts = RenderOptions::new().with_req_handler(CustomReqHandler);
         let doc = render(md, &opts).await.unwrap();
 
-        assert_eq!(doc.rules.len(), 1);
-        assert_eq!(doc.rules[0].id, "custom.test");
-        assert!(doc.html.contains("class=\"custom-rule\""));
-        assert!(doc.html.contains("data-rule=\"custom.test\""));
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "custom.test");
+        assert!(doc.html.contains("class=\"custom-req\""));
+        assert!(doc.html.contains("data-req=\"custom.test\""));
     }
 
     #[tokio::test]
@@ -1301,13 +1297,13 @@ Details 2.
     async fn test_elements_in_document_order() {
         let md = r#"# Heading 1
 
-r[rule.one] First rule.
+r[req.one] First requirement.
 
 ## Heading 2
 
-r[rule.two] Second rule.
+r[req.two] Second requirement.
 
-r[rule.three] Third rule.
+r[req.three] Third requirement.
 
 # Heading 3
 "#;
@@ -1315,12 +1311,12 @@ r[rule.three] Third rule.
 
         assert_eq!(doc.elements.len(), 6);
 
-        // Check order: H1, rule1, H2, rule2, rule3, H3
+        // Check order: H1, req1, H2, req2, req3, H3
         assert!(matches!(&doc.elements[0], DocElement::Heading(h) if h.title == "Heading 1"));
-        assert!(matches!(&doc.elements[1], DocElement::Rule(r) if r.id == "rule.one"));
+        assert!(matches!(&doc.elements[1], DocElement::Req(r) if r.id == "req.one"));
         assert!(matches!(&doc.elements[2], DocElement::Heading(h) if h.title == "Heading 2"));
-        assert!(matches!(&doc.elements[3], DocElement::Rule(r) if r.id == "rule.two"));
-        assert!(matches!(&doc.elements[4], DocElement::Rule(r) if r.id == "rule.three"));
+        assert!(matches!(&doc.elements[3], DocElement::Req(r) if r.id == "req.two"));
+        assert!(matches!(&doc.elements[4], DocElement::Req(r) if r.id == "req.three"));
         assert!(matches!(&doc.elements[5], DocElement::Heading(h) if h.title == "Heading 3"));
     }
 
@@ -1345,54 +1341,54 @@ More text.
     }
 
     #[tokio::test]
-    async fn test_rule_line_numbers() {
+    async fn test_req_line_numbers() {
         let md = r#"# Heading
 
-r[rule.one] First.
+r[req.one] First.
 
 Text.
 
-r[rule.two] Second.
+r[req.two] Second.
 "#;
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
-        assert_eq!(doc.rules.len(), 2);
-        assert_eq!(doc.rules[0].line, 3);
-        assert_eq!(doc.rules[1].line, 7);
+        assert_eq!(doc.reqs.len(), 2);
+        assert_eq!(doc.reqs[0].line, 3);
+        assert_eq!(doc.reqs[1].line, 7);
     }
 
     // =========================================================================
-    // Blockquote rule tests
+    // Blockquote requirement tests
     // =========================================================================
 
     #[tokio::test]
-    async fn test_rule_in_blockquote_simple() {
-        let md = "> r[my.rule] This is a rule in a blockquote.";
+    async fn test_req_in_blockquote_simple() {
+        let md = "> r[my.req] This is a requirement in a blockquote.";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
         eprintln!("HTML: {}", doc.html);
-        eprintln!("Rules: {:?}", doc.rules);
+        eprintln!("Reqs: {:?}", doc.reqs);
 
-        assert_eq!(doc.rules.len(), 1);
-        assert_eq!(doc.rules[0].id, "my.rule");
-        // Should NOT have blockquote wrapper in HTML - the whole blockquote IS the rule
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "my.req");
+        // Should NOT have blockquote wrapper in HTML - the whole blockquote IS the requirement
         assert!(
             !doc.html.contains("<blockquote>"),
-            "Blockquote wrapper should be removed when it's a rule. HTML: {}",
+            "Blockquote wrapper should be removed when it's a requirement. HTML: {}",
             doc.html
         );
-        assert!(doc.html.contains("id=\"r-my.rule\""));
+        assert!(doc.html.contains("id=\"r-my.req\""));
     }
 
     #[tokio::test]
-    async fn test_rule_in_blockquote_multiline() {
-        let md = r#"> r[my.rule] First line of rule.
+    async fn test_req_in_blockquote_multiline() {
+        let md = r#"> r[my.req] First line of requirement.
 > Second line continues.
 > Third line ends."#;
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
-        assert_eq!(doc.rules.len(), 1);
-        assert_eq!(doc.rules[0].id, "my.rule");
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "my.req");
         // All lines should be in the rendered HTML
         assert!(
             doc.html.contains("First line"),
@@ -1412,17 +1408,17 @@ r[rule.two] Second.
     }
 
     #[tokio::test]
-    async fn test_rule_in_blockquote_with_code_block() {
-        let md = r#"> r[my.rule] Rule with code:
+    async fn test_req_in_blockquote_with_code_block() {
+        let md = r#"> r[my.req] Requirement with code:
 >
 > ```rust
 > fn main() {}
 > ```"#;
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
-        assert_eq!(doc.rules.len(), 1);
-        assert_eq!(doc.rules[0].id, "my.rule");
-        // The code block should be part of the rule's HTML
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "my.req");
+        // The code block should be part of the requirement's HTML
         assert!(
             doc.html.contains("fn main()"),
             "Code block should be in HTML: {}",
@@ -1431,11 +1427,11 @@ r[rule.two] Second.
     }
 
     #[tokio::test]
-    async fn test_rule_in_blockquote_with_formatting() {
-        let md = "> r[fmt.rule] Text with **bold** and *italic*.";
+    async fn test_req_in_blockquote_with_formatting() {
+        let md = "> r[fmt.req] Text with **bold** and *italic*.";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
-        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.reqs.len(), 1);
         assert!(
             doc.html.contains("<strong>bold</strong>"),
             "Bold should be preserved: {}",
@@ -1449,12 +1445,12 @@ r[rule.two] Second.
     }
 
     #[tokio::test]
-    async fn test_regular_blockquote_not_rule() {
+    async fn test_regular_blockquote_not_req() {
         let md = r#"> This is just a regular blockquote.
-> Not a rule."#;
+> Not a requirement."#;
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
-        assert_eq!(doc.rules.len(), 0);
+        assert_eq!(doc.reqs.len(), 0);
         assert!(
             doc.html.contains("<blockquote>"),
             "Regular blockquote should be preserved: {}",
@@ -1463,23 +1459,23 @@ r[rule.two] Second.
     }
 
     #[tokio::test]
-    async fn test_mixed_rules_paragraph_and_blockquote() {
-        let md = r#"r[para.rule] This is a paragraph rule.
+    async fn test_mixed_reqs_paragraph_and_blockquote() {
+        let md = r#"r[para.req] This is a paragraph requirement.
 
-> r[quote.rule] This is a blockquote rule."#;
+> r[quote.req] This is a blockquote requirement."#;
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
-        assert_eq!(doc.rules.len(), 2);
-        assert_eq!(doc.rules[0].id, "para.rule");
-        assert_eq!(doc.rules[1].id, "quote.rule");
+        assert_eq!(doc.reqs.len(), 2);
+        assert_eq!(doc.reqs[0].id, "para.req");
+        assert_eq!(doc.reqs[1].id, "quote.req");
     }
 
     #[tokio::test]
-    async fn test_blockquote_rule_with_link() {
-        let md = "> r[link.rule] See [the docs](https://example.com) for details.";
+    async fn test_blockquote_req_with_link() {
+        let md = "> r[link.req] See [the docs](https://example.com) for details.";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
-        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.reqs.len(), 1);
         assert!(
             doc.html.contains("<a href=\"https://example.com\">"),
             "Link should be preserved: {}",
@@ -1488,12 +1484,12 @@ r[rule.two] Second.
     }
 
     #[tokio::test]
-    async fn test_blockquote_rule_in_document_order() {
+    async fn test_blockquote_req_in_document_order() {
         let md = r#"# Heading 1
 
-r[para.rule] Paragraph rule.
+r[para.req] Paragraph requirement.
 
-> r[quote.rule] Blockquote rule.
+> r[quote.req] Blockquote requirement.
 
 ## Heading 2
 "#;
@@ -1501,8 +1497,8 @@ r[para.rule] Paragraph rule.
 
         assert_eq!(doc.elements.len(), 4);
         assert!(matches!(&doc.elements[0], DocElement::Heading(h) if h.title == "Heading 1"));
-        assert!(matches!(&doc.elements[1], DocElement::Rule(r) if r.id == "para.rule"));
-        assert!(matches!(&doc.elements[2], DocElement::Rule(r) if r.id == "quote.rule"));
+        assert!(matches!(&doc.elements[1], DocElement::Req(r) if r.id == "para.req"));
+        assert!(matches!(&doc.elements[2], DocElement::Req(r) if r.id == "quote.req"));
         assert!(matches!(&doc.elements[3], DocElement::Heading(h) if h.title == "Heading 2"));
     }
 
@@ -1568,7 +1564,7 @@ Second paragraph.
 
 Regular paragraph.
 
-r[my.rule] A rule definition.
+r[my.req] A requirement definition.
 
 Another paragraph.
 
@@ -1576,11 +1572,11 @@ Another paragraph.
 "#;
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
-        // Order: Heading 1, Paragraph, Rule, Paragraph, Heading 2
+        // Order: Heading 1, Paragraph, Requirement, Paragraph, Heading 2
         assert_eq!(doc.elements.len(), 5);
         assert!(matches!(&doc.elements[0], DocElement::Heading(h) if h.title == "Heading 1"));
         assert!(matches!(&doc.elements[1], DocElement::Paragraph(p) if p.line == 3));
-        assert!(matches!(&doc.elements[2], DocElement::Rule(r) if r.id == "my.rule"));
+        assert!(matches!(&doc.elements[2], DocElement::Req(r) if r.id == "my.req"));
         assert!(matches!(&doc.elements[3], DocElement::Paragraph(p) if p.line == 7));
         assert!(matches!(&doc.elements[4], DocElement::Heading(h) if h.title == "Heading 2"));
     }
@@ -1635,32 +1631,32 @@ Third paragraph.
     }
 
     // =========================================================================
-    // Rule marker stripping tests - comprehensive edge cases
+    // Requirement marker stripping tests - comprehensive edge cases
     // =========================================================================
 
     #[test]
-    fn test_strip_rule_marker_basic() {
-        assert_eq!(strip_rule_marker("r[foo] bar"), "bar");
-        assert_eq!(strip_rule_marker("r[foo.bar] text"), "text");
-        assert_eq!(strip_rule_marker("r[foo]"), "");
+    fn test_strip_req_marker_basic() {
+        assert_eq!(strip_req_marker("r[foo] bar"), "bar");
+        assert_eq!(strip_req_marker("r[foo.bar] text"), "text");
+        assert_eq!(strip_req_marker("r[foo]"), "");
         assert_eq!(
-            strip_rule_marker("r[foo.bar.baz status=stable] text"),
+            strip_req_marker("r[foo.bar.baz status=stable] text"),
             "text"
         );
-        assert_eq!(strip_rule_marker("no marker here"), "no marker here");
-        assert_eq!(strip_rule_marker(""), "");
+        assert_eq!(strip_req_marker("no marker here"), "no marker here");
+        assert_eq!(strip_req_marker(""), "");
     }
 
     #[tokio::test]
-    async fn test_rule_marker_same_line() {
+    async fn test_req_marker_same_line() {
         // r[id] and text on same line
         let md = "r[same.line] This text is on the same line.";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
         eprintln!("HTML: {}", doc.html);
 
-        assert_eq!(doc.rules.len(), 1);
-        assert_eq!(doc.rules[0].id, "same.line");
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "same.line");
         // Should NOT contain the raw marker
         assert!(
             !doc.html.contains("r[same.line]"),
@@ -1681,15 +1677,15 @@ Third paragraph.
     }
 
     #[tokio::test]
-    async fn test_rule_marker_on_own_line() {
+    async fn test_req_marker_on_own_line() {
         // r[id] on its own line, text on next line
         let md = "r[own.line]\nText on next line.";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
         eprintln!("HTML: {}", doc.html);
 
-        assert_eq!(doc.rules.len(), 1);
-        assert_eq!(doc.rules[0].id, "own.line");
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "own.line");
         assert!(
             !doc.html.contains("r[own.line]"),
             "Raw marker should be stripped: {}",
@@ -1708,15 +1704,15 @@ Third paragraph.
     }
 
     #[tokio::test]
-    async fn test_rule_marker_with_blank_line() {
+    async fn test_req_marker_with_blank_line() {
         // r[id] followed by blank line then text (separate paragraph)
         let md = "r[blank.after]\n\nText after blank line.";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
         eprintln!("HTML: {}", doc.html);
 
-        assert_eq!(doc.rules.len(), 1);
-        assert_eq!(doc.rules[0].id, "blank.after");
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "blank.after");
         assert!(
             !doc.html.contains("r[blank.after]"),
             "Raw marker should be stripped: {}",
@@ -1730,17 +1726,17 @@ Third paragraph.
     }
 
     #[tokio::test]
-    async fn test_rule_marker_with_metadata() {
+    async fn test_req_marker_with_metadata() {
         // r[id attr=value] with metadata
-        let md = "r[meta.rule status=stable level=must] Rule with metadata.";
+        let md = "r[meta.req status=stable level=must] Requirement with metadata.";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
         eprintln!("HTML: {}", doc.html);
 
-        assert_eq!(doc.rules.len(), 1);
-        assert_eq!(doc.rules[0].id, "meta.rule");
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "meta.req");
         assert!(
-            !doc.html.contains("r[meta.rule"),
+            !doc.html.contains("r[meta.req"),
             "Raw marker should be stripped: {}",
             doc.html
         );
@@ -1750,41 +1746,41 @@ Third paragraph.
             doc.html
         );
         assert!(
-            doc.html.contains("Rule with metadata"),
+            doc.html.contains("Requirement with metadata"),
             "Text should be present: {}",
             doc.html
         );
     }
 
     #[tokio::test]
-    async fn test_rule_in_blockquote_marker_stripped() {
-        // > r[id] text - blockquote rule
-        let md = "> r[quote.rule] Text in blockquote rule.";
+    async fn test_req_in_blockquote_marker_stripped() {
+        // > r[id] text - blockquote requirement
+        let md = "> r[quote.req] Text in blockquote requirement.";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
         eprintln!("HTML: {}", doc.html);
 
-        assert_eq!(doc.rules.len(), 1);
-        assert_eq!(doc.rules[0].id, "quote.rule");
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "quote.req");
         assert!(
-            !doc.html.contains("r[quote.rule]"),
+            !doc.html.contains("r[quote.req]"),
             "Raw marker should be stripped: {}",
             doc.html
         );
         assert!(
-            !doc.html.contains("[quote.rule]"),
+            !doc.html.contains("[quote.req]"),
             "Marker brackets should be stripped: {}",
             doc.html
         );
         assert!(
-            doc.html.contains("Text in blockquote rule"),
+            doc.html.contains("Text in blockquote requirement"),
             "Text should be present: {}",
             doc.html
         );
     }
 
     #[tokio::test]
-    async fn test_rule_in_blockquote_multiline_marker_stripped() {
+    async fn test_req_in_blockquote_multiline_marker_stripped() {
         // > r[id]
         // > text on next line
         let md = "> r[multiline.quote]\n> Text continues here.";
@@ -1792,8 +1788,8 @@ Third paragraph.
 
         eprintln!("HTML: {}", doc.html);
 
-        assert_eq!(doc.rules.len(), 1);
-        assert_eq!(doc.rules[0].id, "multiline.quote");
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "multiline.quote");
         assert!(
             !doc.html.contains("r[multiline.quote]"),
             "Raw marker should be stripped: {}",
@@ -1812,63 +1808,63 @@ Third paragraph.
     }
 
     #[tokio::test]
-    async fn test_multiple_rules_markers_stripped() {
-        // Multiple rules in document
-        let md = "r[first.rule] First rule text.\n\nr[second.rule] Second rule text.";
+    async fn test_multiple_reqs_markers_stripped() {
+        // Multiple requirements in document
+        let md = "r[first.req] First requirement text.\n\nr[second.req] Second requirement text.";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
         eprintln!("HTML: {}", doc.html);
 
-        assert_eq!(doc.rules.len(), 2);
+        assert_eq!(doc.reqs.len(), 2);
         assert!(
-            !doc.html.contains("r[first.rule]"),
+            !doc.html.contains("r[first.req]"),
             "First marker should be stripped: {}",
             doc.html
         );
         assert!(
-            !doc.html.contains("r[second.rule]"),
+            !doc.html.contains("r[second.req]"),
             "Second marker should be stripped: {}",
             doc.html
         );
         assert!(
-            doc.html.contains("First rule text"),
+            doc.html.contains("First requirement text"),
             "First text should be present: {}",
             doc.html
         );
         assert!(
-            doc.html.contains("Second rule text"),
+            doc.html.contains("Second requirement text"),
             "Second text should be present: {}",
             doc.html
         );
     }
 
     #[tokio::test]
-    async fn test_rule_only_marker_no_text() {
+    async fn test_req_only_marker_no_text() {
         // Just r[id] with nothing else
-        let md = "r[lonely.rule]";
+        let md = "r[lonely.req]";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
         eprintln!("HTML: {}", doc.html);
 
-        assert_eq!(doc.rules.len(), 1);
-        assert_eq!(doc.rules[0].id, "lonely.rule");
-        // The anchor link will contain [lonely.rule] but not raw r[...]
+        assert_eq!(doc.reqs.len(), 1);
+        assert_eq!(doc.reqs[0].id, "lonely.req");
+        // The anchor link will contain [lonely.req] but not raw r[...]
         assert!(
-            !doc.html.contains("r[lonely.rule]"),
+            !doc.html.contains("r[lonely.req]"),
             "Raw marker should not appear: {}",
             doc.html
         );
     }
 
     #[tokio::test]
-    async fn test_rule_with_formatting_after_marker() {
+    async fn test_req_with_formatting_after_marker() {
         // r[id] with **bold** and *italic* after
         let md = "r[fmt.after] Text with **bold** and *italic*.";
         let doc = render(md, &RenderOptions::default()).await.unwrap();
 
         eprintln!("HTML: {}", doc.html);
 
-        assert_eq!(doc.rules.len(), 1);
+        assert_eq!(doc.reqs.len(), 1);
         assert!(
             !doc.html.contains("r[fmt.after]"),
             "Marker should be stripped: {}",

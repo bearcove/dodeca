@@ -2035,7 +2035,7 @@ pub struct ParsedMarkdown {
     /// Extracted headings
     pub headings: Vec<cell_markdown_proto::Heading>,
     /// Rule definitions for specification traceability
-    pub rules: Vec<cell_markdown_proto::RuleDefinition>,
+    pub reqs: Vec<cell_markdown_proto::ReqDefinition>,
 }
 
 /// Error from markdown parsing
@@ -2110,12 +2110,12 @@ pub async fn parse_and_render_markdown_cell(
             frontmatter,
             html,
             headings,
-            rules,
+            reqs,
         }) => Ok(ParsedMarkdown {
             frontmatter,
             html,
             headings,
-            rules,
+            reqs,
         }),
         Ok(ParseResult::Error { message }) => Err(MarkdownParseError::ParseError(message)),
         Err(e) => Err(MarkdownParseError::CellCallFailed(format!("{:?}", e))),
@@ -2131,7 +2131,7 @@ async fn _render_markdown_cell(
 ) -> Option<(
     String,
     Vec<cell_markdown_proto::Heading>,
-    Vec<cell_markdown_proto::RuleDefinition>,
+    Vec<cell_markdown_proto::ReqDefinition>,
 )> {
     let cell = all().await.markdown.as_ref()?;
 
@@ -2142,8 +2142,8 @@ async fn _render_markdown_cell(
         Ok(MarkdownResult::Success {
             html,
             headings,
-            rules,
-        }) => Some((html, headings, rules)),
+            reqs,
+        }) => Some((html, headings, reqs)),
         Ok(MarkdownResult::Error { message }) => {
             warn!("markdown render cell error: {}", message);
             None

@@ -1,7 +1,7 @@
 use crate::db::{
     AllRenderedHtml, CharSet, CodeExecutionMetadata, CodeExecutionResult, CssOutput, DataRegistry,
     Db, DependencySourceInfo, Heading, ImageVariant, OutputFile, Page, ParsedData, ProcessedImages,
-    RenderedHtml, ResolvedDependencyInfo, RuleDefinition, SassFile, SassRegistry, Section,
+    RenderedHtml, ReqDefinition, ResolvedDependencyInfo, SassFile, SassRegistry, Section,
     SiteOutput, SiteTree, SourceFile, SourceRegistry, StaticFile, StaticFileOutput, StaticRegistry,
     TemplateFile, TemplateRegistry,
 };
@@ -430,10 +430,10 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
         .collect();
 
     // Convert rules from cell type to internal type
-    let rules: Vec<RuleDefinition> = parsed
-        .rules
+    let reqs: Vec<ReqDefinition> = parsed
+        .reqs
         .into_iter()
-        .map(|r| RuleDefinition {
+        .map(|r| ReqDefinition {
             id: r.id,
             anchor_id: r.anchor_id,
         })
@@ -456,7 +456,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
         body_html,
         is_section,
         headings,
-        rules,
+        reqs,
         last_updated: last_modified,
         extra,
     }))
@@ -534,7 +534,7 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
                 weight: data.weight,
                 body_html: data.body_html.clone(),
                 headings: data.headings.clone(),
-                rules: data.rules.clone(),
+                reqs: data.reqs.clone(),
                 last_updated: data.last_updated,
                 extra: data.extra.clone(),
             },
@@ -549,7 +549,7 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
         weight: 0,
         body_html: HtmlBody::from_static(""),
         headings: Vec::new(),
-        rules: Vec::new(),
+        reqs: Vec::new(),
         last_updated: 0,
         extra: Value::default(),
     });
@@ -566,7 +566,7 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
                 body_html: data.body_html.clone(),
                 section_route,
                 headings: data.headings.clone(),
-                rules: data.rules.clone(),
+                rules: data.reqs.clone(),
                 last_updated: data.last_updated,
                 extra: data.extra.clone(),
             },

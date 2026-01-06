@@ -144,13 +144,13 @@ pub struct Heading {
     pub level: u8,
 }
 
-/// A rule definition for specification traceability.
+/// A requirement definition for specification traceability.
 ///
-/// Rules are declared with `r[rule.name]` syntax in markdown,
+/// Requirements are declared with `r[req.name]` syntax in markdown,
 /// similar to the Rust Reference's mdbook-spec.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
-pub struct RuleDefinition {
-    /// The rule identifier (e.g., "channel.id.allocation")
+pub struct ReqDefinition {
+    /// The requirement identifier (e.g., "channel.id.allocation")
     pub id: String,
     /// The anchor ID for linking (e.g., "r-channel.id.allocation")
     pub anchor_id: String,
@@ -166,8 +166,8 @@ pub struct Section {
     pub body_html: HtmlBody,
     /// Headings extracted from content
     pub headings: Vec<Heading>,
-    /// Rule definitions for specification traceability
-    pub rules: Vec<RuleDefinition>,
+    /// Requirement definitions for specification traceability
+    pub reqs: Vec<ReqDefinition>,
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
@@ -185,7 +185,7 @@ pub struct Page {
     /// Headings extracted from content
     pub headings: Vec<Heading>,
     /// Rule definitions for specification traceability
-    pub rules: Vec<RuleDefinition>,
+    pub rules: Vec<ReqDefinition>,
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
@@ -223,7 +223,7 @@ pub struct ParsedData {
     /// Headings extracted from content
     pub headings: Vec<Heading>,
     /// Rule definitions for specification traceability
-    pub rules: Vec<RuleDefinition>,
+    pub reqs: Vec<ReqDefinition>,
     /// Last modification time as Unix timestamp (seconds since epoch)
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
