@@ -301,6 +301,9 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                         {
                             match req_result {
                                 Ok(mut req) => {
+                                    // Extract plain text for LSP hover
+                                    req.text = extract_blockquote_req_text(&events);
+
                                     // Render req content HTML
                                     let content_html = render_blockquote_req_content(
                                         &events,
@@ -506,6 +509,9 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                     {
                         match req_result {
                             Ok(mut req) => {
+                                // Extract plain text for LSP hover
+                                req.text = extract_paragraph_req_text(&events);
+
                                 // Render req content HTML
                                 let content_html = render_paragraph_req_content(&events, options);
 
@@ -750,6 +756,103 @@ fn req_marker_regex() -> &'static regex::Regex {
 fn strip_req_marker(text: &str) -> String {
     req_marker_regex().replace(text, "").into_owned()
 }
+
+/// Extract plain text from paragraph events (for LSP hover, etc.)
+fn extract_paragraph_req_text(events: &[(Event<'_>, Range<usize>)]) -> String {
+    let mut text = String::new();
+    let mut marker_stripped = false;
+
+    for (event, _range) in events {
+        match event {
+            Event::Text(t) => {
+                if !marker_stripped {
+                    marker_stripped = true;
+                    text.push_str(&strip_req_marker(t.as_ref()));
+                } else {
+                    text.push_str(t.as_ref());
+                }
+            }
+            Event::SoftBreak | Event::HardBreak => {
+                text.push('\n');
+            }
+            Event::Code(code) => {
+                text.push('`');
+                text.push_str(code);
+                text.push('`');
+            }
+            _ => {}
+        }
+    }
+
+    text.trim().to_string()
+}
+
+/// Extract plain text from blockquote events (for LSP hover, etc.)
+fn extract_blockquote_req_text(events: &[(Event<'_>, Range<usize>)]) -> String {
+    let mut text = String::new();
+    let mut marker_stripped = false;
+    let mut in_code_block = false;
+    let mut code_block_lang = String::new();
+    let mut code_block_content = String::new();
+
+    for (event, _range) in events {
+        match event {
+            Event::Text(t) if in_code_block => {
+                code_block_content.push_str(t.as_ref());
+            }
+            Event::Text(t) => {
+                if !marker_stripped {
+                    marker_stripped = true;
+                    text.push_str(&strip_req_marker(t.as_ref()));
+                } else {
+                    text.push_str(t.as_ref());
+                }
+            }
+            Event::SoftBreak | Event::HardBreak => {
+                if in_code_block {
+                    code_block_content.push('\n');
+                } else {
+                    text.push('\n');
+                }
+            }
+            Event::Code(code) => {
+                text.push('`');
+                text.push_str(code);
+                text.push('`');
+            }
+            Event::Start(Tag::CodeBlock(kind)) => {
+                in_code_block = true;
+                code_block_lang = match kind {
+                    pulldown_cmark::CodeBlockKind::Fenced(lang) => lang.to_string(),
+                    pulldown_cmark::CodeBlockKind::Indented => String::new(),
+                };
+                code_block_content.clear();
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                in_code_block = false;
+                text.push_str("\n```");
+                if !code_block_lang.is_empty() {
+                    text.push_str(&code_block_lang);
+                }
+                text.push('\n');
+                text.push_str(&code_block_content);
+                text.push_str("```\n");
+            }
+            Event::Start(Tag::Paragraph) => {
+                if !text.is_empty() && !text.ends_with('\n') {
+                    text.push_str("\n\n");
+                }
+            }
+            Event::End(TagEnd::Paragraph) => {
+                // Paragraph end is handled by Start of next paragraph
+            }
+            _ => {}
+        }
+    }
+
+    text.trim().to_string()
+}
+
 /// Render the content of a paragraph req (stripping the r[...] marker)
 ///
 /// Uses a text buffer to accumulate consecutive text events (pulldown-cmark
@@ -1022,8 +1125,9 @@ fn try_parse_paragraph_req<'a>(
     }
     seen_ids.insert(req_id.to_string());
 
-    // html is now generated separately by render_paragraph_req_content
+    // html and text are generated separately by render_paragraph_req_content/extract_paragraph_req_text
     let html = String::new();
+    let text_content = String::new();
 
     let line = offset_to_line(markdown, offset);
     let anchor_id = format!("r-{}", req_id);
@@ -1037,6 +1141,7 @@ fn try_parse_paragraph_req<'a>(
         },
         line,
         metadata,
+        text: text_content,
         html,
     };
 
@@ -1073,8 +1178,9 @@ fn try_parse_blockquote_req(
     }
     seen_ids.insert(req_id.to_string());
 
-    // html is now generated separately by render_blockquote_req_content
+    // html and text are generated separately by render_blockquote_req_content/extract_blockquote_req_text
     let html = String::new();
+    let text = String::new();
 
     let line = offset_to_line(markdown, offset);
     let anchor_id = format!("r-{}", req_id);
@@ -1088,6 +1194,7 @@ fn try_parse_blockquote_req(
         },
         line,
         metadata,
+        text,
         html,
     };
 
