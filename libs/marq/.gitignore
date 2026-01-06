@@ -1,0 +1,19 @@
+/dist
+/target
+.dodeca.db
+/docs/public/
+.cache/
+bloaty_report*
+*.mm_profdata
+
+llvm-lines*
+perf-*.data
+*.zst
+*.log
+.handoffs
+
+.claude/settings.local.json
+
+# Browser tests
+browser-tests/node_modules/
+browser-tests/test-results/

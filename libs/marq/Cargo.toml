@@ -1,0 +1,127 @@
+[package]
+name = "marq"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Markdown rendering with pluggable code block handlers"
+repository = "https://github.com/bearcove/dodeca"
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[features]
+default = []
+# Syntax highlighting via arborium (tree-sitter based)
+highlight = ["dep:arborium"]
+# ASCII art to SVG conversion
+aasvg = ["dep:aasvg"]
+# Pikchr diagram rendering
+pikru = ["dep:pikru"]
+# All handlers
+all-handlers = ["highlight", "aasvg", "pikru"]
+
+[dependencies]
+# Markdown parsing
+pulldown-cmark.workspace = true
+
+# Frontmatter parsing
+facet.workspace = true
+facet-toml.workspace = true
+facet-yaml.workspace = true
+facet-value.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Regex for stripping markers
+regex.workspace = true
+
+# Optional handlers
+arborium = { workspace = true, optional = true }
+aasvg = { workspace = true, optional = true }
+pikru = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+facet-postcard.workspace = true
+
+[workspace.dependencies]
+# Serialization - Facet ecosystem (git)
+facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+
+# Markdown
+pulldown-cmark = "0.13"
+
+# Error handling
+thiserror = "2.0"
+
+# Regex
+regex = "1.12"
+
+# Async runtime
+tokio = { version = "1.48", features = ["full", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] }
+
+# ASCII diagrams to SVG
+aasvg = "1.0"
+
+# Pikchr diagrams (git for facet compat)
+pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
+
+# Syntax highlighting
+arborium = { version = "2", features = [
+    # Systems & Low-level
+    "lang-asm", "lang-c", "lang-cpp", "lang-rust", "lang-zig",
+    # Shells & Scripts
+    "lang-bash", "lang-fish", "lang-powershell", "lang-zsh",
+    # Web Frontend
+    "lang-css", "lang-html", "lang-javascript", "lang-scss", "lang-svelte",
+    "lang-typescript", "lang-tsx", "lang-vue",
+    # Web Backend & APIs
+    "lang-elixir", "lang-go", "lang-graphql", "lang-java", "lang-php",
+    "lang-python", "lang-ruby",
+    # Functional & Academic
+    "lang-clojure", "lang-haskell", "lang-ocaml", "lang-scala",
+    # Data & Scientific
+    "lang-julia", "lang-r", "lang-sql",
+    # Config & Markup
+    "lang-dockerfile", "lang-ini", "lang-jinja2", "lang-json", "lang-kdl",
+    "lang-markdown", "lang-nginx", "lang-toml", "lang-typst", "lang-xml",
+    "lang-yaml",
+    # Build Systems & Tools
+    "lang-cmake", "lang-meson", "lang-nix",
+    # Protocol/Data Formats
+    "lang-capnp", "lang-textproto", "lang-thrift",
+    # Misc
+    "lang-diff", "lang-kotlin", "lang-lua", "lang-perl", "lang-swift",
+    "lang-vim",
+] }
+
+# Force all transitive facet dependencies to use git version
+[patch.crates-io]
+facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macro-parse = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macro-types = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macros = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macros-impl = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-pretty = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-solver = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-svg = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-xml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
