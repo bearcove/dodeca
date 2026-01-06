@@ -401,6 +401,8 @@ pub async fn extract_reqs_with_warnings(
             // Extract requirement text (paragraph after requirement marker)
             let (text, lines_consumed, content_bytes) = extract_req_text(&lines[line_idx + 1..]);
 
+            // r[impl dashboard.editing.byte-range.req-span]
+            // r[impl dashboard.editing.byte-range.marker-and-content]
             // Calculate span including marker line + content lines
             let span = SourceSpan {
                 offset: byte_offset,

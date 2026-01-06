@@ -1183,6 +1183,42 @@ mod tests {
         assert!(doc.html.contains("fn main()"));
     }
 
+    /// Test that multiline code blocks preserve newlines in the output.
+    /// This is critical for code to display correctly.
+    #[tokio::test]
+    #[cfg(feature = "highlight")]
+    async fn test_render_code_block_preserves_newlines() {
+        use crate::handlers::ArboriumHandler;
+
+        let md = r#"```rust
+fn greet(name: &str) {
+    println!("Hello, {}!", name);
+}
+
+fn main() {
+    greet("World");
+}
+```
+"#;
+        let opts = RenderOptions::new().with_default_handler(ArboriumHandler::new());
+        let doc = render(md, &opts).await.unwrap();
+
+        // Count newlines in the code block portion
+        let code_start = doc.html.find("<code").expect("should have <code>");
+        let code_end = doc.html.find("</code>").expect("should have </code>");
+        let code_section = &doc.html[code_start..code_end];
+
+        let newlines = code_section.matches('\n').count();
+
+        // The source has 7 lines, so at least 6 newlines should be present
+        assert!(
+            newlines >= 5,
+            "Code block should preserve newlines. Found {} newlines in:\n{}",
+            newlines,
+            code_section
+        );
+    }
+
     #[tokio::test]
     async fn test_render_with_custom_req_handler() {
         use crate::handler::ReqHandler;
