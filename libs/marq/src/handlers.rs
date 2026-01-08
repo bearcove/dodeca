@@ -79,10 +79,16 @@ impl CodeBlockHandler for ArboriumHandler {
                         "<pre><code class=\"language-{escaped_lang}\">{html}</code></pre>"
                     ))
                 }
-                Err(e) => Err(crate::Error::CodeBlockHandler {
-                    language: language.to_string(),
-                    message: e.to_string(),
-                }),
+                Err(_e) => {
+                    // Fall back to plain text rendering for unsupported languages
+                    // (e.g., "text", custom languages, etc.)
+                    use crate::handler::html_escape;
+                    let escaped = html_escape(code);
+                    let escaped_lang = html_escape(language);
+                    Ok(format!(
+                        "<pre><code class=\"language-{escaped_lang}\">{escaped}</code></pre>"
+                    ))
+                }
             }
         })
     }
