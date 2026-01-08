@@ -263,7 +263,11 @@ pub struct ReqDefinition {
     pub id: String,
     /// The anchor ID for HTML linking (e.g., "r--channel.id.allocation")
     pub anchor_id: String,
-    /// Source location of this requirement in the original markdown
+    /// Source span of just the requirement marker (e.g., `r[channel.id.allocation]`)
+    /// Use this for inlay hints and diagnostics that should only highlight the marker.
+    pub marker_span: SourceSpan,
+    /// Source span of the entire requirement (marker + all content paragraphs).
+    /// Use this for hover highlight ranges that should cover the full requirement.
     pub span: SourceSpan,
     /// Line number where this requirement is defined (1-indexed)
     pub line: usize,

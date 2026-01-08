@@ -296,6 +296,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                                 trimmed,
                                 markdown,
                                 start_offset,
+                                range.end,
                                 &mut seen_req_ids,
                             )
                         {
@@ -1132,9 +1133,18 @@ fn try_parse_paragraph_req<'a>(
     let line = offset_to_line(markdown, offset);
     let anchor_id = format!("r-{}", req_id);
 
+    // marker_span covers just r[req.id] - use for inlay hints and diagnostics
+    let marker_len = marker_end + 1; // includes r[ and ]
+
+    // r[impl dashboard.editing.byte-range.req-span]
+    // r[impl dashboard.editing.byte-range.marker-and-content]
     let req = ReqDefinition {
         id: req_id.to_string(),
         anchor_id,
+        marker_span: SourceSpan {
+            offset,
+            length: marker_len,
+        },
         span: SourceSpan {
             offset,
             length: text.len(),
@@ -1155,6 +1165,7 @@ fn try_parse_blockquote_req(
     first_para_text: &str,
     markdown: &str,
     offset: usize,
+    end_offset: usize,
     seen_ids: &mut std::collections::HashSet<String>,
 ) -> Option<Result<ReqDefinition>> {
     // Must start with r[ and have a closing ]
@@ -1185,12 +1196,21 @@ fn try_parse_blockquote_req(
     let line = offset_to_line(markdown, offset);
     let anchor_id = format!("r-{}", req_id);
 
+    // marker_span covers just r[req.id] - use for inlay hints and diagnostics
+    let marker_len = marker_end + 1; // includes r[ and ]
+
+    // r[impl dashboard.editing.byte-range.req-span]
+    // r[impl dashboard.editing.byte-range.marker-and-content]
     let req = ReqDefinition {
         id: req_id.to_string(),
         anchor_id,
+        marker_span: SourceSpan {
+            offset,
+            length: marker_len,
+        },
         span: SourceSpan {
             offset,
-            length: first_para_text.len(),
+            length: end_offset.saturating_sub(offset),
         },
         line,
         metadata,
