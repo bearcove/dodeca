@@ -291,11 +291,16 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
 
                         // Check if this is a req
                         let trimmed = first_para_text.trim();
+                        // Find the actual position of r[ in the source (after the > prefix)
+                        let marker_offset = markdown[start_offset..]
+                            .find("r[")
+                            .map(|i| start_offset + i)
+                            .unwrap_or(start_offset);
                         if trimmed.starts_with("r[")
                             && let Some(req_result) = try_parse_blockquote_req(
                                 trimmed,
                                 markdown,
-                                start_offset,
+                                marker_offset,
                                 range.end,
                                 &mut seen_req_ids,
                             )
@@ -1545,6 +1550,16 @@ r[req.two] Second.
             doc.html
         );
         assert!(doc.html.contains("id=\"r-my.req\""));
+
+        // Verify marker_span points to the r[ not the > prefix
+        let req = &doc.reqs[0];
+        let marker_text =
+            &md[req.marker_span.offset..req.marker_span.offset + req.marker_span.length];
+        assert_eq!(
+            marker_text, "r[my.req]",
+            "marker_span should point to r[my.req], got: {}",
+            marker_text
+        );
     }
 
     #[tokio::test]
