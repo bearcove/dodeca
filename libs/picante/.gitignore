@@ -1,4 +1,5 @@
 /target
+.handoffs
 .claude
 .cache
 .dodeca.db
