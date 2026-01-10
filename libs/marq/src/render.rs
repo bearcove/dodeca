@@ -791,19 +791,17 @@ fn strip_req_marker(text: &str) -> String {
 }
 
 /// Extract plain text from paragraph events (for LSP hover, etc.)
+///
+/// This handles the case where pulldown-cmark splits `r[req.id]` into multiple
+/// text events ("r", "[", "req.id", "]") due to potential link parsing.
 fn extract_paragraph_req_text(events: &[(Event<'_>, Range<usize>)]) -> String {
     let mut text = String::new();
-    let mut marker_stripped = false;
 
+    // First pass: collect all text without stripping
     for (event, _range) in events {
         match event {
             Event::Text(t) => {
-                if !marker_stripped {
-                    marker_stripped = true;
-                    text.push_str(&strip_req_marker(t.as_ref()));
-                } else {
-                    text.push_str(t.as_ref());
-                }
+                text.push_str(t.as_ref());
             }
             Event::SoftBreak | Event::HardBreak => {
                 text.push('\n');
@@ -817,29 +815,29 @@ fn extract_paragraph_req_text(events: &[(Event<'_>, Range<usize>)]) -> String {
         }
     }
 
-    text.trim().to_string()
+    // Strip the requirement marker from the collected text
+    let stripped = strip_req_marker(&text);
+    stripped.trim().to_string()
 }
 
 /// Extract plain text from blockquote events (for LSP hover, etc.)
+///
+/// This handles the case where pulldown-cmark splits `r[req.id]` into multiple
+/// text events ("r", "[", "req.id", "]") due to potential link parsing.
 fn extract_blockquote_req_text(events: &[(Event<'_>, Range<usize>)]) -> String {
     let mut text = String::new();
-    let mut marker_stripped = false;
     let mut in_code_block = false;
     let mut code_block_lang = String::new();
     let mut code_block_content = String::new();
 
+    // First pass: collect all text without stripping
     for (event, _range) in events {
         match event {
             Event::Text(t) if in_code_block => {
                 code_block_content.push_str(t.as_ref());
             }
             Event::Text(t) => {
-                if !marker_stripped {
-                    marker_stripped = true;
-                    text.push_str(&strip_req_marker(t.as_ref()));
-                } else {
-                    text.push_str(t.as_ref());
-                }
+                text.push_str(t.as_ref());
             }
             Event::SoftBreak | Event::HardBreak => {
                 if in_code_block {
@@ -883,7 +881,9 @@ fn extract_blockquote_req_text(events: &[(Event<'_>, Range<usize>)]) -> String {
         }
     }
 
-    text.trim().to_string()
+    // Strip the requirement marker from the collected text
+    let stripped = strip_req_marker(&text);
+    stripped.trim().to_string()
 }
 
 /// Render the content of a paragraph req (stripping the r[...] marker)
