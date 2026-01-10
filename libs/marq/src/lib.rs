@@ -31,7 +31,10 @@ mod render;
 mod reqs;
 
 pub use frontmatter::{Frontmatter, FrontmatterFormat, parse_frontmatter, strip_frontmatter};
-pub use handler::{BoxedHandler, BoxedReqHandler, CodeBlockHandler, DefaultReqHandler, ReqHandler};
+pub use handler::{
+    BoxedHandler, BoxedInlineCodeHandler, BoxedReqHandler, CodeBlockHandler, DefaultReqHandler,
+    InlineCodeHandler, ReqHandler,
+};
 pub use headings::{Heading, slugify};
 pub use links::resolve_link;
 pub use render::{DocElement, Document, Paragraph, RenderOptions, render};

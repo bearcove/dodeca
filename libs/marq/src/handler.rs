@@ -93,6 +93,24 @@ pub trait ReqHandler: Send + Sync {
 /// Type alias for a boxed req handler.
 pub type BoxedReqHandler = Arc<dyn ReqHandler>;
 
+/// A handler for rendering inline code spans.
+///
+/// This allows customizing how inline `code` is rendered, for example
+/// to transform `r[rule.id]` references into clickable links.
+pub trait InlineCodeHandler: Send + Sync {
+    /// Render an inline code span to HTML.
+    ///
+    /// # Arguments
+    /// * `code` - The code content (without backticks)
+    ///
+    /// # Returns
+    /// The rendered HTML string. Return `None` to use the default rendering.
+    fn render(&self, code: &str) -> Option<String>;
+}
+
+/// Type alias for a boxed inline code handler.
+pub type BoxedInlineCodeHandler = Arc<dyn InlineCodeHandler>;
+
 /// Default req handler that renders simple anchor divs.
 ///
 /// This is used when no custom req handler is registered.

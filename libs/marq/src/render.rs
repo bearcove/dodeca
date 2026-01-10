@@ -9,8 +9,8 @@ use pulldown_cmark::{CodeBlockKind, Event, MetadataBlockKind, Options, Parser, T
 use crate::Result;
 use crate::frontmatter::{Frontmatter, FrontmatterFormat};
 use crate::handler::{
-    BoxedHandler, BoxedReqHandler, CodeBlockHandler, DefaultReqHandler, RawCodeHandler, ReqHandler,
-    html_escape,
+    BoxedHandler, BoxedInlineCodeHandler, BoxedReqHandler, CodeBlockHandler, DefaultReqHandler,
+    InlineCodeHandler, RawCodeHandler, ReqHandler, html_escape,
 };
 use crate::headings::{Heading, slugify};
 use crate::links::resolve_link;
@@ -114,6 +114,9 @@ pub struct RenderOptions {
 
     /// Custom handler for rendering requirement definitions
     pub req_handler: Option<BoxedReqHandler>,
+
+    /// Custom handler for rendering inline code spans
+    pub inline_code_handler: Option<BoxedInlineCodeHandler>,
 }
 
 impl RenderOptions {
@@ -153,6 +156,23 @@ impl RenderOptions {
         self.source_path = Some(path.to_string());
         self
     }
+
+    /// Set a custom handler for inline code spans.
+    pub fn with_inline_code_handler<H: InlineCodeHandler + 'static>(mut self, handler: H) -> Self {
+        self.inline_code_handler = Some(Arc::new(handler));
+        self
+    }
+}
+
+/// Render inline code, using the handler if available.
+fn render_inline_code(code: &str, handler: Option<&BoxedInlineCodeHandler>) -> String {
+    if let Some(h) = handler
+        && let Some(rendered) = h.render(code)
+    {
+        return rendered;
+    }
+    // Default rendering
+    format!("<code>{}</code>", html_escape(code))
 }
 
 /// A code sample extracted from markdown
@@ -644,9 +664,10 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                     events.push((event, range));
                 }
                 _ => {
-                    html.push_str("<code>");
-                    html.push_str(&html_escape(code));
-                    html.push_str("</code>");
+                    html.push_str(&render_inline_code(
+                        code,
+                        options.inline_code_handler.as_ref(),
+                    ));
                 }
             },
             Event::SoftBreak => {
@@ -739,6 +760,12 @@ fn render_events_to_html(
             }
             Event::End(TagEnd::Link) => {
                 html.push_str("</a>");
+            }
+            Event::Code(code) => {
+                html.push_str(&render_inline_code(
+                    code,
+                    options.inline_code_handler.as_ref(),
+                ));
             }
             _ => {
                 pulldown_cmark::html::push_html(html, std::iter::once(event.clone()));
@@ -902,9 +929,10 @@ fn render_paragraph_req_content(
             }
             Event::Code(code) => {
                 flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
-                html.push_str("<code>");
-                html.push_str(&html_escape(code));
-                html.push_str("</code>");
+                html.push_str(&render_inline_code(
+                    code,
+                    options.inline_code_handler.as_ref(),
+                ));
             }
             Event::Start(Tag::Paragraph) => {
                 html.push_str("<p>");
@@ -1045,9 +1073,10 @@ async fn render_blockquote_req_content(
             }
             Event::Code(code) => {
                 flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
-                html.push_str("<code>");
-                html.push_str(&html_escape(code));
-                html.push_str("</code>");
+                html.push_str(&render_inline_code(
+                    code,
+                    options.inline_code_handler.as_ref(),
+                ));
             }
             Event::Start(Tag::Emphasis) => {
                 flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
