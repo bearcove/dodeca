@@ -17,6 +17,8 @@ use crate::handler::CodeBlockHandler;
 #[cfg(feature = "highlight")]
 pub struct ArboriumHandler {
     highlighter: std::sync::Mutex<arborium::Highlighter>,
+    /// Whether to show a language header above code blocks
+    show_language_header: bool,
 }
 
 #[cfg(feature = "highlight")]
@@ -25,6 +27,7 @@ impl ArboriumHandler {
     pub fn new() -> Self {
         Self {
             highlighter: std::sync::Mutex::new(arborium::Highlighter::new()),
+            show_language_header: false,
         }
     }
 
@@ -32,7 +35,17 @@ impl ArboriumHandler {
     pub fn with_config(config: arborium::Config) -> Self {
         Self {
             highlighter: std::sync::Mutex::new(arborium::Highlighter::with_config(config)),
+            show_language_header: false,
         }
+    }
+
+    /// Enable or disable the language header above code blocks.
+    ///
+    /// When enabled, code blocks will be wrapped in a container with a header
+    /// showing the language name, similar to the compare block style.
+    pub fn with_language_header(mut self, show: bool) -> Self {
+        self.show_language_header = show;
+        self
     }
 }
 
@@ -51,9 +64,10 @@ impl CodeBlockHandler for ArboriumHandler {
         code: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
         Box::pin(async move {
+            use crate::handler::html_escape;
+
             // Empty language means no syntax highlighting requested - render as plain
             if language.is_empty() {
-                use crate::handler::html_escape;
                 let escaped = html_escape(code);
                 return Ok(format!("<pre><code>{escaped}</code></pre>"));
             }
@@ -64,27 +78,28 @@ impl CodeBlockHandler for ArboriumHandler {
                 _ => language,
             };
 
+            let escaped_lang = html_escape(language);
+
             // Try to highlight with arborium
             let mut hl = self.highlighter.lock().unwrap();
-            match hl.highlight(arborium_lang, code) {
+            let code_html = match hl.highlight(arborium_lang, code) {
                 Ok(html) => {
-                    // Wrap arborium's highlighted output in pre/code tags
-                    use crate::handler::html_escape;
-                    let escaped_lang = html_escape(language);
-                    Ok(format!(
-                        "<pre><code class=\"language-{escaped_lang}\">{html}</code></pre>"
-                    ))
+                    format!("<pre><code class=\"language-{escaped_lang}\">{html}</code></pre>")
                 }
                 Err(_e) => {
                     // Fall back to plain text rendering for unsupported languages
-                    // (e.g., "text", custom languages, etc.)
-                    use crate::handler::html_escape;
                     let escaped = html_escape(code);
-                    let escaped_lang = html_escape(language);
-                    Ok(format!(
-                        "<pre><code class=\"language-{escaped_lang}\">{escaped}</code></pre>"
-                    ))
+                    format!("<pre><code class=\"language-{escaped_lang}\">{escaped}</code></pre>")
                 }
+            };
+
+            // Wrap with header if enabled
+            if self.show_language_header {
+                Ok(format!(
+                    "<div class=\"code-block\"><div class=\"code-header\">{escaped_lang}</div>{code_html}</div>"
+                ))
+            } else {
+                Ok(code_html)
             }
         })
     }
