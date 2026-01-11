@@ -17,3 +17,4 @@ perf-*.data
 # Browser tests
 browser-tests/node_modules/
 browser-tests/test-results/
+.tracey/
