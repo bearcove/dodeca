@@ -3,138 +3,127 @@
 //! Defines services for extracting and executing code samples from markdown.
 
 use facet::Facet;
-use facet_kdl as kdl;
 
 // ============================================================================
 // Configuration Types
 // ============================================================================
 
 /// Code execution configuration.
-///
-/// Uses `SingleValue<T>` wrappers for child nodes with arguments until
-/// facet-kdl supports primitives directly: <https://github.com/facet-rs/facet/issues/1560>
 #[derive(Debug, Clone, Default, Facet)]
-#[facet(traits(Default))]
+#[facet(rename_all = "snake_case")]
 pub struct CodeExecutionConfig {
-    /// Enable/disable code execution: `enabled #true`
-    #[facet(kdl::child, default)]
-    pub enabled: Option<SingleValue<bool>>,
+    /// Enable/disable code execution
+    #[facet(default)]
+    pub enabled: Option<bool>,
 
-    /// Fail build on execution errors: `fail_on_error #true`
-    #[facet(kdl::child, default)]
-    pub fail_on_error: Option<SingleValue<bool>>,
+    /// Fail build on execution errors
+    #[facet(default)]
+    pub fail_on_error: Option<bool>,
 
-    /// Execution timeout in seconds: `timeout_secs 30`
-    #[facet(kdl::child, default)]
-    pub timeout_secs: Option<SingleValue<u64>>,
+    /// Execution timeout in seconds
+    #[facet(default)]
+    pub timeout_secs: Option<u64>,
 
-    /// Cache directory for execution artifacts: `cache_dir ".cache/code-execution"`
-    #[facet(kdl::child, default)]
-    pub cache_dir: Option<SingleValue<String>>,
+    /// Cache directory for execution artifacts
+    #[facet(default)]
+    pub cache_dir: Option<String>,
 
     /// Project root directory (for resolving path dependencies)
     /// Set at runtime, not from config
-    #[facet(kdl::child, default)]
-    pub project_root: Option<SingleValue<String>>,
+    #[facet(default)]
+    pub project_root: Option<String>,
 
     /// Dependencies for code samples
-    #[facet(kdl::child, default)]
-    pub dependencies: DependenciesConfig,
+    #[facet(default)]
+    pub dependencies: Option<Vec<DependencySpec>>,
 
     /// Language-specific configuration
-    #[facet(kdl::child, default)]
-    pub rust: RustConfig,
+    #[facet(default)]
+    pub rust: Option<RustConfig>,
 }
 
 impl CodeExecutionConfig {
     /// Whether code execution is enabled (default: true)
     pub fn is_enabled(&self) -> bool {
-        self.enabled.as_ref().map(|v| v.value).unwrap_or(true)
+        self.enabled.unwrap_or(true)
     }
 
     /// Whether to fail build on execution errors (default: true)
     pub fn should_fail_on_error(&self) -> bool {
-        self.fail_on_error.as_ref().map(|v| v.value).unwrap_or(true)
+        self.fail_on_error.unwrap_or(true)
     }
 
     /// Execution timeout in seconds (default: 30)
     pub fn timeout(&self) -> u64 {
-        self.timeout_secs.as_ref().map(|v| v.value).unwrap_or(30)
+        self.timeout_secs.unwrap_or(30)
     }
 
     /// Cache directory (default: ".cache/code-execution")
     pub fn cache_directory(&self) -> String {
         self.cache_dir
-            .as_ref()
-            .map(|v| v.value.clone())
+            .clone()
             .unwrap_or_else(|| ".cache/code-execution".to_string())
     }
 
     /// Project root directory
     pub fn project_root(&self) -> Option<&str> {
-        self.project_root.as_ref().map(|v| v.value.as_str())
+        self.project_root.as_deref()
     }
-}
 
-/// Dependencies configuration
-#[derive(Debug, Clone, Default, Facet)]
-#[facet(traits(Default))]
-pub struct DependenciesConfig {
-    /// List of dependency specifications
-    #[facet(kdl::children, default)]
-    pub deps: Vec<DependencySpec>,
+    /// Get dependencies (default: empty)
+    pub fn dependencies(&self) -> &[DependencySpec] {
+        self.dependencies.as_deref().unwrap_or(&[])
+    }
 }
 
 /// A single dependency specification
 ///
-/// Supports crates.io, git, and path dependencies:
+/// Supports crates.io, git, and path dependencies.
 ///
-/// ```kdl
-/// dependencies {
-///     // crates.io dependency
-///     serde "1.0"
-///
-///     // crates.io with features
-///     serde "1.0" features=["derive"]
-///
-///     // git dependency with branch
-///     facet "0.1" git="https://github.com/facet-rs/facet" branch="main"
-///
-///     // git dependency with rev
-///     facet "0.1" git="https://github.com/facet-rs/facet" rev="abc123"
-///
-///     // path dependency (relative to project root)
-///     plugcard "0.1" path="crates/plugcard"
-/// }
+/// Example YAML:
+/// ```yaml
+/// dependencies:
+///   - name: serde
+///     version: "1.0"
+///   - name: serde
+///     version: "1.0"
+///     features:
+///       - derive
+///   - name: facet
+///     version: "0.1"
+///     git: https://github.com/facet-rs/facet
+///     branch: main
+///   - name: plugcard
+///     version: "0.1"
+///     path: crates/plugcard
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Facet)]
+#[facet(rename_all = "snake_case")]
 pub struct DependencySpec {
-    /// Crate name (from KDL node name)
-    #[facet(kdl::node_name)]
+    /// Crate name
     pub name: String,
 
-    /// Version requirement (positional argument)
-    #[facet(kdl::argument)]
+    /// Version requirement
     pub version: String,
 
     /// Git repository URL (optional)
-    #[facet(kdl::property, default)]
+    #[facet(default)]
     pub git: Option<String>,
 
     /// Git revision/commit hash (optional)
-    #[facet(kdl::property, default)]
+    #[facet(default)]
     pub rev: Option<String>,
 
     /// Git branch (optional)
-    #[facet(kdl::property, default)]
+    #[facet(default)]
     pub branch: Option<String>,
 
     /// Local path (optional, relative to project root)
-    #[facet(kdl::property, default)]
+    #[facet(default)]
     pub path: Option<String>,
 
     /// Crate features to enable (optional)
-    #[facet(kdl::property, default)]
+    #[facet(default)]
     pub features: Option<Vec<String>>,
 }
 
@@ -231,61 +220,48 @@ impl DependencySpec {
     }
 }
 
-/// Wrapper for single-argument child nodes (e.g., `command "cargo"`)
-#[derive(Debug, Clone, Facet)]
-pub struct SingleValue<T: 'static> {
-    #[facet(kdl::argument)]
-    pub value: T,
-}
-
-/// Wrapper for multi-argument child nodes (e.g., `args "run" "--quiet" "--release"`)
-#[derive(Debug, Clone, Default, Facet)]
-#[facet(traits(Default))]
-pub struct MultiValue<T: Default + 'static> {
-    #[facet(kdl::arguments, default)]
-    pub values: Vec<T>,
-}
-
-/// Rust-specific configuration from KDL
+/// Rust-specific configuration
 ///
-/// All fields are child nodes with arguments (not properties).
-/// Example KDL:
-/// ```kdl
-/// rust {
-///     command "cargo"
-///     args "run" "--quiet" "--release"
-///     extension "rs"
-///     prepare_code #true
-///     auto_imports "use std::*;"
-///     show_output #true
-/// }
+/// Example YAML:
+/// ```yaml
+/// rust:
+///   command: cargo
+///   args:
+///     - run
+///     - --quiet
+///     - --release
+///   extension: rs
+///   prepare_code: true
+///   auto_imports:
+///     - "use std::*;"
+///   show_output: true
 /// ```
 #[derive(Debug, Clone, Default, Facet)]
-#[facet(traits(Default))]
+#[facet(rename_all = "snake_case")]
 pub struct RustConfig {
-    /// Cargo command: `command "cargo"`
-    #[facet(kdl::child, default)]
-    pub command: Option<SingleValue<String>>,
+    /// Cargo command
+    #[facet(default)]
+    pub command: Option<String>,
 
-    /// Cargo arguments: `args "run" "--quiet" "--release"`
-    #[facet(kdl::child, default)]
-    pub args: Option<MultiValue<String>>,
+    /// Cargo arguments
+    #[facet(default)]
+    pub args: Option<Vec<String>>,
 
-    /// File extension: `extension "rs"`
-    #[facet(kdl::child, default)]
-    pub extension: Option<SingleValue<String>>,
+    /// File extension
+    #[facet(default)]
+    pub extension: Option<String>,
 
-    /// Auto-wrap code without main function: `prepare_code #true`
-    #[facet(kdl::child, default)]
-    pub prepare_code: Option<SingleValue<bool>>,
+    /// Auto-wrap code without main function
+    #[facet(default)]
+    pub prepare_code: Option<bool>,
 
-    /// Auto-imports: `auto_imports "use std::*;" "use facet::*;"`
-    #[facet(kdl::child, default)]
-    pub auto_imports: Option<MultiValue<String>>,
+    /// Auto-imports
+    #[facet(default)]
+    pub auto_imports: Option<Vec<String>>,
 
-    /// Show output in build: `show_output #true`
-    #[facet(kdl::child, default)]
-    pub show_output: Option<SingleValue<bool>>,
+    /// Show output in build
+    #[facet(default)]
+    pub show_output: Option<bool>,
 }
 
 /// Per-language execution configuration (runtime)
@@ -324,36 +300,23 @@ impl LanguageConfig {
         }
     }
 
-    /// Create from RustConfig (KDL parsed)
+    /// Create from RustConfig (YAML parsed)
     pub fn from_rust_config(rust: &RustConfig) -> Self {
         Self {
-            command: rust
-                .command
-                .as_ref()
-                .map(|c| c.value.clone())
-                .unwrap_or_else(|| "cargo".to_string()),
+            command: rust.command.clone().unwrap_or_else(|| "cargo".to_string()),
             args: rust
                 .args
-                .as_ref()
-                .map(|a| a.values.clone())
+                .clone()
                 .unwrap_or_else(|| vec!["run".to_string(), "--release".to_string()]),
-            extension: rust
-                .extension
-                .as_ref()
-                .map(|e| e.value.clone())
-                .unwrap_or_else(|| "rs".to_string()),
-            prepare_code: rust.prepare_code.as_ref().map(|p| p.value).unwrap_or(true),
-            auto_imports: rust
-                .auto_imports
-                .as_ref()
-                .map(|a| a.values.clone())
-                .unwrap_or_else(|| {
-                    vec![
-                        "use std::collections::HashMap;".to_string(),
-                        "use facet::Facet;".to_string(),
-                    ]
-                }),
-            show_output: rust.show_output.as_ref().map(|s| s.value).unwrap_or(true),
+            extension: rust.extension.clone().unwrap_or_else(|| "rs".to_string()),
+            prepare_code: rust.prepare_code.unwrap_or(true),
+            auto_imports: rust.auto_imports.clone().unwrap_or_else(|| {
+                vec![
+                    "use std::collections::HashMap;".to_string(),
+                    "use facet::Facet;".to_string(),
+                ]
+            }),
+            show_output: rust.show_output.unwrap_or(true),
             expected_compile_errors: vec![],
         }
     }
@@ -364,7 +327,6 @@ pub fn default_rust_dependencies() -> Vec<DependencySpec> {
     vec![
         DependencySpec::git_branch("facet", "https://github.com/facet-rs/facet", "main"),
         DependencySpec::git_branch("facet-json", "https://github.com/facet-rs/facet", "main"),
-        DependencySpec::git_branch("facet-kdl", "https://github.com/facet-rs/facet", "main"),
     ]
 }
 
@@ -584,73 +546,43 @@ mod tests {
     #[test]
     fn test_default_dependencies() {
         let deps = default_rust_dependencies();
-        assert_eq!(deps.len(), 3);
+        assert_eq!(deps.len(), 2);
         assert_eq!(deps[0].name, "facet");
         assert_eq!(deps[1].name, "facet-json");
-        assert_eq!(deps[2].name, "facet-kdl");
-    }
-
-    /// Wrapper to test RustConfig as it appears in actual KDL files
-    #[derive(Debug, Facet)]
-    struct RustConfigWrapper {
-        #[facet(kdl::child)]
-        rust: RustConfig,
     }
 
     #[test]
-    fn test_rust_config_child_nodes() {
-        let kdl = r#"
-rust {
-    command "cargo"
-    args "run" "--quiet" "--release"
-    extension "rs"
-    prepare_code #true
-    auto_imports "use std::collections::HashMap;"
-    show_output #true
-}
+    fn test_rust_config_yaml() {
+        let yaml = r#"
+command: cargo
+args:
+  - run
+  - --quiet
+  - --release
+extension: rs
+prepare_code: true
+auto_imports:
+  - "use std::collections::HashMap;"
+show_output: true
 "#;
 
-        let wrapper: RustConfigWrapper = facet_kdl::from_str(kdl).unwrap();
-        let config = wrapper.rust;
+        let config: RustConfig = facet_yaml::from_str(yaml).unwrap();
 
+        assert_eq!(config.command, Some("cargo".to_string()));
+        assert_eq!(config.extension, Some("rs".to_string()));
+        assert_eq!(config.prepare_code, Some(true));
+        assert_eq!(config.show_output, Some(true));
         assert_eq!(
-            config.command.as_ref().map(|c| c.value.as_str()),
-            Some("cargo")
+            config.args,
+            Some(vec![
+                "run".to_string(),
+                "--quiet".to_string(),
+                "--release".to_string()
+            ])
         );
         assert_eq!(
-            config.extension.as_ref().map(|e| e.value.as_str()),
-            Some("rs")
+            config.auto_imports,
+            Some(vec!["use std::collections::HashMap;".to_string()])
         );
-        assert_eq!(config.prepare_code.as_ref().map(|p| p.value), Some(true));
-        assert_eq!(config.show_output.as_ref().map(|s| s.value), Some(true));
-
-        let args = config.args.expect("args should be present");
-        assert_eq!(args.values, vec!["run", "--quiet", "--release"]);
-
-        let imports = config.auto_imports.expect("auto_imports should be present");
-        assert_eq!(imports.values, vec!["use std::collections::HashMap;"]);
-    }
-
-    #[test]
-    fn test_rust_config_empty_children() {
-        let kdl = r#"
-rust {
-    command "cargo"
-    extension "rs"
-}
-"#;
-
-        let wrapper: RustConfigWrapper = facet_kdl::from_str(kdl).unwrap();
-        let config = wrapper.rust;
-        assert_eq!(
-            config.command.as_ref().map(|c| c.value.as_str()),
-            Some("cargo")
-        );
-        assert_eq!(
-            config.extension.as_ref().map(|e| e.value.as_str()),
-            Some("rs")
-        );
-        assert!(config.args.is_none());
-        assert!(config.auto_imports.is_none());
     }
 }

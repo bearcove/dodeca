@@ -24,5 +24,5 @@ rapace-cell.workspace = true
 tokio.workspace = true
 facet-value.workspace = true
 futures.workspace = true
-miette.workspace = true
+eyre.workspace = true
 tracing.workspace = true

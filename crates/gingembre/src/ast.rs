@@ -3,14 +3,14 @@
 //! Every node carries a [`Span`] for precise error reporting.
 //! The AST is designed to be parsed once and evaluated many times.
 
-use miette::SourceSpan;
+use super::error::SourceSpan;
 
-/// A span in the source (re-export from miette)
+/// A span in the source (offset, length)
 pub type Span = SourceSpan;
 
 /// Create a span from offset and length
 pub fn span(offset: usize, len: usize) -> Span {
-    SourceSpan::new(offset.into(), len)
+    SourceSpan::new(offset, len)
 }
 
 /// A complete parsed template

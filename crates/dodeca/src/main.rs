@@ -212,18 +212,6 @@ fn print_usage() {
 }
 
 fn parse_args() -> Result<Command> {
-    // Set up miette graphical reporter for nice error output
-    miette::set_hook(Box::new(|_| {
-        Box::new(
-            miette::MietteHandlerOpts::new()
-                .terminal_links(true)
-                .unicode(true)
-                .context_lines(3)
-                .build(),
-        )
-    }))
-    .ok(); // Ignore error if already set
-
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 2 {
@@ -237,36 +225,35 @@ fn parse_args() -> Result<Command> {
     match cmd.as_str() {
         "build" => {
             let build_args: BuildArgs = facet_args::from_slice(&rest).map_err(|e| {
-                // Print miette error directly for nice formatting
-                eprintln!("{:?}", miette::Report::new(e));
+                eprintln!("{e}");
                 eyre!("Failed to parse build arguments")
             })?;
             Ok(Command::Build(build_args))
         }
         "serve" => {
             let serve_args: ServeArgs = facet_args::from_slice(&rest).map_err(|e| {
-                eprintln!("{:?}", miette::Report::new(e));
+                eprintln!("{e}");
                 eyre!("Failed to parse serve arguments")
             })?;
             Ok(Command::Serve(serve_args))
         }
         "clean" => {
             let clean_args: CleanArgs = facet_args::from_slice(&rest).map_err(|e| {
-                eprintln!("{:?}", miette::Report::new(e));
+                eprintln!("{e}");
                 eyre!("Failed to parse clean arguments")
             })?;
             Ok(Command::Clean(clean_args))
         }
         "static" => {
             let static_args: StaticArgs = facet_args::from_slice(&rest).map_err(|e| {
-                eprintln!("{:?}", miette::Report::new(e));
+                eprintln!("{e}");
                 eyre!("Failed to parse static arguments")
             })?;
             Ok(Command::Static(static_args))
         }
         "init" => {
             let init_args: InitArgs = facet_args::from_slice(&rest).map_err(|e| {
-                eprintln!("{:?}", miette::Report::new(e));
+                eprintln!("{e}");
                 eyre!("Failed to parse init arguments")
             })?;
             Ok(Command::Init(init_args))
@@ -367,8 +354,6 @@ fn main() -> Result<()> {
     if std::env::var("DODECA_DIE_WITH_PARENT").is_ok() {
         ur_taking_me_with_you::die_with_parent();
     }
-
-    miette_arborium::install_global()?;
 
     let command = parse_args()?;
 

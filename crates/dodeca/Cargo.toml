@@ -56,15 +56,14 @@ facet.workspace = true
 facet-args.workspace = true
 
 facet-json.workspace = true
-facet-kdl.workspace = true
 facet-postcard.workspace = true
 facet-toml.workspace = true
 facet-value.workspace = true
+facet-yaml.workspace = true
 futures-util.workspace = true
 if-addrs.workspace = true
 ignore.workspace = true
 include_dir.workspace = true
-miette = { workspace = true, features = ["fancy-no-backtrace"] }
 notify.workspace = true
 open.workspace = true
 owo-colors.workspace = true
@@ -83,7 +82,6 @@ tokio-stream.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 ur-taking-me-with-you.workspace = true
-miette-arborium = "2.4.7"
 html-escape.workspace = true
 
 [dev-dependencies]

@@ -22,8 +22,8 @@
 //! ```
 
 use crate::error::{TemplateSource, TypeError, UnknownFieldError};
+use eyre::Result;
 use facet_value::DestructuredRef;
-use miette::Result;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -188,7 +188,7 @@ impl LazyValue {
             Self::Lazy { resolver, path } => resolver
                 .resolve(path)
                 .await
-                .ok_or_else(|| miette::miette!("Data path not found: {}", path)),
+                .ok_or_else(|| eyre::eyre!("Data path not found: {}", path)),
         }
     }
 

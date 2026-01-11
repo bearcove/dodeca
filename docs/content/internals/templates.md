@@ -56,7 +56,7 @@ The root section, useful for building sidebars:
 
 ### `data`
 
-Data files loaded from the `data/` directory (sibling to `content/`). Supports JSON, YAML, TOML, and KDL formats.
+Data files loaded from the `data/` directory (sibling to `content/`). Supports JSON, YAML, and TOML formats.
 
 **Directory structure:**
 
@@ -66,8 +66,7 @@ my-site/
 ├── data/
 │   ├── navigation.yaml
 │   ├── authors.json
-│   ├── versions.toml
-│   └── settings.kdl
+│   └── versions.toml
 └── templates/
 ```
 
@@ -78,7 +77,6 @@ Each file becomes a key under `data` (filename without extension):
 | `data/navigation.yaml` | `data.navigation` |
 | `data/authors.json` | `data.authors` |
 | `data/versions.toml` | `data.versions` |
-| `data/settings.kdl` | `data.settings` |
 
 **Example: Navigation menu** (`data/navigation.yaml`)
 

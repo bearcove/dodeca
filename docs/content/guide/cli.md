@@ -25,7 +25,7 @@ ddc build [path] [OPTIONS]
 
 ### Arguments
 
-- `[path]` - Project directory (optional). If omitted, searches from the current directory upward for `.config/dodeca.kdl`.
+- `[path]` - Project directory (optional). If omitted, searches from the current directory upward for `.config/dodeca.yaml`.
 
 ### Options
 
@@ -61,7 +61,7 @@ ddc serve [path] [OPTIONS]
 
 ### Arguments
 
-- `[path]` - Project directory (optional). If omitted, searches from the current directory upward for `.config/dodeca.kdl`.
+- `[path]` - Project directory (optional). If omitted, searches from the current directory upward for `.config/dodeca.yaml`.
 
 ### Options
 
@@ -155,7 +155,7 @@ ddc clean [path]
 
 ### Arguments
 
-- `[path]` - Project directory (optional). If omitted, searches from the current directory upward for `.config/dodeca.kdl`.
+- `[path]` - Project directory (optional). If omitted, searches from the current directory upward for `.config/dodeca.yaml`.
 
 ### Examples
 
@@ -183,7 +183,7 @@ ddc clean ~/my-site
 
 ## Project Discovery
 
-When no `[path]` argument is provided, `ddc` searches for a project configuration by looking for `.config/dodeca.kdl` in:
+When no `[path]` argument is provided, `ddc` searches for a project configuration by looking for `.config/dodeca.yaml` in:
 
 1. The current working directory
 2. Each parent directory, up to the filesystem root

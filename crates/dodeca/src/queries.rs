@@ -1440,9 +1440,11 @@ pub async fn serve_html<DB: Db>(
 
     // Rewrite URLs in HTML
     let rewritten_html = rewrite_urls_in_html(&raw_html, &path_map).await;
+    let rewritten_has_doctype = rewritten_html.contains("<!DOCTYPE");
 
     // Transform <img> to <picture> for responsive images
     let transformed_html = transform_images_to_picture(&rewritten_html, &image_variants);
+    let transformed_has_doctype = transformed_html.contains("<!DOCTYPE");
 
     // Minify HTML (but skip for error pages to preserve the error marker comment)
     let final_html = if raw_html.contains(crate::render::RENDER_ERROR_MARKER) {
@@ -1450,6 +1452,21 @@ pub async fn serve_html<DB: Db>(
     } else {
         crate::svg::minify_html(&transformed_html).await
     };
+
+    // Log if any step lost the DOCTYPE
+    let raw_has_doctype = raw_html.contains("<!DOCTYPE");
+    if raw_has_doctype && !final_html.contains("<!DOCTYPE") {
+        tracing::error!(
+            route = %route,
+            raw_has_doctype,
+            rewritten_has_doctype,
+            transformed_has_doctype,
+            final_has_doctype = final_html.contains("<!DOCTYPE"),
+            final_len = final_html.len(),
+            final_preview = %final_html.chars().take(200).collect::<String>(),
+            "DOCTYPE lost during HTML processing!"
+        );
+    }
 
     Ok(Ok(Some(final_html)))
 }

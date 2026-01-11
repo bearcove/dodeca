@@ -25,7 +25,6 @@ url = "2"
 # Error handling
 color-eyre = "0.6"
 eyre = "0.6"
-miette = { version = "7.6", features = ["fancy", "fancy-no-backtrace"] }
 thiserror = "2.0"
 
 # Async runtime
@@ -53,7 +52,6 @@ facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html-dom = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -150,7 +148,6 @@ facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html-dom = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macro-parse = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macro-types = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macros = { git = "https://github.com/facet-rs/facet", branch = "main" }

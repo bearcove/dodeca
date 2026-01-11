@@ -13,7 +13,7 @@ Place static files in a `static/` directory alongside your `content/` directory:
 ```
 my-site/
 ├── .config/
-│   └── dodeca.kdl
+│   └── dodeca.yaml
 ├── content/
 │   └── ...
 ├── static/
@@ -76,14 +76,13 @@ Some assets need stable URLs that don't change:
 - `robots.txt` (search engines expect fixed location)
 - `og-image.png` (social media caches preview images)
 
-Configure these in `.config/dodeca.kdl`:
+Configure these in `.config/dodeca.yaml`:
 
-```kdl
-stable_assets {
-    path "favicon.svg"
-    path "robots.txt"
-    path "og-image.png"
-}
+```yaml
+stable_assets:
+  - favicon.svg
+  - robots.txt
+  - og-image.png
 ```
 
 Stable assets are served at both their original path and cache-busted path.
@@ -117,16 +116,15 @@ URLs inside CSS files are rewritten to point to cache-busted asset paths.
 
 ## Example configuration
 
-```kdl
-content "content"
-output "public"
+```yaml
+content: content
+output: public
 
-stable_assets {
-    path "favicon.svg"
-    path "robots.txt"
-    path "og-image.png"
-    path "apple-touch-icon.png"
-}
+stable_assets:
+  - favicon.svg
+  - robots.txt
+  - og-image.png
+  - apple-touch-icon.png
 ```
 
 ## Best practices

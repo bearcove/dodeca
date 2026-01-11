@@ -544,10 +544,23 @@ pub async fn try_render_page_with_loader<L: TemplateLoader>(
         ctx.set("section", section_to_value(section, site_tree, &base_url));
     }
 
-    engine
+    let result = engine
         .render("page.html", &ctx)
         .await
-        .map_err(|e| format!("{e:?}"))
+        .map_err(|e| format!("{e:?}"));
+
+    if let Ok(ref html) = result {
+        if !html.contains("<!DOCTYPE") {
+            tracing::warn!(
+                route = %page.route.as_str(),
+                html_len = html.len(),
+                html_preview = %html.chars().take(200).collect::<String>(),
+                html_tail = %html.chars().rev().take(100).collect::<String>().chars().rev().collect::<String>(),
+                "template rendered WITHOUT doctype!"
+            );
+        }
+    }
+    result
 }
 
 /// Render page with a loader - development mode (shows error page on failure)
@@ -797,11 +810,24 @@ pub async fn try_render_page_via_cell(
         build_initial_context_value(Some(page), parent_section, site_tree, page.route.as_str());
 
     // Render via cell
-    match render_template_cell(guard.id(), "page.html", initial_context).await {
+    let result = match render_template_cell(guard.id(), "page.html", initial_context).await {
         Some(Ok(html)) => Ok(html),
         Some(Err(e)) => Err(e),
         None => Err("Gingembre cell unavailable".to_string()),
+    };
+
+    if let Ok(ref html) = result {
+        if !html.contains("<!DOCTYPE") {
+            tracing::error!(
+                route = %page.route.as_str(),
+                html_len = html.len(),
+                html_preview = %html.chars().take(300).collect::<String>(),
+                html_tail = %html.chars().rev().take(100).collect::<String>().chars().rev().collect::<String>(),
+                "CELL template rendered WITHOUT doctype!"
+            );
+        }
     }
+    result
 }
 
 /// Render a section via the gingembre cell.
@@ -1015,7 +1041,7 @@ fn build_render_context_base(site_tree: &SiteTree) -> Context {
             let Some(section) = sections.get(&route) else {
                 let available: Vec<_> = sections.keys().map(|k| k.to_string()).collect();
                 return Box::pin(async move {
-                    Err(miette::miette!(
+                    Err(eyre::eyre!(
                         "get_section: section not found for path={:?} (resolved to route={:?}). Available sections: {:?}",
                         path,
                         route,
@@ -1185,10 +1211,22 @@ pub fn page_to_value(page: &Page, site_tree: &SiteTree) -> Value {
     let base_url = get_base_url();
     let mut map = VObject::new();
     map.insert(VString::from("title"), Value::from(page.title.as_str()));
-    map.insert(
-        VString::from("content"),
-        Value::from(page.body_html.as_str()),
-    );
+    let body_html = page.body_html.as_str();
+    if body_html.is_empty() {
+        tracing::warn!(
+            route = %page.route.as_str(),
+            title = %page.title,
+            "page_to_value: body_html is empty!"
+        );
+    } else {
+        tracing::debug!(
+            route = %page.route.as_str(),
+            body_html_len = body_html.len(),
+            body_html_preview = %body_html.chars().take(100).collect::<String>(),
+            "page_to_value: body_html content"
+        );
+    }
+    map.insert(VString::from("content"), Value::from(body_html));
     map.insert(
         VString::from("permalink"),
         Value::from(make_permalink(&base_url, page.route.as_str()).as_str()),

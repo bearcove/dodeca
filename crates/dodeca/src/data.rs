@@ -1,6 +1,6 @@
 //! Data file loading and parsing for template variables.
 //!
-//! Supports KDL, JSON, TOML, and YAML data files. Files are loaded from
+//! Supports JSON, TOML, and YAML data files. Files are loaded from
 //! the `data/` directory (sibling to content/) and exposed in templates
 //! under the `data` namespace.
 //!
@@ -23,7 +23,6 @@ use crate::template::{VObject, VString, Value};
 /// Supported data file formats
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataFormat {
-    Kdl,
     Json,
     Toml,
     Yaml,
@@ -34,7 +33,6 @@ impl DataFormat {
     pub fn from_extension(path: &str) -> Option<Self> {
         let ext = path.rsplit('.').next()?.to_lowercase();
         match ext.as_str() {
-            "kdl" => Some(Self::Kdl),
             "json" => Some(Self::Json),
             "toml" => Some(Self::Toml),
             "yaml" | "yml" => Some(Self::Yaml),
@@ -46,15 +44,10 @@ impl DataFormat {
 /// Parse a data file into a template Value
 pub fn parse_data_file(content: &str, format: DataFormat) -> Result<Value, String> {
     match format {
-        DataFormat::Kdl => parse_kdl(content),
         DataFormat::Json => parse_json(content),
         DataFormat::Toml => parse_toml(content),
         DataFormat::Yaml => parse_yaml(content),
     }
-}
-
-fn parse_kdl(content: &str) -> Result<Value, String> {
-    facet_kdl::from_str(content).map_err(|e| format!("KDL parse error: {e}"))
 }
 
 fn parse_json(content: &str) -> Result<Value, String> {
@@ -192,7 +185,6 @@ mod tests {
             DataFormat::from_extension("bar.json"),
             Some(DataFormat::Json)
         );
-        assert_eq!(DataFormat::from_extension("baz.kdl"), Some(DataFormat::Kdl));
         assert_eq!(
             DataFormat::from_extension("qux.yaml"),
             Some(DataFormat::Yaml)
@@ -202,6 +194,7 @@ mod tests {
             Some(DataFormat::Yaml)
         );
         assert_eq!(DataFormat::from_extension("unknown.txt"), None);
+        assert_eq!(DataFormat::from_extension("old.kdl"), None); // KDL no longer supported
     }
 
     #[test]

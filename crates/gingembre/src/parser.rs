@@ -5,7 +5,7 @@
 use super::ast::*;
 use super::error::{SyntaxError, TemplateSource};
 use super::lexer::{Lexer, Token, TokenKind};
-use miette::Result;
+use eyre::Result;
 use std::sync::Arc;
 
 /// Parsed call arguments: (positional args, keyword args)

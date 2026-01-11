@@ -19,7 +19,7 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 [dependencies]
 camino.workspace = true
 facet-value.workspace = true
-miette.workspace = true
+eyre.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 

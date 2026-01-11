@@ -134,8 +134,8 @@ fn make_rpc_function(
         Box::pin(async move {
             match client.call_function(context_id, name, args, kwargs).await {
                 Ok(CallFunctionResult::Success { value }) => Ok(value),
-                Ok(CallFunctionResult::Error { message }) => Err(miette::miette!(message)),
-                Err(e) => Err(miette::miette!("RPC error calling function: {:?}", e)),
+                Ok(CallFunctionResult::Error { message }) => Err(eyre::eyre!(message)),
+                Err(e) => Err(eyre::eyre!("RPC error calling function: {:?}", e)),
             }
         })
     })

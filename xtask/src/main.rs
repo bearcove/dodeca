@@ -109,7 +109,7 @@ fn parse_args() -> Result<XtaskCommand, String> {
     let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
 
     let parsed: XtaskArgs = facet_args::from_slice(&args_refs).map_err(|e| {
-        eprintln!("{:?}", miette::Report::new(e));
+        eprintln!("{e}");
         "Failed to parse arguments".to_string()
     })?;
 
@@ -117,17 +117,6 @@ fn parse_args() -> Result<XtaskCommand, String> {
 }
 
 fn main() -> ExitCode {
-    // Set up miette for nice error formatting
-    miette::set_hook(Box::new(|_| {
-        Box::new(
-            miette::MietteHandlerOpts::new()
-                .terminal_links(true)
-                .unicode(true)
-                .build(),
-        )
-    }))
-    .ok();
-
     let cmd = match parse_args() {
         Ok(c) => c,
         Err(e) => {

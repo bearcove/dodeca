@@ -15,11 +15,11 @@ cd my-site
 
 ## Add configuration
 
-Create `.config/dodeca.kdl`:
+Create `.config/dodeca.yaml`:
 
-```kdl
-content "content"
-output "public"
+```yaml
+content: content
+output: public
 ```
 
 ## Create content
@@ -69,7 +69,7 @@ Your site is now in `public/`.
 ddc serve
 ```
 
-`ddc serve` will print the URL it’s listening on. By default it tries ports `4000–4019` and falls back to an OS-assigned port if those are taken.
+`ddc serve` will print the URL it's listening on. By default it tries ports `4000–4019` and falls back to an OS-assigned port if those are taken.
 
 ## Code samples
 

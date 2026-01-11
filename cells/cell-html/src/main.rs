@@ -45,6 +45,8 @@ impl HtmlProcessorImpl {
 
 impl HtmlProcessor for HtmlProcessorImpl {
     async fn process(&self, input: HtmlProcessInput) -> HtmlProcessResult {
+        let input_has_doctype = input.html.contains("<!DOCTYPE");
+
         // Parse HTML once
         let mut doc: Html = match fhtml::from_str(&input.html) {
             Ok(doc) => doc,
@@ -59,6 +61,19 @@ impl HtmlProcessor for HtmlProcessorImpl {
                 };
             }
         };
+
+        // Check if parsing produced an empty document (facet-html-dom bug)
+        if input_has_doctype && doc.head.is_none() && doc.body.is_none() {
+            tracing::error!(
+                input_len = input.html.len(),
+                "facet-html-dom parsed valid HTML into empty document in process! Returning original HTML."
+            );
+            return HtmlProcessResult::Success {
+                html: input.html,
+                had_dead_links: false,
+                had_code_buttons: false,
+            };
+        }
 
         let mut had_dead_links = false;
         let mut had_code_buttons = false;
@@ -159,6 +174,7 @@ impl HtmlProcessor for HtmlProcessorImpl {
     // === Legacy methods ===
 
     async fn rewrite_urls(&self, html: String, path_map: HashMap<String, String>) -> HtmlResult {
+        let input_has_doctype = html.contains("<!DOCTYPE");
         let mut doc: Html = match fhtml::from_str(&html) {
             Ok(doc) => doc,
             Err(e) => {
@@ -173,10 +189,21 @@ impl HtmlProcessor for HtmlProcessorImpl {
             }
         };
 
+        // Check if parsing produced an empty document (facet-html-dom bug)
+        if input_has_doctype && doc.head.is_none() && doc.body.is_none() {
+            tracing::error!(
+                input_len = html.len(),
+                input_preview = %html.chars().take(200).collect::<String>(),
+                "facet-html-dom parsed valid HTML into empty document! Returning original HTML."
+            );
+            // Return the original HTML unchanged rather than corrupt output
+            return HtmlResult::Success { html };
+        }
+
         rewrite_urls_in_doc(&mut doc, &path_map);
 
         match fhtml::to_string_pretty(&doc) {
-            Ok(html) => HtmlResult::Success { html },
+            Ok(output_html) => HtmlResult::Success { html: output_html },
             Err(e) => HtmlResult::Error {
                 message: format!("HTML serialize error: {}", e),
             },
@@ -184,6 +211,7 @@ impl HtmlProcessor for HtmlProcessorImpl {
     }
 
     async fn mark_dead_links(&self, html: String, known_routes: HashSet<String>) -> HtmlResult {
+        let input_has_doctype = html.contains("<!DOCTYPE");
         let mut doc: Html = match fhtml::from_str(&html) {
             Ok(doc) => doc,
             Err(e) => {
@@ -192,6 +220,15 @@ impl HtmlProcessor for HtmlProcessorImpl {
                 };
             }
         };
+
+        // Check if parsing produced an empty document (facet-html-dom bug)
+        if input_has_doctype && doc.head.is_none() && doc.body.is_none() {
+            tracing::error!(
+                input_len = html.len(),
+                "facet-html-dom parsed valid HTML into empty document in mark_dead_links! Returning original HTML."
+            );
+            return HtmlResult::SuccessWithFlag { html, flag: false };
+        }
 
         let had_dead = mark_dead_links_in_doc(&mut doc, &known_routes);
 
@@ -211,6 +248,7 @@ impl HtmlProcessor for HtmlProcessorImpl {
         html: String,
         code_metadata: HashMap<String, CodeExecutionMetadata>,
     ) -> HtmlResult {
+        let input_has_doctype = html.contains("<!DOCTYPE");
         let mut doc: Html = match fhtml::from_str(&html) {
             Ok(doc) => doc,
             Err(e) => {
@@ -219,6 +257,15 @@ impl HtmlProcessor for HtmlProcessorImpl {
                 };
             }
         };
+
+        // Check if parsing produced an empty document (facet-html-dom bug)
+        if input_has_doctype && doc.head.is_none() && doc.body.is_none() {
+            tracing::error!(
+                input_len = html.len(),
+                "facet-html-dom parsed valid HTML into empty document in inject_code_buttons! Returning original HTML."
+            );
+            return HtmlResult::SuccessWithFlag { html, flag: false };
+        }
 
         let had_buttons = inject_code_buttons_in_doc(&mut doc, &code_metadata);
 

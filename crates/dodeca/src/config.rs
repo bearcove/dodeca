@@ -1,12 +1,11 @@
 //! Configuration file discovery and parsing
 //!
-//! Searches for `.config/dodeca.kdl` walking up from the current directory.
+//! Searches for `.config/dodeca.yaml` walking up from the current directory.
 //! The project root is the parent of `.config/`.
 
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
 use facet::Facet;
-use facet_kdl as kdl;
 use std::env;
 use std::fs;
 use std::sync::OnceLock;
@@ -16,111 +15,67 @@ pub use cell_code_execution_proto::CodeExecutionConfig;
 
 /// Configuration file name
 const CONFIG_DIR: &str = ".config";
-const CONFIG_FILE: &str = "dodeca.kdl";
+const CONFIG_FILE_YAML: &str = "dodeca.yaml";
+const CONFIG_FILE_KDL_LEGACY: &str = "dodeca.kdl";
 
-/// Dodeca configuration from `.config/dodeca.kdl`
+/// Dodeca configuration from `.config/dodeca.yaml`
 #[derive(Debug, Clone, Facet)]
+#[facet(rename_all = "snake_case")]
 pub struct DodecaConfig {
     /// Base URL for the site (e.g., `https://example.com`)
     /// Used to generate permalinks. Defaults to "/" for local development.
-    #[facet(kdl::child, default)]
-    pub base_url: Option<BaseUrl>,
+    #[facet(default)]
+    pub base_url: Option<String>,
 
     /// Content directory (relative to project root)
-    #[facet(kdl::child)]
-    pub content: ContentDir,
+    pub content: String,
 
     /// Output directory (relative to project root)
-    #[facet(kdl::child)]
-    pub output: OutputDir,
+    pub output: String,
 
     /// Link checking configuration
-    #[facet(kdl::child, default)]
-    pub link_check: LinkCheckConfig,
+    #[facet(default)]
+    pub link_check: Option<LinkCheckConfig>,
 
     /// Assets that should be served at their original paths (no cache-busting)
     /// e.g., favicon.svg, robots.txt, og-image.png
-    #[facet(kdl::child, default)]
-    pub stable_assets: StableAssetsConfig,
+    #[facet(default)]
+    pub stable_assets: Option<Vec<String>>,
 
     /// Code execution configuration
-    #[facet(kdl::child, default)]
-    pub code_execution: CodeExecutionConfig,
+    #[facet(default)]
+    pub code_execution: Option<CodeExecutionConfig>,
 
     /// Syntax highlighting theme configuration
-    #[facet(kdl::child, rename = "syntax-highlight", default)]
-    pub syntax_highlight: SyntaxHighlightConfig,
+    #[facet(default)]
+    pub syntax_highlight: Option<SyntaxHighlightConfig>,
 }
 
 /// Syntax highlighting theme configuration
 #[derive(Debug, Clone, Default, Facet)]
-#[facet(traits(Default), rename_all = "kebab-case")]
+#[facet(rename_all = "snake_case")]
 pub struct SyntaxHighlightConfig {
     /// Light theme name (e.g., "github-light", "catppuccin-latte")
-    #[facet(kdl::child)]
+    #[facet(default)]
     pub light_theme: Option<String>,
 
     /// Dark theme name (e.g., "tokyo-night", "catppuccin-mocha")
-    #[facet(kdl::child)]
+    #[facet(default)]
     pub dark_theme: Option<String>,
 }
 
 /// Link checking configuration
 #[derive(Debug, Clone, Default, Facet)]
-#[facet(traits(Default))]
+#[facet(rename_all = "snake_case")]
 pub struct LinkCheckConfig {
     /// Domains to skip checking (anti-bot policies, known flaky, etc.)
-    #[facet(kdl::children, default)]
-    pub skip_domains: Vec<SkipDomain>,
+    #[facet(default)]
+    pub skip_domains: Option<Vec<String>>,
 
     /// Minimum delay between requests to the same domain (milliseconds)
     /// Default: 1000ms (1 second)
-    #[facet(kdl::property, default)]
+    #[facet(default)]
     pub rate_limit_ms: Option<u64>,
-}
-
-/// Stable assets configuration (served at original paths without cache-busting)
-#[derive(Debug, Clone, Default, Facet)]
-#[facet(traits(Default))]
-pub struct StableAssetsConfig {
-    /// Asset paths relative to static/ directory
-    #[facet(kdl::children, default)]
-    pub paths: Vec<StableAssetPath>,
-}
-
-/// A single stable asset path
-#[derive(Debug, Clone, Facet)]
-pub struct StableAssetPath {
-    #[facet(kdl::argument)]
-    pub path: String,
-}
-
-/// A domain to skip during external link checking
-#[derive(Debug, Clone, Facet)]
-pub struct SkipDomain {
-    #[facet(kdl::argument)]
-    pub domain: String,
-}
-
-/// Content directory node
-#[derive(Debug, Clone, Facet)]
-pub struct ContentDir {
-    #[facet(kdl::argument)]
-    pub path: String,
-}
-
-/// Output directory node
-#[derive(Debug, Clone, Facet)]
-pub struct OutputDir {
-    #[facet(kdl::argument)]
-    pub path: String,
-}
-
-/// Base URL node
-#[derive(Debug, Clone, Facet)]
-pub struct BaseUrl {
-    #[facet(kdl::argument)]
-    pub url: String,
 }
 
 /// Discovered configuration with resolved paths
@@ -166,10 +121,32 @@ impl ResolvedConfig {
 
     /// Discover and load configuration from a specific project path
     pub fn discover_from(project_path: &Utf8Path) -> Result<Option<Self>> {
-        let config_file = project_path.join(CONFIG_DIR).join(CONFIG_FILE);
+        let config_dir = project_path.join(CONFIG_DIR);
 
-        if config_file.exists() {
-            let resolved = load_config(&config_file)?;
+        // Check for legacy KDL config and error if found
+        let kdl_file = config_dir.join(CONFIG_FILE_KDL_LEGACY);
+        if kdl_file.exists() {
+            return Err(eyre!(
+                "Found legacy configuration file: {}\n\n\
+                KDL configuration format is no longer supported.\n\
+                Please migrate to YAML format:\n\n\
+                1. Rename {} to {}\n\
+                2. Convert the content to YAML syntax\n\n\
+                Example YAML config:\n\
+                ```yaml\n\
+                content: docs/\n\
+                output: public/\n\
+                base_url: https://example.com\n\
+                ```",
+                kdl_file,
+                CONFIG_FILE_KDL_LEGACY,
+                CONFIG_FILE_YAML
+            ));
+        }
+
+        let yaml_file = config_dir.join(CONFIG_FILE_YAML);
+        if yaml_file.exists() {
+            let resolved = load_config(&yaml_file)?;
             Ok(Some(resolved))
         } else {
             Ok(None)
@@ -177,7 +154,7 @@ impl ResolvedConfig {
     }
 }
 
-/// Search for `.config/dodeca.kdl` walking up from current directory
+/// Search for `.config/dodeca.yaml` walking up from current directory
 fn find_config_file() -> Result<Option<Utf8PathBuf>> {
     let cwd = env::current_dir()?;
     let cwd = Utf8PathBuf::try_from(cwd).map_err(|e| {
@@ -191,10 +168,31 @@ fn find_config_file() -> Result<Option<Utf8PathBuf>> {
 
     loop {
         let config_dir = current.join(CONFIG_DIR);
-        let config_file = config_dir.join(CONFIG_FILE);
 
-        if config_file.exists() {
-            return Ok(Some(config_file));
+        // Check for legacy KDL config and error if found
+        let kdl_file = config_dir.join(CONFIG_FILE_KDL_LEGACY);
+        if kdl_file.exists() {
+            return Err(eyre!(
+                "Found legacy configuration file: {}\n\n\
+                KDL configuration format is no longer supported.\n\
+                Please migrate to YAML format:\n\n\
+                1. Rename {} to {}\n\
+                2. Convert the content to YAML syntax\n\n\
+                Example YAML config:\n\
+                ```yaml\n\
+                content: docs/\n\
+                output: public/\n\
+                base_url: https://example.com\n\
+                ```",
+                kdl_file,
+                CONFIG_FILE_KDL_LEGACY,
+                CONFIG_FILE_YAML
+            ));
+        }
+
+        let yaml_file = config_dir.join(CONFIG_FILE_YAML);
+        if yaml_file.exists() {
+            return Ok(Some(yaml_file));
         }
 
         match current.parent() {
@@ -208,8 +206,8 @@ fn find_config_file() -> Result<Option<Utf8PathBuf>> {
 fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
     let content = fs::read_to_string(config_path)?;
 
-    let config: DodecaConfig = kdl::from_str(&content)
-        .map_err(|e| eyre!("While loading config: {:?}", miette::Report::new(e)))?;
+    let config: DodecaConfig = facet_yaml::from_str(&content)
+        .map_err(|e| eyre!("Failed to parse {}: {}", config_path, e))?;
 
     // Project root is the parent of .config/
     let config_dir = config_path
@@ -221,38 +219,32 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         .to_owned();
 
     // Resolve paths relative to project root
-    let content_dir = root.join(&config.content.path);
-    let output_dir = root.join(&config.output.path);
+    let content_dir = root.join(&config.content);
+    let output_dir = root.join(&config.output);
 
     // Extract skip domains
     let skip_domains = config
         .link_check
-        .skip_domains
-        .into_iter()
-        .map(|s| s.domain)
-        .collect();
+        .as_ref()
+        .and_then(|lc| lc.skip_domains.clone())
+        .unwrap_or_default();
 
     // Extract rate limit
-    let rate_limit_ms = config.link_check.rate_limit_ms;
+    let rate_limit_ms = config.link_check.as_ref().and_then(|lc| lc.rate_limit_ms);
 
     // Extract stable asset paths
-    let stable_assets = config
-        .stable_assets
-        .paths
-        .into_iter()
-        .map(|p| p.path)
-        .collect();
+    let stable_assets = config.stable_assets.unwrap_or_default();
 
     // Resolve theme names with defaults
     let light_theme_name = config
         .syntax_highlight
-        .light_theme
-        .as_deref()
+        .as_ref()
+        .and_then(|sh| sh.light_theme.as_deref())
         .unwrap_or("github-light");
     let dark_theme_name = config
         .syntax_highlight
-        .dark_theme
-        .as_deref()
+        .as_ref()
+        .and_then(|sh| sh.dark_theme.as_deref())
         .unwrap_or("tokyo-night");
 
     // Generate CSS for both themes
@@ -262,10 +254,7 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         .map_err(|e| eyre!("Failed to load dark theme '{}': {}", dark_theme_name, e))?;
 
     // Get base_url, defaulting to "/" for local development
-    let base_url = config
-        .base_url
-        .map(|b| b.url)
-        .unwrap_or_else(|| "/".to_string());
+    let base_url = config.base_url.unwrap_or_else(|| "/".to_string());
 
     Ok(ResolvedConfig {
         _root: root,
@@ -275,7 +264,7 @@ fn load_config(config_path: &Utf8Path) -> Result<ResolvedConfig> {
         skip_domains,
         rate_limit_ms,
         stable_assets,
-        code_execution: config.code_execution,
+        code_execution: config.code_execution.unwrap_or_default(),
         light_theme_css,
         dark_theme_css,
     })
@@ -306,18 +295,48 @@ mod tests {
 
     #[test]
     fn test_parse_config() {
-        let kdl = r#"
-            content "docs/"
-            output "public/"
-            link_check {
-            }
-            stable_assets {
-            }
-        "#;
+        let yaml = r#"
+content: docs/
+output: public/
+"#;
 
-        let config: DodecaConfig = kdl::from_str(kdl).unwrap();
-        assert_eq!(config.content.path, "docs/");
-        assert_eq!(config.output.path, "public/");
-        assert!(config.stable_assets.paths.is_empty());
+        let config: DodecaConfig = facet_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.content, "docs/");
+        assert_eq!(config.output, "public/");
+        assert!(config.stable_assets.is_none());
+    }
+
+    #[test]
+    fn test_parse_full_config() {
+        let yaml = r#"
+content: docs/
+output: public/
+base_url: https://example.com
+link_check:
+  skip_domains:
+    - example.com
+    - test.local
+  rate_limit_ms: 500
+stable_assets:
+  - favicon.svg
+  - robots.txt
+syntax_highlight:
+  light_theme: github-light
+  dark_theme: tokyo-night
+"#;
+
+        let config: DodecaConfig = facet_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.content, "docs/");
+        assert_eq!(config.output, "public/");
+        assert_eq!(config.base_url, Some("https://example.com".to_string()));
+        assert_eq!(
+            config.link_check.as_ref().unwrap().skip_domains,
+            Some(vec!["example.com".to_string(), "test.local".to_string()])
+        );
+        assert_eq!(config.link_check.as_ref().unwrap().rate_limit_ms, Some(500));
+        assert_eq!(
+            config.stable_assets,
+            Some(vec!["favicon.svg".to_string(), "robots.txt".to_string()])
+        );
     }
 }

@@ -7,9 +7,9 @@ use super::error::{
     TemplateSource, TypeError, UndefinedError, UnknownFieldError, UnknownFilterError,
     UnknownTestError,
 };
+use eyre::Result;
 use facet_value::{DestructuredRef, VArray, VObject, VString};
 use futures::future::BoxFuture;
-use miette::Result;
 use std::collections::HashMap;
 
 /// Re-export facet_value::Value as the template Value type
@@ -1016,6 +1016,11 @@ fn apply_filter(
         "selectattr",
         "rejectattr",
         "groupby",
+        // Path manipulation filters
+        "path_segments",
+        "path_first",
+        "path_parent",
+        "path_basename",
     ];
 
     // Helper to get kwarg value
@@ -1285,6 +1290,52 @@ fn apply_filter(
                 }
                 _ => value,
             }
+        }
+        // Path manipulation filters
+        "path_segments" => {
+            // Split path into segments, removing empty strings from leading/trailing slashes
+            // "/foo/bar/" -> ["foo", "bar"]
+            let s = value.render_to_string();
+            let segments: Vec<Value> = s
+                .split('/')
+                .filter(|seg| !seg.is_empty())
+                .map(Value::from)
+                .collect();
+            VArray::from_iter(segments).into()
+        }
+        "path_first" => {
+            // Get the first segment of a path
+            // "/foo/bar" -> "foo"
+            let s = value.render_to_string();
+            s.split('/')
+                .find(|seg| !seg.is_empty())
+                .map(Value::from)
+                .unwrap_or(Value::NULL)
+        }
+        "path_parent" => {
+            // Get the parent path
+            // "/foo/bar" -> "/foo", "/foo" -> "/", "/" -> "/"
+            let s = value.render_to_string();
+            let trimmed = s.trim_end_matches('/');
+            if trimmed.is_empty() {
+                return Ok(Value::from("/"));
+            }
+            match trimmed.rfind('/') {
+                Some(0) => Value::from("/"),
+                Some(idx) => Value::from(&trimmed[..idx]),
+                None => Value::from("/"),
+            }
+        }
+        "path_basename" => {
+            // Get the last segment of a path (basename)
+            // "/foo/bar" -> "bar", "/foo/" -> "foo"
+            let s = value.render_to_string();
+            s.trim_end_matches('/')
+                .rsplit('/')
+                .next()
+                .filter(|seg| !seg.is_empty())
+                .map(Value::from)
+                .unwrap_or(Value::NULL)
         }
         _ => {
             return Err(UnknownFilterError {

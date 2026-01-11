@@ -18,6 +18,6 @@ facet-args.workspace = true
 facet-yaml.workspace = true
 fs-err.workspace = true
 indexmap.workspace = true
-miette.workspace = true
+eyre.workspace = true
 owo-colors.workspace = true
 structstruck.workspace = true

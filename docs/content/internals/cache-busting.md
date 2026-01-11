@@ -16,13 +16,12 @@ CSS `url()` values are rewritten too:
 @font-face { src: url('/fonts/inter.x9k3j1.woff2'); }
 ```
 
-Some files need stable paths (favicons, robots.txt). Configure them in `dodeca.kdl`:
+Some files need stable paths (favicons, robots.txt). Configure them in `dodeca.yaml`:
 
-```kdl
-stable_assets {
-    path "favicon.svg"
-    path "robots.txt"
-}
+```yaml
+stable_assets:
+  - favicon.svg
+  - robots.txt
 ```
 
 When a file changes, only that file is re-hashed, and only pages referencing it are regenerated.

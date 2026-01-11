@@ -16,7 +16,7 @@ impl Token {
     pub fn new(kind: TokenKind, offset: usize, len: usize) -> Self {
         Self {
             kind,
-            span: Span::new(offset.into(), len),
+            span: Span::new(offset, len),
         }
     }
 }

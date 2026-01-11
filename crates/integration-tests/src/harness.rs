@@ -1098,8 +1098,8 @@ impl InlineSite {
 
         // Write config
         fs::write(
-            fixture_dir.join(".config/dodeca.kdl"),
-            "content \"content\"\noutput \"public\"\n",
+            fixture_dir.join(".config/dodeca.yaml"),
+            "content: content\noutput: public\n",
         )
         .expect("write config");
 

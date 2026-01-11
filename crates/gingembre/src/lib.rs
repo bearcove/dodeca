@@ -1,10 +1,10 @@
 // Template engine is a work in progress - many AST fields are for future error reporting
 #![allow(dead_code)]
 
-//! gingembre - A Jinja-like template engine with rich diagnostics
+//! gingembre - A Jinja-like template engine
 //!
 //! A template language featuring:
-//! - Rich diagnostics via miette
+//! - Rich diagnostics
 //! - Parse once, run many times (compiled templates)
 //! - Template inheritance and includes
 //! - Macro system with imports
@@ -56,7 +56,7 @@ pub use facet_value::{VArray, VObject, VSafeString, VString};
 
 /// Evaluate a standalone expression string against a context.
 /// Useful for REPL-style evaluation.
-pub async fn eval_expression(expr: &str, ctx: &Context) -> miette::Result<Value> {
+pub async fn eval_expression(expr: &str, ctx: &Context) -> eyre::Result<Value> {
     use error::TemplateSource;
 
     // Use expression parser (starts in code mode, not template mode)

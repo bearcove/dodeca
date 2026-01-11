@@ -9,9 +9,9 @@ use super::eval::{Context, Evaluator, Value};
 use super::lazy::LazyValue;
 use super::parser::Parser;
 use camino::{Utf8Path, Utf8PathBuf};
+use eyre::Result;
 use facet_value::{DestructuredRef, VObject, VString};
 use futures::future::BoxFuture;
-use miette::Result;
 use std::collections::HashMap;
 
 /// Loop control flow signals
@@ -227,7 +227,7 @@ impl<L: TemplateLoader> Engine<L> {
             .loader
             .load(name)
             .await
-            .ok_or_else(|| miette::miette!("Template not found: {}", name))?;
+            .ok_or_else(|| eyre::eyre!("Template not found: {}", name))?;
         Template::parse(name, source)
     }
 
@@ -688,7 +688,7 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                 .get(namespace)
                 .and_then(|ns| ns.get(macro_name))
                 .cloned()
-                .ok_or_else(|| miette::miette!("Macro not found: {}::{}", namespace, macro_name))?;
+                .ok_or_else(|| eyre::eyre!("Macro not found: {}::{}", namespace, macro_name))?;
 
             // Save output and create new buffer for macro
             let mut macro_output = String::new();
