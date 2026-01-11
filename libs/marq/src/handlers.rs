@@ -5,14 +5,10 @@
 //! - `aasvg` - ASCII art to SVG conversion
 //! - `pikru` - Pikchr diagram rendering
 
-#[cfg(any(feature = "highlight", feature = "aasvg", feature = "pikru"))]
 use std::future::Future;
-#[cfg(any(feature = "highlight", feature = "aasvg", feature = "pikru"))]
 use std::pin::Pin;
 
-#[cfg(any(feature = "highlight", feature = "aasvg", feature = "pikru"))]
 use crate::Result;
-#[cfg(any(feature = "highlight", feature = "aasvg", feature = "pikru"))]
 use crate::handler::CodeBlockHandler;
 
 /// Syntax highlighting handler using arborium.
@@ -202,5 +198,285 @@ impl CodeBlockHandler for PikruHandler {
                 }),
             }
         })
+    }
+}
+
+/// A parsed section from a compare block.
+#[derive(Debug, Clone)]
+pub struct CompareSection {
+    /// Language identifier for syntax highlighting
+    pub language: String,
+    /// The code content
+    pub code: String,
+}
+
+/// Side-by-side code comparison handler.
+///
+/// Parses code blocks with `/// language` separators and renders them
+/// side-by-side with syntax highlighting.
+///
+/// # Syntax
+///
+/// ````text
+/// ```compare
+/// /// json
+/// {"server": {"host": "localhost", "port": 8080}}
+/// /// styx
+/// server host=localhost port=8080
+/// ```
+/// ````
+///
+/// The `/// language` lines act as separators, where `language` is the
+/// syntax highlighting language for the following code section.
+///
+/// # Output
+///
+/// Renders as a flex container with each section displayed side-by-side.
+/// Each section has its language as a header and syntax-highlighted code.
+#[cfg(feature = "highlight")]
+pub struct CompareHandler {
+    highlighter: std::sync::Mutex<arborium::Highlighter>,
+}
+
+#[cfg(feature = "highlight")]
+impl CompareHandler {
+    /// Create a new CompareHandler with default config.
+    pub fn new() -> Self {
+        Self {
+            highlighter: std::sync::Mutex::new(arborium::Highlighter::new()),
+        }
+    }
+
+    /// Create a new CompareHandler with custom config.
+    pub fn with_config(config: arborium::Config) -> Self {
+        Self {
+            highlighter: std::sync::Mutex::new(arborium::Highlighter::with_config(config)),
+        }
+    }
+
+    /// Parse the compare block content into sections.
+    ///
+    /// Each section starts with `/// language` and contains the code until
+    /// the next separator or end of content.
+    pub fn parse_sections(code: &str) -> Vec<CompareSection> {
+        let mut sections = Vec::new();
+        let mut current_language: Option<String> = None;
+        let mut current_code = String::new();
+
+        for line in code.lines() {
+            if let Some(lang) = line.strip_prefix("/// ") {
+                // Start a new section - save previous if exists
+                if let Some(lang) = current_language.take() {
+                    sections.push(CompareSection {
+                        language: lang,
+                        code: current_code.trim_end().to_string(),
+                    });
+                    current_code.clear();
+                }
+                current_language = Some(lang.trim().to_string());
+            } else if current_language.is_some() {
+                // Accumulate code in current section
+                if !current_code.is_empty() {
+                    current_code.push('\n');
+                }
+                current_code.push_str(line);
+            }
+            // Lines before any `/// language` are ignored
+        }
+
+        // Don't forget the last section
+        if let Some(lang) = current_language {
+            sections.push(CompareSection {
+                language: lang,
+                code: current_code.trim_end().to_string(),
+            });
+        }
+
+        sections
+    }
+
+    /// Highlight code using arborium, with fallback for unsupported languages.
+    fn highlight_code(&self, language: &str, code: &str) -> String {
+        use crate::handler::html_escape;
+
+        if language.is_empty() {
+            return html_escape(code);
+        }
+
+        // Map common language aliases
+        let arborium_lang = match language {
+            "jinja" => "jinja2",
+            _ => language,
+        };
+
+        let mut hl = self.highlighter.lock().unwrap();
+        match hl.highlight(arborium_lang, code) {
+            Ok(html) => html,
+            Err(_) => html_escape(code),
+        }
+    }
+}
+
+#[cfg(feature = "highlight")]
+impl Default for CompareHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "highlight")]
+impl CodeBlockHandler for CompareHandler {
+    fn render<'a>(
+        &'a self,
+        _language: &'a str,
+        code: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
+        Box::pin(async move {
+            use crate::handler::html_escape;
+
+            let sections = Self::parse_sections(code);
+
+            if sections.is_empty() {
+                // No valid sections found - render as plain text
+                let escaped = html_escape(code);
+                return Ok(format!("<pre><code>{escaped}</code></pre>"));
+            }
+
+            let mut html = String::new();
+            html.push_str("<div class=\"compare-container\">");
+
+            for section in &sections {
+                let highlighted = self.highlight_code(&section.language, &section.code);
+                let escaped_lang = html_escape(&section.language);
+
+                html.push_str("<div class=\"compare-section\">");
+                html.push_str(&format!(
+                    "<div class=\"compare-header\">{}</div>",
+                    escaped_lang
+                ));
+                html.push_str(&format!(
+                    "<pre><code class=\"language-{}\">{}</code></pre>",
+                    escaped_lang, highlighted
+                ));
+                html.push_str("</div>");
+            }
+
+            html.push_str("</div>");
+
+            Ok(html)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "highlight")]
+    mod compare_handler_tests {
+        use super::*;
+
+        #[test]
+        fn test_parse_sections_basic() {
+            let code = r#"/// json
+{"key": "value"}
+/// yaml
+key: value"#;
+
+            let sections = CompareHandler::parse_sections(code);
+            assert_eq!(sections.len(), 2);
+
+            assert_eq!(sections[0].language, "json");
+            assert_eq!(sections[0].code, r#"{"key": "value"}"#);
+
+            assert_eq!(sections[1].language, "yaml");
+            assert_eq!(sections[1].code, "key: value");
+        }
+
+        #[test]
+        fn test_parse_sections_multiline_code() {
+            let code = r#"/// rust
+fn main() {
+    println!("Hello");
+}
+/// python
+def main():
+    print("Hello")"#;
+
+            let sections = CompareHandler::parse_sections(code);
+            assert_eq!(sections.len(), 2);
+
+            assert_eq!(sections[0].language, "rust");
+            assert!(sections[0].code.contains("fn main()"));
+            assert!(sections[0].code.contains("println!"));
+
+            assert_eq!(sections[1].language, "python");
+            assert!(sections[1].code.contains("def main():"));
+        }
+
+        #[test]
+        fn test_parse_sections_ignores_leading_content() {
+            let code = r#"This is ignored
+Also ignored
+/// json
+{"valid": true}"#;
+
+            let sections = CompareHandler::parse_sections(code);
+            assert_eq!(sections.len(), 1);
+            assert_eq!(sections[0].language, "json");
+            assert_eq!(sections[0].code, r#"{"valid": true}"#);
+        }
+
+        #[test]
+        fn test_parse_sections_empty() {
+            let code = "no sections here";
+            let sections = CompareHandler::parse_sections(code);
+            assert!(sections.is_empty());
+        }
+
+        #[test]
+        fn test_parse_sections_three_way() {
+            let code = r#"/// json
+{"format": "json"}
+/// yaml
+format: yaml
+/// toml
+format = "toml""#;
+
+            let sections = CompareHandler::parse_sections(code);
+            assert_eq!(sections.len(), 3);
+            assert_eq!(sections[0].language, "json");
+            assert_eq!(sections[1].language, "yaml");
+            assert_eq!(sections[2].language, "toml");
+        }
+
+        #[tokio::test]
+        async fn test_render_compare_block() {
+            let handler = CompareHandler::new();
+            let code = r#"/// json
+{"key": "value"}
+/// yaml
+key: value"#;
+
+            let result = handler.render("compare", code).await.unwrap();
+
+            assert!(result.contains(r#"class="compare-container""#));
+            assert!(result.contains(r#"class="compare-section""#));
+            assert!(result.contains(r#"class="compare-header""#));
+            assert!(result.contains("json"));
+            assert!(result.contains("yaml"));
+        }
+
+        #[tokio::test]
+        async fn test_render_empty_compare_block() {
+            let handler = CompareHandler::new();
+            let code = "no valid sections";
+
+            let result = handler.render("compare", code).await.unwrap();
+
+            // Should fall back to plain text rendering
+            assert!(result.contains("<pre><code>"));
+            assert!(result.contains("no valid sections"));
+        }
     }
 }

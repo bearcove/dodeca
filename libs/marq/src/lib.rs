@@ -47,6 +47,9 @@ pub use reqs::{
 #[cfg(feature = "highlight")]
 pub use handlers::ArboriumHandler;
 
+#[cfg(feature = "highlight")]
+pub use handlers::{CompareHandler, CompareSection};
+
 #[cfg(feature = "aasvg")]
 pub use handlers::AasvgHandler;
 
