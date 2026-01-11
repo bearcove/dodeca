@@ -327,9 +327,6 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                         {
                             match req_result {
                                 Ok(mut req) => {
-                                    // Extract plain text for LSP hover
-                                    req.text = extract_blockquote_req_text(&events);
-
                                     // Render req content HTML
                                     let content_html = render_blockquote_req_content(
                                         &events,
@@ -535,9 +532,6 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                     {
                         match req_result {
                             Ok(mut req) => {
-                                // Extract plain text for LSP hover
-                                req.text = extract_paragraph_req_text(&events);
-
                                 // Render req content HTML
                                 let content_html = render_paragraph_req_content(&events, options);
 
@@ -788,102 +782,6 @@ fn req_marker_regex() -> &'static regex::Regex {
 /// Strip req marker from text if present, returns owned String
 fn strip_req_marker(text: &str) -> String {
     req_marker_regex().replace(text, "").into_owned()
-}
-
-/// Extract plain text from paragraph events (for LSP hover, etc.)
-///
-/// This handles the case where pulldown-cmark splits `r[req.id]` into multiple
-/// text events ("r", "[", "req.id", "]") due to potential link parsing.
-fn extract_paragraph_req_text(events: &[(Event<'_>, Range<usize>)]) -> String {
-    let mut text = String::new();
-
-    // First pass: collect all text without stripping
-    for (event, _range) in events {
-        match event {
-            Event::Text(t) => {
-                text.push_str(t.as_ref());
-            }
-            Event::SoftBreak | Event::HardBreak => {
-                text.push('\n');
-            }
-            Event::Code(code) => {
-                text.push('`');
-                text.push_str(code);
-                text.push('`');
-            }
-            _ => {}
-        }
-    }
-
-    // Strip the requirement marker from the collected text
-    let stripped = strip_req_marker(&text);
-    stripped.trim().to_string()
-}
-
-/// Extract plain text from blockquote events (for LSP hover, etc.)
-///
-/// This handles the case where pulldown-cmark splits `r[req.id]` into multiple
-/// text events ("r", "[", "req.id", "]") due to potential link parsing.
-fn extract_blockquote_req_text(events: &[(Event<'_>, Range<usize>)]) -> String {
-    let mut text = String::new();
-    let mut in_code_block = false;
-    let mut code_block_lang = String::new();
-    let mut code_block_content = String::new();
-
-    // First pass: collect all text without stripping
-    for (event, _range) in events {
-        match event {
-            Event::Text(t) if in_code_block => {
-                code_block_content.push_str(t.as_ref());
-            }
-            Event::Text(t) => {
-                text.push_str(t.as_ref());
-            }
-            Event::SoftBreak | Event::HardBreak => {
-                if in_code_block {
-                    code_block_content.push('\n');
-                } else {
-                    text.push('\n');
-                }
-            }
-            Event::Code(code) => {
-                text.push('`');
-                text.push_str(code);
-                text.push('`');
-            }
-            Event::Start(Tag::CodeBlock(kind)) => {
-                in_code_block = true;
-                code_block_lang = match kind {
-                    pulldown_cmark::CodeBlockKind::Fenced(lang) => lang.to_string(),
-                    pulldown_cmark::CodeBlockKind::Indented => String::new(),
-                };
-                code_block_content.clear();
-            }
-            Event::End(TagEnd::CodeBlock) => {
-                in_code_block = false;
-                text.push_str("\n```");
-                if !code_block_lang.is_empty() {
-                    text.push_str(&code_block_lang);
-                }
-                text.push('\n');
-                text.push_str(&code_block_content);
-                text.push_str("```\n");
-            }
-            Event::Start(Tag::Paragraph) => {
-                if !text.is_empty() && !text.ends_with('\n') {
-                    text.push_str("\n\n");
-                }
-            }
-            Event::End(TagEnd::Paragraph) => {
-                // Paragraph end is handled by Start of next paragraph
-            }
-            _ => {}
-        }
-    }
-
-    // Strip the requirement marker from the collected text
-    let stripped = strip_req_marker(&text);
-    stripped.trim().to_string()
 }
 
 /// Render the content of a paragraph req (stripping the r[...] marker)
@@ -1160,15 +1058,17 @@ fn try_parse_paragraph_req<'a>(
     }
     seen_ids.insert(req_id.to_string());
 
-    // html and text are generated separately by render_paragraph_req_content/extract_paragraph_req_text
-    let html = String::new();
-    let text_content = String::new();
-
     let line = offset_to_line(markdown, offset);
     let anchor_id = format!("r-{}", req_id);
 
     // marker_span covers just r[req.id] - use for inlay hints and diagnostics
     let marker_len = marker_end + 1; // includes r[ and ]
+
+    // raw is everything after the marker, trimmed
+    let raw = text[marker_len..].trim().to_string();
+
+    // html is generated later by render_paragraph_req_content
+    let html = String::new();
 
     // r[impl dashboard.editing.byte-range.req-span]
     // r[impl dashboard.editing.byte-range.marker-and-content]
@@ -1185,7 +1085,7 @@ fn try_parse_paragraph_req<'a>(
         },
         line,
         metadata,
-        text: text_content,
+        raw,
         html,
     };
 
@@ -1223,15 +1123,24 @@ fn try_parse_blockquote_req(
     }
     seen_ids.insert(req_id.to_string());
 
-    // html and text are generated separately by render_blockquote_req_content/extract_blockquote_req_text
-    let html = String::new();
-    let text = String::new();
-
     let line = offset_to_line(markdown, offset);
     let anchor_id = format!("r-{}", req_id);
 
     // marker_span covers just r[req.id] - use for inlay hints and diagnostics
     let marker_len = marker_end + 1; // includes r[ and ]
+
+    // Extract raw content: full blockquote source minus the first line (which has the marker)
+    let full_source = &markdown[offset..end_offset];
+    let raw = if let Some(newline_pos) = full_source.find('\n') {
+        // Skip the first line containing the marker, trim trailing whitespace
+        full_source[newline_pos + 1..].trim_end().to_string()
+    } else {
+        // Single line blockquote with just the marker - no content
+        String::new()
+    };
+
+    // html is generated later by render_blockquote_req_content
+    let html = String::new();
 
     // r[impl dashboard.editing.byte-range.req-span]
     // r[impl dashboard.editing.byte-range.marker-and-content]
@@ -1248,7 +1157,7 @@ fn try_parse_blockquote_req(
         },
         line,
         metadata,
-        text,
+        raw,
         html,
     };
 

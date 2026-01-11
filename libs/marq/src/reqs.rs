@@ -273,8 +273,10 @@ pub struct ReqDefinition {
     pub line: usize,
     /// Requirement metadata (status, level, since, until, tags)
     pub metadata: ReqMetadata,
-    /// The original markdown text of the content following the requirement marker
-    pub text: String,
+    /// Raw markdown source of the requirement content (without the `r[...]` marker).
+    /// For blockquote rules, this includes the `> ` prefixes.
+    /// Can be rendered with marq to get HTML.
+    pub raw: String,
     /// The rendered HTML of the content following the requirement marker
     pub html: String,
 }
