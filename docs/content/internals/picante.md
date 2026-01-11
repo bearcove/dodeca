@@ -14,6 +14,6 @@ SourceFile → parse_file → build_tree → render_page → all_rendered_html �
 TemplateFile → load_template ───┘
 ```
 
-The cache persists to disk via [facet-postcard](https://github.com/bearcove/facet). Even a cold start benefits from previous work. Large outputs (images, fonts) are stored separately in content-addressed storage (CAS) to keep the picante database small.
+The cache persists to disk via [facet-postcard](https://github.com/facet-rs/facet). Even a cold start benefits from previous work. Large outputs (images, fonts) are stored separately in content-addressed storage (CAS) to keep the picante database small.
 
 See [Architecture](@/internals/architecture.md) for how picante, CAS, and plugins work together.
