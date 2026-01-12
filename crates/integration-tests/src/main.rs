@@ -615,6 +615,25 @@ fn collect_tests() -> Vec<Test> {
             func: dead_links::valid_links_not_marked_dead,
             ignored: false,
         },
+        // internal_links tests
+        Test {
+            name: "at_links_in_list_items_resolved",
+            module: "internal_links",
+            func: internal_links::at_links_in_list_items_resolved,
+            ignored: false,
+        },
+        Test {
+            name: "at_links_in_paragraphs_resolved",
+            module: "internal_links",
+            func: internal_links::at_links_in_paragraphs_resolved,
+            ignored: false,
+        },
+        Test {
+            name: "relative_md_links_resolved",
+            module: "internal_links",
+            func: internal_links::relative_md_links_resolved,
+            ignored: false,
+        },
         // sass tests
         Test {
             name: "no_scss_builds_successfully",

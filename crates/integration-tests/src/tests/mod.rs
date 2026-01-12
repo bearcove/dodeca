@@ -9,6 +9,7 @@ pub mod code_execution;
 pub mod content;
 pub mod dead_links;
 pub mod error_detection;
+pub mod internal_links;
 pub mod livereload;
 pub mod picante_cache;
 pub mod sass;
