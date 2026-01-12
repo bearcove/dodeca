@@ -325,8 +325,8 @@ fn resolve_dirs(
         None => {
             let config_path = path
                 .as_ref()
-                .map(|p| format!("{}/.config/dodeca.kdl", p))
-                .unwrap_or_else(|| ".config/dodeca.kdl".to_string());
+                .map(|p| format!("{}/.config/dodeca.yaml", p))
+                .unwrap_or_else(|| ".config/dodeca.yaml".to_string());
             Err(eyre!(
                 "{}\n\n\
                      Create a config file at {} with:\n\n\
@@ -335,8 +335,8 @@ fn resolve_dirs(
                      Or specify both {} and {} on the command line.",
                 "No configuration found.".red().bold(),
                 config_path.cyan(),
-                "content \"path/to/content\"".green(),
-                "output \"path/to/output\"".green(),
+                "content: path/to/content".green(),
+                "output: path/to/output".green(),
                 "--content".yellow(),
                 "--output".yellow()
             ))
