@@ -483,6 +483,9 @@ fn rewrite_urls_in_flow_content(children: &mut [FlowContent], path_map: &HashMap
                     img.src = Some(new_url.clone());
                 }
             }
+            FlowContent::Custom(custom) => {
+                rewrite_urls_in_flow_content(&mut custom.children, path_map);
+            }
             _ => {}
         }
     }
@@ -520,6 +523,9 @@ fn rewrite_urls_in_phrasing_content(
             }
             PhrasingContent::Code(code) => {
                 rewrite_urls_in_phrasing_content(&mut code.children, path_map);
+            }
+            PhrasingContent::Custom(custom) => {
+                rewrite_urls_in_phrasing_content(&mut custom.children, path_map);
             }
             _ => {}
         }
@@ -701,6 +707,11 @@ fn mark_dead_links_in_flow_content(
                     had_dead = true;
                 }
             }
+            FlowContent::Custom(custom) => {
+                if mark_dead_links_in_flow_content(&mut custom.children, known_routes) {
+                    had_dead = true;
+                }
+            }
             _ => {}
         }
     }
@@ -744,6 +755,11 @@ fn mark_dead_links_in_phrasing_content(
             }
             PhrasingContent::Code(code) => {
                 if mark_dead_links_in_phrasing_content(&mut code.children, known_routes) {
+                    had_dead = true;
+                }
+            }
+            PhrasingContent::Custom(custom) => {
+                if mark_dead_links_in_phrasing_content(&mut custom.children, known_routes) {
                     had_dead = true;
                 }
             }
@@ -916,6 +932,11 @@ fn inject_code_buttons_in_flow_content(
                     had_buttons = true;
                 }
             }
+            FlowContent::Custom(custom) => {
+                if inject_code_buttons_in_flow_content(&mut custom.children, code_metadata) {
+                    had_buttons = true;
+                }
+            }
             _ => {}
         }
     }
@@ -939,6 +960,9 @@ fn extract_text_from_phrasing(children: &[PhrasingContent]) -> String {
             }
             PhrasingContent::Em(em) => {
                 text.push_str(&extract_text_from_phrasing(&em.children));
+            }
+            PhrasingContent::Custom(custom) => {
+                text.push_str(&extract_text_from_phrasing(&custom.children));
             }
             _ => {}
         }

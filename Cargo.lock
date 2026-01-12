@@ -2056,6 +2056,7 @@ dependencies = [
 [[package]]
 name = "cinereus"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "indextree",
 ]
@@ -3236,6 +3237,7 @@ dependencies = [
 [[package]]
 name = "facet"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "autocfg",
  "facet-core",
@@ -3245,6 +3247,7 @@ dependencies = [
 [[package]]
 name = "facet-args"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet",
  "facet-core",
@@ -3271,6 +3274,7 @@ dependencies = [
 [[package]]
 name = "facet-core"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "autocfg",
  "bytes",
@@ -3283,6 +3287,7 @@ dependencies = [
 [[package]]
 name = "facet-diff"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "cinereus",
  "facet",
@@ -3297,6 +3302,7 @@ dependencies = [
 [[package]]
 name = "facet-diff-core"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "confusables",
  "facet-core",
@@ -3312,7 +3318,7 @@ dependencies = [
 [[package]]
 name = "facet-error"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#11007091588c553e9b56dd18d7551b0e75dc9075"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet",
 ]
@@ -3320,6 +3326,7 @@ dependencies = [
 [[package]]
 name = "facet-format"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "cranelift",
  "cranelift-jit",
@@ -3337,6 +3344,7 @@ dependencies = [
 [[package]]
 name = "facet-html"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet",
  "facet-core",
@@ -3349,6 +3357,7 @@ dependencies = [
 [[package]]
 name = "facet-html-dom"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet",
  "facet-html",
@@ -3357,6 +3366,7 @@ dependencies = [
 [[package]]
 name = "facet-json"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet",
  "facet-core",
@@ -3368,6 +3378,7 @@ dependencies = [
 [[package]]
 name = "facet-macro-parse"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet-macro-types",
  "proc-macro2",
@@ -3377,6 +3388,7 @@ dependencies = [
 [[package]]
 name = "facet-macro-types"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3386,6 +3398,7 @@ dependencies = [
 [[package]]
 name = "facet-macros"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet-macros-impl",
 ]
@@ -3393,6 +3406,7 @@ dependencies = [
 [[package]]
 name = "facet-macros-impl"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet-macro-parse",
  "facet-macro-types",
@@ -3405,6 +3419,7 @@ dependencies = [
 [[package]]
 name = "facet-path"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet-core",
 ]
@@ -3412,6 +3427,7 @@ dependencies = [
 [[package]]
 name = "facet-postcard"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "camino",
  "facet-core",
@@ -3424,6 +3440,7 @@ dependencies = [
 [[package]]
 name = "facet-pretty"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet-core",
  "facet-reflect",
@@ -3433,6 +3450,7 @@ dependencies = [
 [[package]]
 name = "facet-reflect"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet-core",
 ]
@@ -3440,6 +3458,7 @@ dependencies = [
 [[package]]
 name = "facet-solver"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet-core",
  "facet-reflect",
@@ -3448,6 +3467,7 @@ dependencies = [
 [[package]]
 name = "facet-svg"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet",
  "facet-format",
@@ -3457,6 +3477,7 @@ dependencies = [
 [[package]]
 name = "facet-toml"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet-core",
  "facet-format",
@@ -3467,6 +3488,7 @@ dependencies = [
 [[package]]
 name = "facet-value"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet-core",
  "facet-reflect",
@@ -3476,6 +3498,7 @@ dependencies = [
 [[package]]
 name = "facet-xml"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet",
  "facet-core",
@@ -3487,6 +3510,7 @@ dependencies = [
 [[package]]
 name = "facet-yaml"
 version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#2e6063060abe853375a950b2969c2265d7eabfcb"
 dependencies = [
  "facet",
  "facet-core",
@@ -5255,6 +5279,7 @@ dependencies = [
 [[package]]
 name = "marq"
 version = "0.1.0"
+source = "git+https://github.com/bearcove/marq#3c91044d99bba93aa0aaa40d81da490f0bb81cd1"
 dependencies = [
  "aasvg",
  "arborium",
