@@ -683,6 +683,35 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                 }
             }
 
+            // ===== Links (must be handled explicitly for @/ resolution) =====
+            Event::Start(Tag::Link {
+                dest_url, title, ..
+            }) => {
+                if let Some(ParseContext::Paragraph { events, .. }) = context_stack.last_mut() {
+                    events.push((event, range));
+                } else if !stack_contains(&context_stack, |c| c.is_metadata()) {
+                    // Resolve @/ and .md links
+                    let resolved = resolve_link(dest_url, options.source_path.as_deref());
+                    let title_attr = if title.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" title=\"{}\"", html_escape(title))
+                    };
+                    html.push_str(&format!(
+                        "<a href=\"{}\"{}>",
+                        html_escape(&resolved),
+                        title_attr
+                    ));
+                }
+            }
+            Event::End(TagEnd::Link) => {
+                if let Some(ParseContext::Paragraph { events, .. }) = context_stack.last_mut() {
+                    events.push((event, range));
+                } else if !stack_contains(&context_stack, |c| c.is_metadata()) {
+                    html.push_str("</a>");
+                }
+            }
+
             // ===== Everything else =====
             _ => {
                 if let Some(ParseContext::Paragraph { events, .. }) = context_stack.last_mut() {
@@ -1998,6 +2027,132 @@ Third paragraph.
         assert!(
             doc.html.contains("<em>italic</em>"),
             "Italic should be rendered: {}",
+            doc.html
+        );
+    }
+
+    // =========================================================================
+    // Internal link resolution tests (@/ prefix)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_absolute_at_link_resolved() {
+        // @/path/to/file.md links should be resolved to /path/to/file/
+        let md = r#"Check out [structstruck](@/guide/structstruck.md) for more info."#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert!(
+            !doc.html.contains("@/"),
+            "@/ prefix should be resolved, not left in HTML: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains(r#"href="/guide/structstruck/""#),
+            "Link should resolve to /guide/structstruck/: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_absolute_at_link_with_backticks_in_text() {
+        // Backticks in link text shouldn't affect URL resolution
+        let md = r#"- [`structstruck`](@/guide/structstruck.md) — generate structs"#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert!(
+            !doc.html.contains("@/"),
+            "@/ prefix should be resolved even with backticks in link text: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains(r#"href="/guide/structstruck/""#),
+            "Link should resolve to /guide/structstruck/: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains("<code>structstruck</code>"),
+            "Backticks should render as code: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_absolute_at_link_with_fragment() {
+        let md = r#"See [the section](@/guide/intro.md#getting-started) for details."#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert!(
+            !doc.html.contains("@/"),
+            "@/ prefix should be resolved: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains(r#"href="/guide/intro/#getting-started""#),
+            "Link should resolve with fragment: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_absolute_at_link_to_index() {
+        let md = r#"Go to [the guide](@/guide/_index.md) section."#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert!(
+            !doc.html.contains("@/"),
+            "@/ prefix should be resolved: {}",
+            doc.html
+        );
+        assert!(
+            doc.html.contains(r#"href="/guide/""#),
+            "_index.md should resolve to parent directory: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_relative_md_link_resolved() {
+        // Relative .md links should be resolved based on source_path
+        let md = r#"See [sibling](sibling.md) for more."#;
+        let opts = RenderOptions {
+            source_path: Some("guide/current.md".to_string()),
+            ..Default::default()
+        };
+        let doc = render(md, &opts).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert!(
+            doc.html.contains(r#"href="/guide/sibling/""#),
+            "Relative .md link should resolve to /guide/sibling/: {}",
+            doc.html
+        );
+        assert!(
+            !doc.html.contains(r#"href="sibling.md""#),
+            "Original .md link should not appear in href: {}",
+            doc.html
+        );
+    }
+
+    #[tokio::test]
+    async fn test_external_link_unchanged() {
+        // External links should pass through unchanged
+        let md = r#"Visit [example](https://example.com/page.md) for docs."#;
+        let doc = render(md, &RenderOptions::default()).await.unwrap();
+
+        eprintln!("HTML: {}", doc.html);
+
+        assert!(
+            doc.html.contains(r#"href="https://example.com/page.md""#),
+            "External link should be unchanged: {}",
             doc.html
         );
     }
