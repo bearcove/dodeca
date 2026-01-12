@@ -10,6 +10,8 @@ name = "integration-tests"
 path = "src/main.rs"
 
 [dependencies]
+facet-html.workspace = true
+facet-html-dom.workspace = true
 facet-json.workspace = true
 facet-value.workspace = true
 fs-err.workspace = true

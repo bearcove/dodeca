@@ -1364,16 +1364,6 @@ fn subsection_to_value(section: &Section, site_tree: &SiteTree, base_url: &str) 
 /// Convert a source path like "learn/_index.md" to a route like "/learn"
 /// Also accepts routes directly (starting with "/") for convenience.
 pub fn path_to_route(path: &str) -> Route {
-    // If it already looks like a route (starts with /), use it directly
-    // (just normalize trailing slashes)
-    if path.starts_with('/') {
-        let normalized = path.trim_end_matches('/');
-        if normalized.is_empty() {
-            return Route::root();
-        }
-        return Route::new(normalized.to_string());
-    }
-
     let mut p = path.to_string();
 
     // Remove .md extension
@@ -1381,16 +1371,21 @@ pub fn path_to_route(path: &str) -> Route {
         p = p[..p.len() - 3].to_string();
     }
 
-    // Handle _index
+    // Handle _index (with or without leading slash)
     if p.ends_with("/_index") {
         p = p[..p.len() - 7].to_string();
-    } else if p == "_index" {
+    } else if p == "_index" || p == "/_index" {
         p = String::new();
     }
+
+    // Normalize: remove trailing slashes
+    p = p.trim_end_matches('/').to_string();
 
     // Ensure leading slash, no trailing slash (except for root)
     if p.is_empty() {
         Route::root()
+    } else if p.starts_with('/') {
+        Route::new(p)
     } else {
         Route::new(format!("/{p}"))
     }

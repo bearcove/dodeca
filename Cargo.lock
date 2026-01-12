@@ -4668,6 +4668,8 @@ dependencies = [
 name = "integration-tests"
 version = "0.6.1"
 dependencies = [
+ "facet-html",
+ "facet-html-dom",
  "facet-json",
  "facet-value",
  "fs-err",
@@ -5253,7 +5255,6 @@ dependencies = [
 [[package]]
 name = "marq"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/marq#cad05df758267fb5c4767e1e40baba01fda0bdc7"
 dependencies = [
  "aasvg",
  "arborium",

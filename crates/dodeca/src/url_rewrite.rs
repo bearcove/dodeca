@@ -3,6 +3,7 @@
 //! - CSS: Uses lightningcss visitor API to find and rewrite `url()` values (via cell)
 //! - HTML: Uses html5ever to parse, mutate, and serialize HTML (via cell)
 //! - JS: Uses OXC parser to find string literals and rewrite asset paths (via cell)
+//! - Internal links: Resolves `@/` prefixed links to actual routes using site tree
 
 use std::collections::{HashMap, HashSet};
 
@@ -94,6 +95,60 @@ pub async fn rewrite_urls_in_html(html: &str, path_map: &HashMap<String, String>
     }
 
     result
+}
+
+/// Resolve `@/` prefixed links in HTML using a source path to route mapping.
+///
+/// The markdown cell passes through `@/` links unchanged so that dodeca can resolve them
+/// using the site tree (for custom slugs and dependency tracking).
+///
+/// # Arguments
+/// * `html` - HTML content that may contain `@/` links
+/// * `source_to_route` - Map from source paths (e.g., "guide/intro.md") to routes (e.g., "/guide/intro/")
+///
+/// # Returns
+/// HTML with `@/` links resolved to their actual routes.
+/// Links that don't exist in the map are left unchanged (will be caught as dead links later).
+pub fn resolve_internal_links(html: &str, source_to_route: &HashMap<String, String>) -> String {
+    use regex::Regex;
+
+    // Match href="@/..." with double quotes
+    // Pattern: href="@/path/to/file.md" or href="@/path/to/file.md#fragment"
+    let href_re_double = Regex::new(r##"href="@/([^"#]*)(?:#([^"]*))?"##).unwrap();
+    // Match href='@/...' with single quotes
+    let href_re_single = Regex::new(r##"href='@/([^'#]*)(?:#([^']*))?'"##).unwrap();
+
+    let resolve = |caps: &regex::Captures, quote: &str| -> String {
+        let source_path = &caps[1];
+        let fragment = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+
+        // Look up the route for this source path
+        if let Some(route) = source_to_route.get(source_path) {
+            // Ensure trailing slash for consistency with zola-style URLs
+            let route_with_slash = if route == "/" || route.ends_with('/') {
+                route.clone()
+            } else {
+                format!("{}/", route)
+            };
+            let href = if fragment.is_empty() {
+                route_with_slash
+            } else {
+                format!("{}#{}", route_with_slash, fragment)
+            };
+            format!("href={quote}{href}{quote}")
+        } else {
+            // Not found - leave unchanged, will be caught as dead link
+            caps[0].to_string()
+        }
+    };
+
+    // First pass: double quotes
+    let result = href_re_double.replace_all(html, |caps: &regex::Captures| resolve(caps, "\""));
+
+    // Second pass: single quotes
+    let result = href_re_single.replace_all(&result, |caps: &regex::Captures| resolve(caps, "'"));
+
+    result.into_owned()
 }
 
 /// Mark dead internal links in HTML using the cell

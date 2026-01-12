@@ -3,7 +3,32 @@
 //! This cell uses marq for markdown rendering with direct code block rendering.
 
 use cell_markdown_proto::*;
-use marq::{AasvgHandler, ArboriumHandler, PikruHandler, RenderOptions, render};
+use marq::{AasvgHandler, ArboriumHandler, LinkResolver, PikruHandler, RenderOptions, render};
+use std::future::Future;
+use std::pin::Pin;
+
+/// Link resolver that passes through @/ links unchanged for dodeca to post-process.
+/// This allows dodeca to resolve links using the site tree (for custom slugs)
+/// and track dependencies via picante.
+struct PassthroughLinkResolver;
+
+impl LinkResolver for PassthroughLinkResolver {
+    fn resolve<'a>(
+        &'a self,
+        link: &'a str,
+        _source_path: Option<&'a str>,
+    ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>> {
+        Box::pin(async move {
+            // Keep @/ links unchanged - dodeca will resolve them with site tree access
+            if link.starts_with("@/") {
+                Some(link.to_string())
+            } else {
+                // Let marq handle other links (relative .md, external, etc.)
+                None
+            }
+        })
+    }
+}
 
 #[derive(Clone)]
 pub struct MarkdownProcessorImpl;
@@ -23,13 +48,13 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
 
     async fn render_markdown(&self, source_path: String, markdown: String) -> MarkdownResult {
         // Configure marq with real handlers (no placeholders!)
-        let mut opts = RenderOptions::new()
+        let opts = RenderOptions::new()
             .with_handler(&["aa", "aasvg"], AasvgHandler::new())
             .with_handler(&["pikchr"], PikruHandler::new())
-            .with_default_handler(ArboriumHandler::new());
-
-        // Set source path for link resolution
-        opts.source_path = Some(source_path);
+            .with_default_handler(ArboriumHandler::new())
+            .with_source_path(&source_path)
+            // Pass through @/ links unchanged - dodeca will resolve them with site tree
+            .with_link_resolver(PassthroughLinkResolver);
 
         // Render markdown with all code blocks rendered inline
         match render(&markdown, &opts).await {

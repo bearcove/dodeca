@@ -576,6 +576,31 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
     Ok(Ok(SiteTree { sections, pages }))
 }
 
+/// Build a mapping from source paths to routes.
+///
+/// This is used to resolve `@/` links in markdown. When a page contains `@/guide/intro.md`,
+/// we look up "guide/intro.md" in this map to get the actual route (which may differ due to
+/// custom slugs).
+///
+/// This query depends on all parse_file results, so changing any source file will invalidate
+/// any page that links to it (via picante's dependency tracking).
+#[picante::tracked]
+pub async fn source_to_route_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, String>> {
+    let sources = SourceRegistry::sources(db)?.unwrap_or_default();
+    let mut map = HashMap::new();
+
+    for source in sources.iter() {
+        // Calling parse_file creates a dependency on this source
+        if let Ok(data) = parse_file(db, *source).await? {
+            // Map source path to route
+            // e.g., "guide/intro.md" -> "/guide/intro/"
+            map.insert(data.source_path.to_string(), data.route.to_string());
+        }
+    }
+
+    Ok(map)
+}
+
 /// Find the nearest parent section for a route
 fn find_parent_section(route: &Route, sections: &BTreeMap<Route, Section>) -> Route {
     let mut current = route.clone();
@@ -1061,15 +1086,24 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Bui
 
 /// Render all pages and sections to HTML (without URL rewriting)
 /// This is cached globally and used for font character analysis
+///
+/// Internal `@/` links are resolved using the source-to-route map, which creates
+/// picante dependencies: if a linked page changes, the linking page is invalidated.
 #[picante::tracked]
 pub async fn all_rendered_html<DB: Db>(
     db: &DB,
 ) -> PicanteResult<Result<AllRenderedHtml, BuildError>> {
+    use crate::url_rewrite::resolve_internal_links;
+
     let site_tree = match build_tree(db).await? {
         Ok(tree) => tree,
         Err(errors) => return Ok(Err(BuildError { errors })),
     };
     let template_map = load_all_templates(db).await?;
+
+    // Get the source-to-route map for internal link resolution
+    // This creates dependencies on all source files via parse_file
+    let source_route_map = source_to_route_map(db).await?;
 
     // Load data files and convert to template Value
     let raw_data = load_all_data_raw(db).await?;
@@ -1085,6 +1119,8 @@ pub async fn all_rendered_html<DB: Db>(
             Some(data_value.clone()),
         )
         .await;
+        // Resolve @/ links using the source-to-route map
+        let html = resolve_internal_links(&html, &source_route_map);
         pages.insert(route.clone(), html);
     }
 
@@ -1096,6 +1132,8 @@ pub async fn all_rendered_html<DB: Db>(
             Some(data_value.clone()),
         )
         .await;
+        // Resolve @/ links using the source-to-route map
+        let html = resolve_internal_links(&html, &source_route_map);
         pages.insert(route.clone(), html);
     }
 

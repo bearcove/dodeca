@@ -425,6 +425,7 @@ pub struct AllRenderedHtml {
         crate::queries::data_keys_at_path,
         crate::queries::compile_sass,
         crate::queries::parse_file,
+        crate::queries::source_to_route_map,
         crate::queries::build_tree,
         crate::queries::render_page,
         crate::queries::render_section,
