@@ -193,6 +193,9 @@ async fn handle_devtools_tunnel(
 
     tracing::info!(channel_id, "DevTools tunnel handler starting");
 
+    // Track what route this client is currently viewing
+    let mut current_route: Option<String> = None;
+
     // Subscribe to livereload broadcasts
     let mut livereload_rx = server.livereload_tx.subscribe();
     tracing::debug!(channel_id, "Subscribed to livereload broadcasts");
@@ -243,7 +246,7 @@ async fn handle_devtools_tunnel(
                                 match msg {
                                     ClientMessage::Route { path } => {
                                         tracing::debug!(channel_id, route = %path, "Client viewing route");
-                                        // Could track which routes are being viewed
+                                        current_route = Some(path);
                                     }
                                     ClientMessage::GetScope { request_id, snapshot_id, path } => {
                                         let route = snapshot_id.unwrap_or_else(|| "/".to_string());
@@ -287,11 +290,25 @@ async fn handle_devtools_tunnel(
                 match result {
                     Ok(msg) => {
                         let server_msg = match msg {
-                            crate::serve::LiveReloadMsg::Reload => ServerMessage::Reload,
-                            crate::serve::LiveReloadMsg::CssUpdate { path } => ServerMessage::CssChanged { path },
-                            crate::serve::LiveReloadMsg::Patches { route: _, patches } => ServerMessage::Patches(patches),
+                            crate::serve::LiveReloadMsg::Reload => Some(ServerMessage::Reload),
+                            crate::serve::LiveReloadMsg::CssUpdate { path } => Some(ServerMessage::CssChanged { path }),
+                            crate::serve::LiveReloadMsg::Patches { route, patches } => {
+                                // Only send patches if they're for the route this client is viewing
+                                let dominated = current_route.as_ref().is_some_and(|r| r == &route);
+                                if dominated {
+                                    Some(ServerMessage::Patches(patches))
+                                } else {
+                                    tracing::trace!(
+                                        channel_id,
+                                        patch_route = %route,
+                                        client_route = ?current_route,
+                                        "Skipping patches for different route"
+                                    );
+                                    None
+                                }
+                            }
                             crate::serve::LiveReloadMsg::Error { route, message, template, line, snapshot_id } => {
-                                ServerMessage::Error(dodeca_protocol::ErrorInfo {
+                                Some(ServerMessage::Error(dodeca_protocol::ErrorInfo {
                                     route,
                                     message,
                                     template,
@@ -300,16 +317,18 @@ async fn handle_devtools_tunnel(
                                     source_snippet: None,
                                     snapshot_id,
                                     available_variables: vec![],
-                                })
+                                }))
                             }
                             crate::serve::LiveReloadMsg::ErrorResolved { route } => {
-                                ServerMessage::ErrorResolved { route }
+                                Some(ServerMessage::ErrorResolved { route })
                             }
                         };
-                        if let Ok(bytes) = facet_postcard::to_vec(&server_msg) {
-                            if write_half.write_all(&bytes).await.is_err() {
-                                tracing::warn!(channel_id, "Failed to send LiveReload message");
-                                break;
+                        if let Some(server_msg) = server_msg {
+                            if let Ok(bytes) = facet_postcard::to_vec(&server_msg) {
+                                if write_half.write_all(&bytes).await.is_err() {
+                                    tracing::warn!(channel_id, "Failed to send LiveReload message");
+                                    break;
+                                }
                             }
                         }
                     }
