@@ -3,7 +3,10 @@
 //! This cell uses marq for markdown rendering with direct code block rendering.
 
 use cell_markdown_proto::*;
-use marq::{AasvgHandler, ArboriumHandler, LinkResolver, PikruHandler, RenderOptions, render};
+use marq::{
+    AasvgHandler, ArboriumHandler, CompareHandler, LinkResolver, PikruHandler, RenderOptions,
+    render,
+};
 use std::future::Future;
 use std::pin::Pin;
 
@@ -50,6 +53,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
         // Configure marq with real handlers (no placeholders!)
         let opts = RenderOptions::new()
             .with_handler(&["aa", "aasvg"], AasvgHandler::new())
+            .with_handler(&["compare"], CompareHandler::new())
             .with_handler(&["pikchr"], PikruHandler::new())
             .with_default_handler(ArboriumHandler::new())
             .with_source_path(&source_path)
