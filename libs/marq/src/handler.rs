@@ -111,6 +111,57 @@ pub trait InlineCodeHandler: Send + Sync {
 /// Type alias for a boxed inline code handler.
 pub type BoxedInlineCodeHandler = Arc<dyn InlineCodeHandler>;
 
+/// A handler for resolving internal links.
+///
+/// This allows the caller to provide custom link resolution logic,
+/// including dependency tracking for incremental rebuilds.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use marq::LinkResolver;
+///
+/// struct SiteTreeResolver {
+///     source_to_route: HashMap<String, String>,
+/// }
+///
+/// impl LinkResolver for SiteTreeResolver {
+///     fn resolve<'a>(
+///         &'a self,
+///         link: &'a str,
+///         source_path: Option<&'a str>,
+///     ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>> {
+///         Box::pin(async move {
+///             if let Some(path) = link.strip_prefix("@/") {
+///                 // Look up the actual route (handles custom slugs)
+///                 self.source_to_route.get(path).cloned()
+///             } else {
+///                 None // Use default resolution
+///             }
+///         })
+///     }
+/// }
+/// ```
+pub trait LinkResolver: Send + Sync {
+    /// Resolve a link to its final URL.
+    ///
+    /// # Arguments
+    /// * `link` - The raw link from the markdown (e.g., `@/guide/intro.md`)
+    /// * `source_path` - The path of the source file containing the link
+    ///
+    /// # Returns
+    /// * `Some(url)` - The resolved URL to use
+    /// * `None` - Use the default link resolution logic
+    fn resolve<'a>(
+        &'a self,
+        link: &'a str,
+        source_path: Option<&'a str>,
+    ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>>;
+}
+
+/// Type alias for a boxed link resolver.
+pub type BoxedLinkResolver = Arc<dyn LinkResolver>;
+
 /// Default req handler that renders simple anchor divs.
 ///
 /// This is used when no custom req handler is registered.

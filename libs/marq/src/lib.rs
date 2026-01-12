@@ -32,8 +32,8 @@ mod reqs;
 
 pub use frontmatter::{Frontmatter, FrontmatterFormat, parse_frontmatter, strip_frontmatter};
 pub use handler::{
-    BoxedHandler, BoxedInlineCodeHandler, BoxedReqHandler, CodeBlockHandler, DefaultReqHandler,
-    InlineCodeHandler, ReqHandler,
+    BoxedHandler, BoxedInlineCodeHandler, BoxedLinkResolver, BoxedReqHandler, CodeBlockHandler,
+    DefaultReqHandler, InlineCodeHandler, LinkResolver, ReqHandler,
 };
 pub use headings::{Heading, slugify};
 pub use links::resolve_link;

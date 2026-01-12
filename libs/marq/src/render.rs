@@ -9,8 +9,8 @@ use pulldown_cmark::{CodeBlockKind, Event, MetadataBlockKind, Options, Parser, T
 use crate::Result;
 use crate::frontmatter::{Frontmatter, FrontmatterFormat};
 use crate::handler::{
-    BoxedHandler, BoxedInlineCodeHandler, BoxedReqHandler, CodeBlockHandler, DefaultReqHandler,
-    InlineCodeHandler, RawCodeHandler, ReqHandler, html_escape,
+    BoxedHandler, BoxedInlineCodeHandler, BoxedLinkResolver, BoxedReqHandler, CodeBlockHandler,
+    DefaultReqHandler, InlineCodeHandler, RawCodeHandler, ReqHandler, html_escape,
 };
 use crate::headings::{Heading, slugify};
 use crate::links::resolve_link;
@@ -117,6 +117,9 @@ pub struct RenderOptions {
 
     /// Custom handler for rendering inline code spans
     pub inline_code_handler: Option<BoxedInlineCodeHandler>,
+
+    /// Custom handler for resolving links (for dependency tracking)
+    pub link_resolver: Option<BoxedLinkResolver>,
 }
 
 impl RenderOptions {
@@ -162,6 +165,15 @@ impl RenderOptions {
         self.inline_code_handler = Some(Arc::new(handler));
         self
     }
+
+    /// Set a custom link resolver for dependency tracking.
+    pub fn with_link_resolver<R: crate::handler::LinkResolver + 'static>(
+        mut self,
+        resolver: R,
+    ) -> Self {
+        self.link_resolver = Some(Arc::new(resolver));
+        self
+    }
 }
 
 /// Render inline code, using the handler if available.
@@ -173,6 +185,22 @@ fn render_inline_code(code: &str, handler: Option<&BoxedInlineCodeHandler>) -> S
     }
     // Default rendering
     format!("<code>{}</code>", html_escape(code))
+}
+
+/// Resolve a link using the custom resolver if available, otherwise use default resolution.
+async fn resolve_link_with_resolver(
+    link: &str,
+    source_path: Option<&str>,
+    resolver: Option<&BoxedLinkResolver>,
+) -> String {
+    // Try custom resolver first
+    if let Some(r) = resolver
+        && let Some(resolved) = r.resolve(link, source_path).await
+    {
+        return resolved;
+    }
+    // Fall back to default resolution
+    resolve_link(link, source_path)
 }
 
 /// A code sample extracted from markdown
@@ -379,7 +407,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                                 parent_events.append(&mut events);
                             }
                         } else {
-                            render_events_to_html(&mut html, &events, options, None);
+                            render_events_to_html(&mut html, &events, options, None).await;
                         }
                     }
                     continue;
@@ -533,7 +561,8 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                         match req_result {
                             Ok(mut req) => {
                                 // Render req content HTML
-                                let content_html = render_paragraph_req_content(&events, options);
+                                let content_html =
+                                    render_paragraph_req_content(&events, options).await;
 
                                 // Store content in req.html for API access
                                 req.html = content_html.clone();
@@ -562,7 +591,8 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                         line,
                         offset: start_offset,
                     }));
-                    render_events_to_html(&mut html, &events, options, Some(SourceInfo { line }));
+                    render_events_to_html(&mut html, &events, options, Some(SourceInfo { line }))
+                        .await;
                 }
             }
 
@@ -691,7 +721,12 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
                     events.push((event, range));
                 } else if !stack_contains(&context_stack, |c| c.is_metadata()) {
                     // Resolve @/ and .md links
-                    let resolved = resolve_link(dest_url, options.source_path.as_deref());
+                    let resolved = resolve_link_with_resolver(
+                        dest_url,
+                        options.source_path.as_deref(),
+                        options.link_resolver.as_ref(),
+                    )
+                    .await;
                     let title_attr = if title.is_empty() {
                         String::new()
                     } else {
@@ -744,7 +779,7 @@ pub async fn render(markdown: &str, options: &RenderOptions) -> Result<Document>
 }
 
 /// Render a list of events to HTML string
-fn render_events_to_html(
+async fn render_events_to_html(
     html: &mut String,
     events: &[(Event<'_>, Range<usize>)],
     options: &RenderOptions,
@@ -769,7 +804,12 @@ fn render_events_to_html(
             Event::Start(Tag::Link {
                 dest_url, title, ..
             }) => {
-                let resolved = resolve_link(dest_url, options.source_path.as_deref());
+                let resolved = resolve_link_with_resolver(
+                    dest_url,
+                    options.source_path.as_deref(),
+                    options.link_resolver.as_ref(),
+                )
+                .await;
                 let title_attr = if title.is_empty() {
                     String::new()
                 } else {
@@ -817,7 +857,7 @@ fn strip_req_marker(text: &str) -> String {
 ///
 /// Uses a text buffer to accumulate consecutive text events (pulldown-cmark
 /// splits text across multiple events), then strips the req marker when flushing.
-fn render_paragraph_req_content(
+async fn render_paragraph_req_content(
     events: &[(Event<'_>, Range<usize>)],
     options: &RenderOptions,
 ) -> String {
@@ -888,7 +928,12 @@ fn render_paragraph_req_content(
                 dest_url, title, ..
             }) => {
                 flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
-                let resolved = resolve_link(dest_url, options.source_path.as_deref());
+                let resolved = resolve_link_with_resolver(
+                    dest_url,
+                    options.source_path.as_deref(),
+                    options.link_resolver.as_ref(),
+                )
+                .await;
                 let title_attr = if title.is_empty() {
                     String::new()
                 } else {
@@ -1025,7 +1070,12 @@ async fn render_blockquote_req_content(
                 dest_url, title, ..
             }) => {
                 flush_text(&mut html, &mut text_buffer, &mut marker_stripped);
-                let resolved = resolve_link(dest_url, options.source_path.as_deref());
+                let resolved = resolve_link_with_resolver(
+                    dest_url,
+                    options.source_path.as_deref(),
+                    options.link_resolver.as_ref(),
+                )
+                .await;
                 let title_attr = if title.is_empty() {
                     String::new()
                 } else {
