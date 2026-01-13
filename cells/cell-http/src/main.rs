@@ -28,6 +28,7 @@ use roam_shm::spawn::SpawnArgs;
 use roam_shm::transport::ShmGuestTransport;
 
 use cell_http_proto::{ContentServiceClient, TcpTunnelDispatcher, WebSocketTunnelClient};
+use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
 
 mod devtools;
 mod tunnel;
@@ -84,10 +85,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (handle, driver) = establish_guest(transport, dispatcher);
 
-    // Now initialize the handle cell
-    let _ = handle_cell.set(handle);
+    // Spawn driver in background - must run before ready() so RPC can be processed
+    let driver_handle = tokio::spawn(async move {
+        if let Err(e) = driver.run().await {
+            eprintln!("Driver error: {:?}", e);
+        }
+    });
 
-    driver.run().await?;
+    // Now initialize the handle cell
+    let _ = handle_cell.set(handle.clone());
+
+    // Signal readiness to host
+    let lifecycle = CellLifecycleClient::new(handle.clone());
+    lifecycle
+        .ready(ReadyMsg {
+            peer_id: args.peer_id.get() as u16,
+            cell_name: "http".to_string(),
+            pid: Some(std::process::id()),
+            version: None,
+            features: vec![],
+        })
+        .await?;
+
+    // Wait for driver
+    let _ = driver_handle.await;
     Ok(())
 }
 

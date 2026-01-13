@@ -1,0 +1,15 @@
+[package]
+name = "dodeca-cell-runtime"
+version = "0.6.1"
+edition = "2024"
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[dependencies]
+cell-lifecycle-proto = { path = "../../cells/cell-lifecycle-proto" }
+roam.workspace = true
+roam-shm.workspace = true
+tokio.workspace = true

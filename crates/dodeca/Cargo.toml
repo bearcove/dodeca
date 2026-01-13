@@ -24,6 +24,7 @@ path = "src/main.rs"
 
 [dependencies]
 cell-code-execution-proto = { path = "../../cells/cell-code-execution-proto" }
+cell-lifecycle-proto = { path = "../../cells/cell-lifecycle-proto" }
 cell-dialoguer-proto = { path = "../../cells/cell-dialoguer-proto" }
 cell-css-proto = { path = "../../cells/cell-css-proto" }
 cell-gingembre-proto = { path = "../../cells/cell-gingembre-proto" }

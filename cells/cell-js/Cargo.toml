@@ -14,6 +14,5 @@ path = "src/main.rs"
 
 [dependencies]
 cell-js-proto = { path = "../cell-js-proto" }
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
 oxc.workspace = true
-roam-shm.workspace = true
-tokio.workspace = true

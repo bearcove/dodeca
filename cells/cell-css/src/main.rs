@@ -3,12 +3,9 @@
 //! This cell handles CSS URL rewriting and minification via lightningcss.
 
 use cell_css_proto::{CssProcessor, CssProcessorDispatcher};
+use dodeca_cell_runtime::run_cell;
 use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 use lightningcss::visitor::Visit;
-use roam_shm::driver::establish_guest;
-use roam_shm::guest::ShmGuest;
-use roam_shm::spawn::SpawnArgs;
-use roam_shm::transport::ShmGuestTransport;
 
 /// CSS processor implementation
 #[derive(Clone)]
@@ -78,13 +75,6 @@ impl<'i, 'a> lightningcss::visitor::Visitor<'i> for UrlRewriter<'a> {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = SpawnArgs::from_env()?;
-    let guest = ShmGuest::attach_with_ticket(&args)?;
-    let transport = ShmGuestTransport::new(guest);
-    let dispatcher = CssProcessorDispatcher::new(CssProcessorImpl);
-    let (_handle, driver) = establish_guest(transport, dispatcher);
-    driver.run().await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("css", CssProcessorDispatcher::new(CssProcessorImpl))
 }

@@ -3,14 +3,11 @@
 //! This cell uses marq for markdown rendering with direct code block rendering.
 
 use cell_markdown_proto::*;
+use dodeca_cell_runtime::run_cell;
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, LinkResolver, PikruHandler, RenderOptions,
     render,
 };
-use roam_shm::driver::establish_guest;
-use roam_shm::guest::ShmGuest;
-use roam_shm::spawn::SpawnArgs;
-use roam_shm::transport::ShmGuestTransport;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -131,13 +128,9 @@ fn convert_req(r: marq::ReqDefinition) -> ReqDefinition {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = SpawnArgs::from_env()?;
-    let guest = ShmGuest::attach_with_ticket(&args)?;
-    let transport = ShmGuestTransport::new(guest);
-    let dispatcher = MarkdownProcessorDispatcher::new(MarkdownProcessorImpl);
-    let (_handle, driver) = establish_guest(transport, dispatcher);
-    driver.run().await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!(
+        "markdown",
+        MarkdownProcessorDispatcher::new(MarkdownProcessorImpl)
+    )
 }

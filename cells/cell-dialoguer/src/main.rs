@@ -4,10 +4,7 @@
 
 use cell_dialoguer_proto::{ConfirmResult, Dialoguer, DialoguerDispatcher, SelectResult};
 use dialoguer::{Confirm, Select, theme::ColorfulTheme};
-use roam_shm::driver::establish_guest;
-use roam_shm::guest::ShmGuest;
-use roam_shm::spawn::SpawnArgs;
-use roam_shm::transport::ShmGuestTransport;
+use dodeca_cell_runtime::run_cell;
 
 /// Dialoguer service implementation
 #[derive(Clone)]
@@ -50,13 +47,6 @@ impl Dialoguer for DialoguerImpl {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = SpawnArgs::from_env()?;
-    let guest = ShmGuest::attach_with_ticket(&args)?;
-    let transport = ShmGuestTransport::new(guest);
-    let dispatcher = DialoguerDispatcher::new(DialoguerImpl);
-    let (_handle, driver) = establish_guest(transport, dispatcher);
-    driver.run().await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("dialoguer", DialoguerDispatcher::new(DialoguerImpl))
 }

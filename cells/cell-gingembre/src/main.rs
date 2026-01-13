@@ -8,6 +8,7 @@ use cell_gingembre_proto::{
     CallFunctionResult, ContextId, EvalResult, KeysAtResult, LoadTemplateResult, RenderResult,
     ResolveDataResult, TemplateHostClient, TemplateRenderer, TemplateRendererDispatcher,
 };
+use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
 use facet_value::DestructuredRef;
 use futures::future::BoxFuture;
 use gingembre::{Context, DataPath, DataResolver, Engine, TemplateLoader, Value};
@@ -366,9 +367,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (handle, driver) = establish_guest(transport, dispatcher);
 
-    // Now initialize the handle cell
-    let _ = handle_cell.set(handle);
+    // Spawn driver in background - it needs to run to process RPCs
+    let driver_handle = tokio::spawn(async move {
+        if let Err(e) = driver.run().await {
+            eprintln!("Driver error: {:?}", e);
+        }
+    });
 
-    driver.run().await?;
+    // Now initialize the handle cell
+    let _ = handle_cell.set(handle.clone());
+
+    // Signal readiness to host
+    let lifecycle = CellLifecycleClient::new(handle.clone());
+    lifecycle
+        .ready(ReadyMsg {
+            peer_id: args.peer_id.get() as u16,
+            cell_name: "gingembre".to_string(),
+            pid: Some(std::process::id()),
+            version: None,
+            features: vec![],
+        })
+        .await?;
+
+    // Wait for driver
+    let _ = driver_handle.await;
     Ok(())
 }

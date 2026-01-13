@@ -14,6 +14,5 @@ path = "src/main.rs"
 
 [dependencies]
 cell-sass-proto = { path = "../cell-sass-proto" }
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
 grass.workspace = true
-roam-shm.workspace = true
-tokio.workspace = true

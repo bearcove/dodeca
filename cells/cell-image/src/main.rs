@@ -4,15 +4,12 @@
 
 use base64::Engine;
 use image::{DynamicImage, ImageEncoder, Rgb, Rgba};
-use roam_shm::driver::establish_guest;
-use roam_shm::guest::ShmGuest;
-use roam_shm::spawn::SpawnArgs;
-use roam_shm::transport::ShmGuestTransport;
 
 use cell_image_proto::{
     DecodedImage, ImageProcessor, ImageProcessorDispatcher, ImageResult, ResizeInput,
     ThumbhashInput,
 };
+use dodeca_cell_runtime::run_cell;
 
 /// Image processor implementation
 #[derive(Clone)]
@@ -173,13 +170,6 @@ fn pixels_to_dynamic_image(
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = SpawnArgs::from_env()?;
-    let guest = ShmGuest::attach_with_ticket(&args)?;
-    let transport = ShmGuestTransport::new(guest);
-    let dispatcher = ImageProcessorDispatcher::new(ImageProcessorImpl);
-    let (_handle, driver) = establish_guest(transport, dispatcher);
-    driver.run().await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("image", ImageProcessorDispatcher::new(ImageProcessorImpl))
 }

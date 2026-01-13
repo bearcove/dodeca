@@ -21,6 +21,7 @@ use cell_html_proto::{
     CodeExecutionMetadata, DiffResult, HtmlDiffResult, HtmlHostClient, HtmlProcessInput,
     HtmlProcessResult, HtmlProcessor, HtmlProcessorDispatcher, HtmlResult, Injection,
 };
+use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
 use roam::session::ConnectionHandle;
 use roam_shm::driver::establish_guest;
 use roam_shm::guest::ShmGuest;
@@ -1142,10 +1143,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (handle, driver) = establish_guest(transport, dispatcher);
 
-    // Now initialize the handle cell
-    let _ = handle_cell.set(handle);
+    // Spawn driver in background - it needs to run to process the RPC
+    let driver_handle = tokio::spawn(async move {
+        if let Err(e) = driver.run().await {
+            eprintln!("Driver error: {:?}", e);
+        }
+    });
 
-    driver.run().await?;
+    // Now initialize the handle cell
+    let _ = handle_cell.set(handle.clone());
+
+    // Signal readiness to host
+    let lifecycle = CellLifecycleClient::new(handle.clone());
+    lifecycle
+        .ready(ReadyMsg {
+            peer_id: args.peer_id.get() as u16,
+            cell_name: "html".to_string(),
+            pid: Some(std::process::id()),
+            version: None,
+            features: vec![],
+        })
+        .await?;
+
+    // Wait for driver
+    let _ = driver_handle.await;
     Ok(())
 }
 

@@ -18,6 +18,7 @@ path = "src/main.rs"
 
 [dependencies]
 cell-gingembre-proto = { path = "../cell-gingembre-proto" }
+cell-lifecycle-proto = { path = "../cell-lifecycle-proto" }
 gingembre = { path = "../../crates/gingembre" }
 roam.workspace = true
 roam-shm.workspace = true

@@ -4,15 +4,12 @@
 
 use std::collections::HashMap;
 
+use dodeca_cell_runtime::run_cell;
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{StringLiteral, TemplateLiteral};
 use oxc::ast_visit::Visit;
 use oxc::parser::Parser;
 use oxc::span::SourceType;
-use roam_shm::driver::establish_guest;
-use roam_shm::guest::ShmGuest;
-use roam_shm::spawn::SpawnArgs;
-use roam_shm::transport::ShmGuestTransport;
 
 use cell_js_proto::{JsProcessor, JsProcessorDispatcher, JsResult, JsRewriteInput};
 
@@ -120,13 +117,6 @@ impl<'a> Visit<'_> for StringCollector<'a> {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = SpawnArgs::from_env()?;
-    let guest = ShmGuest::attach_with_ticket(&args)?;
-    let transport = ShmGuestTransport::new(guest);
-    let dispatcher = JsProcessorDispatcher::new(JsProcessorImpl);
-    let (_handle, driver) = establish_guest(transport, dispatcher);
-    driver.run().await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("js", JsProcessorDispatcher::new(JsProcessorImpl))
 }

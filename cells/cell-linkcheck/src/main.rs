@@ -5,10 +5,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use roam_shm::driver::establish_guest;
-use roam_shm::guest::ShmGuest;
-use roam_shm::spawn::SpawnArgs;
-use roam_shm::transport::ShmGuestTransport;
+use dodeca_cell_runtime::run_cell;
 use url::Url;
 
 use cell_linkcheck_proto::{
@@ -147,13 +144,9 @@ impl LinkChecker for LinkCheckerImpl {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = SpawnArgs::from_env()?;
-    let guest = ShmGuest::attach_with_ticket(&args)?;
-    let transport = ShmGuestTransport::new(guest);
-    let dispatcher = LinkCheckerDispatcher::new(LinkCheckerImpl::new());
-    let (_handle, driver) = establish_guest(transport, dispatcher);
-    driver.run().await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!(
+        "linkcheck",
+        LinkCheckerDispatcher::new(LinkCheckerImpl::new())
+    )
 }

@@ -2,11 +2,8 @@
 //!
 //! This cell handles JPEG XL encoding and decoding.
 
+use dodeca_cell_runtime::run_cell;
 use jpegxl_rs::encode::EncoderFrame;
-use roam_shm::driver::establish_guest;
-use roam_shm::guest::ShmGuest;
-use roam_shm::spawn::SpawnArgs;
-use roam_shm::transport::ShmGuestTransport;
 
 use cell_jxl_proto::{JXLEncodeInput, JXLProcessor, JXLProcessorDispatcher, JXLResult};
 
@@ -91,13 +88,6 @@ impl JXLProcessor for JXLProcessorImpl {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = SpawnArgs::from_env()?;
-    let guest = ShmGuest::attach_with_ticket(&args)?;
-    let transport = ShmGuestTransport::new(guest);
-    let dispatcher = JXLProcessorDispatcher::new(JXLProcessorImpl);
-    let (_handle, driver) = establish_guest(transport, dispatcher);
-    driver.run().await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("jxl", JXLProcessorDispatcher::new(JXLProcessorImpl))
 }

@@ -17,5 +17,5 @@ path = "src/main.rs"
 [dependencies]
 cell-dialoguer-proto = { path = "../cell-dialoguer-proto" }
 dialoguer = "0.12"
-roam-shm.workspace = true
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
 tokio.workspace = true

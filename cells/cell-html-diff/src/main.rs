@@ -3,10 +3,7 @@
 //! This cell handles HTML DOM diffing for live reload using facet-format-html
 //! for parsing and facet-diff for computing structural differences.
 
-use roam_shm::driver::establish_guest;
-use roam_shm::guest::ShmGuest;
-use roam_shm::spawn::SpawnArgs;
-use roam_shm::transport::ShmGuestTransport;
+use dodeca_cell_runtime::run_cell;
 
 use cell_html_diff_proto::{
     DiffInput, DiffResult, HtmlDiffResult, HtmlDiffer, HtmlDifferDispatcher,
@@ -55,13 +52,6 @@ impl HtmlDiffer for HtmlDifferImpl {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = SpawnArgs::from_env()?;
-    let guest = ShmGuest::attach_with_ticket(&args)?;
-    let transport = ShmGuestTransport::new(guest);
-    let dispatcher = HtmlDifferDispatcher::new(HtmlDifferImpl);
-    let (_handle, driver) = establish_guest(transport, dispatcher);
-    driver.run().await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("html_diff", HtmlDifferDispatcher::new(HtmlDifferImpl))
 }

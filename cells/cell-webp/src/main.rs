@@ -2,12 +2,8 @@
 //!
 //! This cell handles WebP encoding and decoding.
 
-use roam_shm::driver::establish_guest;
-use roam_shm::guest::ShmGuest;
-use roam_shm::spawn::SpawnArgs;
-use roam_shm::transport::ShmGuestTransport;
-
 use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPProcessorDispatcher, WebPResult};
+use dodeca_cell_runtime::run_cell;
 
 /// WebP processor implementation
 #[derive(Clone)]
@@ -55,13 +51,6 @@ impl WebPProcessor for WebPProcessorImpl {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = SpawnArgs::from_env()?;
-    let guest = ShmGuest::attach_with_ticket(&args)?;
-    let transport = ShmGuestTransport::new(guest);
-    let dispatcher = WebPProcessorDispatcher::new(WebPProcessorImpl);
-    let (_handle, driver) = establish_guest(transport, dispatcher);
-    driver.run().await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("webp", WebPProcessorDispatcher::new(WebPProcessorImpl))
 }

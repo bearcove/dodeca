@@ -14,6 +14,5 @@ path = "src/main.rs"
 
 [dependencies]
 cell-fonts-proto = { path = "../cell-fonts-proto" }
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
 fontcull.workspace = true
-roam-shm.workspace = true
-tokio.workspace = true

@@ -29,6 +29,7 @@ use roam_shm::spawn::SpawnArgs;
 use roam_shm::transport::ShmGuestTransport;
 use tokio::sync::mpsc;
 
+use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
 use cell_tui_proto::{
     BindMode, BuildProgress, EventKind, LogEvent, LogLevel, ServerCommand, ServerStatus,
     TuiHostClient,
@@ -533,8 +534,27 @@ async fn main() -> Result<()> {
     let dispatcher = NoOpDispatcher;
     let (handle, driver) = establish_guest(transport, dispatcher);
 
+    // Spawn driver in background - must run before ready() to process RPC
+    let driver_handle = tokio::spawn(async move {
+        if let Err(e) = driver.run().await {
+            eprintln!("Driver error: {:?}", e);
+        }
+    });
+
     // Initialize the handle
-    let _ = handle_cell.set(handle);
+    let _ = handle_cell.set(handle.clone());
+
+    // Signal readiness to host
+    let lifecycle = CellLifecycleClient::new(handle.clone());
+    lifecycle
+        .ready(ReadyMsg {
+            peer_id: args.peer_id.get() as u16,
+            cell_name: "tui".to_string(),
+            pid: Some(std::process::id()),
+            version: None,
+            features: vec![],
+        })
+        .await?;
 
     // Spawn the TUI loop - when it exits, terminate the cell process
     tokio::spawn(async move {
@@ -547,7 +567,8 @@ async fn main() -> Result<()> {
         std::process::exit(if result.is_ok() { 0 } else { 1 });
     });
 
-    driver.run().await?;
+    // Wait for driver
+    let _ = driver_handle.await;
     Ok(())
 }
 

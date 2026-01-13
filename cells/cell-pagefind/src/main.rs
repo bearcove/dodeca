@@ -11,11 +11,8 @@
 //! with a tokio oneshot back to the async caller. Do NOT replace it with
 //! tokio::spawn/spawn_blocking or a std::sync::mpsc recv in async code.
 
+use dodeca_cell_runtime::run_cell;
 use pagefind::api::PagefindIndex;
-use roam_shm::driver::establish_guest;
-use roam_shm::guest::ShmGuest;
-use roam_shm::spawn::SpawnArgs;
-use roam_shm::transport::ShmGuestTransport;
 use tokio::sync::oneshot;
 
 use cell_pagefind_proto::{
@@ -98,13 +95,6 @@ async fn build_search_index_inner(input: SearchIndexInput) -> Result<SearchIndex
     })
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = SpawnArgs::from_env()?;
-    let guest = ShmGuest::attach_with_ticket(&args)?;
-    let transport = ShmGuestTransport::new(guest);
-    let dispatcher = SearchIndexerDispatcher::new(SearchIndexerImpl);
-    let (_handle, driver) = establish_guest(transport, dispatcher);
-    driver.run().await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("pagefind", SearchIndexerDispatcher::new(SearchIndexerImpl))
 }

@@ -1657,8 +1657,8 @@ name = "cell-code-execution"
 version = "0.6.1"
 dependencies = [
  "cell-code-execution-proto",
+ "dodeca-cell-runtime",
  "pulldown-cmark",
- "roam-shm",
  "tempfile",
  "tokio",
  "tracing",
@@ -1678,9 +1678,8 @@ name = "cell-css"
 version = "0.6.1"
 dependencies = [
  "cell-css-proto",
+ "dodeca-cell-runtime",
  "lightningcss",
- "roam-shm",
- "tokio",
 ]
 
 [[package]]
@@ -1697,7 +1696,7 @@ version = "0.6.1"
 dependencies = [
  "cell-dialoguer-proto",
  "dialoguer",
- "roam-shm",
+ "dodeca-cell-runtime",
  "tokio",
 ]
 
@@ -1714,9 +1713,8 @@ name = "cell-fonts"
 version = "0.6.1"
 dependencies = [
  "cell-fonts-proto",
+ "dodeca-cell-runtime",
  "fontcull",
- "roam-shm",
- "tokio",
 ]
 
 [[package]]
@@ -1732,6 +1730,7 @@ name = "cell-gingembre"
 version = "0.6.1"
 dependencies = [
  "cell-gingembre-proto",
+ "cell-lifecycle-proto",
  "eyre",
  "facet-value",
  "futures",
@@ -1756,6 +1755,7 @@ name = "cell-html"
 version = "0.6.1"
 dependencies = [
  "cell-html-proto",
+ "cell-lifecycle-proto",
  "color-eyre",
  "dodeca-protocol",
  "facet-diff",
@@ -1773,10 +1773,9 @@ name = "cell-html-diff"
 version = "0.6.1"
 dependencies = [
  "cell-html-diff-proto",
+ "dodeca-cell-runtime",
  "dodeca-protocol",
  "html-diff-tests",
- "roam-shm",
- "tokio",
  "tracing",
 ]
 
@@ -1804,6 +1803,7 @@ version = "0.6.1"
 dependencies = [
  "axum",
  "cell-http-proto",
+ "cell-lifecycle-proto",
  "futures-util",
  "hyper",
  "hyper-util",
@@ -1828,10 +1828,9 @@ version = "0.6.1"
 dependencies = [
  "base64 0.22.1",
  "cell-image-proto",
+ "dodeca-cell-runtime",
  "image",
- "roam-shm",
  "thumbhash",
- "tokio",
 ]
 
 [[package]]
@@ -1847,9 +1846,8 @@ name = "cell-js"
 version = "0.6.1"
 dependencies = [
  "cell-js-proto",
+ "dodeca-cell-runtime",
  "oxc",
- "roam-shm",
- "tokio",
 ]
 
 [[package]]
@@ -1865,9 +1863,8 @@ name = "cell-jxl"
 version = "0.6.1"
 dependencies = [
  "cell-jxl-proto",
+ "dodeca-cell-runtime",
  "jpegxl-rs",
- "roam-shm",
- "tokio",
 ]
 
 [[package]]
@@ -1891,8 +1888,8 @@ name = "cell-linkcheck"
 version = "0.6.1"
 dependencies = [
  "cell-linkcheck-proto",
+ "dodeca-cell-runtime",
  "reqwest",
- "roam-shm",
  "tokio",
  "tracing",
  "url",
@@ -1911,9 +1908,8 @@ name = "cell-markdown"
 version = "0.6.1"
 dependencies = [
  "cell-markdown-proto",
+ "dodeca-cell-runtime",
  "marq",
- "roam-shm",
- "tokio",
 ]
 
 [[package]]
@@ -1931,8 +1927,7 @@ name = "cell-minify"
 version = "0.6.1"
 dependencies = [
  "cell-minify-proto",
- "roam-shm",
- "tokio",
+ "dodeca-cell-runtime",
 ]
 
 [[package]]
@@ -1948,8 +1943,8 @@ name = "cell-pagefind"
 version = "0.6.1"
 dependencies = [
  "cell-pagefind-proto",
+ "dodeca-cell-runtime",
  "pagefind",
- "roam-shm",
  "tokio",
 ]
 
@@ -1966,9 +1961,8 @@ name = "cell-sass"
 version = "0.6.1"
 dependencies = [
  "cell-sass-proto",
+ "dodeca-cell-runtime",
  "grass",
- "roam-shm",
- "tokio",
 ]
 
 [[package]]
@@ -1984,9 +1978,8 @@ name = "cell-svgo"
 version = "0.6.1"
 dependencies = [
  "cell-svgo-proto",
- "roam-shm",
+ "dodeca-cell-runtime",
  "svag",
- "tokio",
 ]
 
 [[package]]
@@ -2001,6 +1994,7 @@ dependencies = [
 name = "cell-tui"
 version = "0.6.1"
 dependencies = [
+ "cell-lifecycle-proto",
  "cell-tui-proto",
  "color-eyre",
  "crossterm",
@@ -2024,8 +2018,7 @@ name = "cell-webp"
 version = "0.6.1"
 dependencies = [
  "cell-webp-proto",
- "roam-shm",
- "tokio",
+ "dodeca-cell-runtime",
  "webp",
 ]
 
@@ -3045,6 +3038,7 @@ dependencies = [
  "cell-image-proto",
  "cell-js-proto",
  "cell-jxl-proto",
+ "cell-lifecycle-proto",
  "cell-linkcheck-proto",
  "cell-markdown-proto",
  "cell-minify-proto",
@@ -3090,6 +3084,16 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ur-taking-me-with-you",
+]
+
+[[package]]
+name = "dodeca-cell-runtime"
+version = "0.6.1"
+dependencies = [
+ "cell-lifecycle-proto",
+ "roam",
+ "roam-shm",
+ "tokio",
 ]
 
 [[package]]

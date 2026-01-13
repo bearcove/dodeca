@@ -4,10 +4,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use roam_shm::driver::establish_guest;
-use roam_shm::guest::ShmGuest;
-use roam_shm::spawn::SpawnArgs;
-use roam_shm::transport::ShmGuestTransport;
+use dodeca_cell_runtime::run_cell;
 
 use cell_fonts_proto::{
     FontAnalysis, FontFace, FontProcessor, FontProcessorDispatcher, FontResult, SubsetFontInput,
@@ -87,13 +84,6 @@ impl FontProcessor for FontProcessorImpl {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = SpawnArgs::from_env()?;
-    let guest = ShmGuest::attach_with_ticket(&args)?;
-    let transport = ShmGuestTransport::new(guest);
-    let dispatcher = FontProcessorDispatcher::new(FontProcessorImpl);
-    let (_handle, driver) = establish_guest(transport, dispatcher);
-    driver.run().await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("fonts", FontProcessorDispatcher::new(FontProcessorImpl))
 }
