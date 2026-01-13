@@ -377,8 +377,6 @@ pub async fn start_cell_server_with_shutdown(
 
     tracing::debug!(port = bound_port, "BOUND");
 
-    let (handle_tx, handle_rx) = watch::channel::<Option<ConnectionHandle>>(None);
-
     let shutdown_flag = Arc::new(AtomicBool::new(false));
     if let Some(mut shutdown_rx) = shutdown_rx.clone() {
         let shutdown_flag = shutdown_flag.clone();
@@ -410,90 +408,11 @@ pub async fn start_cell_server_with_shutdown(
 
     // Start accepting connections immediately
     let accept_server = server.clone();
-    let accept_boot_state_rx = boot_state_rx.clone();
     let accept_task = tokio::spawn(async move {
-        run_async_accept_loop(
-            tokio_listeners,
-            handle_rx,
-            accept_boot_state_rx,
-            accept_server,
-            shutdown_rx,
-            shutdown_flag,
-        )
-        .await
+        run_async_accept_loop(tokio_listeners, accept_server, shutdown_rx, shutdown_flag).await
     });
 
-    // Load cells with boot state tracking
-    boot_state.set_phase(BootPhase::LoadingCells);
-    // Cells spawn lazily - no need to initialize upfront
-
-    // Get the connection handle for the http cell
-    let handle = match Host::get().get_cell_handle("http") {
-        Some(h) => h,
-        None => {
-            panic!(
-                "FATAL: HTTP cell handle not found after loading\n\
-                 \n\
-                 The HTTP cell binary was found but failed to establish an RPC session.\n\
-                 Check for errors in cell startup logs above."
-            );
-        }
-    };
-
-    tracing::debug!("HTTP cell connected via hub");
-
-    // Push tracing configuration to the http cell
-    {
-        let filter_str = std::env::var("RUST_LOG")
-            .unwrap_or_else(|_| crate::logging::DEFAULT_TRACING_FILTER.to_string());
-        let handle_for_tracing = handle.clone();
-        tokio::spawn(async move {
-            use roam_tracing::{CellTracingClient, Level, TracingConfig};
-            let tracing_client = CellTracingClient::new(handle_for_tracing);
-            // Parse RUST_LOG style filter into TracingConfig
-            let config = TracingConfig {
-                min_level: Level::Debug, // Allow debug and above
-                filters: vec![filter_str.clone()],
-                include_span_events: false,
-            };
-            match tracing_client.configure(config).await {
-                Ok(roam_tracing::ConfigResult::Ok) => {
-                    tracing::debug!("Pushed tracing config to http cell: {}", filter_str);
-                }
-                Ok(roam_tracing::ConfigResult::InvalidFilter(msg)) => {
-                    tracing::warn!("Invalid tracing filter for http cell: {}", msg);
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to push tracing config to http cell: {:?}", e);
-                }
-            }
-        });
-    }
-
-    // Signal that the handle is ready
-    let _ = handle_tx.send(Some(handle));
-    tracing::debug!("HTTP cell handle ready");
-
-    // Spawn required cells proactively (lazy spawn on first access)
-    // client_async() spawns the cell and waits for it to be ready before returning
-    boot_state.set_phase(BootPhase::WaitingCellsReady);
-    if Host::get()
-        .client_async::<TcpTunnelClient>()
-        .await
-        .is_none()
-    {
-        panic!("FATAL: HTTP cell failed to start");
-    }
-    if Host::get()
-        .client_async::<cell_markdown_proto::MarkdownProcessorClient>()
-        .await
-        .is_none()
-    {
-        panic!("FATAL: Markdown cell failed to start");
-    }
-
-    // Mark boot as complete
-    boot_state.set_ready();
+    // Accept loop will spawn cells lazily on first connection
 
     match accept_task.await {
         Ok(Ok(())) => Ok(()),
@@ -505,29 +424,18 @@ pub async fn start_cell_server_with_shutdown(
 /// Async accept loop
 async fn run_async_accept_loop(
     listeners: Vec<tokio::net::TcpListener>,
-    handle_rx: watch::Receiver<Option<ConnectionHandle>>,
-    boot_state_rx: watch::Receiver<BootState>,
     server: Arc<SiteServer>,
     shutdown_rx: Option<watch::Receiver<bool>>,
     shutdown_flag: Arc<AtomicBool>,
 ) -> Result<()> {
     tracing::debug!(
-        handle_ready = handle_rx.borrow().is_some(),
-        boot_state = ?*boot_state_rx.borrow(),
         num_listeners = listeners.len(),
-        "Async accept loop starting"
-    );
-
-    tracing::debug!(
-        "Accepting connections immediately; readiness gated per connection (cells={:?})",
-        REQUIRED_CELLS
+        "Accept loop starting - cells will spawn on demand"
     );
 
     // Spawn accept tasks for each listener
     let mut accept_handles = Vec::new();
     for listener in listeners {
-        let handle_rx = handle_rx.clone();
-        let boot_state_rx = boot_state_rx.clone();
         let server = server.clone();
         let shutdown_flag = shutdown_flag.clone();
 
@@ -559,14 +467,9 @@ async fn run_async_accept_loop(
                     "Accepted browser connection"
                 );
 
-                let handle_rx = handle_rx.clone();
-                let boot_state_rx = boot_state_rx.clone();
                 let server = server.clone();
                 tokio::spawn(async move {
-                    if let Err(e) =
-                        handle_browser_connection(conn_id, stream, handle_rx, boot_state_rx, server)
-                            .await
-                    {
+                    if let Err(e) = handle_browser_connection(conn_id, stream, server).await {
                         tracing::warn!(
                             conn_id,
                             error = ?e,
@@ -644,8 +547,6 @@ Server failed to start. Check server logs for details";
 async fn handle_browser_connection(
     conn_id: u64,
     mut browser_stream: TcpStream,
-    mut handle_rx: watch::Receiver<Option<ConnectionHandle>>,
-    mut boot_state_rx: watch::Receiver<BootState>,
     server: Arc<SiteServer>,
 ) -> Result<()> {
     let started_at = Instant::now();
@@ -658,90 +559,17 @@ async fn handle_browser_connection(
         "handle_browser_connection: start"
     );
 
-    // Wait for boot state to resolve (Ready or Fatal)
-    let boot_wait_start = Instant::now();
-    loop {
-        let state = boot_state_rx.borrow().clone();
-        match state {
-            BootState::Ready => {
-                tracing::debug!(
-                    conn_id,
-                    elapsed_ms = boot_wait_start.elapsed().as_millis(),
-                    "Boot ready, proceeding with connection"
-                );
-                break;
+    // Get HTTP cell client (spawns lazily on first access)
+    let tunnel_client = match Host::get().client_async::<TcpTunnelClient>().await {
+        Some(client) => client,
+        None => {
+            tracing::error!(conn_id, "Failed to get HTTP cell client");
+            if let Err(e) = browser_stream.write_all(FATAL_ERROR_RESPONSE).await {
+                tracing::warn!(conn_id, error = %e, "Failed to write 500 response");
             }
-            BootState::Fatal {
-                ref message,
-                ref error_kind,
-                ..
-            } => {
-                tracing::warn!(
-                    conn_id,
-                    error_kind = ?error_kind,
-                    message = %message,
-                    elapsed_ms = boot_wait_start.elapsed().as_millis(),
-                    "Boot failed fatally, sending HTTP 500"
-                );
-                if let Err(e) = browser_stream.write_all(FATAL_ERROR_RESPONSE).await {
-                    tracing::warn!(conn_id, error = %e, "Failed to write 500 response");
-                }
-                return Ok(());
-            }
-            BootState::Booting { ref phase, .. } => {
-                tracing::debug!(
-                    conn_id,
-                    phase = ?phase,
-                    elapsed_ms = boot_wait_start.elapsed().as_millis(),
-                    "Waiting for boot to complete"
-                );
-            }
-        }
-        if boot_state_rx.changed().await.is_err() {
-            tracing::warn!(conn_id, "Boot state channel closed unexpectedly");
             return Ok(());
         }
-    }
-
-    // Get HTTP cell handle
-    let handle = if let Some(handle) = handle_rx.borrow().clone() {
-        handle
-    } else {
-        tracing::info!(conn_id, "Waiting for HTTP cell handle (socket held open)");
-        let wait_start = Instant::now();
-        let handle = tokio::time::timeout(SESSION_WAIT_TIMEOUT, async {
-            loop {
-                handle_rx.changed().await.ok();
-                if let Some(handle) = handle_rx.borrow().clone() {
-                    break handle;
-                }
-            }
-        })
-        .await;
-        match handle {
-            Ok(handle) => {
-                tracing::info!(
-                    conn_id,
-                    elapsed_ms = wait_start.elapsed().as_millis(),
-                    "HTTP cell handle ready (per-connection)"
-                );
-                handle
-            }
-            Err(_) => {
-                tracing::warn!(
-                    conn_id,
-                    elapsed_ms = wait_start.elapsed().as_millis(),
-                    "HTTP cell handle wait timed out; sending 500"
-                );
-                if let Err(e) = browser_stream.write_all(FATAL_ERROR_RESPONSE).await {
-                    tracing::warn!(conn_id, error = %e, "Failed to write 500 response");
-                }
-                return Ok(());
-            }
-        }
     };
-
-    let tunnel_client = TcpTunnelClient::new(handle.clone());
 
     // Wait for revision readiness (site content built)
     tracing::trace!(conn_id, "Waiting for revision readiness (per-connection)");

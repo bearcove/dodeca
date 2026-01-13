@@ -1216,9 +1216,6 @@ async fn build_with_mini_tui(
     // Initialize tracing (respects RUST_LOG)
     logging::init_standard_tracing();
 
-    // Initialize cells and wait for ALL to be ready before doing anything
-    cells::init_and_wait_for_cells().await?;
-
     let start = Instant::now();
 
     // Open CAS

@@ -194,7 +194,7 @@ impl Host {
     }
 
     /// Get a cell's connection handle by logical name (e.g., "sass", "gingembre").
-    pub fn get_cell_handle(&self, cell_name: &str) -> Option<ConnectionHandle> {
+    fn get_cell_handle(&self, cell_name: &str) -> Option<ConnectionHandle> {
         self.cell_handles.get(cell_name).map(|r| r.clone())
     }
 
@@ -375,6 +375,12 @@ impl Host {
     ///
     /// This will spawn the cell process if it's pending and wait for it to be ready.
     pub async fn client_async<C: CellClient>(&self) -> Option<C> {
+        // Ensure cell registry is initialized (idempotent, registers for lazy spawning, doesn't spawn)
+        if let Err(e) = crate::cells::ensure_cell_registry_initialized().await {
+            tracing::error!(cell = C::CELL_NAME, error = %e, "Cell registry initialization failed");
+            return None;
+        }
+
         // Get the handle (registered at init time)
         let handle = self.get_cell_handle(C::CELL_NAME)?;
 

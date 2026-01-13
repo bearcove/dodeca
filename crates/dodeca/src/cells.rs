@@ -352,11 +352,6 @@ impl HostService for HostServiceImpl {
     }
 }
 
-/// Get a cell's connection handle by logical name (e.g., "http", "sass").
-pub fn get_cell_session(name: &str) -> Option<ConnectionHandle> {
-    crate::host::Host::get().get_cell_handle(name)
-}
-
 /// Get the TUI display client for pushing updates to the TUI cell.
 /// This will spawn the TUI cell if it hasn't been spawned yet.
 pub async fn get_tui_display_client() -> Option<TuiDisplayClient> {
@@ -378,17 +373,17 @@ pub type DecodedImage = cell_image_proto::DecodedImage;
 static CELLS: tokio::sync::OnceCell<CellRegistry> = tokio::sync::OnceCell::const_new();
 static INIT_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-pub async fn init_and_wait_for_cells() -> eyre::Result<()> {
-    // Initialize cell infrastructure (registers pending cells, doesn't spawn)
+/// Ensure cell registry is initialized (registers cells for lazy spawning, does NOT spawn them).
+/// This is idempotent and safe to call multiple times.
+/// Called automatically by client_async(), should not be called directly.
+pub(crate) async fn ensure_cell_registry_initialized() -> eyre::Result<()> {
     let _ = CELLS.get_or_init(init_cells).await;
 
     // Check if init failed
     if let Some(err) = INIT_ERROR.get() {
-        return Err(eyre::eyre!("{}", err));
+        return Err(eyre::eyre!("Cell initialization failed: {}", err));
     }
 
-    let cell_count = crate::host::Host::get().cell_names().len();
-    debug!("{} cells registered for lazy spawning", cell_count);
     Ok(())
 }
 
@@ -1031,12 +1026,6 @@ pub async fn extract_code_samples(
 // that other modules expect.
 
 pub use dialoguer_cell as dialoguer_client;
-
-pub fn has_linkcheck_cell() -> bool {
-    crate::host::Host::get()
-        .get_cell_handle("linkcheck")
-        .is_some()
-}
 
 /// Result of link checking - wrapper for internal use
 #[derive(Debug, Clone)]

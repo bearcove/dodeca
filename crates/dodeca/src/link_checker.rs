@@ -6,7 +6,7 @@
 //! External link checking is done via the linkcheck cell, which handles
 //! per-domain rate limiting internally.
 
-use crate::cells::{CheckOptions, check_urls_cell, has_linkcheck_cell};
+use crate::cells::{CheckOptions, check_urls_cell};
 use crate::db::ExternalLinkStatus;
 use crate::types::Route;
 use chrono::NaiveDate;
@@ -212,11 +212,6 @@ pub async fn check_external_links(
     date: NaiveDate,
     options: &ExternalLinkOptions,
 ) -> (Vec<BrokenLink>, usize) {
-    if !has_linkcheck_cell() {
-        warn!("linkcheck cell not loaded, skipping external link checks");
-        return (Vec::new(), 0);
-    }
-
     let mut broken = Vec::new();
 
     // Deduplicate URLs and track which links use each URL
