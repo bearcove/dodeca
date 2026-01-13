@@ -17,14 +17,10 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 
-use cell_http_proto::{
-    ContentService, ContentServiceDispatcher, TcpTunnelClient, WebSocketTunnel,
-    WebSocketTunnelDispatcher,
-};
+use cell_http_proto::{TcpTunnelClient, WebSocketTunnel};
 
 use crate::boot_state::{BootPhase, BootState, BootStateManager};
 use crate::cells::{all, get_cell_handle_by_name};
-use crate::content_service::HostContentService;
 use crate::serve::SiteServer;
 
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
@@ -386,23 +382,13 @@ pub async fn start_cell_server_with_shutdown(
 
     // Load cells with boot state tracking
     boot_state.set_phase(BootPhase::LoadingCells);
-    let registry = all().await;
+    let _ = all().await; // Initialize cell infrastructure
 
     // Initialize gingembre cell
     crate::cells::init_gingembre_cell().await;
 
-    // Check that the http cell is loaded
-    if registry.http.is_none() {
-        panic!(
-            "FATAL: HTTP cell not loaded\n\
-             \n\
-             Build it with: cargo build -p cell-http --bin ddc-cell-http\n\
-             Or ensure DODECA_CELL_PATH points to a directory containing ddc-cell-http"
-        );
-    }
-
     // Get the connection handle for the http cell
-    let handle = match get_cell_handle_by_name("ddc-cell-http") {
+    let handle = match get_cell_handle_by_name("http") {
         Some(h) => h,
         None => {
             panic!(

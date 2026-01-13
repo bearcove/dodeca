@@ -52,7 +52,7 @@ pub struct HtmlProcessorImpl {
 }
 
 impl HtmlProcessorImpl {
-    pub fn new(ctx: Arc<LazyContext>) -> Self {
+    fn new(ctx: Arc<LazyContext>) -> Self {
         Self { ctx }
     }
 
