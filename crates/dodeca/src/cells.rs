@@ -22,7 +22,7 @@ use cell_gingembre_proto::{
 };
 use cell_html_diff_proto::{DiffInput, HtmlDiffResult, HtmlDifferClient};
 use cell_html_proto::HtmlProcessorClient;
-use cell_http_proto::TcpTunnelClient;
+use cell_http_proto::{ContentServiceDispatcher, TcpTunnelClient};
 use cell_image_proto::{ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput};
 use cell_js_proto::{JsProcessorClient, JsResult, JsRewriteInput};
 use cell_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
@@ -51,6 +51,7 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command;
 use tracing::{debug, info, warn};
 
+use crate::content_service::LazyHostContentService;
 use crate::template_host::{TemplateHostImpl, render_context_registry};
 
 // ============================================================================
@@ -637,6 +638,14 @@ async fn init_cells_inner() -> eyre::Result<()> {
             let dispatcher = RoutedDispatcher::new(
                 CellLifecycleDispatcher::new(lifecycle_impl.clone()),
                 TemplateHostDispatcher::new(template_host_impl.clone()),
+            );
+            builder = builder.add_peer(*peer_id, dispatcher);
+        } else if cell_name == "http" {
+            // HTTP cell needs ContentService to serve content from the host.
+            // Use LazyHostContentService since SiteServer is initialized later.
+            let dispatcher = RoutedDispatcher::new(
+                CellLifecycleDispatcher::new(lifecycle_impl.clone()),
+                ContentServiceDispatcher::new(LazyHostContentService),
             );
             builder = builder.add_peer(*peer_id, dispatcher);
         } else {

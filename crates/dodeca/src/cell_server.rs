@@ -277,6 +277,9 @@ pub async fn start_cell_server_with_shutdown(
     port_tx: Option<tokio::sync::oneshot::Sender<u16>>,
     pre_bound_listener: Option<std::net::TcpListener>,
 ) -> Result<()> {
+    // Register the site server globally so cells can access it via LazyHostContentService
+    crate::content_service::set_site_server(server.clone());
+
     // Create boot state manager
     let boot_state = Arc::new(BootStateManager::new());
     let boot_state_rx = boot_state.subscribe();
