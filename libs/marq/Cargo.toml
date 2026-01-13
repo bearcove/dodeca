@@ -110,7 +110,6 @@ facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-kdl = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macro-parse = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macro-types = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macros = { git = "https://github.com/facet-rs/facet", branch = "main" }
