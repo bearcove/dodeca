@@ -25,6 +25,7 @@ pub async fn ws_handler(
 }
 
 async fn handle_socket(socket: WebSocket, ctx: Arc<dyn RouterContext>) {
+    eprintln!("[cell-http] DevTools WebSocket connection received, opening tunnel to host...");
     tracing::info!("DevTools WebSocket connection received, opening tunnel to host...");
 
     // Create a tunnel pair - local stays here, remote goes to host
@@ -73,10 +74,28 @@ async fn handle_socket(socket: WebSocket, ctx: Arc<dyn RouterContext>) {
 
     // Task B: Host → WebSocket (host sends, we forward to browser)
     let host_to_ws = tokio::spawn(async move {
-        while let Ok(Some(data)) = local_rx.recv().await {
-            if !data.is_empty() {
-                // Send as binary (the devtools protocol uses binary postcard)
-                if ws_sender.send(Message::Binary(data.into())).await.is_err() {
+        loop {
+            match local_rx.recv().await {
+                Ok(Some(data)) => {
+                    if !data.is_empty() {
+                        tracing::trace!(
+                            channel_id,
+                            bytes = data.len(),
+                            "Received data from host, forwarding to WebSocket"
+                        );
+                        // Send as binary (the devtools protocol uses binary postcard)
+                        if ws_sender.send(Message::Binary(data.into())).await.is_err() {
+                            tracing::debug!(channel_id, "WebSocket send failed, closing");
+                            break;
+                        }
+                    }
+                }
+                Ok(None) => {
+                    tracing::debug!(channel_id, "Host channel closed (None)");
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!(channel_id, error = ?e, "Host channel recv error");
                     break;
                 }
             }

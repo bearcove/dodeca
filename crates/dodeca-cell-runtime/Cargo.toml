@@ -16,3 +16,4 @@ roam-tracing.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+ur-taking-me-with-you.workspace = true

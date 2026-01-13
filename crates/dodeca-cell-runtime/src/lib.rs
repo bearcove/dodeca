@@ -16,6 +16,7 @@ pub use roam_tracing::{CellTracingDispatcher, CellTracingLayer, init_cell_tracin
 pub use tokio;
 pub use tracing;
 pub use tracing_subscriber;
+pub use ur_taking_me_with_you;
 
 /// Run a cell with the given name and dispatcher.
 ///
@@ -44,8 +45,11 @@ macro_rules! run_cell {
         use $crate::{
             CellLifecycleClient, CellTracingDispatcher, ReadyMsg, RoutedDispatcher, ShmGuest,
             ShmGuestTransport, SpawnArgs, establish_guest, init_cell_tracing, tokio, tracing,
-            tracing_subscriber,
+            tracing_subscriber, ur_taking_me_with_you,
         };
+
+        // Ensure this process dies when the parent dies (required for macOS pipe-based approach)
+        ur_taking_me_with_you::die_with_parent();
 
         async fn __run_cell_async() -> Result<(), Box<dyn std::error::Error>> {
             let args = SpawnArgs::from_env()?;
@@ -133,8 +137,11 @@ macro_rules! run_cell_with_handle {
         use $crate::{
             CellLifecycleClient, CellTracingDispatcher, ConnectionHandle, ReadyMsg,
             RoutedDispatcher, ShmGuest, ShmGuestTransport, SpawnArgs, establish_guest,
-            init_cell_tracing, tokio, tracing, tracing_subscriber,
+            init_cell_tracing, tokio, tracing, tracing_subscriber, ur_taking_me_with_you,
         };
+
+        // Ensure this process dies when the parent dies (required for macOS pipe-based approach)
+        ur_taking_me_with_you::die_with_parent();
 
         async fn __run_cell_async() -> Result<(), Box<dyn std::error::Error>> {
             let $args = SpawnArgs::from_env()?;

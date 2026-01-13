@@ -22,7 +22,7 @@ use cell_gingembre_proto::{
 };
 use cell_html_diff_proto::{DiffInput, HtmlDiffResult, HtmlDifferClient};
 use cell_html_proto::HtmlProcessorClient;
-use cell_http_proto::{ContentServiceDispatcher, TcpTunnelClient};
+use cell_http_proto::{ContentServiceDispatcher, TcpTunnelClient, WebSocketTunnelDispatcher};
 use cell_image_proto::{ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput};
 use cell_js_proto::{JsProcessorClient, JsResult, JsRewriteInput};
 use cell_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
@@ -51,7 +51,9 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command;
 use tracing::{debug, info, warn};
 
-use crate::content_service::LazyHostContentService;
+use crate::cell_server::HostWebSocketTunnel;
+use crate::content_service::HostContentService;
+use crate::serve::SiteServer;
 use crate::template_host::{TemplateHostImpl, render_context_registry};
 
 // ============================================================================
@@ -74,6 +76,17 @@ static CELL_NAME_TO_PEER_ID: OnceLock<Arc<std::sync::RwLock<HashMap<String, Peer
 
 /// Whether cells should suppress startup messages (set when TUI is active).
 static QUIET_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// SiteServer for HTTP cell initialization.
+/// Must be set via `provide_site_server()` before calling `all()` if HTTP serving is needed.
+static SITE_SERVER_FOR_INIT: OnceLock<Arc<SiteServer>> = OnceLock::new();
+
+/// Provide the SiteServer for HTTP cell initialization.
+/// This must be called before `all()` when the HTTP cell needs to serve content.
+/// For build-only commands, this can be skipped.
+pub fn provide_site_server(server: Arc<SiteServer>) {
+    let _ = SITE_SERVER_FOR_INIT.set(server);
+}
 
 /// Enable quiet mode for spawned cells (call this when TUI is active).
 pub fn set_quiet_mode(quiet: bool) {
@@ -641,13 +654,24 @@ async fn init_cells_inner() -> eyre::Result<()> {
             );
             builder = builder.add_peer(*peer_id, dispatcher);
         } else if cell_name == "http" {
-            // HTTP cell needs ContentService to serve content from the host.
-            // Use LazyHostContentService since SiteServer is initialized later.
-            let dispatcher = RoutedDispatcher::new(
-                CellLifecycleDispatcher::new(lifecycle_impl.clone()),
-                ContentServiceDispatcher::new(LazyHostContentService),
-            );
-            builder = builder.add_peer(*peer_id, dispatcher);
+            // HTTP cell needs ContentService and WebSocketTunnel from the host.
+            // SiteServer must be provided via provide_site_server() before all().
+            if let Some(server) = SITE_SERVER_FOR_INIT.get() {
+                let dispatcher = RoutedDispatcher::new(
+                    CellLifecycleDispatcher::new(lifecycle_impl.clone()),
+                    RoutedDispatcher::new(
+                        ContentServiceDispatcher::new(HostContentService::new(server.clone())),
+                        WebSocketTunnelDispatcher::new(HostWebSocketTunnel::new(server.clone())),
+                    ),
+                );
+                builder = builder.add_peer(*peer_id, dispatcher);
+            } else {
+                // No SiteServer provided - http cell won't be able to serve content.
+                // This is fine for build-only commands.
+                debug!("HTTP cell initialized without SiteServer (build-only mode)");
+                let dispatcher = CellLifecycleDispatcher::new(lifecycle_impl.clone());
+                builder = builder.add_peer(*peer_id, dispatcher);
+            }
         } else {
             let dispatcher = CellLifecycleDispatcher::new(lifecycle_impl.clone());
             builder = builder.add_peer(*peer_id, dispatcher);
