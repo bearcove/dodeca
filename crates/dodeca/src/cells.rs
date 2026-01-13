@@ -376,23 +376,18 @@ pub type DecodedImage = cell_image_proto::DecodedImage;
 // ============================================================================
 
 static CELLS: tokio::sync::OnceCell<CellRegistry> = tokio::sync::OnceCell::const_new();
+static INIT_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 pub async fn init_and_wait_for_cells() -> eyre::Result<()> {
     // Initialize cell infrastructure (registers pending cells, doesn't spawn)
     let _ = all().await;
 
-    // Get count of registered cells
-    let cell_count = crate::host::Host::get().cell_names().len();
-
-    if cell_count == 0 {
-        return Err(eyre::eyre!(
-            "dodeca installation is incomplete.\n\n\
-            The cell binaries (ddc-cell-*) are missing. They should be in the same \
-            directory as the main 'ddc' binary.\n\n\
-            Please reinstall dodeca or download a complete release."
-        ));
+    // Check if init failed
+    if let Some(err) = INIT_ERROR.get() {
+        return Err(eyre::eyre!("{}", err));
     }
 
+    let cell_count = crate::host::Host::get().cell_names().len();
     debug!("{} cells registered for lazy spawning", cell_count);
     Ok(())
 }
@@ -587,7 +582,7 @@ async fn init_cells() -> CellRegistry {
             info!("Cell infrastructure initialized");
         }
         Err(e) => {
-            eprintln!("Error: {}", e);
+            let _ = INIT_ERROR.set(e.to_string());
         }
     }
     CellRegistry::new()
@@ -673,11 +668,21 @@ async fn init_cells_inner() -> eyre::Result<()> {
         ));
     }
 
-    if cell_info.is_empty() {
-        // Error will be reported by init_and_wait_for_cells with a user-friendly message
-        return Err(eyre::eyre!("No cell binaries found"));
+    // If most cells are missing, installation is incomplete
+    let total_expected = cell_info.len() + missing_binaries.len();
+    if missing_binaries.len() > total_expected / 2 {
+        let missing_names: Vec<_> = missing_binaries.iter().map(|(n, _)| *n).collect();
+        return Err(eyre::eyre!(
+            "dodeca installation is incomplete.\n\n\
+            Missing {} of {} cell binaries: {}\n\n\
+            The cell binaries (ddc-cell-*) should be in the same directory as 'ddc'.\n\
+            Please reinstall dodeca or download a complete release.",
+            missing_binaries.len(),
+            total_expected,
+            missing_names.join(", ")
+        ));
     } else if !missing_binaries.is_empty() {
-        // Some cells found, but not all - warn about missing ones
+        // Only a few missing - warn but continue
         let names: Vec<_> = missing_binaries.iter().map(|(n, _)| *n).collect();
         warn!("Some cell binaries not found: {:?}", names);
     }
