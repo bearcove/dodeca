@@ -21,7 +21,6 @@ use crate::render::{RenderOptions, inject_livereload_with_build_info};
 use crate::types::Route;
 use std::collections::HashSet;
 
-use cell_html_diff_proto;
 use dodeca_protocol::{ScopeEntry, ScopeValue};
 use facet_value::DestructuredRef;
 

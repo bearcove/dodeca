@@ -3,12 +3,16 @@
 mod boot_state;
 mod cache_bust;
 mod cas;
+#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod cell_server;
+#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod cells;
 mod config;
+#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod content_service;
 mod data;
 mod db;
+#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod error_pages;
 mod fd_passing;
 mod file_watcher;
@@ -20,6 +24,7 @@ mod queries;
 mod render;
 mod revision;
 mod search;
+#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod serve;
 mod svg;
 mod template;

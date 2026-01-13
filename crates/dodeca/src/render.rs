@@ -12,7 +12,6 @@ use crate::template_host::{RenderContext, RenderContextGuard, render_context_reg
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
 
-use cell_gingembre_proto;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 

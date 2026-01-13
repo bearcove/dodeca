@@ -17,6 +17,7 @@ use crate::RouterContext;
 /// Each `open()` call receives a tunnel from the host and serves HTTP on it.
 #[derive(Clone)]
 pub struct TcpTunnelImpl {
+    #[allow(dead_code)]
     ctx: Arc<dyn RouterContext>,
     app: axum::Router,
 }

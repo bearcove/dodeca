@@ -424,8 +424,8 @@ mod tests {
         let (progress_tx, mut progress_rx) = roam::channel::<BuildProgress>();
         let (status_tx, mut status_rx) = roam::channel::<ServerStatus>();
 
-        host.subscribe_progress(progress_tx).await.unwrap();
-        host.subscribe_server_status(status_tx).await.unwrap();
+        host.subscribe_progress(progress_tx).await;
+        host.subscribe_server_status(status_tx).await;
 
         // Give the spawned tasks time to send
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -465,7 +465,7 @@ mod tests {
         });
 
         let (events_tx, mut events_rx) = roam::channel::<LogEvent>();
-        host.subscribe_events(events_tx).await.unwrap();
+        host.subscribe_events(events_tx).await;
 
         // Give the spawned task time to send history
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;

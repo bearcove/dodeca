@@ -12,7 +12,6 @@ use facet_value::Value;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use facet_postcard;
     use facet_value::{DestructuredRef, VObject, VString};
 
     #[test]
