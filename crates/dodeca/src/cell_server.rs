@@ -475,17 +475,22 @@ pub async fn start_cell_server_with_shutdown(
     let _ = handle_tx.send(Some(handle));
     tracing::debug!("HTTP cell handle ready");
 
-    // Wait for required cells to be ready
+    // Spawn required cells proactively (lazy spawn on first access)
+    // client_async() spawns the cell and waits for it to be ready before returning
     boot_state.set_phase(BootPhase::WaitingCellsReady);
-    if let Err(e) = crate::cells::wait_for_cells_ready(&REQUIRED_CELLS, REQUIRED_CELL_TIMEOUT).await
+    if Host::get()
+        .client_async::<TcpTunnelClient>()
+        .await
+        .is_none()
     {
-        panic!(
-            "FATAL: Required cells failed to start: {}\n\
-             \n\
-             This is a critical startup failure. The application cannot function without these cells.\n\
-             Check cell logs above for errors during startup.",
-            e
-        );
+        panic!("FATAL: HTTP cell failed to start");
+    }
+    if Host::get()
+        .client_async::<cell_markdown_proto::MarkdownProcessorClient>()
+        .await
+        .is_none()
+    {
+        panic!("FATAL: Markdown cell failed to start");
     }
 
     // Mark boot as complete
