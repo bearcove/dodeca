@@ -785,7 +785,9 @@ async fn render_events_to_html(
     options: &RenderOptions,
     source_info: Option<SourceInfo>,
 ) {
-    for (event, _range) in events {
+    let mut i = 0;
+    while i < events.len() {
+        let (event, _range) = &events[i];
         match event {
             Event::Start(Tag::Paragraph) => {
                 // Custom paragraph rendering with source location attributes
@@ -800,6 +802,37 @@ async fn render_events_to_html(
             }
             Event::End(TagEnd::Paragraph) => {
                 html.push_str("</p>\n");
+            }
+            Event::Start(Tag::Image {
+                dest_url, title, ..
+            }) => {
+                // Collect alt text from events until End(TagEnd::Image)
+                let mut alt_text = String::new();
+                i += 1;
+                while i < events.len() {
+                    match &events[i].0 {
+                        Event::End(TagEnd::Image) => break,
+                        Event::Text(t) => alt_text.push_str(t),
+                        Event::Code(c) => alt_text.push_str(c),
+                        Event::SoftBreak | Event::HardBreak => alt_text.push(' '),
+                        _ => {}
+                    }
+                    i += 1;
+                }
+                let title_attr = if title.is_empty() {
+                    String::new()
+                } else {
+                    format!(" title=\"{}\"", html_escape(title))
+                };
+                html.push_str(&format!(
+                    "<img src=\"{}\" alt=\"{}\"{} />",
+                    html_escape(dest_url),
+                    html_escape(&alt_text),
+                    title_attr
+                ));
+            }
+            Event::End(TagEnd::Image) => {
+                // Already handled by Start(Tag::Image)
             }
             Event::Start(Tag::Link {
                 dest_url, title, ..
@@ -834,9 +867,9 @@ async fn render_events_to_html(
                 pulldown_cmark::html::push_html(html, std::iter::once(event.clone()));
             }
         }
+        i += 1;
     }
 }
-
 /// Source location information for rendered elements
 struct SourceInfo {
     line: usize,
