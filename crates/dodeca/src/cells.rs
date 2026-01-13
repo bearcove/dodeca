@@ -17,7 +17,9 @@ use cell_code_execution_proto::{
 use cell_css_proto::{CssProcessorClient, CssResult};
 use cell_dialoguer_proto::DialoguerClient;
 use cell_fonts_proto::{FontAnalysis, FontProcessorClient, FontResult, SubsetFontInput};
-use cell_gingembre_proto::{ContextId, EvalResult, RenderResult, TemplateRendererClient};
+use cell_gingembre_proto::{
+    ContextId, EvalResult, RenderResult, TemplateHostDispatcher, TemplateRendererClient,
+};
 use cell_html_diff_proto::{DiffInput, HtmlDiffResult, HtmlDifferClient};
 use cell_html_proto::HtmlProcessorClient;
 use cell_http_proto::TcpTunnelClient;
@@ -37,7 +39,7 @@ use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
 use facet::Facet;
 use facet_value::Value;
-use roam::session::{ChannelRegistry, ConnectionHandle, ServiceDispatcher};
+use roam::session::{ChannelRegistry, ConnectionHandle, RoutedDispatcher, ServiceDispatcher};
 use roam_shm::driver::MultiPeerHostDriver;
 use roam_shm::{AddPeerOptions, PeerId, SegmentConfig, ShmHost};
 use std::collections::HashMap;
@@ -49,6 +51,8 @@ use std::time::{Duration, SystemTime};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command;
 use tracing::{debug, info, warn};
+
+use crate::template_host::{TemplateHostImpl, render_context_registry};
 
 // ============================================================================
 // Global State
@@ -466,10 +470,11 @@ static GINGEMBRE_CELL: tokio::sync::OnceCell<Arc<TemplateRendererClient>> =
     tokio::sync::OnceCell::const_new();
 
 pub async fn init_gingembre_cell() -> Option<()> {
-    // TODO: Implement gingembre cell initialization with roam
-    // This requires setting up TemplateHostDispatcher and connecting to the cell
-    tracing::debug!("init_gingembre_cell: not yet implemented for roam");
-    None
+    let handle = get_cell_handle_by_name("gingembre")?;
+    let client = Arc::new(TemplateRendererClient::new(handle));
+    GINGEMBRE_CELL.set(client).ok()?;
+    debug!("Gingembre cell initialized");
+    Some(())
 }
 
 pub async fn gingembre_cell() -> Option<Arc<TemplateRendererClient>> {
@@ -658,12 +663,25 @@ async fn init_cells_inner() -> eyre::Result<()> {
     }
 
     // Build the MultiPeerHostDriver with CellLifecycle dispatcher for each peer
+    // Gingembre is special: it needs TemplateHost callbacks from the host
     let lifecycle_impl = HostCellLifecycle::new(cell_ready_registry().clone());
+    let template_host_impl = TemplateHostImpl::new(render_context_registry());
 
     let mut builder = MultiPeerHostDriver::new(host);
-    for (peer_id, _, _) in &peer_cells {
-        let dispatcher = CellLifecycleDispatcher::new(lifecycle_impl.clone());
-        builder = builder.add_peer(*peer_id, dispatcher);
+    for (peer_id, cell_name, _) in &peer_cells {
+        if cell_name == "gingembre" {
+            // Gingembre needs bidirectional RPC: host calls TemplateRenderer,
+            // cell calls back TemplateHost. Use RoutedDispatcher to combine both.
+            let dispatcher = RoutedDispatcher::new(
+                CellLifecycleDispatcher::new(lifecycle_impl.clone()),
+                TemplateHostDispatcher::new(template_host_impl.clone()),
+                CellLifecycleDispatcher::<HostCellLifecycle>::method_ids(),
+            );
+            builder = builder.add_peer(*peer_id, dispatcher);
+        } else {
+            let dispatcher = CellLifecycleDispatcher::new(lifecycle_impl.clone());
+            builder = builder.add_peer(*peer_id, dispatcher);
+        }
     }
 
     let (driver, handles) = builder.build();

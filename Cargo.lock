@@ -7447,7 +7447,7 @@ dependencies = [
 [[package]]
 name = "roam"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d5a56577a54eb1329f636d72c9b51aedcd118a81"
+source = "git+https://github.com/bearcove/roam?branch=main#2672f50986b0a962646b9c51515b4cab16a9d206"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -7460,7 +7460,7 @@ dependencies = [
 [[package]]
 name = "roam-frame"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d5a56577a54eb1329f636d72c9b51aedcd118a81"
+source = "git+https://github.com/bearcove/roam?branch=main#2672f50986b0a962646b9c51515b4cab16a9d206"
 dependencies = [
  "bytes",
  "facet",
@@ -7470,7 +7470,7 @@ dependencies = [
 [[package]]
 name = "roam-hash"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d5a56577a54eb1329f636d72c9b51aedcd118a81"
+source = "git+https://github.com/bearcove/roam?branch=main#2672f50986b0a962646b9c51515b4cab16a9d206"
 dependencies = [
  "blake3",
  "facet-core",
@@ -7481,7 +7481,7 @@ dependencies = [
 [[package]]
 name = "roam-macros-parse"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d5a56577a54eb1329f636d72c9b51aedcd118a81"
+source = "git+https://github.com/bearcove/roam?branch=main#2672f50986b0a962646b9c51515b4cab16a9d206"
 dependencies = [
  "proc-macro2",
  "unsynn",
@@ -7490,7 +7490,7 @@ dependencies = [
 [[package]]
 name = "roam-schema"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d5a56577a54eb1329f636d72c9b51aedcd118a81"
+source = "git+https://github.com/bearcove/roam?branch=main#2672f50986b0a962646b9c51515b4cab16a9d206"
 dependencies = [
  "facet",
  "facet-core",
@@ -7499,7 +7499,7 @@ dependencies = [
 [[package]]
 name = "roam-service-macros"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d5a56577a54eb1329f636d72c9b51aedcd118a81"
+source = "git+https://github.com/bearcove/roam?branch=main#2672f50986b0a962646b9c51515b4cab16a9d206"
 dependencies = [
  "facet-cargo-toml",
  "heck 0.5.0",
@@ -7511,7 +7511,7 @@ dependencies = [
 [[package]]
 name = "roam-session"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d5a56577a54eb1329f636d72c9b51aedcd118a81"
+source = "git+https://github.com/bearcove/roam?branch=main#2672f50986b0a962646b9c51515b4cab16a9d206"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -7523,7 +7523,7 @@ dependencies = [
 [[package]]
 name = "roam-shm"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d5a56577a54eb1329f636d72c9b51aedcd118a81"
+source = "git+https://github.com/bearcove/roam?branch=main#2672f50986b0a962646b9c51515b4cab16a9d206"
 dependencies = [
  "facet-postcard",
  "libc",
@@ -7538,7 +7538,7 @@ dependencies = [
 [[package]]
 name = "roam-stream"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d5a56577a54eb1329f636d72c9b51aedcd118a81"
+source = "git+https://github.com/bearcove/roam?branch=main#2672f50986b0a962646b9c51515b4cab16a9d206"
 dependencies = [
  "cobs 0.5.0",
  "ctor",
@@ -7552,7 +7552,7 @@ dependencies = [
 [[package]]
 name = "roam-tracing"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d5a56577a54eb1329f636d72c9b51aedcd118a81"
+source = "git+https://github.com/bearcove/roam?branch=main#2672f50986b0a962646b9c51515b4cab16a9d206"
 dependencies = [
  "facet",
  "roam",
@@ -7565,7 +7565,7 @@ dependencies = [
 [[package]]
 name = "roam-wire"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d5a56577a54eb1329f636d72c9b51aedcd118a81"
+source = "git+https://github.com/bearcove/roam?branch=main#2672f50986b0a962646b9c51515b4cab16a9d206"
 dependencies = [
  "cobs 0.3.0",
  "facet",
@@ -8047,7 +8047,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shm-primitives"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d5a56577a54eb1329f636d72c9b51aedcd118a81"
+source = "git+https://github.com/bearcove/roam?branch=main#2672f50986b0a962646b9c51515b4cab16a9d206"
 dependencies = [
  "libc",
  "loom",
