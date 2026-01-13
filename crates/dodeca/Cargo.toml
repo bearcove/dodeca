@@ -79,7 +79,6 @@ regex.workspace = true
 serde_yaml.workspace = true
 strid.workspace = true
 tokio.workspace = true
-tokio-stream.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 ur-taking-me-with-you.workspace = true

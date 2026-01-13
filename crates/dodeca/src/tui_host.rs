@@ -101,17 +101,18 @@ pub fn convert_server_status(status: &crate::tui::ServerStatus) -> ServerStatus 
 }
 
 /// Convert from proto ServerCommand to old tui::ServerCommand
-/// Note: CycleLogLevel, TogglePicanteDebug, and SetLogFilter are handled directly in main.rs bridge
+/// Note: Exit, CycleLogLevel, TogglePicanteDebug, and SetLogFilter are handled directly in main.rs bridge
 pub fn convert_server_command(cmd: ServerCommand) -> crate::tui::ServerCommand {
     match cmd {
         ServerCommand::GoPublic => crate::tui::ServerCommand::GoPublic,
         ServerCommand::GoLocal => crate::tui::ServerCommand::GoLocal,
         // These are handled directly in the bridge, should never reach here
-        ServerCommand::TogglePicanteDebug
+        ServerCommand::Exit
+        | ServerCommand::TogglePicanteDebug
         | ServerCommand::CycleLogLevel
         | ServerCommand::SetLogFilter { .. } => {
             unreachable!(
-                "TogglePicanteDebug, CycleLogLevel, and SetLogFilter are handled directly in main.rs"
+                "Exit, TogglePicanteDebug, CycleLogLevel, and SetLogFilter are handled directly in main.rs"
             )
         }
     }

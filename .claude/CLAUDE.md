@@ -50,3 +50,14 @@ Use `cargo build` to build everything. This will automatically:
 - Build all cells (they're in the workspace)
 - Build the main dodeca binary
 
+## Testing
+
+The dodeca repository itself is a dodeca website (it has `.config/dodeca.yaml`).
+To test, run from the dodeca directory:
+
+```bash
+cd ~/bearcove/dodeca
+./target/debug/ddc build   # Build the site
+./target/debug/ddc serve   # Serve with TUI (q to quit)
+```
+

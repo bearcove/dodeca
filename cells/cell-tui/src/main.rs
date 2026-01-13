@@ -123,13 +123,15 @@ impl TuiApp {
 
         match code {
             KeyCode::Char('c') if modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
-                self.should_quit = true;
+                // Send exit command to host - host will shut down, we die with it
+                let _ = self.command_tx.send(ServerCommand::Exit);
             }
             KeyCode::Char('q') | KeyCode::Esc => {
                 if self.show_help {
                     self.show_help = false;
                 } else {
-                    self.should_quit = true;
+                    // Send exit command to host - host will shut down, we die with it
+                    let _ = self.command_tx.send(ServerCommand::Exit);
                 }
             }
             KeyCode::Char('?') => self.show_help = !self.show_help,

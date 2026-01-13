@@ -2372,8 +2372,8 @@ async fn serve_with_tui(
     // Enable quiet mode for cells so they don't print startup messages that corrupt TUI
     cells::set_quiet_mode(true);
 
-    // Initialize the unified Host singleton
-    host::Host::init().await;
+    // Enable TUI mode (must happen before cells init)
+    host::Host::get().enable_tui_mode();
 
     // Take the command receiver for TUI → host command forwarding
     let proto_cmd_rx = host::Host::get()
@@ -2994,6 +2994,10 @@ async fn serve_with_tui(
     tokio::spawn(async move {
         while let Some(proto_cmd) = proto_cmd_rx.recv().await {
             match proto_cmd {
+                cell_tui_proto::ServerCommand::Exit => {
+                    // TUI requested shutdown - signal the main loop
+                    host::Host::get().signal_exit();
+                }
                 cell_tui_proto::ServerCommand::CycleLogLevel => {
                     // Handle directly - cycle the log level
                     let new_level = filter_handle_for_bridge.cycle_log_level();
@@ -3086,8 +3090,8 @@ async fn serve_with_tui(
         }
     });
 
-    // Wait for TUI cell to exit (user pressed 'q' or terminal closed)
-    cells::wait_for_tui_exit().await;
+    // Wait for exit command from TUI
+    host::Host::get().wait_for_exit().await;
 
     // Signal server to shutdown (use current_shutdown in case it was swapped)
     {

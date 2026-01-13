@@ -31,7 +31,6 @@ thiserror = "2.0"
 futures = "0.3"
 futures-util = "0.3"
 tokio = { version = "1.48", features = ["full", "macros", "process", "rt", "rt-multi-thread", "sync", "time"] }
-tokio-stream = { version = "0.1", features = ["net", "sync"] }
 
 # HTTP/networking
 axum = { version = "0.8", features = ["ws"] }

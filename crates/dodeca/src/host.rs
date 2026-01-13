@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use cell_gingembre_proto::ContextId;
 use cell_host_proto::{CommandResult, ServerCommand};
 use dashmap::DashMap;
+use roam::session::ConnectionHandle;
 use tokio::sync::{Mutex, Notify, mpsc};
 
 use crate::template_host::RenderContext;
@@ -21,10 +22,16 @@ use crate::template_host::RenderContext;
 // Host Singleton
 // ============================================================================
 
-static HOST: tokio::sync::OnceCell<Arc<Host>> = tokio::sync::OnceCell::const_new();
-
 /// The unified Host that owns all shared state.
 pub struct Host {
+    // -------------------------------------------------------------------------
+    // Mode & Shutdown
+    // -------------------------------------------------------------------------
+    /// Whether TUI mode is enabled (serve command with terminal).
+    tui_mode: std::sync::atomic::AtomicBool,
+    /// Signaled when Exit command is received.
+    exit_notify: Notify,
+
     // -------------------------------------------------------------------------
     // Render Context Registry (from template_host.rs)
     // -------------------------------------------------------------------------
@@ -42,42 +49,48 @@ pub struct Host {
     command_rx: Mutex<Option<mpsc::UnboundedReceiver<ServerCommand>>>,
 
     // -------------------------------------------------------------------------
-    // Cell Readiness
+    // Cell Connection Handles
     // -------------------------------------------------------------------------
-    /// Cells that have completed the ready handshake.
-    ready_cells: DashMap<String, cell_host_proto::ReadyMsg>,
-    /// Notifier for when cells become ready.
-    ready_notify: Notify,
+    /// Connection handles for spawned cells, keyed by binary name (e.g., "ddc-cell-sass").
+    cell_handles: DashMap<String, ConnectionHandle>,
 }
 
 impl Host {
-    /// Get the global Host singleton.
-    ///
-    /// Panics if `Host::init()` hasn't been called.
+    /// Get the global Host singleton. Lazily initializes on first call.
     pub fn get() -> &'static Arc<Host> {
-        HOST.get()
-            .expect("Host::init() must be called before Host::get()")
-    }
-
-    /// Initialize the Host singleton. Call this once at startup.
-    pub async fn init() -> &'static Arc<Host> {
-        HOST.get_or_init(|| async {
+        static HOST: std::sync::OnceLock<Arc<Host>> = std::sync::OnceLock::new();
+        HOST.get_or_init(|| {
             let (command_tx, command_rx) = mpsc::unbounded_channel();
             Arc::new(Host {
+                tui_mode: std::sync::atomic::AtomicBool::new(false),
+                exit_notify: Notify::new(),
                 render_contexts: DashMap::new(),
                 next_context_id: AtomicU64::new(1),
                 command_tx,
                 command_rx: Mutex::new(Some(command_rx)),
-                ready_cells: DashMap::new(),
-                ready_notify: Notify::new(),
+                cell_handles: DashMap::new(),
             })
         })
-        .await
     }
 
-    /// Check if the Host has been initialized.
-    pub fn is_initialized() -> bool {
-        HOST.get().is_some()
+    /// Enable TUI mode. Call this before initializing cells in serve mode.
+    pub fn enable_tui_mode(&self) {
+        self.tui_mode.store(true, Ordering::SeqCst);
+    }
+
+    /// Check if TUI mode is enabled.
+    pub fn is_tui_mode(&self) -> bool {
+        self.tui_mode.load(Ordering::SeqCst)
+    }
+
+    /// Signal that exit was requested (called when Exit command is received).
+    pub fn signal_exit(&self) {
+        self.exit_notify.notify_waiters();
+    }
+
+    /// Wait for exit to be signaled.
+    pub async fn wait_for_exit(&self) {
+        self.exit_notify.notified().await;
     }
 
     // =========================================================================
@@ -124,28 +137,19 @@ impl Host {
     }
 
     // =========================================================================
-    // Cell Readiness
+    // Cell Handle Management
     // =========================================================================
 
-    /// Record that a cell is ready.
-    pub fn mark_cell_ready(&self, cell_name: String, msg: cell_host_proto::ReadyMsg) {
-        self.ready_cells.insert(cell_name, msg);
-        self.ready_notify.notify_waiters();
+    /// Register a cell's connection handle.
+    ///
+    /// Called by `cells::init_cells_inner()` after spawning cells.
+    pub fn register_cell_handle(&self, binary_name: String, handle: ConnectionHandle) {
+        self.cell_handles.insert(binary_name, handle);
     }
 
-    /// Check if a cell is ready.
-    pub fn is_cell_ready(&self, cell_name: &str) -> bool {
-        self.ready_cells.contains_key(cell_name)
-    }
-
-    /// Wait for a specific cell to be ready.
-    pub async fn wait_for_cell_ready(&self, cell_name: &str) {
-        loop {
-            if self.ready_cells.contains_key(cell_name) {
-                return;
-            }
-            self.ready_notify.notified().await;
-        }
+    /// Get a cell's connection handle by binary name.
+    pub fn get_cell_handle(&self, binary_name: &str) -> Option<ConnectionHandle> {
+        self.cell_handles.get(binary_name).map(|r| r.clone())
     }
 }
 
@@ -224,17 +228,9 @@ impl_cell_client!(cell_tui_proto::TuiDisplayClient, "ddc-cell-tui");
 impl Host {
     /// Get a typed cell client.
     ///
-    /// This looks up the cell by name and returns a client. Currently delegates
-    /// to `cells::get_cell_session()`. In the future, this will handle lazy
-    /// spawning.
+    /// This looks up the cell by binary name and returns a client.
     pub fn client<C: CellClient>(&self) -> Option<C> {
-        let handle = crate::cells::get_cell_session(C::CELL_NAME)?;
+        let handle = self.get_cell_handle(C::CELL_NAME)?;
         Some(C::from_handle(handle))
-    }
-
-    /// Get a typed cell client, panicking if not available.
-    pub fn client_or_panic<C: CellClient>(&self) -> C {
-        self.client::<C>()
-            .unwrap_or_else(|| panic!("Cell {} not available", C::CELL_NAME))
     }
 }

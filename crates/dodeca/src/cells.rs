@@ -91,23 +91,7 @@ pub fn provide_site_server(server: Arc<SiteServer>) {
 
 // Note: TUI command forwarding now goes through Host::get().handle_tui_command()
 // The old TUI_HOST_FOR_INIT global has been removed.
-
-/// Notification sender for when TUI cell exits.
-static TUI_EXIT_TX: OnceLock<tokio::sync::watch::Sender<bool>> = OnceLock::new();
-
-/// Wait for the TUI cell to exit.
-/// Returns immediately if TUI was not spawned.
-pub async fn wait_for_tui_exit() {
-    if let Some(tx) = TUI_EXIT_TX.get() {
-        let mut rx = tx.subscribe();
-        // Wait for the value to become true
-        while !*rx.borrow_and_update() {
-            if rx.changed().await.is_err() {
-                break;
-            }
-        }
-    }
-}
+// Exit signaling now goes through Host::get().signal_exit() / wait_for_exit().
 
 /// Enable quiet mode for spawned cells (call this when TUI is active).
 pub fn set_quiet_mode(quiet: bool) {
@@ -419,13 +403,7 @@ impl HostService for HostServiceImpl {
     // TUI Commands (TUI → Host)
     async fn send_command(&self, command: ServerCommand) -> CommandResult {
         // Forward to Host singleton
-        if crate::host::Host::is_initialized() {
-            crate::host::Host::get().handle_tui_command(command)
-        } else {
-            CommandResult::Error {
-                message: "Host not initialized".to_string(),
-            }
-        }
+        crate::host::Host::get().handle_tui_command(command)
     }
 }
 
@@ -463,8 +441,7 @@ pub fn get_cell_session(name: &str) -> Option<ConnectionHandle> {
 
 /// Get the TUI display client for pushing updates to the TUI cell.
 pub fn get_tui_display_client() -> Option<TuiDisplayClient> {
-    let handle = get_cell_session("ddc-cell-tui")?;
-    Some(TuiDisplayClient::new(handle))
+    crate::host::Host::get().client::<TuiDisplayClient>()
 }
 
 // ============================================================================
@@ -660,8 +637,6 @@ struct CellDef {
     suffix: &'static str,
     /// If true, cell inherits stdio for direct terminal access
     inherit_stdio: bool,
-    /// If true, cell exit triggers process exit. If false, cell exit is normal.
-    fatal_on_exit: bool,
 }
 
 impl CellDef {
@@ -669,17 +644,11 @@ impl CellDef {
         Self {
             suffix,
             inherit_stdio: false,
-            fatal_on_exit: true,
         }
     }
 
     const fn inherit_stdio(mut self) -> Self {
         self.inherit_stdio = true;
-        self
-    }
-
-    const fn non_fatal(mut self) -> Self {
-        self.fatal_on_exit = false;
         self
     }
 }
@@ -704,8 +673,8 @@ const CELL_DEFS: &[CellDef] = &[
     CellDef::new("code-execution"),
     CellDef::new("http"),
     CellDef::new("gingembre"),
-    // TUI needs terminal access and graceful exit (not fatal)
-    CellDef::new("tui").inherit_stdio().non_fatal(),
+    // TUI needs terminal access
+    CellDef::new("tui").inherit_stdio(),
 ];
 
 /// Cell registry providing typed client accessors.
@@ -765,24 +734,20 @@ async fn init_cells_inner() -> eyre::Result<()> {
     // Find cell binary directory
     let cell_dir = find_cell_directory()?;
 
-    // Spawn all cells and collect (peer_id, cell_name) mappings
-    let mut peer_cells: Vec<(PeerId, String, tokio::process::Child)> = Vec::new();
+    // Spawn all cells and collect (peer_id, binary_name, cell_name, child) mappings
+    let mut peer_cells: Vec<(PeerId, String, String, tokio::process::Child)> = Vec::new();
 
-    // Check if Host is initialized - if so, TUI mode is enabled
-    let tui_enabled = crate::host::Host::is_initialized();
-    if tui_enabled {
-        let (tx, _rx) = tokio::sync::watch::channel(false);
-        let _ = TUI_EXIT_TX.set(tx);
-    }
+    // Check if TUI mode is enabled
+    let tui_enabled = crate::host::Host::get().is_tui_mode();
 
     for cell_def in CELL_DEFS {
         let binary_name = format!("ddc-cell-{}", cell_def.suffix);
         let cell_name = cell_def.suffix.replace('-', "_");
         let binary_path = cell_dir.join(&binary_name);
 
-        // Skip TUI cell if Host not initialized (not in TUI mode)
+        // Skip TUI cell if not in TUI mode
         if cell_name == "tui" && !tui_enabled {
-            debug!("Skipping TUI cell (Host not initialized)");
+            debug!("Skipping TUI cell (not in TUI mode)");
             continue;
         }
 
@@ -791,31 +756,17 @@ async fn init_cells_inner() -> eyre::Result<()> {
             continue;
         }
 
-        // Add peer to host
+        // Add peer to host - all cell deaths are fatal
         let cell_name_for_death = cell_name.clone();
-        let fatal_on_exit = cell_def.fatal_on_exit;
         let ticket = host.add_peer(AddPeerOptions {
             peer_name: Some(binary_name.clone()),
-            on_death: if fatal_on_exit {
-                Some(Arc::new(move |peer_id| {
-                    eprintln!(
-                        "FATAL: {} cell died unexpectedly (peer_id={:?})",
-                        cell_name_for_death, peer_id
-                    );
-                    std::process::exit(1);
-                }))
-            } else {
-                // Non-fatal exit - signal via TUI_EXIT_TX if available
-                Some(Arc::new(move |peer_id| {
-                    debug!(
-                        "{} cell exited (peer_id={:?})",
-                        cell_name_for_death, peer_id
-                    );
-                    if let Some(tx) = TUI_EXIT_TX.get() {
-                        let _ = tx.send(true);
-                    }
-                }))
-            },
+            on_death: Some(Arc::new(move |peer_id| {
+                eprintln!(
+                    "FATAL: {} cell died unexpectedly (peer_id={:?})",
+                    cell_name_for_death, peer_id
+                );
+                std::process::exit(1);
+            })),
         })?;
 
         let peer_id = ticket.peer_id;
@@ -855,7 +806,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
             binary_path.display()
         );
 
-        peer_cells.push((peer_id, cell_name, child));
+        peer_cells.push((peer_id, binary_name, cell_name, child));
 
         // Drop ticket after spawn to close our end of the doorbell
         drop(ticket);
@@ -875,7 +826,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
     // Every cell gets the same dispatcher
     let mut builder = MultiPeerHostDriver::new(host);
-    for (peer_id, _cell_name, _) in &peer_cells {
+    for (peer_id, _, _, _) in &peer_cells {
         let dispatcher = HostServiceDispatcher::new(host_service.clone());
         builder = builder.add_peer(*peer_id, dispatcher);
     }
@@ -886,8 +837,8 @@ async fn init_cells_inner() -> eyre::Result<()> {
     let cell_handles = Arc::new(std::sync::RwLock::new(HashMap::new()));
     let name_to_peer = Arc::new(std::sync::RwLock::new(HashMap::new()));
 
-    // Store handles globally
-    for (peer_id, cell_name, _) in &peer_cells {
+    // Store handles globally and register with Host
+    for (peer_id, binary_name, cell_name, _) in &peer_cells {
         if let Some(handle) = handles.get(peer_id) {
             if let Ok(mut map) = cell_handles.write() {
                 map.insert(*peer_id, handle.clone());
@@ -895,6 +846,9 @@ async fn init_cells_inner() -> eyre::Result<()> {
             if let Ok(mut map) = name_to_peer.write() {
                 map.insert(cell_name.clone(), *peer_id);
             }
+
+            // Register with Host for type-safe client access
+            crate::host::Host::get().register_cell_handle(binary_name.clone(), handle.clone());
 
             // Also register for diagnostics
             register_peer_diag(peer_id.get() as u16, cell_name, handle.clone());
@@ -911,7 +865,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
     });
 
     // Spawn child management tasks
-    for (peer_id, cell_name, child) in peer_cells {
+    for (peer_id, _, cell_name, child) in peer_cells {
         let cell_label = cell_name.clone();
         tokio::spawn(async move {
             let mut child = child;
@@ -987,11 +941,13 @@ pub async fn get_hub() -> Option<(Arc<ShmHost>, PathBuf)> {
 // ============================================================================
 
 /// Create a client for the given cell if available.
+///
+/// Uses Host for handle lookup when available, falls back to legacy lookup.
 macro_rules! cell_client_accessor {
-    ($name:ident, $cell_name:expr, $client:ty) => {
+    ($name:ident, $suffix:expr, $client:ty) => {
         pub async fn $name() -> Option<Arc<$client>> {
-            let handle = get_cell_handle_by_name($cell_name)?;
-            Some(Arc::new(<$client>::new(handle)))
+            // Use Host for handle lookup (lazily initializes)
+            crate::host::Host::get().client::<$client>().map(Arc::new)
         }
     };
 }
