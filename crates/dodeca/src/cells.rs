@@ -261,7 +261,7 @@ impl HostCellLifecycle {
 }
 
 impl CellLifecycle for HostCellLifecycle {
-    async fn ready(&self, msg: ReadyMsg) -> Result<ReadyAck, RoamError<Never>> {
+    async fn ready(&self, msg: ReadyMsg) -> ReadyAck {
         let peer_id = msg.peer_id;
         let cell_name = msg.cell_name.clone();
         debug!("Cell {} (peer_id={}) is ready", cell_name, peer_id);
@@ -272,10 +272,10 @@ impl CellLifecycle for HostCellLifecycle {
             .ok()
             .map(|d| d.as_millis() as u64);
 
-        Ok(ReadyAck {
+        ReadyAck {
             ok: true,
             host_time_unix_ms,
-        })
+        }
     }
 }
 
@@ -378,17 +378,11 @@ async fn push_tracing_config_to_cells() {
                 include_span_events: false,
             };
             match client.configure(config).await {
-                Ok(Ok(roam_tracing::ConfigResult::Ok)) => {
+                Ok(roam_tracing::ConfigResult::Ok) => {
                     debug!("Pushed tracing config to {} cell", cell_label);
                 }
-                Ok(Ok(roam_tracing::ConfigResult::InvalidFilter(msg))) => {
+                Ok(roam_tracing::ConfigResult::InvalidFilter(msg)) => {
                     warn!("Invalid tracing filter for {} cell: {}", cell_label, msg);
-                }
-                Ok(Err(e)) => {
-                    warn!(
-                        "RPC error pushing tracing config to {} cell: {:?}",
-                        cell_label, e
-                    );
                 }
                 Err(e) => {
                     warn!(
@@ -502,8 +496,7 @@ pub async fn render_template(
     let result = cell
         .render(context_id, template_name.to_string(), initial_context)
         .await
-        .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?
-        .map_err(|e| eyre::eyre!("RPC service error: {:?}", e))?;
+        .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?;
     Ok(result)
 }
 
@@ -518,8 +511,7 @@ pub async fn eval_template_expression(
     let result = cell
         .eval_expression(context_id, expression.to_string(), context)
         .await
-        .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?
-        .map_err(|e| eyre::eyre!("RPC service error: {:?}", e))?;
+        .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?;
     Ok(result)
 }
 

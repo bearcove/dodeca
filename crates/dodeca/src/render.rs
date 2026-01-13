@@ -12,6 +12,7 @@ use crate::template_host::{RenderContext, RenderContextGuard, render_context_reg
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
 
+use cell_gingembre_proto;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -880,9 +881,9 @@ pub async fn try_render_section_via_cell(
 
     // Render via cell
     match render_template_cell(guard.id(), template_name, initial_context).await {
-        Some(Ok(html)) => Ok(html),
-        Some(Err(e)) => Err(e),
-        None => Err("Gingembre cell unavailable".to_string()),
+        Ok(cell_gingembre_proto::RenderResult::Success { html }) => Ok(html),
+        Ok(cell_gingembre_proto::RenderResult::Error { message }) => Err(message),
+        Err(e) => Err(format!("Gingembre cell error: {}", e)),
     }
 }
 

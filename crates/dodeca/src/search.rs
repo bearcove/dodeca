@@ -40,11 +40,20 @@ pub fn collect_search_pages(output: &SiteOutput) -> Vec<SearchPage> {
 /// This is an async function that should be called from the main runtime
 /// where the cell RPC sessions are running.
 pub async fn build_search_index_async(output: &SiteOutput) -> eyre::Result<SearchFiles> {
+    use cell_pagefind_proto::SearchIndexResult;
+
     let pages = collect_search_pages(output);
 
-    let files = build_search_index_cell(pages)
+    let search_result = build_search_index_cell(cell_pagefind_proto::SearchIndexInput { pages })
         .await
-        .map_err(|e| eyre!("pagefind: {}", e))?;
+        .map_err(|e| eyre!("pagefind cell error: {}", e))?;
+
+    let files = match search_result {
+        SearchIndexResult::Success { output } => output.files,
+        SearchIndexResult::Error { message } => {
+            return Err(eyre!("pagefind: {}", message));
+        }
+    };
 
     // Convert to HashMap
     let mut result = HashMap::new();

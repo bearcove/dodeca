@@ -29,7 +29,7 @@ pub async fn minify_html(html: &str) -> String {
 /// Preserves case sensitivity of SVG attributes.
 pub async fn optimize_svg(svg_content: &str) -> Option<String> {
     match optimize_svg_cell(svg_content.to_string()).await {
-        Ok(SvgoResult::Success { content }) => Some(content),
+        Ok(SvgoResult::Success { svg }) => Some(svg),
         Ok(SvgoResult::Error { message }) => {
             tracing::warn!("SVG optimization failed: {}", message);
             None

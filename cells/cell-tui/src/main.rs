@@ -547,7 +547,7 @@ async fn main() -> Result<()> {
         std::process::exit(if result.is_ok() { 0 } else { 1 });
     });
 
-    driver.run().await.ok();
+    driver.run().await?;
     Ok(())
 }
 

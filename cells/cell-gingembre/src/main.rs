@@ -369,6 +369,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Now initialize the handle cell
     let _ = handle_cell.set(handle);
 
-    driver.run().await.ok();
+    driver.run().await?;
     Ok(())
 }

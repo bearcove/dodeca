@@ -98,6 +98,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = ShmGuestTransport::new(guest);
     let dispatcher = JXLProcessorDispatcher::new(JXLProcessorImpl);
     let (_handle, driver) = establish_guest(transport, dispatcher);
-    driver.run().await.ok();
+    driver.run().await?;
     Ok(())
 }

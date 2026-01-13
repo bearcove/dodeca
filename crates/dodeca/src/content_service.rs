@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use cell_http_proto::{ContentService, ServeContent};
 use dodeca_protocol::{EvalResult, ScopeEntry};
-use roam::session::{Never, RoamError};
 
 use crate::serve::{SiteServer, get_devtools_asset, get_search_file_content};
 
@@ -24,7 +23,7 @@ impl HostContentService {
 }
 
 impl ContentService for HostContentService {
-    async fn find_content(&self, path: String) -> Result<ServeContent, RoamError<Never>> {
+    async fn find_content(&self, path: String) -> ServeContent {
         // Stall until the current revision is fully ready.
         self.server.wait_revision_ready().await;
 
@@ -35,56 +34,48 @@ impl ContentService for HostContentService {
         if path.starts_with("/_/")
             && let Some((content, mime)) = get_devtools_asset(&path)
         {
-            return Ok(ServeContent::StaticNoCache {
+            return ServeContent::StaticNoCache {
                 content,
                 mime: mime.to_string(),
                 generation,
-            });
+            };
         }
 
         // Check search files (pagefind)
         if let Some(content) = get_search_file_content(&self.server.search_files, &path) {
-            return Ok(ServeContent::Search {
+            return ServeContent::Search {
                 content,
                 mime: guess_mime(&path).to_string(),
                 generation,
-            });
+            };
         }
 
         // Check for rule redirects (/@rule.id -> /page/#r-rule.id)
         if let Some(rule_id) = path.strip_prefix("/@") {
             if let Some(location) = self.server.find_rule_redirect(rule_id).await {
-                return Ok(ServeContent::Redirect {
+                return ServeContent::Redirect {
                     location,
                     generation,
-                });
+                };
             }
         }
 
         // Try finding content through the main find_content path
-        Ok(self.server.find_content_for_rpc(&path).await)
+        self.server.find_content_for_rpc(&path).await
     }
 
-    async fn get_scope(
-        &self,
-        route: String,
-        path: Vec<String>,
-    ) -> Result<Vec<ScopeEntry>, RoamError<Never>> {
-        Ok(self.server.get_scope_for_route(&route, &path).await)
+    async fn get_scope(&self, route: String, path: Vec<String>) -> Vec<ScopeEntry> {
+        self.server.get_scope_for_route(&route, &path).await
     }
 
-    async fn eval_expression(
-        &self,
-        route: String,
-        expression: String,
-    ) -> Result<EvalResult, RoamError<Never>> {
+    async fn eval_expression(&self, route: String, expression: String) -> EvalResult {
         match self
             .server
             .eval_expression_for_route(&route, &expression)
             .await
         {
-            Ok(value) => Ok(EvalResult::Ok(value)),
-            Err(msg) => Ok(EvalResult::Err(msg)),
+            Ok(value) => EvalResult::Ok(value),
+            Err(msg) => EvalResult::Err(msg),
         }
     }
 }

@@ -1596,62 +1596,116 @@ pub async fn execute_all_code_samples<DB: Db>(db: &DB) -> PicanteResult<Vec<Code
         let source_path = source.path(db)?.as_str().to_string();
 
         // Extract code samples from this source file
-        if let Some(samples) = extract_code_samples_cell(content.as_str(), &source_path).await
-            && !samples.is_empty()
-        {
+        let extract_result =
+            extract_code_samples_cell(cell_code_execution_proto::ExtractSamplesInput {
+                source_path: source_path.clone(),
+                content: content.as_str().to_string(),
+            })
+            .await;
+
+        let samples = match extract_result {
+            Ok(cell_code_execution_proto::CodeExecutionResult::ExtractSuccess { output }) => {
+                output.samples
+            }
+            Ok(cell_code_execution_proto::CodeExecutionResult::Error { message }) => {
+                tracing::warn!(
+                    "Failed to extract code samples from {}: {}",
+                    source_path,
+                    message
+                );
+                continue;
+            }
+            Ok(_) => continue,
+            Err(e) => {
+                tracing::warn!(
+                    "Cell error extracting code samples from {}: {}",
+                    source_path,
+                    e
+                );
+                continue;
+            }
+        };
+
+        if !samples.is_empty() {
             tracing::debug!("Found {} code samples in {}", samples.len(), source_path);
 
             // Execute the code samples
-            if let Some(execution_results) =
-                execute_code_samples_cell(samples, config.clone()).await
-            {
-                // Convert cell results to our internal format
-                for (sample, result) in execution_results {
-                    // Convert metadata if present
-                    let metadata = result.metadata.map(|m| CodeExecutionMetadata {
-                        rustc_version: m.rustc_version,
-                        cargo_version: m.cargo_version,
-                        target: m.target,
-                        timestamp: m.timestamp,
-                        cache_hit: m.cache_hit,
-                        platform: m.platform,
-                        arch: m.arch,
-                        dependencies: m
-                            .dependencies
-                            .into_iter()
-                            .map(|d| ResolvedDependencyInfo {
-                                name: d.name,
-                                version: d.version,
-                                source: convert_dependency_source(d.source),
-                            })
-                            .collect(),
-                    });
+            let execute_result =
+                execute_code_samples_cell(cell_code_execution_proto::ExecuteSamplesInput {
+                    samples,
+                    config: config.clone(),
+                })
+                .await;
 
-                    let code_result = CodeExecutionResult {
-                        source_path: sample.source_path,
-                        line: sample.line as u32,
-                        language: sample.language,
-                        code: sample.code,
-                        status: match result.status {
-                            cell_code_execution_proto::ExecutionStatus::Success => {
-                                crate::db::CodeExecutionStatus::Success
-                            }
-                            cell_code_execution_proto::ExecutionStatus::Failed => {
-                                crate::db::CodeExecutionStatus::Failed
-                            }
-                            cell_code_execution_proto::ExecutionStatus::Skipped => {
-                                crate::db::CodeExecutionStatus::Skipped
-                            }
-                        },
-                        exit_code: result.exit_code,
-                        stdout: result.stdout,
-                        stderr: result.stderr,
-                        duration_ms: result.duration_ms,
-                        error: result.error,
-                        metadata,
-                    };
-                    all_results.push(code_result);
+            let execution_results = match execute_result {
+                Ok(cell_code_execution_proto::CodeExecutionResult::ExecuteSuccess { output }) => {
+                    output.results
                 }
+                Ok(cell_code_execution_proto::CodeExecutionResult::Error { message }) => {
+                    tracing::warn!(
+                        "Failed to execute code samples from {}: {}",
+                        source_path,
+                        message
+                    );
+                    continue;
+                }
+                Ok(_) => continue,
+                Err(e) => {
+                    tracing::warn!(
+                        "Cell error executing code samples from {}: {}",
+                        source_path,
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            // Convert cell results to our internal format
+            for (sample, result) in execution_results {
+                // Convert metadata if present
+                let metadata = result.metadata.map(|m| CodeExecutionMetadata {
+                    rustc_version: m.rustc_version,
+                    cargo_version: m.cargo_version,
+                    target: m.target,
+                    timestamp: m.timestamp,
+                    cache_hit: m.cache_hit,
+                    platform: m.platform,
+                    arch: m.arch,
+                    dependencies: m
+                        .dependencies
+                        .into_iter()
+                        .map(|d| ResolvedDependencyInfo {
+                            name: d.name,
+                            version: d.version,
+                            source: convert_dependency_source(d.source),
+                        })
+                        .collect(),
+                });
+
+                let code_result = CodeExecutionResult {
+                    source_path: sample.source_path,
+                    line: sample.line as u32,
+                    language: sample.language,
+                    code: sample.code,
+                    status: match result.status {
+                        cell_code_execution_proto::ExecutionStatus::Success => {
+                            crate::db::CodeExecutionStatus::Success
+                        }
+                        cell_code_execution_proto::ExecutionStatus::Failed => {
+                            crate::db::CodeExecutionStatus::Failed
+                        }
+                        cell_code_execution_proto::ExecutionStatus::Skipped => {
+                            crate::db::CodeExecutionStatus::Skipped
+                        }
+                    },
+                    exit_code: result.exit_code,
+                    stdout: result.stdout,
+                    stderr: result.stderr,
+                    duration_ms: result.duration_ms,
+                    error: result.error,
+                    metadata,
+                };
+                all_results.push(code_result);
             }
         }
     }

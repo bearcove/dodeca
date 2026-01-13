@@ -21,7 +21,6 @@ use cell_http_proto::{
     ContentService, ContentServiceDispatcher, TcpTunnelClient, WebSocketTunnel,
     WebSocketTunnelDispatcher,
 };
-use roam::session::{Never, RoamError};
 
 use crate::boot_state::{BootPhase, BootState, BootStateManager};
 use crate::cells::{all, get_cell_handle_by_name};
@@ -66,7 +65,7 @@ impl HostWebSocketTunnel {
 }
 
 impl WebSocketTunnel for HostWebSocketTunnel {
-    async fn open(&self, tunnel: Tunnel) -> Result<(), RoamError<Never>> {
+    async fn open(&self, tunnel: Tunnel) {
         let channel_id = tunnel.tx.channel_id();
         tracing::info!(channel_id, "DevTools WebSocket tunnel opened on host");
 
@@ -86,8 +85,6 @@ impl WebSocketTunnel for HostWebSocketTunnel {
                 }
             }
         });
-
-        Ok(())
     }
 }
 
@@ -434,14 +431,11 @@ pub async fn start_cell_server_with_shutdown(
                 include_span_events: false,
             };
             match tracing_client.configure(config).await {
-                Ok(Ok(roam_tracing::ConfigResult::Ok)) => {
+                Ok(roam_tracing::ConfigResult::Ok) => {
                     tracing::debug!("Pushed tracing config to http cell: {}", filter_str);
                 }
-                Ok(Ok(roam_tracing::ConfigResult::InvalidFilter(msg))) => {
+                Ok(roam_tracing::ConfigResult::InvalidFilter(msg)) => {
                     tracing::warn!("Invalid tracing filter for http cell: {}", msg);
-                }
-                Ok(Err(e)) => {
-                    tracing::warn!("RPC error pushing tracing config to http cell: {:?}", e);
                 }
                 Err(e) => {
                     tracing::warn!("Failed to push tracing config to http cell: {:?}", e);

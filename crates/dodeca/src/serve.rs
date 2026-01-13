@@ -21,6 +21,7 @@ use crate::render::{RenderOptions, inject_livereload_with_build_info};
 use crate::types::Route;
 use std::collections::HashSet;
 
+use cell_html_diff_proto;
 use dodeca_protocol::{ScopeEntry, ScopeValue};
 use facet_value::DestructuredRef;
 
@@ -550,8 +551,15 @@ impl SiteServer {
                     }
 
                     // Try to diff using the cell
-                    match diff_html_cell(&old, &new).await {
-                        Some(diff_result) => {
+                    match diff_html_cell(cell_html_diff_proto::DiffInput {
+                        old_html: old.clone(),
+                        new_html: new.clone(),
+                    })
+                    .await
+                    {
+                        Ok(cell_html_diff_proto::HtmlDiffResult::Success {
+                            result: diff_result,
+                        }) => {
                             if diff_result.patches.is_empty() {
                                 // DOM structure identical but HTML differs (whitespace/comments?)
                                 // This is a no-op - no need to reload for invisible changes
@@ -576,11 +584,21 @@ impl SiteServer {
                                 });
                             }
                         }
-                        None => {
-                            // Cell not available or failed - fall back to full reload
+                        Ok(cell_html_diff_proto::HtmlDiffResult::Error { message }) => {
+                            // Cell returned an error - fall back to full reload
                             tracing::debug!(
-                                "{} - html_diff cell not available, sending full reload",
-                                route
+                                "{} - html_diff cell error: {}, sending full reload",
+                                route,
+                                message
+                            );
+                            let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
+                        }
+                        Err(e) => {
+                            // Cell not available or RPC failed - fall back to full reload
+                            tracing::debug!(
+                                "{} - html_diff cell not available ({}), sending full reload",
+                                route,
+                                e
                             );
                             let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
                         }

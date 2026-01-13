@@ -3131,10 +3131,7 @@ async fn serve_static(
     }
 
     impl ContentService for StaticContentService {
-        async fn find_content(
-            &self,
-            path: String,
-        ) -> Result<ServeContent, roam::session::RoamError<roam::session::Never>> {
+        async fn find_content(&self, path: String) -> ServeContent {
             // Normalize path - remove leading slash
             let path = path.trim_start_matches('/');
 
@@ -3155,27 +3152,27 @@ async fn serve_static(
                             if mime == "text/html" {
                                 match String::from_utf8(content) {
                                     Ok(html) => {
-                                        return Ok(ServeContent::Html {
+                                        return ServeContent::Html {
                                             content: html,
                                             route: format!("/{path}"),
                                             generation: 0,
-                                        });
+                                        };
                                     }
                                     Err(e) => {
                                         // Not valid UTF-8, serve as binary
-                                        return Ok(ServeContent::Static {
+                                        return ServeContent::Static {
                                             content: e.into_bytes(),
                                             mime: mime.to_string(),
                                             generation: 0,
-                                        });
+                                        };
                                     }
                                 }
                             }
-                            return Ok(ServeContent::Static {
+                            return ServeContent::Static {
                                 content,
                                 mime: mime.to_string(),
                                 generation: 0,
-                            });
+                            };
                         }
                         Err(_) => continue,
                     }
@@ -3183,7 +3180,7 @@ async fn serve_static(
             }
 
             // Not found
-            Ok(ServeContent::NotFound {
+            ServeContent::NotFound {
                 html: format!(
                     r#"<!DOCTYPE html>
 <html><head><title>404 Not Found</title></head>
@@ -3191,27 +3188,23 @@ async fn serve_static(
 </html>"#
                 ),
                 generation: 0,
-            })
+            }
         }
 
         async fn get_scope(
             &self,
             _route: String,
             _path: Vec<String>,
-        ) -> Result<Vec<cell_http_proto::ScopeEntry>, roam::session::RoamError<roam::session::Never>>
-        {
-            Ok(vec![]) // No devtools for static mode
+        ) -> Vec<cell_http_proto::ScopeEntry> {
+            vec![] // No devtools for static mode
         }
 
         async fn eval_expression(
             &self,
             _route: String,
             _expression: String,
-        ) -> Result<cell_http_proto::EvalResult, roam::session::RoamError<roam::session::Never>>
-        {
-            Ok(cell_http_proto::EvalResult::Err(
-                "Not supported in static mode".to_string(),
-            ))
+        ) -> cell_http_proto::EvalResult {
+            cell_http_proto::EvalResult::Err("Not supported in static mode".to_string())
         }
     }
 
