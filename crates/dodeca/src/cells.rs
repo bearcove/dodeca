@@ -385,8 +385,12 @@ pub async fn init_and_wait_for_cells() -> eyre::Result<()> {
     let cell_count = crate::host::Host::get().cell_names().len();
 
     if cell_count == 0 {
-        debug!("No cells registered");
-        return Ok(());
+        return Err(eyre::eyre!(
+            "dodeca installation is incomplete.\n\n\
+            The cell binaries (ddc-cell-*) are missing. They should be in the same \
+            directory as the main 'ddc' binary.\n\n\
+            Please reinstall dodeca or download a complete release."
+        ));
     }
 
     debug!("{} cells registered for lazy spawning", cell_count);
@@ -670,15 +674,8 @@ async fn init_cells_inner() -> eyre::Result<()> {
     }
 
     if cell_info.is_empty() {
-        if !missing_binaries.is_empty() {
-            return Err(eyre::eyre!(
-                "Cell binaries not found.\n\n\
-                dodeca requires cell binaries to run. Build them with:\n\n    \
-                cargo build\n\n\
-                Then try again."
-            ));
-        }
-        return Err(eyre::eyre!("No cells found to register"));
+        // Error will be reported by init_and_wait_for_cells with a user-friendly message
+        return Err(eyre::eyre!("No cell binaries found"));
     } else if !missing_binaries.is_empty() {
         // Some cells found, but not all - warn about missing ones
         let names: Vec<_> = missing_binaries.iter().map(|(n, _)| *n).collect();
