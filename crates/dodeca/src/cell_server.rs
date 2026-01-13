@@ -11,7 +11,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
 
 use eyre::Result;
-use roam::session::ConnectionHandle;
 use roam::{Tunnel, tunnel_pair};
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
@@ -19,7 +18,7 @@ use tokio::sync::watch;
 
 use cell_http_proto::{TcpTunnelClient, WebSocketTunnel};
 
-use crate::boot_state::{BootPhase, BootState, BootStateManager};
+use crate::boot_state::BootStateManager;
 use crate::host::Host;
 use crate::serve::SiteServer;
 
@@ -322,7 +321,7 @@ pub async fn start_cell_server_with_shutdown(
 
     // Create boot state manager
     let boot_state = Arc::new(BootStateManager::new());
-    let boot_state_rx = boot_state.subscribe();
+    let _boot_state_rx = boot_state.subscribe();
 
     // Start TCP listeners for browser connections
     let (listeners, bound_port) = if let Some(listener) = pre_bound_listener {

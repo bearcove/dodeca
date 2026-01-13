@@ -19,11 +19,10 @@ use cell_gingembre_proto::ContextId;
 use cell_host_proto::{CommandResult, ServerCommand};
 use dashmap::DashMap;
 use roam::session::ConnectionHandle;
-use roam_shm::SpawnTicket;
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command;
 use tokio::sync::{Mutex, Notify, mpsc};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::template_host::RenderContext;
 
@@ -33,14 +32,12 @@ use crate::template_host::RenderContext;
 
 /// A cell that has been registered but not yet spawned.
 ///
-/// Holds the SpawnTicket which keeps the doorbell fd alive until spawn.
+/// Stores metadata needed to spawn the cell on first access.
 pub struct PendingCell {
     /// Path to the cell binary
     pub binary_path: PathBuf,
     /// Whether the cell inherits stdio (e.g., TUI)
     pub inherit_stdio: bool,
-    /// The spawn ticket from roam-shm (owns the doorbell fd)
-    pub ticket: SpawnTicket,
 }
 
 // ============================================================================
@@ -95,6 +92,13 @@ pub struct Host {
     /// SiteServer for HTTP cell content serving.
     /// Set via `provide_site_server()` before cell initialization.
     site_server: std::sync::OnceLock<Arc<crate::serve::SiteServer>>,
+
+    // -------------------------------------------------------------------------
+    // Driver Handle (for lazy spawning)
+    // -------------------------------------------------------------------------
+    /// MultiPeerHostDriver handle for dynamically creating peers.
+    /// Set during cell initialization via `set_driver_handle()`.
+    driver_handle: std::sync::OnceLock<roam_shm::driver::MultiPeerHostDriverHandle>,
 }
 
 impl Host {
@@ -114,6 +118,7 @@ impl Host {
                 pending_cells: std::sync::Mutex::new(std::collections::HashMap::new()),
                 quiet_mode: std::sync::atomic::AtomicBool::new(false),
                 site_server: std::sync::OnceLock::new(),
+                driver_handle: std::sync::OnceLock::new(),
             })
         })
     }
@@ -240,6 +245,17 @@ impl Host {
         self.site_server.get()
     }
 
+    /// Set the driver handle for dynamic peer creation (lazy spawning).
+    /// This must be called during cell initialization.
+    pub fn set_driver_handle(&self, handle: roam_shm::driver::MultiPeerHostDriverHandle) {
+        let _ = self.driver_handle.set(handle);
+    }
+
+    /// Get the driver handle for creating peers dynamically.
+    pub fn driver_handle(&self) -> Option<&roam_shm::driver::MultiPeerHostDriverHandle> {
+        self.driver_handle.get()
+    }
+
     // =========================================================================
     // Lazy Spawning
     // =========================================================================
@@ -274,7 +290,6 @@ impl Host {
                 debug!(
                     cell = cell_name,
                     binary = %p.binary_path.display(),
-                    peer_id = ?p.ticket.peer_id,
                     "spawn_pending_cell: got pending cell"
                 );
                 p
@@ -381,11 +396,9 @@ impl Host {
             return None;
         }
 
-        // Get the handle (registered at init time)
-        let handle = self.get_cell_handle(C::CELL_NAME)?;
-
         // Fast path: cell is already ready (spawned and reported ready)
         if crate::cells::cell_ready_registry().is_ready(C::CELL_NAME) {
+            let handle = self.get_cell_handle(C::CELL_NAME)?;
             debug!(
                 cell = C::CELL_NAME,
                 "client_async: already ready (fast path)"
@@ -395,8 +408,11 @@ impl Host {
 
         debug!(cell = C::CELL_NAME, "client_async: not ready, spawning");
 
-        // Slow path: need to spawn the cell
+        // Slow path: spawn the cell (creates and registers handle)
         self.spawn_pending_cell(C::CELL_NAME).await?;
+
+        // Get the handle that was just registered during spawn
+        let handle = self.get_cell_handle(C::CELL_NAME)?;
         debug!(
             cell = C::CELL_NAME,
             "client_async: spawn complete, returning client"
@@ -409,16 +425,52 @@ impl Host {
 // Lazy Spawning Helpers
 // ============================================================================
 
-/// Spawn a cell process from a PendingCell.
+/// Spawn a cell process from a PendingCell using dynamic peer creation.
 ///
-/// The handle must already be registered before calling this.
-/// This function spawns the process and sets up child monitoring.
+/// This function:
+/// 1. Creates a peer dynamically (gets fresh SpawnTicket with valid FDs)
+/// 2. Spawns the process with the ticket
+/// 3. Registers the peer with the driver
 async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: bool) {
     let PendingCell {
         binary_path,
         inherit_stdio,
-        ticket,
     } = pending;
+
+    // Get driver handle for dynamic peer creation
+    let driver_handle = match Host::get().driver_handle() {
+        Some(h) => h,
+        None => {
+            error!(
+                cell = cell_name,
+                "No driver handle available for lazy spawning"
+            );
+            return;
+        }
+    };
+
+    // Create peer dynamically - this gives us a fresh SpawnTicket with valid FDs
+    let binary_name = format!("ddc-cell-{}", cell_name);
+    let cell_name_for_death = cell_name.to_string();
+    let ticket = match driver_handle
+        .create_peer(roam_shm::spawn::AddPeerOptions {
+            peer_name: Some(binary_name.clone()),
+            on_death: Some(Arc::new(move |peer_id| {
+                eprintln!(
+                    "FATAL: {} cell died unexpectedly (peer_id={:?})",
+                    cell_name_for_death, peer_id
+                );
+                std::process::exit(1);
+            })),
+        })
+        .await
+    {
+        Ok(t) => t,
+        Err(e) => {
+            error!(cell = cell_name, error = ?e, "Failed to create peer dynamically");
+            return;
+        }
+    };
 
     let peer_id = ticket.peer_id;
     let args = ticket.to_args();
@@ -491,6 +543,35 @@ async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: b
 
     // Drop ticket to close our end of the doorbell
     drop(ticket);
+
+    // Register the peer with the driver
+    debug!(
+        cell = cell_name,
+        ?peer_id,
+        "spawn_cell_process: registering peer with driver"
+    );
+
+    let host_service = crate::cells::HostServiceImpl::new(
+        crate::cells::HostCellLifecycle::new(crate::cells::cell_ready_registry().clone()),
+        crate::template_host::TemplateHostImpl::new(),
+        Host::get().site_server().cloned(),
+    );
+    let dispatcher = cell_host_proto::HostServiceDispatcher::new(host_service);
+
+    match driver_handle.add_peer(peer_id, dispatcher).await {
+        Ok(handle) => {
+            debug!(
+                cell = cell_name,
+                ?peer_id,
+                "spawn_cell_process: peer registered, storing handle"
+            );
+            Host::get().register_cell_handle(cell_name.to_string(), handle);
+        }
+        Err(e) => {
+            error!(cell = cell_name, ?peer_id, error = ?e, "Failed to register peer with driver");
+            return;
+        }
+    }
 
     debug!(
         cell = cell_name,

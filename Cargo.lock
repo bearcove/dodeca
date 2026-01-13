@@ -2856,7 +2856,7 @@ checksum = "6738d2e996274e499bc7b0d693c858b7720b9cd2543a0643a3087e6cb0a4fa16"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2930,7 +2930,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "ur-taking-me-with-you",
+ "ur-taking-me-with-you 0.5.0 (git+https://github.com/bearcove/rapace?branch=main)",
 ]
 
 [[package]]
@@ -2944,7 +2944,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "ur-taking-me-with-you",
+ "ur-taking-me-with-you 0.5.0 (git+https://github.com/bearcove/rapace?branch=main)",
 ]
 
 [[package]]
@@ -3120,7 +3120,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3242,7 +3242,7 @@ dependencies = [
 [[package]]
 name = "facet-error"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#dc160f43d5bc7807d48949d64bf0b6e0d14b7a01"
+source = "git+https://github.com/facet-rs/facet?branch=main#b949e7c48d730e6a469625fb69b8a605c7092229"
 dependencies = [
  "facet",
 ]
@@ -4619,7 +4619,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "ur-taking-me-with-you",
+ "ur-taking-me-with-you 0.5.0 (git+https://github.com/bearcove/rapace?branch=main)",
  "ureq",
 ]
 
@@ -5455,7 +5455,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6725,7 +6725,7 @@ dependencies = [
  "once_cell",
  "socket2 0.5.10",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -7183,7 +7183,7 @@ dependencies = [
 [[package]]
 name = "roam"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#b4486ba750c02893f60990c65c0f08e84e3c85b6"
+source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -7196,7 +7196,7 @@ dependencies = [
 [[package]]
 name = "roam-frame"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#b4486ba750c02893f60990c65c0f08e84e3c85b6"
+source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "bytes",
  "facet",
@@ -7206,7 +7206,7 @@ dependencies = [
 [[package]]
 name = "roam-hash"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#b4486ba750c02893f60990c65c0f08e84e3c85b6"
+source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "blake3",
  "facet-core",
@@ -7217,7 +7217,7 @@ dependencies = [
 [[package]]
 name = "roam-macros-parse"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#b4486ba750c02893f60990c65c0f08e84e3c85b6"
+source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "proc-macro2",
  "unsynn",
@@ -7226,7 +7226,7 @@ dependencies = [
 [[package]]
 name = "roam-schema"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#b4486ba750c02893f60990c65c0f08e84e3c85b6"
+source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "facet",
  "facet-core",
@@ -7235,7 +7235,7 @@ dependencies = [
 [[package]]
 name = "roam-service-macros"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#b4486ba750c02893f60990c65c0f08e84e3c85b6"
+source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "facet-cargo-toml",
  "heck 0.5.0",
@@ -7247,7 +7247,7 @@ dependencies = [
 [[package]]
 name = "roam-session"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#b4486ba750c02893f60990c65c0f08e84e3c85b6"
+source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -7259,7 +7259,7 @@ dependencies = [
 [[package]]
 name = "roam-shm"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#b4486ba750c02893f60990c65c0f08e84e3c85b6"
+source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "facet-postcard",
  "libc",
@@ -7269,12 +7269,13 @@ dependencies = [
  "roam-wire",
  "shm-primitives",
  "tokio",
+ "ur-taking-me-with-you 0.5.0 (git+https://github.com/bearcove/roam?branch=main)",
 ]
 
 [[package]]
 name = "roam-stream"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#b4486ba750c02893f60990c65c0f08e84e3c85b6"
+source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "cobs 0.5.0",
  "ctor",
@@ -7288,7 +7289,7 @@ dependencies = [
 [[package]]
 name = "roam-tracing"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#b4486ba750c02893f60990c65c0f08e84e3c85b6"
+source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "facet",
  "roam",
@@ -7301,7 +7302,7 @@ dependencies = [
 [[package]]
 name = "roam-wire"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#b4486ba750c02893f60990c65c0f08e84e3c85b6"
+source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "cobs 0.3.0",
  "facet",
@@ -7370,7 +7371,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7427,7 +7428,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7783,7 +7784,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shm-primitives"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#b4486ba750c02893f60990c65c0f08e84e3c85b6"
+source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "libc",
  "loom",
@@ -8211,7 +8212,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8836,6 +8837,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ur-taking-me-with-you"
+version = "0.5.0"
+source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "ureq"
 version = "3.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9241,7 +9251,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

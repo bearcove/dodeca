@@ -44,7 +44,7 @@ use facet::Facet;
 use roam::Tunnel;
 use roam::session::{ConnectionHandle, ServiceDispatcher};
 use roam_shm::driver::MultiPeerHostDriver;
-use roam_shm::{AddPeerOptions, PeerId, SegmentConfig, ShmHost};
+use roam_shm::{AddPeerOptions, SegmentConfig, ShmHost};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -55,7 +55,6 @@ use tokio::process::Command;
 use tracing::{debug, info, warn};
 
 use crate::serve::SiteServer;
-use crate::template_host::TemplateHostImpl;
 
 // ============================================================================
 // Global State
@@ -608,10 +607,8 @@ async fn init_cells_inner() -> eyre::Result<()> {
     let cell_dir = find_cell_directory()?;
     debug!(cell_dir = %cell_dir.display(), "init_cells_inner: found cell directory");
 
-    // Collect cell info: (peer_id, cell_name, ticket, binary_path, inherit_stdio)
-    // We add peers first, then build the driver, then store pending cells
-    let mut cell_info: Vec<(PeerId, &'static str, roam_shm::SpawnTicket, PathBuf, bool)> =
-        Vec::new();
+    // Collect cell metadata for lazy spawning (no peer_ids or tickets yet)
+    let mut cell_info: Vec<(&'static str, PathBuf, bool)> = Vec::new();
     let mut missing_binaries: Vec<(&'static str, PathBuf)> = Vec::new();
 
     // Check if TUI mode is enabled
@@ -632,35 +629,13 @@ async fn init_cells_inner() -> eyre::Result<()> {
             continue;
         }
 
-        // Add peer to host - all cell deaths are fatal
-        let cell_name_for_death = cell_name.to_string();
-        let ticket = host.add_peer(AddPeerOptions {
-            peer_name: Some(binary_name.clone()),
-            on_death: Some(Arc::new(move |peer_id| {
-                eprintln!(
-                    "FATAL: {} cell died unexpectedly (peer_id={:?})",
-                    cell_name_for_death, peer_id
-                );
-                std::process::exit(1);
-            })),
-        })?;
-
-        let peer_id = ticket.peer_id;
-
         debug!(
-            "Registered {} cell (peer_id={:?}) for lazy spawn from {}",
+            "Registered {} cell for lazy spawn from {}",
             cell_name,
-            peer_id,
             binary_path.display()
         );
 
-        cell_info.push((
-            peer_id,
-            cell_name,
-            ticket,
-            binary_path,
-            cell_def.inherit_stdio,
-        ));
+        cell_info.push((cell_name, binary_path, cell_def.inherit_stdio));
     }
 
     // If most cells are missing, installation is incomplete
@@ -682,52 +657,26 @@ async fn init_cells_inner() -> eyre::Result<()> {
         warn!("Some cell binaries not found: {:?}", names);
     }
 
-    // Build the unified host service - one service for all cells
-    let host_service = HostServiceImpl::new(
-        HostCellLifecycle::new(cell_ready_registry().clone()),
-        TemplateHostImpl::new(),
-        crate::host::Host::get().site_server().cloned(),
-    );
+    // Build driver with NO peers initially (lazy spawning)
+    let builder = MultiPeerHostDriver::builder(host);
+    let (driver, _handles, driver_handle) = builder.build();
+    debug!("init_cells_inner: driver built with no peers (lazy spawning enabled)");
 
-    // Every cell gets the same dispatcher
-    let mut builder = MultiPeerHostDriver::new(host);
-    for (peer_id, _, _, _, _) in &cell_info {
-        let dispatcher = HostServiceDispatcher::new(host_service.clone());
-        builder = builder.add_peer(*peer_id, dispatcher);
-    }
+    // Store driver handle for dynamic peer creation
+    crate::host::Host::get().set_driver_handle(driver_handle);
 
-    let (driver, handles) = builder.build();
-    debug!(
-        handle_count = handles.len(),
-        "init_cells_inner: driver built, registering handles"
-    );
+    // Store cell metadata as pending cells (will create peers on first access)
+    for (cell_name, binary_path, inherit_stdio) in cell_info {
+        debug!(
+            cell = cell_name,
+            "init_cells_inner: registering pending cell"
+        );
 
-    // Register handles with Host and store pending cells for lazy spawning
-    for (peer_id, cell_name, ticket, binary_path, inherit_stdio) in cell_info {
-        if let Some(handle) = handles.get(&peer_id) {
-            debug!(
-                cell = cell_name,
-                ?peer_id,
-                "init_cells_inner: registering cell handle"
-            );
-
-            // Register the handle (valid even before process is spawned)
-            crate::host::Host::get().register_cell_handle(cell_name.to_string(), handle.clone());
-
-            // Store as pending cell (will be spawned on first access)
-            let pending = PendingCell {
-                binary_path,
-                inherit_stdio,
-                ticket,
-            };
-            crate::host::Host::get().register_pending_cell(cell_name.to_string(), pending);
-        } else {
-            warn!(
-                cell = cell_name,
-                ?peer_id,
-                "init_cells_inner: no handle found for peer!"
-            );
-        }
+        let pending = PendingCell {
+            binary_path,
+            inherit_stdio,
+        };
+        crate::host::Host::get().register_pending_cell(cell_name.to_string(), pending);
     }
 
     debug!("init_cells_inner: spawning driver task");
@@ -1495,7 +1444,7 @@ pub fn spawn_cell_with_dispatcher<D>(
 where
     D: ServiceDispatcher + Send + 'static,
 {
-    use roam_shm::driver::establish_host_peer;
+    use roam_shm::driver::MultiPeerHostDriver;
 
     // Create a separate SHM segment for this cell
     let shm_path =
@@ -1576,8 +1525,11 @@ where
     // Drop ticket to close our end of the doorbell
     drop(ticket);
 
-    // Establish host-side connection with the provided dispatcher
-    let (handle, driver) = establish_host_peer(host, peer_id, dispatcher);
+    // Establish host-side connection with the provided dispatcher using multi-peer builder
+    let builder = MultiPeerHostDriver::builder(host);
+    let builder = builder.add_peer(peer_id, dispatcher);
+    let (driver, mut handles, _driver_handle) = builder.build();
+    let handle = handles.remove(&peer_id).expect("peer handle must exist");
 
     // Spawn driver task
     let cell_label = binary_name.to_string();
