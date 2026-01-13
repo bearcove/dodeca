@@ -15,6 +15,5 @@ path = "src/main.rs"
 [dependencies]
 cell-pagefind-proto = { path = "../cell-pagefind-proto" }
 pagefind.workspace = true
-roam.workspace = true
 roam-shm.workspace = true
 tokio.workspace = true

@@ -19,7 +19,6 @@ path = "src/main.rs"
 
 [dependencies]
 cell-linkcheck-proto = { path = "../cell-linkcheck-proto" }
-roam.workspace = true
 roam-shm.workspace = true
 reqwest.workspace = true
 tokio.workspace = true

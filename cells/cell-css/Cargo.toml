@@ -15,6 +15,5 @@ path = "src/main.rs"
 [dependencies]
 cell-css-proto = { path = "../cell-css-proto" }
 lightningcss.workspace = true
-roam.workspace = true
 roam-shm.workspace = true
 tokio.workspace = true

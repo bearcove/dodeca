@@ -75,7 +75,6 @@ roam-tracing.workspace = true
 rapidhash.workspace = true
 regex.workspace = true
 serde_yaml.workspace = true
-socket2.workspace = true
 strid.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true

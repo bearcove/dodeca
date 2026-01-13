@@ -16,7 +16,6 @@ path = "src/main.rs"
 base64.workspace = true
 cell-image-proto = { path = "../cell-image-proto" }
 image.workspace = true
-roam.workspace = true
 roam-shm.workspace = true
 thumbhash.workspace = true
 tokio.workspace = true

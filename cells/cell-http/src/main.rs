@@ -39,7 +39,7 @@ pub trait RouterContext: Send + Sync + 'static {
     fn handle(&self) -> &ConnectionHandle;
 }
 
-/// Lazy context that wraps OnceLock<ConnectionHandle>
+/// Lazy context that wraps `OnceLock<ConnectionHandle>`
 struct LazyRouterContext {
     handle_cell: Arc<OnceLock<ConnectionHandle>>,
 }

@@ -15,6 +15,5 @@ path = "src/main.rs"
 [dependencies]
 cell-jxl-proto = { path = "../cell-jxl-proto" }
 jpegxl-rs.workspace = true
-roam.workspace = true
 roam-shm.workspace = true
 tokio.workspace = true

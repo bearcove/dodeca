@@ -1658,7 +1658,6 @@ version = "0.6.1"
 dependencies = [
  "cell-code-execution-proto",
  "pulldown-cmark",
- "roam",
  "roam-shm",
  "tempfile",
  "tokio",
@@ -1680,7 +1679,6 @@ version = "0.6.1"
 dependencies = [
  "cell-css-proto",
  "lightningcss",
- "roam",
  "roam-shm",
  "tokio",
 ]
@@ -1698,9 +1696,7 @@ name = "cell-dialoguer"
 version = "0.6.1"
 dependencies = [
  "cell-dialoguer-proto",
- "color-eyre",
  "dialoguer",
- "roam",
  "roam-shm",
  "tokio",
 ]
@@ -1719,7 +1715,6 @@ version = "0.6.1"
 dependencies = [
  "cell-fonts-proto",
  "fontcull",
- "roam",
  "roam-shm",
  "tokio",
 ]
@@ -1780,7 +1775,6 @@ dependencies = [
  "cell-html-diff-proto",
  "dodeca-protocol",
  "html-diff-tests",
- "roam",
  "roam-shm",
  "tokio",
  "tracing",
@@ -1835,7 +1829,6 @@ dependencies = [
  "base64 0.22.1",
  "cell-image-proto",
  "image",
- "roam",
  "roam-shm",
  "thumbhash",
  "tokio",
@@ -1855,7 +1848,6 @@ version = "0.6.1"
 dependencies = [
  "cell-js-proto",
  "oxc",
- "roam",
  "roam-shm",
  "tokio",
 ]
@@ -1874,7 +1866,6 @@ version = "0.6.1"
 dependencies = [
  "cell-jxl-proto",
  "jpegxl-rs",
- "roam",
  "roam-shm",
  "tokio",
 ]
@@ -1901,7 +1892,6 @@ version = "0.6.1"
 dependencies = [
  "cell-linkcheck-proto",
  "reqwest",
- "roam",
  "roam-shm",
  "tokio",
  "tracing",
@@ -1922,7 +1912,6 @@ version = "0.6.1"
 dependencies = [
  "cell-markdown-proto",
  "marq",
- "roam",
  "roam-shm",
  "tokio",
 ]
@@ -1942,7 +1931,6 @@ name = "cell-minify"
 version = "0.6.1"
 dependencies = [
  "cell-minify-proto",
- "roam",
  "roam-shm",
  "tokio",
 ]
@@ -1961,7 +1949,6 @@ version = "0.6.1"
 dependencies = [
  "cell-pagefind-proto",
  "pagefind",
- "roam",
  "roam-shm",
  "tokio",
 ]
@@ -1980,7 +1967,6 @@ version = "0.6.1"
 dependencies = [
  "cell-sass-proto",
  "grass",
- "roam",
  "roam-shm",
  "tokio",
 ]
@@ -1998,7 +1984,6 @@ name = "cell-svgo"
 version = "0.6.1"
 dependencies = [
  "cell-svgo-proto",
- "roam",
  "roam-shm",
  "svag",
  "tokio",
@@ -2019,7 +2004,6 @@ dependencies = [
  "cell-tui-proto",
  "color-eyre",
  "crossterm",
- "futures",
  "open",
  "ratatui",
  "roam",
@@ -2040,7 +2024,6 @@ name = "cell-webp"
 version = "0.6.1"
 dependencies = [
  "cell-webp-proto",
- "roam",
  "roam-shm",
  "tokio",
  "webp",
@@ -3101,7 +3084,6 @@ dependencies = [
  "roam-shm",
  "roam-tracing",
  "serde_yaml 0.9.34+deprecated",
- "socket2 0.6.1",
  "strid",
  "tokio",
  "tokio-stream",

@@ -15,6 +15,5 @@ path = "src/main.rs"
 [dependencies]
 cell-markdown-proto = { path = "../cell-markdown-proto" }
 marq = { git = "https://github.com/bearcove/marq", features = ["aasvg", "highlight", "pikru"] }
-roam.workspace = true
 roam-shm.workspace = true
 tokio.workspace = true
