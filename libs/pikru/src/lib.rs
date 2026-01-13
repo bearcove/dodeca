@@ -18,7 +18,7 @@ pub struct PikchrParser;
 
 /// Render pikchr source to SVG.
 ///
-/// Returns the SVG string on success, or an error with diagnostics.
+/// Returns the SVG string on success, or an error string with diagnostics.
 ///
 /// # Example
 ///
@@ -26,7 +26,7 @@ pub struct PikchrParser;
 /// let svg = pikru::pikchr(r#"box "Hello" arrow box "World""#).unwrap();
 /// assert!(svg.contains("<svg"));
 /// ```
-pub fn pikchr(source: &str) -> Result<String, miette::Report> {
+pub fn pikchr(source: &str) -> Result<String, String> {
     pikchr_with_options(source, &RenderOptions::default())
 }
 
@@ -43,18 +43,26 @@ pub fn pikchr(source: &str) -> Result<String, miette::Report> {
 /// let svg = pikchr_with_options(r#"box "Hello""#, &options).unwrap();
 /// assert!(svg.contains("light-dark("));
 /// ```
-pub fn pikchr_with_options(
-    source: &str,
-    options: &RenderOptions,
-) -> Result<String, miette::Report> {
+pub fn pikchr_with_options(source: &str, options: &RenderOptions) -> Result<String, String> {
+    use errors::PikruError;
+
     // Parse source into AST
-    let program = parse::parse(source)?;
+    let program = parse::parse(source).map_err(|e| {
+        let err: PikruError = e;
+        err.to_report("<input>", source)
+    })?;
 
     // Expand macros
-    let program = macros::expand_macros(program)?;
+    let program = macros::expand_macros(program).map_err(|e| {
+        let err: PikruError = e;
+        err.to_report("<input>", source)
+    })?;
 
     // Render to SVG
-    render::render_with_options(&program, options)
+    render::render_with_options(&program, options).map_err(|e| {
+        let err: PikruError = e;
+        err.to_report("<input>", source)
+    })
 }
 
 #[cfg(test)]

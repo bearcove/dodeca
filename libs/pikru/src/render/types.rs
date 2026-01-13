@@ -1,6 +1,7 @@
 //! Core types for pikchr rendering
 
 use crate::ast::TextAttr;
+use crate::errors::PikruError;
 use crate::types::{BoxIn, EvalValue, Length as Inches, OffsetIn, Point, PtIn, UnitVec};
 
 use super::defaults;
@@ -16,20 +17,28 @@ pub enum Value {
 
 impl Value {
     #[allow(dead_code)]
-    pub fn as_len(self) -> Result<Inches, miette::Report> {
+    pub fn as_len(self) -> Result<Inches, PikruError> {
         match self {
             Value::Len(l) => Ok(l),
-            Value::Scalar(_) => Err(miette::miette!("Expected length value, got scalar")),
-            Value::Color(_) => Err(miette::miette!("Expected length value, got color")),
+            Value::Scalar(_) => Err(PikruError::Generic(
+                "Expected length value, got scalar".to_string(),
+            )),
+            Value::Color(_) => Err(PikruError::Generic(
+                "Expected length value, got color".to_string(),
+            )),
         }
     }
 
     #[allow(dead_code)]
-    pub fn as_scalar(self) -> Result<f64, miette::Report> {
+    pub fn as_scalar(self) -> Result<f64, PikruError> {
         match self {
             Value::Scalar(s) => Ok(s),
-            Value::Len(_) => Err(miette::miette!("Expected scalar value, got length")),
-            Value::Color(_) => Err(miette::miette!("Expected scalar value, got color")),
+            Value::Len(_) => Err(PikruError::Generic(
+                "Expected scalar value, got length".to_string(),
+            )),
+            Value::Color(_) => Err(PikruError::Generic(
+                "Expected scalar value, got color".to_string(),
+            )),
         }
     }
 }
@@ -151,7 +160,7 @@ impl PositionedText {
             scale *= 0.8;
         }
         if self.xtra {
-            scale *= scale;  // Square the scale for double big/small
+            scale *= scale; // Square the scale for double big/small
         }
         scale
     }

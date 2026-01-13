@@ -31,7 +31,7 @@ tracing = ["dep:tracing"]
 # 2D vector math for coordinates and geometry
 glam = "0.29"
 # Error reporting with source snippets and fancy terminal output
-miette = { version = "7.6.0", features = ["fancy"] }
+ariadne = "0.6"
 # PEG parser generator - core of the pikchr language parser
 pest = "2.8.4"
 pest_derive = "2.8.4"
@@ -55,8 +55,6 @@ camino = "1.2.1"
 tracing = "0.1.43"
 # Tracing subscriber for debug output in examples
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
-# Pretty-print parse trees for debugging
-pest_ascii_tree = "0.1.0"
 
 [[test]]
 name = "pikchr_tests"

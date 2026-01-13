@@ -1,6 +1,7 @@
 //! Expression evaluation functions
 
 use crate::ast::*;
+use crate::errors::PikruError;
 use crate::types::{Angle, EvalValue, Length as Inches, OffsetIn, Point};
 
 use super::context::RenderContext;
@@ -74,7 +75,7 @@ fn get_nth_vertex(obj: &RenderedObject, nth: &Nth) -> PointIn {
     }
 }
 
-pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Report> {
+pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, PikruError> {
     match expr {
         Expr::Number(n) => {
             // cref: pik_expr (pikchr.c) - bare numbers are unitless scalars
@@ -82,7 +83,9 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
             // interpreted as inches. But in expressions like "2*dw", the 2 is a scalar
             // multiplier, so Scalar * Length = Length works correctly.
             if !n.is_finite() {
-                return Err(miette::miette!("Invalid numeric literal: not finite"));
+                return Err(PikruError::Generic(
+                    "Invalid numeric literal: not finite".to_string(),
+                ));
             }
             Ok(Value::Scalar(*n))
         }
@@ -99,18 +102,18 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                     .and_then(|s| s.strip_suffix(')'))
                 {
                     let parts: Vec<&str> = rgb.split(',').collect();
-                    if parts.len() == 3 {
-                        if let (Ok(r), Ok(g), Ok(b)) = (
+                    if parts.len() == 3
+                        && let (Ok(r), Ok(g), Ok(b)) = (
                             parts[0].trim().parse::<u32>(),
                             parts[1].trim().parse::<u32>(),
                             parts[2].trim().parse::<u32>(),
-                        ) {
-                            let color_val = (r << 16) | (g << 8) | b;
-                            return Ok(Value::from(EvalValue::Color(color_val)));
-                        }
+                        )
+                    {
+                        let color_val = (r << 16) | (g << 8) | b;
+                        return Ok(Value::from(EvalValue::Color(color_val)));
                     }
                 }
-                Err(miette::miette!("Undefined variable: {}", name))
+                Err(PikruError::Generic(format!("Undefined variable: {}", name)))
             }
         }
         Expr::BuiltinVar(b) => {
@@ -123,7 +126,7 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                 .get(key)
                 .copied()
                 .map(Value::from)
-                .ok_or_else(|| miette::miette!("Undefined builtin: {}", key))
+                .ok_or_else(|| PikruError::Generic(format!("Undefined builtin: {}", key)))
         }
         Expr::BinaryOp(lhs, op, rhs) => {
             let l = eval_expr(ctx, lhs)?;
@@ -140,7 +143,7 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                 (Len(a), Len(b), BinaryOp::Div) => a
                     .checked_div(b)
                     .map(|s| Scalar(s.raw()))
-                    .ok_or_else(|| miette::miette!("Division by zero"))?,
+                    .ok_or_else(|| PikruError::Generic("Division by zero".to_string()))?,
                 // Length + Scalar: treat scalar as length (C compatibility)
                 (Len(a), Scalar(b), BinaryOp::Add) => Len(a + Inches::inches(b)),
                 (Len(a), Scalar(b), BinaryOp::Sub) => Len(a - Inches::inches(b)),
@@ -149,7 +152,7 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                 // Length / Scalar = Length (typed op)
                 (Len(a), Scalar(b), BinaryOp::Div) => {
                     if b == 0.0 {
-                        return Err(miette::miette!("Division by zero"));
+                        return Err(PikruError::Generic("Division by zero".to_string()));
                     }
                     Len(a / b)
                 }
@@ -161,7 +164,7 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                 // Scalar / Length = Scalar (inverse scaling)
                 (Scalar(a), Len(b), BinaryOp::Div) => {
                     if b.raw() == 0.0 {
-                        return Err(miette::miette!("Division by zero"));
+                        return Err(PikruError::Generic("Division by zero".to_string()));
                     }
                     Scalar(a / b.raw())
                 }
@@ -171,13 +174,15 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                 (Scalar(a), Scalar(b), BinaryOp::Mul) => Scalar(a * b),
                 (Scalar(a), Scalar(b), BinaryOp::Div) => {
                     if b == 0.0 {
-                        return Err(miette::miette!("Division by zero"));
+                        return Err(PikruError::Generic("Division by zero".to_string()));
                     }
                     Scalar(a / b)
                 }
                 // Colors can't participate in mathematical operations
                 (Color(_), _, _) | (_, Color(_), _) => {
-                    return Err(miette::miette!("Cannot perform math operations on colors"));
+                    return Err(PikruError::Generic(
+                        "Cannot perform math operations on colors".to_string(),
+                    ));
                 }
             };
             // Validate result is finite (catches overflow to infinity)
@@ -191,7 +196,9 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                 (UnaryOp::Neg, Value::Scalar(s)) => Value::Scalar(-s),
                 (UnaryOp::Pos, Value::Scalar(s)) => Value::Scalar(s),
                 (_, Value::Color(_)) => {
-                    return Err(miette::miette!("Cannot perform unary operations on colors"));
+                    return Err(PikruError::Generic(
+                        "Cannot perform unary operations on colors".to_string(),
+                    ));
                 }
             })
         }
@@ -204,13 +211,21 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                 Function::Abs => match args[0] {
                     Len(l) => Len(l.abs()), // typed abs
                     Scalar(s) => Scalar(s.abs()),
-                    Color(_) => return Err(miette::miette!("Cannot take abs() of a color")),
+                    Color(_) => {
+                        return Err(PikruError::Generic(
+                            "Cannot take abs() of a color".to_string(),
+                        ));
+                    }
                 },
                 Function::Cos => {
                     let v = match args[0] {
                         Len(l) => l.raw(),
                         Scalar(s) => s,
-                        Color(_) => return Err(miette::miette!("Cannot take cos() of a color")),
+                        Color(_) => {
+                            return Err(PikruError::Generic(
+                                "Cannot take cos() of a color".to_string(),
+                            ));
+                        }
                     };
                     Scalar(v.to_radians().cos())
                 }
@@ -218,32 +233,56 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                     let v = match args[0] {
                         Len(l) => l.raw(),
                         Scalar(s) => s,
-                        Color(_) => return Err(miette::miette!("Cannot take sin() of a color")),
+                        Color(_) => {
+                            return Err(PikruError::Generic(
+                                "Cannot take sin() of a color".to_string(),
+                            ));
+                        }
                     };
                     Scalar(v.to_radians().sin())
                 }
                 Function::Int => match args[0] {
                     Len(l) => Len(Inches::inches(l.raw().trunc())),
                     Scalar(s) => Scalar(s.trunc()),
-                    Color(_) => return Err(miette::miette!("Cannot take int() of a color")),
+                    Color(_) => {
+                        return Err(PikruError::Generic(
+                            "Cannot take int() of a color".to_string(),
+                        ));
+                    }
                 },
                 Function::Sqrt => match args[0] {
-                    Len(l) if l.raw() < 0.0 => return Err(miette::miette!("sqrt of negative")),
+                    Len(l) if l.raw() < 0.0 => {
+                        return Err(PikruError::Generic("sqrt of negative".to_string()));
+                    }
                     Len(l) => Len(Inches::inches(l.raw().sqrt())),
-                    Scalar(s) if s < 0.0 => return Err(miette::miette!("sqrt of negative")),
+                    Scalar(s) if s < 0.0 => {
+                        return Err(PikruError::Generic("sqrt of negative".to_string()));
+                    }
                     Scalar(s) => Scalar(s.sqrt()),
-                    Color(_) => return Err(miette::miette!("Cannot take sqrt() of a color")),
+                    Color(_) => {
+                        return Err(PikruError::Generic(
+                            "Cannot take sqrt() of a color".to_string(),
+                        ));
+                    }
                 },
                 Function::Max => {
                     let a = match args[0] {
                         Len(l) => l.raw(),
                         Scalar(s) => s,
-                        Color(_) => return Err(miette::miette!("Cannot take max() of a color")),
+                        Color(_) => {
+                            return Err(PikruError::Generic(
+                                "Cannot take max() of a color".to_string(),
+                            ));
+                        }
                     };
                     let b = match args[1] {
                         Len(l) => l.raw(),
                         Scalar(s) => s,
-                        Color(_) => return Err(miette::miette!("Cannot take max() of a color")),
+                        Color(_) => {
+                            return Err(PikruError::Generic(
+                                "Cannot take max() of a color".to_string(),
+                            ));
+                        }
                     };
                     Scalar(a.max(b))
                 }
@@ -251,12 +290,20 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
                     let a = match args[0] {
                         Len(l) => l.raw(),
                         Scalar(s) => s,
-                        Color(_) => return Err(miette::miette!("Cannot take min() of a color")),
+                        Color(_) => {
+                            return Err(PikruError::Generic(
+                                "Cannot take min() of a color".to_string(),
+                            ));
+                        }
                     };
                     let b = match args[1] {
                         Len(l) => l.raw(),
                         Scalar(s) => s,
-                        Color(_) => return Err(miette::miette!("Cannot take min() of a color")),
+                        Color(_) => {
+                            return Err(PikruError::Generic(
+                                "Cannot take min() of a color".to_string(),
+                            ));
+                        }
                     };
                     Scalar(a.min(b))
                 }
@@ -272,8 +319,9 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
             Ok(Value::Len(dist))
         }
         Expr::ObjectProp(obj, prop) => {
-            let r = resolve_object(ctx, obj)
-                .ok_or_else(|| miette::miette!("Unknown object in property lookup"))?;
+            let r = resolve_object(ctx, obj).ok_or_else(|| {
+                PikruError::Generic("Unknown object in property lookup".to_string())
+            })?;
             let val = match prop {
                 NumProperty::Width => r.width(),
                 NumProperty::Height => r.height(),
@@ -286,15 +334,16 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
         }
         Expr::ObjectCoord(obj, coord) => {
             let r = resolve_object(ctx, obj)
-                .ok_or_else(|| miette::miette!("Unknown object in coord lookup"))?;
+                .ok_or_else(|| PikruError::Generic("Unknown object in coord lookup".to_string()))?;
             Ok(Value::Len(match coord {
                 Coord::X => r.center().x,
                 Coord::Y => r.center().y,
             }))
         }
         Expr::ObjectEdgeCoord(obj, edge, coord) => {
-            let r = resolve_object(ctx, obj)
-                .ok_or_else(|| miette::miette!("Unknown object in edge coord lookup"))?;
+            let r = resolve_object(ctx, obj).ok_or_else(|| {
+                PikruError::Generic("Unknown object in edge coord lookup".to_string())
+            })?;
             let pt = get_edge_point(r, edge);
             Ok(Value::Len(match coord {
                 Coord::X => pt.x,
@@ -302,38 +351,43 @@ pub fn eval_expr(ctx: &RenderContext, expr: &Expr) -> Result<Value, miette::Repo
             }))
         }
         Expr::VertexCoord(nth, obj, coord) => {
-            let r = resolve_object(ctx, obj)
-                .ok_or_else(|| miette::miette!("Unknown object in vertex coord lookup"))?;
+            let r = resolve_object(ctx, obj).ok_or_else(|| {
+                PikruError::Generic("Unknown object in vertex coord lookup".to_string())
+            })?;
             let target = get_nth_vertex(r, nth);
             Ok(Value::Len(match coord {
                 Coord::X => target.x,
                 Coord::Y => target.y,
             }))
         }
-        Expr::PlaceName(name) => Err(miette::miette!(
+        Expr::PlaceName(name) => Err(PikruError::Generic(format!(
             "Unsupported place name in expression: {}",
             name
+        ))),
+    }
+}
+
+pub fn eval_len(ctx: &RenderContext, expr: &Expr) -> Result<Inches, PikruError> {
+    match eval_expr(ctx, expr)? {
+        Value::Len(l) => Ok(l),
+        Value::Scalar(s) => Ok(Inches(s)), // treat scalar as inches for len contexts
+        Value::Color(_) => Err(PikruError::Generic(
+            "Cannot use a color as a length".to_string(),
         )),
     }
 }
 
-pub fn eval_len(ctx: &RenderContext, expr: &Expr) -> Result<Inches, miette::Report> {
-    match eval_expr(ctx, expr)? {
-        Value::Len(l) => Ok(l),
-        Value::Scalar(s) => Ok(Inches(s)), // treat scalar as inches for len contexts
-        Value::Color(_) => Err(miette::miette!("Cannot use a color as a length")),
-    }
-}
-
-pub fn eval_scalar(ctx: &RenderContext, expr: &Expr) -> Result<f64, miette::Report> {
+pub fn eval_scalar(ctx: &RenderContext, expr: &Expr) -> Result<f64, PikruError> {
     match eval_expr(ctx, expr)? {
         Value::Scalar(s) => Ok(s),
         Value::Len(l) => Ok(l.0),
-        Value::Color(_) => Err(miette::miette!("Cannot use a color as a scalar")),
+        Value::Color(_) => Err(PikruError::Generic(
+            "Cannot use a color as a scalar".to_string(),
+        )),
     }
 }
 
-pub fn eval_rvalue(ctx: &RenderContext, rvalue: &RValue) -> Result<EvalValue, miette::Report> {
+pub fn eval_rvalue(ctx: &RenderContext, rvalue: &RValue) -> Result<EvalValue, PikruError> {
     match rvalue {
         RValue::Expr(e) => {
             crate::log::debug!("eval_rvalue: RValue::Expr({:?})", e);
@@ -353,16 +407,16 @@ pub fn eval_rvalue(ctx: &RenderContext, rvalue: &RValue) -> Result<EvalValue, mi
                 .and_then(|s| s.strip_suffix(')'))
             {
                 let parts: Vec<&str> = rgb.split(',').collect();
-                if parts.len() == 3 {
-                    if let (Ok(r), Ok(g), Ok(b)) = (
+                if parts.len() == 3
+                    && let (Ok(r), Ok(g), Ok(b)) = (
                         parts[0].trim().parse::<u32>(),
                         parts[1].trim().parse::<u32>(),
                         parts[2].trim().parse::<u32>(),
-                    ) {
-                        let color_val = (r << 16) | (g << 8) | b;
-                        crate::log::debug!("eval_rvalue: returning Color({})", color_val);
-                        return Ok(EvalValue::Color(color_val));
-                    }
+                    )
+                {
+                    let color_val = (r << 16) | (g << 8) | b;
+                    crate::log::debug!("eval_rvalue: returning Color({})", color_val);
+                    return Ok(EvalValue::Color(color_val));
                 }
             }
             crate::log::debug!("eval_rvalue: failed to parse color, returning Scalar(0.0)");
@@ -371,7 +425,7 @@ pub fn eval_rvalue(ctx: &RenderContext, rvalue: &RValue) -> Result<EvalValue, mi
     }
 }
 
-pub fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, miette::Report> {
+pub fn eval_position(ctx: &RenderContext, pos: &Position) -> Result<PointIn, PikruError> {
     match pos {
         Position::Coords(x, y) => {
             let px = eval_len(ctx, x)?;
@@ -506,15 +560,15 @@ fn endpoint_object_from_place(ctx: &RenderContext, place: &Place) -> Option<Endp
             // C pikchr does NOT trigger implicit autochop (both endpoints present).
             // However, explicit `chop` attribute DOES work for dotted names.
             // We mark dotted names so the autochop logic can differentiate.
-            if let Object::Named(name) = obj {
-                if !name.path.is_empty() {
-                    // Object is inside a sublist (e.g., Ptr.A) - mark as dotted name
-                    crate::log::debug!(
-                        ?name,
-                        "endpoint_object_from_place: dotted name (explicit chop works, implicit autochop disabled)"
-                    );
-                    return resolve_object(ctx, obj).map(EndpointObject::from_rendered_dotted);
-                }
+            if let Object::Named(name) = obj
+                && !name.path.is_empty()
+            {
+                // Object is inside a sublist (e.g., Ptr.A) - mark as dotted name
+                crate::log::debug!(
+                    ?name,
+                    "endpoint_object_from_place: dotted name (explicit chop works, implicit autochop disabled)"
+                );
+                return resolve_object(ctx, obj).map(EndpointObject::from_rendered_dotted);
             }
             resolve_object(ctx, obj).map(EndpointObject::from_rendered)
         }
@@ -524,25 +578,24 @@ fn endpoint_object_from_place(ctx: &RenderContext, place: &Place) -> Option<Endp
     }
 }
 
-fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, miette::Report> {
+fn eval_place(ctx: &RenderContext, place: &Place) -> Result<PointIn, PikruError> {
     match place {
         Place::Object(obj) => {
             if let Some(rendered) = resolve_object(ctx, obj) {
                 Ok(rendered.center())
             } else {
                 // Check if it's a named position (e.g., `OUT: 6.3in right of previous.e`)
-                if let Object::Named(name) = obj {
-                    if let ObjectNameBase::PlaceName(n) = &name.base {
-                        if let Some(pos) = ctx.get_named_position(n) {
-                            crate::log::debug!(
-                                name = %n,
-                                x = pos.x.raw(),
-                                y = pos.y.raw(),
-                                "eval_place: found named position"
-                            );
-                            return Ok(pos);
-                        }
-                    }
+                if let Object::Named(name) = obj
+                    && let ObjectNameBase::PlaceName(n) = &name.base
+                    && let Some(pos) = ctx.get_named_position(n)
+                {
+                    crate::log::debug!(
+                        name = %n,
+                        x = pos.x.raw(),
+                        y = pos.y.raw(),
+                        "eval_place: found named position"
+                    );
+                    return Ok(pos);
                 }
                 Ok(ctx.position)
             }
@@ -806,13 +859,13 @@ pub fn get_scalar(ctx: &RenderContext, name: &str, default: f64) -> f64 {
 }
 
 /// Validate that a Value is finite (not NaN or infinity from overflow)
-fn validate_value(v: Value) -> Result<Value, miette::Report> {
+fn validate_value(v: Value) -> Result<Value, PikruError> {
     match v {
-        Value::Len(l) if !l.is_finite() => Err(miette::miette!(
-            "Arithmetic overflow (result is infinite or NaN)"
+        Value::Len(l) if !l.is_finite() => Err(PikruError::Generic(
+            "Arithmetic overflow (result is infinite or NaN)".to_string(),
         )),
-        Value::Scalar(s) if !s.is_finite() => Err(miette::miette!(
-            "Arithmetic overflow (result is infinite or NaN)"
+        Value::Scalar(s) if !s.is_finite() => Err(PikruError::Generic(
+            "Arithmetic overflow (result is infinite or NaN)".to_string(),
         )),
         _ => Ok(v),
     }

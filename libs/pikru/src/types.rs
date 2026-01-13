@@ -9,7 +9,6 @@ use std::fmt;
 use std::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
 
 use glam::DVec2;
-use miette::SourceSpan;
 
 // ==================== Source Tracking ====================
 
@@ -60,9 +59,9 @@ impl Span {
     }
 }
 
-impl From<Span> for SourceSpan {
+impl From<Span> for std::ops::Range<usize> {
     fn from(s: Span) -> Self {
-        SourceSpan::new(s.start.into(), s.len())
+        s.start..s.end
     }
 }
 

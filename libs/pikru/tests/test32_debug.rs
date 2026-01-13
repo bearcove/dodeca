@@ -77,10 +77,10 @@ fn extract_style_prop(line: &str, prop: &str) -> Option<String> {
     }
 
     // Also try fill="X" attribute format
-    if prop == "fill" {
-        if let Some(fill) = extract_attr(line, "fill") {
-            return Some(fill);
-        }
+    if prop == "fill"
+        && let Some(fill) = extract_attr(line, "fill")
+    {
+        return Some(fill);
     }
 
     None

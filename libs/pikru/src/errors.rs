@@ -1,8 +1,8 @@
-//! Error types with rich diagnostics using miette
+//! Error types with rich diagnostics using ariadne
 //!
 //! These errors carry source spans for beautiful error messages.
 
-use miette::{Diagnostic, NamedSource, SourceSpan};
+use crate::types::Span;
 use thiserror::Error;
 
 /// Source context for error reporting
@@ -22,11 +22,6 @@ impl SourceContext {
             source: source.into(),
         }
     }
-
-    /// Create a NamedSource for miette
-    pub fn named_source(&self) -> NamedSource<String> {
-        NamedSource::new(&self.name, self.source.clone())
-    }
 }
 
 // ============================================================================
@@ -34,46 +29,19 @@ impl SourceContext {
 // ============================================================================
 
 /// Errors that occur during parsing
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Debug)]
 pub enum ParseError {
-    #[error("unexpected token")]
-    #[diagnostic(code(pikru::parse::unexpected_token))]
-    UnexpectedToken {
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("found this")]
-        span: SourceSpan,
-        expected: String,
-    },
+    #[error("unexpected token: expected {expected}")]
+    UnexpectedToken { span: Span, expected: String },
 
     #[error("unterminated string")]
-    #[diagnostic(code(pikru::parse::unterminated_string))]
-    UnterminatedString {
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("string starts here")]
-        span: SourceSpan,
-    },
+    UnterminatedString { span: Span },
 
     #[error("invalid number: {message}")]
-    #[diagnostic(code(pikru::parse::invalid_number))]
-    InvalidNumber {
-        message: String,
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("invalid number")]
-        span: SourceSpan,
-    },
+    InvalidNumber { message: String, span: Span },
 
     #[error("unknown keyword: {keyword}")]
-    #[diagnostic(code(pikru::parse::unknown_keyword))]
-    UnknownKeyword {
-        keyword: String,
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("unknown keyword")]
-        span: SourceSpan,
-    },
+    UnknownKeyword { keyword: String, span: Span },
 }
 
 // ============================================================================
@@ -81,118 +49,53 @@ pub enum ParseError {
 // ============================================================================
 
 /// Errors that occur during expression evaluation
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Debug)]
 pub enum EvalError {
     #[error("undefined variable: {name}")]
-    #[diagnostic(code(pikru::eval::undefined_variable))]
     UndefinedVariable {
         name: String,
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("not defined")]
-        span: SourceSpan,
-        #[help]
+        span: Span,
         suggestion: Option<String>,
     },
 
     #[error("unknown object: {name}")]
-    #[diagnostic(code(pikru::eval::unknown_object))]
     UnknownObject {
         name: String,
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("not found")]
-        span: SourceSpan,
-        #[help]
+        span: Span,
         suggestion: Option<String>,
     },
 
     #[error("cannot add two positions")]
-    #[diagnostic(
-        code(pikru::eval::cannot_add_positions),
-        help("use `pos - pos` to get displacement, or `pos + offset` to translate")
-    )]
-    CannotAddPositions {
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("this is a position")]
-        lhs: SourceSpan,
-        #[label("this is also a position")]
-        rhs: SourceSpan,
-    },
+    CannotAddPositions { lhs: Span, rhs: Span },
 
     #[error("type mismatch: expected {expected}, got {got}")]
-    #[diagnostic(code(pikru::eval::type_mismatch))]
     TypeMismatch {
         expected: &'static str,
         got: &'static str,
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("this expression has type {got}")]
-        span: SourceSpan,
+        span: Span,
     },
 
     #[error("division by zero")]
-    #[diagnostic(code(pikru::eval::division_by_zero))]
-    DivisionByZero {
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("divisor is zero")]
-        span: SourceSpan,
-    },
+    DivisionByZero { span: Span },
 
     #[error("sqrt of negative number")]
-    #[diagnostic(code(pikru::eval::sqrt_negative))]
-    SqrtNegative {
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("this value is negative")]
-        span: SourceSpan,
-    },
+    SqrtNegative { span: Span },
 
-    #[error("ordinal out of range: {ordinal}")]
-    #[diagnostic(
-        code(pikru::eval::ordinal_out_of_range),
-        help("only {count} objects of this type exist")
-    )]
+    #[error("ordinal out of range: {ordinal} (only {count} objects exist)")]
     OrdinalOutOfRange {
         ordinal: u32,
         count: usize,
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("no such object")]
-        span: SourceSpan,
+        span: Span,
     },
 
-    #[error("invalid numeric value")]
-    #[diagnostic(code(pikru::eval::invalid_numeric))]
-    InvalidNumeric {
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("this value is NaN or infinite")]
-        span: SourceSpan,
-    },
+    #[error("invalid numeric value (NaN or infinite)")]
+    InvalidNumeric { span: Span },
 
     #[error("no previous object")]
-    #[diagnostic(
-        code(pikru::eval::no_previous),
-        help("create at least one object before using 'previous'")
-    )]
-    NoPrevious {
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("no previous object exists")]
-        span: SourceSpan,
-    },
+    NoPrevious { span: Span },
 
     #[error("cannot reference 'this' outside object definition")]
-    #[diagnostic(code(pikru::eval::no_this))]
-    NoThis {
-        #[source_code]
-        src: NamedSource<String>,
-        #[label("'this' not available here")]
-        span: SourceSpan,
-    },
+    NoThis { span: Span },
 }
 
 // ============================================================================
@@ -200,18 +103,15 @@ pub enum EvalError {
 // ============================================================================
 
 /// Errors that occur during rendering
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Debug)]
 pub enum RenderError {
     #[error("invalid scale: {value}")]
-    #[diagnostic(code(pikru::render::invalid_scale))]
     InvalidScale { value: f64 },
 
     #[error("empty diagram")]
-    #[diagnostic(code(pikru::render::empty_diagram))]
     EmptyDiagram,
 
     #[error("infinite or NaN in bounds")]
-    #[diagnostic(code(pikru::render::invalid_bounds))]
     InvalidBounds,
 }
 
@@ -220,26 +120,260 @@ pub enum RenderError {
 // ============================================================================
 
 /// Errors from the `error` statement in pikchr
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Debug)]
 #[error("{message}")]
-#[diagnostic(code(pikru::user_error))]
 pub struct UserError {
     pub message: String,
-    #[source_code]
-    pub src: NamedSource<String>,
-    #[label("error raised here")]
-    pub span: SourceSpan,
+    pub span: Span,
 }
 
 /// Assertion failure from the `assert` statement
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Debug)]
 #[error("assertion failed")]
-#[diagnostic(code(pikru::assertion_failed))]
 pub struct AssertionError {
-    #[source_code]
-    pub src: NamedSource<String>,
-    #[label("assertion failed here")]
-    pub span: SourceSpan,
-    #[help]
+    pub span: Span,
     pub details: Option<String>,
+}
+
+// ============================================================================
+// Unified Error Type
+// ============================================================================
+
+/// Main error type for pikru operations
+#[derive(Error, Debug)]
+pub enum PikruError {
+    #[error(transparent)]
+    Parse(#[from] ParseError),
+
+    #[error(transparent)]
+    Eval(#[from] EvalError),
+
+    #[error(transparent)]
+    Render(#[from] RenderError),
+
+    #[error(transparent)]
+    User(#[from] UserError),
+
+    #[error(transparent)]
+    Assertion(#[from] AssertionError),
+
+    #[error("{0}")]
+    Generic(String),
+}
+
+impl PikruError {
+    /// Convert the error to an ariadne report
+    pub fn to_report(&self, source_name: &str, source: &str) -> String {
+        use ariadne::{Color, Label, Report, ReportKind, Source};
+        use std::ops::Range;
+
+        // Helper to convert Span to Range<usize> with source ID
+        let to_range =
+            |span: &Span| -> (&str, Range<usize>) { (source_name, span.start..span.end) };
+
+        let mut output = Vec::new();
+
+        let report = match self {
+            PikruError::Parse(e) => match e {
+                ParseError::UnexpectedToken { span, expected } => {
+                    Report::build(ReportKind::Error, to_range(span))
+                        .with_message("unexpected token".to_string())
+                        .with_label(
+                            Label::new(to_range(span))
+                                .with_message(format!("expected {}", expected))
+                                .with_color(Color::Red),
+                        )
+                        .finish()
+                }
+                ParseError::UnterminatedString { span } => {
+                    Report::build(ReportKind::Error, to_range(span))
+                        .with_message("unterminated string")
+                        .with_label(
+                            Label::new(to_range(span))
+                                .with_message("string starts here")
+                                .with_color(Color::Red),
+                        )
+                        .finish()
+                }
+                ParseError::InvalidNumber { message, span } => {
+                    Report::build(ReportKind::Error, to_range(span))
+                        .with_message(format!("invalid number: {}", message))
+                        .with_label(
+                            Label::new(to_range(span))
+                                .with_message("invalid number")
+                                .with_color(Color::Red),
+                        )
+                        .finish()
+                }
+                ParseError::UnknownKeyword { keyword, span } => {
+                    Report::build(ReportKind::Error, to_range(span))
+                        .with_message(format!("unknown keyword: {}", keyword))
+                        .with_label(
+                            Label::new(to_range(span))
+                                .with_message("unknown keyword")
+                                .with_color(Color::Red),
+                        )
+                        .finish()
+                }
+            },
+            PikruError::Eval(e) => match e {
+                EvalError::UndefinedVariable {
+                    name,
+                    span,
+                    suggestion,
+                } => {
+                    let mut report = Report::build(ReportKind::Error, to_range(span))
+                        .with_message(format!("undefined variable: {}", name))
+                        .with_label(
+                            Label::new(to_range(span))
+                                .with_message("not defined")
+                                .with_color(Color::Red),
+                        );
+                    if let Some(sugg) = suggestion {
+                        report = report.with_help(sugg.clone());
+                    }
+                    report.finish()
+                }
+                EvalError::UnknownObject {
+                    name,
+                    span,
+                    suggestion,
+                } => {
+                    let mut report = Report::build(ReportKind::Error, to_range(span))
+                        .with_message(format!("unknown object: {}", name))
+                        .with_label(
+                            Label::new(to_range(span))
+                                .with_message("not found")
+                                .with_color(Color::Red),
+                        );
+                    if let Some(sugg) = suggestion {
+                        report = report.with_help(sugg.clone());
+                    }
+                    report.finish()
+                }
+                EvalError::CannotAddPositions { lhs, rhs } => {
+                    Report::build(ReportKind::Error, to_range(lhs))
+                        .with_message("cannot add two positions")
+                        .with_label(
+                            Label::new(to_range(lhs))
+                                .with_message("this is a position")
+                                .with_color(Color::Red),
+                        )
+                        .with_label(
+                            Label::new(to_range(rhs))
+                                .with_message("this is also a position")
+                                .with_color(Color::Red),
+                        )
+                        .with_help(
+                            "use `pos - pos` to get displacement, or `pos + offset` to translate",
+                        )
+                        .finish()
+                }
+                EvalError::TypeMismatch {
+                    expected,
+                    got,
+                    span,
+                } => Report::build(ReportKind::Error, to_range(span))
+                    .with_message(format!("type mismatch: expected {}, got {}", expected, got))
+                    .with_label(
+                        Label::new(to_range(span))
+                            .with_message(format!("this expression has type {}", got))
+                            .with_color(Color::Red),
+                    )
+                    .finish(),
+                EvalError::DivisionByZero { span } => {
+                    Report::build(ReportKind::Error, to_range(span))
+                        .with_message("division by zero")
+                        .with_label(
+                            Label::new(to_range(span))
+                                .with_message("divisor is zero")
+                                .with_color(Color::Red),
+                        )
+                        .finish()
+                }
+                EvalError::SqrtNegative { span } => {
+                    Report::build(ReportKind::Error, to_range(span))
+                        .with_message("sqrt of negative number")
+                        .with_label(
+                            Label::new(to_range(span))
+                                .with_message("this value is negative")
+                                .with_color(Color::Red),
+                        )
+                        .finish()
+                }
+                EvalError::OrdinalOutOfRange {
+                    ordinal,
+                    count,
+                    span,
+                } => Report::build(ReportKind::Error, to_range(span))
+                    .with_message(format!("ordinal out of range: {}", ordinal))
+                    .with_label(
+                        Label::new(to_range(span))
+                            .with_message("no such object")
+                            .with_color(Color::Red),
+                    )
+                    .with_help(format!("only {} objects of this type exist", count))
+                    .finish(),
+                EvalError::InvalidNumeric { span } => {
+                    Report::build(ReportKind::Error, to_range(span))
+                        .with_message("invalid numeric value")
+                        .with_label(
+                            Label::new(to_range(span))
+                                .with_message("this value is NaN or infinite")
+                                .with_color(Color::Red),
+                        )
+                        .finish()
+                }
+                EvalError::NoPrevious { span } => Report::build(ReportKind::Error, to_range(span))
+                    .with_message("no previous object")
+                    .with_label(
+                        Label::new(to_range(span))
+                            .with_message("no previous object exists")
+                            .with_color(Color::Red),
+                    )
+                    .with_help("create at least one object before using 'previous'")
+                    .finish(),
+                EvalError::NoThis { span } => Report::build(ReportKind::Error, to_range(span))
+                    .with_message("cannot reference 'this' outside object definition")
+                    .with_label(
+                        Label::new(to_range(span))
+                            .with_message("'this' not available here")
+                            .with_color(Color::Red),
+                    )
+                    .finish(),
+            },
+            PikruError::Render(e) => Report::build(ReportKind::Error, (source_name, 0..0))
+                .with_message(e.to_string())
+                .finish(),
+            PikruError::User(e) => Report::build(ReportKind::Error, to_range(&e.span))
+                .with_message(&e.message)
+                .with_label(
+                    Label::new(to_range(&e.span))
+                        .with_message("error raised here")
+                        .with_color(Color::Red),
+                )
+                .finish(),
+            PikruError::Assertion(e) => {
+                let mut report = Report::build(ReportKind::Error, to_range(&e.span))
+                    .with_message("assertion failed")
+                    .with_label(
+                        Label::new(to_range(&e.span))
+                            .with_message("assertion failed here")
+                            .with_color(Color::Red),
+                    );
+                if let Some(details) = &e.details {
+                    report = report.with_help(details.clone());
+                }
+                report.finish()
+            }
+            PikruError::Generic(msg) => Report::build(ReportKind::Error, (source_name, 0..0))
+                .with_message(msg)
+                .finish(),
+        };
+
+        report
+            .write((source_name, Source::from(source)), &mut output)
+            .unwrap();
+        String::from_utf8(output).unwrap()
+    }
 }

@@ -1,14 +1,15 @@
 //! Parse pest pairs into AST nodes
 
 use crate::ast::*;
+use crate::errors::PikruError;
 use crate::{PikchrParser, Rule};
 use pest::Parser;
 use pest::iterators::Pair;
 
 /// Parse pikchr source into AST
-pub fn parse(source: &str) -> Result<Program, miette::Report> {
+pub fn parse(source: &str) -> Result<Program, PikruError> {
     let pairs = PikchrParser::parse(Rule::program, source)
-        .map_err(|e| miette::miette!("Parse error: {}", e))?;
+        .map_err(|e| PikruError::Generic(format!("Parse error: {}", e)))?;
 
     let mut statements = Vec::new();
     for pair in pairs {
@@ -24,7 +25,7 @@ pub fn parse(source: &str) -> Result<Program, miette::Report> {
     Ok(Program { statements })
 }
 
-fn parse_statement_list(pair: Pair<Rule>) -> Result<Vec<Statement>, miette::Report> {
+fn parse_statement_list(pair: Pair<Rule>) -> Result<Vec<Statement>, PikruError> {
     let mut statements = Vec::new();
     for inner in pair.into_inner() {
         if inner.as_rule() == Rule::statement {
@@ -34,7 +35,7 @@ fn parse_statement_list(pair: Pair<Rule>) -> Result<Vec<Statement>, miette::Repo
     Ok(statements)
 }
 
-fn parse_statement(pair: Pair<Rule>) -> Result<Statement, miette::Report> {
+fn parse_statement(pair: Pair<Rule>) -> Result<Statement, PikruError> {
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::labeled_statement => Ok(Statement::Labeled(parse_labeled_statement(inner)?)),
@@ -46,25 +47,25 @@ fn parse_statement(pair: Pair<Rule>) -> Result<Statement, miette::Report> {
         Rule::print_stmt => Ok(Statement::Print(parse_print(inner)?)),
         Rule::error_stmt => Ok(Statement::Error(parse_error_stmt(inner)?)),
         Rule::object_stmt => Ok(Statement::Object(parse_object_stmt(inner)?)),
-        _ => Err(miette::miette!(
+        _ => Err(PikruError::Generic(format!(
             "Unexpected rule in statement: {:?}",
             inner.as_rule()
-        )),
+        ))),
     }
 }
 
-fn parse_direction(pair: Pair<Rule>) -> Result<Direction, miette::Report> {
+fn parse_direction(pair: Pair<Rule>) -> Result<Direction, PikruError> {
     let s = pair.as_str().trim();
     match s {
         "up" => Ok(Direction::Up),
         "down" => Ok(Direction::Down),
         "left" => Ok(Direction::Left),
         "right" => Ok(Direction::Right),
-        _ => Err(miette::miette!("Invalid direction: {}", s)),
+        _ => Err(PikruError::Generic(format!("Invalid direction: {}", s))),
     }
 }
 
-fn parse_assignment(pair: Pair<Rule>) -> Result<Assignment, miette::Report> {
+fn parse_assignment(pair: Pair<Rule>) -> Result<Assignment, PikruError> {
     let mut inner = pair.into_inner();
     let lvalue = parse_lvalue(inner.next().unwrap())?;
     let op = parse_assign_op(inner.next().unwrap())?;
@@ -72,7 +73,7 @@ fn parse_assignment(pair: Pair<Rule>) -> Result<Assignment, miette::Report> {
     Ok(Assignment { lvalue, op, rvalue })
 }
 
-fn parse_lvalue(pair: Pair<Rule>) -> Result<LValue, miette::Report> {
+fn parse_lvalue(pair: Pair<Rule>) -> Result<LValue, PikruError> {
     // Grammar: lvalue = { variable | "fill" | "color" | "thickness" }
     // If it's a literal like "fill", there may be no inner children
     let pair_str = pair.as_str();
@@ -86,7 +87,7 @@ fn parse_lvalue(pair: Pair<Rule>) -> Result<LValue, miette::Report> {
                     "fill" => Ok(LValue::Fill),
                     "color" => Ok(LValue::Color),
                     "thickness" => Ok(LValue::Thickness),
-                    _ => Err(miette::miette!("Invalid lvalue: {}", s)),
+                    _ => Err(PikruError::Generic(format!("Invalid lvalue: {}", s))),
                 }
             }
         }
@@ -96,12 +97,15 @@ fn parse_lvalue(pair: Pair<Rule>) -> Result<LValue, miette::Report> {
             "fill" => Ok(LValue::Fill),
             "color" => Ok(LValue::Color),
             "thickness" => Ok(LValue::Thickness),
-            s => Err(miette::miette!("Invalid lvalue with no children: {}", s)),
+            s => Err(PikruError::Generic(format!(
+                "Invalid lvalue with no children: {}",
+                s
+            ))),
         }
     }
 }
 
-fn parse_variable_name(pair: Pair<Rule>) -> Result<String, miette::Report> {
+fn parse_variable_name(pair: Pair<Rule>) -> Result<String, PikruError> {
     // cref: pik_value (pikchr.c) - variables can be "$foo" or "foo"
     // The "$" prefix is part of the variable name - "$margin" is different from "margin"
     // This is important because system variables like "margin", "thickness" etc. should not
@@ -123,35 +127,38 @@ fn parse_variable_name(pair: Pair<Rule>) -> Result<String, miette::Report> {
     }
 }
 
-fn parse_assign_op(pair: Pair<Rule>) -> Result<AssignOp, miette::Report> {
+fn parse_assign_op(pair: Pair<Rule>) -> Result<AssignOp, PikruError> {
     match pair.as_str() {
         "=" => Ok(AssignOp::Assign),
         "+=" => Ok(AssignOp::AddAssign),
         "-=" => Ok(AssignOp::SubAssign),
         "*=" => Ok(AssignOp::MulAssign),
         "/=" => Ok(AssignOp::DivAssign),
-        s => Err(miette::miette!("Invalid assign op: {}", s)),
+        s => Err(PikruError::Generic(format!("Invalid assign op: {}", s))),
     }
 }
 
-fn parse_rvalue(pair: Pair<Rule>) -> Result<RValue, miette::Report> {
+fn parse_rvalue(pair: Pair<Rule>) -> Result<RValue, PikruError> {
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::expr => Ok(RValue::Expr(parse_expr(inner)?)),
         Rule::PLACENAME => Ok(RValue::PlaceName(inner.as_str().to_string())),
         Rule::HEX_COLOR => Ok(RValue::PlaceName(inner.as_str().to_string())), // Pass hex color as-is
-        _ => Err(miette::miette!("Invalid rvalue: {:?}", inner.as_rule())),
+        _ => Err(PikruError::Generic(format!(
+            "Invalid rvalue: {:?}",
+            inner.as_rule()
+        ))),
     }
 }
 
-fn parse_define(pair: Pair<Rule>) -> Result<Define, miette::Report> {
+fn parse_define(pair: Pair<Rule>) -> Result<Define, PikruError> {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
     let body = inner.next().unwrap().as_str().to_string();
     Ok(Define { name, body })
 }
 
-fn parse_macro_call(pair: Pair<Rule>) -> Result<MacroCall, miette::Report> {
+fn parse_macro_call(pair: Pair<Rule>) -> Result<MacroCall, PikruError> {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
     let args = if let Some(args_pair) = inner.next() {
@@ -162,7 +169,7 @@ fn parse_macro_call(pair: Pair<Rule>) -> Result<MacroCall, miette::Report> {
     Ok(MacroCall { name, args })
 }
 
-fn parse_macro_args(pair: Pair<Rule>) -> Result<Vec<MacroArg>, miette::Report> {
+fn parse_macro_args(pair: Pair<Rule>) -> Result<Vec<MacroArg>, PikruError> {
     let mut args = Vec::new();
     for inner in pair.into_inner() {
         if inner.as_rule() == Rule::macro_arg {
@@ -172,31 +179,34 @@ fn parse_macro_args(pair: Pair<Rule>) -> Result<Vec<MacroArg>, miette::Report> {
     Ok(args)
 }
 
-fn parse_macro_arg(pair: Pair<Rule>) -> Result<MacroArg, miette::Report> {
+fn parse_macro_arg(pair: Pair<Rule>) -> Result<MacroArg, PikruError> {
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::STRING => Ok(MacroArg::String(parse_string(inner)?)),
         Rule::expr => Ok(MacroArg::Expr(parse_expr(inner)?)),
         Rule::IDENT => Ok(MacroArg::Ident(inner.as_str().to_string())),
-        _ => Err(miette::miette!("Invalid macro arg: {:?}", inner.as_rule())),
+        _ => Err(PikruError::Generic(format!(
+            "Invalid macro arg: {:?}",
+            inner.as_rule()
+        ))),
     }
 }
 
-fn parse_assert(pair: Pair<Rule>) -> Result<Assert, miette::Report> {
+fn parse_assert(pair: Pair<Rule>) -> Result<Assert, PikruError> {
     let mut inner = pair.into_inner().peekable();
     // Grammar: "assert" ~ "(" ~ (expr ~ "==" ~ expr | position ~ "==" ~ position) ~ ")"
     // Keywords/literals like "assert", "(", "==", ")" are not captured as children
 
     let first = inner
         .next()
-        .ok_or_else(|| miette::miette!("Empty assert statement"))?;
+        .ok_or_else(|| PikruError::Generic("Empty assert statement".to_string()))?;
 
     let condition = if first.as_rule() == Rule::expr {
         let left = parse_expr(first)?;
         // "==" is a literal, not captured - next should be the second expr
         let right_pair = inner
             .next()
-            .ok_or_else(|| miette::miette!("Missing right side of assert"))?;
+            .ok_or_else(|| PikruError::Generic("Missing right side of assert".to_string()))?;
         let right = parse_expr(right_pair)?;
         AssertCondition::ExprEqual(left, right)
     } else if first.as_rule() == Rule::position {
@@ -204,19 +214,19 @@ fn parse_assert(pair: Pair<Rule>) -> Result<Assert, miette::Report> {
         // "==" is a literal, not captured - next should be the second position
         let right_pair = inner
             .next()
-            .ok_or_else(|| miette::miette!("Missing right side of assert"))?;
+            .ok_or_else(|| PikruError::Generic("Missing right side of assert".to_string()))?;
         let right = parse_position(right_pair)?;
         AssertCondition::PositionEqual(Box::new(left), Box::new(right))
     } else {
-        return Err(miette::miette!(
+        return Err(PikruError::Generic(format!(
             "Invalid assert condition: {:?}",
             first.as_rule()
-        ));
+        )));
     };
     Ok(Assert { condition })
 }
 
-fn parse_print(pair: Pair<Rule>) -> Result<Print, miette::Report> {
+fn parse_print(pair: Pair<Rule>) -> Result<Print, PikruError> {
     let mut args = Vec::new();
     for inner in pair.into_inner() {
         if inner.as_rule() == Rule::print_args {
@@ -237,13 +247,13 @@ fn parse_print(pair: Pair<Rule>) -> Result<Print, miette::Report> {
     Ok(Print { args })
 }
 
-fn parse_error_stmt(pair: Pair<Rule>) -> Result<ErrorStmt, miette::Report> {
+fn parse_error_stmt(pair: Pair<Rule>) -> Result<ErrorStmt, PikruError> {
     let inner = pair.into_inner().next().unwrap();
     let message = parse_string(inner)?;
     Ok(ErrorStmt { message })
 }
 
-fn parse_labeled_statement(pair: Pair<Rule>) -> Result<LabeledStatement, miette::Report> {
+fn parse_labeled_statement(pair: Pair<Rule>) -> Result<LabeledStatement, PikruError> {
     let mut inner = pair.into_inner();
     let label = inner.next().unwrap().as_str().to_string();
     let content_pair = inner.next().unwrap();
@@ -251,16 +261,16 @@ fn parse_labeled_statement(pair: Pair<Rule>) -> Result<LabeledStatement, miette:
         Rule::position => LabeledContent::Position(parse_position(content_pair)?),
         Rule::object_stmt => LabeledContent::Object(parse_object_stmt(content_pair)?),
         _ => {
-            return Err(miette::miette!(
+            return Err(PikruError::Generic(format!(
                 "Invalid labeled content: {:?}",
                 content_pair.as_rule()
-            ));
+            )));
         }
     };
     Ok(LabeledStatement { label, content })
 }
 
-fn parse_object_stmt(pair: Pair<Rule>) -> Result<ObjectStatement, miette::Report> {
+fn parse_object_stmt(pair: Pair<Rule>) -> Result<ObjectStatement, PikruError> {
     let mut inner = pair.into_inner();
     let basetype = parse_basetype(inner.next().unwrap())?;
     let mut attributes = Vec::new();
@@ -279,7 +289,7 @@ fn parse_object_stmt(pair: Pair<Rule>) -> Result<ObjectStatement, miette::Report
     })
 }
 
-fn parse_basetype(pair: Pair<Rule>) -> Result<BaseType, miette::Report> {
+fn parse_basetype(pair: Pair<Rule>) -> Result<BaseType, PikruError> {
     let mut inner = pair.into_inner();
     let first = inner.next().unwrap();
     match first.as_rule() {
@@ -298,11 +308,14 @@ fn parse_basetype(pair: Pair<Rule>) -> Result<BaseType, miette::Report> {
             let statements = parse_statement_list(first.into_inner().next().unwrap())?;
             Ok(BaseType::Sublist(statements))
         }
-        _ => Err(miette::miette!("Invalid basetype: {:?}", first.as_rule())),
+        _ => Err(PikruError::Generic(format!(
+            "Invalid basetype: {:?}",
+            first.as_rule()
+        ))),
     }
 }
 
-fn parse_classname(pair: Pair<Rule>) -> Result<ClassName, miette::Report> {
+fn parse_classname(pair: Pair<Rule>) -> Result<ClassName, PikruError> {
     match pair.as_str() {
         "arc" => Ok(ClassName::Arc),
         "arrow" => Ok(ClassName::Arrow),
@@ -318,11 +331,11 @@ fn parse_classname(pair: Pair<Rule>) -> Result<ClassName, miette::Report> {
         "oval" => Ok(ClassName::Oval),
         "spline" => Ok(ClassName::Spline),
         "text" => Ok(ClassName::Text),
-        s => Err(miette::miette!("Invalid classname: {}", s)),
+        s => Err(PikruError::Generic(format!("Invalid classname: {}", s))),
     }
 }
 
-fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
+fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, PikruError> {
     let pair_str = pair.as_str().to_string();
 
     // Debug: log what attribute we're parsing
@@ -338,7 +351,10 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
             "fit" => Ok(Attribute::Fit),
             "then" => Ok(Attribute::Then(None)),
             "same" => Ok(Attribute::Same(None)),
-            s => Err(miette::miette!("Unexpected empty attribute: {}", s)),
+            s => Err(PikruError::Generic(format!(
+                "Unexpected empty attribute: {}",
+                s
+            ))),
         };
     }
 
@@ -522,13 +538,13 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
                             let heading_expr = parse_expr(inner.next().unwrap())?;
                             Ok(Attribute::Heading(relexpr, heading_expr))
                         } else {
-                            Err(miette::miette!(
+                            Err(PikruError::Generic(format!(
                                 "Unexpected after 'go': {:?}",
                                 next.as_rule()
-                            ))
+                            )))
                         }
                     } else {
-                        Err(miette::miette!("Nothing after 'go'"))
+                        Err(PikruError::Generic("Nothing after 'go'".to_string()))
                     }
                 }
                 "close" => Ok(Attribute::Close),
@@ -572,11 +588,11 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
                     let obj = parse_object(inner.next().unwrap())?;
                     Ok(Attribute::Behind(obj))
                 }
-                _ => Err(miette::miette!(
+                _ => Err(PikruError::Generic(format!(
                     "Unexpected attribute: {} (rule: {:?})",
                     s,
                     first.as_rule()
-                )),
+                ))),
             }
         }
     }
@@ -586,7 +602,7 @@ fn parse_attribute(pair: Pair<Rule>) -> Result<Attribute, miette::Report> {
 fn parse_direction_attribute<'a, I>(
     inner: &mut std::iter::Peekable<I>,
     pair_str: &str,
-) -> Result<Attribute, miette::Report>
+) -> Result<Attribute, PikruError>
 where
     I: Iterator<Item = Pair<'a, Rule>>,
 {
@@ -651,7 +667,7 @@ where
 fn parse_then_clause<'a, I>(
     inner: &mut std::iter::Peekable<I>,
     pair_str: &str,
-) -> Result<Attribute, miette::Report>
+) -> Result<Attribute, PikruError>
 where
     I: Iterator<Item = Pair<'a, Rule>>,
 {
@@ -749,34 +765,34 @@ where
     }
 }
 
-fn parse_numproperty(pair: Pair<Rule>) -> Result<NumProperty, miette::Report> {
+fn parse_numproperty(pair: Pair<Rule>) -> Result<NumProperty, PikruError> {
     match pair.as_str() {
         "height" | "ht" => Ok(NumProperty::Height),
         "width" | "wid" => Ok(NumProperty::Width),
         "radius" | "rad" => Ok(NumProperty::Radius),
         "diameter" => Ok(NumProperty::Diameter),
         "thickness" => Ok(NumProperty::Thickness),
-        s => Err(miette::miette!("Invalid numproperty: {}", s)),
+        s => Err(PikruError::Generic(format!("Invalid numproperty: {}", s))),
     }
 }
 
-fn parse_dashproperty(pair: Pair<Rule>) -> Result<DashProperty, miette::Report> {
+fn parse_dashproperty(pair: Pair<Rule>) -> Result<DashProperty, PikruError> {
     match pair.as_str() {
         "dotted" => Ok(DashProperty::Dotted),
         "dashed" => Ok(DashProperty::Dashed),
-        s => Err(miette::miette!("Invalid dashproperty: {}", s)),
+        s => Err(PikruError::Generic(format!("Invalid dashproperty: {}", s))),
     }
 }
 
-fn parse_colorproperty(pair: Pair<Rule>) -> Result<ColorProperty, miette::Report> {
+fn parse_colorproperty(pair: Pair<Rule>) -> Result<ColorProperty, PikruError> {
     match pair.as_str() {
         "fill" => Ok(ColorProperty::Fill),
         "color" => Ok(ColorProperty::Color),
-        s => Err(miette::miette!("Invalid colorproperty: {}", s)),
+        s => Err(PikruError::Generic(format!("Invalid colorproperty: {}", s))),
     }
 }
 
-fn parse_boolproperty(pair: Pair<Rule>) -> Result<BoolProperty, miette::Report> {
+fn parse_boolproperty(pair: Pair<Rule>) -> Result<BoolProperty, PikruError> {
     match pair.as_str() {
         "cw" => Ok(BoolProperty::Clockwise),
         "ccw" => Ok(BoolProperty::CounterClockwise),
@@ -787,17 +803,17 @@ fn parse_boolproperty(pair: Pair<Rule>) -> Result<BoolProperty, miette::Report> 
         "<->" | "&leftrightarrow;" | "↔" => Ok(BoolProperty::ArrowBoth),
         "->" | "&rarr;" | "&rightarrow;" | "→" => Ok(BoolProperty::ArrowRight),
         "<-" | "&larr;" | "&leftarrow;" | "←" => Ok(BoolProperty::ArrowLeft),
-        s => Err(miette::miette!("Invalid boolproperty: {}", s)),
+        s => Err(PikruError::Generic(format!("Invalid boolproperty: {}", s))),
     }
 }
 
-fn parse_withclause(pair: Pair<Rule>) -> Result<WithClause, miette::Report> {
+fn parse_withclause(pair: Pair<Rule>) -> Result<WithClause, PikruError> {
     let mut inner = pair.into_inner().peekable();
 
     // First child should be dot_edge or EDGEPT
     let edge_pair = inner
         .next()
-        .ok_or_else(|| miette::miette!("Empty withclause"))?;
+        .ok_or_else(|| PikruError::Generic("Empty withclause".to_string()))?;
 
     let edge = match edge_pair.as_rule() {
         Rule::dot_edge => {
@@ -823,10 +839,10 @@ fn parse_withclause(pair: Pair<Rule>) -> Result<WithClause, miette::Report> {
             });
         }
         _ => {
-            return Err(miette::miette!(
+            return Err(PikruError::Generic(format!(
                 "Invalid withclause edge: {:?}",
                 edge_pair.as_rule()
-            ));
+            )));
         }
     };
 
@@ -835,13 +851,15 @@ fn parse_withclause(pair: Pair<Rule>) -> Result<WithClause, miette::Report> {
     let position = if let Some(pos_pair) = inner.next() {
         parse_position(pos_pair)?
     } else {
-        return Err(miette::miette!("Missing position in withclause"));
+        return Err(PikruError::Generic(
+            "Missing position in withclause".to_string(),
+        ));
     };
 
     Ok(WithClause { edge, position })
 }
 
-fn parse_edgepoint_str(s: &str) -> Result<EdgePoint, miette::Report> {
+fn parse_edgepoint_str(s: &str) -> Result<EdgePoint, PikruError> {
     match s.trim() {
         "north" | "n" => Ok(EdgePoint::North),
         "south" | "s" => Ok(EdgePoint::South),
@@ -858,11 +876,14 @@ fn parse_edgepoint_str(s: &str) -> Result<EdgePoint, miette::Report> {
         "nw" => Ok(EdgePoint::NorthWest),
         "se" => Ok(EdgePoint::SouthEast),
         "sw" => Ok(EdgePoint::SouthWest),
-        _ => Err(miette::miette!("Invalid edgepoint string: {}", s)),
+        _ => Err(PikruError::Generic(format!(
+            "Invalid edgepoint string: {}",
+            s
+        ))),
     }
 }
 
-fn parse_textposition(pair: Pair<Rule>) -> Result<TextPosition, miette::Report> {
+fn parse_textposition(pair: Pair<Rule>) -> Result<TextPosition, PikruError> {
     let mut attrs = Vec::new();
     for inner in pair.into_inner() {
         if inner.as_rule() == Rule::textattr {
@@ -872,7 +893,7 @@ fn parse_textposition(pair: Pair<Rule>) -> Result<TextPosition, miette::Report> 
     Ok(TextPosition { attrs })
 }
 
-fn parse_textattr(pair: Pair<Rule>) -> Result<TextAttr, miette::Report> {
+fn parse_textattr(pair: Pair<Rule>) -> Result<TextAttr, PikruError> {
     match pair.as_str() {
         "above" => Ok(TextAttr::Above),
         "below" => Ok(TextAttr::Below),
@@ -885,11 +906,11 @@ fn parse_textattr(pair: Pair<Rule>) -> Result<TextAttr, miette::Report> {
         "big" => Ok(TextAttr::Big),
         "small" => Ok(TextAttr::Small),
         "aligned" => Ok(TextAttr::Aligned),
-        s => Err(miette::miette!("Invalid textattr: {}", s)),
+        s => Err(PikruError::Generic(format!("Invalid textattr: {}", s))),
     }
 }
 
-fn parse_relexpr(pair: Pair<Rule>) -> Result<RelExpr, miette::Report> {
+fn parse_relexpr(pair: Pair<Rule>) -> Result<RelExpr, PikruError> {
     let mut inner = pair.into_inner();
     let expr = parse_expr(inner.next().unwrap())?;
     // Check if there's a percent rule following the expression
@@ -900,7 +921,7 @@ fn parse_relexpr(pair: Pair<Rule>) -> Result<RelExpr, miette::Report> {
     Ok(RelExpr { expr, is_percent })
 }
 
-fn parse_expr(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
+fn parse_expr(pair: Pair<Rule>) -> Result<Expr, PikruError> {
     // expr = term ~ (add_op ~ term)*
     let mut inner = pair.into_inner();
     let mut result = parse_term(inner.next().unwrap())?;
@@ -921,7 +942,7 @@ fn parse_expr(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
     Ok(result)
 }
 
-fn parse_term(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
+fn parse_term(pair: Pair<Rule>) -> Result<Expr, PikruError> {
     // term = prefix? ~ primary ~ (mul_op ~ prefix? ~ primary)*
     let mut inner = pair.into_inner().peekable();
 
@@ -932,7 +953,12 @@ fn parse_term(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
         prefix = Some(match p.as_str() {
             "-" => UnaryOp::Neg,
             "+" => UnaryOp::Pos,
-            _ => return Err(miette::miette!("Invalid prefix: {}", p.as_str())),
+            _ => {
+                return Err(PikruError::Generic(format!(
+                    "Invalid prefix: {}",
+                    p.as_str()
+                )));
+            }
         });
     }
 
@@ -963,7 +989,7 @@ fn parse_term(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
             rhs_prefix = Some(match p.as_str() {
                 "-" => UnaryOp::Neg,
                 "+" => UnaryOp::Pos,
-                _ => return Err(miette::miette!("Invalid prefix")),
+                _ => return Err(PikruError::Generic("Invalid prefix".to_string())),
             });
         }
 
@@ -980,7 +1006,7 @@ fn parse_term(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
     Ok(result)
 }
 
-fn parse_primary(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
+fn parse_primary(pair: Pair<Rule>) -> Result<Expr, PikruError> {
     let mut inner = pair.into_inner().peekable();
     let first = inner.next().unwrap();
 
@@ -998,13 +1024,13 @@ fn parse_primary(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
             // "vertex" and "of" are literals, not captured
             let nth = parse_nth_from_str(first.as_str())?;
             // Next should be object, then dot_xy
-            let obj_pair = inner
-                .next()
-                .ok_or_else(|| miette::miette!("Missing object in vertex expression"))?;
+            let obj_pair = inner.next().ok_or_else(|| {
+                PikruError::Generic("Missing object in vertex expression".to_string())
+            })?;
             let obj = parse_object(obj_pair)?;
-            let coord_pair = inner
-                .next()
-                .ok_or_else(|| miette::miette!("Missing coordinate in vertex expression"))?;
+            let coord_pair = inner.next().ok_or_else(|| {
+                PikruError::Generic("Missing coordinate in vertex expression".to_string())
+            })?;
             let coord = parse_coord(coord_pair)?;
             Ok(Expr::VertexCoord(nth, obj, coord))
         }
@@ -1022,7 +1048,9 @@ fn parse_primary(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
                             Ok(Expr::ObjectEdgeCoord(obj, ep, coord))
                         } else {
                             // object.edge without .xy - this is a place, not an expr
-                            Err(miette::miette!("object.edge is a place, not an expression"))
+                            Err(PikruError::Generic(
+                                "object.edge is a place, not an expression".to_string(),
+                            ))
                         }
                     }
                     Rule::dot_xy => {
@@ -1036,14 +1064,16 @@ fn parse_primary(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
                         let prop = parse_numproperty(prop_pair)?;
                         Ok(Expr::ObjectProp(obj, prop))
                     }
-                    _ => Err(miette::miette!(
+                    _ => Err(PikruError::Generic(format!(
                         "Unexpected after object in primary: {:?}",
                         next.as_rule()
-                    )),
+                    ))),
                 }
             } else {
                 // Bare object - this should be a place, not an expr
-                Err(miette::miette!("Bare object is a place, not an expression"))
+                Err(PikruError::Generic(
+                    "Bare object is a place, not an expression".to_string(),
+                ))
             }
         }
         _ => {
@@ -1053,17 +1083,17 @@ fn parse_primary(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
                 "fill" => Ok(Expr::BuiltinVar(BuiltinVar::Fill)),
                 "color" => Ok(Expr::BuiltinVar(BuiltinVar::Color)),
                 "thickness" => Ok(Expr::BuiltinVar(BuiltinVar::Thickness)),
-                _ => Err(miette::miette!(
+                _ => Err(PikruError::Generic(format!(
                     "Unexpected primary: {} (rule: {:?})",
                     s,
                     first.as_rule()
-                )),
+                ))),
             }
         }
     }
 }
 
-fn parse_coord(pair: Pair<Rule>) -> Result<Coord, miette::Report> {
+fn parse_coord(pair: Pair<Rule>) -> Result<Coord, PikruError> {
     // dot_xy = { "." ~ ("x" | "y") } - literals don't create children
     // So we need to look at the string content
     let s = pair.as_str();
@@ -1072,20 +1102,20 @@ fn parse_coord(pair: Pair<Rule>) -> Result<Coord, miette::Report> {
     } else if s.contains('y') {
         Ok(Coord::Y)
     } else {
-        Err(miette::miette!("Invalid coord: {}", s))
+        Err(PikruError::Generic(format!("Invalid coord: {}", s)))
     }
 }
 
-fn parse_nth_from_str(s: &str) -> Result<Nth, miette::Report> {
+fn parse_nth_from_str(s: &str) -> Result<Nth, PikruError> {
     // Parse ordinal like "1st", "2nd", "3rd", etc.
     let num: u32 = s
         .trim_end_matches(|c: char| !c.is_ascii_digit())
         .parse()
-        .map_err(|_| miette::miette!("Invalid ordinal: {}", s))?;
+        .map_err(|_| PikruError::Generic(format!("Invalid ordinal: {}", s)))?;
     Ok(Nth::Ordinal(num, false, None))
 }
 
-fn parse_func_call(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
+fn parse_func_call(pair: Pair<Rule>) -> Result<Expr, PikruError> {
     let mut inner = pair.into_inner();
     let func_pair = inner.next().unwrap();
     let func = match func_pair.as_str() {
@@ -1096,7 +1126,7 @@ fn parse_func_call(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
         "sqrt" => Function::Sqrt,
         "max" => Function::Max,
         "min" => Function::Min,
-        s => return Err(miette::miette!("Unknown function: {}", s)),
+        s => return Err(PikruError::Generic(format!("Unknown function: {}", s))),
     };
     let mut args = Vec::new();
     for arg in inner {
@@ -1107,20 +1137,20 @@ fn parse_func_call(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
     Ok(Expr::FuncCall(FuncCall { func, args }))
 }
 
-fn parse_dist_call(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
+fn parse_dist_call(pair: Pair<Rule>) -> Result<Expr, PikruError> {
     let mut inner = pair.into_inner();
     let pos1 = parse_position(inner.next().unwrap())?;
     let pos2 = parse_position(inner.next().unwrap())?;
     Ok(Expr::DistCall(Box::new(pos1), Box::new(pos2)))
 }
 
-fn parse_number(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
+fn parse_number(pair: Pair<Rule>) -> Result<Expr, PikruError> {
     let raw = pair.as_str();
 
     // Hex literal (kept as-is, like C)
     if raw.starts_with("0x") || raw.starts_with("0X") {
         let n = u64::from_str_radix(&raw[2..], 16)
-            .map_err(|e| miette::miette!("Invalid hex number: {}", e))?;
+            .map_err(|e| PikruError::Generic(format!("Invalid hex number: {}", e)))?;
         return Ok(Expr::Number(n as f64));
     }
 
@@ -1137,7 +1167,7 @@ fn parse_number(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
 
     let mut n: f64 = number_part
         .parse()
-        .map_err(|e| miette::miette!("Invalid number: {}", e))?;
+        .map_err(|e| PikruError::Generic(format!("Invalid number: {}", e)))?;
 
     // Convert to inches to mirror pikchr.c:pik_atof
     if let Some(unit) = unit_suffix {
@@ -1155,13 +1185,13 @@ fn parse_number(pair: Pair<Rule>) -> Result<Expr, miette::Report> {
     Ok(Expr::Number(n))
 }
 
-fn parse_position(pair: Pair<Rule>) -> Result<Position, miette::Report> {
+fn parse_position(pair: Pair<Rule>) -> Result<Position, PikruError> {
     let pair_str = pair.as_str().to_string();
     let mut inner = pair.into_inner();
 
     let child = inner
         .next()
-        .ok_or_else(|| miette::miette!("Empty position: {}", pair_str))?;
+        .ok_or_else(|| PikruError::Generic(format!("Empty position: {}", pair_str)))?;
 
     match child.as_rule() {
         Rule::pos_tuple => {
@@ -1267,20 +1297,20 @@ fn parse_position(pair: Pair<Rule>) -> Result<Position, miette::Report> {
             let place = parse_place(kids.next().unwrap())?;
             Ok(Position::Place(place))
         }
-        _ => Err(miette::miette!(
+        _ => Err(PikruError::Generic(format!(
             "Unexpected position rule: {:?} in '{}'",
             child.as_rule(),
             pair_str
-        )),
+        ))),
     }
 }
 
-fn parse_place(pair: Pair<Rule>) -> Result<Place, miette::Report> {
+fn parse_place(pair: Pair<Rule>) -> Result<Place, PikruError> {
     let pair_str = pair.as_str();
     let mut inner = pair.into_inner().peekable();
     let first = match inner.peek() {
         Some(p) => p,
-        None => return Err(miette::miette!("Empty place: {}", pair_str)),
+        None => return Err(PikruError::Generic(format!("Empty place: {}", pair_str))),
     };
 
     match first.as_rule() {
@@ -1293,10 +1323,10 @@ fn parse_place(pair: Pair<Rule>) -> Result<Place, miette::Report> {
                 let obj = parse_object(obj_pair)?;
                 Ok(Place::Vertex(nth, obj))
             } else {
-                Err(miette::miette!(
+                Err(PikruError::Generic(format!(
                     "Missing object in NTH vertex of object: {}",
                     pair_str
-                ))
+                )))
             }
         }
         Rule::EDGEPT => {
@@ -1311,11 +1341,10 @@ fn parse_place(pair: Pair<Rule>) -> Result<Place, miette::Report> {
             } else {
                 // No object found - maybe this is just a bare edgepoint
                 // Return as a placeholder object
-                Err(miette::miette!(
+                Err(PikruError::Generic(format!(
                     "Missing object in EDGEPT of object: {} (edgepoint: {:?})",
-                    pair_str,
-                    ep
-                ))
+                    pair_str, ep
+                )))
             }
         }
         Rule::object => {
@@ -1329,20 +1358,26 @@ fn parse_place(pair: Pair<Rule>) -> Result<Place, miette::Report> {
                 Ok(Place::Object(obj))
             }
         }
-        _ => Err(miette::miette!("Invalid place: {:?}", first.as_rule())),
+        _ => Err(PikruError::Generic(format!(
+            "Invalid place: {:?}",
+            first.as_rule()
+        ))),
     }
 }
 
-fn parse_object(pair: Pair<Rule>) -> Result<Object, miette::Report> {
+fn parse_object(pair: Pair<Rule>) -> Result<Object, PikruError> {
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::objectname => Ok(Object::Named(parse_objectname(inner)?)),
         Rule::nth => Ok(Object::Nth(parse_nth(inner)?)),
-        _ => Err(miette::miette!("Invalid object: {:?}", inner.as_rule())),
+        _ => Err(PikruError::Generic(format!(
+            "Invalid object: {:?}",
+            inner.as_rule()
+        ))),
     }
 }
 
-fn parse_objectname(pair: Pair<Rule>) -> Result<ObjectName, miette::Report> {
+fn parse_objectname(pair: Pair<Rule>) -> Result<ObjectName, PikruError> {
     // Grammar: objectname = { "this" ~ dot_name* | PLACENAME ~ dot_name* }
     // "this" is a keyword - may not be captured. PLACENAME should be captured.
     let pair_str = pair.as_str();
@@ -1383,7 +1418,7 @@ fn parse_objectname(pair: Pair<Rule>) -> Result<ObjectName, miette::Report> {
     Ok(ObjectName { base, path })
 }
 
-fn parse_nth(pair: Pair<Rule>) -> Result<Nth, miette::Report> {
+fn parse_nth(pair: Pair<Rule>) -> Result<Nth, PikruError> {
     let pair_str = pair.as_str();
     let mut inner = pair.into_inner().peekable();
 
@@ -1415,7 +1450,10 @@ fn parse_nth(pair: Pair<Rule>) -> Result<Nth, miette::Report> {
                     .unwrap_or(1);
                 Ok(Nth::Ordinal(num, false, None))
             } else {
-                Err(miette::miette!("Invalid nth with no children: {}", s))
+                Err(PikruError::Generic(format!(
+                    "Invalid nth with no children: {}",
+                    s
+                )))
             };
         }
     };
@@ -1458,17 +1496,17 @@ fn parse_nth(pair: Pair<Rule>) -> Result<Nth, miette::Report> {
                     Ok(Nth::Last(class))
                 }
                 "previous" => Ok(Nth::Previous),
-                _ => Err(miette::miette!(
+                _ => Err(PikruError::Generic(format!(
                     "Invalid nth: {} (rule: {:?})",
                     s,
                     first.as_rule()
-                )),
+                ))),
             }
         }
     }
 }
 
-fn parse_nth_class(pair: Pair<Rule>) -> Result<NthClass, miette::Report> {
+fn parse_nth_class(pair: Pair<Rule>) -> Result<NthClass, PikruError> {
     if pair.as_str() == "[" || pair.as_str() == "]" {
         return Ok(NthClass::Sublist);
     }
@@ -1484,7 +1522,7 @@ fn parse_nth_class(pair: Pair<Rule>) -> Result<NthClass, miette::Report> {
     Ok(NthClass::Sublist)
 }
 
-fn parse_edgepoint(pair: Pair<Rule>) -> Result<EdgePoint, miette::Report> {
+fn parse_edgepoint(pair: Pair<Rule>) -> Result<EdgePoint, PikruError> {
     match pair.as_str() {
         "north" | "n" => Ok(EdgePoint::North),
         "south" | "s" => Ok(EdgePoint::South),
@@ -1501,11 +1539,11 @@ fn parse_edgepoint(pair: Pair<Rule>) -> Result<EdgePoint, miette::Report> {
         "nw" => Ok(EdgePoint::NorthWest),
         "se" => Ok(EdgePoint::SouthEast),
         "sw" => Ok(EdgePoint::SouthWest),
-        s => Err(miette::miette!("Invalid edgepoint: {}", s)),
+        s => Err(PikruError::Generic(format!("Invalid edgepoint: {}", s))),
     }
 }
 
-fn parse_string(pair: Pair<Rule>) -> Result<String, miette::Report> {
+fn parse_string(pair: Pair<Rule>) -> Result<String, PikruError> {
     let s = pair.as_str();
     // Remove quotes and preserve backslash escape sequences
     // Note: C pikchr does NOT interpret \n, \t, etc. during parsing - it processes

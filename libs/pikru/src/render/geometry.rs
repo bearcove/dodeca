@@ -142,26 +142,22 @@ pub fn apply_auto_chop_simple_line(
         .unwrap_or(start);
 
     let mut new_start = start;
-    if should_chop_start {
-        if let Some(ref start_info) = obj.start_attachment {
-            // Chop against start object, toward the end object's center
-            if let Some(chopped) =
-                chop_against_endpoint(scaler, start_info, end_center_px, offset_x, max_y)
-            {
-                new_start = chopped;
-            }
+    if should_chop_start && let Some(ref start_info) = obj.start_attachment {
+        // Chop against start object, toward the end object's center
+        if let Some(chopped) =
+            chop_against_endpoint(scaler, start_info, end_center_px, offset_x, max_y)
+        {
+            new_start = chopped;
         }
     }
 
     let mut new_end = end;
-    if should_chop_end {
-        if let Some(ref end_info) = obj.end_attachment {
-            // Chop against end object, toward the start object's center
-            if let Some(chopped) =
-                chop_against_endpoint(scaler, end_info, start_center_px, offset_x, max_y)
-            {
-                new_end = chopped;
-            }
+    if should_chop_end && let Some(ref end_info) = obj.end_attachment {
+        // Chop against end object, toward the start object's center
+        if let Some(chopped) =
+            chop_against_endpoint(scaler, end_info, start_center_px, offset_x, max_y)
+        {
+            new_end = chopped;
         }
     }
 

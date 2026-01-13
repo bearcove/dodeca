@@ -3,6 +3,7 @@
 //! Handles `define name { body }` and macro invocations.
 
 use crate::ast::*;
+use crate::errors::PikruError;
 use crate::parse;
 use std::collections::HashMap;
 
@@ -15,7 +16,7 @@ struct MacroDef {
 }
 
 /// Expand all macros in a program
-pub fn expand_macros(program: Program) -> Result<Program, miette::Report> {
+pub fn expand_macros(program: Program) -> Result<Program, PikruError> {
     let mut macros: HashMap<String, MacroDef> = HashMap::new();
     let mut expanded_statements = Vec::new();
 
@@ -35,7 +36,7 @@ fn process_statement(
     output: &mut Vec<Statement>,
     stmt: Statement,
     depth: usize,
-) -> Result<(), miette::Report> {
+) -> Result<(), PikruError> {
     match stmt {
         Statement::Define(def) => {
             // Store the macro definition
@@ -68,13 +69,12 @@ fn expand_macro_call(
     output: &mut Vec<Statement>,
     call: &MacroCall,
     depth: usize,
-) -> Result<(), miette::Report> {
+) -> Result<(), PikruError> {
     if depth >= MAX_EXPANSION_DEPTH {
-        return Err(miette::miette!(
+        return Err(PikruError::Generic(format!(
             "Macro expansion depth exceeded (max {}). Possible infinite recursion in macro '{}'",
-            MAX_EXPANSION_DEPTH,
-            call.name
-        ));
+            MAX_EXPANSION_DEPTH, call.name
+        )));
     }
 
     // Look up the macro

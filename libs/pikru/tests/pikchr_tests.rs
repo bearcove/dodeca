@@ -25,12 +25,6 @@ const DEBUG_SVG_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/debug-svg");
 fn test_pikchr_file(path: &Utf8Path) -> datatest_stable::Result<()> {
     init_tracing();
 
-    // Install miette fancy GraphicalReporter for better error display
-    miette::set_hook(Box::new(
-        |_| Box::new(miette::GraphicalReportHandler::new()),
-    ))
-    .ok();
-
     let source = std::fs::read_to_string(path)?;
 
     // Get expected output from C implementation

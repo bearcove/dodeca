@@ -2,6 +2,7 @@
 
 use super::shapes::{Shape, ShapeRenderContext, svg_style_from_entries};
 use super::{TextVSlot, compute_text_vslots};
+use crate::errors::PikruError;
 use crate::types::{Length as Inches, Scaler};
 use facet_svg::facet_xml::SerializeOptions;
 use facet_svg::{Circle as SvgCircle, Points, Polygon, Style, Svg, SvgNode, Text, facet_xml};
@@ -254,7 +255,7 @@ fn generate_color_css() -> Style {
 pub fn generate_svg(
     ctx: &RenderContext,
     options: &super::RenderOptions,
-) -> Result<String, miette::Report> {
+) -> Result<String, PikruError> {
     let margin_base = get_length(ctx, "margin", defaults::MARGIN);
     let left_margin = get_length(ctx, "leftmargin", 0.0);
     let right_margin = get_length(ctx, "rightmargin", 0.0);
@@ -271,7 +272,7 @@ pub fn generate_svg(
     // Scale only affects the display width/height attributes
     let r_scale = 144.0;
     let scaler = Scaler::try_new(r_scale)
-        .map_err(|e| miette::miette!("invalid scale value {}: {}", r_scale, e))?;
+        .map_err(|e| PikruError::Generic(format!("invalid scale value {}: {}", r_scale, e)))?;
     let arrow_ht = Inches(get_length(ctx, "arrowht", 0.08));
     let arrow_wid = Inches(get_length(ctx, "arrowwid", 0.06));
     let dashwid = Inches(get_length(ctx, "dashwid", 0.05));
@@ -715,11 +716,11 @@ pub fn generate_svg(
 
         // Render debug labels for objects with explicit names
         for obj in sorted_objects.iter() {
-            if let Some(ref name) = obj.name {
-                if obj.name_is_explicit {
-                    let center = obj.center().to_svg(&scaler, offset_x, max_y);
-                    render_debug_label(name, center);
-                }
+            if let Some(ref name) = obj.name
+                && obj.name_is_explicit
+            {
+                let center = obj.center().to_svg(&scaler, offset_x, max_y);
+                render_debug_label(name, center);
             }
         }
 
@@ -745,7 +746,7 @@ pub fn generate_svg(
         ..Default::default()
     };
     facet_xml::to_string_with_options(&svg, &options_ser)
-        .map_err(|e| miette::miette!("XML serialization error: {}", e))
+        .map_err(|e| PikruError::Generic(format!("XML serialization error: {}", e)))
 }
 
 /// Render an arrowhead polygon at the end of a line

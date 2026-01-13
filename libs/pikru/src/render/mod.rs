@@ -23,6 +23,7 @@ pub use shapes::Shape;
 pub use types::*;
 
 use crate::ast::*;
+use crate::errors::PikruError;
 use crate::types::{EvalValue, Length as Inches, OffsetIn, Point};
 use eval::{
     endpoint_object_from_position, eval_color, eval_expr, eval_len, eval_position, eval_rvalue,
@@ -173,7 +174,7 @@ fn monospace_text_length(text: &str) -> u32 {
 }
 
 /// Render a pikchr program to SVG with default options
-pub fn render(program: &Program) -> Result<String, miette::Report> {
+pub fn render(program: &Program) -> Result<String, PikruError> {
     render_with_options(program, &RenderOptions::default())
 }
 
@@ -181,7 +182,7 @@ pub fn render(program: &Program) -> Result<String, miette::Report> {
 pub fn render_with_options(
     program: &Program,
     options: &RenderOptions,
-) -> Result<String, miette::Report> {
+) -> Result<String, PikruError> {
     let mut ctx = RenderContext::new();
     let mut print_lines: Vec<String> = Vec::new();
 
@@ -221,7 +222,7 @@ fn render_statement(
     ctx: &mut RenderContext,
     stmt: &Statement,
     print_lines: &mut Vec<String>,
-) -> Result<(), miette::Report> {
+) -> Result<(), PikruError> {
     match stmt {
         Statement::Direction(dir) => {
             // cref: pik_set_direction (pikchr.c:5746)
@@ -410,7 +411,7 @@ fn render_statement(
         }
         Statement::Error(e) => {
             // Error statement produces an intentional error
-            return Err(miette::miette!("error: {}", e.message));
+            return Err(PikruError::Generic(format!("error: {}", e.message)));
         }
     }
     Ok(())
@@ -751,7 +752,7 @@ fn render_object_stmt(
     ctx: &mut RenderContext,
     obj_stmt: &ObjectStatement,
     name: Option<String>,
-) -> Result<RenderedObject, miette::Report> {
+) -> Result<RenderedObject, PikruError> {
     // Extract class name for shapes that have one
     let class_name: Option<ClassName> = match &obj_stmt.basetype {
         BaseType::Class(cn) => Some(*cn),
@@ -1618,15 +1619,16 @@ fn render_object_stmt(
                         class,
                         ClassName::Line | ClassName::Arrow | ClassName::Spline
                     );
-                    if source_is_line && current_is_line {
-                        if let Some(wpts) = source.waypoints() {
-                            // Store the waypoints; they'll be translated to start position later
-                            same_path_waypoints = Some(wpts.to_vec());
-                            crate::log::debug!(
-                                num_waypoints = wpts.len(),
-                                "same as: copied waypoints from source line"
-                            );
-                        }
+                    if source_is_line
+                        && current_is_line
+                        && let Some(wpts) = source.waypoints()
+                    {
+                        // Store the waypoints; they'll be translated to start position later
+                        same_path_waypoints = Some(wpts.to_vec());
+                        crate::log::debug!(
+                            num_waypoints = wpts.len(),
+                            "same as: copied waypoints from source line"
+                        );
                     }
 
                     // For non-line objects, copy width/height
@@ -2089,10 +2091,10 @@ fn render_object_stmt(
 
     // Save final pending then segment if there is one
     // cref: C pikchr saves the current path point when processing completes
-    if let Some(direction) = current_segment_direction {
-        if in_then_segment {
-            segments.push(Segment::Offset(current_segment_offset, direction));
-        }
+    if let Some(direction) = current_segment_direction
+        && in_then_segment
+    {
+        segments.push(Segment::Offset(current_segment_offset, direction));
     }
 
     // Calculate position based on object type
@@ -2540,15 +2542,15 @@ fn render_object_stmt(
     if !children.is_empty() {
         // Children were rendered in local coords starting at (0,0).
         // We need to translate them so their center aligns with the sublist's center.
-        if let Some(ref bounds) = sublist_bounds {
-            if !bounds.is_empty() {
-                // The children's center in local coords
-                let local_center = bounds.center();
-                // Offset from local center to final center
-                let offset = center - local_center;
-                for child in children.iter_mut() {
-                    child.translate(offset);
-                }
+        if let Some(ref bounds) = sublist_bounds
+            && !bounds.is_empty()
+        {
+            // The children's center in local coords
+            let local_center = bounds.center();
+            // Offset from local center to final center
+            let offset = center - local_center;
+            for child in children.iter_mut() {
+                child.translate(offset);
             }
         }
     }
@@ -2786,7 +2788,7 @@ fn render_object_stmt(
 fn render_sublist(
     parent_ctx: &RenderContext,
     statements: &[Statement],
-) -> Result<Vec<RenderedObject>, miette::Report> {
+) -> Result<Vec<RenderedObject>, PikruError> {
     // Local context: starts at (0,0) but inherits variables and direction
     let mut ctx = RenderContext::new();
     ctx.direction = parent_ctx.direction;

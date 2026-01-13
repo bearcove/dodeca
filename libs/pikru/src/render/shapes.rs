@@ -1263,29 +1263,29 @@ impl Shape for LineShape {
             let mut draw_end = svg_points[svg_points.len() - 1];
 
             // cref: lineRender (pikchr.c:4271-4276) - larrow first, then rarrow
-            if self.style.arrow_start {
-                if let Some(arrowhead) = render_arrowhead_dom(
+            if self.style.arrow_start
+                && let Some(arrowhead) = render_arrowhead_dom(
                     draw_end,
                     draw_start,
                     &self.style,
                     arrow_len_px,
                     arrow_wid_px,
                     ctx.use_css_vars,
-                ) {
-                    nodes.push(SvgNode::Polygon(arrowhead));
-                }
+                )
+            {
+                nodes.push(SvgNode::Polygon(arrowhead));
             }
-            if self.style.arrow_end {
-                if let Some(arrowhead) = render_arrowhead_dom(
+            if self.style.arrow_end
+                && let Some(arrowhead) = render_arrowhead_dom(
                     draw_start,
                     draw_end,
                     &self.style,
                     arrow_len_px,
                     arrow_wid_px,
                     ctx.use_css_vars,
-                ) {
-                    nodes.push(SvgNode::Polygon(arrowhead));
-                }
+                )
+            {
+                nodes.push(SvgNode::Polygon(arrowhead));
             }
 
             if self.style.arrow_start {
@@ -1328,30 +1328,30 @@ impl Shape for LineShape {
         // cref: lineRender (pikchr.c:4271-4276) - larrow first, then rarrow
         // Render arrowheads before chopping endpoints
         if svg_points.len() >= 2 {
-            if self.style.arrow_start {
-                if let Some(arrowhead) = render_arrowhead_dom(
+            if self.style.arrow_start
+                && let Some(arrowhead) = render_arrowhead_dom(
                     svg_points[1],
                     svg_points[0],
                     &self.style,
                     arrow_len_px,
                     arrow_wid_px,
                     ctx.use_css_vars,
-                ) {
-                    nodes.push(SvgNode::Polygon(arrowhead));
-                }
+                )
+            {
+                nodes.push(SvgNode::Polygon(arrowhead));
             }
             let n = svg_points.len();
-            if self.style.arrow_end {
-                if let Some(arrowhead) = render_arrowhead_dom(
+            if self.style.arrow_end
+                && let Some(arrowhead) = render_arrowhead_dom(
                     svg_points[n - 2],
                     svg_points[n - 1],
                     &self.style,
                     arrow_len_px,
                     arrow_wid_px,
                     ctx.use_css_vars,
-                ) {
-                    nodes.push(SvgNode::Polygon(arrowhead));
-                }
+                )
+            {
+                nodes.push(SvgNode::Polygon(arrowhead));
             }
             // Chop endpoints for arrow space
             if self.style.arrow_start {
