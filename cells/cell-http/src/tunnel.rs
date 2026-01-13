@@ -67,9 +67,17 @@ impl TcpTunnel for TcpTunnelImpl {
                 "HTTP connection finished"
             );
 
-            // Wait for tunnel pumps to finish
-            let _ = read_handle.await;
-            let _ = write_handle.await;
+            // Wait for tunnel pumps to finish and log any errors
+            match read_handle.await {
+                Ok(Ok(())) => tracing::debug!(channel_id, "tunnel read pump completed"),
+                Ok(Err(e)) => tracing::warn!(channel_id, error = %e, "tunnel read pump error"),
+                Err(e) => tracing::warn!(channel_id, error = %e, "tunnel read pump task panicked"),
+            }
+            match write_handle.await {
+                Ok(Ok(())) => tracing::debug!(channel_id, "tunnel write pump completed"),
+                Ok(Err(e)) => tracing::warn!(channel_id, error = %e, "tunnel write pump error"),
+                Err(e) => tracing::warn!(channel_id, error = %e, "tunnel write pump task panicked"),
+            }
         });
     }
 }

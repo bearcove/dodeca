@@ -63,7 +63,12 @@ async fn handle_socket(socket: WebSocket, ctx: Arc<dyn RouterContext>) {
                         break;
                     }
                 }
-                Ok(Message::Close(_)) | Err(_) => {
+                Ok(Message::Close(frame)) => {
+                    tracing::debug!(channel_id, ?frame, "WebSocket close frame received");
+                    break;
+                }
+                Err(e) => {
+                    tracing::warn!(channel_id, error = %e, "WebSocket receive error");
                     break;
                 }
                 _ => {}
@@ -101,9 +106,18 @@ async fn handle_socket(socket: WebSocket, ctx: Arc<dyn RouterContext>) {
             }
         }
         tracing::debug!(channel_id, "Host→WebSocket task finished");
-        let _ = ws_sender.close().await;
+        if let Err(e) = ws_sender.close().await {
+            tracing::debug!(channel_id, error = %e, "WebSocket close error (may be already closed)");
+        }
     });
 
     // Wait for both tasks to complete
-    let _ = tokio::join!(ws_to_host, host_to_ws);
+    let (ws_to_host_result, host_to_ws_result) = tokio::join!(ws_to_host, host_to_ws);
+    if let Err(e) = ws_to_host_result {
+        tracing::warn!(channel_id, error = %e, "WebSocket→Host task panicked");
+    }
+    if let Err(e) = host_to_ws_result {
+        tracing::warn!(channel_id, error = %e, "Host→WebSocket task panicked");
+    }
+    tracing::debug!(channel_id, "DevTools WebSocket handler finished");
 }

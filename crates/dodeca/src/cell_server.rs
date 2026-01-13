@@ -156,7 +156,13 @@ async fn handle_devtools_tunnel(channel_id: u64, tunnel: Tunnel, server: Arc<Sit
                 bytes_len = bytes.len(),
                 "Writing error message to tunnel"
             );
-            let _ = write_half.write_all(&bytes).await;
+            if write_half.write_all(&bytes).await.is_err() {
+                tracing::warn!(
+                    channel_id,
+                    "Failed to send initial error message, tunnel closed"
+                );
+                return;
+            }
         }
     }
 
@@ -188,7 +194,10 @@ async fn handle_devtools_tunnel(channel_id: u64, tunnel: Tunnel, server: Arc<Sit
                                         let scope = server.get_scope_for_route(&route, &path).await;
                                         let response = ServerMessage::ScopeResponse { request_id, scope };
                                         if let Ok(bytes) = facet_postcard::to_vec(&response) {
-                                            let _ = write_half.write_all(&bytes).await;
+                                            if write_half.write_all(&bytes).await.is_err() {
+                                                tracing::warn!(channel_id, "Failed to send scope response, tunnel closed");
+                                                break;
+                                            }
                                         }
                                     }
                                     ClientMessage::Eval { request_id, snapshot_id, expression } => {
@@ -198,7 +207,10 @@ async fn handle_devtools_tunnel(channel_id: u64, tunnel: Tunnel, server: Arc<Sit
                                         };
                                         let response = ServerMessage::EvalResponse { request_id, result };
                                         if let Ok(bytes) = facet_postcard::to_vec(&response) {
-                                            let _ = write_half.write_all(&bytes).await;
+                                            if write_half.write_all(&bytes).await.is_err() {
+                                                tracing::warn!(channel_id, "Failed to send eval response, tunnel closed");
+                                                break;
+                                            }
                                         }
                                     }
                                     ClientMessage::DismissError { route } => {
