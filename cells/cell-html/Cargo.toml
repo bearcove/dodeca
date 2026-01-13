@@ -13,8 +13,8 @@ name = "ddc-cell-html"
 path = "src/main.rs"
 
 [dependencies]
+cell-host-proto = { path = "../cell-host-proto" }
 cell-html-proto = { path = "../cell-html-proto" }
-cell-lifecycle-proto = { path = "../cell-lifecycle-proto" }
 color-eyre.workspace = true
 dodeca-protocol = { path = "../../crates/dodeca-protocol" }
 facet-diff.workspace = true

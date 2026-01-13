@@ -17,7 +17,7 @@ name = "ddc-cell-tui"
 path = "src/main.rs"
 
 [dependencies]
-cell-lifecycle-proto = { path = "../cell-lifecycle-proto" }
+cell-host-proto = { path = "../cell-host-proto" }
 cell-tui-proto = { path = "../cell-tui-proto" }
 color-eyre.workspace = true
 crossterm.workspace = true

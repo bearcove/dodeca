@@ -1730,7 +1730,7 @@ name = "cell-gingembre"
 version = "0.6.1"
 dependencies = [
  "cell-gingembre-proto",
- "cell-lifecycle-proto",
+ "cell-host-proto",
  "eyre",
  "facet-value",
  "futures",
@@ -1753,11 +1753,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cell-host-proto"
+version = "0.1.0"
+dependencies = [
+ "cell-gingembre-proto",
+ "cell-http-proto",
+ "cell-lifecycle-proto",
+ "cell-tui-proto",
+ "facet",
+ "facet-value",
+ "roam",
+]
+
+[[package]]
 name = "cell-html"
 version = "0.6.1"
 dependencies = [
+ "cell-host-proto",
  "cell-html-proto",
- "cell-lifecycle-proto",
  "color-eyre",
  "dodeca-protocol",
  "facet-diff",
@@ -1806,8 +1819,8 @@ name = "cell-http"
 version = "0.6.1"
 dependencies = [
  "axum",
+ "cell-host-proto",
  "cell-http-proto",
- "cell-lifecycle-proto",
  "futures-util",
  "hyper",
  "hyper-util",
@@ -2000,7 +2013,7 @@ dependencies = [
 name = "cell-tui"
 version = "0.6.1"
 dependencies = [
- "cell-lifecycle-proto",
+ "cell-host-proto",
  "cell-tui-proto",
  "color-eyre",
  "crossterm",
@@ -3038,6 +3051,7 @@ dependencies = [
  "cell-dialoguer-proto",
  "cell-fonts-proto",
  "cell-gingembre-proto",
+ "cell-host-proto",
  "cell-html-diff-proto",
  "cell-html-proto",
  "cell-http-proto",

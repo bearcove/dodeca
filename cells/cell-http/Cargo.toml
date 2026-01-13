@@ -16,8 +16,8 @@ path = "src/main.rs"
 
 [dependencies]
 axum.workspace = true
+cell-host-proto = { path = "../cell-host-proto" }
 cell-http-proto = { path = "../cell-http-proto" }
-cell-lifecycle-proto = { path = "../cell-lifecycle-proto" }
 futures-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true

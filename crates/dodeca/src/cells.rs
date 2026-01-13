@@ -17,16 +17,19 @@ use cell_code_execution_proto::{
 use cell_css_proto::{CssProcessorClient, CssResult};
 use cell_dialoguer_proto::DialoguerClient;
 use cell_fonts_proto::{FontAnalysis, FontProcessorClient, FontResult, SubsetFontInput};
-use cell_gingembre_proto::{
-    ContextId, EvalResult, RenderResult, TemplateHostDispatcher, TemplateRendererClient,
+use cell_gingembre_proto::{ContextId, EvalResult, RenderResult, TemplateRendererClient};
+use cell_host_proto::{
+    BuildProgress, CallFunctionResult, CommandResult, HostService, HostServiceDispatcher,
+    KeysAtResult, LoadTemplateResult, LogEvent, ReadyAck, ReadyMsg, ResolveDataResult,
+    ServeContent, ServerCommand, ServerStatus, Value,
 };
 use cell_html_diff_proto::{DiffInput, HtmlDiffResult, HtmlDifferClient};
 use cell_html_proto::HtmlProcessorClient;
-use cell_http_proto::{ContentServiceDispatcher, TcpTunnelClient, WebSocketTunnelDispatcher};
+use cell_http_proto::{ScopeEntry, TcpTunnelClient};
 use cell_image_proto::{ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput};
 use cell_js_proto::{JsProcessorClient, JsResult, JsRewriteInput};
 use cell_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
-use cell_lifecycle_proto::{CellLifecycle, CellLifecycleDispatcher, ReadyAck, ReadyMsg};
+use cell_lifecycle_proto::CellLifecycle;
 use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, LinkStatus};
 use cell_markdown_proto::{
     FrontmatterResult, MarkdownProcessorClient, MarkdownResult, ParseResult,
@@ -38,8 +41,8 @@ use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
 use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
 use facet::Facet;
-use facet_value::Value;
-use roam::session::{ConnectionHandle, RoutedDispatcher, ServiceDispatcher};
+use roam::session::{ConnectionHandle, ServiceDispatcher};
+use roam::{Tunnel, Tx};
 use roam_shm::driver::MultiPeerHostDriver;
 use roam_shm::{AddPeerOptions, PeerId, SegmentConfig, ShmHost};
 use std::collections::HashMap;
@@ -51,8 +54,6 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command;
 use tracing::{debug, info, warn};
 
-use crate::cell_server::HostWebSocketTunnel;
-use crate::content_service::HostContentService;
 use crate::serve::SiteServer;
 use crate::template_host::{TemplateHostImpl, render_context_registry};
 
@@ -86,6 +87,34 @@ static SITE_SERVER_FOR_INIT: OnceLock<Arc<SiteServer>> = OnceLock::new();
 /// For build-only commands, this can be skipped.
 pub fn provide_site_server(server: Arc<SiteServer>) {
     let _ = SITE_SERVER_FOR_INIT.set(server);
+}
+
+/// TuiHostImpl for TUI cell initialization.
+/// Must be set via `provide_tui_host()` before calling `all()` if TUI is needed.
+static TUI_HOST_FOR_INIT: OnceLock<Arc<crate::tui_host::TuiHostImpl>> = OnceLock::new();
+
+/// Provide the TuiHostImpl for TUI cell initialization.
+/// This must be called before `all()` when running with TUI.
+/// For non-TUI commands, this can be skipped and the TUI cell won't be spawned.
+pub fn provide_tui_host(host: Arc<crate::tui_host::TuiHostImpl>) {
+    let _ = TUI_HOST_FOR_INIT.set(host);
+}
+
+/// Notification sender for when TUI cell exits.
+static TUI_EXIT_TX: OnceLock<tokio::sync::watch::Sender<bool>> = OnceLock::new();
+
+/// Wait for the TUI cell to exit.
+/// Returns immediately if TUI was not spawned.
+pub async fn wait_for_tui_exit() {
+    if let Some(tx) = TUI_EXIT_TX.get() {
+        let mut rx = tx.subscribe();
+        // Wait for the value to become true
+        while !*rx.borrow_and_update() {
+            if rx.changed().await.is_err() {
+                break;
+            }
+        }
+    }
 }
 
 /// Enable quiet mode for spawned cells (call this when TUI is active).
@@ -266,6 +295,167 @@ impl CellLifecycle for HostCellLifecycle {
         ReadyAck {
             ok: true,
             host_time_unix_ms,
+        }
+    }
+}
+
+// ============================================================================
+// Unified Host Service Implementation
+// ============================================================================
+
+/// Unified host service that all cells connect to.
+///
+/// This implements `HostService` by delegating to the specialized implementations.
+#[derive(Clone)]
+pub struct HostServiceImpl {
+    lifecycle: HostCellLifecycle,
+    template_host: crate::template_host::TemplateHostImpl,
+    site_server: Option<Arc<SiteServer>>,
+    tui_host: Option<Arc<crate::tui_host::TuiHostImpl>>,
+}
+
+impl HostServiceImpl {
+    pub fn new(
+        lifecycle: HostCellLifecycle,
+        template_host: crate::template_host::TemplateHostImpl,
+        site_server: Option<Arc<SiteServer>>,
+        tui_host: Option<Arc<crate::tui_host::TuiHostImpl>>,
+    ) -> Self {
+        Self {
+            lifecycle,
+            template_host,
+            site_server,
+            tui_host,
+        }
+    }
+}
+
+impl HostService for HostServiceImpl {
+    // Cell Lifecycle
+    async fn ready(&self, msg: ReadyMsg) -> ReadyAck {
+        let peer_id = msg.peer_id;
+        let cell_name = msg.cell_name.clone();
+        debug!("Cell {} (peer_id={}) is ready", cell_name, peer_id);
+        self.lifecycle.registry.mark_ready(msg);
+
+        let host_time_unix_ms = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_millis() as u64);
+
+        ReadyAck {
+            ok: true,
+            host_time_unix_ms,
+        }
+    }
+
+    // Template Host
+    async fn load_template(&self, context_id: ContextId, name: String) -> LoadTemplateResult {
+        use cell_gingembre_proto::TemplateHost;
+        self.template_host.load_template(context_id, name).await
+    }
+
+    async fn resolve_data(&self, context_id: ContextId, path: Vec<String>) -> ResolveDataResult {
+        use cell_gingembre_proto::TemplateHost;
+        self.template_host.resolve_data(context_id, path).await
+    }
+
+    async fn keys_at(&self, context_id: ContextId, path: Vec<String>) -> KeysAtResult {
+        use cell_gingembre_proto::TemplateHost;
+        self.template_host.keys_at(context_id, path).await
+    }
+
+    async fn call_function(
+        &self,
+        context_id: ContextId,
+        name: String,
+        args: Vec<Value>,
+        kwargs: Vec<(String, Value)>,
+    ) -> CallFunctionResult {
+        use cell_gingembre_proto::TemplateHost;
+        self.template_host
+            .call_function(context_id, name, args, kwargs)
+            .await
+    }
+
+    // Content Service
+    async fn find_content(&self, path: String) -> ServeContent {
+        if let Some(server) = &self.site_server {
+            use cell_http_proto::ContentService;
+            let content_service = crate::content_service::HostContentService::new(server.clone());
+            content_service.find_content(path).await
+        } else {
+            ServeContent::NotFound {
+                html: "Not in serve mode".to_string(),
+                generation: 0,
+            }
+        }
+    }
+
+    async fn get_scope(&self, route: String, path: Vec<String>) -> Vec<ScopeEntry> {
+        if let Some(server) = &self.site_server {
+            use cell_http_proto::ContentService;
+            let content_service = crate::content_service::HostContentService::new(server.clone());
+            content_service.get_scope(route, path).await
+        } else {
+            vec![]
+        }
+    }
+
+    async fn eval_expression(
+        &self,
+        route: String,
+        expression: String,
+    ) -> cell_host_proto::EvalResult {
+        if let Some(server) = &self.site_server {
+            use cell_http_proto::ContentService;
+            let content_service = crate::content_service::HostContentService::new(server.clone());
+            content_service.eval_expression(route, expression).await
+        } else {
+            cell_host_proto::EvalResult::Err("Not in serve mode".to_string())
+        }
+    }
+
+    // WebSocket Tunnel
+    async fn open_websocket(&self, tunnel: Tunnel) {
+        if let Some(server) = &self.site_server {
+            use cell_http_proto::WebSocketTunnel;
+            let ws_tunnel = crate::cell_server::HostWebSocketTunnel::new(server.clone());
+            ws_tunnel.open(tunnel).await
+        }
+        // Not in serve mode - drop the tunnel
+    }
+
+    // TUI Host
+    async fn subscribe_progress(&self, tx: Tx<BuildProgress>) {
+        if let Some(tui) = &self.tui_host {
+            use cell_tui_proto::TuiHost;
+            tui.subscribe_progress(tx).await
+        }
+    }
+
+    async fn subscribe_events(&self, tx: Tx<LogEvent>) {
+        if let Some(tui) = &self.tui_host {
+            use cell_tui_proto::TuiHost;
+            tui.subscribe_events(tx).await
+        }
+    }
+
+    async fn subscribe_server_status(&self, tx: Tx<ServerStatus>) {
+        if let Some(tui) = &self.tui_host {
+            use cell_tui_proto::TuiHost;
+            tui.subscribe_server_status(tx).await
+        }
+    }
+
+    async fn send_command(&self, command: ServerCommand) -> CommandResult {
+        if let Some(tui) = &self.tui_host {
+            use cell_tui_proto::TuiHost;
+            tui.send_command(command).await
+        } else {
+            CommandResult::Error {
+                message: "Not in TUI mode".to_string(),
+            }
         }
     }
 }
@@ -489,27 +679,58 @@ pub async fn eval_template_expression(
 // Cell Registry Implementation
 // ============================================================================
 
-/// Cell binary suffixes (e.g., "image" -> "ddc-cell-image")
-/// The cell name for lookup is derived by replacing `-` with `_`.
-const CELL_SUFFIXES: &[&str] = &[
-    "image",
-    "webp",
-    "jxl",
-    "markdown",
-    "html",
-    "minify",
-    "css",
-    "sass",
-    "js",
-    "svgo",
-    "fonts",
-    "linkcheck",
-    "html-diff",
-    "dialoguer",
-    "pagefind",
-    "code-execution",
-    "http",
-    "gingembre",
+/// Configuration for a cell's spawn behavior.
+struct CellDef {
+    /// Binary suffix (e.g., "image" -> "ddc-cell-image")
+    suffix: &'static str,
+    /// If true, cell inherits stdio for direct terminal access
+    inherit_stdio: bool,
+    /// If true, cell exit triggers process exit. If false, cell exit is normal.
+    fatal_on_exit: bool,
+}
+
+impl CellDef {
+    const fn new(suffix: &'static str) -> Self {
+        Self {
+            suffix,
+            inherit_stdio: false,
+            fatal_on_exit: true,
+        }
+    }
+
+    const fn inherit_stdio(mut self) -> Self {
+        self.inherit_stdio = true;
+        self
+    }
+
+    const fn non_fatal(mut self) -> Self {
+        self.fatal_on_exit = false;
+        self
+    }
+}
+
+/// Cell definitions with their spawn configuration.
+const CELL_DEFS: &[CellDef] = &[
+    CellDef::new("image"),
+    CellDef::new("webp"),
+    CellDef::new("jxl"),
+    CellDef::new("markdown"),
+    CellDef::new("html"),
+    CellDef::new("minify"),
+    CellDef::new("css"),
+    CellDef::new("sass"),
+    CellDef::new("js"),
+    CellDef::new("svgo"),
+    CellDef::new("fonts"),
+    CellDef::new("linkcheck"),
+    CellDef::new("html-diff"),
+    CellDef::new("dialoguer"),
+    CellDef::new("pagefind"),
+    CellDef::new("code-execution"),
+    CellDef::new("http"),
+    CellDef::new("gingembre"),
+    // TUI needs terminal access and graceful exit (not fatal)
+    CellDef::new("tui").inherit_stdio().non_fatal(),
 ];
 
 /// Cell registry providing typed client accessors.
@@ -572,10 +793,23 @@ async fn init_cells_inner() -> eyre::Result<()> {
     // Spawn all cells and collect (peer_id, cell_name) mappings
     let mut peer_cells: Vec<(PeerId, String, tokio::process::Child)> = Vec::new();
 
-    for suffix in CELL_SUFFIXES {
-        let binary_name = format!("ddc-cell-{}", suffix);
-        let cell_name = suffix.replace('-', "_");
+    // Check if TUI host is provided - if so, set up exit notification
+    let tui_enabled = TUI_HOST_FOR_INIT.get().is_some();
+    if tui_enabled {
+        let (tx, _rx) = tokio::sync::watch::channel(false);
+        let _ = TUI_EXIT_TX.set(tx);
+    }
+
+    for cell_def in CELL_DEFS {
+        let binary_name = format!("ddc-cell-{}", cell_def.suffix);
+        let cell_name = cell_def.suffix.replace('-', "_");
         let binary_path = cell_dir.join(&binary_name);
+
+        // Skip TUI cell if TUI host not provided
+        if cell_name == "tui" && !tui_enabled {
+            debug!("Skipping TUI cell (no TUI host provided)");
+            continue;
+        }
 
         if !binary_path.exists() {
             debug!("Cell binary not found: {}", binary_path.display());
@@ -584,15 +818,29 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
         // Add peer to host
         let cell_name_for_death = cell_name.clone();
+        let fatal_on_exit = cell_def.fatal_on_exit;
         let ticket = host.add_peer(AddPeerOptions {
             peer_name: Some(binary_name.clone()),
-            on_death: Some(Arc::new(move |peer_id| {
-                eprintln!(
-                    "FATAL: {} cell died unexpectedly (peer_id={:?})",
-                    cell_name_for_death, peer_id
-                );
-                std::process::exit(1);
-            })),
+            on_death: if fatal_on_exit {
+                Some(Arc::new(move |peer_id| {
+                    eprintln!(
+                        "FATAL: {} cell died unexpectedly (peer_id={:?})",
+                        cell_name_for_death, peer_id
+                    );
+                    std::process::exit(1);
+                }))
+            } else {
+                // Non-fatal exit - signal via TUI_EXIT_TX if available
+                Some(Arc::new(move |peer_id| {
+                    debug!(
+                        "{} cell exited (peer_id={:?})",
+                        cell_name_for_death, peer_id
+                    );
+                    if let Some(tx) = TUI_EXIT_TX.get() {
+                        let _ = tx.send(true);
+                    }
+                }))
+            },
         })?;
 
         let peer_id = ticket.peer_id;
@@ -603,7 +851,11 @@ async fn init_cells_inner() -> eyre::Result<()> {
             cmd.arg(arg);
         }
 
-        if is_quiet_mode() {
+        if cell_def.inherit_stdio {
+            cmd.stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit());
+        } else if is_quiet_mode() {
             cmd.stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
@@ -616,8 +868,8 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
         let mut child = ur_taking_me_with_you::spawn_dying_with_parent_async(cmd)?;
 
-        // Capture stdio
-        if !is_quiet_mode() {
+        // Capture stdio (not for cells that inherit)
+        if !cell_def.inherit_stdio && !is_quiet_mode() {
             capture_cell_stdio(&binary_name, &mut child);
         }
 
@@ -638,44 +890,19 @@ async fn init_cells_inner() -> eyre::Result<()> {
         return Err(eyre::eyre!("No cells found to spawn"));
     }
 
-    // Build the MultiPeerHostDriver with CellLifecycle dispatcher for each peer
-    // Gingembre is special: it needs TemplateHost callbacks from the host
-    let lifecycle_impl = HostCellLifecycle::new(cell_ready_registry().clone());
-    let template_host_impl = TemplateHostImpl::new(render_context_registry());
+    // Build the unified host service - one service for all cells
+    let host_service = HostServiceImpl::new(
+        HostCellLifecycle::new(cell_ready_registry().clone()),
+        TemplateHostImpl::new(render_context_registry()),
+        SITE_SERVER_FOR_INIT.get().cloned(),
+        TUI_HOST_FOR_INIT.get().cloned(),
+    );
 
+    // Every cell gets the same dispatcher
     let mut builder = MultiPeerHostDriver::new(host);
-    for (peer_id, cell_name, _) in &peer_cells {
-        if cell_name == "gingembre" {
-            // Gingembre needs bidirectional RPC: host calls TemplateRenderer,
-            // cell calls back TemplateHost. Use RoutedDispatcher to combine both.
-            let dispatcher = RoutedDispatcher::new(
-                CellLifecycleDispatcher::new(lifecycle_impl.clone()),
-                TemplateHostDispatcher::new(template_host_impl.clone()),
-            );
-            builder = builder.add_peer(*peer_id, dispatcher);
-        } else if cell_name == "http" {
-            // HTTP cell needs ContentService and WebSocketTunnel from the host.
-            // SiteServer must be provided via provide_site_server() before all().
-            if let Some(server) = SITE_SERVER_FOR_INIT.get() {
-                let dispatcher = RoutedDispatcher::new(
-                    CellLifecycleDispatcher::new(lifecycle_impl.clone()),
-                    RoutedDispatcher::new(
-                        ContentServiceDispatcher::new(HostContentService::new(server.clone())),
-                        WebSocketTunnelDispatcher::new(HostWebSocketTunnel::new(server.clone())),
-                    ),
-                );
-                builder = builder.add_peer(*peer_id, dispatcher);
-            } else {
-                // No SiteServer provided - http cell won't be able to serve content.
-                // This is fine for build-only commands.
-                debug!("HTTP cell initialized without SiteServer (build-only mode)");
-                let dispatcher = CellLifecycleDispatcher::new(lifecycle_impl.clone());
-                builder = builder.add_peer(*peer_id, dispatcher);
-            }
-        } else {
-            let dispatcher = CellLifecycleDispatcher::new(lifecycle_impl.clone());
-            builder = builder.add_peer(*peer_id, dispatcher);
-        }
+    for (peer_id, _cell_name, _) in &peer_cells {
+        let dispatcher = HostServiceDispatcher::new(host_service.clone());
+        builder = builder.add_peer(*peer_id, dispatcher);
     }
 
     let (driver, handles) = builder.build();

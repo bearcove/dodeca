@@ -28,6 +28,7 @@ cell-lifecycle-proto = { path = "../../cells/cell-lifecycle-proto" }
 cell-dialoguer-proto = { path = "../../cells/cell-dialoguer-proto" }
 cell-css-proto = { path = "../../cells/cell-css-proto" }
 cell-gingembre-proto = { path = "../../cells/cell-gingembre-proto" }
+cell-host-proto = { path = "../../cells/cell-host-proto" }
 cell-fonts-proto = { path = "../../cells/cell-fonts-proto" }
 cell-html-diff-proto = { path = "../../cells/cell-html-diff-proto" }
 cell-html-proto = { path = "../../cells/cell-html-proto" }

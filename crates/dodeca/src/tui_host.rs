@@ -9,9 +9,8 @@ use std::sync::Mutex;
 
 use cell_tui_proto::{
     BindMode, BuildProgress, CommandResult, EventKind, LogEvent, LogLevel, ServerCommand,
-    ServerStatus, TaskProgress, TaskStatus, TuiHost, TuiHostDispatcher,
+    ServerStatus, TaskProgress, TaskStatus, TuiHost,
 };
-use eyre::Result;
 use futures_util::StreamExt;
 use roam::Tx;
 use tokio::sync::{broadcast, mpsc, watch};
@@ -80,11 +79,6 @@ impl TuiHostImpl {
             events_history: self.events_history.clone(),
             status_tx: self.status_tx.clone(),
         }
-    }
-
-    /// Create the roam dispatcher wrapper
-    pub fn into_dispatcher(self) -> TuiHostDispatcher<Self> {
-        TuiHostDispatcher::new(self)
     }
 }
 
@@ -285,106 +279,6 @@ pub fn convert_server_command(cmd: ServerCommand) -> crate::tui::ServerCommand {
             )
         }
     }
-}
-
-// ============================================================================
-// TUI Cell Spawning
-// ============================================================================
-
-/// Wrapper struct that implements TuiHost by delegating to `Arc<TuiHostImpl>`
-#[derive(Clone)]
-struct TuiHostWrapper(Arc<TuiHostImpl>);
-
-impl TuiHost for TuiHostWrapper {
-    async fn subscribe_progress(&self, tx: Tx<BuildProgress>) {
-        self.0.subscribe_progress(tx).await
-    }
-
-    async fn subscribe_events(&self, tx: Tx<LogEvent>) {
-        self.0.subscribe_events(tx).await
-    }
-
-    async fn subscribe_server_status(&self, tx: Tx<ServerStatus>) {
-        self.0.subscribe_server_status(tx).await
-    }
-
-    async fn send_command(&self, command: ServerCommand) -> CommandResult {
-        self.0.send_command(command).await
-    }
-}
-
-/// Start the TUI cell and run the host service
-///
-/// This spawns the TUI cell through the hub (like all other cells) and sets up
-/// the TuiHost RPC dispatcher so the cell can subscribe to updates.
-///
-/// The `shutdown_rx` allows external signaling to stop the TUI.
-pub async fn start_tui_cell(
-    tui_host: TuiHostImpl,
-    mut shutdown_rx: Option<watch::Receiver<bool>>,
-) -> Result<()> {
-    let tui_host_arc = Arc::new(tui_host);
-    let wrapper = TuiHostWrapper(tui_host_arc);
-    let dispatcher = TuiHostDispatcher::new(wrapper);
-
-    // TUI cell needs inherit_stdio=true for direct terminal access
-    let binary_path = crate::cells::find_cell_binary("ddc-cell-tui").ok_or_else(|| {
-        eyre::eyre!(
-            "Failed to find TUI cell binary. Make sure ddc-cell-tui is built and in the cell path."
-        )
-    })?;
-
-    let config = crate::cells::CellSpawnConfig {
-        inherit_stdio: true, // TUI needs direct terminal access
-        manage_child: true,
-    };
-
-    let spawned = crate::cells::spawn_cell_with_dispatcher(
-        &binary_path,
-        "ddc-cell-tui",
-        dispatcher,
-        &config,
-    )
-    .ok_or_else(|| {
-        eyre::eyre!(
-            "Failed to spawn TUI cell. spawn_cell_with_dispatcher is not yet implemented for roam."
-        )
-    })?;
-
-    // Get the child process handle if available
-    let mut child = spawned
-        .child
-        .ok_or_else(|| eyre::eyre!("TUI cell spawned but no child process handle available"))?;
-
-    // Wait for TUI process to exit or shutdown signal
-    #[allow(clippy::never_loop)] // Loop is for select! - exits on either branch
-    loop {
-        tokio::select! {
-            status = child.wait() => {
-                match status {
-                    Ok(s) => tracing::debug!("TUI cell exited with status: {}", s),
-                    Err(e) => tracing::error!("TUI cell wait error: {:?}", e),
-                }
-                break;
-            }
-            _ = async {
-                if let Some(ref mut rx) = shutdown_rx {
-                    rx.changed().await.ok();
-                    if *rx.borrow() {
-                        return;
-                    }
-                }
-                // Never complete if no shutdown receiver
-                std::future::pending::<()>().await
-            } => {
-                tracing::info!("Shutdown signal received, stopping TUI cell");
-                let _ = child.kill().await;
-                break;
-            }
-        }
-    }
-
-    Ok(())
 }
 
 fn record_event(history: &Arc<Mutex<VecDeque<LogEvent>>>, event: LogEvent) {

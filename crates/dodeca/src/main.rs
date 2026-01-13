@@ -2371,6 +2371,14 @@ async fn serve_with_tui(
     // Enable quiet mode for cells so they don't print startup messages that corrupt TUI
     cells::set_quiet_mode(true);
 
+    // Create TUI host early so we can register it before cell initialization.
+    // The proto_cmd channel is used later by the command bridge.
+    let (proto_cmd_tx, proto_cmd_rx) =
+        tokio::sync::mpsc::unbounded_channel::<cell_tui_proto::ServerCommand>();
+    let tui_host = Arc::new(tui_host::TuiHostImpl::new(proto_cmd_tx));
+    let tui_handle = tui_host.handle();
+    cells::provide_tui_host(tui_host);
+
     // Initialize cells and wait for ALL to be ready before doing anything
     cells::init_and_wait_for_cells().await?;
 
@@ -2974,12 +2982,8 @@ async fn serve_with_tui(
         }
     });
 
-    // Run TUI cell
-    // Create a proto command channel for TuiHost, with a bridge to the old channel
-    let (proto_cmd_tx, mut proto_cmd_rx) =
-        tokio::sync::mpsc::unbounded_channel::<cell_tui_proto::ServerCommand>();
-
-    // Bridge proto commands to old tui commands (or handle directly)
+    // Bridge proto commands from TUI cell to old tui commands (or handle directly)
+    let mut proto_cmd_rx = proto_cmd_rx; // Move the receiver from earlier
     let filter_handle_for_bridge = filter_handle.clone();
     let event_tx_for_bridge = event_tx.clone();
     tokio::spawn(async move {
@@ -3029,10 +3033,6 @@ async fn serve_with_tui(
         }
     });
 
-    // Create TuiHost service with the proto command channel
-    let tui_host = tui_host::TuiHostImpl::new(proto_cmd_tx);
-    let tui_handle = tui_host.handle();
-
     // Seed the TUI host with the latest snapshots before the cell subscribes.
     // (The forwarders will keep it updated after this.)
     {
@@ -3079,17 +3079,8 @@ async fn serve_with_tui(
         }
     });
 
-    // Create shutdown channel for TUI cell
-    let (tui_shutdown_tx, tui_shutdown_rx) = watch::channel(false);
-
-    // Run the TUI cell (blocks until TUI exits)
-    if let Err(e) = tui_host::start_tui_cell(tui_host, Some(tui_shutdown_rx)).await {
-        eprintln!("TUI cell failed to start: {e:?}");
-        return Err(e);
-    }
-
-    // Ignore unused variables
-    let _ = tui_shutdown_tx;
+    // Wait for TUI cell to exit (user pressed 'q' or terminal closed)
+    cells::wait_for_tui_exit().await;
 
     // Signal server to shutdown (use current_shutdown in case it was swapped)
     {

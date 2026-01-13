@@ -17,11 +17,11 @@ use color_eyre::Result;
 use facet_html::{self as fhtml};
 use facet_html_dom::*;
 
+use cell_host_proto::{HostServiceClient, ReadyMsg};
 use cell_html_proto::{
     CodeExecutionMetadata, DiffResult, HtmlDiffResult, HtmlHostClient, HtmlProcessInput,
     HtmlProcessResult, HtmlProcessor, HtmlProcessorDispatcher, HtmlResult, Injection,
 };
-use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
 use roam::session::{ConnectionHandle, RoutedDispatcher};
 use roam_shm::driver::establish_guest;
 use roam_shm::guest::ShmGuest;
@@ -1167,16 +1167,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = handle_cell.set(handle.clone());
 
     // Signal readiness to host
-    let lifecycle = CellLifecycleClient::new(handle.clone());
-    lifecycle
-        .ready(ReadyMsg {
-            peer_id: args.peer_id.get() as u16,
-            cell_name: "html".to_string(),
-            pid: Some(std::process::id()),
-            version: None,
-            features: vec![],
-        })
-        .await?;
+    let host = HostServiceClient::new(handle.clone());
+    host.ready(ReadyMsg {
+        peer_id: args.peer_id.get() as u16,
+        cell_name: "html".to_string(),
+        pid: Some(std::process::id()),
+        version: None,
+        features: vec![],
+    })
+    .await?;
 
     // Wait for driver
     if let Err(e) = driver_handle.await {

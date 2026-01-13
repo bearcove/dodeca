@@ -1,0 +1,20 @@
+[package]
+name = "cell-host-proto"
+version = "0.1.0"
+edition = "2024"
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[dependencies]
+facet = { workspace = true }
+facet-value = { workspace = true }
+roam = { workspace = true }
+
+# Re-export types from other proto crates
+cell-lifecycle-proto = { path = "../cell-lifecycle-proto" }
+cell-gingembre-proto = { path = "../cell-gingembre-proto" }
+cell-http-proto = { path = "../cell-http-proto" }
+cell-tui-proto = { path = "../cell-tui-proto" }

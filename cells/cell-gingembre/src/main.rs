@@ -5,10 +5,12 @@
 //! - Calls back to host for template loading, data resolution, and function calls
 
 use cell_gingembre_proto::{
-    CallFunctionResult, ContextId, EvalResult, KeysAtResult, LoadTemplateResult, RenderResult,
-    ResolveDataResult, TemplateHostClient, TemplateRenderer, TemplateRendererDispatcher,
+    ContextId, EvalResult, RenderResult, TemplateRenderer, TemplateRendererDispatcher,
 };
-use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
+use cell_host_proto::{
+    CallFunctionResult, HostServiceClient, KeysAtResult, LoadTemplateResult, ReadyMsg,
+    ResolveDataResult,
+};
 use facet_value::DestructuredRef;
 use futures::future::BoxFuture;
 use gingembre::{Context, DataPath, DataResolver, Engine, TemplateLoader, Value};
@@ -28,8 +30,8 @@ pub struct CellContext {
 
 impl CellContext {
     /// Create a client for calling back to the host
-    pub fn host_client(&self) -> TemplateHostClient {
-        TemplateHostClient::new(self.handle.clone())
+    pub fn host_client(&self) -> HostServiceClient {
+        HostServiceClient::new(self.handle.clone())
     }
 }
 
@@ -39,12 +41,12 @@ impl CellContext {
 
 /// Template loader that calls back to the host via RPC.
 struct RpcTemplateLoader {
-    client: TemplateHostClient,
+    client: HostServiceClient,
     context_id: ContextId,
 }
 
 impl RpcTemplateLoader {
-    fn new(client: TemplateHostClient, context_id: ContextId) -> Self {
+    fn new(client: HostServiceClient, context_id: ContextId) -> Self {
         Self { client, context_id }
     }
 }
@@ -71,12 +73,12 @@ impl TemplateLoader for RpcTemplateLoader {
 
 /// Data resolver that calls back to the host via RPC.
 struct RpcDataResolver {
-    client: TemplateHostClient,
+    client: HostServiceClient,
     context_id: ContextId,
 }
 
 impl RpcDataResolver {
-    fn new(client: TemplateHostClient, context_id: ContextId) -> Self {
+    fn new(client: HostServiceClient, context_id: ContextId) -> Self {
         Self { client, context_id }
     }
 }
@@ -132,7 +134,7 @@ fn make_rpc_function(
     name: String,
 ) -> gingembre::GlobalFn {
     Box::new(move |args: &[Value], kwargs: &[(String, Value)]| {
-        let client = TemplateHostClient::new(handle.clone());
+        let client = HostServiceClient::new(handle.clone());
         let name = name.clone();
         let args = args.to_vec();
         let kwargs = kwargs.to_vec();
@@ -279,8 +281,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             self.handle_cell.get().expect("handle not initialized")
         }
 
-        fn host_client(&self) -> TemplateHostClient {
-            TemplateHostClient::new(self.handle().clone())
+        fn host_client(&self) -> HostServiceClient {
+            HostServiceClient::new(self.handle().clone())
         }
     }
 
@@ -391,16 +393,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = handle_cell.set(handle.clone());
 
     // Signal readiness to host
-    let lifecycle = CellLifecycleClient::new(handle.clone());
-    lifecycle
-        .ready(ReadyMsg {
-            peer_id: args.peer_id.get() as u16,
-            cell_name: "gingembre".to_string(),
-            pid: Some(std::process::id()),
-            version: None,
-            features: vec![],
-        })
-        .await?;
+    let host = HostServiceClient::new(handle.clone());
+    host.ready(ReadyMsg {
+        peer_id: args.peer_id.get() as u16,
+        cell_name: "gingembre".to_string(),
+        pid: Some(std::process::id()),
+        version: None,
+        features: vec![],
+    })
+    .await?;
 
     // Wait for driver
     if let Err(e) = driver_handle.await {

@@ -33,7 +33,7 @@ async fn handle_socket(socket: WebSocket, ctx: Arc<dyn RouterContext>) {
     let channel_id = local.tx.channel_id();
 
     // Open a WebSocket tunnel to the host, passing the remote end
-    if let Err(e) = ctx.ws_tunnel_client().open(remote).await {
+    if let Err(e) = ctx.host_client().open_websocket(remote).await {
         tracing::error!("Failed to open WebSocket tunnel to host: {:?}", e);
         return;
     }

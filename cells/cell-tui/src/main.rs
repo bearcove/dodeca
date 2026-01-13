@@ -29,10 +29,9 @@ use roam_shm::spawn::SpawnArgs;
 use roam_shm::transport::ShmGuestTransport;
 use tokio::sync::mpsc;
 
-use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
-use cell_tui_proto::{
-    BindMode, BuildProgress, EventKind, LogEvent, LogLevel, ServerCommand, ServerStatus,
-    TuiHostClient,
+use cell_host_proto::{
+    BindMode, BuildProgress, EventKind, HostServiceClient, LogEvent, LogLevel, ReadyMsg,
+    ServerCommand, ServerStatus,
 };
 
 mod theme;
@@ -543,16 +542,15 @@ async fn main() -> Result<()> {
     let _ = handle_cell.set(handle.clone());
 
     // Signal readiness to host
-    let lifecycle = CellLifecycleClient::new(handle.clone());
-    lifecycle
-        .ready(ReadyMsg {
-            peer_id: args.peer_id.get() as u16,
-            cell_name: "tui".to_string(),
-            pid: Some(std::process::id()),
-            version: None,
-            features: vec![],
-        })
-        .await?;
+    let host = HostServiceClient::new(handle.clone());
+    host.ready(ReadyMsg {
+        peer_id: args.peer_id.get() as u16,
+        cell_name: "tui".to_string(),
+        pid: Some(std::process::id()),
+        version: None,
+        features: vec![],
+    })
+    .await?;
 
     // Spawn the TUI loop - when it exits, terminate the cell process
     tokio::spawn(async move {
@@ -573,8 +571,8 @@ async fn main() -> Result<()> {
 }
 
 async fn run_tui(handle: ConnectionHandle) -> Result<()> {
-    // Create TuiHost client
-    let client = TuiHostClient::new(handle);
+    // Create host client
+    let client = HostServiceClient::new(handle);
 
     // Channel for sending commands
     let (command_tx, mut command_rx) = mpsc::unbounded_channel::<ServerCommand>();

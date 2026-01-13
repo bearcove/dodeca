@@ -29,16 +29,15 @@ use roam_shm::transport::ShmGuestTransport;
 use roam_tracing::{CellTracingDispatcher, init_cell_tracing};
 use tracing_subscriber::prelude::*;
 
-use cell_http_proto::{ContentServiceClient, TcpTunnelDispatcher, WebSocketTunnelClient};
-use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
+use cell_host_proto::{HostServiceClient, ReadyMsg};
+use cell_http_proto::TcpTunnelDispatcher;
 
 mod devtools;
 mod tunnel;
 
 /// Trait for router context - allows lazy initialization
 pub trait RouterContext: Send + Sync + 'static {
-    fn content_client(&self) -> ContentServiceClient;
-    fn ws_tunnel_client(&self) -> WebSocketTunnelClient;
+    fn host_client(&self) -> HostServiceClient;
     fn handle(&self) -> &ConnectionHandle;
 }
 
@@ -54,11 +53,8 @@ impl LazyRouterContext {
 }
 
 impl RouterContext for LazyRouterContext {
-    fn content_client(&self) -> ContentServiceClient {
-        ContentServiceClient::new(self.get_handle().clone())
-    }
-    fn ws_tunnel_client(&self) -> WebSocketTunnelClient {
-        WebSocketTunnelClient::new(self.get_handle().clone())
+    fn host_client(&self) -> HostServiceClient {
+        HostServiceClient::new(self.get_handle().clone())
     }
     fn handle(&self) -> &ConnectionHandle {
         self.get_handle()
@@ -109,16 +105,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = handle_cell.set(handle.clone());
 
     // Signal readiness to host
-    let lifecycle = CellLifecycleClient::new(handle.clone());
-    lifecycle
-        .ready(ReadyMsg {
-            peer_id: args.peer_id.get() as u16,
-            cell_name: "http".to_string(),
-            pid: Some(std::process::id()),
-            version: None,
-            features: vec![],
-        })
-        .await?;
+    let host = HostServiceClient::new(handle.clone());
+    host.ready(ReadyMsg {
+        peer_id: args.peer_id.get() as u16,
+        cell_name: "http".to_string(),
+        pid: Some(std::process::id()),
+        version: None,
+        features: vec![],
+    })
+    .await?;
 
     // Wait for driver
     if let Err(e) = driver_handle.await {
@@ -152,7 +147,7 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
         request: Request,
     ) -> Response {
         let path = request.uri().path().to_string();
-        let client = ctx.content_client();
+        let client = ctx.host_client();
 
         // Call host to get content
         let content = match client.find_content(path.clone()).await {
