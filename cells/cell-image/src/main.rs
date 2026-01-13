@@ -6,10 +6,13 @@ use base64::Engine;
 use image::{DynamicImage, ImageEncoder, Rgb, Rgba};
 
 use cell_image_proto::{
-    DecodedImage, ImageProcessor, ImageProcessorServer, ImageResult, ResizeInput, ThumbhashInput,
+    DecodedImage, ImageProcessor, ImageProcessorDispatcher, ImageResult, ResizeInput,
+    ThumbhashInput,
 };
+use dodeca_cell_runtime::run_cell;
 
 /// Image processor implementation
+#[derive(Clone)]
 pub struct ImageProcessorImpl;
 
 impl ImageProcessor for ImageProcessorImpl {
@@ -167,10 +170,6 @@ fn pixels_to_dynamic_image(
     }
 }
 
-rapace_cell::cell_service!(ImageProcessorServer<ImageProcessorImpl>, ImageProcessorImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(ImageProcessorImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("image", ImageProcessorDispatcher::new(ImageProcessorImpl))
 }

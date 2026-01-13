@@ -2,15 +2,16 @@
 //!
 //! This cell handles extracting and executing code samples from markdown.
 
-use cell_code_execution_proto::{CodeExecutionResult, CodeExecutor, CodeExecutorServer};
+use dodeca_cell_runtime::run_cell;
+
+use cell_code_execution_proto::{CodeExecutionResult, CodeExecutor, CodeExecutorDispatcher};
 
 // Include implementation code directly
 include!("impl.rs");
 
-rapace_cell::cell_service!(CodeExecutorServer<CodeExecutorImpl>, CodeExecutorImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(CodeExecutorImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!(
+        "code_execution",
+        CodeExecutorDispatcher::new(CodeExecutorImpl)
+    )
 }

@@ -11,4 +11,7 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 [dependencies]
 facet.workspace = true
 facet-value.workspace = true
-rapace.workspace = true
+roam.workspace = true
+
+[dev-dependencies]
+facet-postcard.workspace = true

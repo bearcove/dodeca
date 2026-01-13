@@ -1,7 +1,7 @@
-//! ContentService implementation for the rapace RPC server
+//! ContentService implementation for the roam RPC server
 //!
-//! This implements the ContentService trait from dodeca-serve-protocol,
-//! allowing the cell to fetch content from the host's picante DB via RPC.
+//! This implements the ContentService trait from cell-http-proto,
+//! allowing the HTTP cell to fetch content from the host's picante DB via RPC.
 
 use std::sync::Arc;
 

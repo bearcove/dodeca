@@ -2,9 +2,11 @@
 //!
 //! This cell handles HTML minification.
 
-use cell_minify_proto::{Minifier, MinifierServer, MinifyResult};
+use cell_minify_proto::{Minifier, MinifierDispatcher, MinifyResult};
+use dodeca_cell_runtime::run_cell;
 
 /// Minifier implementation
+#[derive(Clone)]
 pub struct MinifierImpl;
 
 impl Minifier for MinifierImpl {
@@ -15,10 +17,6 @@ impl Minifier for MinifierImpl {
     }
 }
 
-rapace_cell::cell_service!(MinifierServer<MinifierImpl>, MinifierImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(MinifierImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("minify", MinifierDispatcher::new(MinifierImpl))
 }

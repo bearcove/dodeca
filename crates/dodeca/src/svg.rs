@@ -3,15 +3,24 @@
 //! Provides HTML and SVG minification via cells.
 
 use crate::cells::{minify_html_cell, optimize_svg_cell};
+use cell_minify_proto::MinifyResult;
+use cell_svgo_proto::SvgoResult;
 
 /// Minify HTML content
 ///
 /// Returns minified HTML, or original content if minification fails
 pub async fn minify_html(html: &str) -> String {
-    minify_html_cell(html).await.unwrap_or_else(|e| {
-        tracing::warn!("HTML minification failed: {}", e);
-        html.to_string()
-    })
+    match minify_html_cell(html.to_string()).await {
+        Ok(MinifyResult::Success { content }) => content,
+        Ok(MinifyResult::Error { message }) => {
+            tracing::warn!("HTML minification failed: {}", message);
+            html.to_string()
+        }
+        Err(e) => {
+            tracing::warn!("HTML minification RPC failed: {}", e);
+            html.to_string()
+        }
+    }
 }
 
 /// Optimize SVG content
@@ -19,7 +28,17 @@ pub async fn minify_html(html: &str) -> String {
 /// Removes unnecessary metadata, collapses groups, optimizes paths, etc.
 /// Preserves case sensitivity of SVG attributes.
 pub async fn optimize_svg(svg_content: &str) -> Option<String> {
-    optimize_svg_cell(svg_content).await.ok()
+    match optimize_svg_cell(svg_content.to_string()).await {
+        Ok(SvgoResult::Success { svg }) => Some(svg),
+        Ok(SvgoResult::Error { message }) => {
+            tracing::warn!("SVG optimization failed: {}", message);
+            None
+        }
+        Err(e) => {
+            tracing::warn!("SVG optimization RPC failed: {}", e);
+            None
+        }
+    }
 }
 
 #[cfg(test)]

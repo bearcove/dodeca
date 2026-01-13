@@ -2,11 +2,13 @@
 //!
 //! This cell handles CSS URL rewriting and minification via lightningcss.
 
-use cell_css_proto::{CssProcessor, CssProcessorServer};
+use cell_css_proto::{CssProcessor, CssProcessorDispatcher};
+use dodeca_cell_runtime::run_cell;
 use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 use lightningcss::visitor::Visit;
 
 /// CSS processor implementation
+#[derive(Clone)]
 pub struct CssProcessorImpl;
 
 impl CssProcessor for CssProcessorImpl {
@@ -73,10 +75,6 @@ impl<'i, 'a> lightningcss::visitor::Visitor<'i> for UrlRewriter<'a> {
     }
 }
 
-rapace_cell::cell_service!(CssProcessorServer<CssProcessorImpl>, CssProcessorImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(CssProcessorImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("css", CssProcessorDispatcher::new(CssProcessorImpl))
 }

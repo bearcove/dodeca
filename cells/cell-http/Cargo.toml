@@ -17,10 +17,13 @@ path = "src/main.rs"
 [dependencies]
 axum.workspace = true
 cell-http-proto = { path = "../cell-http-proto" }
+cell-lifecycle-proto = { path = "../cell-lifecycle-proto" }
 futures-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
-rapace = { workspace = true, features = ["stream"] }
-rapace-cell.workspace = true
+roam.workspace = true
+roam-shm.workspace = true
+roam-tracing.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true

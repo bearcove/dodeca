@@ -4,11 +4,14 @@
 
 use std::collections::{HashMap, HashSet};
 
+use dodeca_cell_runtime::run_cell;
+
 use cell_fonts_proto::{
-    FontAnalysis, FontFace, FontProcessor, FontProcessorServer, FontResult, SubsetFontInput,
+    FontAnalysis, FontFace, FontProcessor, FontProcessorDispatcher, FontResult, SubsetFontInput,
 };
 
 /// Font processor implementation
+#[derive(Clone)]
 pub struct FontProcessorImpl;
 
 impl FontProcessor for FontProcessorImpl {
@@ -81,10 +84,6 @@ impl FontProcessor for FontProcessorImpl {
     }
 }
 
-rapace_cell::cell_service!(FontProcessorServer<FontProcessorImpl>, FontProcessorImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(FontProcessorImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("fonts", FontProcessorDispatcher::new(FontProcessorImpl))
 }

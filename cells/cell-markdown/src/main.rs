@@ -3,6 +3,7 @@
 //! This cell uses marq for markdown rendering with direct code block rendering.
 
 use cell_markdown_proto::*;
+use dodeca_cell_runtime::run_cell;
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, LinkResolver, PikruHandler, RenderOptions,
     render,
@@ -127,13 +128,9 @@ fn convert_req(r: marq::ReqDefinition) -> ReqDefinition {
     }
 }
 
-rapace_cell::cell_service!(
-    MarkdownProcessorServer<MarkdownProcessorImpl>,
-    MarkdownProcessorImpl
-);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(MarkdownProcessorImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!(
+        "markdown",
+        MarkdownProcessorDispatcher::new(MarkdownProcessorImpl)
+    )
 }

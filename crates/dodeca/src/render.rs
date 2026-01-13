@@ -409,9 +409,12 @@ async fn inject_code_buttons(
     html: &str,
     code_metadata: &HashMap<String, cell_html_proto::CodeExecutionMetadata>,
 ) -> (String, bool) {
-    match inject_code_buttons_cell(html, code_metadata).await {
-        Some((result, had_buttons)) => (result, had_buttons),
-        None => (html.to_string(), false),
+    match inject_code_buttons_cell(html.to_string(), code_metadata.clone()).await {
+        Ok((result, had_buttons)) => (result, had_buttons),
+        Err(e) => {
+            tracing::warn!("Code button injection failed: {}", e);
+            (html.to_string(), false)
+        }
     }
 }
 
@@ -811,9 +814,9 @@ pub async fn try_render_page_via_cell(
 
     // Render via cell
     let result = match render_template_cell(guard.id(), "page.html", initial_context).await {
-        Some(Ok(html)) => Ok(html),
-        Some(Err(e)) => Err(e),
-        None => Err("Gingembre cell unavailable".to_string()),
+        Ok(cell_gingembre_proto::RenderResult::Success { html }) => Ok(html),
+        Ok(cell_gingembre_proto::RenderResult::Error { message }) => Err(message),
+        Err(e) => Err(format!("Gingembre cell error: {}", e)),
     };
 
     if let Ok(ref html) = result {
@@ -877,9 +880,9 @@ pub async fn try_render_section_via_cell(
 
     // Render via cell
     match render_template_cell(guard.id(), template_name, initial_context).await {
-        Some(Ok(html)) => Ok(html),
-        Some(Err(e)) => Err(e),
-        None => Err("Gingembre cell unavailable".to_string()),
+        Ok(cell_gingembre_proto::RenderResult::Success { html }) => Ok(html),
+        Ok(cell_gingembre_proto::RenderResult::Error { message }) => Err(message),
+        Err(e) => Err(format!("Gingembre cell error: {}", e)),
     }
 }
 

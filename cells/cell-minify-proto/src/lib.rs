@@ -18,7 +18,7 @@ pub enum MinifyResult {
 ///
 /// The host calls these methods to minify content.
 #[allow(async_fn_in_trait)]
-#[rapace::service]
+#[roam::service]
 pub trait Minifier {
     /// Minify HTML content
     ///

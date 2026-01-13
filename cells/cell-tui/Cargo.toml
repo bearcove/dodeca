@@ -17,12 +17,12 @@ name = "ddc-cell-tui"
 path = "src/main.rs"
 
 [dependencies]
+cell-lifecycle-proto = { path = "../cell-lifecycle-proto" }
 cell-tui-proto = { path = "../cell-tui-proto" }
 color-eyre.workspace = true
 crossterm.workspace = true
-futures.workspace = true
 open = "5.3.3"
-rapace = { workspace = true, features = ["stream"] }
-rapace-cell.workspace = true
+roam.workspace = true
+roam-shm.workspace = true
 ratatui.workspace = true
 tokio.workspace = true

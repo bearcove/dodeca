@@ -18,11 +18,14 @@ path = "src/main.rs"
 
 [dependencies]
 cell-gingembre-proto = { path = "../cell-gingembre-proto" }
+cell-lifecycle-proto = { path = "../cell-lifecycle-proto" }
 gingembre = { path = "../../crates/gingembre" }
-rapace.workspace = true
-rapace-cell.workspace = true
+roam.workspace = true
+roam-shm.workspace = true
+roam-tracing.workspace = true
 tokio.workspace = true
 facet-value.workspace = true
 futures.workspace = true
 eyre.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true

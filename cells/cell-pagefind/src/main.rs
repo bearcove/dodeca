@@ -11,15 +11,17 @@
 //! with a tokio oneshot back to the async caller. Do NOT replace it with
 //! tokio::spawn/spawn_blocking or a std::sync::mpsc recv in async code.
 
+use dodeca_cell_runtime::run_cell;
 use pagefind::api::PagefindIndex;
 use tokio::sync::oneshot;
 
 use cell_pagefind_proto::{
     SearchFile, SearchIndexInput, SearchIndexOutput, SearchIndexResult, SearchIndexer,
-    SearchIndexerServer,
+    SearchIndexerDispatcher,
 };
 
 /// Search indexer implementation
+#[derive(Clone)]
 pub struct SearchIndexerImpl;
 
 impl SearchIndexer for SearchIndexerImpl {
@@ -93,10 +95,6 @@ async fn build_search_index_inner(input: SearchIndexInput) -> Result<SearchIndex
     })
 }
 
-rapace_cell::cell_service!(SearchIndexerServer<SearchIndexerImpl>, SearchIndexerImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(SearchIndexerImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("pagefind", SearchIndexerDispatcher::new(SearchIndexerImpl))
 }

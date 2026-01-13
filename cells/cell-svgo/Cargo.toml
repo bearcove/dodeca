@@ -14,6 +14,5 @@ path = "src/main.rs"
 
 [dependencies]
 cell-svgo-proto = { path = "../cell-svgo-proto" }
-rapace-cell.workspace = true
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
 svag.workspace = true
-tokio.workspace = true

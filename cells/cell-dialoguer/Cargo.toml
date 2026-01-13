@@ -16,7 +16,6 @@ path = "src/main.rs"
 
 [dependencies]
 cell-dialoguer-proto = { path = "../cell-dialoguer-proto" }
-color-eyre.workspace = true
 dialoguer = "0.12"
-rapace-cell.workspace = true
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
 tokio.workspace = true

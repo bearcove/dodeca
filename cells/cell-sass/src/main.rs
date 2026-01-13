@@ -5,9 +5,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use cell_sass_proto::{SassCompiler, SassCompilerServer, SassInput, SassResult};
+use dodeca_cell_runtime::run_cell;
+
+use cell_sass_proto::{SassCompiler, SassCompilerDispatcher, SassInput, SassResult};
 
 /// SASS compiler implementation
+#[derive(Clone)]
 pub struct SassCompilerImpl;
 
 impl SassCompiler for SassCompilerImpl {
@@ -75,10 +78,6 @@ impl grass::Fs for InMemorySassFs {
     }
 }
 
-rapace_cell::cell_service!(SassCompilerServer<SassCompilerImpl>, SassCompilerImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(SassCompilerImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("sass", SassCompilerDispatcher::new(SassCompilerImpl))
 }

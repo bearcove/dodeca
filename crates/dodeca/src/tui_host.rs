@@ -9,12 +9,11 @@ use std::sync::Mutex;
 
 use cell_tui_proto::{
     BindMode, BuildProgress, CommandResult, EventKind, LogEvent, LogLevel, ServerCommand,
-    ServerStatus, TaskProgress, TaskStatus, TuiHost, TuiHostServer,
+    ServerStatus, TaskProgress, TaskStatus, TuiHost, TuiHostDispatcher,
 };
 use eyre::Result;
 use futures_util::StreamExt;
-use rapace::Session;
-use rapace::Streaming;
+use roam::Tx;
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio_stream::wrappers::{BroadcastStream, WatchStream, errors::BroadcastStreamRecvError};
 
@@ -25,6 +24,7 @@ const BROADCAST_CAPACITY: usize = 256;
 const EVENT_HISTORY_CAPACITY: usize = 512;
 
 /// TuiHost implementation that broadcasts updates to connected TUI clients
+#[derive(Clone)]
 pub struct TuiHostImpl {
     /// Sender for progress updates (latest-value semantics)
     progress_tx: watch::Sender<BuildProgress>,
@@ -58,8 +58,6 @@ impl TuiHostImpl {
 
     /// Send a progress update to all connected TUI clients
     pub fn send_progress(&self, progress: BuildProgress) {
-        // Use `send_replace` so the latest value is retained even if there are
-        // currently no connected TUI clients.
         let _ = self.progress_tx.send_replace(progress);
     }
 
@@ -84,9 +82,9 @@ impl TuiHostImpl {
         }
     }
 
-    /// Create the rapace server wrapper
-    pub fn into_server(self) -> TuiHostServer<Self> {
-        TuiHostServer::new(self)
+    /// Create the roam dispatcher wrapper
+    pub fn into_dispatcher(self) -> TuiHostDispatcher<Self> {
+        TuiHostDispatcher::new(self)
     }
 }
 
@@ -118,32 +116,57 @@ impl TuiHostHandle {
 }
 
 impl TuiHost for TuiHostImpl {
-    async fn subscribe_progress(&self) -> Streaming<BuildProgress> {
+    async fn subscribe_progress(&self, tx: Tx<BuildProgress>) {
         let rx = self.progress_tx.subscribe();
-        let stream = WatchStream::new(rx).map(Ok);
-        Box::pin(stream) as Streaming<BuildProgress>
+        tokio::spawn(async move {
+            let mut stream = WatchStream::new(rx);
+            while let Some(progress) = stream.next().await {
+                if tx.send(&progress).await.is_err() {
+                    break;
+                }
+            }
+        });
     }
 
-    async fn subscribe_events(&self) -> Streaming<LogEvent> {
+    async fn subscribe_events(&self, tx: Tx<LogEvent>) {
         let history = {
             let history = self.events_history.lock().unwrap();
             history.iter().cloned().collect::<Vec<_>>()
         };
-        let rx = self.events_tx.subscribe();
-        let live = BroadcastStream::new(rx).filter_map(|result| async move {
-            match result {
-                Ok(item) => Some(Ok(item)),
-                Err(BroadcastStreamRecvError::Lagged(_)) => None,
+        let events_rx = self.events_tx.subscribe();
+
+        tokio::spawn(async move {
+            // First replay history
+            for event in history {
+                if tx.send(&event).await.is_err() {
+                    return;
+                }
+            }
+            // Then stream live events
+            let mut stream = BroadcastStream::new(events_rx);
+            while let Some(result) = stream.next().await {
+                match result {
+                    Ok(event) => {
+                        if tx.send(&event).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(BroadcastStreamRecvError::Lagged(_)) => continue,
+                }
             }
         });
-        let stream = futures_util::stream::iter(history.into_iter().map(Ok)).chain(live);
-        Box::pin(stream) as Streaming<LogEvent>
     }
 
-    async fn subscribe_server_status(&self) -> Streaming<ServerStatus> {
+    async fn subscribe_server_status(&self, tx: Tx<ServerStatus>) {
         let rx = self.status_tx.subscribe();
-        let stream = WatchStream::new(rx).map(Ok);
-        Box::pin(stream) as Streaming<ServerStatus>
+        tokio::spawn(async move {
+            let mut stream = WatchStream::new(rx);
+            while let Some(status) = stream.next().await {
+                if tx.send(&status).await.is_err() {
+                    break;
+                }
+            }
+        });
     }
 
     async fn send_command(&self, command: ServerCommand) -> CommandResult {
@@ -269,29 +292,24 @@ pub fn convert_server_command(cmd: ServerCommand) -> crate::tui::ServerCommand {
 // ============================================================================
 
 /// Wrapper struct that implements TuiHost by delegating to `Arc<TuiHostImpl>`
+#[derive(Clone)]
 struct TuiHostWrapper(Arc<TuiHostImpl>);
 
 impl TuiHost for TuiHostWrapper {
-    async fn subscribe_progress(&self) -> Streaming<BuildProgress> {
-        self.0.subscribe_progress().await
+    async fn subscribe_progress(&self, tx: Tx<BuildProgress>) {
+        self.0.subscribe_progress(tx).await
     }
 
-    async fn subscribe_events(&self) -> Streaming<LogEvent> {
-        self.0.subscribe_events().await
+    async fn subscribe_events(&self, tx: Tx<LogEvent>) {
+        self.0.subscribe_events(tx).await
     }
 
-    async fn subscribe_server_status(&self) -> Streaming<ServerStatus> {
-        self.0.subscribe_server_status().await
+    async fn subscribe_server_status(&self, tx: Tx<ServerStatus>) {
+        self.0.subscribe_server_status(tx).await
     }
 
     async fn send_command(&self, command: ServerCommand) -> CommandResult {
         self.0.send_command(command).await
-    }
-}
-
-impl Clone for TuiHostWrapper {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
     }
 }
 
@@ -306,23 +324,37 @@ pub async fn start_tui_cell(
     mut shutdown_rx: Option<watch::Receiver<bool>>,
 ) -> Result<()> {
     let tui_host_arc = Arc::new(tui_host);
-    let dispatcher_factory = move |session: Arc<Session>| {
-        let wrapper = TuiHostWrapper(tui_host_arc.clone());
-        TuiHostServer::new(wrapper).into_session_dispatcher(session.transport().clone())
-    };
+    let wrapper = TuiHostWrapper(tui_host_arc);
+    let dispatcher = TuiHostDispatcher::new(wrapper);
 
     // TUI cell needs inherit_stdio=true for direct terminal access
-    let (_rpc_session, mut child) = crate::cells::spawn_cell_with_dispatcher(
-        "ddc-cell-tui",
-        dispatcher_factory,
-        true, // inherit_stdio: TUI needs direct terminal access
-    )
-    .await
-    .ok_or_else(|| {
+    let binary_path = crate::cells::find_cell_binary("ddc-cell-tui").ok_or_else(|| {
         eyre::eyre!(
-            "Failed to spawn TUI cell. Make sure ddc-cell-tui is built and in the cell path."
+            "Failed to find TUI cell binary. Make sure ddc-cell-tui is built and in the cell path."
         )
     })?;
+
+    let config = crate::cells::CellSpawnConfig {
+        inherit_stdio: true, // TUI needs direct terminal access
+        manage_child: true,
+    };
+
+    let spawned = crate::cells::spawn_cell_with_dispatcher(
+        &binary_path,
+        "ddc-cell-tui",
+        dispatcher,
+        &config,
+    )
+    .ok_or_else(|| {
+        eyre::eyre!(
+            "Failed to spawn TUI cell. spawn_cell_with_dispatcher is not yet implemented for roam."
+        )
+    })?;
+
+    // Get the child process handle if available
+    let mut child = spawned
+        .child
+        .ok_or_else(|| eyre::eyre!("TUI cell spawned but no child process handle available"))?;
 
     // Wait for TUI process to exit or shutdown signal
     #[allow(clippy::never_loop)] // Loop is for select! - exits on either branch
@@ -366,7 +398,6 @@ fn record_event(history: &Arc<Mutex<VecDeque<LogEvent>>>, event: LogEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use futures_util::StreamExt;
 
     #[tokio::test]
     async fn progress_and_status_are_retained_without_subscribers() {
@@ -389,11 +420,18 @@ mod tests {
         };
         host.send_status(status.clone());
 
-        let mut progress_stream = host.subscribe_progress().await;
-        let mut status_stream = host.subscribe_server_status().await;
+        // Subscribe and verify we get the retained values
+        let (progress_tx, mut progress_rx) = roam::channel::<BuildProgress>();
+        let (status_tx, mut status_rx) = roam::channel::<ServerStatus>();
 
-        let first_progress = progress_stream.next().await.unwrap().unwrap();
-        let first_status = status_stream.next().await.unwrap().unwrap();
+        host.subscribe_progress(progress_tx).await;
+        host.subscribe_server_status(status_tx).await;
+
+        // Give the spawned tasks time to send
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        let first_progress = progress_rx.recv().await.unwrap().unwrap();
+        let first_status = status_rx.recv().await.unwrap().unwrap();
 
         assert_eq!(first_progress.parse.name, progress.parse.name);
         assert_eq!(first_progress.parse.total, progress.parse.total);
@@ -426,9 +464,14 @@ mod tests {
             message: "second".to_string(),
         });
 
-        let mut stream = host.subscribe_events().await;
-        let a = stream.next().await.unwrap().unwrap();
-        let b = stream.next().await.unwrap().unwrap();
+        let (events_tx, mut events_rx) = roam::channel::<LogEvent>();
+        host.subscribe_events(events_tx).await;
+
+        // Give the spawned task time to send history
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+        let a = events_rx.recv().await.unwrap().unwrap();
+        let b = events_rx.recv().await.unwrap().unwrap();
         assert_eq!(a.message, "first");
         assert_eq!(b.message, "second");
     }

@@ -50,7 +50,7 @@ pub enum SearchIndexResult {
 ///
 /// The host calls these methods to build search indexes.
 #[allow(async_fn_in_trait)]
-#[rapace::service]
+#[roam::service]
 pub trait SearchIndexer {
     /// Build a search index from HTML pages
     ///

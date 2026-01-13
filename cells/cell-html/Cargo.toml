@@ -14,13 +14,16 @@ path = "src/main.rs"
 
 [dependencies]
 cell-html-proto = { path = "../cell-html-proto" }
+cell-lifecycle-proto = { path = "../cell-lifecycle-proto" }
 color-eyre.workspace = true
 dodeca-protocol = { path = "../../crates/dodeca-protocol" }
 facet-diff.workspace = true
 facet-html.workspace = true
 facet-html-dom.workspace = true
 html-escape.workspace = true
-rapace.workspace = true
-rapace-cell.workspace = true
+roam.workspace = true
+roam-shm.workspace = true
+roam-tracing.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true

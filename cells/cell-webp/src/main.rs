@@ -2,9 +2,11 @@
 //!
 //! This cell handles WebP encoding and decoding.
 
-use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPProcessorServer, WebPResult};
+use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPProcessorDispatcher, WebPResult};
+use dodeca_cell_runtime::run_cell;
 
 /// WebP processor implementation
+#[derive(Clone)]
 pub struct WebPProcessorImpl;
 
 impl WebPProcessor for WebPProcessorImpl {
@@ -49,10 +51,6 @@ impl WebPProcessor for WebPProcessorImpl {
     }
 }
 
-rapace_cell::cell_service!(WebPProcessorServer<WebPProcessorImpl>, WebPProcessorImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(WebPProcessorImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("webp", WebPProcessorDispatcher::new(WebPProcessorImpl))
 }

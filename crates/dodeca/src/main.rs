@@ -3,12 +3,16 @@
 mod boot_state;
 mod cache_bust;
 mod cas;
+#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod cell_server;
+#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod cells;
 mod config;
+#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod content_service;
 mod data;
 mod db;
+#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod error_pages;
 mod fd_passing;
 mod file_watcher;
@@ -20,6 +24,7 @@ mod queries;
 mod render;
 mod revision;
 mod search;
+#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod serve;
 mod svg;
 mod template;
@@ -2324,9 +2329,17 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
 
         // Build search index - call the cell directly since we're already in an async context.
         let pages = search::collect_search_pages(&site_output);
-        let files = cells::build_search_index_cell(pages)
+        let input = cell_pagefind_proto::SearchIndexInput { pages };
+        let result = cells::build_search_index_cell(input)
             .await
-            .map_err(|e| eyre!("pagefind: {}", e))?;
+            .map_err(|e| eyre!("pagefind RPC: {}", e))?;
+
+        let files = match result {
+            cell_pagefind_proto::SearchIndexResult::Success { output } => output.files,
+            cell_pagefind_proto::SearchIndexResult::Error { message } => {
+                return Err(eyre!("pagefind: {}", message));
+            }
+        };
 
         let search_files: search::SearchFiles =
             files.into_iter().map(|f| (f.path, f.contents)).collect();

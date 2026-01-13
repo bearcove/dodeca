@@ -1,42 +1,53 @@
 //! TCP tunnel implementation for the cell.
 //!
 //! Implements the `TcpTunnel` service that the host calls to open tunnels.
-//! Each tunnel serves HTTP directly on a first-class rapace `TunnelStream`.
+//! Each tunnel serves HTTP directly using roam's tunnel streaming.
 
 use std::sync::Arc;
 use std::time::Instant;
 
-use rapace_cell::CellSession;
+use roam::{DEFAULT_TUNNEL_CHUNK_SIZE, Tunnel, tunnel_stream};
 
-use cell_http_proto::{TcpTunnel, TunnelHandle};
+use cell_http_proto::TcpTunnel;
+
+use crate::RouterContext;
 
 /// Cell-side implementation of `TcpTunnel`.
 ///
-/// Each `open()` call allocates a new tunnel channel and serves HTTP/1 on it.
+/// Each `open()` call receives a tunnel from the host and serves HTTP on it.
+#[derive(Clone)]
 pub struct TcpTunnelImpl {
-    session: Arc<CellSession>,
+    #[allow(dead_code)]
+    ctx: Arc<dyn RouterContext>,
     app: axum::Router,
 }
 
 impl TcpTunnelImpl {
-    pub fn new(session: Arc<CellSession>, app: axum::Router) -> Self {
-        Self { session, app }
+    pub fn new(ctx: Arc<dyn RouterContext>, app: axum::Router) -> Self {
+        Self { ctx, app }
     }
 }
 
 impl TcpTunnel for TcpTunnelImpl {
-    async fn open(&self) -> TunnelHandle {
-        let (handle, stream) = self.session.open_tunnel_stream();
-        let channel_id = handle.channel_id;
+    async fn open(&self, tunnel: Tunnel) {
+        let channel_id = tunnel.tx.channel_id();
         tracing::info!(channel_id, "HTTP tunnel opened");
 
         let service = self.app.clone();
+
+        // Create a duplex stream to bridge the tunnel to hyper
+        let (client, server) = tokio::io::duplex(64 * 1024);
+
+        // Spawn tasks to pump data between tunnel and duplex
+        let (read_handle, write_handle) = tunnel_stream(client, tunnel, DEFAULT_TUNNEL_CHUNK_SIZE);
+
+        // Serve HTTP on the server side of the duplex
         tokio::spawn(async move {
             let started_at = Instant::now();
             tracing::info!(channel_id, "HTTP connection starting");
             if let Err(e) = hyper::server::conn::http1::Builder::new()
                 .serve_connection(
-                    hyper_util::rt::TokioIo::new(stream),
+                    hyper_util::rt::TokioIo::new(server),
                     hyper_util::service::TowerToHyperService::new(service),
                 )
                 // Enable WebSocket upgrades - keeps connection alive after 101 response
@@ -55,17 +66,10 @@ impl TcpTunnel for TcpTunnelImpl {
                 elapsed_ms = started_at.elapsed().as_millis(),
                 "HTTP connection finished"
             );
+
+            // Wait for tunnel pumps to finish
+            let _ = read_handle.await;
+            let _ = write_handle.await;
         });
-
-        TunnelHandle { channel_id }
-    }
-}
-
-impl Clone for TcpTunnelImpl {
-    fn clone(&self) -> Self {
-        Self {
-            session: self.session.clone(),
-            app: self.app.clone(),
-        }
     }
 }

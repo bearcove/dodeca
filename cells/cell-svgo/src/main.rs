@@ -2,9 +2,11 @@
 //!
 //! This cell handles SVG optimization.
 
-use cell_svgo_proto::{SvgoOptimizer, SvgoOptimizerServer, SvgoResult};
+use cell_svgo_proto::{SvgoOptimizer, SvgoOptimizerDispatcher, SvgoResult};
+use dodeca_cell_runtime::run_cell;
 
 /// SVGO optimizer implementation
+#[derive(Clone)]
 pub struct SvgoOptimizerImpl;
 
 impl SvgoOptimizer for SvgoOptimizerImpl {
@@ -18,10 +20,6 @@ impl SvgoOptimizer for SvgoOptimizerImpl {
     }
 }
 
-rapace_cell::cell_service!(SvgoOptimizerServer<SvgoOptimizerImpl>, SvgoOptimizerImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(SvgoOptimizerImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("svgo", SvgoOptimizerDispatcher::new(SvgoOptimizerImpl))
 }

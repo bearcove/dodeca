@@ -14,8 +14,8 @@ path = "src/main.rs"
 
 [dependencies]
 cell-code-execution-proto = { path = "../cell-code-execution-proto" }
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
 pulldown-cmark.workspace = true
-rapace-cell.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true

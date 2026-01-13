@@ -2,11 +2,12 @@
 //!
 //! Provides interactive terminal prompts using the dialoguer crate.
 
-use cell_dialoguer_proto::{ConfirmResult, Dialoguer, DialoguerServer, SelectResult};
-use color_eyre::Result;
+use cell_dialoguer_proto::{ConfirmResult, Dialoguer, DialoguerDispatcher, SelectResult};
 use dialoguer::{Confirm, Select, theme::ColorfulTheme};
+use dodeca_cell_runtime::run_cell;
 
 /// Dialoguer service implementation
+#[derive(Clone)]
 pub struct DialoguerImpl;
 
 impl Dialoguer for DialoguerImpl {
@@ -46,10 +47,6 @@ impl Dialoguer for DialoguerImpl {
     }
 }
 
-rapace_cell::cell_service!(DialoguerServer<DialoguerImpl>, DialoguerImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(DialoguerImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("dialoguer", DialoguerDispatcher::new(DialoguerImpl))
 }

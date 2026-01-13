@@ -3,7 +3,7 @@
 //! Dodeca hosts the `TuiHost` service, allowing the TUI cell to subscribe
 //! to streams and send commands back.
 
-use rapace::Streaming;
+use roam::Tx;
 
 // ============================================================================
 // Build Progress Types
@@ -269,19 +269,19 @@ pub enum CommandResult {
 ///
 /// The TUI subscribes to streams for live updates and sends commands back.
 #[allow(async_fn_in_trait)]
-#[rapace::service]
+#[roam::service]
 pub trait TuiHost {
     /// Subscribe to build progress updates.
     /// Stream emits whenever progress changes.
-    async fn subscribe_progress(&self) -> Streaming<BuildProgress>;
+    async fn subscribe_progress(&self, tx: Tx<BuildProgress>);
 
     /// Subscribe to log events.
     /// Stream emits for each new event (HTTP requests, file changes, etc.)
-    async fn subscribe_events(&self) -> Streaming<LogEvent>;
+    async fn subscribe_events(&self, tx: Tx<LogEvent>);
 
     /// Subscribe to server status updates.
     /// Stream emits when URLs, bind mode, or cache sizes change.
-    async fn subscribe_server_status(&self) -> Streaming<ServerStatus>;
+    async fn subscribe_server_status(&self, tx: Tx<ServerStatus>);
 
     /// Send a command to the server.
     async fn send_command(&self, command: ServerCommand) -> CommandResult;

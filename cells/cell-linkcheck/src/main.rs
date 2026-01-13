@@ -5,13 +5,16 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use dodeca_cell_runtime::run_cell;
 use url::Url;
 
 use cell_linkcheck_proto::{
-    LinkCheckInput, LinkCheckOutput, LinkCheckResult, LinkChecker, LinkCheckerServer, LinkStatus,
+    LinkCheckInput, LinkCheckOutput, LinkCheckResult, LinkChecker, LinkCheckerDispatcher,
+    LinkStatus,
 };
 
 /// LinkChecker implementation
+#[derive(Clone)]
 pub struct LinkCheckerImpl {
     /// HTTP client for making requests
     client: reqwest::Client,
@@ -141,10 +144,9 @@ impl LinkChecker for LinkCheckerImpl {
     }
 }
 
-rapace_cell::cell_service!(LinkCheckerServer<LinkCheckerImpl>, LinkCheckerImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(LinkCheckerImpl::new())).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!(
+        "linkcheck",
+        LinkCheckerDispatcher::new(LinkCheckerImpl::new())
+    )
 }

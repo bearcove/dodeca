@@ -4,7 +4,7 @@
 //!
 //! Architecture:
 //! ```text
-//! Browser → Host (TCP) → rapace tunnel → Cell → internal axum
+//! Browser → Host (TCP) → roam tunnel → Cell → internal axum
 //!                                              ↓
 //!                              ContentService RPC → Host (picante DB)
 //!                                    ↑
@@ -19,60 +19,114 @@
 //! - Uses SHM transport for zero-copy content transfer
 
 use std::sync::Arc;
+use std::sync::OnceLock;
 
-use rapace::transport::shm::ShmTransport;
-use rapace_cell::CellSession;
+use roam::session::{ConnectionHandle, RoutedDispatcher};
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
+use roam_tracing::{CellTracingDispatcher, init_cell_tracing};
+use tracing_subscriber::prelude::*;
 
-use cell_http_proto::{ContentServiceClient, TcpTunnelServer, WebSocketTunnelClient};
+use cell_http_proto::{ContentServiceClient, TcpTunnelDispatcher, WebSocketTunnelClient};
+use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
 
 mod devtools;
 mod tunnel;
 
-/// Cell context shared across HTTP handlers
-pub struct CellContext {
-    /// RPC session for bidirectional communication with host
-    pub session: Arc<CellSession>,
+/// Trait for router context - allows lazy initialization
+pub trait RouterContext: Send + Sync + 'static {
+    fn content_client(&self) -> ContentServiceClient;
+    fn ws_tunnel_client(&self) -> WebSocketTunnelClient;
+    fn handle(&self) -> &ConnectionHandle;
 }
 
-impl CellContext {
-    /// Create a ContentServiceClient for calling the host
-    pub fn content_client(&self) -> ContentServiceClient<ShmTransport> {
-        ContentServiceClient::new(self.session.clone())
-    }
+/// Lazy context that wraps `OnceLock<ConnectionHandle>`
+struct LazyRouterContext {
+    handle_cell: Arc<OnceLock<ConnectionHandle>>,
+}
 
-    /// Create a WebSocketTunnelClient for opening devtools tunnels to host
-    pub fn ws_tunnel_client(&self) -> WebSocketTunnelClient<ShmTransport> {
-        WebSocketTunnelClient::new(self.session.clone())
+impl LazyRouterContext {
+    fn get_handle(&self) -> &ConnectionHandle {
+        self.handle_cell.get().expect("handle not initialized")
     }
 }
 
-rapace_cell::cell_service!(
-    TcpTunnelServer<tunnel::TcpTunnelImpl>,
-    tunnel::TcpTunnelImpl
-);
+impl RouterContext for LazyRouterContext {
+    fn content_client(&self) -> ContentServiceClient {
+        ContentServiceClient::new(self.get_handle().clone())
+    }
+    fn ws_tunnel_client(&self) -> WebSocketTunnelClient {
+        WebSocketTunnelClient::new(self.get_handle().clone())
+    }
+    fn handle(&self) -> &ConnectionHandle {
+        self.get_handle()
+    }
+}
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run_with_session(|session: Arc<CellSession>| {
-        // Build cell context
-        let ctx = Arc::new(CellContext {
-            session: session.clone(),
-        });
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
 
-        // Build axum router
-        let app = build_router(ctx);
+    // Initialize cell-side tracing
+    let (tracing_layer, tracing_service) = init_cell_tracing(1024);
+    tracing_subscriber::registry().with(tracing_layer).init();
 
-        // Create the tunnel implementation
-        let tunnel_impl = tunnel::TcpTunnelImpl::new(session, app);
+    // Lazy initialization pattern for bidirectional RPC
+    let handle_cell: Arc<OnceLock<ConnectionHandle>> = Arc::new(OnceLock::new());
 
-        CellService::from(tunnel_impl)
-    })
-    .await?;
+    let ctx: Arc<dyn RouterContext> = Arc::new(LazyRouterContext {
+        handle_cell: handle_cell.clone(),
+    });
+
+    // Build axum router with lazy context
+    let app = build_router(ctx.clone());
+
+    // Create the tunnel implementation with lazy context
+    let tunnel_impl = tunnel::TcpTunnelImpl::new(ctx, app);
+    let user_dispatcher = TcpTunnelDispatcher::new(tunnel_impl);
+
+    // Combine user's dispatcher with tracing dispatcher
+    let tracing_dispatcher = CellTracingDispatcher::new(tracing_service);
+    let dispatcher = RoutedDispatcher::new(
+        tracing_dispatcher, // primary: handles tracing methods
+        user_dispatcher,    // fallback: handles all cell-specific methods
+    );
+
+    let (handle, driver) = establish_guest(transport, dispatcher);
+
+    // Spawn driver in background - must run before ready() so RPC can be processed
+    let driver_handle = tokio::spawn(async move {
+        if let Err(e) = driver.run().await {
+            eprintln!("Driver error: {:?}", e);
+        }
+    });
+
+    // Now initialize the handle cell
+    let _ = handle_cell.set(handle.clone());
+
+    // Signal readiness to host
+    let lifecycle = CellLifecycleClient::new(handle.clone());
+    lifecycle
+        .ready(ReadyMsg {
+            peer_id: args.peer_id.get() as u16,
+            cell_name: "http".to_string(),
+            pid: Some(std::process::id()),
+            version: None,
+            features: vec![],
+        })
+        .await?;
+
+    // Wait for driver
+    let _ = driver_handle.await;
     Ok(())
 }
 
 /// Build the axum router for the internal HTTP server
-fn build_router(ctx: Arc<CellContext>) -> axum::Router {
+fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
     use axum::{
         Router,
         body::Body,
@@ -91,7 +145,10 @@ fn build_router(ctx: Arc<CellContext>) -> axum::Router {
     const CACHE_NO_CACHE: &str = "no-cache, no-store, must-revalidate";
 
     /// Handle content requests by calling host via RPC
-    async fn content_handler(State(ctx): State<Arc<CellContext>>, request: Request) -> Response {
+    async fn content_handler(
+        State(ctx): State<Arc<dyn RouterContext>>,
+        request: Request,
+    ) -> Response {
         let path = request.uri().path().to_string();
         let client = ctx.content_client();
 

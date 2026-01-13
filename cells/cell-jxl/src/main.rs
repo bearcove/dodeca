@@ -2,11 +2,13 @@
 //!
 //! This cell handles JPEG XL encoding and decoding.
 
+use dodeca_cell_runtime::run_cell;
 use jpegxl_rs::encode::EncoderFrame;
 
-use cell_jxl_proto::{JXLEncodeInput, JXLProcessor, JXLProcessorServer, JXLResult};
+use cell_jxl_proto::{JXLEncodeInput, JXLProcessor, JXLProcessorDispatcher, JXLResult};
 
 /// JXL processor implementation
+#[derive(Clone)]
 pub struct JXLProcessorImpl;
 
 impl JXLProcessor for JXLProcessorImpl {
@@ -86,10 +88,6 @@ impl JXLProcessor for JXLProcessorImpl {
     }
 }
 
-rapace_cell::cell_service!(JXLProcessorServer<JXLProcessorImpl>, JXLProcessorImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(JXLProcessorImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("jxl", JXLProcessorDispatcher::new(JXLProcessorImpl))
 }

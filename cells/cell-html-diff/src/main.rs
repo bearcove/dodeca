@@ -3,7 +3,11 @@
 //! This cell handles HTML DOM diffing for live reload using facet-format-html
 //! for parsing and facet-diff for computing structural differences.
 
-use cell_html_diff_proto::{DiffInput, DiffResult, HtmlDiffResult, HtmlDiffer, HtmlDifferServer};
+use dodeca_cell_runtime::run_cell;
+
+use cell_html_diff_proto::{
+    DiffInput, DiffResult, HtmlDiffResult, HtmlDiffer, HtmlDifferDispatcher,
+};
 
 // Re-export protocol types
 pub use dodeca_protocol::{NodePath, Patch};
@@ -13,6 +17,7 @@ pub use dodeca_protocol::{NodePath, Patch};
 // ============================================================================
 
 /// HTML differ implementation using facet-format-html and facet-diff.
+#[derive(Clone)]
 pub struct HtmlDifferImpl;
 
 impl HtmlDiffer for HtmlDifferImpl {
@@ -47,10 +52,6 @@ impl HtmlDiffer for HtmlDifferImpl {
     }
 }
 
-rapace_cell::cell_service!(HtmlDifferServer<HtmlDifferImpl>, HtmlDifferImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(HtmlDifferImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("html_diff", HtmlDifferDispatcher::new(HtmlDifferImpl))
 }

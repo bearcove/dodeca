@@ -1,15 +1,15 @@
 //! Cell loading and management for dodeca.
 //!
-//! Cells are loaded from dynamic libraries (.so on Linux, .dylib on macOS).
-//! Currently supports image encoding/decoding cells (WebP, JXL).
+//! Cells are separate processes that handle specialized tasks (image processing,
+//! markdown rendering, etc.). They communicate with the host via roam RPC over
+//! shared memory.
 //!
 //! # Hub Architecture
 //!
-//! All cells share a single SHM "hub" file with variable-size slot allocation.
-//! Each cell gets its own ring pair within the hub and communicates via
-//! socketpair doorbells.
-
-use crate::cell_server::ForwardingTracingSink;
+//! All cells share a single SHM segment. Each cell gets its own ring pair
+//! within the segment and communicates via socketpair doorbells.
+//!
+//! The host uses `MultiPeerHostDriver` to manage all cell connections.
 
 use cell_code_execution_proto::{
     CodeExecutionResult, CodeExecutorClient, ExecuteSamplesInput, ExtractSamplesInput,
@@ -18,33 +18,31 @@ use cell_css_proto::{CssProcessorClient, CssResult};
 use cell_dialoguer_proto::DialoguerClient;
 use cell_fonts_proto::{FontAnalysis, FontProcessorClient, FontResult, SubsetFontInput};
 use cell_gingembre_proto::{
-    ContextId, EvalResult, RenderResult, TemplateHostServer, TemplateRendererClient,
+    ContextId, EvalResult, RenderResult, TemplateHostDispatcher, TemplateRendererClient,
 };
-use cell_html_diff_proto::{DiffInput, DiffResult, HtmlDiffResult, HtmlDifferClient};
+use cell_html_diff_proto::{DiffInput, HtmlDiffResult, HtmlDifferClient};
 use cell_html_proto::HtmlProcessorClient;
-use cell_http_proto::TcpTunnelClient;
+use cell_http_proto::{ContentServiceDispatcher, TcpTunnelClient, WebSocketTunnelDispatcher};
 use cell_image_proto::{ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput};
 use cell_js_proto::{JsProcessorClient, JsResult, JsRewriteInput};
 use cell_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
+use cell_lifecycle_proto::{CellLifecycle, CellLifecycleDispatcher, ReadyAck, ReadyMsg};
 use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, LinkStatus};
 use cell_markdown_proto::{
     FrontmatterResult, MarkdownProcessorClient, MarkdownResult, ParseResult,
 };
 use cell_minify_proto::{MinifierClient, MinifyResult};
-use cell_pagefind_proto::{
-    SearchFile, SearchIndexInput, SearchIndexResult, SearchIndexerClient, SearchPage,
-};
+use cell_pagefind_proto::{SearchIndexInput, SearchIndexResult, SearchIndexerClient};
 use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
 use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
-use rapace::transport::shm::{AddPeerOptions, HubConfig, HubHost};
-use rapace::{AnyTransport, Frame, RpcError, RpcSession, Session};
-use rapace_cell::{CellLifecycle, CellLifecycleServer, ReadyAck, ReadyMsg};
-use rapace_cell::{DispatcherBuilder, ServiceDispatch};
-use rapace_tracing::{TracingConfigClient, TracingSinkServer};
+use facet::Facet;
+use facet_value::Value;
+use roam::session::{ConnectionHandle, RoutedDispatcher, ServiceDispatcher};
+use roam_shm::driver::MultiPeerHostDriver;
+use roam_shm::{AddPeerOptions, PeerId, SegmentConfig, ShmHost};
 use std::collections::HashMap;
-use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, OnceLock, RwLock};
@@ -52,14 +50,43 @@ use std::time::{Duration, SystemTime};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command;
 use tracing::{debug, info, warn};
-/// Global hub host for all cells.
-static HUB: OnceLock<Arc<HubHost>> = OnceLock::new();
 
-/// Hub SHM path.
-static HUB_PATH: OnceLock<PathBuf> = OnceLock::new();
+use crate::cell_server::HostWebSocketTunnel;
+use crate::content_service::HostContentService;
+use crate::serve::SiteServer;
+use crate::template_host::{TemplateHostImpl, render_context_registry};
+
+// ============================================================================
+// Global State
+// ============================================================================
+
+/// Global SHM host (shared by all cells).
+static SHM_HOST: OnceLock<ShmHost> = OnceLock::new();
+
+/// SHM segment path.
+static SHM_PATH: OnceLock<PathBuf> = OnceLock::new();
+
+/// Global connection handles for all cells (peer_id -> handle).
+static CELL_HANDLES: OnceLock<Arc<std::sync::RwLock<HashMap<PeerId, ConnectionHandle>>>> =
+    OnceLock::new();
+
+/// Mapping from cell name to peer ID.
+static CELL_NAME_TO_PEER_ID: OnceLock<Arc<std::sync::RwLock<HashMap<String, PeerId>>>> =
+    OnceLock::new();
 
 /// Whether cells should suppress startup messages (set when TUI is active).
 static QUIET_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// SiteServer for HTTP cell initialization.
+/// Must be set via `provide_site_server()` before calling `all()` if HTTP serving is needed.
+static SITE_SERVER_FOR_INIT: OnceLock<Arc<SiteServer>> = OnceLock::new();
+
+/// Provide the SiteServer for HTTP cell initialization.
+/// This must be called before `all()` when the HTTP cell needs to serve content.
+/// For build-only commands, this can be skipped.
+pub fn provide_site_server(server: Arc<SiteServer>) {
+    let _ = SITE_SERVER_FOR_INIT.set(server);
+}
 
 /// Enable quiet mode for spawned cells (call this when TUI is active).
 pub fn set_quiet_mode(quiet: bool) {
@@ -70,6 +97,26 @@ pub fn set_quiet_mode(quiet: bool) {
 fn is_quiet_mode() -> bool {
     QUIET_MODE.load(std::sync::atomic::Ordering::SeqCst)
 }
+
+/// Get a cell's connection handle by peer ID.
+pub fn get_cell_handle(peer_id: PeerId) -> Option<ConnectionHandle> {
+    CELL_HANDLES.get()?.read().ok()?.get(&peer_id).cloned()
+}
+
+/// Get a cell's connection handle by name.
+pub fn get_cell_handle_by_name(name: &str) -> Option<ConnectionHandle> {
+    let peer_id = CELL_NAME_TO_PEER_ID
+        .get()?
+        .read()
+        .ok()?
+        .get(name)
+        .copied()?;
+    get_cell_handle(peer_id)
+}
+
+// ============================================================================
+// Stdio Capture
+// ============================================================================
 
 fn spawn_stdio_pump<R>(label: String, stream: &'static str, reader: R)
 where
@@ -112,12 +159,8 @@ fn capture_cell_stdio(label: &str, child: &mut tokio::process::Child) {
 // ============================================================================
 
 /// Registry for tracking cell readiness (RPC-ready state).
-///
-/// Cells call the CellLifecycle.ready() RPC after starting their demux loop,
-/// proving they can handle RPC requests.
 #[derive(Clone)]
 pub struct CellReadyRegistry {
-    /// Map of peer_id -> ReadyMsg
     ready: Arc<DashMap<u16, ReadyMsg>>,
 }
 
@@ -128,18 +171,15 @@ impl CellReadyRegistry {
         }
     }
 
-    /// Mark a peer as ready
     fn mark_ready(&self, msg: ReadyMsg) {
         let peer_id = msg.peer_id;
         self.ready.insert(peer_id, msg);
     }
 
-    /// Check if a peer is ready
     pub fn is_ready(&self, peer_id: u16) -> bool {
         self.ready.contains_key(&peer_id)
     }
 
-    /// Wait for multiple peers to become ready with timeout
     pub async fn wait_for_all_ready(
         &self,
         peer_ids: &[u16],
@@ -174,19 +214,14 @@ impl CellReadyRegistry {
     }
 }
 
-/// Global cell readiness registry
 static CELL_READY_REGISTRY: OnceLock<CellReadyRegistry> = OnceLock::new();
 
-/// Get or initialize the cell readiness registry
 pub fn cell_ready_registry() -> &'static CellReadyRegistry {
     CELL_READY_REGISTRY.get_or_init(CellReadyRegistry::new)
 }
 
-/// Wait for multiple cells to become ready by name with timeout
 pub async fn wait_for_cells_ready(cell_names: &[&str], timeout: Duration) -> eyre::Result<()> {
     let mut peer_ids = Vec::new();
-
-    // Look up all peer IDs
     if let Ok(info) = PEER_DIAG_INFO.read() {
         for &cell_name in cell_names {
             let peer_id = info
@@ -199,8 +234,6 @@ pub async fn wait_for_cells_ready(cell_names: &[&str], timeout: Duration) -> eyr
     } else {
         return Err(eyre::eyre!("Failed to acquire peer info lock"));
     }
-
-    // Wait for all cells to become ready
     cell_ready_registry()
         .wait_for_all_ready(&peer_ids, timeout)
         .await
@@ -223,7 +256,6 @@ impl CellLifecycle for HostCellLifecycle {
         let peer_id = msg.peer_id;
         let cell_name = msg.cell_name.clone();
         debug!("Cell {} (peer_id={}) is ready", cell_name, peer_id);
-
         self.registry.mark_ready(msg);
 
         let host_time_unix_ms = SystemTime::now()
@@ -238,21 +270,52 @@ impl CellLifecycle for HostCellLifecycle {
     }
 }
 
-/// Decoded image data returned by cells
+// ============================================================================
+// Peer Diagnostics
+// ============================================================================
+
+struct PeerDiagInfo {
+    peer_id: u16,
+    name: String,
+    handle: ConnectionHandle,
+}
+
+static PEER_DIAG_INFO: RwLock<Vec<PeerDiagInfo>> = RwLock::new(Vec::new());
+
+fn register_peer_diag(peer_id: u16, name: &str, handle: ConnectionHandle) {
+    if let Ok(mut info) = PEER_DIAG_INFO.write() {
+        info.push(PeerDiagInfo {
+            peer_id,
+            name: name.to_string(),
+            handle,
+        });
+    }
+}
+
+/// Get a cell's connection handle by binary name (e.g., "ddc-cell-http").
+pub fn get_cell_session(name: &str) -> Option<ConnectionHandle> {
+    PEER_DIAG_INFO
+        .read()
+        .ok()?
+        .iter()
+        .find(|info| info.name == name)
+        .map(|info| info.handle.clone())
+}
+
+// ============================================================================
+// Decoded Image Type (re-export)
+// ============================================================================
+
 pub type DecodedImage = cell_image_proto::DecodedImage;
 
-/// Global cell registry, initialized once (async).
+// ============================================================================
+// Cell Registry
+// ============================================================================
+
 static CELLS: tokio::sync::OnceCell<CellRegistry> = tokio::sync::OnceCell::const_new();
 
-/// Initialize cells and wait for ALL of them to complete their readiness handshake.
-///
-/// This must be called ONCE at startup before any RPC calls are made.
-/// All cells will send a `CellLifecycle.ready()` RPC after starting their demux loop,
-/// proving they can handle requests. This function waits for all of them.
 pub async fn init_and_wait_for_cells() -> eyre::Result<()> {
-    use std::time::Duration;
-
-    // Trigger cell loading - this spawns all cells and their RPC sessions
+    // Trigger cell loading
     let _ = all().await;
 
     // Initialize gingembre cell (special case - has TemplateHost service)
@@ -271,138 +334,64 @@ pub async fn init_and_wait_for_cells() -> eyre::Result<()> {
         return Ok(());
     }
 
-    // Wait for all cells to complete their readiness handshake
+    // Wait for all cells to complete readiness handshake
     let timeout = Duration::from_secs(10);
     cell_ready_registry()
         .wait_for_all_ready(&peer_ids, timeout)
         .await?;
 
-    // Push current host filter to cells (now that they're ready and the hub is not contended).
-    push_tracing_filter_to_cells().await;
+    // Push tracing config to cells
+    push_tracing_config_to_cells().await;
 
     debug!("All {} cells ready", peer_ids.len());
     Ok(())
 }
 
-async fn push_tracing_filter_to_cells() {
+async fn push_tracing_config_to_cells() {
     let filter_str = std::env::var("RUST_LOG")
         .unwrap_or_else(|_| crate::logging::DEFAULT_TRACING_FILTER.to_string());
 
     let Ok(peers) = PEER_DIAG_INFO.read() else {
-        warn!("Failed to acquire peer info lock; skipping tracing filter push");
+        warn!("Failed to acquire peer info lock; skipping tracing config push");
         return;
     };
 
     for peer in peers.iter() {
-        let rpc_session = peer.rpc_session.clone();
+        let handle = peer.handle.clone();
         let cell_label = peer.name.clone();
         let filter_str = filter_str.clone();
         tokio::spawn(async move {
-            let tracing_config_client = TracingConfigClient::new(rpc_session);
-            if let Err(e) = tracing_config_client.set_filter(filter_str.clone()).await {
-                warn!("Failed to push filter to {} cell: {:?}", cell_label, e);
-            } else {
-                debug!("Pushed filter to {} cell: {}", cell_label, filter_str);
+            use roam_tracing::{CellTracingClient, Level, TracingConfig};
+            let client = CellTracingClient::new(handle);
+            let config = TracingConfig {
+                min_level: Level::Debug,
+                filters: vec![filter_str.clone()],
+                include_span_events: false,
+            };
+            match client.configure(config).await {
+                Ok(roam_tracing::ConfigResult::Ok) => {
+                    debug!("Pushed tracing config to {} cell", cell_label);
+                }
+                Ok(roam_tracing::ConfigResult::InvalidFilter(msg)) => {
+                    warn!("Invalid tracing filter for {} cell: {}", cell_label, msg);
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to push tracing config to {} cell: {:?}",
+                        cell_label, e
+                    );
+                }
             }
         });
     }
 }
 
-/// Peer info for diagnostics
-struct PeerDiagInfo {
-    peer_id: u16,
-    name: String,
-    rpc_session: Arc<Session>,
-}
-
-/// Temporary wrapper for TracingSinkServer to implement ServiceDispatch.
-///
-/// FIXME: This is a workaround for rapace PR #105's broken crate detection.
-/// rapace-tracing doesn't get auto-generated wrappers because it depends on
-/// `rapace` (umbrella crate) not `rapace-cell` directly, so the macro's
-/// `crate_name("rapace-cell")` check fails.
-///
-/// Tracking issue: <https://github.com/bearcove/rapace/issues/107>
-/// Once rapace implements blanket `impl<T: Dispatchable> ServiceDispatch for Arc<T>`,
-/// this wrapper can be deleted.
-struct TracingSinkService(Arc<TracingSinkServer<ForwardingTracingSink>>);
-
-impl ServiceDispatch for TracingSinkService {
-    fn method_ids(&self) -> &'static [u32] {
-        use rapace_tracing::{
-            TRACING_SINK_METHOD_ID_DROP_SPAN, TRACING_SINK_METHOD_ID_ENTER,
-            TRACING_SINK_METHOD_ID_EVENT, TRACING_SINK_METHOD_ID_EXIT,
-            TRACING_SINK_METHOD_ID_NEW_SPAN, TRACING_SINK_METHOD_ID_RECORD,
-        };
-        &[
-            TRACING_SINK_METHOD_ID_NEW_SPAN,
-            TRACING_SINK_METHOD_ID_RECORD,
-            TRACING_SINK_METHOD_ID_EVENT,
-            TRACING_SINK_METHOD_ID_ENTER,
-            TRACING_SINK_METHOD_ID_EXIT,
-            TRACING_SINK_METHOD_ID_DROP_SPAN,
-        ]
-    }
-
-    fn dispatch(
-        &self,
-        method_id: u32,
-        frame: Frame,
-        buffer_pool: &rapace::BufferPool,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send + 'static>,
-    > {
-        let server = self.0.clone();
-        let buffer_pool = buffer_pool.clone();
-        Box::pin(async move { server.dispatch(method_id, &frame, &buffer_pool).await })
-    }
-}
-
-/// Global peer diagnostic info.
-static PEER_DIAG_INFO: RwLock<Vec<PeerDiagInfo>> = RwLock::new(Vec::new());
-
-/// Register a peer's transport and RPC session for diagnostics.
-fn register_peer_diag(peer_id: u16, name: &str, rpc_session: Arc<Session>) {
-    if let Ok(mut info) = PEER_DIAG_INFO.write() {
-        info.push(PeerDiagInfo {
-            peer_id,
-            name: name.to_string(),
-            rpc_session,
-        });
-    }
-}
-
-/// Get a cell's RPC session by binary name (e.g., "ddc-cell-http").
-/// Returns None if the cell is not loaded.
-pub fn get_cell_session(name: &str) -> Option<Arc<Session>> {
-    PEER_DIAG_INFO
-        .read()
-        .ok()?
-        .iter()
-        .find(|info| info.name == name)
-        .map(|info| info.rpc_session.clone())
-}
-
-/// Get the global hub and hub path (initializing if needed).
-/// Returns None if hub creation fails.
-pub async fn get_hub() -> Option<(Arc<HubHost>, PathBuf)> {
-    // Ensure all() is called to initialize the hub
-    let _ = all().await;
-    let hub = HUB.get()?.clone();
-    let hub_path = HUB_PATH.get()?.clone();
-    Some((hub, hub_path))
-}
-
 // ============================================================================
-// Unified Cell Spawning
+// Cell Spawning
 // ============================================================================
 
-/// Configuration for spawning a cell.
 pub struct CellSpawnConfig {
-    /// Whether to inherit stdin/stdout/stderr (for terminal cells like TUI).
     pub inherit_stdio: bool,
-    /// Whether to manage the child process internally (spawn wait task).
-    /// If false, the Child is returned for the caller to manage.
     pub manage_child: bool,
 }
 
@@ -415,873 +404,860 @@ impl Default for CellSpawnConfig {
     }
 }
 
-/// Result of spawning a cell.
 pub struct SpawnedCellResult {
     pub peer_id: u16,
-    pub rpc_session: Arc<Session>,
-    /// Only Some if `manage_child` was false in config.
+    pub handle: ConnectionHandle,
     pub child: Option<tokio::process::Child>,
 }
 
-/// Core cell spawning function that handles all the common boilerplate.
+/// Find a cell binary by name
+pub fn find_cell_binary(name: &str) -> Option<PathBuf> {
+    // Look next to the current executable
+    let exe_path = std::env::current_exe().ok()?;
+    let exe_dir = exe_path.parent()?;
+    let binary_path = exe_dir.join(name);
+    if binary_path.exists() {
+        return Some(binary_path);
+    }
+
+    // Try target/debug or target/release
+    let target_dir = exe_dir.parent()?;
+    for profile in ["debug", "release"] {
+        let path = target_dir.join(profile).join(name);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+// ============================================================================
+// Template Host Implementation (for gingembre cell)
+// ============================================================================
+
+// ============================================================================
+// Gingembre Cell
+// ============================================================================
+
+static GINGEMBRE_CELL: tokio::sync::OnceCell<Arc<TemplateRendererClient>> =
+    tokio::sync::OnceCell::const_new();
+
+pub async fn init_gingembre_cell() -> Option<()> {
+    let handle = get_cell_handle_by_name("gingembre")?;
+    let client = Arc::new(TemplateRendererClient::new(handle));
+    GINGEMBRE_CELL.set(client).ok()?;
+    debug!("Gingembre cell initialized");
+    Some(())
+}
+
+pub async fn gingembre_cell() -> Option<Arc<TemplateRendererClient>> {
+    GINGEMBRE_CELL.get().cloned()
+}
+
+pub async fn render_template(
+    context_id: ContextId,
+    template_name: &str,
+    initial_context: Value,
+) -> eyre::Result<RenderResult> {
+    let cell = gingembre_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Gingembre cell not initialized"))?;
+    let result = cell
+        .render(context_id, template_name.to_string(), initial_context)
+        .await
+        .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?;
+    Ok(result)
+}
+
+pub async fn eval_template_expression(
+    context_id: ContextId,
+    expression: &str,
+    context: Value,
+) -> eyre::Result<EvalResult> {
+    let cell = gingembre_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Gingembre cell not initialized"))?;
+    let result = cell
+        .eval_expression(context_id, expression.to_string(), context)
+        .await
+        .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?;
+    Ok(result)
+}
+
+// ============================================================================
+// Cell Registry Implementation
+// ============================================================================
+
+/// Cell binary suffixes (e.g., "image" -> "ddc-cell-image")
+/// The cell name for lookup is derived by replacing `-` with `_`.
+const CELL_SUFFIXES: &[&str] = &[
+    "image",
+    "webp",
+    "jxl",
+    "markdown",
+    "html",
+    "minify",
+    "css",
+    "sass",
+    "js",
+    "svgo",
+    "fonts",
+    "linkcheck",
+    "html-diff",
+    "dialoguer",
+    "pagefind",
+    "code-execution",
+    "http",
+    "gingembre",
+];
+
+/// Cell registry providing typed client accessors.
+pub struct CellRegistry {
+    _phantom: std::marker::PhantomData<()>,
+}
+
+impl CellRegistry {
+    fn new() -> Self {
+        Self {
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+/// Initialize the cell infrastructure.
 ///
 /// This function:
-/// 1. Adds a peer to the hub with death detection
-/// 2. Spawns the cell process with appropriate args
-/// 3. Sets up stdio capture (unless inheriting)
-/// 4. Creates the RPC session and transport
-/// 5. Registers for diagnostics
-///
-/// The caller is responsible for setting up the dispatcher on the returned session.
-fn spawn_cell_core(
-    binary_path: &Path,
-    binary_name: &str,
-    hub: &Arc<HubHost>,
-    config: &CellSpawnConfig,
-) -> Option<SpawnedCellResult> {
-    // Add peer to hub with death detection
-    let cell_name = binary_name.to_string();
-    let (transport, ticket) = match hub.add_peer_transport_with_options(AddPeerOptions {
-        peer_name: Some(cell_name.clone()),
-        on_death: Some(Arc::new({
-            let cell_name = cell_name.clone();
-            move |peer_id| {
-                eprintln!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                eprintln!(
-                    "FATAL: {} cell died unexpectedly (peer_id={})",
-                    cell_name, peer_id
-                );
-                eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                eprintln!();
-                eprintln!("The cell's doorbell signal failed, indicating it crashed or hung.");
-                eprintln!("Check the logs above for error messages from the cell.");
-                eprintln!();
-                std::process::exit(1);
-            }
-        })),
-    }) {
-        Ok(result) => result,
-        Err(e) => {
-            warn!("failed to add peer for {}: {}", binary_name, e);
-            return None;
+/// 1. Creates the SHM host with a temp path
+/// 2. Spawns all cell processes
+/// 3. Sets up the MultiPeerHostDriver
+/// 4. Stores connection handles for later use
+async fn init_cells() -> CellRegistry {
+    match init_cells_inner().await {
+        Ok(()) => {
+            info!("Cell infrastructure initialized successfully");
         }
+        Err(e) => {
+            warn!("Failed to initialize cell infrastructure: {}", e);
+        }
+    }
+    CellRegistry::new()
+}
+
+async fn init_cells_inner() -> eyre::Result<()> {
+    // Create temp SHM path
+    let shm_path = std::env::temp_dir().join(format!("dodeca-shm-{}", std::process::id()));
+
+    // Configure segment for multi-cell architecture
+    let max_payload = 16 * 1024 * 1024; // 16MB for large payloads
+    let config = SegmentConfig {
+        max_guests: 32,
+        ring_size: 256,
+        slots_per_guest: 64,
+        slot_size: max_payload + 8, // slot_size must be >= max_payload_size + 4, and multiple of 8
+        max_payload_size: max_payload,
+        ..SegmentConfig::default()
     };
 
-    let peer_id = ticket.peer_id;
+    // Create SHM host
+    let mut host = ShmHost::create(&shm_path, config)?;
+    let hub_path = shm_path.clone();
 
-    // Build command with hub args from ticket
-    let mut cmd = Command::new(binary_path);
-    cmd.arg(format!("--hub-path={}", ticket.hub_path.display()))
-        .arg(format!("--peer-id={}", ticket.peer_id))
-        .arg(format!("--doorbell-fd={}", ticket.doorbell_fd));
+    // Store hub path globally
+    let _ = SHM_PATH.set(hub_path.clone());
 
-    if config.inherit_stdio {
-        cmd.stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
-    } else {
-        cmd.stdin(Stdio::null());
+    // Find cell binary directory
+    let cell_dir = find_cell_directory()?;
+
+    // Spawn all cells and collect (peer_id, cell_name) mappings
+    let mut peer_cells: Vec<(PeerId, String, tokio::process::Child)> = Vec::new();
+
+    for suffix in CELL_SUFFIXES {
+        let binary_name = format!("ddc-cell-{}", suffix);
+        let cell_name = suffix.replace('-', "_");
+        let binary_path = cell_dir.join(&binary_name);
+
+        if !binary_path.exists() {
+            debug!("Cell binary not found: {}", binary_path.display());
+            continue;
+        }
+
+        // Add peer to host
+        let cell_name_for_death = cell_name.clone();
+        let ticket = host.add_peer(AddPeerOptions {
+            peer_name: Some(binary_name.clone()),
+            on_death: Some(Arc::new(move |peer_id| {
+                eprintln!(
+                    "FATAL: {} cell died unexpectedly (peer_id={:?})",
+                    cell_name_for_death, peer_id
+                );
+                std::process::exit(1);
+            })),
+        })?;
+
+        let peer_id = ticket.peer_id;
+
+        // Spawn cell process
+        let mut cmd = Command::new(&binary_path);
+        for arg in ticket.to_args() {
+            cmd.arg(arg);
+        }
+
         if is_quiet_mode() {
-            cmd.stdout(Stdio::null())
+            cmd.stdin(Stdio::null())
+                .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .env("DODECA_QUIET", "1");
         } else {
-            cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+            cmd.stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+        }
+
+        let mut child = ur_taking_me_with_you::spawn_dying_with_parent_async(cmd)?;
+
+        // Capture stdio
+        if !is_quiet_mode() {
+            capture_cell_stdio(&binary_name, &mut child);
+        }
+
+        debug!(
+            "Spawned {} cell (peer_id={:?}) from {}",
+            cell_name,
+            peer_id,
+            binary_path.display()
+        );
+
+        peer_cells.push((peer_id, cell_name, child));
+
+        // Drop ticket after spawn to close our end of the doorbell
+        drop(ticket);
+    }
+
+    if peer_cells.is_empty() {
+        return Err(eyre::eyre!("No cells found to spawn"));
+    }
+
+    // Build the MultiPeerHostDriver with CellLifecycle dispatcher for each peer
+    // Gingembre is special: it needs TemplateHost callbacks from the host
+    let lifecycle_impl = HostCellLifecycle::new(cell_ready_registry().clone());
+    let template_host_impl = TemplateHostImpl::new(render_context_registry());
+
+    let mut builder = MultiPeerHostDriver::new(host);
+    for (peer_id, cell_name, _) in &peer_cells {
+        if cell_name == "gingembre" {
+            // Gingembre needs bidirectional RPC: host calls TemplateRenderer,
+            // cell calls back TemplateHost. Use RoutedDispatcher to combine both.
+            let dispatcher = RoutedDispatcher::new(
+                CellLifecycleDispatcher::new(lifecycle_impl.clone()),
+                TemplateHostDispatcher::new(template_host_impl.clone()),
+            );
+            builder = builder.add_peer(*peer_id, dispatcher);
+        } else if cell_name == "http" {
+            // HTTP cell needs ContentService and WebSocketTunnel from the host.
+            // SiteServer must be provided via provide_site_server() before all().
+            if let Some(server) = SITE_SERVER_FOR_INIT.get() {
+                let dispatcher = RoutedDispatcher::new(
+                    CellLifecycleDispatcher::new(lifecycle_impl.clone()),
+                    RoutedDispatcher::new(
+                        ContentServiceDispatcher::new(HostContentService::new(server.clone())),
+                        WebSocketTunnelDispatcher::new(HostWebSocketTunnel::new(server.clone())),
+                    ),
+                );
+                builder = builder.add_peer(*peer_id, dispatcher);
+            } else {
+                // No SiteServer provided - http cell won't be able to serve content.
+                // This is fine for build-only commands.
+                debug!("HTTP cell initialized without SiteServer (build-only mode)");
+                let dispatcher = CellLifecycleDispatcher::new(lifecycle_impl.clone());
+                builder = builder.add_peer(*peer_id, dispatcher);
+            }
+        } else {
+            let dispatcher = CellLifecycleDispatcher::new(lifecycle_impl.clone());
+            builder = builder.add_peer(*peer_id, dispatcher);
         }
     }
 
-    let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
-        Ok(child) => child,
-        Err(e) => {
-            warn!("failed to spawn {}: {}", binary_name, e);
-            return None;
+    let (driver, handles) = builder.build();
+
+    // Initialize global handle storage
+    let cell_handles = Arc::new(std::sync::RwLock::new(HashMap::new()));
+    let name_to_peer = Arc::new(std::sync::RwLock::new(HashMap::new()));
+
+    // Store handles globally
+    for (peer_id, cell_name, _) in &peer_cells {
+        if let Some(handle) = handles.get(peer_id) {
+            if let Ok(mut map) = cell_handles.write() {
+                map.insert(*peer_id, handle.clone());
+            }
+            if let Ok(mut map) = name_to_peer.write() {
+                map.insert(cell_name.clone(), *peer_id);
+            }
+
+            // Also register for diagnostics
+            register_peer_diag(peer_id.get() as u16, cell_name, handle.clone());
         }
-    };
-
-    // Register child PID for SIGUSR1 forwarding
-    if let Some(pid) = child.id() {
-        dodeca_debug::register_child_pid(pid);
     }
+    let _ = CELL_HANDLES.set(cell_handles);
+    let _ = CELL_NAME_TO_PEER_ID.set(name_to_peer);
 
-    // Capture stdio unless inheriting
-    if !config.inherit_stdio && !is_quiet_mode() {
-        capture_cell_stdio(binary_name, &mut child);
-    }
+    // Spawn driver task
+    tokio::spawn(async move {
+        if let Err(e) = driver.run().await {
+            warn!("MultiPeerHostDriver error: {:?}", e);
+        }
+    });
 
-    // Drop ticket to close our end of the peer's doorbell (child inherited it)
-    drop(ticket);
-
-    // Create RPC session
-    let rpc_session = Arc::new(RpcSession::with_channel_start(transport, 1));
-
-    // Register for diagnostics
-    register_peer_diag(peer_id, binary_name, rpc_session.clone());
-
-    debug!(
-        "spawned {} cell from {} (peer_id={})",
-        binary_name,
-        binary_path.display(),
-        peer_id
-    );
-
-    // Optionally manage child process internally
-    let child = if config.manage_child {
-        let cell_label = binary_name.to_string();
-        let hub_for_cleanup = hub.clone();
+    // Spawn child management tasks
+    for (peer_id, cell_name, child) in peer_cells {
+        let cell_label = cell_name.clone();
         tokio::spawn(async move {
+            let mut child = child;
             match child.wait().await {
                 Ok(status) => {
                     if !status.success() {
-                        eprintln!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                         eprintln!("FATAL: {} cell crashed with status: {}", cell_label, status);
-                        eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                        eprintln!();
-                        eprintln!("A critical cell process has terminated unexpectedly.");
-                        eprintln!("Check the logs above for error messages from the cell.");
-                        eprintln!();
-                        eprintln!("Cell: {}", cell_label);
-                        eprintln!("Exit status: {}", status);
-                        eprintln!();
                         std::process::exit(1);
                     }
                 }
                 Err(e) => {
-                    eprintln!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                     eprintln!("FATAL: {} cell wait error: {}", cell_label, e);
-                    eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                     std::process::exit(1);
                 }
             }
-            hub_for_cleanup
-                .allocator()
-                .reclaim_peer_slots(peer_id as u32);
-            info!(
-                "{} cell exited, reclaimed slots for peer {}",
-                cell_label, peer_id
-            );
+            info!("{} cell (peer {:?}) exited", cell_label, peer_id);
         });
-        None
-    } else {
-        Some(child)
-    };
+    }
 
-    Some(SpawnedCellResult {
-        peer_id,
-        rpc_session,
-        child,
-    })
+    Ok(())
 }
 
-/// Find a cell binary by name, searching standard locations.
-fn find_cell_binary(binary_name: &str) -> Option<PathBuf> {
-    #[cfg(target_os = "windows")]
-    let executable = format!("{binary_name}.exe");
-    #[cfg(not(target_os = "windows"))]
-    let executable = binary_name.to_string();
-
-    // Try DODECA_CELL_PATH first (consistent with resolve_cell_path)
-    if let Ok(env_path) = std::env::var("DODECA_CELL_PATH") {
-        let path = PathBuf::from(&env_path).join(&executable);
-        if path.exists() {
-            return Some(path);
+/// Find the directory containing cell binaries.
+fn find_cell_directory() -> eyre::Result<PathBuf> {
+    // Try DODECA_CELL_PATH first
+    if let Ok(path) = std::env::var("DODECA_CELL_PATH") {
+        let dir = PathBuf::from(path);
+        if dir.is_dir() {
+            return Ok(dir);
         }
     }
 
     // Try adjacent to current exe
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(dir) = exe_path.parent() {
-            let path = dir.join(&executable);
-            if path.exists() {
-                return Some(path);
+            if dir.join("ddc-cell-image").exists() || dir.join("ddc-cell-image.exe").exists() {
+                return Ok(dir.to_path_buf());
             }
         }
     }
 
-    // Try development fallback
+    // Try target/debug or target/release
     #[cfg(debug_assertions)]
-    let profile_dir = PathBuf::from("target/debug");
+    let profile = "debug";
     #[cfg(not(debug_assertions))]
-    let profile_dir = PathBuf::from("target/release");
+    let profile = "release";
 
-    let path = profile_dir.join(&executable);
-    if path.exists() {
-        return Some(path);
+    let target_dir = PathBuf::from("target").join(profile);
+    if target_dir.is_dir() {
+        return Ok(target_dir);
     }
 
-    None
+    Err(eyre::eyre!("Could not find cell binary directory"))
 }
 
-/// Start the RPC session runner task.
-fn start_session_runner(rpc_session: &Arc<Session>, cell_label: &str) {
-    let session_runner = rpc_session.clone();
-    let cell_label = cell_label.to_string();
-    tokio::spawn(async move {
-        if let Err(e) = session_runner.run().await {
-            warn!("{} cell RPC session error: {}", cell_label, e);
-        }
-    });
-}
-
-/// Create the standard dispatcher with TracingSink and CellLifecycle services.
-fn create_standard_dispatcher()
--> impl Fn(Frame) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send>>
-+ Send
-+ Sync
-+ 'static {
-    let tracing_sink = ForwardingTracingSink::new();
-    let lifecycle_impl = HostCellLifecycle::new(cell_ready_registry().clone());
-
-    let buffer_pool = rapace::BufferPool::with_capacity(128, 256 * 1024);
-    DispatcherBuilder::new()
-        .add_service(TracingSinkService(Arc::new(TracingSinkServer::new(
-            tracing_sink,
-        ))))
-        .add_service(CellLifecycleServer::new(lifecycle_impl).into_dispatch())
-        .build(buffer_pool)
-}
-
-/// Spawn a cell binary through the hub with a custom dispatcher.
-///
-/// This is used for cells like TUI that need a custom dispatcher rather than
-/// just being clients that we call methods on.
-///
-/// Set `inherit_stdio` to `true` for cells that need direct terminal access (like TUI).
-/// When true, stdin/stdout/stderr are inherited from the parent process, allowing
-/// the cell to interact with the terminal directly.
-pub async fn spawn_cell_with_dispatcher<D>(
-    binary_name: &str,
-    dispatcher_factory: impl FnOnce(Arc<Session>) -> D,
-    inherit_stdio: bool,
-) -> Option<(Arc<Session>, tokio::process::Child)>
-where
-    D: Fn(
-            Frame,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<Frame, rapace::RpcError>> + Send>,
-        > + Send
-        + Sync
-        + 'static,
-{
-    let (hub, _hub_path) = get_hub().await?;
-
-    let binary_path = find_cell_binary(binary_name)?;
-
-    let result = spawn_cell_core(
-        &binary_path,
-        binary_name,
-        &hub,
-        &CellSpawnConfig {
-            inherit_stdio,
-            manage_child: false, // We return the child
-        },
-    )?;
-
-    // Set up the custom dispatcher combined with CellLifecycle service
-    let custom_dispatcher = dispatcher_factory(result.rpc_session.clone());
-    let lifecycle_impl = HostCellLifecycle::new(cell_ready_registry().clone());
-    let lifecycle_service: Arc<dyn ServiceDispatch> =
-        Arc::new(CellLifecycleServer::new(lifecycle_impl).into_dispatch());
-    let lifecycle_method_ids = lifecycle_service.method_ids();
-    let buffer_pool = result.rpc_session.buffer_pool().clone();
-
-    let combined_dispatcher = move |request: Frame| {
-        let method_id = request.desc.method_id;
-
-        if lifecycle_method_ids.contains(&method_id) {
-            let service = lifecycle_service.clone();
-            let pool = buffer_pool.clone();
-            let channel_id = request.desc.channel_id;
-            let msg_id = request.desc.msg_id;
-            Box::pin(async move {
-                let mut response = service.dispatch(method_id, request, &pool).await?;
-                response.desc.channel_id = channel_id;
-                response.desc.msg_id = msg_id;
-                Ok(response)
-            })
-                as std::pin::Pin<
-                    Box<dyn std::future::Future<Output = Result<Frame, rapace::RpcError>> + Send>,
-                >
-        } else {
-            custom_dispatcher(request)
-        }
-    };
-
-    result.rpc_session.set_dispatcher(combined_dispatcher);
-    start_session_runner(&result.rpc_session, binary_name);
-
-    info!(
-        "launched {} from {} (peer_id={})",
-        binary_name,
-        binary_path.display(),
-        result.peer_id
-    );
-
-    Some((result.rpc_session, result.child.expect("child not managed")))
-}
-
-/// Dump hub transport diagnostics to stderr (called on SIGUSR1).
-fn dump_hub_diagnostics() {
-    eprintln!("\n--- Hub Transport Diagnostics ---");
-
-    // Get hub
-    let Some(hub) = HUB.get() else {
-        eprintln!("  Hub not initialized");
-        return;
-    };
-
-    // Dump per-peer ring status and pending RPC waiters
-    if let Ok(peers) = PEER_DIAG_INFO.read() {
-        for peer in peers.iter() {
-            let recv_ring = hub.peer_recv_ring(peer.peer_id);
-            let send_ring = hub.peer_send_ring(peer.peer_id);
-            let pending_ids = peer.rpc_session.pending_channel_ids();
-            let tunnel_ids = peer.rpc_session.tunnel_channel_ids();
-
-            eprintln!(
-                "  peer[{}] \"{}\": recv_ring({}) send_ring({})",
-                peer.peer_id,
-                peer.name,
-                recv_ring.ring_status(),
-                send_ring.ring_status()
-            );
-
-            // Show pending RPC waiters if any
-            if !pending_ids.is_empty() {
-                eprintln!(
-                    "    pending_rpcs={} channel_ids={:?}",
-                    pending_ids.len(),
-                    pending_ids
-                );
-            }
-
-            // Show active tunnels if any
-            if !tunnel_ids.is_empty() {
-                eprintln!(
-                    "    active_tunnels={} channel_ids={:?}",
-                    tunnel_ids.len(),
-                    tunnel_ids
-                );
-            }
-        }
-    }
-
-    eprintln!("--- End Hub Diagnostics ---\n");
-}
-
-/// Initialize hub diagnostics (register SIGUSR1 callback).
-/// Call this after the hub is created.
-pub fn init_hub_diagnostics() {
-    dodeca_debug::register_diagnostic(dump_hub_diagnostics);
-}
-
-/// Info about a spawned cell with its RPC session already running.
-struct SpawnedCell {
-    peer_id: u16,
-    rpc_session: Arc<Session>,
-}
-
-macro_rules! define_cells {
-    ( $( $key:ident => $Client:ident ),* $(,)? ) => {
-        #[derive(Default)]
-        pub struct CellRegistry {
-            $(
-                pub $key: Option<Arc<$Client<AnyTransport>>>,
-            )*
-        }
-
-        impl CellRegistry {
-            /// Load cells from a directory.
-            ///
-            /// Spawns all cells in parallel (with RPC sessions immediately running),
-            /// waits for them to register, then creates clients.
-            async fn load_from_dir(dir: &Path, hub: &Arc<HubHost>, hub_path: &Path) -> Self {
-                // Phase 1: Spawn all cells with RPC sessions already running
-                // We yield periodically to give the RPC session tasks a chance to run,
-                // which allows them to process incoming messages and free SHM slots.
-                let mut spawned: Vec<(&'static str, Option<SpawnedCell>)> = Vec::new();
-                let mut spawn_count = 0u32;
-                $(
-                    let cell_name = match stringify!($key) {
-                        "syntax_highlight" => "ddc-cell-arborium".to_string(),
-                        other => format!("ddc-cell-{}", other.replace('_', "-")),
-                    };
-                    let spawn_result = Self::spawn_cell(dir, &cell_name, hub, hub_path);
-                    spawned.push((stringify!($key), spawn_result));
-                    spawn_count += 1;
-
-                    // Yield every 4 cells to let RPC sessions process messages
-                    // This prevents SHM slot exhaustion during parallel startup
-                    if spawn_count % 4 == 0 {
-                        tokio::task::yield_now().await;
-                    }
-                )*
-
-                // Final yield to ensure all spawned sessions get a chance to run
-                tokio::task::yield_now().await;
-
-                // Phase 2: Wait for all spawned cells to register
-                // (RPC sessions are already running, so messages can be processed)
-                let peer_ids: Vec<u16> = spawned.iter()
-                    .filter_map(|(_, s)| s.as_ref().map(|p| p.peer_id))
-                    .collect();
-                Self::wait_for_peers(hub, &peer_ids).await;
-
-                // Phase 3: Create clients from already-running sessions
-                let mut iter = spawned.into_iter();
-                $(
-                    let (_, spawn_result) = iter.next().unwrap();
-                    let $key = spawn_result
-                        .map(|s| Arc::new($Client::new(s.rpc_session)));
-                )*
-
-                CellRegistry {
-                    $($key),*
-                }
-            }
-        }
-    };
-}
-
-define_cells! {
-    webp            => WebPProcessorClient,
-    jxl             => JXLProcessorClient,
-    minify          => MinifierClient,
-    svgo            => SvgoOptimizerClient,
-    sass            => SassCompilerClient,
-    css             => CssProcessorClient,
-    js              => JsProcessorClient,
-    pagefind        => SearchIndexerClient,
-    image           => ImageProcessorClient,
-    fonts           => FontProcessorClient,
-    linkcheck       => LinkCheckerClient,
-    code_execution  => CodeExecutorClient,
-    html_diff       => HtmlDifferClient,
-    html            => HtmlProcessorClient,
-    markdown        => MarkdownProcessorClient,
-    http            => TcpTunnelClient,
-}
-
-impl CellRegistry {
-    /// Spawn a cell process and immediately start its RPC session.
-    ///
-    /// This ensures the host can process incoming messages (like tracing events)
-    /// from the cell immediately, preventing slot exhaustion.
-    fn spawn_cell(
-        dir: &Path,
-        binary_name: &str,
-        hub: &Arc<HubHost>,
-        _hub_path: &Path, // now provided by ticket
-    ) -> Option<SpawnedCell> {
-        #[cfg(target_os = "windows")]
-        let executable = format!("{binary_name}.exe");
-        #[cfg(not(target_os = "windows"))]
-        let executable = binary_name.to_string();
-
-        let path = dir.join(&executable);
-        if !path.exists() {
-            debug!("rapace cell not found: {}", path.display());
-            return None;
-        }
-
-        let result = spawn_cell_core(&path, binary_name, hub, &CellSpawnConfig::default())?;
-
-        // Set up standard dispatcher with tracing and lifecycle services
-        result
-            .rpc_session
-            .set_dispatcher(create_standard_dispatcher());
-        start_session_runner(&result.rpc_session, binary_name);
-
-        Some(SpawnedCell {
-            peer_id: result.peer_id,
-            rpc_session: result.rpc_session,
-        })
-    }
-
-    /// Wait for all spawned peers to register.
-    ///
-    /// Async version that properly yields to the tokio runtime, allowing
-    /// RPC session tasks to process incoming messages from cells.
-    async fn wait_for_peers(hub: &Arc<HubHost>, peer_ids: &[u16]) {
-        if peer_ids.is_empty() {
-            return;
-        }
-
-        debug!(
-            "waiting for {} peers to register: {:?}",
-            peer_ids.len(),
-            peer_ids
-        );
-
-        let start = std::time::Instant::now();
-        let timeout = Duration::from_secs(2);
-
-        loop {
-            let all_active = peer_ids.iter().all(|&id| hub.is_peer_active(id));
-            if all_active {
-                debug!(
-                    "Initialized {} cells in {:?}",
-                    peer_ids.len(),
-                    start.elapsed()
-                );
-                return;
-            }
-
-            if start.elapsed() > timeout {
-                // Log which peers failed to register
-                for &peer_id in peer_ids {
-                    if !hub.is_peer_active(peer_id) {
-                        warn!("peer {} failed to register within timeout", peer_id);
-                    }
-                }
-                return;
-            }
-
-            // Yield to tokio runtime so RPC session tasks can process messages
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-    }
-}
-
-/// Initialize the hub SHM file.
-fn init_hub() -> Option<(Arc<HubHost>, PathBuf)> {
-    let hub_path = env::temp_dir().join(format!("dodeca-hub-{}.shm", std::process::id()));
-    let _ = std::fs::remove_file(&hub_path);
-
-    match HubHost::create(&hub_path, HubConfig::default()) {
-        Ok(hub) => {
-            debug!("created hub SHM at {}", hub_path.display());
-            Some((Arc::new(hub), hub_path))
-        }
-        Err(e) => {
-            warn!("failed to create hub SHM: {}", e);
-            None
-        }
-    }
-}
-
-/// Cell path resolution source
-#[derive(Debug, Clone, Copy)]
-enum CellPathSource {
-    /// DODECA_CELL_PATH environment variable (highest priority, exclusive)
-    EnvVar,
-    /// Directory adjacent to the executable
-    AdjacentToExe,
-    /// "cells/" subdirectory next to executable
-    CellsSubdir,
-    /// Development fallback (target/debug or target/release)
-    DevFallback,
-}
-
-/// Check if we're running in development mode (executable is in a target/ directory
-/// within a Cargo workspace).
-///
-/// Returns the workspace root if we're in dev mode, None otherwise.
-#[cfg(debug_assertions)]
-fn detect_dev_mode() -> Option<PathBuf> {
-    let exe_path = std::env::current_exe().ok()?;
-    let exe_path_str = exe_path.to_string_lossy();
-
-    // Check if we're in a target/debug or target/release directory
-    if !exe_path_str.contains("/target/debug/") && !exe_path_str.contains("/target/release/") {
-        return None;
-    }
-
-    // Walk up from target/debug to find workspace root
-    let mut dir = exe_path.as_path();
-    loop {
-        if let Some(parent) = dir.parent() {
-            let cargo_toml = parent.join("Cargo.toml");
-            if cargo_toml.exists() {
-                // Check if it's a workspace root
-                if let Ok(contents) = std::fs::read_to_string(&cargo_toml) {
-                    if contents.contains("[workspace]") {
-                        return Some(parent.to_path_buf());
-                    }
-                }
-            }
-            dir = parent;
-        } else {
-            return None;
-        }
-    }
-}
-
-/// Rebuild all binaries when running in development mode.
-///
-/// This ensures cell binaries are always in sync with the main binary,
-/// avoiding version mismatches that can cause deserialization errors.
-#[cfg(debug_assertions)]
-fn dev_rebuild_cells(workspace_root: &Path) {
-    use std::process::Command as StdCommand;
-
-    info!(
-        workspace = %workspace_root.display(),
-        "Development mode: rebuilding cell binaries to ensure version consistency"
-    );
-
-    // Run cargo build --bins
-    let status = StdCommand::new("cargo")
-        .arg("build")
-        .arg("--bins")
-        .current_dir(workspace_root)
-        .status();
-
-    match status {
-        Ok(s) if s.success() => {
-            debug!("dev rebuild: cargo build --bins succeeded");
-        }
-        Ok(s) => {
-            warn!("dev rebuild: cargo build --bins failed with status {}", s);
-        }
-        Err(e) => {
-            warn!("dev rebuild: failed to run cargo: {}", e);
-        }
-    }
-}
-
-impl std::fmt::Display for CellPathSource {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::EnvVar => write!(f, "env:DODECA_CELL_PATH"),
-            Self::AdjacentToExe => write!(f, "adjacent"),
-            Self::CellsSubdir => write!(f, "cells_subdir"),
-            Self::DevFallback => write!(f, "dev_fallback"),
-        }
-    }
-}
-
-/// Resolve the cell directory path with clear precedence.
-///
-/// Precedence (DODECA_CELL_PATH is exclusive if set):
-/// 1. DODECA_CELL_PATH env var - if set, this is the ONLY source
-/// 2. Directory next to the executable
-/// 3. "cells/" subdirectory next to executable
-/// 4. Development fallback (target/debug or target/release)
-fn resolve_cell_directory() -> Option<(PathBuf, CellPathSource)> {
-    // In development mode (debug build running from target/ in a workspace),
-    // rebuild all binaries to ensure version consistency. This prevents issues
-    // where the main binary and cells have mismatched serialization formats.
-    #[cfg(debug_assertions)]
-    if let Some(workspace_root) = detect_dev_mode() {
-        dev_rebuild_cells(&workspace_root);
-    }
-
-    // If DODECA_CELL_PATH is set, use it exclusively - don't fall back
-    if let Ok(env_path) = std::env::var("DODECA_CELL_PATH") {
-        let path = PathBuf::from(&env_path);
-        info!(
-            cell_path = %path.display(),
-            source = %CellPathSource::EnvVar,
-            "Cell directory resolved (exclusive, no fallback)"
-        );
-        return Some((path, CellPathSource::EnvVar));
-    }
-
-    // Otherwise, search through fallback paths
-    let exe_dir = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()));
-
-    // Try adjacent to executable
-    if let Some(ref dir) = exe_dir {
-        // Check if ddc-cell-http exists here
-        let test_binary = dir.join("ddc-cell-http");
-        if test_binary.exists() {
-            info!(
-                cell_path = %dir.display(),
-                source = %CellPathSource::AdjacentToExe,
-                "Cell directory resolved"
-            );
-            return Some((dir.clone(), CellPathSource::AdjacentToExe));
-        }
-    }
-
-    // Try cells/ subdirectory
-    if let Some(ref dir) = exe_dir {
-        let cells_dir = dir.join("cells");
-        let test_binary = cells_dir.join("ddc-cell-http");
-        if test_binary.exists() {
-            info!(
-                cell_path = %cells_dir.display(),
-                source = %CellPathSource::CellsSubdir,
-                "Cell directory resolved"
-            );
-            return Some((cells_dir, CellPathSource::CellsSubdir));
-        }
-    }
-
-    // Development fallback
-    #[cfg(debug_assertions)]
-    let profile_dir = PathBuf::from("target/debug");
-    #[cfg(not(debug_assertions))]
-    let profile_dir = PathBuf::from("target/release");
-
-    let test_binary = profile_dir.join("ddc-cell-http");
-    if test_binary.exists() {
-        info!(
-            cell_path = %profile_dir.display(),
-            source = %CellPathSource::DevFallback,
-            "Cell directory resolved"
-        );
-        return Some((profile_dir, CellPathSource::DevFallback));
-    }
-
-    // No cells found anywhere
-    warn!(
-        exe_dir = ?exe_dir,
-        "No cell directory found in any search location"
-    );
-    None
-}
-
-/// Get the global cell registry, initializing it if needed.
 pub async fn all() -> &'static CellRegistry {
-    CELLS
-        .get_or_init(|| async {
-            // Create hub first
-            let (hub, hub_path) = match init_hub() {
-                Some((h, p)) => {
-                    // Store in global statics for later access/cleanup
-                    let _ = HUB.set(h.clone());
-                    let _ = HUB_PATH.set(p.clone());
-                    // Register diagnostic callback for SIGUSR1
-                    init_hub_diagnostics();
-                    (h, p)
-                }
-                None => {
-                    warn!("hub creation failed, cells will not be available");
-                    return Default::default();
-                }
-            };
+    CELLS.get_or_init(init_cells).await
+}
 
-            // Resolve cell directory with explicit precedence
-            let Some((cell_dir, source)) = resolve_cell_directory() else {
-                warn!("No cell directory resolved, cells will not be available");
-                return Default::default();
-            };
+// ============================================================================
+// Hub Access (for cell_server.rs compatibility)
+// ============================================================================
 
-            // Load from the resolved directory
-            let registry = CellRegistry::load_from_dir(&cell_dir, &hub, &hub_path).await;
+pub async fn get_hub() -> Option<(Arc<ShmHost>, PathBuf)> {
+    // The hub is now owned by the MultiPeerHostDriver, not accessible externally
+    // This function is deprecated for the roam architecture
+    warn!("get_hub() is deprecated - hub is owned by MultiPeerHostDriver");
+    None
+}
 
-            // Log what was loaded
-            let loaded_count = [
-                registry.webp.is_some(),
-                registry.jxl.is_some(),
-                registry.minify.is_some(),
-                registry.svgo.is_some(),
-                registry.sass.is_some(),
-                registry.css.is_some(),
-                registry.js.is_some(),
-                registry.pagefind.is_some(),
-                registry.image.is_some(),
-                registry.fonts.is_some(),
-                registry.linkcheck.is_some(),
-                registry.code_execution.is_some(),
-                registry.html_diff.is_some(),
-                registry.html.is_some(),
-                registry.markdown.is_some(),
-                registry.http.is_some(),
-            ]
-            .iter()
-            .filter(|&&b| b)
-            .count();
+// ============================================================================
+// Cell Client Accessor Functions
+// ============================================================================
 
-            if loaded_count > 0 {
-                debug!(
-                    cell_dir = %cell_dir.display(),
-                    source = %source,
-                    loaded_count,
-                    http = registry.http.is_some(),
-                    markdown = registry.markdown.is_some(),
-                    "Cells loaded"
-                );
-            } else {
-                warn!(
-                    cell_dir = %cell_dir.display(),
-                    source = %source,
-                    "No cells found in resolved directory"
-                );
-            }
+/// Create a client for the given cell if available.
+macro_rules! cell_client_accessor {
+    ($name:ident, $cell_name:expr, $client:ty) => {
+        pub async fn $name() -> Option<Arc<$client>> {
+            let handle = get_cell_handle_by_name($cell_name)?;
+            Some(Arc::new(<$client>::new(handle)))
+        }
+    };
+}
 
-            registry
-        })
+// Image processing
+cell_client_accessor!(image_cell, "image", ImageProcessorClient);
+cell_client_accessor!(webp_cell, "webp", WebPProcessorClient);
+cell_client_accessor!(jxl_cell, "jxl", JXLProcessorClient);
+
+// Text processing
+cell_client_accessor!(markdown_cell, "markdown", MarkdownProcessorClient);
+cell_client_accessor!(html_cell, "html", HtmlProcessorClient);
+cell_client_accessor!(minify_cell, "minify", MinifierClient);
+cell_client_accessor!(css_cell, "css", CssProcessorClient);
+cell_client_accessor!(sass_cell, "sass", SassCompilerClient);
+cell_client_accessor!(js_cell, "js", JsProcessorClient);
+cell_client_accessor!(svgo_cell, "svgo", SvgoOptimizerClient);
+
+// Other cells
+cell_client_accessor!(font_cell, "fonts", FontProcessorClient);
+cell_client_accessor!(linkcheck_cell, "linkcheck", LinkCheckerClient);
+cell_client_accessor!(html_diff_cell, "html_diff", HtmlDifferClient);
+cell_client_accessor!(dialoguer_cell, "dialoguer", DialoguerClient);
+cell_client_accessor!(pagefind_cell, "pagefind", SearchIndexerClient);
+cell_client_accessor!(code_execution_cell, "code_execution", CodeExecutorClient);
+cell_client_accessor!(http_cell, "http", TcpTunnelClient);
+
+// ============================================================================
+// Convenience Functions (wrappers around cell clients)
+// ============================================================================
+
+pub async fn resize_image(input: ResizeInput) -> Result<ImageResult, eyre::Error> {
+    let client = image_cell()
         .await
+        .ok_or_else(|| eyre::eyre!("Image cell not available"))?;
+    client
+        .resize_image(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-/// Encode RGBA pixels to WebP using the cell if available, otherwise return None.
-#[tracing::instrument(level = "debug", skip(pixels), fields(pixels_len = pixels.len()))]
-pub async fn encode_webp_cell(
-    pixels: &[u8],
-    width: u32,
-    height: u32,
-    quality: u8,
-) -> Option<Vec<u8>> {
-    let cell = all().await.webp.as_ref()?;
+pub async fn encode_webp(input: WebPEncodeInput) -> Result<WebPResult, eyre::Error> {
+    let client = webp_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("WebP cell not available"))?;
+    client
+        .encode_webp(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
 
-    let input = WebPEncodeInput {
-        pixels: pixels.to_vec(),
-        width,
-        height,
-        quality,
+pub async fn encode_jxl(input: JXLEncodeInput) -> Result<JXLResult, eyre::Error> {
+    let client = jxl_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("JXL cell not available"))?;
+    client
+        .encode_jxl(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn compute_thumbhash(input: ThumbhashInput) -> Result<ImageResult, eyre::Error> {
+    let client = image_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Image cell not available"))?;
+    client
+        .generate_thumbhash_data_url(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn parse_markdown(
+    source_path: &str,
+    content: String,
+) -> Result<ParseResult, eyre::Error> {
+    let client = markdown_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Markdown cell not available"))?;
+    client
+        .parse_and_render(source_path.to_string(), content)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn render_markdown(
+    source_path: &str,
+    markdown: String,
+) -> Result<MarkdownResult, eyre::Error> {
+    let client = markdown_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Markdown cell not available"))?;
+    client
+        .render_markdown(source_path.to_string(), markdown)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn extract_frontmatter(content: String) -> Result<FrontmatterResult, eyre::Error> {
+    let client = markdown_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Markdown cell not available"))?;
+    client
+        .parse_frontmatter(content)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn minify_html(html: String) -> Result<MinifyResult, eyre::Error> {
+    let client = minify_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Minify cell not available"))?;
+    client
+        .minify_html(html)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn compile_sass(input: SassInput) -> Result<SassResult, eyre::Error> {
+    let client = sass_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("SASS cell not available"))?;
+    client
+        .compile_sass(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn rewrite_js(input: JsRewriteInput) -> Result<JsResult, eyre::Error> {
+    let client = js_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("JS cell not available"))?;
+    client
+        .rewrite_string_literals(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn optimize_svg(svg: String) -> Result<SvgoResult, eyre::Error> {
+    let client = svgo_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("SVGO cell not available"))?;
+    client
+        .optimize_svg(svg)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn subset_font(input: SubsetFontInput) -> Result<FontResult, eyre::Error> {
+    let client = font_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
+    client
+        .subset_font(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn check_links(input: LinkCheckInput) -> Result<LinkCheckResult, eyre::Error> {
+    let client = linkcheck_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Link check cell not available"))?;
+    client
+        .check_links(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn diff_html(input: DiffInput) -> Result<HtmlDiffResult, eyre::Error> {
+    let client = html_diff_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("HTML diff cell not available"))?;
+    client
+        .diff_html(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn build_search_index(input: SearchIndexInput) -> Result<SearchIndexResult, eyre::Error> {
+    let client = pagefind_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Pagefind cell not available"))?;
+    client
+        .build_search_index(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn execute_code_samples(
+    input: ExecuteSamplesInput,
+) -> Result<CodeExecutionResult, eyre::Error> {
+    let client = code_execution_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Code execution cell not available"))?;
+    client
+        .execute_code_samples(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+pub async fn extract_code_samples(
+    input: ExtractSamplesInput,
+) -> Result<CodeExecutionResult, eyre::Error> {
+    let client = code_execution_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Code execution cell not available"))?;
+    client
+        .extract_code_samples(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+// ============================================================================
+// Additional Function Aliases (for compatibility with other modules)
+// ============================================================================
+
+// These are aliases for the cell accessor and wrapper functions
+// that other modules expect.
+
+pub use dialoguer_cell as dialoguer_client;
+
+pub fn has_linkcheck_cell() -> bool {
+    // Check if the cell handle is available
+    get_cell_handle_by_name("linkcheck").is_some()
+}
+
+/// Result of link checking - wrapper for internal use
+#[derive(Debug, Clone)]
+pub struct UrlCheckResult {
+    pub statuses: Vec<LinkStatus>,
+}
+
+pub async fn check_urls_cell(urls: Vec<String>, options: CheckOptions) -> Option<UrlCheckResult> {
+    let client = linkcheck_cell().await?;
+    let input = LinkCheckInput {
+        urls,
+        delay_ms: options.rate_limit_ms,
+        timeout_secs: options.timeout_secs,
     };
-
-    match cell.encode_webp(input).await {
-        Ok(WebPResult::EncodeSuccess { data }) => Some(data),
-        Ok(WebPResult::Error { message }) => {
-            warn!("webp cell error: {}", message);
-            None
-        }
-        Ok(WebPResult::DecodeSuccess { .. }) => {
-            warn!("webp cell returned decode result for encode operation");
+    match client.check_links(input).await {
+        Ok(LinkCheckResult::Success { output }) => Some(UrlCheckResult {
+            statuses: output.results.into_values().collect(),
+        }),
+        Ok(LinkCheckResult::Error { message }) => {
+            tracing::warn!("Link check error: {}", message);
             None
         }
         Err(e) => {
-            warn!("webp cell call failed: {:?}", e);
+            tracing::warn!("Link check RPC error: {:?}", e);
             None
         }
     }
 }
 
-/// Encode RGBA pixels to JXL using the cell if available, otherwise return None.
-#[tracing::instrument(level = "debug", skip(pixels), fields(pixels_len = pixels.len()))]
-pub async fn encode_jxl_cell(
-    pixels: &[u8],
-    width: u32,
-    height: u32,
-    quality: u8,
-) -> Option<Vec<u8>> {
-    let cell = all().await.jxl.as_ref()?;
+#[derive(Debug, Clone, Default)]
+pub struct CheckOptions {
+    pub timeout_secs: u64,
+    pub skip_domains: Vec<String>,
+    pub rate_limit_ms: u64,
+}
 
-    let input = JXLEncodeInput {
-        pixels: pixels.to_vec(),
-        width,
-        height,
-        quality,
-    };
+pub async fn parse_and_render_markdown_cell(
+    source_path: &str,
+    content: &str,
+) -> Result<cell_markdown_proto::ParseResult, MarkdownParseError> {
+    let client = markdown_cell().await.ok_or_else(|| MarkdownParseError {
+        message: "Markdown cell not available".to_string(),
+    })?;
+    client
+        .parse_and_render(source_path.to_string(), content.to_string())
+        .await
+        .map_err(|e| MarkdownParseError {
+            message: format!("RPC error: {:?}", e),
+        })
+}
 
-    match cell.encode_jxl(input).await {
-        Ok(JXLResult::EncodeSuccess { data }) => Some(data),
-        Ok(JXLResult::Error { message }) => {
-            warn!("jxl cell error: {}", message);
+pub async fn execute_code_samples_cell(
+    input: ExecuteSamplesInput,
+) -> Result<CodeExecutionResult, eyre::Error> {
+    execute_code_samples(input).await
+}
+
+pub async fn extract_code_samples_cell(
+    input: ExtractSamplesInput,
+) -> Result<CodeExecutionResult, eyre::Error> {
+    extract_code_samples(input).await
+}
+
+pub async fn inject_code_buttons_cell(
+    html: String,
+    code_metadata: HashMap<String, cell_html_proto::CodeExecutionMetadata>,
+) -> Result<(String, bool), eyre::Error> {
+    let client = html_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
+    match client.inject_code_buttons(html, code_metadata).await {
+        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, flag }) => Ok((html, flag)),
+        Ok(cell_html_proto::HtmlResult::Success { html }) => Ok((html, false)),
+        Ok(cell_html_proto::HtmlResult::Error { message }) => Err(eyre::eyre!(message)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
+}
+
+pub async fn render_template_cell(
+    context_id: ContextId,
+    template_name: &str,
+    initial_context: Value,
+) -> eyre::Result<RenderResult> {
+    render_template(context_id, template_name, initial_context).await
+}
+
+pub async fn build_search_index_cell(
+    input: SearchIndexInput,
+) -> Result<SearchIndexResult, eyre::Error> {
+    build_search_index(input).await
+}
+
+pub async fn diff_html_cell(input: DiffInput) -> Result<HtmlDiffResult, eyre::Error> {
+    diff_html(input).await
+}
+
+pub async fn minify_html_cell(input: String) -> Result<MinifyResult, eyre::Error> {
+    minify_html(input).await
+}
+
+pub async fn optimize_svg_cell(input: String) -> Result<SvgoResult, eyre::Error> {
+    optimize_svg(input).await
+}
+
+pub async fn mark_dead_links_cell(
+    html: String,
+    known_routes: std::collections::HashSet<String>,
+) -> Result<String, eyre::Error> {
+    let client = html_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
+    match client.mark_dead_links(html, known_routes).await {
+        Ok(cell_html_proto::HtmlResult::Success { html }) => Ok(html),
+        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, .. }) => Ok(html),
+        Ok(cell_html_proto::HtmlResult::Error { message }) => Err(eyre::eyre!(message)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
+}
+
+pub async fn rewrite_urls_in_html_cell(
+    html: String,
+    path_map: HashMap<String, String>,
+) -> Result<String, eyre::Error> {
+    let client = html_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
+    match client.rewrite_urls(html, path_map).await {
+        Ok(cell_html_proto::HtmlResult::Success { html }) => Ok(html),
+        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, .. }) => Ok(html),
+        Ok(cell_html_proto::HtmlResult::Error { message }) => Err(eyre::eyre!(message)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
+}
+
+pub async fn rewrite_string_literals_in_js_cell(
+    js: String,
+    path_map: HashMap<String, String>,
+) -> Result<String, eyre::Error> {
+    let client = js_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("JS cell not available"))?;
+    let input = JsRewriteInput { js, path_map };
+    match client.rewrite_string_literals(input).await {
+        Ok(JsResult::Success { js }) => Ok(js),
+        Ok(JsResult::Error { message }) => Err(eyre::eyre!(message)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
+}
+
+pub async fn rewrite_urls_in_css_cell(
+    css: String,
+    path_map: HashMap<String, String>,
+) -> Result<String, eyre::Error> {
+    let client = css_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("CSS cell not available"))?;
+    match client.rewrite_and_minify(css, path_map).await {
+        Ok(CssResult::Success { css }) => Ok(css),
+        Ok(CssResult::Error { message }) => Err(eyre::eyre!(message)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
+}
+
+pub async fn decompress_font_cell(data: Vec<u8>) -> Result<Vec<u8>, eyre::Error> {
+    let client = font_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
+    match client.decompress_font(data).await {
+        Ok(FontResult::DecompressSuccess { data }) => Ok(data),
+        Ok(FontResult::Error { message }) => Err(eyre::eyre!(message)),
+        Ok(other) => Err(eyre::eyre!("Unexpected result: {:?}", other)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
+}
+
+pub async fn compress_to_woff2_cell(data: Vec<u8>) -> Result<Vec<u8>, eyre::Error> {
+    let client = font_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
+    match client.compress_to_woff2(data).await {
+        Ok(FontResult::CompressSuccess { data }) => Ok(data),
+        Ok(FontResult::Error { message }) => Err(eyre::eyre!(message)),
+        Ok(other) => Err(eyre::eyre!("Unexpected result: {:?}", other)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
+}
+
+pub async fn subset_font_cell(input: SubsetFontInput) -> Result<FontResult, eyre::Error> {
+    subset_font(input).await
+}
+
+// Image decoding/encoding cell wrappers
+// These return Option to match what image.rs expects
+pub async fn decode_png_cell(data: &[u8]) -> Option<DecodedImage> {
+    let client = image_cell().await?;
+    match client.decode_png(data.to_vec()).await {
+        Ok(ImageResult::Success { image }) => Some(image),
+        Ok(ImageResult::Error { message }) => {
+            tracing::warn!("PNG decode error: {}", message);
             None
         }
-        Ok(JXLResult::DecodeSuccess { .. }) => {
-            warn!("jxl cell returned decode result for encode operation");
-            None
-        }
+        Ok(_) => None,
         Err(e) => {
-            warn!("jxl cell call failed: {:?}", e);
+            tracing::warn!("PNG decode RPC error: {:?}", e);
             None
         }
     }
 }
 
-/// Decode WebP to pixels using the cell.
-#[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
+pub async fn decode_jpeg_cell(data: &[u8]) -> Option<DecodedImage> {
+    let client = image_cell().await?;
+    match client.decode_jpeg(data.to_vec()).await {
+        Ok(ImageResult::Success { image }) => Some(image),
+        Ok(ImageResult::Error { message }) => {
+            tracing::warn!("JPEG decode error: {}", message);
+            None
+        }
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!("JPEG decode RPC error: {:?}", e);
+            None
+        }
+    }
+}
+
+pub async fn decode_gif_cell(data: &[u8]) -> Option<DecodedImage> {
+    let client = image_cell().await?;
+    match client.decode_gif(data.to_vec()).await {
+        Ok(ImageResult::Success { image }) => Some(image),
+        Ok(ImageResult::Error { message }) => {
+            tracing::warn!("GIF decode error: {}", message);
+            None
+        }
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!("GIF decode RPC error: {:?}", e);
+            None
+        }
+    }
+}
+
 pub async fn decode_webp_cell(data: &[u8]) -> Option<DecodedImage> {
-    let cell = all().await.webp.as_ref()?;
-
-    match cell.decode_webp(data.to_vec()).await {
+    let client = webp_cell().await?;
+    match client.decode_webp(data.to_vec()).await {
         Ok(WebPResult::DecodeSuccess {
             pixels,
             width,
@@ -1294,26 +1270,20 @@ pub async fn decode_webp_cell(data: &[u8]) -> Option<DecodedImage> {
             channels,
         }),
         Ok(WebPResult::Error { message }) => {
-            warn!("webp decode cell error: {}", message);
+            tracing::warn!("WebP decode error: {}", message);
             None
         }
-        Ok(WebPResult::EncodeSuccess { .. }) => {
-            warn!("webp cell returned encode result for decode operation");
-            None
-        }
+        Ok(_) => None,
         Err(e) => {
-            warn!("webp decode cell call failed: {:?}", e);
+            tracing::warn!("WebP decode RPC error: {:?}", e);
             None
         }
     }
 }
 
-/// Decode JXL to pixels using the cell.
-#[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
 pub async fn decode_jxl_cell(data: &[u8]) -> Option<DecodedImage> {
-    let cell = all().await.jxl.as_ref()?;
-
-    match cell.decode_jxl(data.to_vec()).await {
+    let client = jxl_cell().await?;
+    match client.decode_jxl(data.to_vec()).await {
         Ok(JXLResult::DecodeSuccess {
             pixels,
             width,
@@ -1326,226 +1296,17 @@ pub async fn decode_jxl_cell(data: &[u8]) -> Option<DecodedImage> {
             channels,
         }),
         Ok(JXLResult::Error { message }) => {
-            warn!("jxl decode cell error: {}", message);
+            tracing::warn!("JXL decode error: {}", message);
             None
         }
-        Ok(JXLResult::EncodeSuccess { .. }) => {
-            warn!("jxl cell returned encode result for decode operation");
-            None
-        }
+        Ok(_) => None,
         Err(e) => {
-            warn!("jxl decode cell call failed: {:?}", e);
+            tracing::warn!("JXL decode RPC error: {:?}", e);
             None
         }
     }
 }
 
-/// Minify HTML using the cell.
-///
-/// # Panics
-/// Returns an error if the minify cell is not loaded (graceful degradation).
-#[tracing::instrument(level = "debug", skip(html), fields(html_len = html.len()))]
-pub async fn minify_html_cell(html: &str) -> Result<String, String> {
-    let Some(cell) = all().await.minify.as_ref() else {
-        return Err("minify cell not loaded".to_string());
-    };
-
-    match cell.minify_html(html.to_string()).await {
-        Ok(MinifyResult::Success { content }) => Ok(content),
-        Ok(MinifyResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("cell call failed: {:?}", e)),
-    }
-}
-
-/// Optimize SVG using the cell.
-///
-/// Returns an error if the svgo cell is not loaded (graceful degradation).
-#[tracing::instrument(level = "debug", skip(svg), fields(svg_len = svg.len()))]
-pub async fn optimize_svg_cell(svg: &str) -> Result<String, String> {
-    let Some(cell) = all().await.svgo.as_ref() else {
-        return Err("svgo cell not loaded".to_string());
-    };
-
-    match cell.optimize_svg(svg.to_string()).await {
-        Ok(SvgoResult::Success { svg }) => Ok(svg),
-        Ok(SvgoResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("cell call failed: {:?}", e)),
-    }
-}
-
-/// Compile SASS/SCSS using the cell.
-///
-/// Returns an error if the sass cell is not loaded (graceful degradation).
-#[tracing::instrument(level = "debug", skip(files), fields(num_files = files.len()))]
-pub async fn compile_sass_cell(
-    files: &std::collections::HashMap<String, String>,
-) -> Result<String, String> {
-    let Some(cell) = all().await.sass.as_ref() else {
-        return Err("sass cell not loaded".to_string());
-    };
-
-    let input = SassInput {
-        files: files.clone(),
-    };
-
-    match cell.compile_sass(input).await {
-        Ok(SassResult::Success { css }) => Ok(css),
-        Ok(SassResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("cell call failed: {:?}", e)),
-    }
-}
-
-/// Rewrite URLs in CSS and minify using the cell.
-///
-/// Returns an error if the css cell is not loaded (graceful degradation).
-#[tracing::instrument(level = "debug", skip(css, path_map), fields(css_len = css.len(), path_map_len = path_map.len()))]
-pub async fn rewrite_urls_in_css_cell(
-    css: &str,
-    path_map: &HashMap<String, String>,
-) -> Result<String, String> {
-    let Some(cell) = all().await.css.as_ref() else {
-        return Err("css cell not loaded".to_string());
-    };
-
-    match cell
-        .rewrite_and_minify(css.to_string(), path_map.clone())
-        .await
-    {
-        Ok(CssResult::Success { css }) => Ok(css),
-        Ok(CssResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("cell call failed: {:?}", e)),
-    }
-}
-
-/// Rewrite string literals in JS using the cell.
-///
-/// Returns an error if the js cell is not loaded (graceful degradation).
-#[tracing::instrument(level = "debug", skip(js, path_map), fields(js_len = js.len(), path_map_len = path_map.len()))]
-pub async fn rewrite_string_literals_in_js_cell(
-    js: &str,
-    path_map: &HashMap<String, String>,
-) -> Result<String, String> {
-    let Some(cell) = all().await.js.as_ref() else {
-        return Err("js cell not loaded".to_string());
-    };
-
-    let input = JsRewriteInput {
-        js: js.to_string(),
-        path_map: path_map.clone(),
-    };
-
-    match cell.rewrite_string_literals(input).await {
-        Ok(JsResult::Success { js }) => Ok(js),
-        Ok(JsResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("cell call failed: {:?}", e)),
-    }
-}
-
-/// Build a search index from HTML pages using the cell.
-///
-/// Returns an error if the pagefind cell is not loaded (graceful degradation).
-#[tracing::instrument(level = "debug", skip(pages), fields(num_pages = pages.len()))]
-pub async fn build_search_index_cell(pages: Vec<SearchPage>) -> Result<Vec<SearchFile>, String> {
-    let Some(cell) = all().await.pagefind.as_ref() else {
-        return Err("pagefind cell not loaded".to_string());
-    };
-
-    let input = SearchIndexInput { pages };
-
-    match cell.build_search_index(input).await {
-        Ok(SearchIndexResult::Success { output }) => Ok(output.files),
-        Ok(SearchIndexResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("cell call failed: {:?}", e)),
-    }
-}
-
-// ============================================================================
-// Image processing cell functions
-// ============================================================================
-
-/// Decode a PNG image using the cell.
-#[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
-pub async fn decode_png_cell(data: &[u8]) -> Option<DecodedImage> {
-    let cell = all().await.image.as_ref()?;
-
-    match cell.decode_png(data.to_vec()).await {
-        Ok(ImageResult::Success { image }) => Some(DecodedImage {
-            pixels: image.pixels,
-            width: image.width,
-            height: image.height,
-            channels: image.channels,
-        }),
-        Ok(ImageResult::Error { message }) => {
-            warn!("png decode cell error: {}", message);
-            None
-        }
-        Ok(_) => {
-            warn!("png cell returned unexpected result type");
-            None
-        }
-        Err(e) => {
-            warn!("png decode cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-/// Decode a JPEG image using the cell.
-#[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
-pub async fn decode_jpeg_cell(data: &[u8]) -> Option<DecodedImage> {
-    let cell = all().await.image.as_ref()?;
-
-    match cell.decode_jpeg(data.to_vec()).await {
-        Ok(ImageResult::Success { image }) => Some(DecodedImage {
-            pixels: image.pixels,
-            width: image.width,
-            height: image.height,
-            channels: image.channels,
-        }),
-        Ok(ImageResult::Error { message }) => {
-            warn!("jpeg decode cell error: {}", message);
-            None
-        }
-        Ok(_) => {
-            warn!("jpeg cell returned unexpected result type");
-            None
-        }
-        Err(e) => {
-            warn!("jpeg decode cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-/// Decode a GIF image using the cell.
-#[tracing::instrument(level = "debug", skip(data), fields(data_len = data.len()))]
-pub async fn decode_gif_cell(data: &[u8]) -> Option<DecodedImage> {
-    let cell = all().await.image.as_ref()?;
-
-    match cell.decode_gif(data.to_vec()).await {
-        Ok(ImageResult::Success { image }) => Some(DecodedImage {
-            pixels: image.pixels,
-            width: image.width,
-            height: image.height,
-            channels: image.channels,
-        }),
-        Ok(ImageResult::Error { message }) => {
-            warn!("gif decode cell error: {}", message);
-            None
-        }
-        Ok(_) => {
-            warn!("gif cell returned unexpected result type");
-            None
-        }
-        Err(e) => {
-            warn!("gif decode cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-/// Resize an image using the cell.
-#[tracing::instrument(level = "debug", skip(pixels), fields(pixels_len = pixels.len()))]
 pub async fn resize_image_cell(
     pixels: &[u8],
     width: u32,
@@ -1553,8 +1314,7 @@ pub async fn resize_image_cell(
     channels: u8,
     target_width: u32,
 ) -> Option<DecodedImage> {
-    let cell = all().await.image.as_ref()?;
-
+    let client = image_cell().await?;
     let input = ResizeInput {
         pixels: pixels.to_vec(),
         width,
@@ -1562,853 +1322,290 @@ pub async fn resize_image_cell(
         channels,
         target_width,
     };
-
-    match cell.resize_image(input).await {
-        Ok(ImageResult::Success { image }) => Some(DecodedImage {
-            pixels: image.pixels,
-            width: image.width,
-            height: image.height,
-            channels: image.channels,
-        }),
+    match client.resize_image(input).await {
+        Ok(ImageResult::Success { image }) => Some(image),
         Ok(ImageResult::Error { message }) => {
-            warn!("resize cell error: {}", message);
+            tracing::warn!("Resize error: {}", message);
             None
         }
-        Ok(_) => {
-            warn!("resize cell returned unexpected result type");
-            None
-        }
+        Ok(_) => None,
         Err(e) => {
-            warn!("resize cell call failed: {:?}", e);
+            tracing::warn!("Resize RPC error: {:?}", e);
             None
         }
     }
 }
 
-/// Generate a thumbhash data URL using the cell.
-#[tracing::instrument(level = "debug", skip(pixels), fields(pixels_len = pixels.len()))]
 pub async fn generate_thumbhash_cell(pixels: &[u8], width: u32, height: u32) -> Option<String> {
-    let cell = all().await.image.as_ref()?;
-
+    let client = image_cell().await?;
     let input = ThumbhashInput {
         pixels: pixels.to_vec(),
         width,
         height,
     };
-
-    match cell.generate_thumbhash_data_url(input).await {
+    match client.generate_thumbhash_data_url(input).await {
         Ok(ImageResult::ThumbhashSuccess { data_url }) => Some(data_url),
         Ok(ImageResult::Error { message }) => {
-            warn!("thumbhash cell error: {}", message);
+            tracing::warn!("Thumbhash error: {}", message);
             None
         }
-        Ok(_) => {
-            warn!("thumbhash cell returned unexpected result type");
-            None
-        }
+        Ok(_) => None,
         Err(e) => {
-            warn!("thumbhash cell call failed: {:?}", e);
+            tracing::warn!("Thumbhash RPC error: {:?}", e);
             None
         }
     }
 }
 
-// ============================================================================
-// Font processing cell functions
-// ============================================================================
-
-/// Analyze HTML and CSS to collect font usage information.
-///
-/// Returns `None` if the fonts cell is not loaded or on error (graceful degradation).
-pub async fn analyze_fonts_cell(html: &str, css: &str) -> Option<FontAnalysis> {
-    let cell = all().await.fonts.as_ref()?;
-
-    match cell.analyze_fonts(html.to_string(), css.to_string()).await {
-        Ok(FontResult::AnalysisSuccess { analysis }) => Some(analysis),
-        Ok(FontResult::Error { message }) => {
-            warn!("font analysis cell error: {}", message);
-            None
-        }
-        Ok(_) => {
-            warn!("font analysis cell returned unexpected result type");
-            None
-        }
-        Err(e) => {
-            warn!("font analysis cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-/// Extract inline CSS from HTML (from `<style>` tags).
-///
-/// Returns `None` if the fonts cell is not loaded or on error (graceful degradation).
-pub async fn extract_css_from_html_cell(html: &str) -> Option<String> {
-    tracing::debug!(
-        "[HOST] extract_css_from_html_cell: START (html_len={})",
-        html.len()
-    );
-    let cell = all().await.fonts.as_ref()?;
-
-    tracing::debug!("[HOST] extract_css_from_html_cell: calling RPC...");
-    match cell.extract_css_from_html(html.to_string()).await {
-        Ok(FontResult::CssSuccess { css }) => {
-            tracing::debug!(
-                "[HOST] extract_css_from_html_cell: SUCCESS (css_len={})",
-                css.len()
-            );
-            Some(css)
-        }
-        Ok(FontResult::Error { message }) => {
-            warn!("extract css cell error: {}", message);
-            None
-        }
-        Ok(_) => {
-            warn!("extract css cell returned unexpected result type");
-            None
-        }
-        Err(e) => {
-            warn!("extract css cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-/// Decompress a WOFF2/WOFF font to TTF.
-pub async fn decompress_font_cell(data: &[u8]) -> Option<Vec<u8>> {
-    let cell = all().await.fonts.as_ref()?;
-
-    match cell.decompress_font(data.to_vec()).await {
-        Ok(FontResult::DecompressSuccess { data }) => Some(data),
-        Ok(FontResult::Error { message }) => {
-            warn!("decompress font cell error: {}", message);
-            None
-        }
-        Ok(_) => {
-            warn!("decompress font cell returned unexpected result type");
-            None
-        }
-        Err(e) => {
-            warn!("decompress font cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-/// Subset a font to only include specified characters.
-pub async fn subset_font_cell(data: &[u8], chars: &[char]) -> Option<Vec<u8>> {
-    let cell = all().await.fonts.as_ref()?;
-
-    let input = SubsetFontInput {
-        data: data.to_vec(),
-        chars: chars.to_vec(),
+pub async fn encode_webp_cell(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+) -> Option<Vec<u8>> {
+    let client = webp_cell().await?;
+    let input = WebPEncodeInput {
+        pixels: pixels.to_vec(),
+        width,
+        height,
+        quality,
     };
-
-    match cell.subset_font(input).await {
-        Ok(FontResult::SubsetSuccess { data }) => Some(data),
-        Ok(FontResult::Error { message }) => {
-            warn!("subset font cell error: {}", message);
+    match client.encode_webp(input).await {
+        Ok(WebPResult::EncodeSuccess { data }) => Some(data),
+        Ok(WebPResult::Error { message }) => {
+            tracing::warn!("WebP encode error: {}", message);
             None
         }
-        Ok(_) => {
-            warn!("subset font cell returned unexpected result type");
-            None
-        }
+        Ok(_) => None,
         Err(e) => {
-            warn!("subset font cell call failed: {:?}", e);
+            tracing::warn!("WebP encode RPC error: {:?}", e);
             None
         }
     }
 }
 
-/// Compress TTF font data to WOFF2.
-pub async fn compress_to_woff2_cell(data: &[u8]) -> Option<Vec<u8>> {
-    let cell = all().await.fonts.as_ref()?;
-
-    match cell.compress_to_woff2(data.to_vec()).await {
-        Ok(FontResult::CompressSuccess { data }) => Some(data),
-        Ok(FontResult::Error { message }) => {
-            warn!("compress to woff2 cell error: {}", message);
-            None
-        }
-        Ok(_) => {
-            warn!("compress to woff2 cell returned unexpected result type");
-            None
-        }
-        Err(e) => {
-            warn!("compress to woff2 cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-// ============================================================================
-// Link checking cell functions
-// ============================================================================
-
-/// Status of an external link check (from cell)
-/// Options for link checking
-#[derive(Debug, Clone)]
-pub struct CheckOptions {
-    /// Domains to skip (e.g., ["localhost", "127.0.0.1"])
-    #[allow(dead_code)] // TODO: pass to cell
-    pub skip_domains: Vec<String>,
-    /// Rate limiting between requests (milliseconds)
-    pub rate_limit_ms: u64,
-    /// Timeout for each request (seconds)
-    pub timeout_secs: u64,
-}
-
-impl Default for CheckOptions {
-    fn default() -> Self {
-        Self {
-            skip_domains: vec!["localhost".to_string(), "127.0.0.1".to_string()],
-            rate_limit_ms: 1000,
-            timeout_secs: 10,
-        }
-    }
-}
-
-/// Result of link checking
-#[derive(Debug, Clone)]
-pub struct CheckResult {
-    /// Status for each URL (in same order as input)
-    pub statuses: Vec<LinkStatus>,
-    /// Number of URLs that were actually checked (not skipped)
-    pub checked_count: u32,
-}
-
-/// Check external URLs using the linkcheck cell.
-///
-/// Returns None if the cell is not loaded.
-pub async fn check_urls_cell(urls: Vec<String>, options: CheckOptions) -> Option<CheckResult> {
-    let cell = all().await.linkcheck.as_ref()?;
-
-    let input = LinkCheckInput {
-        urls: urls.clone(),
-        delay_ms: options.rate_limit_ms,
-        timeout_secs: options.timeout_secs,
+pub async fn encode_jxl_cell(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
+) -> Option<Vec<u8>> {
+    let client = jxl_cell().await?;
+    let input = JXLEncodeInput {
+        pixels: pixels.to_vec(),
+        width,
+        height,
+        quality,
     };
-
-    match cell.check_links(input).await {
-        Ok(LinkCheckResult::Success { output }) => {
-            // Convert the HashMap results back to the expected format
-            let statuses: Vec<LinkStatus> = urls
-                .into_iter()
-                .map(|url| {
-                    output.results.get(&url).cloned().unwrap_or(LinkStatus {
-                        status: "skipped".to_string(),
-                        code: None,
-                        message: Some("URL not in results".to_string()),
-                    })
-                })
-                .collect();
-
-            let checked_count = output.results.len() as u32;
-
-            Some(CheckResult {
-                statuses,
-                checked_count,
-            })
-        }
-        Ok(LinkCheckResult::Error { message }) => {
-            warn!("linkcheck cell error: {}", message);
+    match client.encode_jxl(input).await {
+        Ok(JXLResult::EncodeSuccess { data }) => Some(data),
+        Ok(JXLResult::Error { message }) => {
+            tracing::warn!("JXL encode error: {}", message);
             None
         }
+        Ok(_) => None,
         Err(e) => {
-            warn!("linkcheck cell call failed: {:?}", e);
+            tracing::warn!("JXL encode RPC error: {:?}", e);
             None
         }
     }
 }
 
-/// Check if the linkcheck cell is available.
-pub async fn has_linkcheck_cell() -> bool {
-    all().await.linkcheck.is_some()
-}
-
-// ============================================================================
-// Code execution cell functions
-// ============================================================================
-
-/// Extract code samples from markdown using cell.
-///
-/// Returns None if cell is not loaded.
-pub async fn extract_code_samples_cell(
-    content: &str,
-    source_path: &str,
-) -> Option<Vec<cell_code_execution_proto::CodeSample>> {
-    let cell = all().await.code_execution.as_ref()?;
-
-    let input = ExtractSamplesInput {
-        source_path: source_path.to_string(),
-        content: content.to_string(),
-    };
-
-    match cell.extract_code_samples(input).await {
-        Ok(CodeExecutionResult::ExtractSuccess { output }) => Some(output.samples),
-        Ok(CodeExecutionResult::Error { message }) => {
-            warn!("code execution cell error: {}", message);
-            None
-        }
-        Ok(_) => {
-            warn!("code execution cell returned unexpected result type");
-            None
-        }
-        Err(e) => {
-            warn!("code execution cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-/// Execute code samples using cell.
-///
-/// Returns None if cell is not loaded.
-pub async fn execute_code_samples_cell(
-    samples: Vec<cell_code_execution_proto::CodeSample>,
-    config: cell_code_execution_proto::CodeExecutionConfig,
-) -> Option<
-    Vec<(
-        cell_code_execution_proto::CodeSample,
-        cell_code_execution_proto::ExecutionResult,
-    )>,
-> {
-    let cell = all().await.code_execution.as_ref()?;
-
-    tracing::debug!(
-        "[HOST] execute_code_samples_cell: START (num_samples={})",
-        samples.len()
-    );
-    let input = ExecuteSamplesInput { samples, config };
-
-    tracing::debug!("[HOST] execute_code_samples_cell: calling RPC...");
-    match cell.execute_code_samples(input).await {
-        Ok(CodeExecutionResult::ExecuteSuccess { output }) => {
-            tracing::debug!(
-                "[HOST] execute_code_samples_cell: SUCCESS (num_results={})",
-                output.results.len()
-            );
-            Some(output.results)
-        }
-        Ok(CodeExecutionResult::Error { message }) => {
-            warn!("code execution cell error: {}", message);
-            None
-        }
-        Ok(_) => {
-            warn!("code execution cell returned unexpected result type");
-            None
-        }
-        Err(e) => {
-            warn!("code execution cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-/// Diff two HTML documents and produce patches using the cell.
-/// Returns None if the cell is not loaded.
-pub async fn diff_html_cell(old_html: &str, new_html: &str) -> Option<DiffResult> {
-    let cell = all().await.html_diff.as_ref()?;
-
-    let input = DiffInput {
-        old_html: old_html.to_string(),
-        new_html: new_html.to_string(),
-    };
-
-    match cell.diff_html(input).await {
-        Ok(HtmlDiffResult::Success { result }) => Some(result),
-        Ok(HtmlDiffResult::Error { message }) => {
-            warn!("html diff cell error: {}", message);
-            None
-        }
-        Err(e) => {
-            warn!("html diff cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-// ============================================================================
-// HTML processing cell functions
-// ============================================================================
-
-/// Rewrite URLs in HTML attributes (href, src, srcset) using the cell.
-///
-/// Returns None if the html cell is not loaded.
-#[tracing::instrument(level = "debug", skip(html, path_map), fields(html_len = html.len(), path_map_len = path_map.len()))]
-pub async fn rewrite_urls_in_html_cell(
-    html: &str,
-    path_map: &HashMap<String, String>,
-) -> Option<String> {
-    let cell = all().await.html.as_ref()?;
-
-    match cell.rewrite_urls(html.to_string(), path_map.clone()).await {
-        Ok(cell_html_proto::HtmlResult::Success { html }) => Some(html),
-        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, .. }) => Some(html),
-        Ok(cell_html_proto::HtmlResult::Error { message }) => {
-            warn!("html rewrite_urls cell error: {}", message);
-            None
-        }
-        Err(e) => {
-            warn!("html rewrite_urls cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-/// Mark dead internal links in HTML using the cell.
-///
-/// Returns (modified_html, had_dead_links) or None if cell not loaded.
-#[tracing::instrument(level = "debug", skip(html, known_routes), fields(html_len = html.len(), routes_count = known_routes.len()))]
-pub async fn mark_dead_links_cell(
-    html: &str,
-    known_routes: &std::collections::HashSet<String>,
-) -> Option<(String, bool)> {
-    let cell = all().await.html.as_ref()?;
-
-    match cell
-        .mark_dead_links(html.to_string(), known_routes.clone())
+// SASS/CSS cell wrappers
+pub async fn compile_sass_cell(input: &HashMap<String, String>) -> Result<SassResult, eyre::Error> {
+    let client = sass_cell()
         .await
-    {
-        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, flag }) => Some((html, flag)),
-        Ok(cell_html_proto::HtmlResult::Success { html }) => Some((html, false)),
-        Ok(cell_html_proto::HtmlResult::Error { message }) => {
-            warn!("html mark_dead_links cell error: {}", message);
-            None
-        }
-        Err(e) => {
-            warn!("html mark_dead_links cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-/// Inject copy buttons (and optionally build info buttons) into all pre blocks.
-///
-/// This is a single-pass operation that adds position:relative inline style
-/// and copy/build-info buttons to every pre element.
-///
-/// Returns (modified_html, had_buttons) or None if cell not loaded.
-#[tracing::instrument(level = "debug", skip(html, code_metadata), fields(html_len = html.len(), metadata_count = code_metadata.len()))]
-pub async fn inject_code_buttons_cell(
-    html: &str,
-    code_metadata: &HashMap<String, cell_html_proto::CodeExecutionMetadata>,
-) -> Option<(String, bool)> {
-    let cell = all().await.html.as_ref()?;
-
-    match cell
-        .inject_code_buttons(html.to_string(), code_metadata.clone())
+        .ok_or_else(|| eyre::eyre!("SASS cell not available"))?;
+    let sass_input = SassInput {
+        files: input.clone(),
+    };
+    client
+        .compile_sass(sass_input)
         .await
-    {
-        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, flag }) => Some((html, flag)),
-        Ok(cell_html_proto::HtmlResult::Success { html }) => Some((html, false)),
-        Ok(cell_html_proto::HtmlResult::Error { message }) => {
-            eprintln!("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            eprintln!("FATAL: HTML processing failed");
-            eprintln!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            eprintln!();
-            eprintln!("Error: {}", message);
-            eprintln!();
-            eprintln!("This is typically caused by invalid HTML or a bug in facet-html.");
-            eprintln!("Please check the HTML being processed and file an issue if needed.");
-            eprintln!();
-            std::process::exit(1);
-        }
-        Err(e) => {
-            warn!("html inject_code_buttons cell call failed: {:?}", e);
-            None
-        }
-    }
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-// ============================================================================
-// Markdown processing cell functions
-// ============================================================================
-
-/// Parsed markdown result from marq
-pub struct ParsedMarkdown {
-    /// The frontmatter parsed from the content
-    pub frontmatter: cell_markdown_proto::Frontmatter,
-    /// Fully rendered HTML output (code blocks already highlighted)
-    pub html: String,
-    /// Extracted headings
-    pub headings: Vec<cell_markdown_proto::Heading>,
-    /// Rule definitions for specification traceability
-    pub reqs: Vec<cell_markdown_proto::ReqDefinition>,
-}
-
-/// Error from markdown parsing
-#[derive(Debug, Clone, facet::Facet)]
-#[repr(u8)]
-pub enum MarkdownParseError {
-    /// The markdown cell is not available
-    CellNotAvailable,
-    /// The cell returned an error (e.g., invalid frontmatter)
-    ParseError(String),
-    /// The cell call itself failed
-    CellCallFailed(String),
+// Markdown error type
+#[derive(Debug, Clone, Facet)]
+pub struct MarkdownParseError {
+    pub message: String,
 }
 
 impl std::fmt::Display for MarkdownParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MarkdownParseError::CellNotAvailable => write!(f, "markdown cell not available"),
-            MarkdownParseError::ParseError(msg) => write!(f, "{}", strip_ansi(msg)),
-            MarkdownParseError::CellCallFailed(msg) => write!(f, "cell call failed: {}", msg),
-        }
+        write!(f, "{}", self.message)
     }
 }
 
 impl std::error::Error for MarkdownParseError {}
 
-/// Strip ANSI escape codes from a string (they don't render in logs)
-fn strip_ansi(s: &str) -> String {
-    // Match ANSI escape sequences: ESC [ ... m (and similar)
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            // Skip until we hit the end of the escape sequence
-            if chars.peek() == Some(&'[') {
-                chars.next(); // consume '['
-                // Skip until we hit a letter (the terminator)
-                while let Some(&next) = chars.peek() {
-                    chars.next();
-                    if next.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-        } else {
-            result.push(c);
-        }
+// HTML/CSS extraction
+pub async fn extract_css_from_html_cell(html: &str) -> Result<String, eyre::Error> {
+    let client = font_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
+    match client.extract_css_from_html(html.to_string()).await {
+        Ok(FontResult::CssSuccess { css }) => Ok(css),
+        Ok(FontResult::Error { message }) => Err(eyre::eyre!(message)),
+        Ok(other) => Err(eyre::eyre!("Unexpected result: {:?}", other)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
     }
-    result
 }
 
-/// Parse and render markdown content using the cell.
-///
-/// Returns frontmatter, HTML (with placeholders), headings, and code blocks.
-/// The caller is responsible for highlighting code blocks and replacing placeholders.
-#[tracing::instrument(level = "debug", skip(content), fields(content_len = content.len()))]
-pub async fn parse_and_render_markdown_cell(
-    source_path: &str,
-    content: &str,
-) -> Result<ParsedMarkdown, MarkdownParseError> {
-    let cell = all()
+// Font analysis
+pub async fn analyze_fonts_cell(html: &str, css: &str) -> Result<FontAnalysis, eyre::Error> {
+    let client = font_cell()
         .await
-        .markdown
-        .as_ref()
-        .ok_or(MarkdownParseError::CellNotAvailable)?;
-
-    match cell
-        .parse_and_render(source_path.to_string(), content.to_string())
+        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
+    match client
+        .analyze_fonts(html.to_string(), css.to_string())
         .await
     {
-        Ok(ParseResult::Success {
-            frontmatter,
-            html,
-            headings,
-            reqs,
-        }) => Ok(ParsedMarkdown {
-            frontmatter,
-            html,
-            headings,
-            reqs,
-        }),
-        Ok(ParseResult::Error { message }) => Err(MarkdownParseError::ParseError(message)),
-        Err(e) => Err(MarkdownParseError::CellCallFailed(format!("{:?}", e))),
+        Ok(FontResult::AnalysisSuccess { analysis }) => Ok(analysis),
+        Ok(FontResult::Error { message }) => Err(eyre::eyre!(message)),
+        Ok(other) => Err(eyre::eyre!("Unexpected result: {:?}", other)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
     }
 }
 
-/// Render markdown to HTML using the cell (without frontmatter parsing).
-#[tracing::instrument(level = "debug", skip(markdown), fields(markdown_len = markdown.len()))]
-#[allow(clippy::type_complexity)]
-async fn _render_markdown_cell(
-    source_path: &str,
-    markdown: &str,
-) -> Option<(
-    String,
-    Vec<cell_markdown_proto::Heading>,
-    Vec<cell_markdown_proto::ReqDefinition>,
-)> {
-    let cell = all().await.markdown.as_ref()?;
-
-    match cell
-        .render_markdown(source_path.to_string(), markdown.to_string())
-        .await
-    {
-        Ok(MarkdownResult::Success {
-            html,
-            headings,
-            reqs,
-        }) => Some((html, headings, reqs)),
-        Ok(MarkdownResult::Error { message }) => {
-            warn!("markdown render cell error: {}", message);
-            None
-        }
-        Err(e) => {
-            warn!("markdown render cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-/// Parse frontmatter from content using the cell.
-#[tracing::instrument(level = "debug", skip(content), fields(content_len = content.len()))]
-async fn _parse_frontmatter_cell(
-    content: &str,
-) -> Option<(cell_markdown_proto::Frontmatter, String)> {
-    let cell = all().await.markdown.as_ref()?;
-
-    match cell.parse_frontmatter(content.to_string()).await {
-        Ok(FrontmatterResult::Success { frontmatter, body }) => Some((frontmatter, body)),
-        Ok(FrontmatterResult::Error { message }) => {
-            warn!("markdown parse_frontmatter cell error: {}", message);
-            None
-        }
-        Err(e) => {
-            warn!("markdown parse_frontmatter cell call failed: {:?}", e);
-            None
-        }
-    }
-}
-
-// ============================================================================
-// Gingembre template rendering cell
-// ============================================================================
-//
-// Gingembre is special: it uses bidirectional RPC where the cell calls back
-// to the host for template loading and data resolution. This enables fine-grained
-// picante dependency tracking while keeping the template engine in a separate process.
-
-use crate::template_host::{TemplateHostImpl, render_context_registry};
-
-/// Global gingembre cell client.
-static GINGEMBRE_CELL: tokio::sync::OnceCell<Arc<TemplateRendererClient<AnyTransport>>> =
-    tokio::sync::OnceCell::const_new();
-
-/// Temporary wrapper for TemplateHostServer to implement ServiceDispatch.
+/// Spawn a single cell with a custom dispatcher.
 ///
-/// This is needed because rapace's service macro generates a Server type
-/// but the ServiceDispatch wrapper generation has crate detection issues.
-/// Same pattern as TracingSinkService above.
-struct TemplateHostService(Arc<TemplateHostServer<TemplateHostImpl>>);
-
-impl ServiceDispatch for TemplateHostService {
-    fn method_ids(&self) -> &'static [u32] {
-        use cell_gingembre_proto::{
-            TEMPLATE_HOST_METHOD_ID_KEYS_AT, TEMPLATE_HOST_METHOD_ID_LOAD_TEMPLATE,
-            TEMPLATE_HOST_METHOD_ID_RESOLVE_DATA,
-        };
-        &[
-            TEMPLATE_HOST_METHOD_ID_LOAD_TEMPLATE,
-            TEMPLATE_HOST_METHOD_ID_RESOLVE_DATA,
-            TEMPLATE_HOST_METHOD_ID_KEYS_AT,
-        ]
-    }
-
-    fn dispatch(
-        &self,
-        method_id: u32,
-        frame: Frame,
-        buffer_pool: &rapace::BufferPool,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Frame, RpcError>> + Send + 'static>,
-    > {
-        let server = self.0.clone();
-        let buffer_pool = buffer_pool.clone();
-        Box::pin(async move { server.dispatch(method_id, &frame, &buffer_pool).await })
-    }
-}
-
-/// Initialize the gingembre cell with TemplateHost service.
+/// This creates a separate SHM segment for the cell, which is appropriate for
+/// cells like TUI that need special handling (inherit_stdio, custom dispatcher).
 ///
-/// This must be called after the hub is initialized but before any render calls.
-pub async fn init_gingembre_cell() -> Option<()> {
-    tracing::info!("init_gingembre_cell: starting");
-    let (hub, _hub_path) = get_hub().await.or_else(|| {
-        tracing::warn!("init_gingembre_cell: no hub available");
-        None
-    })?;
+/// For the main cells, use `init_cells()` which uses `MultiPeerHostDriver`.
+pub fn spawn_cell_with_dispatcher<D>(
+    binary_path: &Path,
+    binary_name: &str,
+    dispatcher: D,
+    config: &CellSpawnConfig,
+) -> Option<SpawnedCellResult>
+where
+    D: ServiceDispatcher + Send + 'static,
+{
+    use roam_shm::driver::establish_host_peer;
 
-    let binary_path = find_cell_binary("ddc-cell-gingembre").or_else(|| {
-        tracing::warn!("init_gingembre_cell: could not find ddc-cell-gingembre binary");
-        None
-    })?;
-    let binary_name = "ddc-cell-gingembre";
+    // Create a separate SHM segment for this cell
+    let shm_path =
+        std::env::temp_dir().join(format!("dodeca-{}-{}", binary_name, std::process::id()));
 
-    let result = spawn_cell_core(&binary_path, binary_name, &hub, &CellSpawnConfig::default())?;
+    let max_payload = 4 * 1024 * 1024; // 4MB
+    let segment_config = SegmentConfig {
+        max_guests: 2, // Just host + this cell
+        ring_size: 128,
+        slots_per_guest: 32,
+        slot_size: max_payload + 8,
+        max_payload_size: max_payload,
+        ..SegmentConfig::default()
+    };
 
-    // Set up dispatcher with TemplateHost in addition to standard services
-    let tracing_sink = ForwardingTracingSink::new();
-    let lifecycle_impl = HostCellLifecycle::new(cell_ready_registry().clone());
-    let template_host_impl = TemplateHostImpl::new(render_context_registry());
+    let mut host = match ShmHost::create(&shm_path, segment_config) {
+        Ok(h) => h,
+        Err(e) => {
+            warn!("Failed to create SHM host for {}: {:?}", binary_name, e);
+            return None;
+        }
+    };
 
-    let buffer_pool = rapace::BufferPool::with_capacity(128, 256 * 1024);
-    let dispatcher = DispatcherBuilder::new()
-        .add_service(TracingSinkService(Arc::new(TracingSinkServer::new(
-            tracing_sink,
-        ))))
-        .add_service(CellLifecycleServer::new(lifecycle_impl).into_dispatch())
-        .add_service(TemplateHostService(Arc::new(TemplateHostServer::new(
-            template_host_impl,
-        ))))
-        .build(buffer_pool);
+    // Add peer
+    let cell_name_for_death = binary_name.to_string();
+    let ticket = match host.add_peer(AddPeerOptions {
+        peer_name: Some(binary_name.to_string()),
+        on_death: Some(Arc::new(move |peer_id| {
+            warn!(
+                "{} cell died unexpectedly (peer_id={:?})",
+                cell_name_for_death, peer_id
+            );
+        })),
+    }) {
+        Ok(t) => t,
+        Err(e) => {
+            warn!("Failed to add peer for {}: {:?}", binary_name, e);
+            return None;
+        }
+    };
 
-    result.rpc_session.set_dispatcher(dispatcher);
-    start_session_runner(&result.rpc_session, binary_name);
+    let peer_id = ticket.peer_id;
 
-    // Create and store the client
-    let client = Arc::new(TemplateRendererClient::new(result.rpc_session));
-    let _ = GINGEMBRE_CELL.set(client);
+    // Spawn cell process
+    let mut cmd = Command::new(binary_path);
+    for arg in ticket.to_args() {
+        cmd.arg(arg);
+    }
 
-    info!(
-        "launched gingembre cell from {} (peer_id={})",
-        binary_path.display(),
-        result.peer_id
+    if config.inherit_stdio {
+        cmd.stdin(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit());
+    } else if is_quiet_mode() {
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .env("DODECA_QUIET", "1");
+    } else {
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+    }
+
+    let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("Failed to spawn {}: {:?}", binary_name, e);
+            return None;
+        }
+    };
+
+    // Capture stdio if not inheriting and not quiet
+    if !config.inherit_stdio && !is_quiet_mode() {
+        capture_cell_stdio(binary_name, &mut child);
+    }
+
+    // Drop ticket to close our end of the doorbell
+    drop(ticket);
+
+    // Establish host-side connection with the provided dispatcher
+    let (handle, driver) = establish_host_peer(host, peer_id, dispatcher);
+
+    // Spawn driver task
+    let cell_label = binary_name.to_string();
+    tokio::spawn(async move {
+        if let Err(e) = driver.run().await {
+            warn!("{} cell driver error: {:?}", cell_label, e);
+        }
+    });
+
+    debug!(
+        "Spawned {} cell (peer_id={:?}) from {}",
+        binary_name,
+        peer_id,
+        binary_path.display()
     );
 
-    Some(())
-}
-
-/// Get the gingembre cell client, if available.
-pub async fn gingembre_cell() -> Option<Arc<TemplateRendererClient<AnyTransport>>> {
-    GINGEMBRE_CELL.get().cloned()
-}
-
-/// Render a template using the gingembre cell.
-///
-/// # Arguments
-/// - `context_id`: The render context ID (from RenderContextGuard)
-/// - `template_name`: Name of the template to render
-/// - `initial_context`: Initial context variables (VObject)
-///
-/// Returns the rendered HTML or None on error.
-pub async fn render_template_cell(
-    context_id: ContextId,
-    template_name: &str,
-    initial_context: facet_value::Value,
-) -> Option<Result<String, String>> {
-    let client = gingembre_cell().await?;
-
-    match client
-        .render(context_id, template_name.to_string(), initial_context)
-        .await
-    {
-        Ok(RenderResult::Success { html }) => Some(Ok(html)),
-        Ok(RenderResult::Error { message }) => Some(Err(message)),
-        Err(e) => {
-            warn!("gingembre render RPC failed: {:?}", e);
-            None
-        }
-    }
-}
-
-/// Evaluate a template expression using the gingembre cell.
-///
-/// # Arguments
-/// - `context_id`: The render context ID
-/// - `expression`: The expression to evaluate
-/// - `context`: Context variables
-///
-/// Returns the result value or None on error.
-#[allow(dead_code)] // Scaffolding for future expression evaluation
-pub async fn eval_expression_cell(
-    context_id: ContextId,
-    expression: &str,
-    context: facet_value::Value,
-) -> Option<Result<facet_value::Value, String>> {
-    let client = gingembre_cell().await?;
-
-    match client
-        .eval_expression(context_id, expression.to_string(), context)
-        .await
-    {
-        Ok(EvalResult::Success { value }) => Some(Ok(value)),
-        Ok(EvalResult::Error { message }) => Some(Err(message)),
-        Err(e) => {
-            warn!("gingembre eval_expression RPC failed: {:?}", e);
-            None
-        }
-    }
-}
-
-// ============================================================================
-// Dialoguer cell (interactive prompts)
-// ============================================================================
-
-/// Spawn the dialoguer cell and return a client.
-///
-/// This cell provides interactive terminal prompts (select, confirm).
-/// It inherits stdio to interact directly with the terminal.
-///
-/// Returns None if the cell binary is not available.
-pub async fn dialoguer_client() -> Option<DialoguerClient<AnyTransport>> {
-    use rapace::Frame;
-
-    // Spawn cell with inherited stdio for terminal access
-    let (session, _child) = spawn_cell_with_dispatcher(
-        "ddc-cell-dialoguer",
-        |_session| {
-            // No custom dispatcher needed - just use a passthrough that rejects all methods
-            |_request: Frame| {
-                Box::pin(async move {
-                    Err(rapace::RpcError::Status {
-                        code: rapace::ErrorCode::Unimplemented,
-                        message: "no methods implemented".to_string(),
-                    })
-                })
-                    as std::pin::Pin<
-                        Box<
-                            dyn std::future::Future<Output = Result<Frame, rapace::RpcError>>
-                                + Send,
-                        >,
-                    >
+    let child = if config.manage_child {
+        let cell_label = binary_name.to_string();
+        let child_handle = child;
+        tokio::spawn(async move {
+            let mut child = child_handle;
+            match child.wait().await {
+                Ok(status) => {
+                    if !status.success() {
+                        warn!("{} cell exited with status: {}", cell_label, status);
+                    }
+                }
+                Err(e) => {
+                    warn!("{} cell wait error: {:?}", cell_label, e);
+                }
             }
-        },
-        true, // inherit stdio for terminal access
-    )
-    .await?;
+        });
+        None
+    } else {
+        Some(child)
+    };
 
-    // Wait for the cell to be ready
-    let timeout = std::time::Duration::from_secs(5);
-    let peer_id = PEER_DIAG_INFO
-        .read()
-        .ok()?
-        .iter()
-        .find(|info| info.name == "ddc-cell-dialoguer")
-        .map(|info| info.peer_id)?;
-
-    cell_ready_registry()
-        .wait_for_all_ready(&[peer_id], timeout)
-        .await
-        .ok()?;
-
-    Some(DialoguerClient::new(session))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_strip_ansi() {
-        // No escapes
-        assert_eq!(strip_ansi("hello world"), "hello world");
-
-        // Simple color
-        assert_eq!(strip_ansi("\x1b[31mred\x1b[0m"), "red");
-
-        // Multiple escapes
-        assert_eq!(
-            strip_ansi("\x1b[38;5;246m│\x1b[0m hello \x1b[31merror\x1b[0m"),
-            "│ hello error"
-        );
-
-        // The actual error format from the issue
-        let input = "\x1b[31mError:\x1b[0m Error at FrontmatterToml";
-        assert_eq!(strip_ansi(input), "Error: Error at FrontmatterToml");
-    }
+    Some(SpawnedCellResult {
+        peer_id: peer_id.get() as u16,
+        handle,
+        child,
+    })
 }

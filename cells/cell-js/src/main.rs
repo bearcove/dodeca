@@ -4,15 +4,17 @@
 
 use std::collections::HashMap;
 
+use dodeca_cell_runtime::run_cell;
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{StringLiteral, TemplateLiteral};
 use oxc::ast_visit::Visit;
 use oxc::parser::Parser;
 use oxc::span::SourceType;
 
-use cell_js_proto::{JsProcessor, JsProcessorServer, JsResult, JsRewriteInput};
+use cell_js_proto::{JsProcessor, JsProcessorDispatcher, JsResult, JsRewriteInput};
 
 /// JS processor implementation
+#[derive(Clone)]
 pub struct JsProcessorImpl;
 
 impl JsProcessor for JsProcessorImpl {
@@ -115,10 +117,6 @@ impl<'a> Visit<'_> for StringCollector<'a> {
     }
 }
 
-rapace_cell::cell_service!(JsProcessorServer<JsProcessorImpl>, JsProcessorImpl);
-
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(JsProcessorImpl)).await?;
-    Ok(())
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    run_cell!("js", JsProcessorDispatcher::new(JsProcessorImpl))
 }

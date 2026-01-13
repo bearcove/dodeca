@@ -113,6 +113,7 @@ impl Default for RenderContextRegistry {
 /// - Load templates by name
 /// - Resolve data values at paths (with picante dependency tracking)
 /// - Get keys at data paths (for iteration)
+#[derive(Clone)]
 pub struct TemplateHostImpl {
     registry: Arc<RenderContextRegistry>,
 }

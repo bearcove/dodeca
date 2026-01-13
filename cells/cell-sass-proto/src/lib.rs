@@ -25,7 +25,7 @@ pub struct SassInput {
 ///
 /// The host calls these methods to compile SASS/SCSS to CSS.
 #[allow(async_fn_in_trait)]
-#[rapace::service]
+#[roam::service]
 pub trait SassCompiler {
     /// Compile SASS/SCSS to CSS
     ///
