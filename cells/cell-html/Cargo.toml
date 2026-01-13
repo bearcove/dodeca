@@ -16,14 +16,10 @@ path = "src/main.rs"
 cell-host-proto = { path = "../cell-host-proto" }
 cell-html-proto = { path = "../cell-html-proto" }
 color-eyre.workspace = true
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
 dodeca-protocol = { path = "../../crates/dodeca-protocol" }
 facet-diff.workspace = true
 facet-html.workspace = true
 facet-html-dom.workspace = true
 html-escape.workspace = true
-roam.workspace = true
-roam-shm.workspace = true
-roam-tracing.workspace = true
-tokio.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true

@@ -53,8 +53,8 @@ macro_rules! run_cell {
 
         async fn __run_cell_async() -> Result<(), Box<dyn std::error::Error>> {
             let args = SpawnArgs::from_env()?;
-            let guest = ShmGuest::attach_with_ticket(&args)?;
-            let transport = ShmGuestTransport::new(guest);
+            // Create transport with guest + doorbell for host notifications
+            let transport = ShmGuestTransport::from_spawn_args(&args)?;
 
             // Initialize cell-side tracing
             let (tracing_layer, tracing_service) = init_cell_tracing(1024);
@@ -146,8 +146,8 @@ macro_rules! run_cell_with_handle {
 
         async fn __run_cell_async() -> Result<(), Box<dyn std::error::Error>> {
             let $args = SpawnArgs::from_env()?;
-            let guest = ShmGuest::attach_with_ticket(&$args)?;
-            let transport = ShmGuestTransport::new(guest);
+            // Create transport with guest + doorbell for host notifications
+            let transport = ShmGuestTransport::from_spawn_args(&$args)?;
 
             // Initialize cell-side tracing
             let (tracing_layer, tracing_service) = init_cell_tracing(1024);

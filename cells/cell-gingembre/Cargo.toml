@@ -19,13 +19,9 @@ path = "src/main.rs"
 [dependencies]
 cell-gingembre-proto = { path = "../cell-gingembre-proto" }
 cell-host-proto = { path = "../cell-host-proto" }
-gingembre = { path = "../../crates/gingembre" }
-roam.workspace = true
-roam-shm.workspace = true
-roam-tracing.workspace = true
-tokio.workspace = true
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+eyre.workspace = true
 facet-value.workspace = true
 futures.workspace = true
-eyre.workspace = true
+gingembre = { path = "../../crates/gingembre" }
 tracing.workspace = true
-tracing-subscriber.workspace = true

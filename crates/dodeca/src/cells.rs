@@ -52,7 +52,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::serve::SiteServer;
 
@@ -683,11 +683,19 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
     // Spawn driver task
     tokio::spawn(async move {
-        debug!("MultiPeerHostDriver: starting");
-        if let Err(e) = driver.run().await {
-            warn!("MultiPeerHostDriver error: {:?}", e);
+        info!("MultiPeerHostDriver: starting (lazy spawning mode)");
+        match driver.run().await {
+            Ok(()) => {
+                // Driver exited cleanly - this means control channel was disconnected
+                // AND no peers were left
+                error!(
+                    "MultiPeerHostDriver: exited cleanly - control channel disconnected with no peers"
+                );
+            }
+            Err(e) => {
+                error!("MultiPeerHostDriver: exited with error: {:?}", e);
+            }
         }
-        debug!("MultiPeerHostDriver: exited");
     });
 
     debug!("init_cells_inner: complete");

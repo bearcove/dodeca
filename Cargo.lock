@@ -1732,16 +1732,12 @@ version = "0.6.1"
 dependencies = [
  "cell-gingembre-proto",
  "cell-host-proto",
+ "dodeca-cell-runtime",
  "eyre",
  "facet-value",
  "futures",
  "gingembre",
- "roam",
- "roam-shm",
- "roam-tracing",
- "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1772,17 +1768,13 @@ dependencies = [
  "cell-host-proto",
  "cell-html-proto",
  "color-eyre",
+ "dodeca-cell-runtime",
  "dodeca-protocol",
  "facet-diff",
  "facet-html",
  "facet-html-dom",
  "html-escape",
- "roam",
- "roam-shm",
- "roam-tracing",
- "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -7183,7 +7175,6 @@ dependencies = [
 [[package]]
 name = "roam"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -7196,7 +7187,6 @@ dependencies = [
 [[package]]
 name = "roam-frame"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "bytes",
  "facet",
@@ -7206,7 +7196,6 @@ dependencies = [
 [[package]]
 name = "roam-hash"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "blake3",
  "facet-core",
@@ -7217,7 +7206,6 @@ dependencies = [
 [[package]]
 name = "roam-macros-parse"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "proc-macro2",
  "unsynn",
@@ -7226,7 +7214,6 @@ dependencies = [
 [[package]]
 name = "roam-schema"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "facet",
  "facet-core",
@@ -7235,7 +7222,6 @@ dependencies = [
 [[package]]
 name = "roam-service-macros"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "facet-cargo-toml",
  "heck 0.5.0",
@@ -7247,7 +7233,6 @@ dependencies = [
 [[package]]
 name = "roam-session"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -7259,7 +7244,6 @@ dependencies = [
 [[package]]
 name = "roam-shm"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "facet-postcard",
  "libc",
@@ -7269,13 +7253,13 @@ dependencies = [
  "roam-wire",
  "shm-primitives",
  "tokio",
- "ur-taking-me-with-you 0.5.0 (git+https://github.com/bearcove/roam?branch=main)",
+ "tracing",
+ "ur-taking-me-with-you 0.5.0",
 ]
 
 [[package]]
 name = "roam-stream"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "cobs 0.5.0",
  "ctor",
@@ -7289,7 +7273,6 @@ dependencies = [
 [[package]]
 name = "roam-tracing"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "facet",
  "roam",
@@ -7302,7 +7285,6 @@ dependencies = [
 [[package]]
 name = "roam-wire"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "cobs 0.3.0",
  "facet",
@@ -7784,7 +7766,6 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shm-primitives"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
 dependencies = [
  "libc",
  "loom",
@@ -8829,19 +8810,18 @@ checksum = "6d49784317cd0d1ee7ec5c716dd598ec5b4483ea832a2dced265471cc0f690ae"
 [[package]]
 name = "ur-taking-me-with-you"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#bd91af0423a0f8cd3fde446a4e386300e301a497"
 dependencies = [
  "libc",
- "tokio",
  "windows-sys 0.61.2",
 ]
 
 [[package]]
 name = "ur-taking-me-with-you"
 version = "0.5.0"
-source = "git+https://github.com/bearcove/roam?branch=main#67aa7eff6b601ae44b5aee39c4e7fc6cfd259080"
+source = "git+https://github.com/bearcove/rapace?branch=main#bd91af0423a0f8cd3fde446a4e386300e301a497"
 dependencies = [
  "libc",
+ "tokio",
  "windows-sys 0.61.2",
 ]
 

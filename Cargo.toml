@@ -56,10 +56,10 @@ facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
-# RPC framework (git)
-roam = { git = "https://github.com/bearcove/roam", branch = "main" }
-roam-shm = { git = "https://github.com/bearcove/roam", branch = "main", features = ["tokio"] }
-roam-tracing = { git = "https://github.com/bearcove/roam", branch = "main" }
+# RPC framework (path - temporary for debugging)
+roam = { path = "../roam/rust/roam" }
+roam-shm = { path = "../roam/rust/roam-shm", features = ["tokio", "tracing"] }
+roam-tracing = { path = "../roam/rust/roam-tracing" }
 
 # Process lifecycle (from rapace repo for now - TODO: move to own repo)
 ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", branch = "main", features = ["tokio"] }

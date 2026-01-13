@@ -43,12 +43,26 @@ Each cell has two crates:
   * Set `DODECA_QUIET=1` when TUI is active to suppress cell output
   * Send `SIGUSR1` to dodeca process to dump hub transport diagnostics
 
-## Building
+## Building and Running
 
-Use `cargo build` to build everything. This will automatically:
-- Build the dodeca-devtools WASM bundle (via build.rs)
-- Build all cells (they're in the workspace)
-- Build the main dodeca binary
+**IMPORTANT**: `cargo build` only compiles the code - it does NOT install the `ddc` binary to a usable location.
+
+### To run a debug build:
+```bash
+cargo xtask run -- serve ../styx --no-tui
+```
+
+This will:
+1. Build the dodeca-devtools WASM bundle (via build.rs)
+2. Build all cells (they're in the workspace)
+3. Build the main dodeca binary
+4. Run the binary with the provided arguments
+
+### Alternative: Install and run
+```bash
+cargo xtask install   # Installs to ~/.cargo/bin/ddc
+ddc serve ../styx --no-tui
+```
 
 ## Testing
 
@@ -56,8 +70,7 @@ The dodeca repository itself is a dodeca website (it has `.config/dodeca.yaml`).
 To test, run from the dodeca directory:
 
 ```bash
-cd ~/bearcove/dodeca
-./target/debug/ddc build   # Build the site
-./target/debug/ddc serve   # Serve with TUI (q to quit)
+cargo xtask run -- build   # Build the site
+cargo xtask run -- serve   # Serve with TUI (q to quit)
 ```
 
