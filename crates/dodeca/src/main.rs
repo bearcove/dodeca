@@ -2385,7 +2385,10 @@ async fn serve_with_tui(
     cells::init_and_wait_for_cells().await?;
 
     // Get TUI display client for pushing updates to TUI cell (host → TUI direction)
-    let tui_client = cells::get_tui_display_client().expect("TUI cell should be initialized");
+    // This spawns the TUI cell lazily on first access
+    let tui_client = cells::get_tui_display_client()
+        .await
+        .expect("TUI cell should be available");
 
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);

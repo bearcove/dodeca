@@ -147,7 +147,8 @@ impl CellReadyRegistry {
     }
 
     fn mark_ready(&self, msg: ReadyMsg) {
-        let cell_name = msg.cell_name.clone();
+        // Normalize: cells report with underscores (code_execution) but we use hyphens (code-execution)
+        let cell_name = msg.cell_name.replace('_', "-");
         self.ready.insert(cell_name, msg);
     }
 
@@ -357,8 +358,11 @@ pub fn get_cell_session(name: &str) -> Option<ConnectionHandle> {
 }
 
 /// Get the TUI display client for pushing updates to the TUI cell.
-pub fn get_tui_display_client() -> Option<TuiDisplayClient> {
-    crate::host::Host::get().client::<TuiDisplayClient>()
+/// This will spawn the TUI cell if it hasn't been spawned yet.
+pub async fn get_tui_display_client() -> Option<TuiDisplayClient> {
+    crate::host::Host::get()
+        .client_async::<TuiDisplayClient>()
+        .await
 }
 
 // ============================================================================
@@ -374,28 +378,18 @@ pub type DecodedImage = cell_image_proto::DecodedImage;
 static CELLS: tokio::sync::OnceCell<CellRegistry> = tokio::sync::OnceCell::const_new();
 
 pub async fn init_and_wait_for_cells() -> eyre::Result<()> {
-    // Trigger cell loading
+    // Initialize cell infrastructure (registers pending cells, doesn't spawn)
     let _ = all().await;
 
-    // Get all registered cell names from Host
-    let cell_names = crate::host::Host::get().cell_names();
+    // Get count of registered cells
+    let cell_count = crate::host::Host::get().cell_names().len();
 
-    if cell_names.is_empty() {
-        debug!("No cells loaded, skipping readiness wait");
+    if cell_count == 0 {
+        debug!("No cells registered");
         return Ok(());
     }
 
-    // Wait for all cells to complete readiness handshake
-    let timeout = Duration::from_secs(10);
-    let cell_name_refs: Vec<&str> = cell_names.iter().map(|s| s.as_str()).collect();
-    cell_ready_registry()
-        .wait_for_all_ready(&cell_name_refs, timeout)
-        .await?;
-
-    // Push tracing config to cells
-    push_tracing_config_to_cells().await;
-
-    debug!("All {} cells ready", cell_names.len());
+    debug!("{} cells registered for lazy spawning", cell_count);
     Ok(())
 }
 
@@ -586,16 +580,18 @@ impl CellRegistry {
 async fn init_cells() -> CellRegistry {
     match init_cells_inner().await {
         Ok(()) => {
-            info!("Cell infrastructure initialized successfully");
+            info!("Cell infrastructure initialized");
         }
         Err(e) => {
-            warn!("Failed to initialize cell infrastructure: {}", e);
+            eprintln!("Error: {}", e);
         }
     }
     CellRegistry::new()
 }
 
 async fn init_cells_inner() -> eyre::Result<()> {
+    use crate::host::PendingCell;
+
     // Create temp SHM path
     let shm_path = std::env::temp_dir().join(format!("dodeca-shm-{}", std::process::id()));
 
@@ -612,12 +608,17 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
     // Create SHM host
     let mut host = ShmHost::create(&shm_path, config)?;
+    debug!("init_cells_inner: SHM host created");
 
     // Find cell binary directory
     let cell_dir = find_cell_directory()?;
+    debug!(cell_dir = %cell_dir.display(), "init_cells_inner: found cell directory");
 
-    // Spawn all cells and collect (peer_id, binary_name, cell_name, child) mappings
-    let mut peer_cells: Vec<(PeerId, String, &'static str, tokio::process::Child)> = Vec::new();
+    // Collect cell info: (peer_id, cell_name, ticket, binary_path, inherit_stdio)
+    // We add peers first, then build the driver, then store pending cells
+    let mut cell_info: Vec<(PeerId, &'static str, roam_shm::SpawnTicket, PathBuf, bool)> =
+        Vec::new();
+    let mut missing_binaries: Vec<(&'static str, PathBuf)> = Vec::new();
 
     // Check if TUI mode is enabled
     let tui_enabled = crate::host::Host::get().is_tui_mode();
@@ -629,12 +630,11 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
         // Skip TUI cell if not in TUI mode
         if cell_name == "tui" && !tui_enabled {
-            debug!("Skipping TUI cell (not in TUI mode)");
             continue;
         }
 
         if !binary_path.exists() {
-            debug!("Cell binary not found: {}", binary_path.display());
+            missing_binaries.push((cell_name, binary_path));
             continue;
         }
 
@@ -653,53 +653,39 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
         let peer_id = ticket.peer_id;
 
-        // Spawn cell process
-        let mut cmd = Command::new(&binary_path);
-        for arg in ticket.to_args() {
-            cmd.arg(arg);
-        }
-
-        if cell_def.inherit_stdio {
-            cmd.stdin(Stdio::inherit())
-                .stdout(Stdio::inherit())
-                .stderr(Stdio::inherit());
-        } else if is_quiet_mode() {
-            cmd.stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .env("DODECA_QUIET", "1");
-        } else {
-            cmd.stdin(Stdio::null())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-        }
-
-        let mut child = ur_taking_me_with_you::spawn_dying_with_parent_async(cmd)?;
-
-        // Capture stdio (not for cells that inherit)
-        if !cell_def.inherit_stdio && !is_quiet_mode() {
-            capture_cell_stdio(&binary_name, &mut child);
-        }
-
         debug!(
-            "Spawned {} cell (peer_id={:?}) from {}",
+            "Registered {} cell (peer_id={:?}) for lazy spawn from {}",
             cell_name,
             peer_id,
             binary_path.display()
         );
 
-        peer_cells.push((peer_id, binary_name, cell_name, child));
-
-        // Drop ticket after spawn to close our end of the doorbell
-        drop(ticket);
+        cell_info.push((
+            peer_id,
+            cell_name,
+            ticket,
+            binary_path,
+            cell_def.inherit_stdio,
+        ));
     }
 
-    if peer_cells.is_empty() {
-        return Err(eyre::eyre!("No cells found to spawn"));
+    if cell_info.is_empty() {
+        if !missing_binaries.is_empty() {
+            return Err(eyre::eyre!(
+                "Cell binaries not found.\n\n\
+                dodeca requires cell binaries to run. Build them with:\n\n    \
+                cargo build\n\n\
+                Then try again."
+            ));
+        }
+        return Err(eyre::eyre!("No cells found to register"));
+    } else if !missing_binaries.is_empty() {
+        // Some cells found, but not all - warn about missing ones
+        let names: Vec<_> = missing_binaries.iter().map(|(n, _)| *n).collect();
+        warn!("Some cell binaries not found: {:?}", names);
     }
 
     // Build the unified host service - one service for all cells
-    // Note: TUI command forwarding and render contexts go through Host::get()
     let host_service = HostServiceImpl::new(
         HostCellLifecycle::new(cell_ready_registry().clone()),
         TemplateHostImpl::new(),
@@ -708,48 +694,57 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
     // Every cell gets the same dispatcher
     let mut builder = MultiPeerHostDriver::new(host);
-    for (peer_id, _, _, _) in &peer_cells {
+    for (peer_id, _, _, _, _) in &cell_info {
         let dispatcher = HostServiceDispatcher::new(host_service.clone());
         builder = builder.add_peer(*peer_id, dispatcher);
     }
 
     let (driver, handles) = builder.build();
+    debug!(
+        handle_count = handles.len(),
+        "init_cells_inner: driver built, registering handles"
+    );
 
-    // Register handles with Host for type-safe client access
-    for (peer_id, _, cell_name, _) in &peer_cells {
-        if let Some(handle) = handles.get(peer_id) {
+    // Register handles with Host and store pending cells for lazy spawning
+    for (peer_id, cell_name, ticket, binary_path, inherit_stdio) in cell_info {
+        if let Some(handle) = handles.get(&peer_id) {
+            debug!(
+                cell = cell_name,
+                ?peer_id,
+                "init_cells_inner: registering cell handle"
+            );
+
+            // Register the handle (valid even before process is spawned)
             crate::host::Host::get().register_cell_handle(cell_name.to_string(), handle.clone());
+
+            // Store as pending cell (will be spawned on first access)
+            let pending = PendingCell {
+                binary_path,
+                inherit_stdio,
+                ticket,
+            };
+            crate::host::Host::get().register_pending_cell(cell_name.to_string(), pending);
+        } else {
+            warn!(
+                cell = cell_name,
+                ?peer_id,
+                "init_cells_inner: no handle found for peer!"
+            );
         }
     }
+
+    debug!("init_cells_inner: spawning driver task");
 
     // Spawn driver task
     tokio::spawn(async move {
+        debug!("MultiPeerHostDriver: starting");
         if let Err(e) = driver.run().await {
             warn!("MultiPeerHostDriver error: {:?}", e);
         }
+        debug!("MultiPeerHostDriver: exited");
     });
 
-    // Spawn child management tasks
-    for (peer_id, _, cell_name, child) in peer_cells {
-        let cell_label = cell_name;
-        tokio::spawn(async move {
-            let mut child = child;
-            match child.wait().await {
-                Ok(status) => {
-                    if !status.success() {
-                        eprintln!("FATAL: {} cell crashed with status: {}", cell_label, status);
-                        std::process::exit(1);
-                    }
-                }
-                Err(e) => {
-                    eprintln!("FATAL: {} cell wait error: {}", cell_label, e);
-                    std::process::exit(1);
-                }
-            }
-            info!("{} cell (peer {:?}) exited", cell_label, peer_id);
-        });
-    }
-
+    debug!("init_cells_inner: complete");
     Ok(())
 }
 

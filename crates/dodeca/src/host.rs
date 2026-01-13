@@ -76,14 +76,14 @@ pub struct Host {
     // -------------------------------------------------------------------------
     // Cell Connection Handles
     // -------------------------------------------------------------------------
-    /// Connection handles for spawned cells, keyed by binary name (e.g., "ddc-cell-sass").
+    /// Connection handles for cells, keyed by logical name (e.g., "sass", "gingembre").
     cell_handles: DashMap<String, ConnectionHandle>,
 
     // -------------------------------------------------------------------------
     // Pending Cells (Lazy Spawning)
     // -------------------------------------------------------------------------
     /// Cells that have been registered but not yet spawned.
-    /// Keyed by binary name (e.g., "ddc-cell-sass").
+    /// Keyed by logical name (e.g., "sass", "gingembre").
     /// The PendingCell holds the SpawnTicket which is consumed on spawn.
     pending_cells: std::sync::Mutex<std::collections::HashMap<String, PendingCell>>,
     /// Whether quiet mode is enabled (suppress cell output when TUI is active).
@@ -247,66 +247,65 @@ impl Host {
     /// Register a pending cell (not yet spawned).
     ///
     /// The cell will be spawned on first access via `client_async::<C>()`.
-    #[allow(dead_code)] // Will be used when lazy spawning is fully integrated
-    pub fn register_pending_cell(&self, binary_name: String, pending: PendingCell) {
+    pub fn register_pending_cell(&self, cell_name: String, pending: PendingCell) {
         if let Ok(mut cells) = self.pending_cells.lock() {
-            cells.insert(binary_name, pending);
+            cells.insert(cell_name, pending);
         }
-    }
-
-    /// Check if a cell is available (either spawned or pending).
-    #[allow(dead_code)] // Will be used when lazy spawning is fully integrated
-    pub fn has_cell(&self, binary_name: &str) -> bool {
-        if self.cell_handles.contains_key(binary_name) {
-            return true;
-        }
-        if let Ok(cells) = self.pending_cells.lock() {
-            return cells.contains_key(binary_name);
-        }
-        false
-    }
-
-    /// Check if a cell is pending (registered but not spawned).
-    #[allow(dead_code)] // Will be used when lazy spawning is fully integrated
-    pub fn is_cell_pending(&self, binary_name: &str) -> bool {
-        if let Ok(cells) = self.pending_cells.lock() {
-            return cells.contains_key(binary_name);
-        }
-        false
     }
 
     /// Take a pending cell (removes it from pending, for spawning).
-    fn take_pending_cell(&self, binary_name: &str) -> Option<PendingCell> {
+    fn take_pending_cell(&self, cell_name: &str) -> Option<PendingCell> {
         if let Ok(mut cells) = self.pending_cells.lock() {
-            return cells.remove(binary_name);
+            return cells.remove(cell_name);
         }
         None
     }
 
-    /// Spawn a pending cell and return its handle.
+    /// Spawn a pending cell and wait for it to be ready.
     ///
     /// This is called internally by `client_async()` when a cell needs to be spawned.
-    /// The handle must already be registered (from init time).
-    pub async fn spawn_pending_cell(&self, binary_name: &str) -> Option<ConnectionHandle> {
-        // The handle should already exist (registered during init)
-        let handle = self.get_cell_handle(binary_name)?;
+    /// Returns Some(handle) on success, None if cell couldn't be spawned.
+    pub async fn spawn_pending_cell(&self, cell_name: &str) -> Option<ConnectionHandle> {
+        debug!(cell = cell_name, "spawn_pending_cell: taking pending cell");
 
-        // Take the pending cell (if not already spawned)
-        let pending = match self.take_pending_cell(binary_name) {
-            Some(p) => p,
+        // Take the pending cell atomically (prevents race conditions)
+        let pending = match self.take_pending_cell(cell_name) {
+            Some(p) => {
+                debug!(
+                    cell = cell_name,
+                    binary = %p.binary_path.display(),
+                    peer_id = ?p.ticket.peer_id,
+                    "spawn_pending_cell: got pending cell"
+                );
+                p
+            }
             None => {
-                // Already spawned (or never registered)
-                return Some(handle);
+                debug!(
+                    cell = cell_name,
+                    "spawn_pending_cell: no pending cell, already spawned by another caller"
+                );
+                // Already spawned by another caller - just wait for ready
+                wait_for_cell_ready(cell_name).await;
+                return self.get_cell_handle(cell_name);
             }
         };
 
         // Spawn the cell process
-        spawn_cell_process(binary_name, pending, self.is_quiet_mode()).await;
+        debug!(
+            cell = cell_name,
+            "spawn_pending_cell: calling spawn_cell_process"
+        );
+        spawn_cell_process(cell_name, pending, self.is_quiet_mode()).await;
 
         // Wait for the cell to be ready
-        wait_for_cell_ready(binary_name).await;
+        debug!(
+            cell = cell_name,
+            "spawn_pending_cell: waiting for cell ready"
+        );
+        wait_for_cell_ready(cell_name).await;
 
-        Some(handle)
+        debug!(cell = cell_name, "spawn_pending_cell: done");
+        self.get_cell_handle(cell_name)
     }
 }
 
@@ -372,26 +371,30 @@ impl_cell_client!(cell_tui_proto::TuiDisplayClient, "tui");
 // ============================================================================
 
 impl Host {
-    /// Get a typed cell client (sync, returns None if not yet spawned).
-    ///
-    /// This looks up the cell by binary name and returns a client.
-    /// Use `client_async()` if you want lazy spawning on demand.
-    pub fn client<C: CellClient>(&self) -> Option<C> {
-        let handle = self.get_cell_handle(C::CELL_NAME)?;
-        Some(C::from_handle(handle))
-    }
-
     /// Get a typed cell client, spawning if needed (async).
     ///
     /// This will spawn the cell process if it's pending and wait for it to be ready.
     pub async fn client_async<C: CellClient>(&self) -> Option<C> {
-        // Fast path: already spawned
-        if let Some(handle) = self.get_cell_handle(C::CELL_NAME) {
+        // Get the handle (registered at init time)
+        let handle = self.get_cell_handle(C::CELL_NAME)?;
+
+        // Fast path: cell is already ready (spawned and reported ready)
+        if crate::cells::cell_ready_registry().is_ready(C::CELL_NAME) {
+            debug!(
+                cell = C::CELL_NAME,
+                "client_async: already ready (fast path)"
+            );
             return Some(C::from_handle(handle));
         }
 
-        // Slow path: spawn if pending
-        let handle = self.spawn_pending_cell(C::CELL_NAME).await?;
+        debug!(cell = C::CELL_NAME, "client_async: not ready, spawning");
+
+        // Slow path: need to spawn the cell
+        self.spawn_pending_cell(C::CELL_NAME).await?;
+        debug!(
+            cell = C::CELL_NAME,
+            "client_async: spawn complete, returning client"
+        );
         Some(C::from_handle(handle))
     }
 }
@@ -404,62 +407,94 @@ impl Host {
 ///
 /// The handle must already be registered before calling this.
 /// This function spawns the process and sets up child monitoring.
-async fn spawn_cell_process(binary_name: &str, pending: PendingCell, quiet_mode: bool) {
+async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: bool) {
     let PendingCell {
         binary_path,
         inherit_stdio,
         ticket,
     } = pending;
 
+    let peer_id = ticket.peer_id;
+    let args = ticket.to_args();
+
+    debug!(
+        cell = cell_name,
+        ?peer_id,
+        binary = %binary_path.display(),
+        ?args,
+        inherit_stdio,
+        quiet_mode,
+        "spawn_cell_process: building command"
+    );
+
     // Build the command
     let mut cmd = Command::new(&binary_path);
-    for arg in ticket.to_args() {
+    for arg in &args {
         cmd.arg(arg);
     }
 
     // Configure stdio
     if inherit_stdio {
+        debug!(cell = cell_name, "spawn_cell_process: inheriting stdio");
         cmd.stdin(Stdio::inherit())
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
     } else if quiet_mode {
+        debug!(
+            cell = cell_name,
+            "spawn_cell_process: quiet mode (null stdio)"
+        );
         cmd.stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .env("DODECA_QUIET", "1");
     } else {
+        debug!(cell = cell_name, "spawn_cell_process: piped stdio");
         cmd.stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
     }
 
     // Spawn the process
+    debug!(
+        cell = cell_name,
+        "spawn_cell_process: spawning child process"
+    );
     let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
-        Ok(c) => c,
+        Ok(c) => {
+            debug!(cell = cell_name, pid = ?c.id(), "spawn_cell_process: child spawned successfully");
+            c
+        }
         Err(e) => {
-            warn!("Failed to spawn {}: {:?}", binary_name, e);
+            warn!(cell = cell_name, error = ?e, "spawn_cell_process: failed to spawn");
             return;
         }
     };
 
     // Capture stdio if not inheriting and not quiet
     if !inherit_stdio && !quiet_mode {
-        capture_cell_stdio(binary_name, &mut child);
+        capture_cell_stdio(cell_name, &mut child);
     }
 
     debug!(
-        "Spawned {} cell (peer_id={:?}) from {}",
-        binary_name,
-        ticket.peer_id,
-        binary_path.display()
+        cell = cell_name,
+        ?peer_id,
+        binary = %binary_path.display(),
+        "spawn_cell_process: dropping ticket to close doorbell"
     );
 
     // Drop ticket to close our end of the doorbell
     drop(ticket);
 
+    debug!(
+        cell = cell_name,
+        "spawn_cell_process: spawning child monitor task"
+    );
+
     // Spawn child management task
-    let cell_label = binary_name.to_string();
+    let cell_label = cell_name.to_string();
     tokio::spawn(async move {
+        debug!(cell = %cell_label, "child monitor: waiting for exit");
         match child.wait().await {
             Ok(status) => {
                 if !status.success() {
@@ -472,8 +507,10 @@ async fn spawn_cell_process(binary_name: &str, pending: PendingCell, quiet_mode:
                 std::process::exit(1);
             }
         }
-        info!("{} cell exited", cell_label);
+        info!(cell = %cell_label, "child monitor: cell exited normally");
     });
+
+    debug!(cell = cell_name, "spawn_cell_process: done");
 }
 
 /// Capture cell stdout/stderr and log it.
@@ -517,28 +554,49 @@ where
 /// Wait for a cell to be ready.
 ///
 /// This checks the cell ready registry from cells.rs.
-async fn wait_for_cell_ready(binary_name: &str) {
+async fn wait_for_cell_ready(cell_name: &str) {
+    debug!(cell = cell_name, "wait_for_cell_ready: starting");
+
     // Wait for the cell to report ready via CellLifecycle::ready()
-    // The timeout is generous since cells may take time to initialize
     let timeout = Duration::from_secs(10);
     let start = std::time::Instant::now();
 
+    let mut check_count = 0u32;
     loop {
-        // Check if cell is ready (via cells.rs registry)
-        // For now, we just wait a short time since the cell initialization
-        // should happen quickly after spawn
-        if start.elapsed() >= timeout {
-            warn!("Timeout waiting for {} to be ready", binary_name);
+        check_count += 1;
+
+        // Check if cell reported ready via the registry
+        if crate::cells::cell_ready_registry().is_ready(cell_name) {
+            debug!(
+                cell = cell_name,
+                elapsed_ms = start.elapsed().as_millis(),
+                check_count,
+                "wait_for_cell_ready: cell is ready"
+            );
             break;
+        }
+
+        if start.elapsed() >= timeout {
+            warn!(
+                cell = cell_name,
+                elapsed_ms = start.elapsed().as_millis(),
+                check_count,
+                "wait_for_cell_ready: TIMEOUT"
+            );
+            break;
+        }
+
+        // Log every 100 checks (roughly every second)
+        if check_count % 100 == 0 {
+            debug!(
+                cell = cell_name,
+                elapsed_ms = start.elapsed().as_millis(),
+                check_count,
+                "wait_for_cell_ready: still waiting..."
+            );
         }
 
         // Small delay between checks
         tokio::time::sleep(Duration::from_millis(10)).await;
-
-        // Check if we got a handle (meaning cell connected)
-        if Host::get().get_cell_handle(binary_name).is_some() {
-            debug!("{} cell is ready", binary_name);
-            break;
-        }
     }
 }
