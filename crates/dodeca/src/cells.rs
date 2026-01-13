@@ -809,97 +809,184 @@ cell_client_accessor!(http_cell, "http", TcpTunnelClient);
 // Convenience Functions (wrappers around cell clients)
 // ============================================================================
 
-// These will be implemented once cell infrastructure is complete.
-// For now they return errors.
-
-pub async fn resize_image(_input: ResizeInput) -> Result<ImageResult, eyre::Error> {
-    Err(eyre::eyre!("Image cell not available"))
+pub async fn resize_image(input: ResizeInput) -> Result<ImageResult, eyre::Error> {
+    let client = image_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Image cell not available"))?;
+    client
+        .resize_image(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn encode_webp(_input: WebPEncodeInput) -> Result<WebPResult, eyre::Error> {
-    Err(eyre::eyre!("WebP cell not available"))
+pub async fn encode_webp(input: WebPEncodeInput) -> Result<WebPResult, eyre::Error> {
+    let client = webp_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("WebP cell not available"))?;
+    client
+        .encode_webp(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn encode_jxl(_input: JXLEncodeInput) -> Result<JXLResult, eyre::Error> {
-    Err(eyre::eyre!("JXL cell not available"))
+pub async fn encode_jxl(input: JXLEncodeInput) -> Result<JXLResult, eyre::Error> {
+    let client = jxl_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("JXL cell not available"))?;
+    client
+        .encode_jxl(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn compute_thumbhash(_input: ThumbhashInput) -> Result<ImageResult, eyre::Error> {
-    Err(eyre::eyre!("Image cell not available"))
+pub async fn compute_thumbhash(input: ThumbhashInput) -> Result<ImageResult, eyre::Error> {
+    let client = image_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Image cell not available"))?;
+    client
+        .generate_thumbhash_data_url(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn parse_markdown(_input: String) -> Result<ParseResult, eyre::Error> {
-    Err(eyre::eyre!("Markdown cell not available"))
+pub async fn parse_markdown(
+    source_path: &str,
+    content: String,
+) -> Result<ParseResult, eyre::Error> {
+    let client = markdown_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Markdown cell not available"))?;
+    client
+        .parse_and_render(source_path.to_string(), content)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn render_markdown(_input: String) -> Result<MarkdownResult, eyre::Error> {
-    Err(eyre::eyre!("Markdown cell not available"))
+pub async fn render_markdown(
+    source_path: &str,
+    markdown: String,
+) -> Result<MarkdownResult, eyre::Error> {
+    let client = markdown_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Markdown cell not available"))?;
+    client
+        .render_markdown(source_path.to_string(), markdown)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn extract_frontmatter(_input: String) -> Result<FrontmatterResult, eyre::Error> {
-    Err(eyre::eyre!("Markdown cell not available"))
+pub async fn extract_frontmatter(content: String) -> Result<FrontmatterResult, eyre::Error> {
+    let client = markdown_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Markdown cell not available"))?;
+    client
+        .parse_frontmatter(content)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn minify_html(_input: String) -> Result<MinifyResult, eyre::Error> {
-    Err(eyre::eyre!("Minify cell not available"))
+pub async fn minify_html(html: String) -> Result<MinifyResult, eyre::Error> {
+    let client = minify_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Minify cell not available"))?;
+    client
+        .minify_html(html)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn minify_css(_input: String) -> Result<MinifyResult, eyre::Error> {
-    Err(eyre::eyre!("Minify cell not available"))
+pub async fn compile_sass(input: SassInput) -> Result<SassResult, eyre::Error> {
+    let client = sass_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("SASS cell not available"))?;
+    client
+        .compile_sass(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn minify_js(_input: String) -> Result<MinifyResult, eyre::Error> {
-    Err(eyre::eyre!("Minify cell not available"))
+pub async fn rewrite_js(input: JsRewriteInput) -> Result<JsResult, eyre::Error> {
+    let client = js_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("JS cell not available"))?;
+    client
+        .rewrite_string_literals(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn process_css(_input: String) -> Result<CssResult, eyre::Error> {
-    Err(eyre::eyre!("CSS cell not available"))
+pub async fn optimize_svg(svg: String) -> Result<SvgoResult, eyre::Error> {
+    let client = svgo_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("SVGO cell not available"))?;
+    client
+        .optimize_svg(svg)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn compile_sass(_input: SassInput) -> Result<SassResult, eyre::Error> {
-    Err(eyre::eyre!("SASS cell not available"))
+pub async fn subset_font(input: SubsetFontInput) -> Result<FontResult, eyre::Error> {
+    let client = font_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
+    client
+        .subset_font(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn rewrite_js(_input: JsRewriteInput) -> Result<JsResult, eyre::Error> {
-    Err(eyre::eyre!("JS cell not available"))
+pub async fn check_links(input: LinkCheckInput) -> Result<LinkCheckResult, eyre::Error> {
+    let client = linkcheck_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Link check cell not available"))?;
+    client
+        .check_links(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn optimize_svg(_input: String) -> Result<SvgoResult, eyre::Error> {
-    Err(eyre::eyre!("SVGO cell not available"))
+pub async fn diff_html(input: DiffInput) -> Result<HtmlDiffResult, eyre::Error> {
+    let client = html_diff_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("HTML diff cell not available"))?;
+    client
+        .diff_html(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn analyze_font(_input: Vec<u8>) -> Result<FontAnalysis, eyre::Error> {
-    Err(eyre::eyre!("Font cell not available"))
-}
-
-pub async fn subset_font(_input: SubsetFontInput) -> Result<FontResult, eyre::Error> {
-    Err(eyre::eyre!("Font cell not available"))
-}
-
-pub async fn check_links(_input: LinkCheckInput) -> Result<LinkCheckResult, eyre::Error> {
-    Err(eyre::eyre!("Link check cell not available"))
-}
-
-pub async fn diff_html(_input: DiffInput) -> Result<HtmlDiffResult, eyre::Error> {
-    Err(eyre::eyre!("HTML diff cell not available"))
-}
-
-pub async fn build_search_index(
-    _input: SearchIndexInput,
-) -> Result<SearchIndexResult, eyre::Error> {
-    Err(eyre::eyre!("Pagefind cell not available"))
+pub async fn build_search_index(input: SearchIndexInput) -> Result<SearchIndexResult, eyre::Error> {
+    let client = pagefind_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Pagefind cell not available"))?;
+    client
+        .build_search_index(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
 pub async fn execute_code_samples(
-    _input: ExecuteSamplesInput,
+    input: ExecuteSamplesInput,
 ) -> Result<CodeExecutionResult, eyre::Error> {
-    Err(eyre::eyre!("Code execution cell not available"))
+    let client = code_execution_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Code execution cell not available"))?;
+    client
+        .execute_code_samples(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
 pub async fn extract_code_samples(
-    _input: ExtractSamplesInput,
+    input: ExtractSamplesInput,
 ) -> Result<CodeExecutionResult, eyre::Error> {
-    Err(eyre::eyre!("Code execution cell not available"))
+    let client = code_execution_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Code execution cell not available"))?;
+    client
+        .extract_code_samples(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
 // ============================================================================
@@ -912,7 +999,8 @@ pub async fn extract_code_samples(
 pub use dialoguer_cell as dialoguer_client;
 
 pub fn has_linkcheck_cell() -> bool {
-    false // Cell not available yet
+    // Check if the cell handle is available
+    get_cell_handle_by_name("linkcheck").is_some()
 }
 
 /// Result of link checking - wrapper for internal use
@@ -921,9 +1009,26 @@ pub struct UrlCheckResult {
     pub statuses: Vec<LinkStatus>,
 }
 
-pub async fn check_urls_cell(_urls: Vec<String>, _options: CheckOptions) -> Option<UrlCheckResult> {
-    tracing::warn!("Link check cell not available");
-    None
+pub async fn check_urls_cell(urls: Vec<String>, options: CheckOptions) -> Option<UrlCheckResult> {
+    let client = linkcheck_cell().await?;
+    let input = LinkCheckInput {
+        urls,
+        delay_ms: options.rate_limit_ms,
+        timeout_secs: options.timeout_secs,
+    };
+    match client.check_links(input).await {
+        Ok(LinkCheckResult::Success { output }) => Some(UrlCheckResult {
+            statuses: output.results.into_values().collect(),
+        }),
+        Ok(LinkCheckResult::Error { message }) => {
+            tracing::warn!("Link check error: {}", message);
+            None
+        }
+        Err(e) => {
+            tracing::warn!("Link check RPC error: {:?}", e);
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -934,12 +1039,18 @@ pub struct CheckOptions {
 }
 
 pub async fn parse_and_render_markdown_cell(
-    _source_path: &str,
-    _content: &str,
+    source_path: &str,
+    content: &str,
 ) -> Result<cell_markdown_proto::ParseResult, MarkdownParseError> {
-    Err(MarkdownParseError {
+    let client = markdown_cell().await.ok_or_else(|| MarkdownParseError {
         message: "Markdown cell not available".to_string(),
-    })
+    })?;
+    client
+        .parse_and_render(source_path.to_string(), content.to_string())
+        .await
+        .map_err(|e| MarkdownParseError {
+            message: format!("RPC error: {:?}", e),
+        })
 }
 
 pub async fn execute_code_samples_cell(
@@ -955,10 +1066,18 @@ pub async fn extract_code_samples_cell(
 }
 
 pub async fn inject_code_buttons_cell(
-    _html: String,
-    _code_metadata: HashMap<String, cell_html_proto::CodeExecutionMetadata>,
+    html: String,
+    code_metadata: HashMap<String, cell_html_proto::CodeExecutionMetadata>,
 ) -> Result<(String, bool), eyre::Error> {
-    Err(eyre::eyre!("HTML cell not available"))
+    let client = html_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
+    match client.inject_code_buttons(html, code_metadata).await {
+        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, flag }) => Ok((html, flag)),
+        Ok(cell_html_proto::HtmlResult::Success { html }) => Ok((html, false)),
+        Ok(cell_html_proto::HtmlResult::Error { message }) => Err(eyre::eyre!(message)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
 }
 
 pub async fn render_template_cell(
@@ -988,39 +1107,86 @@ pub async fn optimize_svg_cell(input: String) -> Result<SvgoResult, eyre::Error>
 }
 
 pub async fn mark_dead_links_cell(
-    _html: String,
-    _dead_links: Vec<String>,
+    html: String,
+    known_routes: std::collections::HashSet<String>,
 ) -> Result<String, eyre::Error> {
-    Err(eyre::eyre!("HTML cell not available"))
+    let client = html_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
+    match client.mark_dead_links(html, known_routes).await {
+        Ok(cell_html_proto::HtmlResult::Success { html }) => Ok(html),
+        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, .. }) => Ok(html),
+        Ok(cell_html_proto::HtmlResult::Error { message }) => Err(eyre::eyre!(message)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
 }
 
 pub async fn rewrite_urls_in_html_cell(
-    _html: String,
-    _rewrites: Vec<(String, String)>,
+    html: String,
+    path_map: HashMap<String, String>,
 ) -> Result<String, eyre::Error> {
-    Err(eyre::eyre!("HTML cell not available"))
+    let client = html_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("HTML cell not available"))?;
+    match client.rewrite_urls(html, path_map).await {
+        Ok(cell_html_proto::HtmlResult::Success { html }) => Ok(html),
+        Ok(cell_html_proto::HtmlResult::SuccessWithFlag { html, .. }) => Ok(html),
+        Ok(cell_html_proto::HtmlResult::Error { message }) => Err(eyre::eyre!(message)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
 }
 
 pub async fn rewrite_string_literals_in_js_cell(
-    _js: String,
-    _rewrites: Vec<(String, String)>,
+    js: String,
+    path_map: HashMap<String, String>,
 ) -> Result<String, eyre::Error> {
-    Err(eyre::eyre!("JS cell not available"))
+    let client = js_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("JS cell not available"))?;
+    let input = JsRewriteInput { js, path_map };
+    match client.rewrite_string_literals(input).await {
+        Ok(JsResult::Success { js }) => Ok(js),
+        Ok(JsResult::Error { message }) => Err(eyre::eyre!(message)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
 }
 
 pub async fn rewrite_urls_in_css_cell(
-    _css: String,
-    _rewrites: Vec<(String, String)>,
+    css: String,
+    path_map: HashMap<String, String>,
 ) -> Result<String, eyre::Error> {
-    Err(eyre::eyre!("CSS cell not available"))
+    let client = css_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("CSS cell not available"))?;
+    match client.rewrite_and_minify(css, path_map).await {
+        Ok(CssResult::Success { css }) => Ok(css),
+        Ok(CssResult::Error { message }) => Err(eyre::eyre!(message)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
 }
 
-pub async fn decompress_font_cell(_data: Vec<u8>) -> Result<Vec<u8>, eyre::Error> {
-    Err(eyre::eyre!("Font cell not available"))
+pub async fn decompress_font_cell(data: Vec<u8>) -> Result<Vec<u8>, eyre::Error> {
+    let client = font_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
+    match client.decompress_font(data).await {
+        Ok(FontResult::DecompressSuccess { data }) => Ok(data),
+        Ok(FontResult::Error { message }) => Err(eyre::eyre!(message)),
+        Ok(other) => Err(eyre::eyre!("Unexpected result: {:?}", other)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
 }
 
-pub async fn compress_to_woff2_cell(_data: Vec<u8>) -> Result<Vec<u8>, eyre::Error> {
-    Err(eyre::eyre!("Font cell not available"))
+pub async fn compress_to_woff2_cell(data: Vec<u8>) -> Result<Vec<u8>, eyre::Error> {
+    let client = font_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
+    match client.compress_to_woff2(data).await {
+        Ok(FontResult::CompressSuccess { data }) => Ok(data),
+        Ok(FontResult::Error { message }) => Err(eyre::eyre!(message)),
+        Ok(other) => Err(eyre::eyre!("Unexpected result: {:?}", other)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
 }
 
 pub async fn subset_font_cell(input: SubsetFontInput) -> Result<FontResult, eyre::Error> {
@@ -1029,72 +1195,222 @@ pub async fn subset_font_cell(input: SubsetFontInput) -> Result<FontResult, eyre
 
 // Image decoding/encoding cell wrappers
 // These return Option to match what image.rs expects
-pub async fn decode_png_cell(_data: &[u8]) -> Option<DecodedImage> {
-    tracing::warn!("Image cell not available");
-    None
+pub async fn decode_png_cell(data: &[u8]) -> Option<DecodedImage> {
+    let client = image_cell().await?;
+    match client.decode_png(data.to_vec()).await {
+        Ok(ImageResult::Success { image }) => Some(image),
+        Ok(ImageResult::Error { message }) => {
+            tracing::warn!("PNG decode error: {}", message);
+            None
+        }
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!("PNG decode RPC error: {:?}", e);
+            None
+        }
+    }
 }
 
-pub async fn decode_jpeg_cell(_data: &[u8]) -> Option<DecodedImage> {
-    tracing::warn!("Image cell not available");
-    None
+pub async fn decode_jpeg_cell(data: &[u8]) -> Option<DecodedImage> {
+    let client = image_cell().await?;
+    match client.decode_jpeg(data.to_vec()).await {
+        Ok(ImageResult::Success { image }) => Some(image),
+        Ok(ImageResult::Error { message }) => {
+            tracing::warn!("JPEG decode error: {}", message);
+            None
+        }
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!("JPEG decode RPC error: {:?}", e);
+            None
+        }
+    }
 }
 
-pub async fn decode_gif_cell(_data: &[u8]) -> Option<DecodedImage> {
-    tracing::warn!("Image cell not available");
-    None
+pub async fn decode_gif_cell(data: &[u8]) -> Option<DecodedImage> {
+    let client = image_cell().await?;
+    match client.decode_gif(data.to_vec()).await {
+        Ok(ImageResult::Success { image }) => Some(image),
+        Ok(ImageResult::Error { message }) => {
+            tracing::warn!("GIF decode error: {}", message);
+            None
+        }
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!("GIF decode RPC error: {:?}", e);
+            None
+        }
+    }
 }
 
-pub async fn decode_webp_cell(_data: &[u8]) -> Option<DecodedImage> {
-    tracing::warn!("Image cell not available");
-    None
+pub async fn decode_webp_cell(data: &[u8]) -> Option<DecodedImage> {
+    let client = webp_cell().await?;
+    match client.decode_webp(data.to_vec()).await {
+        Ok(WebPResult::DecodeSuccess {
+            pixels,
+            width,
+            height,
+            channels,
+        }) => Some(DecodedImage {
+            pixels,
+            width,
+            height,
+            channels,
+        }),
+        Ok(WebPResult::Error { message }) => {
+            tracing::warn!("WebP decode error: {}", message);
+            None
+        }
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!("WebP decode RPC error: {:?}", e);
+            None
+        }
+    }
 }
 
-pub async fn decode_jxl_cell(_data: &[u8]) -> Option<DecodedImage> {
-    tracing::warn!("Image cell not available");
-    None
+pub async fn decode_jxl_cell(data: &[u8]) -> Option<DecodedImage> {
+    let client = jxl_cell().await?;
+    match client.decode_jxl(data.to_vec()).await {
+        Ok(JXLResult::DecodeSuccess {
+            pixels,
+            width,
+            height,
+            channels,
+        }) => Some(DecodedImage {
+            pixels,
+            width,
+            height,
+            channels,
+        }),
+        Ok(JXLResult::Error { message }) => {
+            tracing::warn!("JXL decode error: {}", message);
+            None
+        }
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!("JXL decode RPC error: {:?}", e);
+            None
+        }
+    }
 }
 
 pub async fn resize_image_cell(
-    _pixels: &[u8],
-    _width: u32,
-    _height: u32,
-    _channels: u8,
-    _target_width: u32,
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    channels: u8,
+    target_width: u32,
 ) -> Option<DecodedImage> {
-    tracing::warn!("Image cell not available");
-    None
+    let client = image_cell().await?;
+    let input = ResizeInput {
+        pixels: pixels.to_vec(),
+        width,
+        height,
+        channels,
+        target_width,
+    };
+    match client.resize_image(input).await {
+        Ok(ImageResult::Success { image }) => Some(image),
+        Ok(ImageResult::Error { message }) => {
+            tracing::warn!("Resize error: {}", message);
+            None
+        }
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!("Resize RPC error: {:?}", e);
+            None
+        }
+    }
 }
 
-pub async fn generate_thumbhash_cell(_pixels: &[u8], _width: u32, _height: u32) -> Option<String> {
-    tracing::warn!("Image cell not available");
-    None
+pub async fn generate_thumbhash_cell(pixels: &[u8], width: u32, height: u32) -> Option<String> {
+    let client = image_cell().await?;
+    let input = ThumbhashInput {
+        pixels: pixels.to_vec(),
+        width,
+        height,
+    };
+    match client.generate_thumbhash_data_url(input).await {
+        Ok(ImageResult::ThumbhashSuccess { data_url }) => Some(data_url),
+        Ok(ImageResult::Error { message }) => {
+            tracing::warn!("Thumbhash error: {}", message);
+            None
+        }
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!("Thumbhash RPC error: {:?}", e);
+            None
+        }
+    }
 }
 
 pub async fn encode_webp_cell(
-    _pixels: &[u8],
-    _width: u32,
-    _height: u32,
-    _quality: u8,
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
 ) -> Option<Vec<u8>> {
-    tracing::warn!("WebP cell not available");
-    None
+    let client = webp_cell().await?;
+    let input = WebPEncodeInput {
+        pixels: pixels.to_vec(),
+        width,
+        height,
+        quality,
+    };
+    match client.encode_webp(input).await {
+        Ok(WebPResult::EncodeSuccess { data }) => Some(data),
+        Ok(WebPResult::Error { message }) => {
+            tracing::warn!("WebP encode error: {}", message);
+            None
+        }
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!("WebP encode RPC error: {:?}", e);
+            None
+        }
+    }
 }
 
 pub async fn encode_jxl_cell(
-    _pixels: &[u8],
-    _width: u32,
-    _height: u32,
-    _quality: u8,
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    quality: u8,
 ) -> Option<Vec<u8>> {
-    tracing::warn!("JXL cell not available");
-    None
+    let client = jxl_cell().await?;
+    let input = JXLEncodeInput {
+        pixels: pixels.to_vec(),
+        width,
+        height,
+        quality,
+    };
+    match client.encode_jxl(input).await {
+        Ok(JXLResult::EncodeSuccess { data }) => Some(data),
+        Ok(JXLResult::Error { message }) => {
+            tracing::warn!("JXL encode error: {}", message);
+            None
+        }
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!("JXL encode RPC error: {:?}", e);
+            None
+        }
+    }
 }
 
 // SASS/CSS cell wrappers
-pub async fn compile_sass_cell(
-    _input: &HashMap<String, String>,
-) -> Result<SassResult, eyre::Error> {
-    Err(eyre::eyre!("SASS cell not available"))
+pub async fn compile_sass_cell(input: &HashMap<String, String>) -> Result<SassResult, eyre::Error> {
+    let client = sass_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("SASS cell not available"))?;
+    let sass_input = SassInput {
+        files: input.clone(),
+    };
+    client
+        .compile_sass(sass_input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
 // Markdown error type
@@ -1112,13 +1428,32 @@ impl std::fmt::Display for MarkdownParseError {
 impl std::error::Error for MarkdownParseError {}
 
 // HTML/CSS extraction
-pub async fn extract_css_from_html_cell(_html: &str) -> Result<String, eyre::Error> {
-    Err(eyre::eyre!("HTML cell not available"))
+pub async fn extract_css_from_html_cell(html: &str) -> Result<String, eyre::Error> {
+    let client = font_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
+    match client.extract_css_from_html(html.to_string()).await {
+        Ok(FontResult::CssSuccess { css }) => Ok(css),
+        Ok(FontResult::Error { message }) => Err(eyre::eyre!(message)),
+        Ok(other) => Err(eyre::eyre!("Unexpected result: {:?}", other)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
 }
 
 // Font analysis
-pub async fn analyze_fonts_cell(_html: &str, _css: &str) -> Result<FontAnalysis, eyre::Error> {
-    Err(eyre::eyre!("Font cell not available"))
+pub async fn analyze_fonts_cell(html: &str, css: &str) -> Result<FontAnalysis, eyre::Error> {
+    let client = font_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
+    match client
+        .analyze_fonts(html.to_string(), css.to_string())
+        .await
+    {
+        Ok(FontResult::AnalysisSuccess { analysis }) => Ok(analysis),
+        Ok(FontResult::Error { message }) => Err(eyre::eyre!(message)),
+        Ok(other) => Err(eyre::eyre!("Unexpected result: {:?}", other)),
+        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
+    }
 }
 
 /// Spawn a single cell with a custom dispatcher.

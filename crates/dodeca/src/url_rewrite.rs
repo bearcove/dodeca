@@ -23,11 +23,7 @@ pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) 
         return css.to_string();
     }
 
-    let rewrites: Vec<(String, String)> = path_map
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    match rewrite_urls_in_css_cell(css.to_string(), rewrites).await {
+    match rewrite_urls_in_css_cell(css.to_string(), path_map.clone()).await {
         Ok(result) => result,
         Err(e) => {
             tracing::warn!("CSS rewriting failed: {}", e);
@@ -44,11 +40,7 @@ async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, Stri
         return js.to_string();
     }
 
-    let rewrites: Vec<(String, String)> = path_map
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    match rewrite_string_literals_in_js_cell(js.to_string(), rewrites).await {
+    match rewrite_string_literals_in_js_cell(js.to_string(), path_map.clone()).await {
         Ok(result) => result,
         Err(e) => {
             tracing::warn!("JS rewriting failed: {}", e);
@@ -68,11 +60,8 @@ async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, Stri
 /// Returns original HTML if the html cell is not available.
 pub async fn rewrite_urls_in_html(html: &str, path_map: &HashMap<String, String>) -> String {
     // First: rewrite HTML attributes using the cell
-    let rewrites: Vec<(String, String)> = path_map
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-    let html_with_attrs = match rewrite_urls_in_html_cell(html.to_string(), rewrites).await {
+    let html_with_attrs = match rewrite_urls_in_html_cell(html.to_string(), path_map.clone()).await
+    {
         Ok(result) => result,
         Err(e) => {
             tracing::warn!("HTML URL rewriting failed: {}", e);
@@ -172,8 +161,7 @@ pub fn resolve_internal_links(html: &str, source_to_route: &HashMap<String, Stri
 /// Returns (modified_html, had_dead_links) tuple.
 /// Returns original HTML with no dead links if the cell is not available.
 pub async fn mark_dead_links(html: &str, known_routes: &HashSet<String>) -> (String, bool) {
-    let dead_links: Vec<String> = known_routes.iter().cloned().collect();
-    match mark_dead_links_cell(html.to_string(), dead_links).await {
+    match mark_dead_links_cell(html.to_string(), known_routes.clone()).await {
         Ok(result) => {
             // Check if any changes were made (simple heuristic)
             let had_dead = result != html;
