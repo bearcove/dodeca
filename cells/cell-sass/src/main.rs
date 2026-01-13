@@ -5,9 +5,15 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use cell_sass_proto::{SassCompiler, SassCompilerServer, SassInput, SassResult};
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
+
+use cell_sass_proto::{SassCompiler, SassCompilerDispatcher, SassInput, SassResult};
 
 /// SASS compiler implementation
+#[derive(Clone)]
 pub struct SassCompilerImpl;
 
 impl SassCompiler for SassCompilerImpl {
@@ -75,10 +81,13 @@ impl grass::Fs for InMemorySassFs {
     }
 }
 
-rapace_cell::cell_service!(SassCompilerServer<SassCompilerImpl>, SassCompilerImpl);
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(SassCompilerImpl)).await?;
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
+    let dispatcher = SassCompilerDispatcher::new(SassCompilerImpl);
+    let (_handle, driver) = establish_guest(transport, dispatcher);
+    driver.run().await;
     Ok(())
 }

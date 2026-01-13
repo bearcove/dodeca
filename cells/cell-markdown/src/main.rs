@@ -7,6 +7,10 @@ use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, LinkResolver, PikruHandler, RenderOptions,
     render,
 };
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
 use std::future::Future;
 use std::pin::Pin;
 
@@ -127,13 +131,13 @@ fn convert_req(r: marq::ReqDefinition) -> ReqDefinition {
     }
 }
 
-rapace_cell::cell_service!(
-    MarkdownProcessorServer<MarkdownProcessorImpl>,
-    MarkdownProcessorImpl
-);
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(MarkdownProcessorImpl)).await?;
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
+    let dispatcher = MarkdownProcessorDispatcher::new(MarkdownProcessorImpl);
+    let (_handle, driver) = establish_guest(transport, dispatcher);
+    driver.run().await;
     Ok(())
 }

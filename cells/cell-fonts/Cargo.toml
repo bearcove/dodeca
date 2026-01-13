@@ -15,5 +15,6 @@ path = "src/main.rs"
 [dependencies]
 cell-fonts-proto = { path = "../cell-fonts-proto" }
 fontcull.workspace = true
-rapace-cell.workspace = true
+roam.workspace = true
+roam-shm.workspace = true
 tokio.workspace = true

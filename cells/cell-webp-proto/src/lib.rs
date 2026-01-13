@@ -34,7 +34,7 @@ pub enum WebPResult {
 ///
 /// The host calls these methods to process WebP images.
 #[allow(async_fn_in_trait)]
-#[rapace::service]
+#[roam::service]
 pub trait WebPProcessor {
     /// Decode WebP to RGBA/RGB pixels
     async fn decode_webp(&self, data: Vec<u8>) -> WebPResult;

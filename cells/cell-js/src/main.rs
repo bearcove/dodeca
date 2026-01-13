@@ -9,10 +9,15 @@ use oxc::ast::ast::{StringLiteral, TemplateLiteral};
 use oxc::ast_visit::Visit;
 use oxc::parser::Parser;
 use oxc::span::SourceType;
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
 
-use cell_js_proto::{JsProcessor, JsProcessorServer, JsResult, JsRewriteInput};
+use cell_js_proto::{JsProcessor, JsProcessorDispatcher, JsResult, JsRewriteInput};
 
 /// JS processor implementation
+#[derive(Clone)]
 pub struct JsProcessorImpl;
 
 impl JsProcessor for JsProcessorImpl {
@@ -115,10 +120,13 @@ impl<'a> Visit<'_> for StringCollector<'a> {
     }
 }
 
-rapace_cell::cell_service!(JsProcessorServer<JsProcessorImpl>, JsProcessorImpl);
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(JsProcessorImpl)).await?;
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
+    let dispatcher = JsProcessorDispatcher::new(JsProcessorImpl);
+    let (_handle, driver) = establish_guest(transport, dispatcher);
+    driver.run().await;
     Ok(())
 }

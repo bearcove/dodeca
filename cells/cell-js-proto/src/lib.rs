@@ -28,7 +28,7 @@ pub struct JsRewriteInput {
 ///
 /// The host calls these methods to process JavaScript content.
 #[allow(async_fn_in_trait)]
-#[rapace::service]
+#[roam::service]
 pub trait JsProcessor {
     /// Rewrite string literals in JavaScript that contain asset paths
     ///

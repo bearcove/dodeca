@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 cell-svgo-proto = { path = "../cell-svgo-proto" }
-rapace-cell.workspace = true
+roam.workspace = true
+roam-shm.workspace = true
 svag.workspace = true
 tokio.workspace = true

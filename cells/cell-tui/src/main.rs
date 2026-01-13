@@ -6,6 +6,7 @@
 use std::collections::VecDeque;
 use std::io::stdout;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use color_eyre::Result;
@@ -14,9 +15,6 @@ use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind},
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use futures::StreamExt;
-use rapace::transport::shm::HubPeerTransport;
-use rapace_cell::CellSession;
 use ratatui::{
     DefaultTerminal, Frame,
     layout::{Constraint, Layout},
@@ -24,17 +22,19 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
+use roam::session::ConnectionHandle;
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
 use tokio::sync::mpsc;
 
 use cell_tui_proto::{
     BindMode, BuildProgress, EventKind, LogEvent, LogLevel, ServerCommand, ServerStatus,
-    TaskStatus, TuiHostClient,
+    TuiHostClient,
 };
 
 mod theme;
-
-/// Type alias for our transport
-type _CellTransport = HubPeerTransport;
 
 /// Maximum number of events to keep in buffer
 const MAX_EVENTS: usize = 100;
@@ -484,6 +484,8 @@ fn event_color(kind: &EventKind) -> Color {
     }
 }
 
+use cell_tui_proto::TaskStatus;
+
 /// Initialize terminal for TUI
 fn init_terminal() -> Result<DefaultTerminal> {
     enable_raw_mode()?;
@@ -500,32 +502,19 @@ fn restore_terminal() -> Result<()> {
     Ok(())
 }
 
-/// No-op service for TUI cell (it only makes client calls, doesn't serve anything)
-struct TuiCellService;
+/// No-op dispatcher for TUI cell (it only makes client calls, doesn't serve anything)
+#[derive(Clone)]
+struct NoOpDispatcher;
 
-impl rapace_cell::ServiceDispatch for TuiCellService {
-    fn method_ids(&self) -> &'static [u32] {
-        &[]
-    }
-
+impl roam::session::ServiceDispatcher for NoOpDispatcher {
     fn dispatch(
         &self,
-        _method_id: u32,
-        _frame: rapace::Frame,
-        _buffer_pool: &rapace::BufferPool,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<rapace::Frame, rapace::RpcError>>
-                + Send
-                + 'static,
-        >,
-    > {
-        Box::pin(async move {
-            Err(rapace::RpcError::Status {
-                code: rapace::ErrorCode::Unimplemented,
-                message: "TUI cell does not serve any methods".to_string(),
-            })
-        })
+        _method_id: u64,
+        _payload: Vec<u8>,
+        request_id: u64,
+        registry: &mut roam::session::ChannelRegistry,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+        roam::session::dispatch_unknown_method(request_id, registry)
     }
 }
 
@@ -533,28 +522,38 @@ impl rapace_cell::ServiceDispatch for TuiCellService {
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    rapace_cell::run_with_session(|session| {
-        // Spawn the TUI loop - when it exits, terminate the cell process
-        tokio::spawn(async move {
-            let result = run_tui(session).await;
-            if let Err(e) = &result {
-                eprintln!("TUI error: {e}");
-            }
-            // TUI exited (user pressed 'q'), terminate the cell process
-            // This is necessary because run_with_session waits on session.run()
-            // which would keep the process alive otherwise
-            std::process::exit(if result.is_ok() { 0 } else { 1 });
-        });
-        TuiCellService
-    })
-    .await?;
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
 
+    // Lazy initialization for the handle
+    let handle_cell: Arc<OnceLock<ConnectionHandle>> = Arc::new(OnceLock::new());
+    let handle_cell_clone = handle_cell.clone();
+
+    let dispatcher = NoOpDispatcher;
+    let (handle, driver) = establish_guest(transport, dispatcher);
+
+    // Initialize the handle
+    let _ = handle_cell.set(handle);
+
+    // Spawn the TUI loop - when it exits, terminate the cell process
+    tokio::spawn(async move {
+        let handle = handle_cell_clone.get().expect("handle not initialized");
+        let result = run_tui(handle.clone()).await;
+        if let Err(e) = &result {
+            eprintln!("TUI error: {e}");
+        }
+        // TUI exited (user pressed 'q'), terminate the cell process
+        std::process::exit(if result.is_ok() { 0 } else { 1 });
+    });
+
+    driver.run().await;
     Ok(())
 }
 
-async fn run_tui(session: Arc<CellSession>) -> Result<()> {
+async fn run_tui(handle: ConnectionHandle) -> Result<()> {
     // Create TuiHost client
-    let client = TuiHostClient::new(session.clone());
+    let client = TuiHostClient::new(handle);
 
     // Channel for sending commands
     let (command_tx, mut command_rx) = mpsc::unbounded_channel::<ServerCommand>();
@@ -568,10 +567,17 @@ async fn run_tui(session: Arc<CellSession>) -> Result<()> {
     // Create app state
     let mut app = TuiApp::new(command_tx);
 
-    // Subscribe to streams
-    let mut progress_stream = client.subscribe_progress().await?;
-    let mut events_stream = client.subscribe_events().await?;
-    let mut status_stream = client.subscribe_server_status().await?;
+    // Create channels for streaming subscriptions
+    // In roam, we create channel pairs and pass the sender to the server
+    let (progress_tx, mut progress_rx) = roam::channel::<BuildProgress>();
+    let (events_tx, mut events_rx) = roam::channel::<LogEvent>();
+    let (status_tx, mut status_rx) = roam::channel::<ServerStatus>();
+
+    // Subscribe to streams by passing the senders
+    // The server will send data through these channels
+    client.subscribe_progress(progress_tx).await?;
+    client.subscribe_events(events_tx).await?;
+    client.subscribe_server_status(status_tx).await?;
 
     // Spawn a blocking reader for keyboard input.
     // Exits automatically when the receiver is dropped.
@@ -612,20 +618,20 @@ async fn run_tui(session: Arc<CellSession>) -> Result<()> {
                 let _ = client.send_command(cmd).await;
             }
 
-            result = progress_stream.next() => {
-                if let Some(Ok(progress)) = result {
+            result = progress_rx.recv() => {
+                if let Ok(Some(progress)) = result {
                     app.progress = progress;
                 }
             }
 
-            result = events_stream.next() => {
-                if let Some(Ok(event)) = result {
+            result = events_rx.recv() => {
+                if let Ok(Some(event)) = result {
                     app.push_event(event);
                 }
             }
 
-            result = status_stream.next() => {
-                if let Some(Ok(status)) = result {
+            result = status_rx.recv() => {
+                if let Ok(Some(status)) = result {
                     app.server_status = status;
                 }
             }

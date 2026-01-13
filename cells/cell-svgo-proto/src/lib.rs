@@ -18,7 +18,7 @@ pub enum SvgoResult {
 ///
 /// The host calls these methods to optimize SVG content.
 #[allow(async_fn_in_trait)]
-#[rapace::service]
+#[roam::service]
 pub trait SvgoOptimizer {
     /// Optimize SVG content
     ///

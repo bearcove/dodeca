@@ -14,7 +14,7 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
 # RPC framework
-rapace = { workspace = true, features = ["stream"] }
+roam.workspace = true
 
 # Serialization
 facet.workspace = true

@@ -15,7 +15,8 @@ path = "src/main.rs"
 [dependencies]
 cell-code-execution-proto = { path = "../cell-code-execution-proto" }
 pulldown-cmark.workspace = true
-rapace-cell.workspace = true
+roam.workspace = true
+roam-shm.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true

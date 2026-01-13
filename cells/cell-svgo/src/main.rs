@@ -2,9 +2,15 @@
 //!
 //! This cell handles SVG optimization.
 
-use cell_svgo_proto::{SvgoOptimizer, SvgoOptimizerServer, SvgoResult};
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
+
+use cell_svgo_proto::{SvgoOptimizer, SvgoOptimizerDispatcher, SvgoResult};
 
 /// SVGO optimizer implementation
+#[derive(Clone)]
 pub struct SvgoOptimizerImpl;
 
 impl SvgoOptimizer for SvgoOptimizerImpl {
@@ -18,10 +24,13 @@ impl SvgoOptimizer for SvgoOptimizerImpl {
     }
 }
 
-rapace_cell::cell_service!(SvgoOptimizerServer<SvgoOptimizerImpl>, SvgoOptimizerImpl);
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(SvgoOptimizerImpl)).await?;
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
+    let dispatcher = SvgoOptimizerDispatcher::new(SvgoOptimizerImpl);
+    let (_handle, driver) = establish_guest(transport, dispatcher);
+    driver.run().await;
     Ok(())
 }

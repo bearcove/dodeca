@@ -22,7 +22,7 @@ color-eyre.workspace = true
 crossterm.workspace = true
 futures.workspace = true
 open = "5.3.3"
-rapace = { workspace = true, features = ["stream"] }
-rapace-cell.workspace = true
+roam.workspace = true
+roam-shm.workspace = true
 ratatui.workspace = true
 tokio.workspace = true

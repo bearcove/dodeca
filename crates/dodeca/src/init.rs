@@ -74,10 +74,13 @@ pub async fn run_init(name: String, template_name: Option<String>) -> Result<()>
             .map_err(|e| eyre!("Failed to show template selection: {}", e))?;
 
         match result {
-            SelectResult::Selected { index } => &templates[index],
-            SelectResult::Cancelled => {
+            Ok(SelectResult::Selected { index }) => &templates[index],
+            Ok(SelectResult::Cancelled) => {
                 eprintln!("Cancelled");
                 std::process::exit(1);
+            }
+            Err(e) => {
+                return Err(eyre!("RoamError during selection: {:?}", e));
             }
         }
     };

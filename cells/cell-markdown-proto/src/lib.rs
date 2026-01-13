@@ -12,8 +12,8 @@ use facet_value::Value;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use facet_postcard;
     use facet_value::{DestructuredRef, VObject, VString};
-    use rapace::facet_postcard;
 
     #[test]
     fn test_frontmatter_extra_roundtrip() {
@@ -152,7 +152,7 @@ pub enum ParseResult {
 ///
 /// The host calls these methods to process markdown content.
 #[allow(async_fn_in_trait)]
-#[rapace::service]
+#[roam::service]
 pub trait MarkdownProcessor {
     /// Parse frontmatter from content.
     ///

@@ -2,9 +2,15 @@
 //!
 //! This cell handles HTML minification.
 
-use cell_minify_proto::{Minifier, MinifierServer, MinifyResult};
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
+
+use cell_minify_proto::{Minifier, MinifierDispatcher, MinifyResult};
 
 /// Minifier implementation
+#[derive(Clone)]
 pub struct MinifierImpl;
 
 impl Minifier for MinifierImpl {
@@ -15,10 +21,13 @@ impl Minifier for MinifierImpl {
     }
 }
 
-rapace_cell::cell_service!(MinifierServer<MinifierImpl>, MinifierImpl);
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(MinifierImpl)).await?;
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
+    let dispatcher = MinifierDispatcher::new(MinifierImpl);
+    let (_handle, driver) = establish_guest(transport, dispatcher);
+    driver.run().await;
     Ok(())
 }

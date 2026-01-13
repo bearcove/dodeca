@@ -19,6 +19,7 @@ use cell_gingembre_proto::{
 };
 use dashmap::DashMap;
 use facet_value::Value;
+use roam::session::{Never, RoamError};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -125,14 +126,18 @@ impl TemplateHostImpl {
 }
 
 impl TemplateHost for TemplateHostImpl {
-    async fn load_template(&self, context_id: ContextId, name: String) -> LoadTemplateResult {
+    async fn load_template(
+        &self,
+        context_id: ContextId,
+        name: String,
+    ) -> Result<LoadTemplateResult, RoamError<Never>> {
         let Some(context) = self.registry.get(context_id) else {
             tracing::warn!(
                 context_id = context_id.0,
                 name = %name,
                 "load_template: context not found"
             );
-            return LoadTemplateResult::NotFound;
+            return Ok(LoadTemplateResult::NotFound);
         };
 
         match context.templates.get(&name) {
@@ -143,9 +148,9 @@ impl TemplateHost for TemplateHostImpl {
                     source_len = source.len(),
                     "load_template: found"
                 );
-                LoadTemplateResult::Found {
+                Ok(LoadTemplateResult::Found {
                     source: source.clone(),
-                }
+                })
             }
             None => {
                 tracing::debug!(
@@ -153,19 +158,23 @@ impl TemplateHost for TemplateHostImpl {
                     name = %name,
                     "load_template: not found"
                 );
-                LoadTemplateResult::NotFound
+                Ok(LoadTemplateResult::NotFound)
             }
         }
     }
 
-    async fn resolve_data(&self, context_id: ContextId, path: Vec<String>) -> ResolveDataResult {
+    async fn resolve_data(
+        &self,
+        context_id: ContextId,
+        path: Vec<String>,
+    ) -> Result<ResolveDataResult, RoamError<Never>> {
         let Some(context) = self.registry.get(context_id) else {
             tracing::warn!(
                 context_id = context_id.0,
                 path = ?path,
                 "resolve_data: context not found"
             );
-            return ResolveDataResult::NotFound;
+            return Ok(ResolveDataResult::NotFound);
         };
 
         // Create the interned path for picante tracking
@@ -178,7 +187,7 @@ impl TemplateHost for TemplateHostImpl {
                     error = ?e,
                     "resolve_data: failed to create path"
                 );
-                return ResolveDataResult::NotFound;
+                return Ok(ResolveDataResult::NotFound);
             }
         };
 
@@ -190,7 +199,7 @@ impl TemplateHost for TemplateHostImpl {
                     path = ?path,
                     "resolve_data: found"
                 );
-                ResolveDataResult::Found { value }
+                Ok(ResolveDataResult::Found { value })
             }
             Ok(None) => {
                 tracing::debug!(
@@ -198,7 +207,7 @@ impl TemplateHost for TemplateHostImpl {
                     path = ?path,
                     "resolve_data: not found"
                 );
-                ResolveDataResult::NotFound
+                Ok(ResolveDataResult::NotFound)
             }
             Err(e) => {
                 tracing::warn!(
@@ -207,19 +216,23 @@ impl TemplateHost for TemplateHostImpl {
                     error = ?e,
                     "resolve_data: query error"
                 );
-                ResolveDataResult::NotFound
+                Ok(ResolveDataResult::NotFound)
             }
         }
     }
 
-    async fn keys_at(&self, context_id: ContextId, path: Vec<String>) -> KeysAtResult {
+    async fn keys_at(
+        &self,
+        context_id: ContextId,
+        path: Vec<String>,
+    ) -> Result<KeysAtResult, RoamError<Never>> {
         let Some(context) = self.registry.get(context_id) else {
             tracing::warn!(
                 context_id = context_id.0,
                 path = ?path,
                 "keys_at: context not found"
             );
-            return KeysAtResult::NotFound;
+            return Ok(KeysAtResult::NotFound);
         };
 
         // Create the interned path for picante tracking
@@ -232,7 +245,7 @@ impl TemplateHost for TemplateHostImpl {
                     error = ?e,
                     "keys_at: failed to create path"
                 );
-                return KeysAtResult::NotFound;
+                return Ok(KeysAtResult::NotFound);
             }
         };
 
@@ -245,7 +258,7 @@ impl TemplateHost for TemplateHostImpl {
                     num_keys = keys.len(),
                     "keys_at: found"
                 );
-                KeysAtResult::Found { keys }
+                Ok(KeysAtResult::Found { keys })
             }
             Err(e) => {
                 tracing::warn!(
@@ -254,7 +267,7 @@ impl TemplateHost for TemplateHostImpl {
                     error = ?e,
                     "keys_at: query error"
                 );
-                KeysAtResult::NotFound
+                Ok(KeysAtResult::NotFound)
             }
         }
     }
@@ -265,16 +278,16 @@ impl TemplateHost for TemplateHostImpl {
         name: String,
         args: Vec<Value>,
         kwargs: Vec<(String, Value)>,
-    ) -> CallFunctionResult {
+    ) -> Result<CallFunctionResult, RoamError<Never>> {
         let Some(context) = self.registry.get(context_id) else {
             tracing::warn!(
                 context_id = context_id.0,
                 name = %name,
                 "call_function: context not found"
             );
-            return CallFunctionResult::Error {
+            return Ok(CallFunctionResult::Error {
                 message: "Context not found".to_string(),
-            };
+            });
         };
 
         tracing::debug!(
@@ -303,9 +316,9 @@ impl TemplateHost for TemplateHostImpl {
                 } else {
                     format!("/{path}")
                 };
-                CallFunctionResult::Success {
+                Ok(CallFunctionResult::Success {
                     value: Value::from(url.as_str()),
-                }
+                })
             }
 
             "get_section" => {
@@ -371,7 +384,7 @@ impl TemplateHost for TemplateHostImpl {
                     Value::NULL
                 };
 
-                CallFunctionResult::Success { value: result }
+                Ok(CallFunctionResult::Success { value: result })
             }
 
             "now" => {
@@ -379,9 +392,9 @@ impl TemplateHost for TemplateHostImpl {
                 let format = get_kwarg("format").unwrap_or_else(|| "%Y-%m-%d".to_string());
                 let now = chrono::Local::now();
                 let formatted = now.format(&format).to_string();
-                CallFunctionResult::Success {
+                Ok(CallFunctionResult::Success {
                     value: Value::from(formatted.as_str()),
-                }
+                })
             }
 
             "throw" => {
@@ -390,7 +403,7 @@ impl TemplateHost for TemplateHostImpl {
                     .map(|v| v.render_to_string())
                     .or_else(|| get_kwarg("message"))
                     .unwrap_or_else(|| "Template error".to_string());
-                CallFunctionResult::Error { message }
+                Ok(CallFunctionResult::Error { message })
             }
 
             _ => {
@@ -399,9 +412,9 @@ impl TemplateHost for TemplateHostImpl {
                     name = %name,
                     "call_function: unknown function"
                 );
-                CallFunctionResult::Error {
+                Ok(CallFunctionResult::Error {
                     message: format!("Unknown function: {}", name),
-                }
+                })
             }
         }
     }

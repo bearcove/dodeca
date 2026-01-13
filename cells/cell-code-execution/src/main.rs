@@ -2,15 +2,23 @@
 //!
 //! This cell handles extracting and executing code samples from markdown.
 
-use cell_code_execution_proto::{CodeExecutionResult, CodeExecutor, CodeExecutorServer};
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
+
+use cell_code_execution_proto::{CodeExecutionResult, CodeExecutor, CodeExecutorDispatcher};
 
 // Include implementation code directly
 include!("impl.rs");
 
-rapace_cell::cell_service!(CodeExecutorServer<CodeExecutorImpl>, CodeExecutorImpl);
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(CodeExecutorImpl)).await?;
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
+    let dispatcher = CodeExecutorDispatcher::new(CodeExecutorImpl);
+    let (_handle, driver) = establish_guest(transport, dispatcher);
+    driver.run().await;
     Ok(())
 }

@@ -20,7 +20,7 @@ cell-http-proto = { path = "../cell-http-proto" }
 futures-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
-rapace = { workspace = true, features = ["stream"] }
-rapace-cell.workspace = true
+roam.workspace = true
+roam-shm.workspace = true
 tokio.workspace = true
 tracing.workspace = true

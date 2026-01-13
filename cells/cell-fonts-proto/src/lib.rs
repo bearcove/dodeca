@@ -56,7 +56,7 @@ pub enum FontResult {
 ///
 /// The host calls these methods to process fonts.
 #[allow(async_fn_in_trait)]
-#[rapace::service]
+#[roam::service]
 pub trait FontProcessor {
     /// Analyze HTML and CSS to collect font usage information
     async fn analyze_fonts(&self, html: String, css: String) -> FontResult;

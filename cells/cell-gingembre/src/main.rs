@@ -6,24 +6,27 @@
 
 use cell_gingembre_proto::{
     CallFunctionResult, ContextId, EvalResult, KeysAtResult, LoadTemplateResult, RenderResult,
-    ResolveDataResult, TemplateHostClient, TemplateRenderer, TemplateRendererServer,
+    ResolveDataResult, TemplateHostClient, TemplateRenderer, TemplateRendererDispatcher,
 };
 use facet_value::DestructuredRef;
 use futures::future::BoxFuture;
 use gingembre::{Context, DataPath, DataResolver, Engine, TemplateLoader, Value};
-use rapace::transport::shm::ShmTransport;
-use rapace_cell::CellSession;
+use roam::session::ConnectionHandle;
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
 use std::sync::Arc;
 
-/// Cell context holding the RPC session for callbacks
+/// Cell context holding the connection handle for callbacks
 pub struct CellContext {
-    pub session: Arc<CellSession>,
+    pub handle: ConnectionHandle,
 }
 
 impl CellContext {
     /// Create a client for calling back to the host
-    pub fn host_client(&self) -> TemplateHostClient<ShmTransport> {
-        TemplateHostClient::new(self.session.clone())
+    pub fn host_client(&self) -> TemplateHostClient {
+        TemplateHostClient::new(self.handle.clone())
     }
 }
 
@@ -33,12 +36,12 @@ impl CellContext {
 
 /// Template loader that calls back to the host via RPC.
 struct RpcTemplateLoader {
-    client: TemplateHostClient<ShmTransport>,
+    client: TemplateHostClient,
     context_id: ContextId,
 }
 
 impl RpcTemplateLoader {
-    fn new(client: TemplateHostClient<ShmTransport>, context_id: ContextId) -> Self {
+    fn new(client: TemplateHostClient, context_id: ContextId) -> Self {
         Self { client, context_id }
     }
 }
@@ -65,12 +68,12 @@ impl TemplateLoader for RpcTemplateLoader {
 
 /// Data resolver that calls back to the host via RPC.
 struct RpcDataResolver {
-    client: TemplateHostClient<ShmTransport>,
+    client: TemplateHostClient,
     context_id: ContextId,
 }
 
 impl RpcDataResolver {
-    fn new(client: TemplateHostClient<ShmTransport>, context_id: ContextId) -> Self {
+    fn new(client: TemplateHostClient, context_id: ContextId) -> Self {
         Self { client, context_id }
     }
 }
@@ -121,12 +124,12 @@ impl DataResolver for RpcDataResolver {
 
 /// Creates a function that calls back to the host via RPC.
 fn make_rpc_function(
-    session: Arc<CellSession>,
+    handle: ConnectionHandle,
     context_id: ContextId,
     name: String,
 ) -> gingembre::GlobalFn {
     Box::new(move |args: &[Value], kwargs: &[(String, Value)]| {
-        let client = TemplateHostClient::new(session.clone());
+        let client = TemplateHostClient::new(handle.clone());
         let name = name.clone();
         let args = args.to_vec();
         let kwargs = kwargs.to_vec();
@@ -171,7 +174,7 @@ impl TemplateRendererImpl {
         // These are the standard functions that templates expect
         let function_names = ["get_url", "get_section", "now", "throw"];
         for name in function_names {
-            let func = make_rpc_function(self.ctx.session.clone(), context_id, name.to_string());
+            let func = make_rpc_function(self.ctx.handle.clone(), context_id, name.to_string());
             ctx.register_fn(name, func);
         }
 
@@ -247,18 +250,125 @@ impl TemplateRenderer for TemplateRendererImpl {
     }
 }
 
-rapace_cell::cell_service!(
-    TemplateRendererServer<TemplateRendererImpl>,
-    TemplateRendererImpl
-);
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run_with_session(|session: Arc<CellSession>| {
-        let ctx = Arc::new(CellContext { session });
-        let renderer = TemplateRendererImpl::new(ctx);
-        CellService::from(renderer)
-    })
-    .await?;
+    use std::sync::OnceLock;
+
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
+
+    // Use OnceLock to lazily initialize the handle after establish_guest returns
+    let handle_cell: Arc<OnceLock<ConnectionHandle>> = Arc::new(OnceLock::new());
+
+    // Create a wrapper context that lazily gets the handle
+    #[derive(Clone)]
+    struct LazyContext {
+        handle_cell: Arc<OnceLock<ConnectionHandle>>,
+    }
+
+    impl LazyContext {
+        fn handle(&self) -> &ConnectionHandle {
+            self.handle_cell.get().expect("handle not initialized")
+        }
+
+        fn host_client(&self) -> TemplateHostClient {
+            TemplateHostClient::new(self.handle().clone())
+        }
+    }
+
+    // Template renderer that uses the lazy context
+    #[derive(Clone)]
+    struct LazyTemplateRendererImpl {
+        ctx: Arc<LazyContext>,
+    }
+
+    impl TemplateRenderer for LazyTemplateRendererImpl {
+        async fn render(
+            &self,
+            context_id: ContextId,
+            template_name: String,
+            initial_context: Value,
+        ) -> RenderResult {
+            // Create RPC-backed loader and resolver
+            let loader = RpcTemplateLoader::new(self.ctx.host_client(), context_id);
+            let resolver = Arc::new(RpcDataResolver::new(self.ctx.host_client(), context_id));
+
+            // Build the render context
+            let ctx = build_context(
+                self.ctx.handle().clone(),
+                &initial_context,
+                resolver,
+                context_id,
+            );
+
+            // Create engine and render
+            let mut engine = Engine::new(loader);
+            match engine.render(&template_name, &ctx).await {
+                Ok(html) => RenderResult::Success { html },
+                Err(e) => {
+                    let message = format!("{:?}", e);
+                    RenderResult::Error { message }
+                }
+            }
+        }
+
+        async fn eval_expression(
+            &self,
+            context_id: ContextId,
+            expression: String,
+            context: Value,
+        ) -> EvalResult {
+            let resolver = Arc::new(RpcDataResolver::new(self.ctx.host_client(), context_id));
+            let ctx = build_context(self.ctx.handle().clone(), &context, resolver, context_id);
+
+            match gingembre::eval_expression(&expression, &ctx).await {
+                Ok(value) => EvalResult::Success { value },
+                Err(e) => {
+                    let message = format!("{:?}", e);
+                    EvalResult::Error { message }
+                }
+            }
+        }
+    }
+
+    fn build_context(
+        handle: ConnectionHandle,
+        initial_context: &Value,
+        resolver: Arc<dyn DataResolver>,
+        context_id: ContextId,
+    ) -> Context {
+        let mut ctx = Context::new();
+        ctx.set_data_resolver(resolver);
+
+        // Register RPC-backed functions
+        let function_names = ["get_url", "get_section", "now", "throw"];
+        for name in function_names {
+            let func = make_rpc_function(handle.clone(), context_id, name.to_string());
+            ctx.register_fn(name, func);
+        }
+
+        // Set initial context variables from the Value (should be a VObject)
+        if let DestructuredRef::Object(obj) = initial_context.destructure_ref() {
+            for (key, value) in obj.iter() {
+                ctx.set(key.to_string(), value.clone());
+            }
+        }
+
+        ctx
+    }
+
+    let lazy_ctx = Arc::new(LazyContext {
+        handle_cell: handle_cell.clone(),
+    });
+    let renderer = LazyTemplateRendererImpl { ctx: lazy_ctx };
+    let dispatcher = TemplateRendererDispatcher::new(renderer);
+
+    let (handle, driver) = establish_guest(transport, dispatcher);
+
+    // Now initialize the handle cell
+    let _ = handle_cell.set(handle);
+
+    driver.run().await;
     Ok(())
 }

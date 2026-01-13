@@ -6,6 +6,7 @@ use tokio::process::Command;
 use cell_code_execution_proto::*;
 
 /// Code executor implementation
+#[derive(Clone)]
 pub struct CodeExecutorImpl;
 
 impl CodeExecutor for CodeExecutorImpl {

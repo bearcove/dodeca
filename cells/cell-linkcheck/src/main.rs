@@ -5,13 +5,19 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
 use url::Url;
 
 use cell_linkcheck_proto::{
-    LinkCheckInput, LinkCheckOutput, LinkCheckResult, LinkChecker, LinkCheckerServer, LinkStatus,
+    LinkCheckInput, LinkCheckOutput, LinkCheckResult, LinkChecker, LinkCheckerDispatcher,
+    LinkStatus,
 };
 
 /// LinkChecker implementation
+#[derive(Clone)]
 pub struct LinkCheckerImpl {
     /// HTTP client for making requests
     client: reqwest::Client,
@@ -141,10 +147,13 @@ impl LinkChecker for LinkCheckerImpl {
     }
 }
 
-rapace_cell::cell_service!(LinkCheckerServer<LinkCheckerImpl>, LinkCheckerImpl);
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(LinkCheckerImpl::new())).await?;
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
+    let dispatcher = LinkCheckerDispatcher::new(LinkCheckerImpl::new());
+    let (_handle, driver) = establish_guest(transport, dispatcher);
+    driver.run().await;
     Ok(())
 }

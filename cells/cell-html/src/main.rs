@@ -11,6 +11,7 @@
 //! - DOM diffing for live reload
 
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, OnceLock};
 
 use color_eyre::Result;
 use facet_html::{self as fhtml};
@@ -18,28 +19,46 @@ use facet_html_dom::*;
 
 use cell_html_proto::{
     CodeExecutionMetadata, DiffResult, HtmlDiffResult, HtmlHostClient, HtmlProcessInput,
-    HtmlProcessResult, HtmlProcessor, HtmlProcessorServer, HtmlResult, Injection,
+    HtmlProcessResult, HtmlProcessor, HtmlProcessorDispatcher, HtmlResult, Injection,
 };
-use rapace::transport::shm::ShmTransport;
-use rapace_cell::CellSession;
-use std::sync::Arc;
+use roam::session::ConnectionHandle;
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
 
 mod diff;
 
+/// Lazy context for getting the connection handle after driver is established
+#[derive(Clone)]
+struct LazyContext {
+    handle_cell: Arc<OnceLock<ConnectionHandle>>,
+}
+
+impl LazyContext {
+    fn handle(&self) -> &ConnectionHandle {
+        self.handle_cell.get().expect("handle not initialized")
+    }
+
+    fn host_client(&self) -> HtmlHostClient {
+        HtmlHostClient::new(self.handle().clone())
+    }
+}
+
 /// HTML processor implementation
+#[derive(Clone)]
 pub struct HtmlProcessorImpl {
-    /// Session for making host callbacks
-    session: Arc<CellSession>,
+    ctx: Arc<LazyContext>,
 }
 
 impl HtmlProcessorImpl {
-    pub fn new(session: Arc<CellSession>) -> Self {
-        Self { session }
+    pub fn new(ctx: Arc<LazyContext>) -> Self {
+        Self { ctx }
     }
 
     /// Get a client for calling back to the host
-    fn host_client(&self) -> HtmlHostClient<ShmTransport> {
-        HtmlHostClient::new(self.session.clone())
+    fn host_client(&self) -> HtmlHostClient {
+        self.ctx.host_client()
     }
 }
 
@@ -286,7 +305,7 @@ impl HtmlProcessor for HtmlProcessorImpl {
 // ============================================================================
 
 /// Minify inline `<style>` content via host callback
-async fn minify_inline_css(host: &HtmlHostClient<ShmTransport>, doc: &mut Html) -> Result<()> {
+async fn minify_inline_css(host: &HtmlHostClient, doc: &mut Html) -> Result<()> {
     // Process <style> elements in <head>
     if let Some(head) = &mut doc.head {
         for style in &mut head.style {
@@ -311,7 +330,7 @@ async fn minify_inline_css(host: &HtmlHostClient<ShmTransport>, doc: &mut Html) 
 }
 
 /// Minify inline `<script>` content via host callback
-async fn minify_inline_js(host: &HtmlHostClient<ShmTransport>, doc: &mut Html) -> Result<()> {
+async fn minify_inline_js(host: &HtmlHostClient, doc: &mut Html) -> Result<()> {
     // Process <script> elements in <head> (only inline scripts, not external)
     if let Some(head) = &mut doc.head {
         for script in &mut head.script {
@@ -1106,15 +1125,27 @@ fn apply_injection(doc: &mut Html, injection: &Injection) {
 // Cell Setup
 // ============================================================================
 
-rapace_cell::cell_service!(HtmlProcessorServer<HtmlProcessorImpl>, HtmlProcessorImpl);
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run_with_session(|session| {
-        let processor = HtmlProcessorImpl::new(session);
-        CellService::from(processor)
-    })
-    .await?;
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
+
+    // Use OnceLock to lazily initialize the handle after establish_guest returns
+    let handle_cell: Arc<OnceLock<ConnectionHandle>> = Arc::new(OnceLock::new());
+
+    let lazy_ctx = Arc::new(LazyContext {
+        handle_cell: handle_cell.clone(),
+    });
+    let processor = HtmlProcessorImpl::new(lazy_ctx);
+    let dispatcher = HtmlProcessorDispatcher::new(processor);
+
+    let (handle, driver) = establish_guest(transport, dispatcher);
+
+    // Now initialize the handle cell
+    let _ = handle_cell.set(handle);
+
+    driver.run().await;
     Ok(())
 }
 

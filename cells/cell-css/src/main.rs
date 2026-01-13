@@ -2,11 +2,16 @@
 //!
 //! This cell handles CSS URL rewriting and minification via lightningcss.
 
-use cell_css_proto::{CssProcessor, CssProcessorServer};
+use cell_css_proto::{CssProcessor, CssProcessorDispatcher};
 use lightningcss::stylesheet::{ParserOptions, PrinterOptions, StyleSheet};
 use lightningcss::visitor::Visit;
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
 
 /// CSS processor implementation
+#[derive(Clone)]
 pub struct CssProcessorImpl;
 
 impl CssProcessor for CssProcessorImpl {
@@ -73,10 +78,13 @@ impl<'i, 'a> lightningcss::visitor::Visitor<'i> for UrlRewriter<'a> {
     }
 }
 
-rapace_cell::cell_service!(CssProcessorServer<CssProcessorImpl>, CssProcessorImpl);
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(CssProcessorImpl)).await?;
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
+    let dispatcher = CssProcessorDispatcher::new(CssProcessorImpl);
+    let (_handle, driver) = establish_guest(transport, dispatcher);
+    driver.run().await;
     Ok(())
 }

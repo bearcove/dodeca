@@ -2324,9 +2324,17 @@ fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::Search
 
         // Build search index - call the cell directly since we're already in an async context.
         let pages = search::collect_search_pages(&site_output);
-        let files = cells::build_search_index_cell(pages)
+        let input = cell_pagefind_proto::SearchIndexInput { pages };
+        let result = cells::build_search_index_cell(input)
             .await
-            .map_err(|e| eyre!("pagefind: {}", e))?;
+            .map_err(|e| eyre!("pagefind RPC: {}", e))?;
+
+        let files = match result {
+            cell_pagefind_proto::SearchIndexResult::Success { output } => output.files,
+            cell_pagefind_proto::SearchIndexResult::Error { message } => {
+                return Err(eyre!("pagefind: {}", message));
+            }
+        };
 
         let search_files: search::SearchFiles =
             files.into_iter().map(|f| (f.path, f.contents)).collect();
@@ -3123,7 +3131,10 @@ async fn serve_static(
     }
 
     impl ContentService for StaticContentService {
-        async fn find_content(&self, path: String) -> ServeContent {
+        async fn find_content(
+            &self,
+            path: String,
+        ) -> Result<ServeContent, roam::session::RoamError<roam::session::Never>> {
             // Normalize path - remove leading slash
             let path = path.trim_start_matches('/');
 
@@ -3144,27 +3155,27 @@ async fn serve_static(
                             if mime == "text/html" {
                                 match String::from_utf8(content) {
                                     Ok(html) => {
-                                        return ServeContent::Html {
+                                        return Ok(ServeContent::Html {
                                             content: html,
                                             route: format!("/{path}"),
                                             generation: 0,
-                                        };
+                                        });
                                     }
                                     Err(e) => {
                                         // Not valid UTF-8, serve as binary
-                                        return ServeContent::Static {
+                                        return Ok(ServeContent::Static {
                                             content: e.into_bytes(),
                                             mime: mime.to_string(),
                                             generation: 0,
-                                        };
+                                        });
                                     }
                                 }
                             }
-                            return ServeContent::Static {
+                            return Ok(ServeContent::Static {
                                 content,
                                 mime: mime.to_string(),
                                 generation: 0,
-                            };
+                            });
                         }
                         Err(_) => continue,
                     }
@@ -3172,7 +3183,7 @@ async fn serve_static(
             }
 
             // Not found
-            ServeContent::NotFound {
+            Ok(ServeContent::NotFound {
                 html: format!(
                     r#"<!DOCTYPE html>
 <html><head><title>404 Not Found</title></head>
@@ -3180,23 +3191,27 @@ async fn serve_static(
 </html>"#
                 ),
                 generation: 0,
-            }
+            })
         }
 
         async fn get_scope(
             &self,
             _route: String,
             _path: Vec<String>,
-        ) -> Vec<cell_http_proto::ScopeEntry> {
-            vec![] // No devtools for static mode
+        ) -> Result<Vec<cell_http_proto::ScopeEntry>, roam::session::RoamError<roam::session::Never>>
+        {
+            Ok(vec![]) // No devtools for static mode
         }
 
         async fn eval_expression(
             &self,
             _route: String,
             _expression: String,
-        ) -> cell_http_proto::EvalResult {
-            cell_http_proto::EvalResult::Err("Not supported in static mode".to_string())
+        ) -> Result<cell_http_proto::EvalResult, roam::session::RoamError<roam::session::Never>>
+        {
+            Ok(cell_http_proto::EvalResult::Err(
+                "Not supported in static mode".to_string(),
+            ))
         }
     }
 

@@ -3,7 +3,14 @@
 //! This cell handles HTML DOM diffing for live reload using facet-format-html
 //! for parsing and facet-diff for computing structural differences.
 
-use cell_html_diff_proto::{DiffInput, DiffResult, HtmlDiffResult, HtmlDiffer, HtmlDifferServer};
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
+
+use cell_html_diff_proto::{
+    DiffInput, DiffResult, HtmlDiffResult, HtmlDiffer, HtmlDifferDispatcher,
+};
 
 // Re-export protocol types
 pub use dodeca_protocol::{NodePath, Patch};
@@ -13,6 +20,7 @@ pub use dodeca_protocol::{NodePath, Patch};
 // ============================================================================
 
 /// HTML differ implementation using facet-format-html and facet-diff.
+#[derive(Clone)]
 pub struct HtmlDifferImpl;
 
 impl HtmlDiffer for HtmlDifferImpl {
@@ -47,10 +55,13 @@ impl HtmlDiffer for HtmlDifferImpl {
     }
 }
 
-rapace_cell::cell_service!(HtmlDifferServer<HtmlDifferImpl>, HtmlDifferImpl);
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(HtmlDifferImpl)).await?;
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
+    let dispatcher = HtmlDifferDispatcher::new(HtmlDifferImpl);
+    let (_handle, driver) = establish_guest(transport, dispatcher);
+    driver.run().await;
     Ok(())
 }

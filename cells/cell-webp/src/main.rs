@@ -2,9 +2,15 @@
 //!
 //! This cell handles WebP encoding and decoding.
 
-use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPProcessorServer, WebPResult};
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
+
+use cell_webp_proto::{WebPEncodeInput, WebPProcessor, WebPProcessorDispatcher, WebPResult};
 
 /// WebP processor implementation
+#[derive(Clone)]
 pub struct WebPProcessorImpl;
 
 impl WebPProcessor for WebPProcessorImpl {
@@ -49,10 +55,13 @@ impl WebPProcessor for WebPProcessorImpl {
     }
 }
 
-rapace_cell::cell_service!(WebPProcessorServer<WebPProcessorImpl>, WebPProcessorImpl);
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(WebPProcessorImpl)).await?;
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
+    let dispatcher = WebPProcessorDispatcher::new(WebPProcessorImpl);
+    let (_handle, driver) = establish_guest(transport, dispatcher);
+    driver.run().await;
     Ok(())
 }

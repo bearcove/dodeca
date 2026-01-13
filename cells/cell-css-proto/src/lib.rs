@@ -19,7 +19,7 @@ pub enum CssResult {
 ///
 /// The host calls these methods to process CSS content.
 #[allow(async_fn_in_trait)]
-#[rapace::service]
+#[roam::service]
 pub trait CssProcessor {
     /// Rewrite URLs in CSS and minify.
     ///

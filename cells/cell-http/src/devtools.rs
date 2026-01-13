@@ -12,67 +12,57 @@ use axum::extract::{
 };
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
-use rapace::PooledBuf;
+use roam::tunnel_pair;
 
-use crate::CellContext;
+use crate::RouterContext;
 
 /// WebSocket handler - opens tunnel to host and pipes bytes
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
-    State(ctx): State<Arc<CellContext>>,
+    State(ctx): State<Arc<dyn RouterContext>>,
 ) -> impl IntoResponse {
     ws.on_upgrade(|socket| handle_socket(socket, ctx))
 }
 
-async fn handle_socket(socket: WebSocket, ctx: Arc<CellContext>) {
+async fn handle_socket(socket: WebSocket, ctx: Arc<dyn RouterContext>) {
     tracing::info!("DevTools WebSocket connection received, opening tunnel to host...");
 
-    // Open a WebSocket tunnel to the host
-    let handle = match ctx.ws_tunnel_client().open().await {
-        Ok(h) => {
-            tracing::info!(
-                "WebSocket tunnel opened successfully, channel_id={}",
-                h.channel_id
-            );
-            h
-        }
-        Err(e) => {
-            tracing::error!("Failed to open WebSocket tunnel to host: {:?}", e);
-            return;
-        }
-    };
+    // Create a tunnel pair - local stays here, remote goes to host
+    let (local, remote) = tunnel_pair();
+    let channel_id = local.tx.channel_id();
 
-    let channel_id = handle.channel_id;
-    tracing::debug!(channel_id, "WebSocket tunnel opened to host");
+    // Open a WebSocket tunnel to the host, passing the remote end
+    if let Err(e) = ctx.ws_tunnel_client().open(remote).await {
+        tracing::error!("Failed to open WebSocket tunnel to host: {:?}", e);
+        return;
+    }
 
-    // Register to receive chunks from host
-    let mut tunnel_rx = ctx.session.register_tunnel(channel_id);
+    tracing::info!(channel_id, "WebSocket tunnel opened to host");
 
     let (mut ws_sender, mut ws_receiver) = socket.split();
-    let session = ctx.session.clone();
+
+    // Decompose the local tunnel
+    let local_tx = local.tx;
+    let mut local_rx = local.rx;
 
     // Task A: WebSocket → Host (browser sends, we forward to tunnel)
-    let session_a = session.clone();
-    tokio::spawn(async move {
+    let ws_to_host = tokio::spawn(async move {
         while let Some(msg) = ws_receiver.next().await {
             match msg {
                 Ok(Message::Binary(data)) => {
-                    let pooled = PooledBuf::from_slice(session_a.buffer_pool(), &data);
-                    if let Err(e) = session_a.send_chunk(channel_id, pooled).await {
-                        tracing::debug!(channel_id, error = %e, "tunnel send error");
+                    if local_tx.send(&data.to_vec()).await.is_err() {
+                        tracing::debug!(channel_id, "tunnel send error");
                         break;
                     }
                 }
                 Ok(Message::Text(text)) => {
                     // Send text as bytes too
-                    let pooled = PooledBuf::from_slice(session_a.buffer_pool(), text.as_bytes());
-                    if let Err(e) = session_a.send_chunk(channel_id, pooled).await {
-                        tracing::debug!(channel_id, error = %e, "tunnel send error");
+                    if local_tx.send(&text.as_bytes().to_vec()).await.is_err() {
+                        tracing::debug!(channel_id, "tunnel send error");
                         break;
                     }
                 }
                 Ok(Message::Close(_)) | Err(_) => {
-                    let _ = session_a.close_tunnel(channel_id).await;
                     break;
                 }
                 _ => {}
@@ -82,25 +72,19 @@ async fn handle_socket(socket: WebSocket, ctx: Arc<CellContext>) {
     });
 
     // Task B: Host → WebSocket (host sends, we forward to browser)
-    tokio::spawn(async move {
-        while let Some(chunk) = tunnel_rx.recv().await {
-            let payload = chunk.payload_bytes();
-            if !payload.is_empty() {
+    let host_to_ws = tokio::spawn(async move {
+        while let Ok(Some(data)) = local_rx.recv().await {
+            if !data.is_empty() {
                 // Send as binary (the devtools protocol uses binary postcard)
-                if ws_sender
-                    .send(Message::Binary(payload.to_vec().into()))
-                    .await
-                    .is_err()
-                {
+                if ws_sender.send(Message::Binary(data.into())).await.is_err() {
                     break;
                 }
             }
-            if chunk.is_eos() {
-                tracing::debug!(channel_id, "received EOS from host");
-                let _ = ws_sender.close().await;
-                break;
-            }
         }
         tracing::debug!(channel_id, "Host→WebSocket task finished");
+        let _ = ws_sender.close().await;
     });
+
+    // Wait for both tasks to complete
+    let _ = tokio::join!(ws_to_host, host_to_ws);
 }

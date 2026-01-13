@@ -15,5 +15,6 @@ path = "src/main.rs"
 [dependencies]
 cell-js-proto = { path = "../cell-js-proto" }
 oxc.workspace = true
-rapace-cell.workspace = true
+roam.workspace = true
+roam-shm.workspace = true
 tokio.workspace = true

@@ -7,7 +7,7 @@ use crate::db::{
 };
 use picante::PicanteResult;
 
-use crate::cells::parse_and_render_markdown_cell;
+use crate::cells::{MarkdownParseError, parse_and_render_markdown_cell};
 use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
 use crate::url_rewrite::rewrite_urls_in_css;
@@ -370,9 +370,13 @@ pub async fn compile_sass<DB: Db>(db: &DB) -> PicanteResult<Option<CompiledCss>>
 
     // Compile via cell
     match crate::cells::compile_sass_cell(&sass_map).await {
-        Ok(css) => Ok(Some(CompiledCss(css))),
+        Ok(cell_sass_proto::SassResult::Success { css }) => Ok(Some(CompiledCss(css))),
+        Ok(cell_sass_proto::SassResult::Error { message }) => {
+            tracing::error!("SASS compilation failed: {}", message);
+            Ok(None)
+        }
         Err(e) => {
-            tracing::error!("SASS compilation failed: {}", e);
+            tracing::error!("SASS cell error: {}", e);
             Ok(None)
         }
     }
@@ -402,25 +406,36 @@ pub type ParseFileResult = Result<ParsedData, crate::cells::MarkdownParseError>;
 /// This is the main tracked function - memoizes the result
 #[picante::tracked]
 pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<ParseFileResult> {
+    use cell_markdown_proto::ParseResult;
+
     let content = source.content(db)?;
     let path = source.path(db)?;
     let last_modified = source.last_modified(db)?;
 
     // Use the markdown cell to parse frontmatter and render markdown
-    let parsed = match parse_and_render_markdown_cell(path.as_str(), content.as_str()).await {
+    let parse_result = match parse_and_render_markdown_cell(path.as_str(), content.as_str()).await {
         Ok(p) => p,
         Err(e) => return Ok(Err(e)),
     };
 
-    // Convert frontmatter from cell type
-    let extra: Value = parsed.frontmatter.extra.clone();
+    // Handle the enum result
+    let (frontmatter, html_output, headings_raw, reqs_raw) = match parse_result {
+        ParseResult::Success {
+            frontmatter,
+            html,
+            headings,
+            reqs,
+        } => (frontmatter, html, headings, reqs),
+        ParseResult::Error { message } => {
+            return Ok(Err(MarkdownParseError { message }));
+        }
+    };
 
-    // HTML is already fully rendered by marq with code blocks highlighted
-    let html_output = parsed.html;
+    // Convert frontmatter from cell type
+    let extra: Value = frontmatter.extra.clone();
 
     // Convert headings from cell type to internal type
-    let headings: Vec<Heading> = parsed
-        .headings
+    let headings: Vec<Heading> = headings_raw
         .into_iter()
         .map(|h| Heading {
             title: h.title,
@@ -430,8 +445,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
         .collect();
 
     // Convert rules from cell type to internal type
-    let reqs: Vec<ReqDefinition> = parsed
-        .reqs
+    let reqs: Vec<ReqDefinition> = reqs_raw
         .into_iter()
         .map(|r| ReqDefinition {
             id: r.id,
@@ -450,9 +464,9 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     Ok(Ok(ParsedData {
         source_path: (*path).clone(),
         route,
-        title: Title::new(parsed.frontmatter.title),
-        description: parsed.frontmatter.description,
-        weight: parsed.frontmatter.weight,
+        title: Title::new(frontmatter.title),
+        description: frontmatter.description,
+        weight: frontmatter.weight,
         body_html,
         is_section,
         headings,
@@ -776,8 +790,8 @@ pub async fn decompress_font<DB: Db>(
     }
 
     // Decompress the font via cell
-    match decompress_font_cell(&font_data).await {
-        Some(decompressed) => {
+    match decompress_font_cell(font_data.clone()).await {
+        Ok(decompressed) => {
             // Cache the result
             put_cached_decompressed_font(&content_hash, &decompressed);
             tracing::debug!(
@@ -788,8 +802,12 @@ pub async fn decompress_font<DB: Db>(
             );
             Ok(Some(decompressed))
         }
-        None => {
-            tracing::warn!("Failed to decompress font {}", font_file.path(db)?.as_str());
+        Err(e) => {
+            tracing::warn!(
+                "Failed to decompress font {}: {}",
+                font_file.path(db)?.as_str(),
+                e
+            );
             Ok(None)
         }
     }
@@ -822,17 +840,29 @@ pub async fn subset_font<DB: Db>(
     let char_vec: Vec<char> = chars.chars(db)?.to_vec();
 
     // Subset the decompressed TTF via cell
-    let subsetted = match subset_font_cell(&decompressed, &char_vec).await {
-        Some(data) => data,
-        None => {
-            tracing::warn!("Failed to subset font {}", font_file.path(db)?.as_str());
+    let input = cell_fonts_proto::SubsetFontInput {
+        data: decompressed.clone(),
+        chars: char_vec.clone(),
+    };
+    let subsetted = match subset_font_cell(input).await {
+        Ok(cell_fonts_proto::FontResult::SubsetSuccess { data }) => data,
+        Ok(other) => {
+            tracing::warn!("Unexpected font result: {:?}", other);
+            return Ok(None);
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Failed to subset font {}: {}",
+                font_file.path(db)?.as_str(),
+                e
+            );
             return Ok(None);
         }
     };
 
     // Compress back to WOFF2 via cell
-    match compress_to_woff2_cell(&subsetted).await {
-        Some(woff2) => {
+    match compress_to_woff2_cell(subsetted.clone()).await {
+        Ok(woff2) => {
             tracing::debug!(
                 "Subsetted font {} ({} chars, {} -> {} bytes)",
                 font_file.path(db)?.as_str(),
@@ -842,10 +872,11 @@ pub async fn subset_font<DB: Db>(
             );
             Ok(Some(woff2))
         }
-        None => {
+        Err(e) => {
             tracing::warn!(
-                "Failed to compress font {} to WOFF2",
-                font_file.path(db)?.as_str()
+                "Failed to compress font {} to WOFF2: {}",
+                font_file.path(db)?.as_str(),
+                e
             );
             Ok(None)
         }

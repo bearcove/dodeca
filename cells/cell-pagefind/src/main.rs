@@ -12,14 +12,19 @@
 //! tokio::spawn/spawn_blocking or a std::sync::mpsc recv in async code.
 
 use pagefind::api::PagefindIndex;
+use roam_shm::driver::establish_guest;
+use roam_shm::guest::ShmGuest;
+use roam_shm::spawn::SpawnArgs;
+use roam_shm::transport::ShmGuestTransport;
 use tokio::sync::oneshot;
 
 use cell_pagefind_proto::{
     SearchFile, SearchIndexInput, SearchIndexOutput, SearchIndexResult, SearchIndexer,
-    SearchIndexerServer,
+    SearchIndexerDispatcher,
 };
 
 /// Search indexer implementation
+#[derive(Clone)]
 pub struct SearchIndexerImpl;
 
 impl SearchIndexer for SearchIndexerImpl {
@@ -93,10 +98,13 @@ async fn build_search_index_inner(input: SearchIndexInput) -> Result<SearchIndex
     })
 }
 
-rapace_cell::cell_service!(SearchIndexerServer<SearchIndexerImpl>, SearchIndexerImpl);
-
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    rapace_cell::run(CellService::from(SearchIndexerImpl)).await?;
+    let args = SpawnArgs::from_env()?;
+    let guest = ShmGuest::attach_with_ticket(&args)?;
+    let transport = ShmGuestTransport::new(guest);
+    let dispatcher = SearchIndexerDispatcher::new(SearchIndexerImpl);
+    let (_handle, driver) = establish_guest(transport, dispatcher);
+    driver.run().await;
     Ok(())
 }

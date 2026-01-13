@@ -15,5 +15,6 @@ path = "src/main.rs"
 [dependencies]
 cell-sass-proto = { path = "../cell-sass-proto" }
 grass.workspace = true
-rapace-cell.workspace = true
+roam.workspace = true
+roam-shm.workspace = true
 tokio.workspace = true

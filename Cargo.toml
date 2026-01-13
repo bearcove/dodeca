@@ -58,9 +58,11 @@ facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
 # RPC framework (git)
-rapace = { git = "https://github.com/bearcove/rapace", branch = "main", default-features = false }
-rapace-cell = { git = "https://github.com/bearcove/rapace", branch = "main" }
-rapace-tracing = { git = "https://github.com/bearcove/rapace", branch = "main" }
+roam = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-shm = { git = "https://github.com/bearcove/roam", branch = "main", features = ["tokio"] }
+roam-tracing = { git = "https://github.com/bearcove/roam", branch = "main" }
+
+# Process lifecycle (from rapace repo for now - TODO: move to own repo)
 ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", branch = "main", features = ["tokio"] }
 
 # Incremental computation (git)
