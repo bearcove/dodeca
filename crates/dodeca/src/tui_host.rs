@@ -328,17 +328,33 @@ pub async fn start_tui_cell(
     let dispatcher = TuiHostDispatcher::new(wrapper);
 
     // TUI cell needs inherit_stdio=true for direct terminal access
-    let mut child = crate::cells::spawn_cell_with_dispatcher(
-        "ddc-cell-tui",
-        dispatcher,
-        true, // inherit_stdio: TUI needs direct terminal access
-    )
-    .await
-    .ok_or_else(|| {
+    let binary_path = crate::cells::find_cell_binary("ddc-cell-tui").ok_or_else(|| {
         eyre::eyre!(
-            "Failed to spawn TUI cell. Make sure ddc-cell-tui is built and in the cell path."
+            "Failed to find TUI cell binary. Make sure ddc-cell-tui is built and in the cell path."
         )
     })?;
+
+    let config = crate::cells::CellSpawnConfig {
+        inherit_stdio: true, // TUI needs direct terminal access
+        manage_child: true,
+    };
+
+    let spawned = crate::cells::spawn_cell_with_dispatcher(
+        &binary_path,
+        "ddc-cell-tui",
+        dispatcher,
+        &config,
+    )
+    .ok_or_else(|| {
+        eyre::eyre!(
+            "Failed to spawn TUI cell. spawn_cell_with_dispatcher is not yet implemented for roam."
+        )
+    })?;
+
+    // Get the child process handle if available
+    let mut child = spawned
+        .child
+        .ok_or_else(|| eyre::eyre!("TUI cell spawned but no child process handle available"))?;
 
     // Wait for TUI process to exit or shutdown signal
     #[allow(clippy::never_loop)] // Loop is for select! - exits on either branch

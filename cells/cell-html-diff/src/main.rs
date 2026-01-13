@@ -62,6 +62,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = ShmGuestTransport::new(guest);
     let dispatcher = HtmlDifferDispatcher::new(HtmlDifferImpl);
     let (_handle, driver) = establish_guest(transport, dispatcher);
-    driver.run().await;
+    driver.run().await.ok();
     Ok(())
 }
