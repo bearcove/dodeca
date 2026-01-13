@@ -23,5 +23,7 @@ facet-html-dom.workspace = true
 html-escape.workspace = true
 roam.workspace = true
 roam-shm.workspace = true
+roam-tracing.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true

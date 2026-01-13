@@ -23,5 +23,7 @@ hyper.workspace = true
 hyper-util.workspace = true
 roam.workspace = true
 roam-shm.workspace = true
+roam-tracing.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true

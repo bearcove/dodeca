@@ -39,12 +39,11 @@ use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
 use facet::Facet;
 use facet_value::Value;
-use roam::session::{ChannelRegistry, ConnectionHandle, RoutedDispatcher, ServiceDispatcher};
+use roam::session::{ConnectionHandle, RoutedDispatcher, ServiceDispatcher};
 use roam_shm::driver::MultiPeerHostDriver;
 use roam_shm::{AddPeerOptions, PeerId, SegmentConfig, ShmHost};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::process::Stdio;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, SystemTime};
@@ -420,25 +419,6 @@ pub fn find_cell_binary(name: &str) -> Option<PathBuf> {
 }
 
 // ============================================================================
-// Host Dispatcher (combines all host-side services)
-// ============================================================================
-
-/// No-op dispatcher for cells that don't need host callbacks
-pub struct NoOpDispatcher;
-
-impl ServiceDispatcher for NoOpDispatcher {
-    fn dispatch(
-        &self,
-        _method_id: u64,
-        _payload: Vec<u8>,
-        request_id: u64,
-        registry: &mut ChannelRegistry,
-    ) -> Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
-        roam::session::dispatch_unknown_method(request_id, registry)
-    }
-}
-
-// ============================================================================
 // Template Host Implementation (for gingembre cell)
 // ============================================================================
 
@@ -657,7 +637,6 @@ async fn init_cells_inner() -> eyre::Result<()> {
             let dispatcher = RoutedDispatcher::new(
                 CellLifecycleDispatcher::new(lifecycle_impl.clone()),
                 TemplateHostDispatcher::new(template_host_impl.clone()),
-                CellLifecycleDispatcher::<HostCellLifecycle>::method_ids(),
             );
             builder = builder.add_peer(*peer_id, dispatcher);
         } else {

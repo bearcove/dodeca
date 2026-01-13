@@ -21,11 +21,13 @@
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use roam::session::ConnectionHandle;
+use roam::session::{ConnectionHandle, RoutedDispatcher};
 use roam_shm::driver::establish_guest;
 use roam_shm::guest::ShmGuest;
 use roam_shm::spawn::SpawnArgs;
 use roam_shm::transport::ShmGuestTransport;
+use roam_tracing::{CellTracingDispatcher, init_cell_tracing};
+use tracing_subscriber::prelude::*;
 
 use cell_http_proto::{ContentServiceClient, TcpTunnelDispatcher, WebSocketTunnelClient};
 use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
@@ -69,6 +71,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let guest = ShmGuest::attach_with_ticket(&args)?;
     let transport = ShmGuestTransport::new(guest);
 
+    // Initialize cell-side tracing
+    let (tracing_layer, tracing_service) = init_cell_tracing(1024);
+    tracing_subscriber::registry().with(tracing_layer).init();
+
     // Lazy initialization pattern for bidirectional RPC
     let handle_cell: Arc<OnceLock<ConnectionHandle>> = Arc::new(OnceLock::new());
 
@@ -81,7 +87,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create the tunnel implementation with lazy context
     let tunnel_impl = tunnel::TcpTunnelImpl::new(ctx, app);
-    let dispatcher = TcpTunnelDispatcher::new(tunnel_impl);
+    let user_dispatcher = TcpTunnelDispatcher::new(tunnel_impl);
+
+    // Combine user's dispatcher with tracing dispatcher
+    let tracing_dispatcher = CellTracingDispatcher::new(tracing_service);
+    let dispatcher = RoutedDispatcher::new(
+        tracing_dispatcher, // primary: handles tracing methods
+        user_dispatcher,    // fallback: handles all cell-specific methods
+    );
 
     let (handle, driver) = establish_guest(transport, dispatcher);
 

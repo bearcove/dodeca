@@ -503,20 +503,11 @@ fn restore_terminal() -> Result<()> {
     Ok(())
 }
 
-/// No-op dispatcher for TUI cell (it only makes client calls, doesn't serve anything)
-#[derive(Clone)]
-struct NoOpDispatcher;
-
-impl roam::session::ServiceDispatcher for NoOpDispatcher {
-    fn dispatch(
-        &self,
-        _method_id: u64,
-        _payload: Vec<u8>,
-        request_id: u64,
-        registry: &mut roam::session::ChannelRegistry,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
-        roam::session::dispatch_unknown_method(request_id, registry)
-    }
+/// TUI cell service (client-only, minimal service)
+#[roam::service]
+trait TuiService {
+    /// Ping for health checks
+    async fn ping(&self) -> ();
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -531,7 +522,12 @@ async fn main() -> Result<()> {
     let handle_cell: Arc<OnceLock<ConnectionHandle>> = Arc::new(OnceLock::new());
     let handle_cell_clone = handle_cell.clone();
 
-    let dispatcher = NoOpDispatcher;
+    #[derive(Clone)]
+    struct TuiServiceImpl;
+    impl TuiService for TuiServiceImpl {
+        async fn ping(&self) {}
+    }
+    let dispatcher = TuiServiceDispatcher::new(TuiServiceImpl);
     let (handle, driver) = establish_guest(transport, dispatcher);
 
     // Spawn driver in background - must run before ready() to process RPC

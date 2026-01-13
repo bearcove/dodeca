@@ -22,11 +22,13 @@ use cell_html_proto::{
     HtmlProcessResult, HtmlProcessor, HtmlProcessorDispatcher, HtmlResult, Injection,
 };
 use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
-use roam::session::ConnectionHandle;
+use roam::session::{ConnectionHandle, RoutedDispatcher};
 use roam_shm::driver::establish_guest;
 use roam_shm::guest::ShmGuest;
 use roam_shm::spawn::SpawnArgs;
 use roam_shm::transport::ShmGuestTransport;
+use roam_tracing::{CellTracingDispatcher, init_cell_tracing};
+use tracing_subscriber::prelude::*;
 
 mod diff;
 
@@ -1132,6 +1134,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let guest = ShmGuest::attach_with_ticket(&args)?;
     let transport = ShmGuestTransport::new(guest);
 
+    // Initialize cell-side tracing
+    let (tracing_layer, tracing_service) = init_cell_tracing(1024);
+    tracing_subscriber::registry().with(tracing_layer).init();
+
     // Use OnceLock to lazily initialize the handle after establish_guest returns
     let handle_cell: Arc<OnceLock<ConnectionHandle>> = Arc::new(OnceLock::new());
 
@@ -1139,7 +1145,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         handle_cell: handle_cell.clone(),
     });
     let processor = HtmlProcessorImpl::new(lazy_ctx);
-    let dispatcher = HtmlProcessorDispatcher::new(processor);
+    let user_dispatcher = HtmlProcessorDispatcher::new(processor);
+
+    // Combine user's dispatcher with tracing dispatcher
+    let tracing_dispatcher = CellTracingDispatcher::new(tracing_service);
+    let dispatcher = RoutedDispatcher::new(
+        tracing_dispatcher, // primary: handles tracing methods
+        user_dispatcher,    // fallback: handles all cell-specific methods
+    );
 
     let (handle, driver) = establish_guest(transport, dispatcher);
 

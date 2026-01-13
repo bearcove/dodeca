@@ -7,18 +7,22 @@
 //! - `run_cell_with_handle!` - Cells that need the handle for callbacks
 
 pub use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
-pub use roam::session::{ConnectionHandle, ServiceDispatcher};
+pub use roam::session::{ConnectionHandle, RoutedDispatcher, ServiceDispatcher};
 pub use roam_shm::driver::establish_guest;
 pub use roam_shm::guest::ShmGuest;
 pub use roam_shm::spawn::SpawnArgs;
 pub use roam_shm::transport::ShmGuestTransport;
+pub use roam_tracing::{CellTracingDispatcher, CellTracingLayer, init_cell_tracing};
 pub use tokio;
+pub use tracing;
+pub use tracing_subscriber;
 
 /// Run a cell with the given name and dispatcher.
 ///
 /// This macro handles all the boilerplate:
 /// - Parsing spawn args from environment
 /// - Attaching to the shared memory segment
+/// - Setting up tracing to forward to host
 /// - Establishing the guest connection
 /// - Signaling readiness to the host
 /// - Running the driver loop
@@ -36,22 +40,39 @@ pub use tokio;
 #[macro_export]
 macro_rules! run_cell {
     ($cell_name:expr, $dispatcher:expr) => {{
+        use tracing_subscriber::prelude::*;
         use $crate::{
-            CellLifecycleClient, ReadyMsg, ShmGuest, ShmGuestTransport, SpawnArgs, establish_guest,
-            tokio,
+            CellLifecycleClient, CellTracingDispatcher, ReadyMsg, RoutedDispatcher, ShmGuest,
+            ShmGuestTransport, SpawnArgs, establish_guest, init_cell_tracing, tokio, tracing,
+            tracing_subscriber,
         };
 
         async fn __run_cell_async() -> Result<(), Box<dyn std::error::Error>> {
             let args = SpawnArgs::from_env()?;
             let guest = ShmGuest::attach_with_ticket(&args)?;
             let transport = ShmGuestTransport::new(guest);
-            let dispatcher = $dispatcher;
-            let (handle, driver) = establish_guest(transport, dispatcher);
+
+            // Initialize cell-side tracing
+            let (tracing_layer, tracing_service) = init_cell_tracing(1024);
+
+            // Set up tracing subscriber with the layer
+            tracing_subscriber::registry().with(tracing_layer).init();
+
+            // Combine user's dispatcher with tracing dispatcher using RoutedDispatcher
+            // RoutedDispatcher routes primary.method_ids() to primary, rest to fallback.
+            let user_dispatcher = $dispatcher;
+            let tracing_dispatcher = CellTracingDispatcher::new(tracing_service);
+            let combined_dispatcher = RoutedDispatcher::new(
+                tracing_dispatcher, // primary: handles tracing methods
+                user_dispatcher,    // fallback: handles all cell-specific methods
+            );
+
+            let (handle, driver) = establish_guest(transport, combined_dispatcher);
 
             // Spawn driver in background so it can process the ready() RPC
             let driver_handle = tokio::spawn(async move {
                 if let Err(e) = driver.run().await {
-                    eprintln!("Driver error: {:?}", e);
+                    tracing::error!("Driver error: {:?}", e);
                 }
             });
 
@@ -108,9 +129,11 @@ macro_rules! run_cell {
 #[macro_export]
 macro_rules! run_cell_with_handle {
     ($cell_name:expr, |$handle:ident, $args:ident| $make_dispatcher:expr) => {{
+        use tracing_subscriber::prelude::*;
         use $crate::{
-            CellLifecycleClient, ConnectionHandle, ReadyMsg, ShmGuest, ShmGuestTransport,
-            SpawnArgs, establish_guest, tokio,
+            CellLifecycleClient, CellTracingDispatcher, ConnectionHandle, ReadyMsg,
+            RoutedDispatcher, ShmGuest, ShmGuestTransport, SpawnArgs, establish_guest,
+            init_cell_tracing, tokio, tracing, tracing_subscriber,
         };
 
         async fn __run_cell_async() -> Result<(), Box<dyn std::error::Error>> {
@@ -118,16 +141,29 @@ macro_rules! run_cell_with_handle {
             let guest = ShmGuest::attach_with_ticket(&$args)?;
             let transport = ShmGuestTransport::new(guest);
 
+            // Initialize cell-side tracing
+            let (tracing_layer, tracing_service) = init_cell_tracing(1024);
+
+            // Set up tracing subscriber with the layer
+            tracing_subscriber::registry().with(tracing_layer).init();
+
             // Let user code create the dispatcher with access to handle
-            // We use a dummy dispatcher first to get the handle, then rebuild
-            // Actually, we need to create the dispatcher before establish_guest
-            // So we use an OnceLock pattern
+            // We use an OnceLock pattern
             let handle_cell: std::sync::Arc<std::sync::OnceLock<ConnectionHandle>> =
                 std::sync::Arc::new(std::sync::OnceLock::new());
 
             let $handle = handle_cell.clone();
-            let dispatcher = $make_dispatcher;
-            let (handle, driver) = establish_guest(transport, dispatcher);
+            let user_dispatcher = $make_dispatcher;
+
+            // Combine user's dispatcher with tracing dispatcher
+            // RoutedDispatcher routes primary.method_ids() to primary, rest to fallback.
+            let tracing_dispatcher = CellTracingDispatcher::new(tracing_service);
+            let combined_dispatcher = RoutedDispatcher::new(
+                tracing_dispatcher, // primary: handles tracing methods
+                user_dispatcher,    // fallback: handles all cell-specific methods
+            );
+
+            let (handle, driver) = establish_guest(transport, combined_dispatcher);
 
             // Store the real handle
             let _ = handle_cell.set(handle.clone());
