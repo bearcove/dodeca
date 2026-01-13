@@ -8,7 +8,7 @@ use crate::template::{
     Context, DataResolver, Engine, InMemoryLoader, TemplateLoader, VArray, VObject, VString, Value,
     ValueExt,
 };
-use crate::template_host::{RenderContext, RenderContextGuard, render_context_registry};
+use crate::template_host::{RenderContext, RenderContextGuard};
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
 
@@ -803,7 +803,7 @@ pub async fn try_render_page_via_cell(
 
     // Create render context with templates and site_tree
     let context = RenderContext::new(templates, db, Arc::new(site_tree.clone()));
-    let guard = RenderContextGuard::new(render_context_registry(), context);
+    let guard = RenderContextGuard::new(context);
 
     // Find parent section
     let parent_section = find_parent_section(&page.route, site_tree);
@@ -865,7 +865,7 @@ pub async fn try_render_section_via_cell(
 
     // Create render context with templates and site_tree
     let context = RenderContext::new(templates, db, Arc::new(site_tree.clone()));
-    let guard = RenderContextGuard::new(render_context_registry(), context);
+    let guard = RenderContextGuard::new(context);
 
     // Build initial context
     let initial_context =

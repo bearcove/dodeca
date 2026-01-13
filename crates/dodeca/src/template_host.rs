@@ -17,11 +17,9 @@ use cell_gingembre_proto::{
     CallFunctionResult, ContextId, KeysAtResult, LoadTemplateResult, ResolveDataResult,
     TemplateHost,
 };
-use dashmap::DashMap;
 use facet_value::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::db::{Database, SiteTree};
 use crate::queries::{DataValuePath, data_keys_at_path, resolve_data_value};
@@ -60,48 +58,7 @@ impl RenderContext {
     }
 }
 
-/// Global registry of active render contexts.
-///
-/// Each render operation registers a context before calling the cell,
-/// and unregisters it after the render completes. The TemplateHost
-/// callbacks look up contexts by their ContextId.
-pub struct RenderContextRegistry {
-    contexts: DashMap<u64, RenderContext>,
-    next_id: AtomicU64,
-}
-
-impl RenderContextRegistry {
-    /// Create a new empty registry.
-    pub fn new() -> Self {
-        Self {
-            contexts: DashMap::new(),
-            next_id: AtomicU64::new(1),
-        }
-    }
-
-    /// Register a render context and return its unique ID.
-    pub fn register(&self, context: RenderContext) -> ContextId {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        self.contexts.insert(id, context);
-        ContextId(id)
-    }
-
-    /// Unregister a render context.
-    pub fn unregister(&self, id: ContextId) {
-        self.contexts.remove(&id.0);
-    }
-
-    /// Look up a context by ID.
-    fn get(&self, id: ContextId) -> Option<dashmap::mapref::one::Ref<'_, u64, RenderContext>> {
-        self.contexts.get(&id.0)
-    }
-}
-
-impl Default for RenderContextRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// Note: Render context registry is now in Host (crate::host::Host)
 
 // ============================================================================
 // TemplateHost Implementation
@@ -113,21 +70,28 @@ impl Default for RenderContextRegistry {
 /// - Load templates by name
 /// - Resolve data values at paths (with picante dependency tracking)
 /// - Get keys at data paths (for iteration)
+///
+/// Render contexts are stored in the global Host singleton.
 #[derive(Clone)]
-pub struct TemplateHostImpl {
-    registry: Arc<RenderContextRegistry>,
-}
+pub struct TemplateHostImpl;
 
 impl TemplateHostImpl {
     /// Create a new TemplateHost implementation.
-    pub fn new(registry: Arc<RenderContextRegistry>) -> Self {
-        Self { registry }
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for TemplateHostImpl {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl TemplateHost for TemplateHostImpl {
     async fn load_template(&self, context_id: ContextId, name: String) -> LoadTemplateResult {
-        let Some(context) = self.registry.get(context_id) else {
+        let host = crate::host::Host::get();
+        let Some(context) = host.get_render_context(context_id) else {
             tracing::warn!(
                 context_id = context_id.0,
                 name = %name,
@@ -160,7 +124,7 @@ impl TemplateHost for TemplateHostImpl {
     }
 
     async fn resolve_data(&self, context_id: ContextId, path: Vec<String>) -> ResolveDataResult {
-        let Some(context) = self.registry.get(context_id) else {
+        let Some(context) = crate::host::Host::get().get_render_context(context_id) else {
             tracing::warn!(
                 context_id = context_id.0,
                 path = ?path,
@@ -214,7 +178,7 @@ impl TemplateHost for TemplateHostImpl {
     }
 
     async fn keys_at(&self, context_id: ContextId, path: Vec<String>) -> KeysAtResult {
-        let Some(context) = self.registry.get(context_id) else {
+        let Some(context) = crate::host::Host::get().get_render_context(context_id) else {
             tracing::warn!(
                 context_id = context_id.0,
                 path = ?path,
@@ -267,7 +231,7 @@ impl TemplateHost for TemplateHostImpl {
         args: Vec<Value>,
         kwargs: Vec<(String, Value)>,
     ) -> CallFunctionResult {
-        let Some(context) = self.registry.get(context_id) else {
+        let Some(context) = crate::host::Host::get().get_render_context(context_id) else {
             tracing::warn!(
                 context_id = context_id.0,
                 name = %name,
@@ -411,34 +375,21 @@ impl TemplateHost for TemplateHostImpl {
 // ============================================================================
 // Global Registry
 // ============================================================================
-
-use std::sync::OnceLock;
-
-/// Global render context registry.
-static RENDER_CONTEXT_REGISTRY: OnceLock<Arc<RenderContextRegistry>> = OnceLock::new();
-
-/// Get the global render context registry.
-pub fn render_context_registry() -> Arc<RenderContextRegistry> {
-    RENDER_CONTEXT_REGISTRY
-        .get_or_init(|| Arc::new(RenderContextRegistry::new()))
-        .clone()
-}
-
-// ============================================================================
 // Helper for creating render contexts
 // ============================================================================
 
 /// RAII guard that automatically unregisters the context when dropped.
+///
+/// Uses `Host::get()` internally to manage the render context lifecycle.
 pub struct RenderContextGuard {
     id: ContextId,
-    registry: Arc<RenderContextRegistry>,
 }
 
 impl RenderContextGuard {
-    /// Create a new guard that registers the context.
-    pub fn new(registry: Arc<RenderContextRegistry>, context: RenderContext) -> Self {
-        let id = registry.register(context);
-        Self { id, registry }
+    /// Create a new guard that registers the context with the Host.
+    pub fn new(context: RenderContext) -> Self {
+        let id = crate::host::Host::get().register_render_context(context);
+        Self { id }
     }
 
     /// Get the context ID.
@@ -449,6 +400,6 @@ impl RenderContextGuard {
 
 impl Drop for RenderContextGuard {
     fn drop(&mut self) {
-        self.registry.unregister(self.id);
+        crate::host::Host::get().unregister_render_context(self.id);
     }
 }

@@ -1,41 +1,14 @@
-//! TUI host state for dodeca
+//! TUI type conversion helpers.
 //!
-//! This module manages TUI state and command forwarding. The host pushes
-//! updates to the TUI cell via TuiDisplayClient; the TUI cell sends commands
-//! back via HostService::send_command() which gets forwarded here.
+//! This module provides conversion functions between the old tui types
+//! (used internally) and the proto types (used for RPC).
+//!
+//! Note: TUI command forwarding now goes through Host::get().handle_tui_command().
 
 use cell_tui_proto::{
-    BindMode, BuildProgress, CommandResult, EventKind, LogEvent, LogLevel, ServerCommand,
-    ServerStatus, TaskProgress, TaskStatus,
+    BindMode, BuildProgress, EventKind, LogEvent, LogLevel, ServerCommand, ServerStatus,
+    TaskProgress, TaskStatus,
 };
-use tokio::sync::mpsc;
-
-/// TUI command forwarder
-///
-/// Receives commands from the TUI cell (via HostService::send_command) and
-/// forwards them to the main server loop.
-#[derive(Clone)]
-pub struct TuiHostImpl {
-    /// Channel to send commands back to the main server loop
-    command_tx: mpsc::UnboundedSender<ServerCommand>,
-}
-
-impl TuiHostImpl {
-    /// Create a new TuiHostImpl
-    pub fn new(command_tx: mpsc::UnboundedSender<ServerCommand>) -> Self {
-        Self { command_tx }
-    }
-
-    /// Handle a command from the TUI cell
-    pub fn handle_command(&self, command: ServerCommand) -> CommandResult {
-        match self.command_tx.send(command) {
-            Ok(_) => CommandResult::Ok,
-            Err(e) => CommandResult::Error {
-                message: format!("Failed to send command: {}", e),
-            },
-        }
-    }
-}
 
 // ============================================================================
 // Conversion helpers from old tui types to proto types

@@ -55,7 +55,7 @@ use tokio::process::Command;
 use tracing::{debug, info, warn};
 
 use crate::serve::SiteServer;
-use crate::template_host::{TemplateHostImpl, render_context_registry};
+use crate::template_host::TemplateHostImpl;
 
 // ============================================================================
 // Global State
@@ -89,16 +89,8 @@ pub fn provide_site_server(server: Arc<SiteServer>) {
     let _ = SITE_SERVER_FOR_INIT.set(server);
 }
 
-/// TuiHostImpl for TUI cell initialization.
-/// Must be set via `provide_tui_host()` before calling `all()` if TUI is needed.
-static TUI_HOST_FOR_INIT: OnceLock<Arc<crate::tui_host::TuiHostImpl>> = OnceLock::new();
-
-/// Provide the TuiHostImpl for TUI cell initialization.
-/// This must be called before `all()` when running with TUI.
-/// For non-TUI commands, this can be skipped and the TUI cell won't be spawned.
-pub fn provide_tui_host(host: Arc<crate::tui_host::TuiHostImpl>) {
-    let _ = TUI_HOST_FOR_INIT.set(host);
-}
+// Note: TUI command forwarding now goes through Host::get().handle_tui_command()
+// The old TUI_HOST_FOR_INIT global has been removed.
 
 /// Notification sender for when TUI cell exits.
 static TUI_EXIT_TX: OnceLock<tokio::sync::watch::Sender<bool>> = OnceLock::new();
@@ -306,12 +298,12 @@ impl CellLifecycle for HostCellLifecycle {
 /// Unified host service that all cells connect to.
 ///
 /// This implements `HostService` by delegating to the specialized implementations.
+/// TUI command forwarding goes through `Host::get()`.
 #[derive(Clone)]
 pub struct HostServiceImpl {
     lifecycle: HostCellLifecycle,
     template_host: crate::template_host::TemplateHostImpl,
     site_server: Option<Arc<SiteServer>>,
-    tui_host: Option<Arc<crate::tui_host::TuiHostImpl>>,
 }
 
 impl HostServiceImpl {
@@ -319,13 +311,11 @@ impl HostServiceImpl {
         lifecycle: HostCellLifecycle,
         template_host: crate::template_host::TemplateHostImpl,
         site_server: Option<Arc<SiteServer>>,
-        tui_host: Option<Arc<crate::tui_host::TuiHostImpl>>,
     ) -> Self {
         Self {
             lifecycle,
             template_host,
             site_server,
-            tui_host,
         }
     }
 }
@@ -428,12 +418,12 @@ impl HostService for HostServiceImpl {
 
     // TUI Commands (TUI → Host)
     async fn send_command(&self, command: ServerCommand) -> CommandResult {
-        if let Some(tui) = &self.tui_host {
-            // Forward command to internal channel
-            tui.handle_command(command)
+        // Forward to Host singleton
+        if crate::host::Host::is_initialized() {
+            crate::host::Host::get().handle_tui_command(command)
         } else {
             CommandResult::Error {
-                message: "Not in TUI mode".to_string(),
+                message: "Host not initialized".to_string(),
             }
         }
     }
@@ -778,8 +768,8 @@ async fn init_cells_inner() -> eyre::Result<()> {
     // Spawn all cells and collect (peer_id, cell_name) mappings
     let mut peer_cells: Vec<(PeerId, String, tokio::process::Child)> = Vec::new();
 
-    // Check if TUI host is provided - if so, set up exit notification
-    let tui_enabled = TUI_HOST_FOR_INIT.get().is_some();
+    // Check if Host is initialized - if so, TUI mode is enabled
+    let tui_enabled = crate::host::Host::is_initialized();
     if tui_enabled {
         let (tx, _rx) = tokio::sync::watch::channel(false);
         let _ = TUI_EXIT_TX.set(tx);
@@ -790,9 +780,9 @@ async fn init_cells_inner() -> eyre::Result<()> {
         let cell_name = cell_def.suffix.replace('-', "_");
         let binary_path = cell_dir.join(&binary_name);
 
-        // Skip TUI cell if TUI host not provided
+        // Skip TUI cell if Host not initialized (not in TUI mode)
         if cell_name == "tui" && !tui_enabled {
-            debug!("Skipping TUI cell (no TUI host provided)");
+            debug!("Skipping TUI cell (Host not initialized)");
             continue;
         }
 
@@ -876,11 +866,11 @@ async fn init_cells_inner() -> eyre::Result<()> {
     }
 
     // Build the unified host service - one service for all cells
+    // Note: TUI command forwarding and render contexts go through Host::get()
     let host_service = HostServiceImpl::new(
         HostCellLifecycle::new(cell_ready_registry().clone()),
-        TemplateHostImpl::new(render_context_registry()),
+        TemplateHostImpl::new(),
         SITE_SERVER_FOR_INIT.get().cloned(),
-        TUI_HOST_FOR_INIT.get().cloned(),
     );
 
     // Every cell gets the same dispatcher

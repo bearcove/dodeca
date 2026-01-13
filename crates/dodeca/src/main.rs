@@ -16,6 +16,7 @@ mod db;
 mod error_pages;
 mod fd_passing;
 mod file_watcher;
+mod host;
 mod image;
 mod init;
 mod link_checker;
@@ -2371,12 +2372,14 @@ async fn serve_with_tui(
     // Enable quiet mode for cells so they don't print startup messages that corrupt TUI
     cells::set_quiet_mode(true);
 
-    // Create TUI host for command forwarding (TUI → host direction).
-    // The proto_cmd channel is used later by the command bridge.
-    let (proto_cmd_tx, proto_cmd_rx) =
-        tokio::sync::mpsc::unbounded_channel::<cell_tui_proto::ServerCommand>();
-    let tui_host = Arc::new(tui_host::TuiHostImpl::new(proto_cmd_tx));
-    cells::provide_tui_host(tui_host);
+    // Initialize the unified Host singleton
+    host::Host::init().await;
+
+    // Take the command receiver for TUI → host command forwarding
+    let proto_cmd_rx = host::Host::get()
+        .take_command_rx()
+        .await
+        .expect("Command receiver should be available");
 
     // Initialize cells and wait for ALL to be ready before doing anything
     cells::init_and_wait_for_cells().await?;
