@@ -67,7 +67,7 @@ use crate::template_host::TemplateHostImpl;
 // - Cell handles: Host::get().get_cell_handle(name)
 
 /// Provide the SiteServer for HTTP cell initialization.
-/// This must be called before `all()` when the HTTP cell needs to serve content.
+/// This must be called before cells are initialized when the HTTP cell needs to serve content.
 /// For build-only commands, this can be skipped.
 pub fn provide_site_server(server: Arc<SiteServer>) {
     crate::host::Host::get().provide_site_server(server);
@@ -380,7 +380,7 @@ static INIT_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 pub async fn init_and_wait_for_cells() -> eyre::Result<()> {
     // Initialize cell infrastructure (registers pending cells, doesn't spawn)
-    let _ = all().await;
+    let _ = CELLS.get_or_init(init_cells).await;
 
     // Check if init failed
     if let Some(err) = INIT_ERROR.get() {
@@ -781,10 +781,6 @@ fn find_cell_directory() -> eyre::Result<PathBuf> {
     }
 
     Err(eyre::eyre!("Could not find cell binary directory"))
-}
-
-pub async fn all() -> &'static CellRegistry {
-    CELLS.get_or_init(init_cells).await
 }
 
 // ============================================================================

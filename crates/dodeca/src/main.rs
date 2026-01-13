@@ -2195,10 +2195,6 @@ async fn serve_plain(
         println!("  Loaded {} SASS files", count);
     }
 
-    // Ensure cells are loaded before spawning search index thread
-    // (search index needs to wait for cells to be ready)
-    let _ = cells::all().await;
-
     // Build search index in background
     println!("{}", "Building search index...".dimmed());
     let server_for_search = server.clone();
@@ -2380,9 +2376,6 @@ async fn serve_with_tui(
         .take_command_rx()
         .await
         .expect("Command receiver should be available");
-
-    // Initialize cells and wait for ALL to be ready before doing anything
-    cells::init_and_wait_for_cells().await?;
 
     // Get TUI display client for pushing updates to TUI cell (host → TUI direction)
     // This spawns the TUI cell lazily on first access

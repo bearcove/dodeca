@@ -20,7 +20,6 @@ use tokio::sync::watch;
 use cell_http_proto::{TcpTunnelClient, WebSocketTunnel};
 
 use crate::boot_state::{BootPhase, BootState, BootStateManager};
-use crate::cells::all;
 use crate::host::Host;
 use crate::serve::SiteServer;
 
@@ -426,7 +425,7 @@ pub async fn start_cell_server_with_shutdown(
 
     // Load cells with boot state tracking
     boot_state.set_phase(BootPhase::LoadingCells);
-    let _ = all().await; // Initialize cell infrastructure
+    // Cells spawn lazily - no need to initialize upfront
 
     // Get the connection handle for the http cell
     let handle = match Host::get().get_cell_handle("http") {
