@@ -188,13 +188,26 @@ impl Host {
     /// Register a cell's connection handle.
     ///
     /// Called by `cells::init_cells_inner()` after spawning cells.
-    pub fn register_cell_handle(&self, binary_name: String, handle: ConnectionHandle) {
-        self.cell_handles.insert(binary_name, handle);
+    /// Uses logical cell name (e.g., "sass", "gingembre").
+    pub fn register_cell_handle(&self, cell_name: String, handle: ConnectionHandle) {
+        self.cell_handles.insert(cell_name, handle);
     }
 
-    /// Get a cell's connection handle by binary name.
-    pub fn get_cell_handle(&self, binary_name: &str) -> Option<ConnectionHandle> {
-        self.cell_handles.get(binary_name).map(|r| r.clone())
+    /// Get a cell's connection handle by logical name (e.g., "sass", "gingembre").
+    pub fn get_cell_handle(&self, cell_name: &str) -> Option<ConnectionHandle> {
+        self.cell_handles.get(cell_name).map(|r| r.clone())
+    }
+
+    /// Get all registered cell names.
+    pub fn cell_names(&self) -> Vec<String> {
+        self.cell_handles.iter().map(|r| r.key().clone()).collect()
+    }
+
+    /// Iterate over all registered cell handles.
+    pub fn iter_cell_handles(&self) -> impl Iterator<Item = (String, ConnectionHandle)> + '_ {
+        self.cell_handles
+            .iter()
+            .map(|r| (r.key().clone(), r.value().clone()))
     }
 
     // =========================================================================
@@ -305,7 +318,8 @@ impl Host {
 ///
 /// Implement this for each cell client type to enable `Host::client::<C>()`.
 pub trait CellClient: Sized {
-    /// The cell's binary name (e.g., "ddc-cell-sass").
+    /// The cell's logical name (e.g., "sass", "markdown", "gingembre").
+    /// Binary name is derived at spawn time: `ddc-cell-{name}`.
     const CELL_NAME: &'static str;
 
     /// Create a client from a connection handle.
@@ -329,41 +343,29 @@ macro_rules! impl_cell_client {
     };
 }
 
-// Implement for all cell clients
-impl_cell_client!(cell_sass_proto::SassCompilerClient, "ddc-cell-sass");
-impl_cell_client!(
-    cell_markdown_proto::MarkdownProcessorClient,
-    "ddc-cell-markdown"
-);
-impl_cell_client!(cell_html_proto::HtmlProcessorClient, "ddc-cell-html");
-impl_cell_client!(cell_css_proto::CssProcessorClient, "ddc-cell-css");
-impl_cell_client!(cell_image_proto::ImageProcessorClient, "ddc-cell-image");
-impl_cell_client!(cell_webp_proto::WebPProcessorClient, "ddc-cell-webp");
-impl_cell_client!(cell_jxl_proto::JXLProcessorClient, "ddc-cell-jxl");
-impl_cell_client!(cell_minify_proto::MinifierClient, "ddc-cell-minify");
-impl_cell_client!(cell_js_proto::JsProcessorClient, "ddc-cell-js");
-impl_cell_client!(cell_svgo_proto::SvgoOptimizerClient, "ddc-cell-svgo");
-impl_cell_client!(cell_fonts_proto::FontProcessorClient, "ddc-cell-fonts");
-impl_cell_client!(
-    cell_linkcheck_proto::LinkCheckerClient,
-    "ddc-cell-linkcheck"
-);
-impl_cell_client!(cell_html_diff_proto::HtmlDifferClient, "ddc-cell-html-diff");
-impl_cell_client!(cell_dialoguer_proto::DialoguerClient, "ddc-cell-dialoguer");
-impl_cell_client!(
-    cell_pagefind_proto::SearchIndexerClient,
-    "ddc-cell-pagefind"
-);
+// Implement for all cell clients (using logical names, not binary names)
+impl_cell_client!(cell_sass_proto::SassCompilerClient, "sass");
+impl_cell_client!(cell_markdown_proto::MarkdownProcessorClient, "markdown");
+impl_cell_client!(cell_html_proto::HtmlProcessorClient, "html");
+impl_cell_client!(cell_css_proto::CssProcessorClient, "css");
+impl_cell_client!(cell_image_proto::ImageProcessorClient, "image");
+impl_cell_client!(cell_webp_proto::WebPProcessorClient, "webp");
+impl_cell_client!(cell_jxl_proto::JXLProcessorClient, "jxl");
+impl_cell_client!(cell_minify_proto::MinifierClient, "minify");
+impl_cell_client!(cell_js_proto::JsProcessorClient, "js");
+impl_cell_client!(cell_svgo_proto::SvgoOptimizerClient, "svgo");
+impl_cell_client!(cell_fonts_proto::FontProcessorClient, "fonts");
+impl_cell_client!(cell_linkcheck_proto::LinkCheckerClient, "linkcheck");
+impl_cell_client!(cell_html_diff_proto::HtmlDifferClient, "html-diff");
+impl_cell_client!(cell_dialoguer_proto::DialoguerClient, "dialoguer");
+impl_cell_client!(cell_pagefind_proto::SearchIndexerClient, "pagefind");
 impl_cell_client!(
     cell_code_execution_proto::CodeExecutorClient,
-    "ddc-cell-code-execution"
+    "code-execution"
 );
-impl_cell_client!(cell_http_proto::TcpTunnelClient, "ddc-cell-http");
-impl_cell_client!(
-    cell_gingembre_proto::TemplateRendererClient,
-    "ddc-cell-gingembre"
-);
-impl_cell_client!(cell_tui_proto::TuiDisplayClient, "ddc-cell-tui");
+impl_cell_client!(cell_http_proto::TcpTunnelClient, "http");
+impl_cell_client!(cell_gingembre_proto::TemplateRendererClient, "gingembre");
+impl_cell_client!(cell_tui_proto::TuiDisplayClient, "tui");
 
 // ============================================================================
 // Client Access

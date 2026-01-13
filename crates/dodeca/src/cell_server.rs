@@ -20,7 +20,8 @@ use tokio::sync::watch;
 use cell_http_proto::{TcpTunnelClient, WebSocketTunnel};
 
 use crate::boot_state::{BootPhase, BootState, BootStateManager};
-use crate::cells::{all, get_cell_handle_by_name};
+use crate::cells::all;
+use crate::host::Host;
 use crate::serve::SiteServer;
 
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
@@ -427,11 +428,8 @@ pub async fn start_cell_server_with_shutdown(
     boot_state.set_phase(BootPhase::LoadingCells);
     let _ = all().await; // Initialize cell infrastructure
 
-    // Initialize gingembre cell
-    crate::cells::init_gingembre_cell().await;
-
     // Get the connection handle for the http cell
-    let handle = match get_cell_handle_by_name("http") {
+    let handle = match Host::get().get_cell_handle("http") {
         Some(h) => h,
         None => {
             panic!(

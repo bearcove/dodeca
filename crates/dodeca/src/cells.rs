@@ -48,7 +48,7 @@ use roam_shm::{AddPeerOptions, PeerId, SegmentConfig, ShmHost};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command;
@@ -61,20 +61,10 @@ use crate::template_host::TemplateHostImpl;
 // Global State
 // ============================================================================
 
-// Note: Many globals have been moved to Host singleton:
+// Note: Most globals have been moved to Host singleton:
 // - Site server: Host::get().site_server()
 // - Quiet mode: Host::get().is_quiet_mode()
-// - Cell handles (by binary name): Host::get().get_cell_handle()
-
-/// Global connection handles for all cells (peer_id -> handle).
-/// Used for legacy lookup by peer_id. New code should use Host.
-static CELL_HANDLES: OnceLock<Arc<std::sync::RwLock<HashMap<PeerId, ConnectionHandle>>>> =
-    OnceLock::new();
-
-/// Mapping from cell name suffix to peer ID.
-/// E.g., "gingembre" -> PeerId(5). Used for legacy name-based lookup.
-static CELL_NAME_TO_PEER_ID: OnceLock<Arc<std::sync::RwLock<HashMap<String, PeerId>>>> =
-    OnceLock::new();
+// - Cell handles: Host::get().get_cell_handle(name)
 
 /// Provide the SiteServer for HTTP cell initialization.
 /// This must be called before `all()` when the HTTP cell needs to serve content.
@@ -96,22 +86,6 @@ pub fn set_quiet_mode(quiet: bool) {
 /// Check if quiet mode is enabled.
 fn is_quiet_mode() -> bool {
     crate::host::Host::get().is_quiet_mode()
-}
-
-/// Get a cell's connection handle by peer ID.
-pub fn get_cell_handle(peer_id: PeerId) -> Option<ConnectionHandle> {
-    CELL_HANDLES.get()?.read().ok()?.get(&peer_id).cloned()
-}
-
-/// Get a cell's connection handle by name.
-pub fn get_cell_handle_by_name(name: &str) -> Option<ConnectionHandle> {
-    let peer_id = CELL_NAME_TO_PEER_ID
-        .get()?
-        .read()
-        .ok()?
-        .get(name)
-        .copied()?;
-    get_cell_handle(peer_id)
 }
 
 // ============================================================================
@@ -159,9 +133,10 @@ fn capture_cell_stdio(label: &str, child: &mut tokio::process::Child) {
 // ============================================================================
 
 /// Registry for tracking cell readiness (RPC-ready state).
+/// Tracks by cell name (logical name like "gingembre", "sass").
 #[derive(Clone)]
 pub struct CellReadyRegistry {
-    ready: Arc<DashMap<u16, ReadyMsg>>,
+    ready: Arc<DashMap<String, ReadyMsg>>,
 }
 
 impl CellReadyRegistry {
@@ -172,40 +147,27 @@ impl CellReadyRegistry {
     }
 
     fn mark_ready(&self, msg: ReadyMsg) {
-        let peer_id = msg.peer_id;
-        self.ready.insert(peer_id, msg);
+        let cell_name = msg.cell_name.clone();
+        self.ready.insert(cell_name, msg);
     }
 
-    pub fn is_ready(&self, peer_id: u16) -> bool {
-        self.ready.contains_key(&peer_id)
+    pub fn is_ready(&self, cell_name: &str) -> bool {
+        self.ready.contains_key(cell_name)
     }
 
     pub async fn wait_for_all_ready(
         &self,
-        peer_ids: &[u16],
+        cell_names: &[&str],
         timeout: Duration,
     ) -> eyre::Result<()> {
         let start = std::time::Instant::now();
-        for &peer_id in peer_ids {
+        for &cell_name in cell_names {
             loop {
-                if self.is_ready(peer_id) {
+                if self.is_ready(cell_name) {
                     break;
                 }
                 if start.elapsed() >= timeout {
-                    let cell_name = PEER_DIAG_INFO
-                        .read()
-                        .ok()
-                        .and_then(|info| {
-                            info.iter()
-                                .find(|p| p.peer_id == peer_id)
-                                .map(|p| p.name.clone())
-                        })
-                        .unwrap_or_else(|| format!("peer_{}", peer_id));
-                    return Err(eyre::eyre!(
-                        "Timeout waiting for {} (peer {}) to be ready",
-                        cell_name,
-                        peer_id
-                    ));
+                    return Err(eyre::eyre!("Timeout waiting for {} to be ready", cell_name));
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -221,21 +183,8 @@ pub fn cell_ready_registry() -> &'static CellReadyRegistry {
 }
 
 pub async fn wait_for_cells_ready(cell_names: &[&str], timeout: Duration) -> eyre::Result<()> {
-    let mut peer_ids = Vec::new();
-    if let Ok(info) = PEER_DIAG_INFO.read() {
-        for &cell_name in cell_names {
-            let peer_id = info
-                .iter()
-                .find(|i| i.name == cell_name)
-                .map(|i| i.peer_id)
-                .ok_or_else(|| eyre::eyre!("Cell {} not found", cell_name))?;
-            peer_ids.push(peer_id);
-        }
-    } else {
-        return Err(eyre::eyre!("Failed to acquire peer info lock"));
-    }
     cell_ready_registry()
-        .wait_for_all_ready(&peer_ids, timeout)
+        .wait_for_all_ready(cell_names, timeout)
         .await
 }
 
@@ -402,36 +351,9 @@ impl HostService for HostServiceImpl {
     }
 }
 
-// ============================================================================
-// Peer Diagnostics
-// ============================================================================
-
-struct PeerDiagInfo {
-    peer_id: u16,
-    name: String,
-    handle: ConnectionHandle,
-}
-
-static PEER_DIAG_INFO: RwLock<Vec<PeerDiagInfo>> = RwLock::new(Vec::new());
-
-fn register_peer_diag(peer_id: u16, name: &str, handle: ConnectionHandle) {
-    if let Ok(mut info) = PEER_DIAG_INFO.write() {
-        info.push(PeerDiagInfo {
-            peer_id,
-            name: name.to_string(),
-            handle,
-        });
-    }
-}
-
-/// Get a cell's connection handle by binary name (e.g., "ddc-cell-http").
+/// Get a cell's connection handle by logical name (e.g., "http", "sass").
 pub fn get_cell_session(name: &str) -> Option<ConnectionHandle> {
-    PEER_DIAG_INFO
-        .read()
-        .ok()?
-        .iter()
-        .find(|info| info.name == name)
-        .map(|info| info.handle.clone())
+    crate::host::Host::get().get_cell_handle(name)
 }
 
 /// Get the TUI display client for pushing updates to the TUI cell.
@@ -455,32 +377,25 @@ pub async fn init_and_wait_for_cells() -> eyre::Result<()> {
     // Trigger cell loading
     let _ = all().await;
 
-    // Initialize gingembre cell (special case - has TemplateHost service)
-    init_gingembre_cell().await;
+    // Get all registered cell names from Host
+    let cell_names = crate::host::Host::get().cell_names();
 
-    // Get all spawned peer IDs
-    let peer_ids: Vec<u16> = PEER_DIAG_INFO
-        .read()
-        .map_err(|_| eyre::eyre!("Failed to acquire peer info lock"))?
-        .iter()
-        .map(|info| info.peer_id)
-        .collect();
-
-    if peer_ids.is_empty() {
+    if cell_names.is_empty() {
         debug!("No cells loaded, skipping readiness wait");
         return Ok(());
     }
 
     // Wait for all cells to complete readiness handshake
     let timeout = Duration::from_secs(10);
+    let cell_name_refs: Vec<&str> = cell_names.iter().map(|s| s.as_str()).collect();
     cell_ready_registry()
-        .wait_for_all_ready(&peer_ids, timeout)
+        .wait_for_all_ready(&cell_name_refs, timeout)
         .await?;
 
     // Push tracing config to cells
     push_tracing_config_to_cells().await;
 
-    debug!("All {} cells ready", peer_ids.len());
+    debug!("All {} cells ready", cell_names.len());
     Ok(())
 }
 
@@ -488,14 +403,7 @@ async fn push_tracing_config_to_cells() {
     let filter_str = std::env::var("RUST_LOG")
         .unwrap_or_else(|_| crate::logging::DEFAULT_TRACING_FILTER.to_string());
 
-    let Ok(peers) = PEER_DIAG_INFO.read() else {
-        warn!("Failed to acquire peer info lock; skipping tracing config push");
-        return;
-    };
-
-    for peer in peers.iter() {
-        let handle = peer.handle.clone();
-        let cell_label = peer.name.clone();
+    for (cell_name, handle) in crate::host::Host::get().iter_cell_handles() {
         let filter_str = filter_str.clone();
         tokio::spawn(async move {
             use roam_tracing::{CellTracingClient, Level, TracingConfig};
@@ -507,15 +415,15 @@ async fn push_tracing_config_to_cells() {
             };
             match client.configure(config).await {
                 Ok(roam_tracing::ConfigResult::Ok) => {
-                    debug!("Pushed tracing config to {} cell", cell_label);
+                    debug!("Pushed tracing config to {} cell", cell_name);
                 }
                 Ok(roam_tracing::ConfigResult::InvalidFilter(msg)) => {
-                    warn!("Invalid tracing filter for {} cell: {}", cell_label, msg);
+                    warn!("Invalid tracing filter for {} cell: {}", cell_name, msg);
                 }
                 Err(e) => {
                     warn!(
                         "Failed to push tracing config to {} cell: {:?}",
-                        cell_label, e
+                        cell_name, e
                     );
                 }
             }
@@ -570,36 +478,18 @@ pub fn find_cell_binary(name: &str) -> Option<PathBuf> {
 }
 
 // ============================================================================
-// Template Host Implementation (for gingembre cell)
+// Template Rendering
 // ============================================================================
-
-// ============================================================================
-// Gingembre Cell
-// ============================================================================
-
-static GINGEMBRE_CELL: tokio::sync::OnceCell<Arc<TemplateRendererClient>> =
-    tokio::sync::OnceCell::const_new();
-
-pub async fn init_gingembre_cell() -> Option<()> {
-    let handle = get_cell_handle_by_name("gingembre")?;
-    let client = Arc::new(TemplateRendererClient::new(handle));
-    GINGEMBRE_CELL.set(client).ok()?;
-    debug!("Gingembre cell initialized");
-    Some(())
-}
-
-pub async fn gingembre_cell() -> Option<Arc<TemplateRendererClient>> {
-    GINGEMBRE_CELL.get().cloned()
-}
 
 pub async fn render_template(
     context_id: ContextId,
     template_name: &str,
     initial_context: Value,
 ) -> eyre::Result<RenderResult> {
-    let cell = gingembre_cell()
+    let cell = crate::host::Host::get()
+        .client_async::<TemplateRendererClient>()
         .await
-        .ok_or_else(|| eyre::eyre!("Gingembre cell not initialized"))?;
+        .ok_or_else(|| eyre::eyre!("Gingembre cell not available"))?;
     let result = cell
         .render(context_id, template_name.to_string(), initial_context)
         .await
@@ -612,9 +502,10 @@ pub async fn eval_template_expression(
     expression: &str,
     context: Value,
 ) -> eyre::Result<EvalResult> {
-    let cell = gingembre_cell()
+    let cell = crate::host::Host::get()
+        .client_async::<TemplateRendererClient>()
         .await
-        .ok_or_else(|| eyre::eyre!("Gingembre cell not initialized"))?;
+        .ok_or_else(|| eyre::eyre!("Gingembre cell not available"))?;
     let result = cell
         .eval_expression(context_id, expression.to_string(), context)
         .await
@@ -726,14 +617,14 @@ async fn init_cells_inner() -> eyre::Result<()> {
     let cell_dir = find_cell_directory()?;
 
     // Spawn all cells and collect (peer_id, binary_name, cell_name, child) mappings
-    let mut peer_cells: Vec<(PeerId, String, String, tokio::process::Child)> = Vec::new();
+    let mut peer_cells: Vec<(PeerId, String, &'static str, tokio::process::Child)> = Vec::new();
 
     // Check if TUI mode is enabled
     let tui_enabled = crate::host::Host::get().is_tui_mode();
 
     for cell_def in CELL_DEFS {
         let binary_name = format!("ddc-cell-{}", cell_def.suffix);
-        let cell_name = cell_def.suffix.replace('-', "_");
+        let cell_name = cell_def.suffix; // Logical name (e.g., "gingembre", "html-diff")
         let binary_path = cell_dir.join(&binary_name);
 
         // Skip TUI cell if not in TUI mode
@@ -748,7 +639,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
         }
 
         // Add peer to host - all cell deaths are fatal
-        let cell_name_for_death = cell_name.clone();
+        let cell_name_for_death = cell_name.to_string();
         let ticket = host.add_peer(AddPeerOptions {
             peer_name: Some(binary_name.clone()),
             on_death: Some(Arc::new(move |peer_id| {
@@ -824,29 +715,12 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
     let (driver, handles) = builder.build();
 
-    // Initialize global handle storage
-    let cell_handles = Arc::new(std::sync::RwLock::new(HashMap::new()));
-    let name_to_peer = Arc::new(std::sync::RwLock::new(HashMap::new()));
-
-    // Store handles globally and register with Host
-    for (peer_id, binary_name, cell_name, _) in &peer_cells {
+    // Register handles with Host for type-safe client access
+    for (peer_id, _, cell_name, _) in &peer_cells {
         if let Some(handle) = handles.get(peer_id) {
-            if let Ok(mut map) = cell_handles.write() {
-                map.insert(*peer_id, handle.clone());
-            }
-            if let Ok(mut map) = name_to_peer.write() {
-                map.insert(cell_name.clone(), *peer_id);
-            }
-
-            // Register with Host for type-safe client access
-            crate::host::Host::get().register_cell_handle(binary_name.clone(), handle.clone());
-
-            // Also register for diagnostics
-            register_peer_diag(peer_id.get() as u16, cell_name, handle.clone());
+            crate::host::Host::get().register_cell_handle(cell_name.to_string(), handle.clone());
         }
     }
-    let _ = CELL_HANDLES.set(cell_handles);
-    let _ = CELL_NAME_TO_PEER_ID.set(name_to_peer);
 
     // Spawn driver task
     tokio::spawn(async move {
@@ -857,7 +731,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
     // Spawn child management tasks
     for (peer_id, _, cell_name, child) in peer_cells {
-        let cell_label = cell_name.clone();
+        let cell_label = cell_name;
         tokio::spawn(async move {
             let mut child = child;
             match child.wait().await {
@@ -959,6 +833,9 @@ cell_client_accessor!(css_cell, "css", CssProcessorClient);
 cell_client_accessor!(sass_cell, "sass", SassCompilerClient);
 cell_client_accessor!(js_cell, "js", JsProcessorClient);
 cell_client_accessor!(svgo_cell, "svgo", SvgoOptimizerClient);
+
+// Template rendering
+cell_client_accessor!(gingembre_cell, "gingembre", TemplateRendererClient);
 
 // Other cells
 cell_client_accessor!(font_cell, "fonts", FontProcessorClient);
@@ -1163,8 +1040,9 @@ pub async fn extract_code_samples(
 pub use dialoguer_cell as dialoguer_client;
 
 pub fn has_linkcheck_cell() -> bool {
-    // Check if the cell handle is available
-    get_cell_handle_by_name("linkcheck").is_some()
+    crate::host::Host::get()
+        .get_cell_handle("linkcheck")
+        .is_some()
 }
 
 /// Result of link checking - wrapper for internal use
