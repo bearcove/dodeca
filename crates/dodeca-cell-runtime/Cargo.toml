@@ -9,7 +9,7 @@ edition = "2024"
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-cell-lifecycle-proto = { path = "../../cells/cell-lifecycle-proto" }
+cell-host-proto = { path = "../../cells/cell-host-proto" }
 roam.workspace = true
 roam-shm.workspace = true
 roam-tracing.workspace = true

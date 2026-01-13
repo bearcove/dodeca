@@ -1,12 +1,10 @@
 //! Dodeca TUI cell (cell-tui)
 //!
-//! This cell connects to dodeca and subscribes to event streams,
-//! rendering them in a terminal UI.
+//! This cell implements TuiDisplay service - the host calls us to push updates.
+//! We call HostService::send_command() to send commands back.
 
 use std::collections::VecDeque;
 use std::io::stdout;
-use std::sync::Arc;
-use std::sync::OnceLock;
 use std::time::Duration;
 
 use color_eyre::Result;
@@ -29,9 +27,10 @@ use roam_shm::spawn::SpawnArgs;
 use roam_shm::transport::ShmGuestTransport;
 use tokio::sync::mpsc;
 
-use cell_host_proto::{
-    BindMode, BuildProgress, EventKind, HostServiceClient, LogEvent, LogLevel, ReadyMsg,
-    ServerCommand, ServerStatus,
+use cell_host_proto::{HostServiceClient, ReadyMsg, ServerCommand};
+use cell_tui_proto::{
+    BindMode, BuildProgress, EventKind, LogEvent, LogLevel, ServerStatus, TuiDisplay,
+    TuiDisplayDispatcher,
 };
 
 mod theme;
@@ -504,11 +503,26 @@ fn restore_terminal() -> Result<()> {
     Ok(())
 }
 
-/// TUI cell service (client-only, minimal service)
-#[roam::service]
-trait TuiService {
-    /// Ping for health checks
-    async fn ping(&self) -> ();
+/// TuiDisplay implementation - receives updates from host
+#[derive(Clone)]
+struct TuiDisplayImpl {
+    progress_tx: mpsc::UnboundedSender<BuildProgress>,
+    event_tx: mpsc::UnboundedSender<LogEvent>,
+    status_tx: mpsc::UnboundedSender<ServerStatus>,
+}
+
+impl TuiDisplay for TuiDisplayImpl {
+    async fn update_progress(&self, progress: BuildProgress) {
+        let _ = self.progress_tx.send(progress);
+    }
+
+    async fn push_event(&self, event: LogEvent) {
+        let _ = self.event_tx.send(event);
+    }
+
+    async fn update_status(&self, status: ServerStatus) {
+        let _ = self.status_tx.send(status);
+    }
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -519,16 +533,18 @@ async fn main() -> Result<()> {
     let guest = ShmGuest::attach_with_ticket(&args)?;
     let transport = ShmGuestTransport::new(guest);
 
-    // Lazy initialization for the handle
-    let handle_cell: Arc<OnceLock<ConnectionHandle>> = Arc::new(OnceLock::new());
-    let handle_cell_clone = handle_cell.clone();
+    // Channels for receiving updates from host (via TuiDisplay RPC)
+    let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+    let (event_tx, event_rx) = mpsc::unbounded_channel();
+    let (status_tx, status_rx) = mpsc::unbounded_channel();
 
-    #[derive(Clone)]
-    struct TuiServiceImpl;
-    impl TuiService for TuiServiceImpl {
-        async fn ping(&self) {}
-    }
-    let dispatcher = TuiServiceDispatcher::new(TuiServiceImpl);
+    // TuiDisplay service - host calls this to push updates
+    let display_impl = TuiDisplayImpl {
+        progress_tx,
+        event_tx,
+        status_tx,
+    };
+    let dispatcher = TuiDisplayDispatcher::new(display_impl);
     let (handle, driver) = establish_guest(transport, dispatcher);
 
     // Spawn driver in background - must run before ready() to process RPC
@@ -537,9 +553,6 @@ async fn main() -> Result<()> {
             eprintln!("Driver error: {:?}", e);
         }
     });
-
-    // Initialize the handle
-    let _ = handle_cell.set(handle.clone());
 
     // Signal readiness to host
     let host = HostServiceClient::new(handle.clone());
@@ -552,26 +565,24 @@ async fn main() -> Result<()> {
     })
     .await?;
 
-    // Spawn the TUI loop - when it exits, terminate the cell process
-    tokio::spawn(async move {
-        let handle = handle_cell_clone.get().expect("handle not initialized");
-        let result = run_tui(handle.clone()).await;
-        if let Err(e) = &result {
-            eprintln!("TUI error: {e}");
-        }
-        // TUI exited (user pressed 'q'), terminate the cell process
-        std::process::exit(if result.is_ok() { 0 } else { 1 });
-    });
-
-    // Wait for driver
-    if let Err(e) = driver_handle.await {
-        eprintln!("[cell-tui] driver task panicked: {e:?}");
+    // Run the TUI loop - when it exits, terminate the cell process
+    let result = run_tui(handle, progress_rx, event_rx, status_rx).await;
+    if let Err(e) = &result {
+        eprintln!("TUI error: {e}");
     }
-    Ok(())
+
+    // TUI exited (user pressed 'q'), shut down
+    drop(driver_handle);
+    std::process::exit(if result.is_ok() { 0 } else { 1 });
 }
 
-async fn run_tui(handle: ConnectionHandle) -> Result<()> {
-    // Create host client
+async fn run_tui(
+    handle: ConnectionHandle,
+    mut progress_rx: mpsc::UnboundedReceiver<BuildProgress>,
+    mut events_rx: mpsc::UnboundedReceiver<LogEvent>,
+    mut status_rx: mpsc::UnboundedReceiver<ServerStatus>,
+) -> Result<()> {
+    // Create host client (for sending commands back)
     let client = HostServiceClient::new(handle);
 
     // Channel for sending commands
@@ -585,18 +596,6 @@ async fn run_tui(handle: ConnectionHandle) -> Result<()> {
 
     // Create app state
     let mut app = TuiApp::new(command_tx);
-
-    // Create channels for streaming subscriptions
-    // In roam, we create channel pairs and pass the sender to the server
-    let (progress_tx, mut progress_rx) = roam::channel::<BuildProgress>();
-    let (events_tx, mut events_rx) = roam::channel::<LogEvent>();
-    let (status_tx, mut status_rx) = roam::channel::<ServerStatus>();
-
-    // Subscribe to streams by passing the senders
-    // The server will send data through these channels
-    client.subscribe_progress(progress_tx).await?;
-    client.subscribe_events(events_tx).await?;
-    client.subscribe_server_status(status_tx).await?;
 
     // Spawn a blocking reader for keyboard input.
     // Exits automatically when the receiver is dropped.
@@ -625,6 +624,8 @@ async fn run_tui(handle: ConnectionHandle) -> Result<()> {
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     // Main event loop
+    // Updates come via TuiDisplay RPC (host calls us)
+    // Commands go via HostService::send_command (we call host)
     loop {
         tokio::select! {
             _ = tick.tick() => {}
@@ -637,22 +638,16 @@ async fn run_tui(handle: ConnectionHandle) -> Result<()> {
                 let _ = client.send_command(cmd).await;
             }
 
-            result = progress_rx.recv() => {
-                if let Ok(Some(progress)) = result {
-                    app.progress = progress;
-                }
+            Some(progress) = progress_rx.recv() => {
+                app.progress = progress;
             }
 
-            result = events_rx.recv() => {
-                if let Ok(Some(event)) = result {
-                    app.push_event(event);
-                }
+            Some(event) = events_rx.recv() => {
+                app.push_event(event);
             }
 
-            result = status_rx.recv() => {
-                if let Ok(Some(status)) = result {
-                    app.server_status = status;
-                }
+            Some(status) = status_rx.recv() => {
+                app.server_status = status;
             }
         }
 

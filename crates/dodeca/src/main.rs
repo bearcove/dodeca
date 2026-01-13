@@ -2371,16 +2371,18 @@ async fn serve_with_tui(
     // Enable quiet mode for cells so they don't print startup messages that corrupt TUI
     cells::set_quiet_mode(true);
 
-    // Create TUI host early so we can register it before cell initialization.
+    // Create TUI host for command forwarding (TUI → host direction).
     // The proto_cmd channel is used later by the command bridge.
     let (proto_cmd_tx, proto_cmd_rx) =
         tokio::sync::mpsc::unbounded_channel::<cell_tui_proto::ServerCommand>();
     let tui_host = Arc::new(tui_host::TuiHostImpl::new(proto_cmd_tx));
-    let tui_handle = tui_host.handle();
     cells::provide_tui_host(tui_host);
 
     // Initialize cells and wait for ALL to be ready before doing anything
     cells::init_and_wait_for_cells().await?;
+
+    // Get TUI display client for pushing updates to TUI cell (host → TUI direction)
+    let tui_client = cells::get_tui_display_client().expect("TUI cell should be initialized");
 
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
@@ -3033,49 +3035,51 @@ async fn serve_with_tui(
         }
     });
 
-    // Seed the TUI host with the latest snapshots before the cell subscribes.
-    // (The forwarders will keep it updated after this.)
+    // Seed the TUI with the latest snapshots.
     {
         let progress = progress_rx.borrow().clone();
-        tui_handle.send_progress(tui_host::convert_build_progress(&progress));
+        let _ = tui_client
+            .update_progress(tui_host::convert_build_progress(&progress))
+            .await;
     }
     {
         let status = server_rx.borrow().clone();
-        tui_handle.send_status(tui_host::convert_server_status(&status));
+        let _ = tui_client
+            .update_status(tui_host::convert_server_status(&status))
+            .await;
     }
 
-    // Spawn forwarders to bridge old channels to TuiHost
+    // Spawn forwarders to push updates to TUI cell via RPC
     // Forward progress updates
-    let tui_handle_progress = tui_handle.clone();
+    let tui_client_progress = tui_client.clone();
     tokio::spawn(async move {
-        // Send current value immediately, then forward changes.
-        let progress = progress_rx.borrow().clone();
-        tui_handle_progress.send_progress(tui_host::convert_build_progress(&progress));
-
         while progress_rx.changed().await.is_ok() {
             let progress = progress_rx.borrow().clone();
-            tui_handle_progress.send_progress(tui_host::convert_build_progress(&progress));
+            let _ = tui_client_progress
+                .update_progress(tui_host::convert_build_progress(&progress))
+                .await;
         }
     });
 
     // Forward server status updates
-    let tui_handle_status = tui_handle.clone();
+    let tui_client_status = tui_client.clone();
     tokio::spawn(async move {
-        // Send current value immediately, then forward changes.
-        let status = server_rx.borrow().clone();
-        tui_handle_status.send_status(tui_host::convert_server_status(&status));
-
         while server_rx.changed().await.is_ok() {
             let status = server_rx.borrow().clone();
-            tui_handle_status.send_status(tui_host::convert_server_status(&status));
+            let _ = tui_client_status
+                .update_status(tui_host::convert_server_status(&status))
+                .await;
         }
     });
 
-    // Forward log events
-    let tui_handle_events = tui_handle.clone();
+    // Forward log events (event_rx is std::sync::mpsc, so use spawn_blocking)
+    let tui_client_events = tui_client.clone();
+    let rt_handle = tokio::runtime::Handle::current();
     tokio::task::spawn_blocking(move || {
         while let Ok(event) = event_rx.recv() {
-            tui_handle_events.send_event(tui_host::convert_log_event(&event));
+            let client = tui_client_events.clone();
+            let proto_event = tui_host::convert_log_event(&event);
+            let _ = rt_handle.block_on(async move { client.push_event(proto_event).await });
         }
     });
 

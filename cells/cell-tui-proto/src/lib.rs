@@ -1,9 +1,8 @@
 //! Protocol definitions for the dodeca TUI cell.
 //!
-//! Dodeca hosts the `TuiHost` service, allowing the TUI cell to subscribe
-//! to streams and send commands back.
-
-use roam::Tx;
+//! Bidirectional RPC:
+//! - Host calls TuiDisplay on the TUI cell to push updates
+//! - TUI cell calls HostService::send_command() to send commands to host
 
 // ============================================================================
 // Build Progress Types
@@ -262,27 +261,22 @@ pub enum CommandResult {
 }
 
 // ============================================================================
-// TuiHost Service (hosted by dodeca, called by TUI cell)
+// TuiDisplay Service (hosted by TUI cell, called by host)
 // ============================================================================
 
-/// Service hosted by dodeca for the TUI to connect to.
+/// Service hosted by the TUI cell for the host to push updates.
 ///
-/// The TUI subscribes to streams for live updates and sends commands back.
+/// The host calls these methods to update the TUI display.
+/// For commands from TUI → host, use HostService::send_command().
 #[allow(async_fn_in_trait)]
 #[roam::service]
-pub trait TuiHost {
-    /// Subscribe to build progress updates.
-    /// Stream emits whenever progress changes.
-    async fn subscribe_progress(&self, tx: Tx<BuildProgress>);
+pub trait TuiDisplay {
+    /// Host pushes a progress update.
+    async fn update_progress(&self, progress: BuildProgress);
 
-    /// Subscribe to log events.
-    /// Stream emits for each new event (HTTP requests, file changes, etc.)
-    async fn subscribe_events(&self, tx: Tx<LogEvent>);
+    /// Host pushes a log event.
+    async fn push_event(&self, event: LogEvent);
 
-    /// Subscribe to server status updates.
-    /// Stream emits when URLs, bind mode, or cache sizes change.
-    async fn subscribe_server_status(&self, tx: Tx<ServerStatus>);
-
-    /// Send a command to the server.
-    async fn send_command(&self, command: ServerCommand) -> CommandResult;
+    /// Host pushes a server status update.
+    async fn update_status(&self, status: ServerStatus);
 }

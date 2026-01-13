@@ -19,9 +19,8 @@ use cell_dialoguer_proto::DialoguerClient;
 use cell_fonts_proto::{FontAnalysis, FontProcessorClient, FontResult, SubsetFontInput};
 use cell_gingembre_proto::{ContextId, EvalResult, RenderResult, TemplateRendererClient};
 use cell_host_proto::{
-    BuildProgress, CallFunctionResult, CommandResult, HostService, HostServiceDispatcher,
-    KeysAtResult, LoadTemplateResult, LogEvent, ReadyAck, ReadyMsg, ResolveDataResult,
-    ServeContent, ServerCommand, ServerStatus, Value,
+    CallFunctionResult, CommandResult, HostService, HostServiceDispatcher, KeysAtResult,
+    LoadTemplateResult, ReadyAck, ReadyMsg, ResolveDataResult, ServeContent, ServerCommand, Value,
 };
 use cell_html_diff_proto::{DiffInput, HtmlDiffResult, HtmlDifferClient};
 use cell_html_proto::HtmlProcessorClient;
@@ -38,11 +37,12 @@ use cell_minify_proto::{MinifierClient, MinifyResult};
 use cell_pagefind_proto::{SearchIndexInput, SearchIndexResult, SearchIndexerClient};
 use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
+use cell_tui_proto::TuiDisplayClient;
 use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
 use facet::Facet;
+use roam::Tunnel;
 use roam::session::{ConnectionHandle, ServiceDispatcher};
-use roam::{Tunnel, Tx};
 use roam_shm::driver::MultiPeerHostDriver;
 use roam_shm::{AddPeerOptions, PeerId, SegmentConfig, ShmHost};
 use std::collections::HashMap;
@@ -426,32 +426,11 @@ impl HostService for HostServiceImpl {
         // Not in serve mode - drop the tunnel
     }
 
-    // TUI Host
-    async fn subscribe_progress(&self, tx: Tx<BuildProgress>) {
-        if let Some(tui) = &self.tui_host {
-            use cell_tui_proto::TuiHost;
-            tui.subscribe_progress(tx).await
-        }
-    }
-
-    async fn subscribe_events(&self, tx: Tx<LogEvent>) {
-        if let Some(tui) = &self.tui_host {
-            use cell_tui_proto::TuiHost;
-            tui.subscribe_events(tx).await
-        }
-    }
-
-    async fn subscribe_server_status(&self, tx: Tx<ServerStatus>) {
-        if let Some(tui) = &self.tui_host {
-            use cell_tui_proto::TuiHost;
-            tui.subscribe_server_status(tx).await
-        }
-    }
-
+    // TUI Commands (TUI → Host)
     async fn send_command(&self, command: ServerCommand) -> CommandResult {
         if let Some(tui) = &self.tui_host {
-            use cell_tui_proto::TuiHost;
-            tui.send_command(command).await
+            // Forward command to internal channel
+            tui.handle_command(command)
         } else {
             CommandResult::Error {
                 message: "Not in TUI mode".to_string(),
@@ -490,6 +469,12 @@ pub fn get_cell_session(name: &str) -> Option<ConnectionHandle> {
         .iter()
         .find(|info| info.name == name)
         .map(|info| info.handle.clone())
+}
+
+/// Get the TUI display client for pushing updates to the TUI cell.
+pub fn get_tui_display_client() -> Option<TuiDisplayClient> {
+    let handle = get_cell_session("ddc-cell-tui")?;
+    Some(TuiDisplayClient::new(handle))
 }
 
 // ============================================================================

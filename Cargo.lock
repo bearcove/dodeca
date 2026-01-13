@@ -3110,7 +3110,7 @@ dependencies = [
 name = "dodeca-cell-runtime"
 version = "0.6.1"
 dependencies = [
- "cell-lifecycle-proto",
+ "cell-host-proto",
  "roam",
  "roam-shm",
  "roam-tracing",

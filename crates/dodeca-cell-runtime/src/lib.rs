@@ -6,7 +6,7 @@
 //! - `run_cell!` - Simple cells that don't need the connection handle
 //! - `run_cell_with_handle!` - Cells that need the handle for callbacks
 
-pub use cell_lifecycle_proto::{CellLifecycleClient, ReadyMsg};
+pub use cell_host_proto::{HostServiceClient, ReadyMsg};
 pub use roam::session::{ConnectionHandle, RoutedDispatcher, ServiceDispatcher};
 pub use roam_shm::driver::establish_guest;
 pub use roam_shm::guest::ShmGuest;
@@ -43,7 +43,7 @@ macro_rules! run_cell {
     ($cell_name:expr, $dispatcher:expr) => {{
         use tracing_subscriber::prelude::*;
         use $crate::{
-            CellLifecycleClient, CellTracingDispatcher, ReadyMsg, RoutedDispatcher, ShmGuest,
+            CellTracingDispatcher, HostServiceClient, ReadyMsg, RoutedDispatcher, ShmGuest,
             ShmGuestTransport, SpawnArgs, establish_guest, init_cell_tracing, tokio, tracing,
             tracing_subscriber, ur_taking_me_with_you,
         };
@@ -81,16 +81,15 @@ macro_rules! run_cell {
             });
 
             // Signal readiness to host
-            let lifecycle = CellLifecycleClient::new(handle);
-            lifecycle
-                .ready(ReadyMsg {
-                    peer_id: args.peer_id.get() as u16,
-                    cell_name: $cell_name.to_string(),
-                    pid: Some(std::process::id()),
-                    version: None,
-                    features: vec![],
-                })
-                .await?;
+            let host = HostServiceClient::new(handle);
+            host.ready(ReadyMsg {
+                peer_id: args.peer_id.get() as u16,
+                cell_name: $cell_name.to_string(),
+                pid: Some(std::process::id()),
+                version: None,
+                features: vec![],
+            })
+            .await?;
 
             // Wait for driver to complete (it runs until connection closes)
             if let Err(e) = driver_handle.await {
@@ -137,9 +136,9 @@ macro_rules! run_cell_with_handle {
     ($cell_name:expr, |$handle:ident, $args:ident| $make_dispatcher:expr) => {{
         use tracing_subscriber::prelude::*;
         use $crate::{
-            CellLifecycleClient, CellTracingDispatcher, ConnectionHandle, ReadyMsg,
-            RoutedDispatcher, ShmGuest, ShmGuestTransport, SpawnArgs, establish_guest,
-            init_cell_tracing, tokio, tracing, tracing_subscriber, ur_taking_me_with_you,
+            CellTracingDispatcher, ConnectionHandle, HostServiceClient, ReadyMsg, RoutedDispatcher,
+            ShmGuest, ShmGuestTransport, SpawnArgs, establish_guest, init_cell_tracing, tokio,
+            tracing, tracing_subscriber, ur_taking_me_with_you,
         };
 
         // Ensure this process dies when the parent dies (required for macOS pipe-based approach)
@@ -178,16 +177,15 @@ macro_rules! run_cell_with_handle {
             let _ = handle_cell.set(handle.clone());
 
             // Signal readiness to host
-            let lifecycle = CellLifecycleClient::new(handle);
-            lifecycle
-                .ready(ReadyMsg {
-                    peer_id: $args.peer_id.get() as u16,
-                    cell_name: $cell_name.to_string(),
-                    pid: Some(std::process::id()),
-                    version: None,
-                    features: vec![],
-                })
-                .await?;
+            let host = HostServiceClient::new(handle);
+            host.ready(ReadyMsg {
+                peer_id: $args.peer_id.get() as u16,
+                cell_name: $cell_name.to_string(),
+                pid: Some(std::process::id()),
+                version: None,
+                features: vec![],
+            })
+            .await?;
 
             driver.run().await?;
             Ok(())

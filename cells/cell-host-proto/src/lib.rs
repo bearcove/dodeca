@@ -4,7 +4,7 @@
 //! RPC methods. Every cell connects to the same host service - no per-cell
 //! dispatcher configuration needed.
 
-use roam::{Tunnel, Tx};
+use roam::Tunnel;
 
 // Re-export types from other proto crates
 pub use cell_gingembre_proto::{
@@ -12,10 +12,7 @@ pub use cell_gingembre_proto::{
 };
 pub use cell_http_proto::{EvalResult, ScopeEntry, ServeContent};
 pub use cell_lifecycle_proto::{ReadyAck, ReadyMsg};
-pub use cell_tui_proto::{
-    BindMode, BuildProgress, CommandResult, EventKind, LogEvent, LogLevel, ServerCommand,
-    ServerStatus, TaskProgress, TaskStatus,
-};
+pub use cell_tui_proto::{CommandResult, ServerCommand};
 pub use facet_value::Value;
 
 /// Unified host service that all cells can call.
@@ -25,7 +22,9 @@ pub use facet_value::Value;
 /// - Template host (for gingembre template rendering)
 /// - Content service (for HTTP cell serving content)
 /// - WebSocket tunnel (for devtools)
-/// - TUI host (for TUI cell updates)
+/// - TUI commands (TUI cell → host direction)
+///
+/// Note: Host → TUI updates use TuiDisplay service (defined in cell-tui-proto).
 #[allow(async_fn_in_trait)]
 #[roam::service]
 pub trait HostService {
@@ -79,17 +78,8 @@ pub trait HostService {
     async fn open_websocket(&self, tunnel: Tunnel);
 
     // =========================================================================
-    // TUI Host (for TUI cell)
+    // TUI Commands (TUI cell → host)
     // =========================================================================
-
-    /// Subscribe to build progress updates.
-    async fn subscribe_progress(&self, tx: Tx<BuildProgress>);
-
-    /// Subscribe to log events.
-    async fn subscribe_events(&self, tx: Tx<LogEvent>);
-
-    /// Subscribe to server status updates.
-    async fn subscribe_server_status(&self, tx: Tx<ServerStatus>);
 
     /// Send a command from TUI to the server.
     async fn send_command(&self, command: ServerCommand) -> CommandResult;
