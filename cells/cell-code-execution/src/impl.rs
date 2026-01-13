@@ -287,7 +287,9 @@ edition = "2021"
     let shared_target_dir: PathBuf = std::env::var_os("DDC_CODE_EXEC_TARGET_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join("dodeca-code-exec-target"));
-    let _ = std::fs::create_dir_all(&shared_target_dir);
+    if let Err(e) = std::fs::create_dir_all(&shared_target_dir) {
+        tracing::warn!("Failed to create shared target dir: {e}");
+    }
 
     tracing::debug!(
         "[code-exec] Starting: {} {} ({})",
@@ -425,8 +427,12 @@ edition = "2021"
             }
             result = child.wait() => {
                 // Process exited - drain remaining output
-                let _ = stdout_handle.read_to_end(&mut stdout_buf).await;
-                let _ = stderr_handle.read_to_end(&mut stderr_buf).await;
+                if let Err(e) = stdout_handle.read_to_end(&mut stdout_buf).await {
+                    tracing::debug!("Failed to drain stdout: {e}");
+                }
+                if let Err(e) = stderr_handle.read_to_end(&mut stderr_buf).await {
+                    tracing::debug!("Failed to drain stderr: {e}");
+                }
 
                 let duration_ms = start_time.elapsed().as_millis();
                 let proc_status = result.ok();

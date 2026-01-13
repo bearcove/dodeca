@@ -136,8 +136,10 @@ impl TuiApp {
             }
             KeyCode::Char('?') => self.show_help = !self.show_help,
             KeyCode::Char('o') => {
-                if let Some(url) = self.server_status.urls.first() {
-                    let _ = open::that(url);
+                if let Some(url) = self.server_status.urls.first()
+                    && let Err(e) = open::that(url)
+                {
+                    eprintln!("Failed to open browser: {e}");
                 }
             }
             KeyCode::Char('p') => {
@@ -564,7 +566,9 @@ async fn main() -> Result<()> {
     });
 
     // Wait for driver
-    let _ = driver_handle.await;
+    if let Err(e) = driver_handle.await {
+        eprintln!("[cell-tui] driver task panicked: {e:?}");
+    }
     Ok(())
 }
 

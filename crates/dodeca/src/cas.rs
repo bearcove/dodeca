@@ -201,7 +201,9 @@ pub fn init_asset_cache(cache_dir: &Path) -> eyre::Result<()> {
             "CAS version mismatch (expected v{}), deleting stale cache",
             CAS_VERSION
         );
-        let _ = fs::remove_dir_all(&blob_path);
+        if let Err(e) = fs::remove_dir_all(&blob_path) {
+            tracing::warn!("Failed to remove stale cache: {e}");
+        }
     }
 
     // Ensure blob directory exists
@@ -315,9 +317,14 @@ pub fn put_cached_image(content_hash: &InputHash, images: &ProcessedImages) {
 
     // Ensure subdirectory exists
     if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
+        if let Err(e) = fs::create_dir_all(parent) {
+            tracing::debug!("Failed to create cache dir: {e}");
+            return;
+        }
     }
-    let _ = fs::write(&path, &data);
+    if let Err(e) = fs::write(&path, &data) {
+        tracing::debug!("Failed to write image cache: {e}");
+    }
 }
 
 // ============================================================================
@@ -341,9 +348,14 @@ pub fn put_cached_decompressed_font(content_hash: &InputHash, ttf_data: &[u8]) {
 
     // Ensure subdirectory exists
     if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
+        if let Err(e) = fs::create_dir_all(parent) {
+            tracing::debug!("Failed to create font cache dir: {e}");
+            return;
+        }
     }
-    let _ = fs::write(&path, ttf_data);
+    if let Err(e) = fs::write(&path, ttf_data) {
+        tracing::debug!("Failed to write font cache: {e}");
+    }
 }
 
 /// Compute font content hash (includes font pipeline version)

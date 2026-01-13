@@ -3083,7 +3083,10 @@ async fn serve_with_tui(
     let (tui_shutdown_tx, tui_shutdown_rx) = watch::channel(false);
 
     // Run the TUI cell (blocks until TUI exits)
-    let _ = tui_host::start_tui_cell(tui_host, Some(tui_shutdown_rx)).await;
+    if let Err(e) = tui_host::start_tui_cell(tui_host, Some(tui_shutdown_rx)).await {
+        eprintln!("TUI cell failed to start: {e:?}");
+        return Err(e);
+    }
 
     // Ignore unused variables
     let _ = tui_shutdown_tx;

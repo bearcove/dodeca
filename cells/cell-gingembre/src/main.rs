@@ -403,6 +403,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Wait for driver
-    let _ = driver_handle.await;
+    if let Err(e) = driver_handle.await {
+        eprintln!("[cell-gingembre] driver task panicked: {e:?}");
+    }
     Ok(())
 }

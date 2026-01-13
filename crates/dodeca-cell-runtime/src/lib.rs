@@ -93,7 +93,9 @@ macro_rules! run_cell {
                 .await?;
 
             // Wait for driver to complete (it runs until connection closes)
-            let _ = driver_handle.await;
+            if let Err(e) = driver_handle.await {
+                eprintln!("[cell] driver task panicked: {e:?}");
+            }
             Ok(())
         }
 
