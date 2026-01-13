@@ -61,46 +61,41 @@ use crate::template_host::TemplateHostImpl;
 // Global State
 // ============================================================================
 
-/// Global SHM host (shared by all cells).
-static SHM_HOST: OnceLock<ShmHost> = OnceLock::new();
-
-/// SHM segment path.
-static SHM_PATH: OnceLock<PathBuf> = OnceLock::new();
+// Note: Many globals have been moved to Host singleton:
+// - Site server: Host::get().site_server()
+// - Quiet mode: Host::get().is_quiet_mode()
+// - Cell handles (by binary name): Host::get().get_cell_handle()
 
 /// Global connection handles for all cells (peer_id -> handle).
+/// Used for legacy lookup by peer_id. New code should use Host.
 static CELL_HANDLES: OnceLock<Arc<std::sync::RwLock<HashMap<PeerId, ConnectionHandle>>>> =
     OnceLock::new();
 
-/// Mapping from cell name to peer ID.
+/// Mapping from cell name suffix to peer ID.
+/// E.g., "gingembre" -> PeerId(5). Used for legacy name-based lookup.
 static CELL_NAME_TO_PEER_ID: OnceLock<Arc<std::sync::RwLock<HashMap<String, PeerId>>>> =
     OnceLock::new();
-
-/// Whether cells should suppress startup messages (set when TUI is active).
-static QUIET_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// SiteServer for HTTP cell initialization.
-/// Must be set via `provide_site_server()` before calling `all()` if HTTP serving is needed.
-static SITE_SERVER_FOR_INIT: OnceLock<Arc<SiteServer>> = OnceLock::new();
 
 /// Provide the SiteServer for HTTP cell initialization.
 /// This must be called before `all()` when the HTTP cell needs to serve content.
 /// For build-only commands, this can be skipped.
 pub fn provide_site_server(server: Arc<SiteServer>) {
-    let _ = SITE_SERVER_FOR_INIT.set(server);
+    crate::host::Host::get().provide_site_server(server);
 }
 
 // Note: TUI command forwarding now goes through Host::get().handle_tui_command()
 // The old TUI_HOST_FOR_INIT global has been removed.
 // Exit signaling now goes through Host::get().signal_exit() / wait_for_exit().
+// Quiet mode now goes through Host::get().set_quiet_mode() / is_quiet_mode().
 
 /// Enable quiet mode for spawned cells (call this when TUI is active).
 pub fn set_quiet_mode(quiet: bool) {
-    QUIET_MODE.store(quiet, std::sync::atomic::Ordering::SeqCst);
+    crate::host::Host::get().set_quiet_mode(quiet);
 }
 
 /// Check if quiet mode is enabled.
 fn is_quiet_mode() -> bool {
-    QUIET_MODE.load(std::sync::atomic::Ordering::SeqCst)
+    crate::host::Host::get().is_quiet_mode()
 }
 
 /// Get a cell's connection handle by peer ID.
@@ -726,10 +721,6 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
     // Create SHM host
     let mut host = ShmHost::create(&shm_path, config)?;
-    let hub_path = shm_path.clone();
-
-    // Store hub path globally
-    let _ = SHM_PATH.set(hub_path.clone());
 
     // Find cell binary directory
     let cell_dir = find_cell_directory()?;
@@ -821,7 +812,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
     let host_service = HostServiceImpl::new(
         HostCellLifecycle::new(cell_ready_registry().clone()),
         TemplateHostImpl::new(),
-        SITE_SERVER_FOR_INIT.get().cloned(),
+        crate::host::Host::get().site_server().cloned(),
     );
 
     // Every cell gets the same dispatcher
@@ -942,12 +933,15 @@ pub async fn get_hub() -> Option<(Arc<ShmHost>, PathBuf)> {
 
 /// Create a client for the given cell if available.
 ///
-/// Uses Host for handle lookup when available, falls back to legacy lookup.
+/// Uses Host for handle lookup. With lazy spawning, will spawn cell on first access.
 macro_rules! cell_client_accessor {
     ($name:ident, $suffix:expr, $client:ty) => {
         pub async fn $name() -> Option<Arc<$client>> {
-            // Use Host for handle lookup (lazily initializes)
-            crate::host::Host::get().client::<$client>().map(Arc::new)
+            // Use Host for handle lookup with lazy spawning support
+            crate::host::Host::get()
+                .client_async::<$client>()
+                .await
+                .map(Arc::new)
         }
     };
 }
