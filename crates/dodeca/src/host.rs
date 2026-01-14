@@ -646,7 +646,7 @@ async fn wait_for_cell_ready(cell_name: &str) {
     debug!(cell = cell_name, "wait_for_cell_ready: starting");
 
     // Wait for the cell to report ready via CellLifecycle::ready()
-    let timeout = Duration::from_secs(10);
+    let timeout = Duration::from_secs(1);
     let start = std::time::Instant::now();
 
     let mut check_count = 0u32;
@@ -665,13 +665,13 @@ async fn wait_for_cell_ready(cell_name: &str) {
         }
 
         if start.elapsed() >= timeout {
-            warn!(
+            error!(
                 cell = cell_name,
                 elapsed_ms = start.elapsed().as_millis(),
                 check_count,
-                "wait_for_cell_ready: TIMEOUT"
+                "Cell failed to start within 1 second - exiting"
             );
-            break;
+            std::process::exit(1);
         }
 
         // Log every 100 checks (roughly every second)
