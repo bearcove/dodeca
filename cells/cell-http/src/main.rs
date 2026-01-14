@@ -23,7 +23,6 @@ use std::sync::OnceLock;
 
 use roam::session::{ConnectionHandle, RoutedDispatcher};
 use roam_shm::driver::establish_guest;
-use roam_shm::guest::ShmGuest;
 use roam_shm::spawn::SpawnArgs;
 use roam_shm::transport::ShmGuestTransport;
 use roam_tracing::{CellTracingDispatcher, init_cell_tracing};
