@@ -13,6 +13,7 @@ perf-*.data
 .handoffs
 
 .claude/settings.local.json
+dodeca-log.txt
 
 # Browser tests
 browser-tests/node_modules/

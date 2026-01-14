@@ -717,9 +717,15 @@ async fn init_cells_inner() -> eyre::Result<()> {
     debug!("init_cells_inner: spawning driver task");
 
     // Spawn driver task
-    tokio::spawn(async move {
+    let driver_handle = tokio::spawn(async move {
         info!("MultiPeerHostDriver: starting (lazy spawning mode)");
-        match driver.run().await {
+        eprintln!("[driver task] before driver.run()");
+
+        let result = driver.run().await;
+
+        eprintln!("[driver task] after driver.run(), result={:?}", result);
+
+        match result {
             Ok(()) => {
                 // Driver exited cleanly - this means control channel was disconnected
                 // AND no peers were left
@@ -729,6 +735,25 @@ async fn init_cells_inner() -> eyre::Result<()> {
             }
             Err(e) => {
                 error!("MultiPeerHostDriver: exited with error: {:?}", e);
+            }
+        }
+    });
+
+    // Also spawn a watchdog that checks if driver task panics
+    tokio::spawn(async move {
+        match driver_handle.await {
+            Ok(()) => {
+                error!("MultiPeerHostDriver task completed normally (this shouldn't happen early)");
+            }
+            Err(e) if e.is_panic() => {
+                error!("MultiPeerHostDriver task PANICKED: {:?}", e);
+                std::process::exit(1);
+            }
+            Err(e) if e.is_cancelled() => {
+                error!("MultiPeerHostDriver task was cancelled");
+            }
+            Err(e) => {
+                error!("MultiPeerHostDriver task failed: {:?}", e);
             }
         }
     });
