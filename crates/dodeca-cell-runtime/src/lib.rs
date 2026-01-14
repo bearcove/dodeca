@@ -65,10 +65,28 @@ macro_rules! run_cell {
             let transport = ShmGuestTransport::from_spawn_args(&args)?;
 
             // Initialize cell-side tracing
-            let (tracing_layer, tracing_service) = init_cell_tracing(1024);
-            tracing_subscriber::registry()
-                .with(tracing_layer)
-                .init();
+            // Check TRACING_PASSTHROUGH env var - if set, log to stderr instead of via RPC
+            let use_passthrough = std::env::var("TRACING_PASSTHROUGH").is_ok();
+
+            let tracing_service = if use_passthrough {
+                // Passthrough mode: log directly to stderr
+                tracing_subscriber::fmt()
+                    .with_writer(std::io::stderr)
+                    .with_ansi(false)
+                    .with_target(true)
+                    .init();
+
+                // Return a dummy service (won't be used)
+                let (_layer, service) = init_cell_tracing(1);
+                service
+            } else {
+                // Normal mode: use roam RPC for tracing
+                let (tracing_layer, tracing_service) = init_cell_tracing(1024);
+                tracing_subscriber::registry()
+                    .with(tracing_layer)
+                    .init();
+                tracing_service
+            };
 
             // Let user code create the dispatcher with access to handle
             // We use an Arc<OnceLock> pattern

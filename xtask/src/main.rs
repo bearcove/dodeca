@@ -250,6 +250,7 @@ fn build_wasm() -> bool {
             "dodeca-devtools",
             "--verbose",
         ])
+        .env_remove("RUST_LOG")
         .status();
 
     match status {
@@ -264,6 +265,7 @@ fn build_wasm() -> bool {
                     "crates/dodeca-devtools/pkg",
                     "target/wasm32-unknown-unknown/release/dodeca_devtools.wasm",
                 ])
+                .env_remove("RUST_LOG")
                 .status();
 
             match bindgen_status {
