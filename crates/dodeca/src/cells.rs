@@ -599,18 +599,34 @@ async fn init_cells_inner() -> eyre::Result<()> {
     let shm_path = std::env::temp_dir().join(format!("dodeca-shm-{}", std::process::id()));
 
     // Configure segment for multi-cell architecture
-    let max_payload = 16 * 1024 * 1024; // 16MB for large payloads
+    // We have ~19 cells, so allocate for 24 guests with headroom.
+    // Most RPC payloads are small (HTML/CSS/JS < 1MB), but images can be larger.
+    // Total size: 24 guests * 16 slots * 2MB = 768MB (down from 32GB!)
+    let max_payload = 2 * 1024 * 1024; // 2MB - sufficient for most payloads
     let config = SegmentConfig {
-        max_guests: 32,
-        ring_size: 256,
-        slots_per_guest: 64,
-        slot_size: max_payload + 8, // slot_size must be >= max_payload_size + 4, and multiple of 8
+        max_guests: 24,      // ~19 cells + headroom
+        ring_size: 128,      // Queue depth per guest
+        slots_per_guest: 16, // 16 concurrent messages per cell (was 64!)
+        slot_size: max_payload + 8,
         max_payload_size: max_payload,
         ..SegmentConfig::default()
     };
 
     // Create SHM host
     let mut host = ShmHost::create(&shm_path, config)?;
+
+    // Immediately unlink the file so it's cleaned up by the OS when all processes die.
+    // On Unix, the file stays alive as long as it's mapped, but disappears from the
+    // filesystem. This ensures cleanup even on SIGKILL, crash, or power loss.
+    if let Err(e) = std::fs::remove_file(&shm_path) {
+        warn!("Failed to unlink SHM file {}: {:?}", shm_path.display(), e);
+    } else {
+        debug!(
+            "Unlinked SHM file {} (OS will auto-cleanup)",
+            shm_path.display()
+        );
+    }
+
     debug!("init_cells_inner: SHM host created");
 
     // Find cell binary directory
@@ -1445,149 +1461,4 @@ pub async fn analyze_fonts_cell(html: &str, css: &str) -> Result<FontAnalysis, e
         Ok(other) => Err(eyre::eyre!("Unexpected result: {:?}", other)),
         Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
     }
-}
-
-/// Spawn a single cell with a custom dispatcher.
-///
-/// This creates a separate SHM segment for the cell, which is appropriate for
-/// cells like TUI that need special handling (inherit_stdio, custom dispatcher).
-///
-/// For the main cells, use `init_cells()` which uses `MultiPeerHostDriver`.
-pub fn spawn_cell_with_dispatcher<D>(
-    binary_path: &Path,
-    binary_name: &str,
-    dispatcher: D,
-    config: &CellSpawnConfig,
-) -> Option<SpawnedCellResult>
-where
-    D: ServiceDispatcher + Send + 'static,
-{
-    use roam_shm::driver::MultiPeerHostDriver;
-
-    // Create a separate SHM segment for this cell
-    let shm_path =
-        std::env::temp_dir().join(format!("dodeca-{}-{}", binary_name, std::process::id()));
-
-    let max_payload = 4 * 1024 * 1024; // 4MB
-    let segment_config = SegmentConfig {
-        max_guests: 2, // Just host + this cell
-        ring_size: 128,
-        slots_per_guest: 32,
-        slot_size: max_payload + 8,
-        max_payload_size: max_payload,
-        ..SegmentConfig::default()
-    };
-
-    let mut host = match ShmHost::create(&shm_path, segment_config) {
-        Ok(h) => h,
-        Err(e) => {
-            warn!("Failed to create SHM host for {}: {:?}", binary_name, e);
-            return None;
-        }
-    };
-
-    // Add peer
-    let cell_name_for_death = binary_name.to_string();
-    let ticket = match host.add_peer(AddPeerOptions {
-        peer_name: Some(binary_name.to_string()),
-        on_death: Some(Arc::new(move |peer_id| {
-            warn!(
-                "{} cell died unexpectedly (peer_id={:?})",
-                cell_name_for_death, peer_id
-            );
-        })),
-    }) {
-        Ok(t) => t,
-        Err(e) => {
-            warn!("Failed to add peer for {}: {:?}", binary_name, e);
-            return None;
-        }
-    };
-
-    let peer_id = ticket.peer_id;
-
-    // Spawn cell process
-    let mut cmd = Command::new(binary_path);
-    for arg in ticket.to_args() {
-        cmd.arg(arg);
-    }
-
-    if config.inherit_stdio {
-        cmd.stdin(Stdio::inherit())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit());
-    } else if is_quiet_mode() {
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .env("DODECA_QUIET", "1");
-    } else {
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-    }
-
-    let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
-        Ok(c) => c,
-        Err(e) => {
-            warn!("Failed to spawn {}: {:?}", binary_name, e);
-            return None;
-        }
-    };
-
-    // Capture stdio if not inheriting and not quiet
-    if !config.inherit_stdio && !is_quiet_mode() {
-        capture_cell_stdio(binary_name, &mut child);
-    }
-
-    // Drop ticket to close our end of the doorbell
-    drop(ticket);
-
-    // Establish host-side connection with the provided dispatcher using multi-peer builder
-    let builder = MultiPeerHostDriver::builder(host);
-    let builder = builder.add_peer(peer_id, dispatcher);
-    let (driver, mut handles, _driver_handle) = builder.build();
-    let handle = handles.remove(&peer_id).expect("peer handle must exist");
-
-    // Spawn driver task
-    let cell_label = binary_name.to_string();
-    tokio::spawn(async move {
-        if let Err(e) = driver.run().await {
-            warn!("{} cell driver error: {:?}", cell_label, e);
-        }
-    });
-
-    debug!(
-        "Spawned {} cell (peer_id={:?}) from {}",
-        binary_name,
-        peer_id,
-        binary_path.display()
-    );
-
-    let child = if config.manage_child {
-        let cell_label = binary_name.to_string();
-        let child_handle = child;
-        tokio::spawn(async move {
-            let mut child = child_handle;
-            match child.wait().await {
-                Ok(status) => {
-                    if !status.success() {
-                        warn!("{} cell exited with status: {}", cell_label, status);
-                    }
-                }
-                Err(e) => {
-                    warn!("{} cell wait error: {:?}", cell_label, e);
-                }
-            }
-        });
-        None
-    } else {
-        Some(child)
-    };
-
-    Some(SpawnedCellResult {
-        peer_id: peer_id.get() as u16,
-        handle,
-        child,
-    })
 }

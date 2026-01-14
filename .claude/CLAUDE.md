@@ -7,7 +7,7 @@ of different cells.
 
 It uses different important technical components:
 
-  * rapace RPC, usually available at `../rapace`, see https://rapace.bearcove.eu
+  * roam RPC, usually available at `../roam`
   * picante query system, an async-friendly salsa-like, usually available at `../picante`
 
 ## Cells Architecture
@@ -21,9 +21,9 @@ Each cell has two crates:
 
   * `cell-X-proto` - Protocol definition with:
     - Data structures using `#[derive(Facet)]` for serialization
-    - Service trait using `#[rapace::service]` macro
+    - Service trait using `#[roam::service]` macro
     - Custom result enums (not `Result<T>`)
-    - Minimal dependencies (just facet + rapace)
+    - Minimal dependencies (just facet + roam)
 
   * `cell-X` - Implementation with:
     - Binary target that implements the proto trait
@@ -39,7 +39,6 @@ Each cell has two crates:
 
 ### Debugging Cells
 
-  * Set `RAPACE_DEBUG=1` to see cell startup debug output
   * Set `DODECA_QUIET=1` when TUI is active to suppress cell output
   * Send `SIGUSR1` to dodeca process to dump hub transport diagnostics
 
