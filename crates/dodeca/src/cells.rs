@@ -41,7 +41,6 @@ use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
 use facet::Facet;
 use roam::Tunnel;
-use roam::session::ConnectionHandle;
 use roam_shm::driver::MultiPeerHostDriver;
 use roam_shm::{SegmentConfig, ShmHost};
 use std::collections::HashMap;
@@ -322,52 +321,6 @@ pub(crate) async fn ensure_cell_registry_initialized() -> eyre::Result<()> {
 }
 
 // ============================================================================
-// Cell Spawning
-// ============================================================================
-
-pub struct CellSpawnConfig {
-    pub inherit_stdio: bool,
-    pub manage_child: bool,
-}
-
-impl Default for CellSpawnConfig {
-    fn default() -> Self {
-        Self {
-            inherit_stdio: false,
-            manage_child: true,
-        }
-    }
-}
-
-pub struct SpawnedCellResult {
-    pub peer_id: u16,
-    pub handle: ConnectionHandle,
-    pub child: Option<tokio::process::Child>,
-}
-
-/// Find a cell binary by name
-pub fn find_cell_binary(name: &str) -> Option<PathBuf> {
-    // Look next to the current executable
-    let exe_path = std::env::current_exe().ok()?;
-    let exe_dir = exe_path.parent()?;
-    let binary_path = exe_dir.join(name);
-    if binary_path.exists() {
-        return Some(binary_path);
-    }
-
-    // Try target/debug or target/release
-    let target_dir = exe_dir.parent()?;
-    for profile in ["debug", "release"] {
-        let path = target_dir.join(profile).join(name);
-        if path.exists() {
-            return Some(path);
-        }
-    }
-
-    None
-}
-
-// ============================================================================
 // Template Rendering
 // ============================================================================
 
@@ -382,22 +335,6 @@ pub async fn render_template(
         .ok_or_else(|| eyre::eyre!("Gingembre cell not available"))?;
     let result = cell
         .render(context_id, template_name.to_string(), initial_context)
-        .await
-        .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?;
-    Ok(result)
-}
-
-pub async fn eval_template_expression(
-    context_id: ContextId,
-    expression: &str,
-    context: Value,
-) -> eyre::Result<EvalResult> {
-    let cell = crate::host::Host::get()
-        .client_async::<TemplateRendererClient>()
-        .await
-        .ok_or_else(|| eyre::eyre!("Gingembre cell not available"))?;
-    let result = cell
-        .eval_expression(context_id, expression.to_string(), context)
         .await
         .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?;
     Ok(result)
@@ -743,86 +680,6 @@ cell_client_accessor!(html_diff_cell, "html_diff", HtmlDifferClient);
 cell_client_accessor!(dialoguer_cell, "dialoguer", DialoguerClient);
 cell_client_accessor!(code_execution_cell, "code_execution", CodeExecutorClient);
 cell_client_accessor!(http_cell, "http", TcpTunnelClient);
-
-// ============================================================================
-// Convenience Functions (wrappers around cell clients)
-// ============================================================================
-
-pub async fn resize_image(input: ResizeInput) -> Result<ImageResult, eyre::Error> {
-    let client = image_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Image cell not available"))?;
-    client
-        .resize_image(input)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
-}
-
-pub async fn encode_webp(input: WebPEncodeInput) -> Result<WebPResult, eyre::Error> {
-    let client = webp_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("WebP cell not available"))?;
-    client
-        .encode_webp(input)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
-}
-
-pub async fn encode_jxl(input: JXLEncodeInput) -> Result<JXLResult, eyre::Error> {
-    let client = jxl_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("JXL cell not available"))?;
-    client
-        .encode_jxl(input)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
-}
-
-pub async fn compute_thumbhash(input: ThumbhashInput) -> Result<ImageResult, eyre::Error> {
-    let client = image_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Image cell not available"))?;
-    client
-        .generate_thumbhash_data_url(input)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
-}
-
-pub async fn parse_markdown(
-    source_path: &str,
-    content: String,
-) -> Result<ParseResult, eyre::Error> {
-    let client = markdown_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Markdown cell not available"))?;
-    client
-        .parse_and_render(source_path.to_string(), content)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
-}
-
-pub async fn render_markdown(
-    source_path: &str,
-    markdown: String,
-) -> Result<MarkdownResult, eyre::Error> {
-    let client = markdown_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Markdown cell not available"))?;
-    client
-        .render_markdown(source_path.to_string(), markdown)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
-}
-
-pub async fn extract_frontmatter(content: String) -> Result<FrontmatterResult, eyre::Error> {
-    let client = markdown_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Markdown cell not available"))?;
-    client
-        .parse_frontmatter(content)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
-}
 
 pub async fn minify_html(html: String) -> Result<MinifyResult, eyre::Error> {
     let client = minify_cell()
