@@ -209,13 +209,6 @@ impl Host {
         self.cell_handles.iter().map(|r| r.key().clone()).collect()
     }
 
-    /// Iterate over all registered cell handles.
-    pub fn iter_cell_handles(&self) -> impl Iterator<Item = (String, ConnectionHandle)> + '_ {
-        self.cell_handles
-            .iter()
-            .map(|r| (r.key().clone(), r.value().clone()))
-    }
-
     // =========================================================================
     // Quiet Mode
     // =========================================================================
@@ -674,7 +667,7 @@ async fn wait_for_cell_ready(cell_name: &str) {
         }
 
         // Log every 100 checks (roughly every second)
-        if check_count % 100 == 0 {
+        if check_count.is_multiple_of(100) {
             debug!(
                 cell = cell_name,
                 elapsed_ms = start.elapsed().as_millis(),

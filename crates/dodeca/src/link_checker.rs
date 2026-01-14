@@ -238,7 +238,6 @@ pub async fn check_external_links(
     // Call the cell for uncached URLs (blocking, so we spawn_blocking)
     let checked_count = if !urls_to_check.is_empty() {
         let cell_options = CheckOptions {
-            skip_domains: options.skip_domains.iter().cloned().collect(),
             rate_limit_ms: options.rate_limit.as_millis() as u64,
             timeout_secs: 10,
         };

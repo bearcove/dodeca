@@ -17,7 +17,7 @@ use cell_code_execution_proto::{
 use cell_css_proto::{CssProcessorClient, CssResult};
 use cell_dialoguer_proto::DialoguerClient;
 use cell_fonts_proto::{FontAnalysis, FontProcessorClient, FontResult, SubsetFontInput};
-use cell_gingembre_proto::{ContextId, EvalResult, RenderResult, TemplateRendererClient};
+use cell_gingembre_proto::{ContextId, RenderResult, TemplateRendererClient};
 use cell_host_proto::{
     CallFunctionResult, CommandResult, HostService, KeysAtResult, LoadTemplateResult, ReadyAck,
     ReadyMsg, ResolveDataResult, ServeContent, ServerCommand, Value,
@@ -30,9 +30,7 @@ use cell_js_proto::{JsProcessorClient, JsResult, JsRewriteInput};
 use cell_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
 use cell_lifecycle_proto::CellLifecycle;
 use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, LinkStatus};
-use cell_markdown_proto::{
-    FrontmatterResult, MarkdownProcessorClient, MarkdownResult, ParseResult,
-};
+use cell_markdown_proto::MarkdownProcessorClient;
 use cell_minify_proto::{MinifierClient, MinifyResult};
 use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
@@ -46,7 +44,7 @@ use roam_shm::{SegmentConfig, ShmHost};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use tracing::{debug, error, info, warn};
 
 use crate::serve::SiteServer;
@@ -627,17 +625,6 @@ fn find_cell_directory() -> eyre::Result<PathBuf> {
 }
 
 // ============================================================================
-// Hub Access (for cell_server.rs compatibility)
-// ============================================================================
-
-pub async fn get_hub() -> Option<(Arc<ShmHost>, PathBuf)> {
-    // The hub is now owned by the MultiPeerHostDriver, not accessible externally
-    // This function is deprecated for the roam architecture
-    warn!("get_hub() is deprecated - hub is owned by MultiPeerHostDriver");
-    None
-}
-
-// ============================================================================
 // Cell Client Accessor Functions
 // ============================================================================
 
@@ -646,6 +633,7 @@ pub async fn get_hub() -> Option<(Arc<ShmHost>, PathBuf)> {
 /// Uses Host for handle lookup. With lazy spawning, will spawn cell on first access.
 macro_rules! cell_client_accessor {
     ($name:ident, $suffix:expr, $client:ty) => {
+        #[allow(unused)]
         pub async fn $name() -> Option<Arc<$client>> {
             // Use Host for handle lookup with lazy spawning support
             crate::host::Host::get()
@@ -691,26 +679,6 @@ pub async fn minify_html(html: String) -> Result<MinifyResult, eyre::Error> {
         .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn compile_sass(input: SassInput) -> Result<SassResult, eyre::Error> {
-    let client = sass_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("SASS cell not available"))?;
-    client
-        .compile_sass(input)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
-}
-
-pub async fn rewrite_js(input: JsRewriteInput) -> Result<JsResult, eyre::Error> {
-    let client = js_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("JS cell not available"))?;
-    client
-        .rewrite_string_literals(input)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
-}
-
 pub async fn optimize_svg(svg: String) -> Result<SvgoResult, eyre::Error> {
     let client = svgo_cell()
         .await
@@ -727,16 +695,6 @@ pub async fn subset_font(input: SubsetFontInput) -> Result<FontResult, eyre::Err
         .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
     client
         .subset_font(input)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
-}
-
-pub async fn check_links(input: LinkCheckInput) -> Result<LinkCheckResult, eyre::Error> {
-    let client = linkcheck_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Link check cell not available"))?;
-    client
-        .check_links(input)
         .await
         .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
@@ -815,7 +773,6 @@ pub async fn check_urls_cell(urls: Vec<String>, options: CheckOptions) -> Option
 #[derive(Debug, Clone, Default)]
 pub struct CheckOptions {
     pub timeout_secs: u64,
-    pub skip_domains: Vec<String>,
     pub rate_limit_ms: u64,
 }
 

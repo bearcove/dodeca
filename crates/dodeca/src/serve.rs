@@ -252,8 +252,6 @@ fn summarize_patches(patches: &[dodeca_protocol::Patch]) -> String {
 pub struct SiteServer {
     /// The picante database - all queries go through here
     pub db: Arc<Database>,
-    /// Search index files (pagefind): path -> content
-    pub search_files: RwLock<HashMap<String, Vec<u8>>>,
     /// Live reload broadcast
     pub livereload_tx: broadcast::Sender<LiveReloadMsg>,
     /// Render options (dev mode, etc.)
@@ -285,7 +283,6 @@ impl SiteServer {
 
         Self {
             db: Arc::new(db),
-            search_files: RwLock::new(HashMap::new()),
             livereload_tx,
             render_options,
             html_cache: RwLock::new(HashMap::new()),
@@ -383,11 +380,6 @@ impl SiteServer {
             .values()
             .cloned()
             .collect()
-    }
-
-    /// Update cached code execution results
-    pub fn set_code_execution_results(&self, results: Vec<crate::db::CodeExecutionResult>) {
-        *self.code_execution_results.write().unwrap() = results;
     }
 
     /// Check if a path is configured as a stable asset
@@ -1529,15 +1521,6 @@ pub fn get_devtools_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
     }
 
     None
-}
-
-/// Get search file content by path (for RPC serving)
-pub fn get_search_file_content(
-    search_files: &RwLock<HashMap<String, Vec<u8>>>,
-    path: &str,
-) -> Option<Vec<u8>> {
-    let files = search_files.read().ok()?;
-    files.get(path).cloned()
 }
 
 /// Rewrite relative snippet imports to absolute paths

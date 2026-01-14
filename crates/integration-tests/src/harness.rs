@@ -729,27 +729,6 @@ impl TestSite {
             .unwrap_or(false)
     }
 
-    /// Wait for a path to return 200, retrying until timeout
-    pub fn wait_for(&self, path: &str, timeout: Duration) -> Response {
-        let deadline = Instant::now() + timeout;
-
-        loop {
-            let resp = self.get(path);
-            if resp.status == 200 {
-                return resp;
-            }
-
-            if Instant::now() >= deadline {
-                panic!(
-                    "Path {} did not return 200 within {:?} (last status: {})",
-                    path, timeout, resp.status
-                );
-            }
-
-            std::thread::sleep(Duration::from_millis(100));
-        }
-    }
-
     /// Wait until a condition is true, retrying until timeout
     /// Returns the value produced by the condition, or panics on timeout
     pub fn wait_until<T, F>(&self, desc: &str, timeout: Duration, mut condition: F) -> T

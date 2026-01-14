@@ -187,11 +187,6 @@ impl LogEvent {
         }
     }
 
-    pub fn with_kind(mut self, kind: EventKind) -> Self {
-        self.kind = kind;
-        self
-    }
-
     // Convenience constructors for specific event types
     fn _http(status: u16, message: impl Into<String>) -> Self {
         Self {
@@ -225,14 +220,6 @@ impl LogEvent {
         Self {
             level: LogLevel::Info,
             kind: EventKind::Patch,
-            message: message.into(),
-        }
-    }
-
-    pub fn search(message: impl Into<String>) -> Self {
-        Self {
-            level: LogLevel::Info,
-            kind: EventKind::Search,
             message: message.into(),
         }
     }
