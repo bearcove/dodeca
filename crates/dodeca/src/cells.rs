@@ -600,33 +600,21 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
     // Configure segment for multi-cell architecture
     // We have ~19 cells, so allocate for 24 guests with headroom.
-    // Most RPC payloads are small (HTML/CSS/JS < 1MB), but images can be larger.
-    // Total size: 24 guests * 16 slots * 2MB = 768MB (down from 32GB!)
-    let max_payload = 2 * 1024 * 1024; // 2MB - sufficient for most payloads
+    // Keep 16MB max_payload for large images (decoded pixel data can be 30-50MB for high-res).
+    // Total size: 24 guests * 16 slots * 16MB = 6GB (down from 32GB!)
+    let max_payload = 16 * 1024 * 1024; // 16MB for large image payloads
     let config = SegmentConfig {
         max_guests: 24,      // ~19 cells + headroom
         ring_size: 128,      // Queue depth per guest
         slots_per_guest: 16, // 16 concurrent messages per cell (was 64!)
         slot_size: max_payload + 8,
         max_payload_size: max_payload,
+        file_cleanup: roam_shm::FileCleanup::Auto,
         ..SegmentConfig::default()
     };
 
     // Create SHM host
     let mut host = ShmHost::create(&shm_path, config)?;
-
-    // Immediately unlink the file so it's cleaned up by the OS when all processes die.
-    // On Unix, the file stays alive as long as it's mapped, but disappears from the
-    // filesystem. This ensures cleanup even on SIGKILL, crash, or power loss.
-    if let Err(e) = std::fs::remove_file(&shm_path) {
-        warn!("Failed to unlink SHM file {}: {:?}", shm_path.display(), e);
-    } else {
-        debug!(
-            "Unlinked SHM file {} (OS will auto-cleanup)",
-            shm_path.display()
-        );
-    }
-
     debug!("init_cells_inner: SHM host created");
 
     // Find cell binary directory
