@@ -42,7 +42,7 @@ use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
 use facet::Facet;
 use roam::Tunnel;
-use roam::session::{ConnectionHandle, ServiceDispatcher};
+use roam::session::ConnectionHandle;
 use roam_shm::driver::MultiPeerHostDriver;
 use roam_shm::{SegmentConfig, ShmHost};
 use std::collections::HashMap;
@@ -628,7 +628,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
     };
 
     // Create SHM host
-    let mut host = ShmHost::create(&shm_path, config)?;
+    let host = ShmHost::create(&shm_path, config)?;
     debug!("init_cells_inner: SHM host created");
 
     // On Unix: spawn watchdog and create .meta file

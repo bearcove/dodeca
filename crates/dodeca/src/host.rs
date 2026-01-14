@@ -204,6 +204,7 @@ impl Host {
     }
 
     /// Get all registered cell names.
+    #[allow(dead_code)] // Utility method for future use
     pub fn cell_names(&self) -> Vec<String> {
         self.cell_handles.iter().map(|r| r.key().clone()).collect()
     }

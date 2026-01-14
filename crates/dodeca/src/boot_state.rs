@@ -9,6 +9,7 @@ use tokio::sync::watch;
 
 /// Boot state of the server
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // Scaffolding for future boot state tracking
 pub enum BootState {
     /// Server is booting - cells loading, revision building
     Booting { phase: BootPhase },
@@ -24,6 +25,7 @@ pub enum BootState {
 
 /// Boot phase during startup
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // Scaffolding for future boot state tracking
 pub enum BootPhase {
     /// Loading cell binaries
     LoadingCells,
@@ -50,6 +52,7 @@ impl BootState {
     }
 
     /// Transition to ready state
+    #[allow(dead_code)] // Scaffolding for future boot state tracking
     pub fn ready() -> Self {
         Self::Ready
     }
@@ -85,6 +88,7 @@ impl BootStateManager {
     }
 
     /// Update the boot phase
+    #[allow(dead_code)] // Scaffolding for future boot state tracking
     pub fn set_phase(&self, phase: BootPhase) {
         let elapsed_ms = self.start_time.elapsed().as_millis();
         tracing::debug!(
@@ -96,6 +100,7 @@ impl BootStateManager {
     }
 
     /// Mark the server as ready
+    #[allow(dead_code)] // Scaffolding for future boot state tracking
     pub fn set_ready(&self) {
         let elapsed_ms = self.start_time.elapsed().as_millis();
         tracing::info!(elapsed_ms, "Boot complete - server ready");
