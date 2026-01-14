@@ -64,8 +64,7 @@ impl RouterContext for LazyRouterContext {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = SpawnArgs::from_env()?;
-    let guest = ShmGuest::attach_with_ticket(&args)?;
-    let transport = ShmGuestTransport::new(guest);
+    let transport = ShmGuestTransport::from_spawn_args(&args)?;
 
     // Initialize cell-side tracing
     let (tracing_layer, tracing_service) = init_cell_tracing(1024);

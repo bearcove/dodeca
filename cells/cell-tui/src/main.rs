@@ -22,7 +22,6 @@ use ratatui::{
 };
 use roam::session::ConnectionHandle;
 use roam_shm::driver::establish_guest;
-use roam_shm::guest::ShmGuest;
 use roam_shm::spawn::SpawnArgs;
 use roam_shm::transport::ShmGuestTransport;
 use tokio::sync::mpsc;
@@ -532,8 +531,7 @@ async fn main() -> Result<()> {
     color_eyre::install()?;
 
     let args = SpawnArgs::from_env()?;
-    let guest = ShmGuest::attach_with_ticket(&args)?;
-    let transport = ShmGuestTransport::new(guest);
+    let transport = ShmGuestTransport::from_spawn_args(&args)?;
 
     // Channels for receiving updates from host (via TuiDisplay RPC)
     let (progress_tx, progress_rx) = mpsc::unbounded_channel();

@@ -19,8 +19,8 @@ use cell_dialoguer_proto::DialoguerClient;
 use cell_fonts_proto::{FontAnalysis, FontProcessorClient, FontResult, SubsetFontInput};
 use cell_gingembre_proto::{ContextId, EvalResult, RenderResult, TemplateRendererClient};
 use cell_host_proto::{
-    CallFunctionResult, CommandResult, HostService, HostServiceDispatcher, KeysAtResult,
-    LoadTemplateResult, ReadyAck, ReadyMsg, ResolveDataResult, ServeContent, ServerCommand, Value,
+    CallFunctionResult, CommandResult, HostService, KeysAtResult, LoadTemplateResult, ReadyAck,
+    ReadyMsg, ResolveDataResult, ServeContent, ServerCommand, Value,
 };
 use cell_html_diff_proto::{DiffInput, HtmlDiffResult, HtmlDifferClient};
 use cell_html_proto::HtmlProcessorClient;
@@ -44,14 +44,12 @@ use facet::Facet;
 use roam::Tunnel;
 use roam::session::{ConnectionHandle, ServiceDispatcher};
 use roam_shm::driver::MultiPeerHostDriver;
-use roam_shm::{AddPeerOptions, SegmentConfig, ShmHost};
+use roam_shm::{SegmentConfig, ShmHost};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
-use tokio::process::Command;
 use tracing::{debug, error, info, warn};
 
 use crate::serve::SiteServer;

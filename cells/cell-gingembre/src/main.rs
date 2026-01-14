@@ -245,9 +245,9 @@ impl TemplateRenderer for TemplateRendererImpl {
     }
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     run_cell_with_handle!("gingembre", |handle, _args| {
         let renderer = TemplateRendererImpl::new(handle);
         TemplateRendererDispatcher::new(renderer)
-    });
+    })
 }

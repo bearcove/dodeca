@@ -1108,11 +1108,11 @@ fn apply_injection(doc: &mut Html, injection: &Injection) {
 // Cell Setup
 // ============================================================================
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     run_cell_with_handle!("html", |handle, _args| {
         let processor = HtmlProcessorImpl::new(handle);
         HtmlProcessorDispatcher::new(processor)
-    });
+    })
 }
 
 #[cfg(test)]
