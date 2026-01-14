@@ -439,13 +439,39 @@ async fn init_cells_inner() -> eyre::Result<()> {
     // We have ~19 cells, so allocate for 24 guests with headroom.
     // Keep 16MB max_payload for large images (decoded pixel data can be 30-50MB for high-res).
     // Total size: 24 guests * 16 slots * 16MB = 6GB (down from 32GB!)
-    let max_payload = 16 * 1024 * 1024; // 16MB for large image payloads
+    //
+    // Environment variable overrides (for debugging):
+    //   DODECA_SHM_SLOTS_PER_GUEST - slots per guest (default: 16)
+    //   DODECA_SHM_MAX_GUESTS - max guests (default: 24)
+    //   DODECA_SHM_RING_SIZE - ring size (default: 128)
+    //   DODECA_SHM_MAX_PAYLOAD_MB - max payload in MB (default: 16)
+    fn env_or<T: std::str::FromStr>(name: &str, default: T) -> T {
+        std::env::var(name)
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(default)
+    }
+
+    let max_payload_mb: u32 = env_or("DODECA_SHM_MAX_PAYLOAD_MB", 16);
+    let max_payload = (max_payload_mb as usize) * 1024 * 1024;
+    let slots_per_guest: u32 = env_or("DODECA_SHM_SLOTS_PER_GUEST", 16);
+    let max_guests: u32 = env_or("DODECA_SHM_MAX_GUESTS", 24);
+    let ring_size: u32 = env_or("DODECA_SHM_RING_SIZE", 128);
+
+    info!(
+        slots_per_guest,
+        max_guests,
+        ring_size,
+        max_payload_mb,
+        "SHM config (override with DODECA_SHM_* env vars)"
+    );
+
     let config = SegmentConfig {
-        max_guests: 24,      // ~19 cells + headroom
-        ring_size: 128,      // Queue depth per guest
-        slots_per_guest: 16, // 16 concurrent messages per cell (was 64!)
-        slot_size: max_payload + 8,
-        max_payload_size: max_payload,
+        max_guests,
+        ring_size,
+        slots_per_guest,
+        slot_size: max_payload as u32 + 8,
+        max_payload_size: max_payload as u32,
         // On Windows: FILE_FLAG_DELETE_ON_CLOSE deletes when all handles close (guests can still open)
         // On Unix: Manual cleanup via Drop guard (unlink immediately breaks lazy spawning)
         file_cleanup: if cfg!(windows) {
