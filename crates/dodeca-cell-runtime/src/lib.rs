@@ -82,6 +82,7 @@ macro_rules! run_cell {
 
             // Signal readiness to host
             let host = HostServiceClient::new(handle);
+            tracing::info!("About to call host.ready() for cell {}", $cell_name);
             host.ready(ReadyMsg {
                 peer_id: args.peer_id.get() as u16,
                 cell_name: $cell_name.to_string(),
@@ -90,6 +91,7 @@ macro_rules! run_cell {
                 features: vec![],
             })
             .await?;
+            tracing::info!("host.ready() returned successfully for cell {}", $cell_name);
 
             // Wait for driver to complete (it runs until connection closes)
             if let Err(e) = driver_handle.await {
@@ -178,6 +180,7 @@ macro_rules! run_cell_with_handle {
 
             // Signal readiness to host
             let host = HostServiceClient::new(handle);
+            tracing::info!("About to call host.ready() for cell {}", $cell_name);
             host.ready(ReadyMsg {
                 peer_id: $args.peer_id.get() as u16,
                 cell_name: $cell_name.to_string(),
@@ -186,6 +189,7 @@ macro_rules! run_cell_with_handle {
                 features: vec![],
             })
             .await?;
+            tracing::info!("host.ready() returned successfully for cell {}", $cell_name);
 
             driver.run().await?;
             Ok(())

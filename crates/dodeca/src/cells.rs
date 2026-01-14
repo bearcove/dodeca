@@ -148,7 +148,17 @@ impl CellReadyRegistry {
     fn mark_ready(&self, msg: ReadyMsg) {
         // Normalize: cells report with underscores (code_execution) but we use hyphens (code-execution)
         let cell_name = msg.cell_name.replace('_', "-");
-        self.ready.insert(cell_name, msg);
+        debug!(
+            cell_name = %cell_name,
+            peer_id = msg.peer_id,
+            "CellReadyRegistry::mark_ready: marking cell as ready"
+        );
+        self.ready.insert(cell_name.clone(), msg);
+        debug!(
+            cell_name = %cell_name,
+            "CellReadyRegistry::mark_ready: cell marked ready, registry now has {} cells",
+            self.ready.len()
+        );
     }
 
     pub fn is_ready(&self, cell_name: &str) -> bool {
