@@ -34,7 +34,6 @@ use cell_markdown_proto::{
     FrontmatterResult, MarkdownProcessorClient, MarkdownResult, ParseResult,
 };
 use cell_minify_proto::{MinifierClient, MinifyResult};
-use cell_pagefind_proto::{SearchIndexInput, SearchIndexResult, SearchIndexerClient};
 use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
 use cell_tui_proto::TuiDisplayClient;
@@ -49,7 +48,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime};
-use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tracing::{debug, error, info, warn};
 
 use crate::serve::SiteServer;
@@ -78,51 +76,6 @@ pub fn provide_site_server(server: Arc<SiteServer>) {
 /// Enable quiet mode for spawned cells (call this when TUI is active).
 pub fn set_quiet_mode(quiet: bool) {
     crate::host::Host::get().set_quiet_mode(quiet);
-}
-
-/// Check if quiet mode is enabled.
-fn is_quiet_mode() -> bool {
-    crate::host::Host::get().is_quiet_mode()
-}
-
-// ============================================================================
-// Stdio Capture
-// ============================================================================
-
-fn spawn_stdio_pump<R>(label: String, stream: &'static str, reader: R)
-where
-    R: AsyncRead + Unpin + Send + 'static,
-{
-    tokio::spawn(async move {
-        let mut reader = BufReader::new(reader);
-        let mut line = String::new();
-        loop {
-            line.clear();
-            match reader.read_line(&mut line).await {
-                Ok(0) => {
-                    debug!(cell = %label, %stream, "cell stdio EOF");
-                    break;
-                }
-                Ok(_) => {
-                    let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
-                    info!(cell = %label, %stream, "{trimmed}");
-                }
-                Err(e) => {
-                    warn!(cell = %label, %stream, error = ?e, "cell stdio read failed");
-                    break;
-                }
-            }
-        }
-    });
-}
-
-fn capture_cell_stdio(label: &str, child: &mut tokio::process::Child) {
-    if let Some(stdout) = child.stdout.take() {
-        spawn_stdio_pump(label.to_string(), "stdout", stdout);
-    }
-    if let Some(stderr) = child.stderr.take() {
-        spawn_stdio_pump(label.to_string(), "stderr", stderr);
-    }
 }
 
 // ============================================================================
@@ -162,38 +115,12 @@ impl CellReadyRegistry {
     pub fn is_ready(&self, cell_name: &str) -> bool {
         self.ready.contains_key(cell_name)
     }
-
-    pub async fn wait_for_all_ready(
-        &self,
-        cell_names: &[&str],
-        timeout: Duration,
-    ) -> eyre::Result<()> {
-        let start = std::time::Instant::now();
-        for &cell_name in cell_names {
-            loop {
-                if self.is_ready(cell_name) {
-                    break;
-                }
-                if start.elapsed() >= timeout {
-                    return Err(eyre::eyre!("Timeout waiting for {} to be ready", cell_name));
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        }
-        Ok(())
-    }
 }
 
 static CELL_READY_REGISTRY: OnceLock<CellReadyRegistry> = OnceLock::new();
 
 pub fn cell_ready_registry() -> &'static CellReadyRegistry {
     CELL_READY_REGISTRY.get_or_init(CellReadyRegistry::new)
-}
-
-pub async fn wait_for_cells_ready(cell_names: &[&str], timeout: Duration) -> eyre::Result<()> {
-    cell_ready_registry()
-        .wait_for_all_ready(cell_names, timeout)
-        .await
 }
 
 /// Host implementation of CellLifecycle service
@@ -394,38 +321,6 @@ pub(crate) async fn ensure_cell_registry_initialized() -> eyre::Result<()> {
     Ok(())
 }
 
-async fn push_tracing_config_to_cells() {
-    let filter_str = std::env::var("RUST_LOG")
-        .unwrap_or_else(|_| crate::logging::DEFAULT_TRACING_FILTER.to_string());
-
-    for (cell_name, handle) in crate::host::Host::get().iter_cell_handles() {
-        let filter_str = filter_str.clone();
-        tokio::spawn(async move {
-            use roam_tracing::{CellTracingClient, Level, TracingConfig};
-            let client = CellTracingClient::new(handle);
-            let config = TracingConfig {
-                min_level: Level::Debug,
-                filters: vec![filter_str.clone()],
-                include_span_events: false,
-            };
-            match client.configure(config).await {
-                Ok(roam_tracing::ConfigResult::Ok) => {
-                    debug!("Pushed tracing config to {} cell", cell_name);
-                }
-                Ok(roam_tracing::ConfigResult::InvalidFilter(msg)) => {
-                    warn!("Invalid tracing filter for {} cell: {}", cell_name, msg);
-                }
-                Err(e) => {
-                    warn!(
-                        "Failed to push tracing config to {} cell: {:?}",
-                        cell_name, e
-                    );
-                }
-            }
-        });
-    }
-}
-
 // ============================================================================
 // Cell Spawning
 // ============================================================================
@@ -550,7 +445,6 @@ const CELL_DEFS: &[CellDef] = &[
     CellDef::new("linkcheck"),
     CellDef::new("html-diff"),
     CellDef::new("dialoguer"),
-    CellDef::new("pagefind"),
     CellDef::new("code-execution"),
     CellDef::new("http"),
     CellDef::new("gingembre"),
@@ -847,7 +741,6 @@ cell_client_accessor!(font_cell, "fonts", FontProcessorClient);
 cell_client_accessor!(linkcheck_cell, "linkcheck", LinkCheckerClient);
 cell_client_accessor!(html_diff_cell, "html_diff", HtmlDifferClient);
 cell_client_accessor!(dialoguer_cell, "dialoguer", DialoguerClient);
-cell_client_accessor!(pagefind_cell, "pagefind", SearchIndexerClient);
 cell_client_accessor!(code_execution_cell, "code_execution", CodeExecutorClient);
 cell_client_accessor!(http_cell, "http", TcpTunnelClient);
 
@@ -1001,16 +894,6 @@ pub async fn diff_html(input: DiffInput) -> Result<HtmlDiffResult, eyre::Error> 
         .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
-pub async fn build_search_index(input: SearchIndexInput) -> Result<SearchIndexResult, eyre::Error> {
-    let client = pagefind_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Pagefind cell not available"))?;
-    client
-        .build_search_index(input)
-        .await
-        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
-}
-
 pub async fn execute_code_samples(
     input: ExecuteSamplesInput,
 ) -> Result<CodeExecutionResult, eyre::Error> {
@@ -1127,12 +1010,6 @@ pub async fn render_template_cell(
     initial_context: Value,
 ) -> eyre::Result<RenderResult> {
     render_template(context_id, template_name, initial_context).await
-}
-
-pub async fn build_search_index_cell(
-    input: SearchIndexInput,
-) -> Result<SearchIndexResult, eyre::Error> {
-    build_search_index(input).await
 }
 
 pub async fn diff_html_cell(input: DiffInput) -> Result<HtmlDiffResult, eyre::Error> {

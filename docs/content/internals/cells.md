@@ -361,7 +361,6 @@ This dramatically improves iteration speed during development.
 More functionality will move to rapace cells:
 
 - `http-client` - For link checking and external fetches
-- `search` - Full-text search indexing (replacing pagefind)
 - `image-processing` - Image optimization and conversion
 - `font-subsetting` - Web font optimization
 

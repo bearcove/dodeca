@@ -3,16 +3,12 @@
 mod boot_state;
 mod cache_bust;
 mod cas;
-#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod cell_server;
-#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod cells;
 mod config;
-#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod content_service;
 mod data;
 mod db;
-#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod error_pages;
 mod fd_passing;
 mod file_watcher;
@@ -24,8 +20,6 @@ mod logging;
 mod queries;
 mod render;
 mod revision;
-mod search;
-#[allow(dead_code)] // TODO: Re-enable after HTTP serving is fully migrated to roam
 mod serve;
 mod svg;
 mod template;
@@ -1162,19 +1156,6 @@ pub async fn build(
             );
         }
 
-        // Build search index
-        let search_files = search::build_search_index_async(&site_output).await?;
-
-        // Write search index files
-        for (path, content) in &search_files {
-            let dest = output_dir.join(path.trim_start_matches('/'));
-            store.write_if_changed(&dest, content)?;
-        }
-
-        if verbose {
-            println!("{} {} search files", "Indexed".cyan(), search_files.len());
-        }
-
         if let Some(ref p) = progress {
             p.update(|prog| prog.search.finish());
         }
@@ -1205,6 +1186,7 @@ pub async fn build(
 }
 
 /// Build with progress output
+/// FIXME: omg why is this duplicated
 async fn build_with_mini_tui(
     content_dir: &Utf8PathBuf,
     output_dir: &Utf8PathBuf,
@@ -1453,28 +1435,19 @@ async fn build_with_mini_tui(
     // Build search index
     tracing::debug!("Building search index...");
 
-    let search_files = search::build_search_index_async(&site_output).await?;
-
-    // Write search index files
-    for (path, content) in &search_files {
-        let dest = output_dir.join(path.trim_start_matches('/'));
-        store.write_if_changed(&dest, content)?;
-    }
-
     // Calculate output directory size
     let output_size = dir_size(output_dir);
 
     // Print final summary
     let elapsed = start.elapsed();
     println!(
-        "{} {} inputs → {} queries ({} executed) → {} written, {} up-to-date + {} search",
+        "{} {} inputs → {} queries ({} executed) → {} written, {} up-to-date",
         "Build".green().bold(),
         input_count,
         stats_for_display.total(),
         stats_for_display.executed(),
         written,
         skipped,
-        search_files.len()
     );
     println!(
         "{} {} internal, {} external checked",
@@ -2192,29 +2165,6 @@ async fn serve_plain(
         println!("  Loaded {} SASS files", count);
     }
 
-    // Build search index in background
-    println!("{}", "Building search index...".dimmed());
-    let server_for_search = server.clone();
-    std::thread::spawn(move || {
-        match rebuild_search_for_serve(&server_for_search) {
-            Ok(search_files) => {
-                let count = search_files.len();
-                // Debug: print all paths
-                let mut paths: Vec<_> = search_files.keys().collect();
-                paths.sort();
-                for path in &paths {
-                    tracing::debug!("  Search file: {path}");
-                }
-                let mut sf = server_for_search.search_files.write().unwrap();
-                *sf = search_files;
-                tracing::info!("  Search index ready ({count} files)");
-            }
-            Err(e) => {
-                eprintln!("{} Search index error: {}", "error:".red(), e);
-            }
-        }
-    });
-
     // Mark the startup revision as ready before accepting requests.
     server.end_revision(startup_revision);
     tracing::info!("startup revision ready (serve_plain)");
@@ -2285,61 +2235,6 @@ async fn serve_plain(
     std::future::pending::<()>().await;
 
     Ok(())
-}
-
-/// Rebuild search index for serve mode
-///
-/// Takes a snapshot of the server's current state, builds all HTML via picante,
-/// and updates the search index. Memoization makes this fast for unchanged pages.
-///
-/// NOTE: This function creates its own tokio runtime because it's called from
-/// std::thread::spawn (the search indexer has !Send types that can't cross tokio task boundaries).
-#[allow(clippy::disallowed_methods)] // Needs own runtime - called from std::thread::spawn
-fn rebuild_search_for_serve(server: &serve::SiteServer) -> Result<search::SearchFiles> {
-    // Create a new runtime for this thread (we're called from std::thread::spawn)
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| eyre!("failed to create runtime: {e}"))?;
-
-    #[allow(clippy::await_holding_lock)] // Intentional - creating snapshot while holding lock
-    rt.block_on(async {
-        let snapshot = db::DatabaseSnapshot::from_database(&server.db).await;
-
-        // Build the site (picante will cache/reuse unchanged computations)
-        let site_output = match db::TASK_DB
-            .scope(server.db.clone(), queries::build_site(&snapshot))
-            .await?
-        {
-            Ok(output) => output,
-            Err(build_error) => {
-                eprintln!("{}", build_error);
-                std::process::exit(1);
-            }
-        };
-
-        // Cache code execution results for build info display in serve mode
-        server.set_code_execution_results(site_output.code_execution_results.clone());
-
-        // Build search index - call the cell directly since we're already in an async context.
-        let pages = search::collect_search_pages(&site_output);
-        let input = cell_pagefind_proto::SearchIndexInput { pages };
-        let result = cells::build_search_index_cell(input)
-            .await
-            .map_err(|e| eyre!("pagefind RPC: {}", e))?;
-
-        let files = match result {
-            cell_pagefind_proto::SearchIndexResult::Success { output } => output.files,
-            cell_pagefind_proto::SearchIndexResult::Error { message } => {
-                return Err(eyre!("pagefind: {}", message));
-            }
-        };
-
-        let search_files: search::SearchFiles =
-            files.into_iter().map(|f| (f.path, f.contents)).collect();
-
-        Ok(search_files)
-    })
 }
 
 /// Serve with TUI progress display and file watching
@@ -2633,27 +2528,6 @@ async fn serve_with_tui(
         let _ = event_tx.send(LogEvent::build(format!("Loaded {} SASS files", count)));
     }
 
-    // Build initial search index in background
-    let _ = event_tx.send(LogEvent::search("Building search index..."));
-    let server_for_search = server.clone();
-    let event_tx_for_search = event_tx.clone();
-    std::thread::spawn(move || match rebuild_search_for_serve(&server_for_search) {
-        Ok(search_files) => {
-            let count = search_files.len();
-            let mut sf = server_for_search.search_files.write().unwrap();
-            *sf = search_files;
-            let _ = event_tx_for_search.send(LogEvent::search(format!(
-                "Search index ready ({count} pages)"
-            )));
-        }
-        Err(e) => {
-            let _ = event_tx_for_search.send(
-                LogEvent::error(format!("Search index error: {e}"))
-                    .with_kind(crate::tui::EventKind::Search),
-            );
-        }
-    });
-
     // Mark all tasks as ready - in serve mode, everything is computed on-demand via picante
     progress_tx.send_modify(|prog| {
         prog.render.finish();
@@ -2894,36 +2768,7 @@ async fn serve_with_tui(
         },
     );
 
-    let server_for_search = server.clone();
-    let event_tx_for_search = event_tx.clone();
-    let after_apply = Arc::new(move || {
-        let server_for_search = server_for_search.clone();
-        let event_tx_for_search = event_tx_for_search.clone();
-        std::thread::spawn(move || match rebuild_search_for_serve(&server_for_search) {
-            Ok(search_files) => {
-                let count = search_files.len();
-                let mut sf = server_for_search.search_files.write().unwrap();
-                *sf = search_files;
-                let _ = event_tx_for_search.send(LogEvent::search(format!(
-                    "Search index updated ({count} pages)"
-                )));
-            }
-            Err(e) => {
-                let _ = event_tx_for_search.send(
-                    LogEvent::error(format!("Search rebuild failed: {e}"))
-                        .with_kind(crate::tui::EventKind::Search),
-                );
-            }
-        });
-    });
-
-    start_file_watcher(
-        server.clone(),
-        watcher_config,
-        Some(on_event),
-        Some(after_apply),
-    )
-    .await?;
+    start_file_watcher(server.clone(), watcher_config, Some(on_event), None).await?;
 
     // Spawn command handler for rebinding
     let server_for_cmd = server.clone();

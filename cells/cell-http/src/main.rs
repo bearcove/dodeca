@@ -204,16 +204,6 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
                 .header("x-picante-generation", generation.to_string())
                 .body(Body::from(content))
                 .unwrap(),
-            ServeContent::Search {
-                content,
-                mime,
-                generation,
-            } => Response::builder()
-                .status(StatusCode::OK)
-                .header(header::CONTENT_TYPE, mime)
-                .header("x-picante-generation", generation.to_string())
-                .body(Body::from(content))
-                .unwrap(),
             ServeContent::Redirect {
                 location,
                 generation,

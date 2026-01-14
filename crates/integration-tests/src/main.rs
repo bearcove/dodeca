@@ -415,12 +415,6 @@ fn collect_tests() -> Vec<Test> {
             ignored: false,
         },
         Test {
-            name: "pagefind_files_served",
-            module: "basic",
-            func: basic::pagefind_files_served,
-            ignored: false,
-        },
-        Test {
             name: "all_pages_return_200",
             module: "basic",
             func: basic::all_pages_return_200,

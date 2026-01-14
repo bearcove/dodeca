@@ -24,9 +24,3 @@ pub fn nonexistent_static_returns_404() {
         "Nonexistent static file should return 404"
     );
 }
-
-pub fn pagefind_files_served() {
-    let site = TestSite::new("sample-site");
-    site.wait_for("/pagefind/pagefind.js", Duration::from_secs(30))
-        .assert_ok();
-}

@@ -23,9 +23,6 @@ use crate::host::Host;
 use crate::serve::SiteServer;
 
 static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
-const REQUIRED_CELLS: [&str; 2] = ["http", "markdown"];
-const REQUIRED_CELL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-const SESSION_WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Find the cell binary path (for backwards compatibility).
 ///

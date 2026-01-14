@@ -419,7 +419,7 @@ fn detect_event_kind(msg: &str, target: &str) -> EventKind {
         EventKind::Reload
     } else if msg_lower.contains("patch") {
         EventKind::Patch
-    } else if msg_lower.contains("search") || msg_lower.contains("pagefind") {
+    } else if msg_lower.contains("search") {
         EventKind::Search
     } else if msg_lower.contains("changed:")
         || msg_lower.contains("modified")

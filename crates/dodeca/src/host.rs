@@ -373,7 +373,6 @@ impl_cell_client!(cell_fonts_proto::FontProcessorClient, "fonts");
 impl_cell_client!(cell_linkcheck_proto::LinkCheckerClient, "linkcheck");
 impl_cell_client!(cell_html_diff_proto::HtmlDifferClient, "html-diff");
 impl_cell_client!(cell_dialoguer_proto::DialoguerClient, "dialoguer");
-impl_cell_client!(cell_pagefind_proto::SearchIndexerClient, "pagefind");
 impl_cell_client!(
     cell_code_execution_proto::CodeExecutorClient,
     "code-execution"

@@ -103,9 +103,6 @@ fontcull = { version = "2.0", default-features = false, features = ["static-anal
 pulldown-cmark = "0.13"
 arborium-theme = "2"
 
-# Search indexing
-pagefind = "1.4"
-
 # SVG optimization (git)
 svag = { git = "https://github.com/bearcove/svag" }
 getrandom = { version = "0.3", features = ["wasm_js"] }

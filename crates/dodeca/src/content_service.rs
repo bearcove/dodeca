@@ -8,7 +8,7 @@ use std::sync::Arc;
 use cell_http_proto::{ContentService, ServeContent};
 use dodeca_protocol::{EvalResult, ScopeEntry};
 
-use crate::serve::{SiteServer, get_devtools_asset, get_search_file_content};
+use crate::serve::{SiteServer, get_devtools_asset};
 
 /// ContentService implementation that wraps SiteServer
 #[derive(Clone)]
@@ -37,15 +37,6 @@ impl ContentService for HostContentService {
             return ServeContent::StaticNoCache {
                 content,
                 mime: mime.to_string(),
-                generation,
-            };
-        }
-
-        // Check search files (pagefind)
-        if let Some(content) = get_search_file_content(&self.server.search_files, &path) {
-            return ServeContent::Search {
-                content,
-                mime: guess_mime(&path).to_string(),
                 generation,
             };
         }
