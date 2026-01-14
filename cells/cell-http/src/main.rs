@@ -21,14 +21,9 @@
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use roam::session::{ConnectionHandle, RoutedDispatcher};
-use roam_shm::driver::establish_guest;
-use roam_shm::spawn::SpawnArgs;
-use roam_shm::transport::ShmGuestTransport;
-use roam_tracing::{CellTracingDispatcher, init_cell_tracing};
-use tracing_subscriber::prelude::*;
+use dodeca_cell_runtime::{ConnectionHandle, run_cell};
 
-use cell_host_proto::{HostServiceClient, ReadyMsg};
+use cell_host_proto::HostServiceClient;
 use cell_http_proto::TcpTunnelDispatcher;
 
 mod devtools;
@@ -60,64 +55,24 @@ impl RouterContext for LazyRouterContext {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args = SpawnArgs::from_env()?;
-    let transport = ShmGuestTransport::from_spawn_args(&args)?;
+fn main() {
+    let result = run_cell!("http", |handle| {
+        let ctx: Arc<dyn RouterContext> = Arc::new(LazyRouterContext {
+            handle_cell: handle,
+        });
 
-    // Initialize cell-side tracing
-    let (tracing_layer, tracing_service) = init_cell_tracing(1024);
-    tracing_subscriber::registry().with(tracing_layer).init();
+        // Build axum router with lazy context
+        let app = build_router(ctx.clone());
 
-    // Lazy initialization pattern for bidirectional RPC
-    let handle_cell: Arc<OnceLock<ConnectionHandle>> = Arc::new(OnceLock::new());
-
-    let ctx: Arc<dyn RouterContext> = Arc::new(LazyRouterContext {
-        handle_cell: handle_cell.clone(),
+        // Create the tunnel implementation with lazy context
+        let tunnel_impl = tunnel::TcpTunnelImpl::new(ctx, app);
+        TcpTunnelDispatcher::new(tunnel_impl)
     });
 
-    // Build axum router with lazy context
-    let app = build_router(ctx.clone());
-
-    // Create the tunnel implementation with lazy context
-    let tunnel_impl = tunnel::TcpTunnelImpl::new(ctx, app);
-    let user_dispatcher = TcpTunnelDispatcher::new(tunnel_impl);
-
-    // Combine user's dispatcher with tracing dispatcher
-    let tracing_dispatcher = CellTracingDispatcher::new(tracing_service);
-    let dispatcher = RoutedDispatcher::new(
-        tracing_dispatcher, // primary: handles tracing methods
-        user_dispatcher,    // fallback: handles all cell-specific methods
-    );
-
-    let (handle, driver) = establish_guest(transport, dispatcher);
-
-    // Spawn driver in background - must run before ready() so RPC can be processed
-    let driver_handle = tokio::spawn(async move {
-        if let Err(e) = driver.run().await {
-            eprintln!("Driver error: {:?}", e);
-        }
-    });
-
-    // Now initialize the handle cell
-    let _ = handle_cell.set(handle.clone());
-
-    // Signal readiness to host
-    let host = HostServiceClient::new(handle.clone());
-    host.ready(ReadyMsg {
-        peer_id: args.peer_id.get() as u16,
-        cell_name: "http".to_string(),
-        pid: Some(std::process::id()),
-        version: None,
-        features: vec![],
-    })
-    .await?;
-
-    // Wait for driver
-    if let Err(e) = driver_handle.await {
-        eprintln!("[cell-http] driver task panicked: {e:?}");
+    if let Err(e) = result {
+        eprintln!("[cell-http] error: {e}");
+        std::process::exit(1);
     }
-    Ok(())
 }
 
 /// Build the axum router for the internal HTTP server

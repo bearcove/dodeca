@@ -112,7 +112,8 @@ macro_rules! run_cell {
             // Spawn driver in background so it can process the ready() RPC
             let driver_handle = tokio::spawn(async move {
                 if let Err(e) = driver.run().await {
-                    tracing::error!("Driver error: {:?}", e);
+                    eprintln!("Driver error: {:?}", e);
+                    std::process::exit(1);
                 }
             });
 

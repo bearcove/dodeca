@@ -21,8 +21,7 @@ cell-host-proto = { path = "../cell-host-proto" }
 cell-tui-proto = { path = "../cell-tui-proto" }
 color-eyre.workspace = true
 crossterm.workspace = true
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
 open = "5.3.3"
-roam.workspace = true
-roam-shm.workspace = true
 ratatui.workspace = true
 tokio.workspace = true

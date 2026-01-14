@@ -1556,15 +1556,13 @@ dependencies = [
  "axum",
  "cell-host-proto",
  "cell-http-proto",
+ "dodeca-cell-runtime",
  "futures-util",
  "hyper",
  "hyper-util",
  "roam",
- "roam-shm",
- "roam-tracing",
  "tokio",
  "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -1734,10 +1732,9 @@ dependencies = [
  "cell-tui-proto",
  "color-eyre",
  "crossterm",
+ "dodeca-cell-runtime",
  "open",
  "ratatui",
- "roam",
- "roam-shm",
  "tokio",
 ]
 

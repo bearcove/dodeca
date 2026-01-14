@@ -5,6 +5,8 @@
 
 use std::collections::VecDeque;
 use std::io::stdout;
+use std::sync::OnceLock;
+use std::sync::Arc;
 use std::time::Duration;
 
 use color_eyre::Result;
@@ -20,15 +22,13 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
-use roam::session::ConnectionHandle;
-use roam_shm::driver::establish_guest;
-use roam_shm::spawn::SpawnArgs;
-use roam_shm::transport::ShmGuestTransport;
 use tokio::sync::mpsc;
 
-use cell_host_proto::{HostServiceClient, ReadyMsg, ServerCommand};
+use dodeca_cell_runtime::{ConnectionHandle, run_cell};
+
+use cell_host_proto::{HostServiceClient, ServerCommand};
 use cell_tui_proto::{
-    BindMode, BuildProgress, EventKind, LogEvent, LogLevel, ServerStatus, TuiDisplay,
+    BindMode, BuildProgress, EventKind, LogEvent, LogLevel, ServerStatus, TaskStatus, TuiDisplay,
     TuiDisplayDispatcher,
 };
 
@@ -122,15 +122,17 @@ impl TuiApp {
 
         match code {
             KeyCode::Char('c') if modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
-                // Send exit command to host - host will shut down, we die with it
+                // Send exit command to host, then quit TUI
                 let _ = self.command_tx.send(ServerCommand::Exit);
+                self.should_quit = true;
             }
             KeyCode::Char('q') | KeyCode::Esc => {
                 if self.show_help {
                     self.show_help = false;
                 } else {
-                    // Send exit command to host - host will shut down, we die with it
+                    // Send exit command to host, then quit TUI
                     let _ = self.command_tx.send(ServerCommand::Exit);
+                    self.should_quit = true;
                 }
             }
             KeyCode::Char('?') => self.show_help = !self.show_help,
@@ -486,8 +488,6 @@ fn event_color(kind: &EventKind) -> Color {
     }
 }
 
-use cell_tui_proto::TaskStatus;
-
 /// Initialize terminal for TUI
 fn init_terminal() -> Result<DefaultTerminal> {
     enable_raw_mode()?;
@@ -526,62 +526,57 @@ impl TuiDisplay for TuiDisplayImpl {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<()> {
-    color_eyre::install()?;
+fn main() {
+    color_eyre::install().ok();
 
-    let args = SpawnArgs::from_env()?;
-    let transport = ShmGuestTransport::from_spawn_args(&args)?;
+    let result = run_cell!("tui", |handle| {
+        // Channels for receiving updates from host (via TuiDisplay RPC)
+        let (progress_tx, progress_rx) = mpsc::unbounded_channel();
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let (status_tx, status_rx) = mpsc::unbounded_channel();
 
-    // Channels for receiving updates from host (via TuiDisplay RPC)
-    let (progress_tx, progress_rx) = mpsc::unbounded_channel();
-    let (event_tx, event_rx) = mpsc::unbounded_channel();
-    let (status_tx, status_rx) = mpsc::unbounded_channel();
+        // Spawn TUI loop in background
+        tokio::spawn(run_tui_loop(handle, progress_rx, event_rx, status_rx));
 
-    // TuiDisplay service - host calls this to push updates
-    let display_impl = TuiDisplayImpl {
-        progress_tx,
-        event_tx,
-        status_tx,
-    };
-    let dispatcher = TuiDisplayDispatcher::new(display_impl);
-    let (handle, driver) = establish_guest(transport, dispatcher);
-
-    // Spawn driver in background - must run before ready() to process RPC
-    let driver_handle = tokio::spawn(async move {
-        if let Err(e) = driver.run().await {
-            eprintln!("Driver error: {:?}", e);
-        }
+        // Return dispatcher
+        TuiDisplayDispatcher::new(TuiDisplayImpl {
+            progress_tx,
+            event_tx,
+            status_tx,
+        })
     });
 
-    // Signal readiness to host
-    let host = HostServiceClient::new(handle.clone());
-    host.ready(ReadyMsg {
-        peer_id: args.peer_id.get() as u16,
-        cell_name: "tui".to_string(),
-        pid: Some(std::process::id()),
-        version: None,
-        features: vec![],
-    })
-    .await?;
-
-    // Run the TUI loop - when it exits, terminate the cell process
-    let result = run_tui(handle, progress_rx, event_rx, status_rx).await;
-    if let Err(e) = &result {
-        eprintln!("TUI error: {e}");
+    if let Err(e) = result {
+        eprintln!("[cell-tui] error: {e}");
+        std::process::exit(1);
     }
-
-    // TUI exited (user pressed 'q'), shut down
-    drop(driver_handle);
-    std::process::exit(if result.is_ok() { 0 } else { 1 });
 }
 
-async fn run_tui(
-    handle: ConnectionHandle,
+async fn run_tui_loop(
+    handle: Arc<OnceLock<ConnectionHandle>>,
     mut progress_rx: mpsc::UnboundedReceiver<BuildProgress>,
     mut events_rx: mpsc::UnboundedReceiver<LogEvent>,
     mut status_rx: mpsc::UnboundedReceiver<ServerStatus>,
+) {
+    if let Err(e) = run_tui_loop_inner(handle, &mut progress_rx, &mut events_rx, &mut status_rx).await {
+        eprintln!("TUI error: {e}");
+    }
+}
+
+async fn run_tui_loop_inner(
+    handle: Arc<OnceLock<ConnectionHandle>>,
+    progress_rx: &mut mpsc::UnboundedReceiver<BuildProgress>,
+    events_rx: &mut mpsc::UnboundedReceiver<LogEvent>,
+    status_rx: &mut mpsc::UnboundedReceiver<ServerStatus>,
 ) -> Result<()> {
+    // Wait for handle to be ready
+    let handle = loop {
+        if let Some(h) = handle.get() {
+            break h.clone();
+        }
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    };
+
     // Create host client (for sending commands back)
     let client = HostServiceClient::new(handle);
 
@@ -659,7 +654,7 @@ async fn run_tui(
         }
     }
 
-    // Cleanup
+    // Cleanup terminal before exiting TUI loop (cell keeps running)
     restore_terminal()?;
 
     Ok(())
