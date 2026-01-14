@@ -96,5 +96,5 @@ async fn build_search_index_inner(input: SearchIndexInput) -> Result<SearchIndex
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("pagefind", SearchIndexerDispatcher::new(SearchIndexerImpl))
+    run_cell!("pagefind", |_handle| SearchIndexerDispatcher::new(SearchIndexerImpl))
 }

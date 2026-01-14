@@ -18,5 +18,5 @@ impl Minifier for MinifierImpl {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("minify", MinifierDispatcher::new(MinifierImpl))
+    run_cell!("minify", |_handle| MinifierDispatcher::new(MinifierImpl))
 }

@@ -129,8 +129,7 @@ fn convert_req(r: marq::ReqDefinition) -> ReqDefinition {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!(
-        "markdown",
+    run_cell!("markdown", |_handle| {
         MarkdownProcessorDispatcher::new(MarkdownProcessorImpl)
-    )
+    })
 }

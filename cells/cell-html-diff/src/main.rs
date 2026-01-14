@@ -53,5 +53,5 @@ impl HtmlDiffer for HtmlDifferImpl {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("html_diff", HtmlDifferDispatcher::new(HtmlDifferImpl))
+    run_cell!("html_diff", |_handle| HtmlDifferDispatcher::new(HtmlDifferImpl))
 }

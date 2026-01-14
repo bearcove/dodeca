@@ -85,5 +85,5 @@ impl FontProcessor for FontProcessorImpl {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("fonts", FontProcessorDispatcher::new(FontProcessorImpl))
+    run_cell!("fonts", |_handle| FontProcessorDispatcher::new(FontProcessorImpl))
 }

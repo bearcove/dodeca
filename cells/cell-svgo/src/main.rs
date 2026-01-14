@@ -21,5 +21,5 @@ impl SvgoOptimizer for SvgoOptimizerImpl {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("svgo", SvgoOptimizerDispatcher::new(SvgoOptimizerImpl))
+    run_cell!("svgo", |_handle| SvgoOptimizerDispatcher::new(SvgoOptimizerImpl))
 }

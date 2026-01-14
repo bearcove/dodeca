@@ -89,5 +89,5 @@ impl JXLProcessor for JXLProcessorImpl {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("jxl", JXLProcessorDispatcher::new(JXLProcessorImpl))
+    run_cell!("jxl", |_handle| JXLProcessorDispatcher::new(JXLProcessorImpl))
 }

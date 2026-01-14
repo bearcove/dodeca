@@ -118,5 +118,5 @@ impl<'a> Visit<'_> for StringCollector<'a> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("js", JsProcessorDispatcher::new(JsProcessorImpl))
+    run_cell!("js", |_handle| JsProcessorDispatcher::new(JsProcessorImpl))
 }

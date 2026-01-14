@@ -79,5 +79,5 @@ impl grass::Fs for InMemorySassFs {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("sass", SassCompilerDispatcher::new(SassCompilerImpl))
+    run_cell!("sass", |_handle| SassCompilerDispatcher::new(SassCompilerImpl))
 }

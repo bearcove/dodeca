@@ -76,5 +76,5 @@ impl<'i, 'a> lightningcss::visitor::Visitor<'i> for UrlRewriter<'a> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("css", CssProcessorDispatcher::new(CssProcessorImpl))
+    run_cell!("css", |_handle| CssProcessorDispatcher::new(CssProcessorImpl))
 }

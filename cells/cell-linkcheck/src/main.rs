@@ -145,8 +145,7 @@ impl LinkChecker for LinkCheckerImpl {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!(
-        "linkcheck",
+    run_cell!("linkcheck", |_handle| {
         LinkCheckerDispatcher::new(LinkCheckerImpl::new())
-    )
+    })
 }

@@ -48,5 +48,5 @@ impl Dialoguer for DialoguerImpl {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("dialoguer", DialoguerDispatcher::new(DialoguerImpl))
+    run_cell!("dialoguer", |_handle| DialoguerDispatcher::new(DialoguerImpl))
 }

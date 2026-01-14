@@ -10,7 +10,7 @@ use cell_gingembre_proto::{
 use cell_host_proto::{
     CallFunctionResult, HostServiceClient, KeysAtResult, LoadTemplateResult, ResolveDataResult,
 };
-use dodeca_cell_runtime::{ConnectionHandle, run_cell_with_handle};
+use dodeca_cell_runtime::{ConnectionHandle, run_cell};
 use facet_value::DestructuredRef;
 use futures::future::BoxFuture;
 use gingembre::{Context, DataPath, DataResolver, Engine, TemplateLoader, Value};
@@ -246,7 +246,7 @@ impl TemplateRenderer for TemplateRendererImpl {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell_with_handle!("gingembre", |handle, _args| {
+    run_cell!("gingembre", |handle| {
         let renderer = TemplateRendererImpl::new(handle);
         TemplateRendererDispatcher::new(renderer)
     })

@@ -52,5 +52,5 @@ impl WebPProcessor for WebPProcessorImpl {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("webp", WebPProcessorDispatcher::new(WebPProcessorImpl))
+    run_cell!("webp", |_handle| WebPProcessorDispatcher::new(WebPProcessorImpl))
 }

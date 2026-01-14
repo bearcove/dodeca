@@ -171,5 +171,5 @@ fn pixels_to_dynamic_image(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("image", ImageProcessorDispatcher::new(ImageProcessorImpl))
+    run_cell!("image", |_handle| ImageProcessorDispatcher::new(ImageProcessorImpl))
 }

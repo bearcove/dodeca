@@ -10,8 +10,7 @@ use cell_code_execution_proto::{CodeExecutionResult, CodeExecutor, CodeExecutorD
 include!("impl.rs");
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!(
-        "code_execution",
+    run_cell!("code_execution", |_handle| {
         CodeExecutorDispatcher::new(CodeExecutorImpl)
-    )
+    })
 }

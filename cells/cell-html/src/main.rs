@@ -20,7 +20,7 @@ use cell_html_proto::{
     CodeExecutionMetadata, DiffResult, HtmlDiffResult, HtmlHostClient, HtmlProcessInput,
     HtmlProcessResult, HtmlProcessor, HtmlProcessorDispatcher, HtmlResult, Injection,
 };
-use dodeca_cell_runtime::{ConnectionHandle, run_cell_with_handle};
+use dodeca_cell_runtime::{ConnectionHandle, run_cell};
 
 mod diff;
 
@@ -1109,7 +1109,7 @@ fn apply_injection(doc: &mut Html, injection: &Injection) {
 // ============================================================================
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell_with_handle!("html", |handle, _args| {
+    run_cell!("html", |handle| {
         let processor = HtmlProcessorImpl::new(handle);
         HtmlProcessorDispatcher::new(processor)
     })
