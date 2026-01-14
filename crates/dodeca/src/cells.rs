@@ -595,7 +595,17 @@ async fn init_cells() -> CellRegistry {
 async fn init_cells_inner() -> eyre::Result<()> {
     use crate::host::PendingCell;
 
-    // Create temp SHM path
+    // Clean up stale SHM files from previous runs
+    #[cfg(unix)]
+    roam_shm::cleanup::cleanup_stale_shm_files("dodeca-shm")?;
+
+    // Create SHM path in /tmp/roam-shm/ directory
+    // The watchdog cleans up on exit, and we clean up stale files on startup
+    #[cfg(unix)]
+    let shm_path = roam_shm::cleanup::get_shm_path("dodeca-shm", std::process::id())?;
+
+    // On Windows, use regular temp dir (Auto cleanup via FILE_FLAG_DELETE_ON_CLOSE)
+    #[cfg(not(unix))]
     let shm_path = std::env::temp_dir().join(format!("dodeca-shm-{}", std::process::id()));
 
     // Configure segment for multi-cell architecture
@@ -609,13 +619,26 @@ async fn init_cells_inner() -> eyre::Result<()> {
         slots_per_guest: 16, // 16 concurrent messages per cell (was 64!)
         slot_size: max_payload + 8,
         max_payload_size: max_payload,
-        file_cleanup: roam_shm::FileCleanup::Auto,
+        // On Windows: FILE_FLAG_DELETE_ON_CLOSE deletes when all handles close (guests can still open)
+        // On Unix: Manual cleanup via Drop guard (unlink immediately breaks lazy spawning)
+        file_cleanup: if cfg!(windows) {
+            roam_shm::FileCleanup::Auto
+        } else {
+            roam_shm::FileCleanup::Manual
+        },
         ..SegmentConfig::default()
     };
 
     // Create SHM host
     let mut host = ShmHost::create(&shm_path, config)?;
     debug!("init_cells_inner: SHM host created");
+
+    // On Unix: spawn watchdog and create .meta file
+    #[cfg(unix)]
+    {
+        roam_shm::cleanup::write_meta_file(&shm_path)?;
+        roam_shm::cleanup::spawn_watchdog(shm_path.clone())?;
+    }
 
     // Find cell binary directory
     let cell_dir = find_cell_directory()?;

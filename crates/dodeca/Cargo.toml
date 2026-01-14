@@ -66,6 +66,7 @@ futures-util.workspace = true
 if-addrs.workspace = true
 ignore.workspace = true
 include_dir.workspace = true
+libc.workspace = true
 notify.workspace = true
 open.workspace = true
 owo-colors.workspace = true
