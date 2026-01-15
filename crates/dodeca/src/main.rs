@@ -2832,10 +2832,6 @@ async fn serve_with_tui(
     tokio::spawn(async move {
         while let Some(proto_cmd) = proto_cmd_rx.recv().await {
             match proto_cmd {
-                cell_tui_proto::ServerCommand::Exit => {
-                    // TUI requested shutdown - signal the main loop
-                    host::Host::get().signal_exit();
-                }
                 cell_tui_proto::ServerCommand::CycleLogLevel => {
                     // Handle directly - cycle the log level
                     let new_level = filter_handle_for_bridge.cycle_log_level();

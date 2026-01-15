@@ -250,8 +250,6 @@ pub enum ServerCommand {
     CycleLogLevel,
     /// Set a custom log filter expression (RUST_LOG style)
     SetLogFilter { filter: String },
-    /// Request graceful shutdown
-    Exit,
 }
 
 /// Result of a command

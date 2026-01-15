@@ -5,8 +5,8 @@
 
 use std::collections::VecDeque;
 use std::io::stdout;
-use std::sync::OnceLock;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use color_eyre::Result;
@@ -122,16 +122,12 @@ impl TuiApp {
 
         match code {
             KeyCode::Char('c') if modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
-                // Send exit command to host, then quit TUI
-                let _ = self.command_tx.send(ServerCommand::Exit);
                 self.should_quit = true;
             }
             KeyCode::Char('q') | KeyCode::Esc => {
                 if self.show_help {
                     self.show_help = false;
                 } else {
-                    // Send exit command to host, then quit TUI
-                    let _ = self.command_tx.send(ServerCommand::Exit);
                     self.should_quit = true;
                 }
             }
@@ -558,7 +554,9 @@ async fn run_tui_loop(
     mut events_rx: mpsc::UnboundedReceiver<LogEvent>,
     mut status_rx: mpsc::UnboundedReceiver<ServerStatus>,
 ) {
-    if let Err(e) = run_tui_loop_inner(handle, &mut progress_rx, &mut events_rx, &mut status_rx).await {
+    if let Err(e) =
+        run_tui_loop_inner(handle, &mut progress_rx, &mut events_rx, &mut status_rx).await
+    {
         eprintln!("TUI error: {e}");
     }
 }
@@ -650,6 +648,12 @@ async fn run_tui_loop_inner(
         terminal.draw(|frame| app.draw(frame))?;
 
         if app.should_quit {
+            // Send any pending commands before exiting
+            while let Ok(cmd) = command_rx.try_recv() {
+                let _ = client.send_command(cmd).await;
+            }
+            // Tell the host to quit
+            let _ = client.quit().await;
             break;
         }
     }

@@ -83,4 +83,7 @@ pub trait HostService {
 
     /// Send a command from TUI to the server.
     async fn send_command(&self, command: ServerCommand) -> CommandResult;
+
+    /// Request graceful shutdown.
+    async fn quit(&self);
 }

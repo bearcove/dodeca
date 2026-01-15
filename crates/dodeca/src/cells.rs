@@ -281,6 +281,10 @@ impl HostService for HostServiceImpl {
         // Forward to Host singleton
         crate::host::Host::get().handle_tui_command(command)
     }
+
+    async fn quit(&self) {
+        crate::host::Host::get().signal_exit();
+    }
 }
 
 /// Get the TUI display client for pushing updates to the TUI cell.
@@ -460,10 +464,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
     info!(
         slots_per_guest,
-        max_guests,
-        ring_size,
-        max_payload_mb,
-        "SHM config (override with DODECA_SHM_* env vars)"
+        max_guests, ring_size, max_payload_mb, "SHM config (override with DODECA_SHM_* env vars)"
     );
 
     let config = SegmentConfig {
