@@ -368,9 +368,14 @@ pub async fn compile_sass<DB: Db>(db: &DB) -> PicanteResult<Option<CompiledCss>>
         return Ok(None);
     }
 
+    tracing::info!(num_files = sass_map.len(), "Compiling SASS");
+
     // Compile via cell
     match crate::cells::compile_sass_cell(&sass_map).await {
-        Ok(cell_sass_proto::SassResult::Success { css }) => Ok(Some(CompiledCss(css))),
+        Ok(cell_sass_proto::SassResult::Success { css }) => {
+            tracing::info!(output_bytes = css.len(), "SASS compilation complete");
+            Ok(Some(CompiledCss(css)))
+        }
         Ok(cell_sass_proto::SassResult::Error { message }) => {
             tracing::error!("SASS compilation failed: {}", message);
             Ok(None)
@@ -405,12 +410,16 @@ pub type ParseFileResult = Result<ParsedData, crate::cells::MarkdownParseError>;
 /// Parse a source file into ParsedData
 /// This is the main tracked function - memoizes the result
 #[picante::tracked]
+#[tracing::instrument(skip_all, name = "parse_file", fields(path))]
 pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<ParseFileResult> {
     use cell_markdown_proto::ParseResult;
 
     let content = source.content(db)?;
     let path = source.path(db)?;
     let last_modified = source.last_modified(db)?;
+
+    tracing::Span::current().record("path", path.as_str());
+    tracing::info!(path = %path, "Parsing markdown");
 
     // Use the markdown cell to parse frontmatter and render markdown
     let parse_result = match parse_and_render_markdown_cell(path.as_str(), content.as_str()).await {
@@ -636,12 +645,14 @@ fn find_parent_section(route: &Route, sections: &BTreeMap<Route, Section>) -> Ro
 /// Template dependencies are tracked lazily - only templates loaded during rendering are recorded.
 /// Data dependencies are also tracked lazily - only data paths actually accessed become dependencies.
 #[picante::tracked]
-#[tracing::instrument(skip_all, name = "render_page")]
+#[tracing::instrument(skip_all, name = "render_page", fields(route = %route))]
 pub async fn render_page<DB: Db>(
     db: &DB,
     route: Route,
 ) -> PicanteResult<Result<RenderedHtml, BuildError>> {
     use crate::render::{render_page_via_cell, render_page_with_resolver};
+
+    tracing::info!(route = %route, "Rendering page");
 
     // Build tree (cached)
     let site_tree = match build_tree(db).await? {
@@ -680,12 +691,14 @@ pub async fn render_page<DB: Db>(
 /// Template dependencies are tracked lazily - only templates loaded during rendering are recorded.
 /// Data dependencies are also tracked lazily - only data paths actually accessed become dependencies.
 #[picante::tracked]
-#[tracing::instrument(skip_all, name = "render_section")]
+#[tracing::instrument(skip_all, name = "render_section", fields(route = %route))]
 pub async fn render_section<DB: Db>(
     db: &DB,
     route: Route,
 ) -> PicanteResult<Result<RenderedHtml, BuildError>> {
     use crate::render::{render_section_via_cell, render_section_with_resolver};
+
+    tracing::info!(route = %route, "Rendering section");
 
     // Build tree (cached)
     let site_tree = match build_tree(db).await? {
@@ -826,11 +839,7 @@ pub async fn subset_font<DB: Db>(
 
     let path = font_file.path(db)?.as_str().to_string();
     let num_chars = chars.chars(db).map(|c| c.len()).unwrap_or(0);
-    tracing::debug!(
-        font_path = %path,
-        num_chars,
-        "🟡 QUERY: subset_font COMPUTING (picante cache miss)"
-    );
+    tracing::info!(font = %path, num_chars, "Subsetting font");
 
     // First, decompress the font (handles WOFF2/WOFF1 -> TTF)
     let Some(decompressed) = decompress_font(db, font_file).await? else {
@@ -934,11 +943,11 @@ pub async fn process_image<DB: Db>(
 
     // Check CAS cache first
     if let Some(cached) = get_cached_image(&content_hash) {
-        tracing::debug!("Image cache hit for {}", path.as_str());
+        tracing::debug!(image = %path, "Image cache hit");
         return Ok(Some(cached));
     }
 
-    tracing::debug!("Image cache miss for {}", path.as_str());
+    tracing::info!(image = %path, bytes = data.len(), "Processing image");
 
     let Some(processed) = image::process_image(&data, input_format).await else {
         return Ok(None);

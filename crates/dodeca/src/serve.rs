@@ -623,7 +623,7 @@ impl SiteServer {
     }
 
     /// Load cached query results from disk
-    pub fn load_cache(&self, cache_path: &std::path::Path) -> Result<()> {
+    pub async fn load_cache(&self, cache_path: &std::path::Path) -> Result<()> {
         // Check version file first - if missing or mismatched, delete the cache
         let version_path = cache_path.with_extension("version");
         let version_ok = if version_path.exists() {
@@ -651,18 +651,36 @@ impl SiteServer {
             return Ok(());
         }
 
-        // TODO: picante cache serialization not yet implemented
-        // For now, we always start fresh
-        tracing::debug!("Cache loading disabled (picante migration in progress)");
+        match self.db.load_from_cache(cache_path).await {
+            Ok(true) => {
+                tracing::info!("Loaded picante cache from {:?}", cache_path);
+            }
+            Ok(false) => {
+                tracing::debug!("No cache file found");
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load cache: {:?}", e);
+            }
+        }
         Ok(())
     }
 
     /// Save cached query results to disk
-    pub fn save_cache(&self, cache_path: &std::path::Path) -> Result<()> {
-        // TODO: picante cache serialization not yet implemented
-        // For now, skip saving
-        let _ = cache_path;
-        tracing::debug!("Cache saving disabled (picante migration in progress)");
+    pub async fn save_cache(&self, cache_path: &std::path::Path) -> Result<()> {
+        // Write version file
+        let version_path = cache_path.with_extension("version");
+        if let Err(e) = std::fs::write(&version_path, PICANTE_CACHE_VERSION.to_string()) {
+            tracing::warn!("Failed to write cache version file: {}", e);
+        }
+
+        match self.db.save_to_cache(cache_path).await {
+            Ok(()) => {
+                tracing::info!("Saved picante cache to {:?}", cache_path);
+            }
+            Err(e) => {
+                tracing::warn!("Failed to save cache: {:?}", e);
+            }
+        }
         Ok(())
     }
 

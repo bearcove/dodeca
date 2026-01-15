@@ -2303,7 +2303,7 @@ async fn serve_with_tui(
         .parent()
         .unwrap_or(content_dir)
         .join(".cache/dodeca.bin");
-    if let Err(e) = server.load_cache(cache_path.as_std_path()) {
+    if let Err(e) = server.load_cache(cache_path.as_std_path()).await {
         let _ = event_tx.send(LogEvent::warn(format!("Failed to load cache: {e}")));
     }
 
@@ -2938,7 +2938,7 @@ async fn serve_with_tui(
         eprintln!("Failed to create cache dir: {e}");
     }
     let cache_start = std::time::Instant::now();
-    match server.save_cache(cache_path.as_std_path()) {
+    match server.save_cache(cache_path.as_std_path()).await {
         Ok(()) => eprintln!("Cache saved in {:.2?}", cache_start.elapsed()),
         Err(e) => eprintln!("Failed to save cache: {e}"),
     }
