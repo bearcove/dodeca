@@ -61,6 +61,7 @@ macro_rules! run_cell {
 
         async fn __run_cell_async() -> Result<(), Box<dyn std::error::Error>> {
             let args = SpawnArgs::from_env()?;
+            let peer_id = args.peer_id;
             let transport = ShmGuestTransport::from_spawn_args(args)?;
 
             // Initialize cell-side tracing

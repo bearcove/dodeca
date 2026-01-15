@@ -369,13 +369,24 @@ async fn async_main(command: Command) -> Result<()> {
     match command {
         Command::Build(args) => {
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
-            build_with_mini_tui(
-                &cfg.content_dir,
-                &cfg.output_dir,
-                &cfg.skip_domains,
-                cfg.rate_limit_ms,
-            )
-            .await
+
+            // Initialize tracing (respects RUST_LOG)
+            logging::init_standard_tracing();
+
+            let options = BuildOptions {
+                render_options: render::RenderOptions {
+                    livereload: false,
+                    dev_mode: false,
+                },
+                progress: None,
+                link_check: LinkCheckOptions::Full {
+                    skip_domains: cfg.skip_domains,
+                    rate_limit_ms: cfg.rate_limit_ms,
+                },
+            };
+
+            build(&cfg.content_dir, &cfg.output_dir, options).await?;
+            Ok(())
         }
         Command::Serve(args) => {
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
@@ -515,12 +526,39 @@ fn terminal_link(url: &str, text: &str) -> String {
     )
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum BuildMode {
-    /// Full build - block on link checking and search index
-    Full,
-    /// Quick build - just HTML, async link checking
-    Quick,
+/// Link checking options for build
+#[derive(Clone, Default)]
+pub enum LinkCheckOptions {
+    /// No link checking
+    #[default]
+    None,
+    /// Internal links only (fast, no network)
+    InternalOnly,
+    /// Full link checking (internal + external)
+    Full {
+        skip_domains: Vec<String>,
+        rate_limit_ms: Option<u64>,
+    },
+}
+
+/// Options for the build function
+pub struct BuildOptions {
+    /// Render options (livereload, dev_mode)
+    pub render_options: render::RenderOptions,
+    /// Optional TUI progress reporter
+    pub progress: Option<tui::ProgressReporter>,
+    /// Link checking configuration
+    pub link_check: LinkCheckOptions,
+}
+
+impl Default for BuildOptions {
+    fn default() -> Self {
+        Self {
+            render_options: render::RenderOptions::default(),
+            progress: None,
+            link_check: LinkCheckOptions::None,
+        }
+    }
 }
 
 /// The build context with picante database
@@ -883,9 +921,7 @@ pub struct BuildStats {
 pub async fn build(
     content_dir: &Utf8PathBuf,
     output_dir: &Utf8PathBuf,
-    mode: BuildMode,
-    progress: Option<tui::ProgressReporter>,
-    render_options: render::RenderOptions,
+    options: BuildOptions,
 ) -> Result<BuildContext> {
     use std::time::Instant;
 
@@ -894,7 +930,8 @@ pub async fn build(
     unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
 
     let start = Instant::now();
-    let verbose = progress.is_none(); // Print to stdout when no TUI progress
+    let verbose = options.progress.is_none(); // Print to stdout when no TUI progress
+    let render_options = options.render_options;
 
     // Open content-addressed storage at base dir
     let base_dir = content_dir.parent().unwrap_or(content_dir);
@@ -941,7 +978,7 @@ pub async fn build(
     DataRegistry::set(&*ctx.db, data_vec)?;
 
     // Update progress: parsing phase
-    if let Some(ref p) = progress {
+    if let Some(ref p) = options.progress {
         p.update(|prog| prog.parse.start(ctx.sources.len()));
     }
 
@@ -1022,7 +1059,7 @@ pub async fn build(
         }
     }
 
-    if let Some(ref p) = progress {
+    if let Some(ref p) = options.progress {
         p.update(|prog| {
             prog.parse.finish();
             prog.render.start(site_output.files.len());
@@ -1080,7 +1117,7 @@ pub async fn build(
         }
     }
 
-    if let Some(ref p) = progress {
+    if let Some(ref p) = options.progress {
         p.update(|prog| {
             prog.render.finish();
             prog.sass.finish();
@@ -1116,48 +1153,166 @@ pub async fn build(
         }
     }
 
-    if mode == BuildMode::Full {
-        // Check internal links
-        let pages = site_output.files.iter().filter_map(|f| match f {
-            OutputFile::Html { route, content } => Some(link_checker::Page {
-                route,
-                html: content,
-            }),
-            _ => None,
-        });
-        let link_result = link_checker::check_links(pages);
-
-        if let Some(ref p) = progress {
-            p.update(|prog| prog.links.finish());
+    // Link checking based on options
+    match &options.link_check {
+        LinkCheckOptions::None => {
+            // No link checking
         }
+        LinkCheckOptions::InternalOnly => {
+            // Check internal links only
+            tracing::info!("Checking internal links...");
+            let pages = site_output.files.iter().filter_map(|f| match f {
+                OutputFile::Html { route, content } => Some(link_checker::Page {
+                    route,
+                    html: content,
+                }),
+                _ => None,
+            });
+            let link_result = link_checker::check_links(pages);
 
-        if !link_result.is_ok() {
-            for broken in &link_result.broken_links {
-                eprintln!(
-                    "{}: {} -> {}",
-                    broken.source_route.as_str().yellow(),
-                    broken.href.red(),
-                    broken.reason
+            if let Some(ref p) = options.progress {
+                p.update(|prog| prog.links.finish());
+            }
+
+            if !link_result.is_ok() {
+                for broken in &link_result.broken_links {
+                    eprintln!(
+                        "{}: {} -> {}",
+                        broken.source_route.as_str().yellow(),
+                        broken.href.red(),
+                        broken.reason
+                    );
+                }
+                return Err(eyre!(
+                    "Found {} broken link(s)",
+                    link_result.broken_links.len()
+                ));
+            }
+
+            if verbose {
+                println!(
+                    "{} {} links ({} internal, {} external)",
+                    "Checked".cyan(),
+                    link_result.total_links,
+                    link_result.internal_links,
+                    link_result.external_links
                 );
             }
-            return Err(eyre!(
-                "Found {} broken link(s)",
-                link_result.broken_links.len()
-            ));
-        }
 
-        if verbose {
-            println!(
-                "{} {} links ({} internal, {} external)",
-                "Checked".cyan(),
-                link_result.total_links,
-                link_result.internal_links,
-                link_result.external_links
-            );
+            if let Some(ref p) = options.progress {
+                p.update(|prog| prog.search.finish());
+            }
         }
+        LinkCheckOptions::Full {
+            skip_domains,
+            rate_limit_ms,
+        } => {
+            // Full link checking: internal + external
+            tracing::info!("Checking links (internal + external)...");
+            let pages = site_output.files.iter().filter_map(|f| match f {
+                OutputFile::Html { route, content } => Some(link_checker::Page {
+                    route,
+                    html: content,
+                }),
+                _ => None,
+            });
+            let extracted = link_checker::extract_links(pages);
+            let mut link_result = link_checker::check_internal_links(&extracted);
 
-        if let Some(ref p) = progress {
-            p.update(|prog| prog.search.finish());
+            // Check external links with date-based caching
+            let today = chrono::Local::now().date_naive();
+            let mut external_options =
+                link_checker::ExternalLinkOptions::new().skip_domains(skip_domains.iter().cloned());
+            if let Some(ms) = rate_limit_ms {
+                external_options = external_options.rate_limit_ms(*ms);
+            }
+
+            let extracted_external = extracted.external.clone();
+            let known_routes = extracted.known_routes.clone();
+            let (external_broken, external_checked) = {
+                let ext = link_checker::ExtractedLinks {
+                    total: extracted.total,
+                    internal: vec![],
+                    external: extracted_external,
+                    known_routes,
+                    heading_ids: std::collections::HashMap::new(),
+                };
+                let mut cache = std::collections::HashMap::new();
+                link_checker::check_external_links(&ext, &mut cache, today, &external_options).await
+            };
+
+            link_result.external_checked = external_checked;
+            link_result.broken_links.extend(external_broken);
+
+            if let Some(ref p) = options.progress {
+                p.update(|prog| prog.links.finish());
+            }
+
+            if !link_result.is_ok() {
+                // Group broken links by URL to avoid repetition
+                let mut by_url: std::collections::BTreeMap<&str, Vec<&str>> =
+                    std::collections::BTreeMap::new();
+                let mut reasons: std::collections::HashMap<&str, &str> =
+                    std::collections::HashMap::new();
+                let mut is_external: std::collections::HashMap<&str, bool> =
+                    std::collections::HashMap::new();
+
+                for broken in &link_result.broken_links {
+                    by_url
+                        .entry(broken.href.as_str())
+                        .or_default()
+                        .push(broken.source_route.as_str());
+                    reasons.insert(broken.href.as_str(), &broken.reason);
+                    is_external.insert(broken.href.as_str(), broken.is_external);
+                }
+
+                for (href, sources) in &by_url {
+                    let prefix = if *is_external.get(href).unwrap_or(&false) {
+                        "[ext]"
+                    } else {
+                        "[int]"
+                    };
+                    let reason = reasons.get(href).unwrap_or(&"unknown");
+                    if sources.len() == 1 {
+                        eprintln!(
+                            "{} {} -> {} (from {})",
+                            prefix.dimmed(),
+                            href.red(),
+                            reason,
+                            sources[0].yellow()
+                        );
+                    } else {
+                        eprintln!(
+                            "{} {} -> {} (from {} pages)",
+                            prefix.dimmed(),
+                            href.red(),
+                            reason,
+                            sources.len()
+                        );
+                    }
+                }
+
+                return Err(eyre!(
+                    "Found {} broken link(s) ({} internal, {} external) across {} unique URLs",
+                    link_result.broken_links.len(),
+                    link_result.internal_broken(),
+                    link_result.external_broken(),
+                    by_url.len()
+                ));
+            }
+
+            if verbose {
+                println!(
+                    "{} {} internal, {} external checked",
+                    "Links".green().bold(),
+                    link_result.internal_links,
+                    link_result.external_checked
+                );
+            }
+
+            if let Some(ref p) = options.progress {
+                p.update(|prog| prog.search.finish());
+            }
         }
     }
 
@@ -1183,290 +1338,6 @@ pub async fn build(
     store.save()?;
 
     Ok(ctx)
-}
-
-/// Build with progress output
-/// FIXME: omg why is this duplicated
-async fn build_with_mini_tui(
-    content_dir: &Utf8PathBuf,
-    output_dir: &Utf8PathBuf,
-    skip_domains: &[String],
-    rate_limit_ms: Option<u64>,
-) -> Result<()> {
-    use std::time::Instant;
-
-    // Initialize tracing (respects RUST_LOG)
-    logging::init_standard_tracing();
-
-    let start = Instant::now();
-
-    // Open CAS
-    let base_dir = content_dir.parent().unwrap_or(content_dir);
-    // Initialize cache directory
-    let cache_dir = base_dir.join(".cache");
-
-    let cas_path = cache_dir.join("cas.db");
-    let mut store = cas::ContentStore::open(&cas_path)?;
-    cas::init_asset_cache(cache_dir.as_std_path())?;
-
-    // Create query stats
-    let query_stats = QueryStats::new();
-    let stats_for_display = Arc::clone(&query_stats);
-
-    // Create build context with stats
-    let mut ctx = BuildContext::with_stats(content_dir, output_dir, Some(query_stats));
-
-    // Load files
-    ctx.load_sources()?;
-    ctx.load_templates()?;
-    ctx.load_sass()?;
-    ctx.load_static()?;
-    ctx.load_data()?;
-
-    let input_count = ctx.sources.len()
-        + ctx.templates.len()
-        + ctx.sass_files.len()
-        + ctx.static_files.len()
-        + ctx.data_files.len();
-
-    tracing::info!("Loading {} files...", input_count);
-
-    // Create registries
-    let source_vec: Vec<_> = ctx.sources.values().copied().collect();
-    let template_vec: Vec<_> = ctx.templates.values().copied().collect();
-    let sass_vec: Vec<_> = ctx.sass_files.values().copied().collect();
-    let static_vec: Vec<_> = ctx.static_files.values().copied().collect();
-    let data_vec: Vec<_> = ctx.data_files.values().copied().collect();
-
-    SourceRegistry::set(&*ctx.db, source_vec)?;
-    TemplateRegistry::set(&*ctx.db, template_vec)?;
-    SassRegistry::set(&*ctx.db, sass_vec)?;
-    StaticRegistry::set(&*ctx.db, static_vec)?;
-    DataRegistry::set(&*ctx.db, data_vec)?;
-
-    tracing::info!("Building...");
-
-    // Run the build query
-    let site_output = match db::TASK_DB
-        .scope(ctx.db_arc(), build_site(&*ctx.db))
-        .await?
-    {
-        Ok(output) => output,
-        Err(build_error) => {
-            eprintln!("{}", build_error);
-            std::process::exit(1);
-        }
-    };
-
-    // Code execution validation
-    let failed_executions: Vec<_> = site_output
-        .code_execution_results
-        .iter()
-        .filter(|result| result.status == db::CodeExecutionStatus::Failed)
-        .collect();
-
-    if !failed_executions.is_empty() {
-        for failure in &failed_executions {
-            eprintln!(
-                "{}Code execution failed in {}:{} ({}): {}",
-                "✗ ".red(),
-                failure.source_path,
-                failure.line,
-                failure.language,
-                failure.error.as_deref().unwrap_or("Unknown error")
-            );
-            if !failure.stderr.is_empty() {
-                eprintln!("  stderr: {}", failure.stderr);
-            }
-        }
-
-        // In build mode, always fail on code execution errors
-        return Err(eyre!(
-            "Build failed: {} code sample(s) failed execution",
-            failed_executions.len()
-        ));
-    } else if !site_output.code_execution_results.is_empty() {
-        let executed = site_output
-            .code_execution_results
-            .iter()
-            .filter(|r| r.status == db::CodeExecutionStatus::Success)
-            .count();
-        let skipped = site_output
-            .code_execution_results
-            .iter()
-            .filter(|r| r.status == db::CodeExecutionStatus::Skipped)
-            .count();
-
-        if skipped > 0 {
-            println!(
-                "{} {} code samples executed successfully, {} skipped",
-                "✓".green(),
-                executed,
-                skipped
-            );
-        } else {
-            println!(
-                "{} {} code samples executed successfully",
-                "✓".green(),
-                executed
-            );
-        }
-    }
-
-    tracing::info!("Writing outputs...");
-
-    // Write outputs
-    let mut written = 0usize;
-    let mut skipped = 0usize;
-
-    let render_options = render::RenderOptions {
-        livereload: false,
-        dev_mode: false,
-    };
-
-    for output in &site_output.files {
-        match output {
-            OutputFile::Html { route, content } => {
-                if !render_options.dev_mode && content.contains(render::RENDER_ERROR_MARKER) {
-                    let error_start = content.find("<pre>").map(|i| i + 5).unwrap_or(0);
-                    let error_end = content.find("</pre>").unwrap_or(content.len());
-                    let error_msg = &content[error_start..error_end];
-                    return Err(eyre!(
-                        "Template error rendering {}: {}",
-                        route.as_str(),
-                        error_msg
-                    ));
-                }
-
-                let final_html = inject_livereload_with_build_info(
-                    content,
-                    render_options,
-                    None,
-                    &site_output.code_execution_results,
-                )
-                .await;
-                let path = route_to_path(output_dir, route);
-
-                if store.write_if_changed(&path, final_html.as_bytes())? {
-                    written += 1;
-                } else {
-                    skipped += 1;
-                }
-            }
-            OutputFile::Css { path, content } => {
-                let dest = output_dir.join(path.as_str());
-                if store.write_if_changed(&dest, content.as_bytes())? {
-                    written += 1;
-                } else {
-                    skipped += 1;
-                }
-            }
-            OutputFile::Static { path, content } => {
-                let dest = output_dir.join(path.as_str());
-                if store.write_if_changed(&dest, content)? {
-                    written += 1;
-                } else {
-                    skipped += 1;
-                }
-            }
-        }
-    }
-
-    // Check links
-    tracing::info!("Checking links...");
-
-    let pages = site_output.files.iter().filter_map(|f| match f {
-        OutputFile::Html { route, content } => Some(link_checker::Page {
-            route,
-            html: content,
-        }),
-        _ => None,
-    });
-    let extracted = link_checker::extract_links(pages);
-    let mut link_result = link_checker::check_internal_links(&extracted);
-
-    // Check external links with date-based caching
-    let today = chrono::Local::now().date_naive();
-    let mut external_options =
-        link_checker::ExternalLinkOptions::new().skip_domains(skip_domains.iter().cloned());
-    if let Some(ms) = rate_limit_ms {
-        external_options = external_options.rate_limit_ms(ms);
-    }
-
-    // Run external link checking in a separate thread with its own runtime
-    let extracted_external = extracted.external.clone();
-    let known_routes = extracted.known_routes.clone();
-    let (external_broken, external_checked) = {
-        let ext = link_checker::ExtractedLinks {
-            total: extracted.total,
-            internal: vec![],
-            external: extracted_external,
-            known_routes,
-            heading_ids: std::collections::HashMap::new(), // Not needed for external links
-        };
-        {
-            let mut cache = std::collections::HashMap::new();
-            link_checker::check_external_links(&ext, &mut cache, today, &external_options).await
-        }
-    };
-
-    link_result.external_checked = external_checked;
-    link_result.broken_links.extend(external_broken);
-
-    if !link_result.is_ok() {
-        for broken in &link_result.broken_links {
-            let prefix = if broken.is_external { "[ext]" } else { "[int]" };
-            eprintln!(
-                "{} {}: {} -> {}",
-                prefix.dimmed(),
-                broken.source_route.as_str().yellow(),
-                broken.href.as_str().red(),
-                broken.reason
-            );
-        }
-        return Err(eyre!(
-            "Found {} broken link(s) ({} internal, {} external)",
-            link_result.broken_links.len(),
-            link_result.internal_broken(),
-            link_result.external_broken()
-        ));
-    }
-
-    // Build search index
-    tracing::debug!("Building search index...");
-
-    // Calculate output directory size
-    let output_size = dir_size(output_dir);
-
-    // Print final summary
-    let elapsed = start.elapsed();
-    println!(
-        "{} {} inputs → {} queries ({} executed) → {} written, {} up-to-date",
-        "Build".green().bold(),
-        input_count,
-        stats_for_display.total(),
-        stats_for_display.executed(),
-        written,
-        skipped,
-    );
-    println!(
-        "{} {} internal, {} external checked",
-        "Links".green().bold(),
-        link_result.internal_links,
-        link_result.external_checked
-    );
-    println!(
-        "{} in {:.2}s → {} ({})",
-        "Done".green().bold(),
-        elapsed.as_secs_f64(),
-        output_dir.cyan(),
-        format_bytes(output_size)
-    );
-
-    // Save content store hashes
-    store.save()?;
-
-    Ok(())
 }
 
 /// Handle a file change event by updating or adding it to picante

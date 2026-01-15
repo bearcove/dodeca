@@ -13,6 +13,16 @@ use cell_linkcheck_proto::{
     LinkStatus,
 };
 
+/// Generate a realistic browser User-Agent string.
+///
+/// We're not happy about this, but many websites return 404 or 403 for perfectly
+/// valid pages when they see an honest bot-like User-Agent. Using a browser-like
+/// UA is the only way to get accurate link checking results.
+fn generate_user_agent() -> String {
+    // Chrome 131 on macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36".to_string()
+}
+
 /// LinkChecker implementation
 #[derive(Clone)]
 pub struct LinkCheckerImpl {
@@ -24,7 +34,7 @@ impl LinkCheckerImpl {
     fn new() -> Self {
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
-            .user_agent("dodeca-linkcheck/1.0")
+            .user_agent(generate_user_agent())
             .redirect(reqwest::redirect::Policy::limited(10))
             .build()
             .expect("failed to create HTTP client");
@@ -52,7 +62,8 @@ impl LinkCheckerImpl {
 
         let timeout = Duration::from_secs(timeout_secs);
 
-        match tokio::time::timeout(timeout, self.client.head(url).send()).await {
+        // Always use GET - HEAD is unreliable (many servers don't implement it correctly)
+        match tokio::time::timeout(timeout, self.client.get(url).send()).await {
             Ok(Ok(response)) => {
                 let status_code = response.status().as_u16();
                 if response.status().is_success() || response.status().is_redirection() {
@@ -61,42 +72,27 @@ impl LinkCheckerImpl {
                         code: None,
                         message: None,
                     }
-                } else if status_code == 405 {
-                    // Method not allowed - try GET instead
-                    match tokio::time::timeout(timeout, self.client.get(url).send()).await {
-                        Ok(Ok(response)) => {
-                            let status_code = response.status().as_u16();
-                            if response.status().is_success() || response.status().is_redirection()
-                            {
-                                LinkStatus {
-                                    status: "ok".to_string(),
-                                    code: None,
-                                    message: None,
-                                }
-                            } else {
-                                LinkStatus {
-                                    status: "error".to_string(),
-                                    code: Some(status_code),
-                                    message: None,
-                                }
-                            }
-                        }
-                        Ok(Err(e)) => LinkStatus {
-                            status: "failed".to_string(),
-                            code: None,
-                            message: Some(e.to_string()),
-                        },
-                        Err(_) => LinkStatus {
-                            status: "failed".to_string(),
-                            code: None,
-                            message: Some("request timed out".to_string()),
-                        },
-                    }
                 } else {
+                    // Try to get a snippet of the response body for context
+                    let body_snippet = response
+                        .text()
+                        .await
+                        .ok()
+                        .map(|text| {
+                            // Take first 200 chars, clean up whitespace
+                            let cleaned: String = text
+                                .chars()
+                                .take(200)
+                                .map(|c| if c.is_whitespace() { ' ' } else { c })
+                                .collect();
+                            cleaned.trim().to_string()
+                        })
+                        .filter(|s| !s.is_empty());
+
                     LinkStatus {
                         status: "error".to_string(),
                         code: Some(status_code),
-                        message: None,
+                        message: body_snippet,
                     }
                 }
             }
@@ -132,9 +128,29 @@ impl LinkChecker for LinkCheckerImpl {
                 last_request_per_domain.insert(domain, tokio::time::Instant::now());
             }
 
+            let start = std::time::Instant::now();
             let status = self.check_single_url(&url, input.timeout_secs).await;
+            let elapsed_ms = start.elapsed().as_millis();
 
-            tracing::debug!(url = %url, status = %status.status, "checked link");
+            // Log each link check with timing and result
+            match (&status.status.as_str(), &status.code, &status.message) {
+                (&"ok", _, _) => {
+                    tracing::info!(url = %url, elapsed_ms = %elapsed_ms, "OK");
+                }
+                (&"error", Some(code), Some(body)) => {
+                    tracing::info!(url = %url, elapsed_ms = %elapsed_ms, status = %code, body = %body, "HTTP error");
+                }
+                (&"error", Some(code), None) => {
+                    tracing::info!(url = %url, elapsed_ms = %elapsed_ms, status = %code, "HTTP error");
+                }
+                (_, _, Some(msg)) => {
+                    tracing::info!(url = %url, elapsed_ms = %elapsed_ms, error = %msg, "failed");
+                }
+                _ => {
+                    tracing::info!(url = %url, elapsed_ms = %elapsed_ms, status = %status.status, "checked");
+                }
+            }
+
             results.insert(url, status);
         }
 
