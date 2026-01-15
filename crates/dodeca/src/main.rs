@@ -1292,13 +1292,15 @@ pub async fn build(
                     }
                 }
 
-                return Err(eyre!(
-                    "Found {} broken link(s) ({} internal, {} external) across {} unique URLs",
+                // Link checking is advisory - warn but don't fail the build
+                eprintln!(
+                    "{} {} broken link(s) ({} internal, {} external) across {} unique URLs",
+                    "Warning:".yellow().bold(),
                     link_result.broken_links.len(),
                     link_result.internal_broken(),
                     link_result.external_broken(),
                     by_url.len()
-                ));
+                );
             }
 
             if verbose {
