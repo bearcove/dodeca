@@ -291,17 +291,19 @@ impl HtmlProcessor for HtmlProcessorImpl {
 async fn minify_inline_css(host: &HtmlHostClient, doc: &mut Html) -> Result<()> {
     // Process <style> elements in <head>
     if let Some(head) = &mut doc.head {
-        for style in &mut head.style {
-            if !style.text.trim().is_empty() {
-                match host.minify_css(style.text.clone()).await {
-                    Ok(cell_html_proto::MinifyCssResult::Success { css }) => {
-                        style.text = css;
-                    }
-                    Ok(cell_html_proto::MinifyCssResult::Error { message }) => {
-                        tracing::warn!("CSS minification error: {}", message);
-                    }
-                    Err(e) => {
-                        tracing::warn!("CSS minification RPC error: {}", e);
+        for child in &mut head.children {
+            if let MetadataContent::Style(style) = child {
+                if !style.text.trim().is_empty() {
+                    match host.minify_css(style.text.clone()).await {
+                        Ok(cell_html_proto::MinifyCssResult::Success { css }) => {
+                            style.text = css;
+                        }
+                        Ok(cell_html_proto::MinifyCssResult::Error { message }) => {
+                            tracing::warn!("CSS minification error: {}", message);
+                        }
+                        Err(e) => {
+                            tracing::warn!("CSS minification RPC error: {}", e);
+                        }
                     }
                 }
             }
@@ -316,18 +318,20 @@ async fn minify_inline_css(host: &HtmlHostClient, doc: &mut Html) -> Result<()> 
 async fn minify_inline_js(host: &HtmlHostClient, doc: &mut Html) -> Result<()> {
     // Process <script> elements in <head> (only inline scripts, not external)
     if let Some(head) = &mut doc.head {
-        for script in &mut head.script {
-            // Only minify if it's inline (no src attribute)
-            if script.src.is_none() && !script.text.trim().is_empty() {
-                match host.minify_js(script.text.clone()).await {
-                    Ok(cell_html_proto::MinifyJsResult::Success { js }) => {
-                        script.text = js;
-                    }
-                    Ok(cell_html_proto::MinifyJsResult::Error { message }) => {
-                        tracing::warn!("JS minification error: {}", message);
-                    }
-                    Err(e) => {
-                        tracing::warn!("JS minification RPC error: {}", e);
+        for child in &mut head.children {
+            if let MetadataContent::Script(script) = child {
+                // Only minify if it's inline (no src attribute)
+                if script.src.is_none() && !script.text.trim().is_empty() {
+                    match host.minify_js(script.text.clone()).await {
+                        Ok(cell_html_proto::MinifyJsResult::Success { js }) => {
+                            script.text = js;
+                        }
+                        Ok(cell_html_proto::MinifyJsResult::Error { message }) => {
+                            tracing::warn!("JS minification error: {}", message);
+                        }
+                        Err(e) => {
+                            tracing::warn!("JS minification RPC error: {}", e);
+                        }
                     }
                 }
             }
@@ -345,21 +349,25 @@ async fn minify_inline_js(host: &HtmlHostClient, doc: &mut Html) -> Result<()> {
 fn rewrite_urls_in_doc(doc: &mut Html, path_map: &HashMap<String, String>) {
     // Rewrite URLs in <head>
     if let Some(head) = &mut doc.head {
-        // Link elements
-        for link in &mut head.link {
-            if let Some(href) = &link.href
-                && let Some(new_url) = path_map.get(href)
-            {
-                link.href = Some(new_url.clone());
-            }
-        }
-
-        // Script elements
-        for script in &mut head.script {
-            if let Some(src) = &script.src
-                && let Some(new_url) = path_map.get(src)
-            {
-                script.src = Some(new_url.clone());
+        for child in &mut head.children {
+            match child {
+                // Link elements
+                MetadataContent::Link(link) => {
+                    if let Some(href) = &link.href
+                        && let Some(new_url) = path_map.get(href)
+                    {
+                        link.href = Some(new_url.clone());
+                    }
+                }
+                // Script elements
+                MetadataContent::Script(script) => {
+                    if let Some(src) = &script.src
+                        && let Some(new_url) = path_map.get(src)
+                    {
+                        script.src = Some(new_url.clone());
+                    }
+                }
+                _ => {}
             }
         }
     }
@@ -1071,14 +1079,14 @@ fn apply_injection(doc: &mut Html, injection: &Injection) {
     match injection {
         Injection::HeadStyle { css } => {
             let head = doc.head.get_or_insert_with(Default::default);
-            head.style.push(Style {
+            head.children.push(MetadataContent::Style(Style {
                 text: css.clone(),
                 ..Default::default()
-            });
+            }));
         }
         Injection::HeadScript { js, module } => {
             let head = doc.head.get_or_insert_with(Default::default);
-            head.script.push(Script {
+            head.children.push(MetadataContent::Script(Script {
                 text: js.clone(),
                 type_: if *module {
                     Some("module".to_string())
@@ -1086,7 +1094,7 @@ fn apply_injection(doc: &mut Html, injection: &Injection) {
                     None
                 },
                 ..Default::default()
-            });
+            }));
         }
         Injection::BodyScript { js, module } => {
             let body = doc.body.get_or_insert_with(Default::default);
