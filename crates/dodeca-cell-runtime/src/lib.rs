@@ -61,8 +61,12 @@ macro_rules! run_cell {
 
         async fn __run_cell_async() -> Result<(), Box<dyn std::error::Error>> {
             let args = SpawnArgs::from_env()?;
-            eprintln!("[cell] {}: peer_id={:?}, doorbell_fd={}", $cell_name, args.peer_id, args.doorbell_fd);
-            let transport = ShmGuestTransport::from_spawn_args(&args)?;
+            let peer_id = args.peer_id;
+            eprintln!(
+                "[cell] {}: peer_id={:?}, doorbell_handle={:?}",
+                $cell_name, peer_id, args.doorbell_handle
+            );
+            let transport = ShmGuestTransport::from_spawn_args(args)?;
 
             // Initialize cell-side tracing
             // Check TRACING_PASSTHROUGH env var - if set, log to stderr instead of via RPC
@@ -82,9 +86,7 @@ macro_rules! run_cell {
             } else {
                 // Normal mode: use roam RPC for tracing
                 let (tracing_layer, tracing_service) = init_cell_tracing(1024);
-                tracing_subscriber::registry()
-                    .with(tracing_layer)
-                    .init();
+                tracing_subscriber::registry().with(tracing_layer).init();
                 tracing_service
             };
 
@@ -121,7 +123,7 @@ macro_rules! run_cell {
             let host = HostServiceClient::new(handle);
             tracing::debug!("About to call host.ready() for cell {}", $cell_name);
             host.ready(ReadyMsg {
-                peer_id: args.peer_id.get() as u16,
+                peer_id: peer_id.get() as u16,
                 cell_name: $cell_name.to_string(),
                 pid: Some(std::process::id()),
                 version: None,

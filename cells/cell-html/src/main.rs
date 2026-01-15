@@ -292,18 +292,18 @@ async fn minify_inline_css(host: &HtmlHostClient, doc: &mut Html) -> Result<()> 
     // Process <style> elements in <head>
     if let Some(head) = &mut doc.head {
         for child in &mut head.children {
-            if let MetadataContent::Style(style) = child {
-                if !style.text.trim().is_empty() {
-                    match host.minify_css(style.text.clone()).await {
-                        Ok(cell_html_proto::MinifyCssResult::Success { css }) => {
-                            style.text = css;
-                        }
-                        Ok(cell_html_proto::MinifyCssResult::Error { message }) => {
-                            tracing::warn!("CSS minification error: {}", message);
-                        }
-                        Err(e) => {
-                            tracing::warn!("CSS minification RPC error: {}", e);
-                        }
+            if let MetadataContent::Style(style) = child
+                && !style.text.trim().is_empty()
+            {
+                match host.minify_css(style.text.clone()).await {
+                    Ok(cell_html_proto::MinifyCssResult::Success { css }) => {
+                        style.text = css;
+                    }
+                    Ok(cell_html_proto::MinifyCssResult::Error { message }) => {
+                        tracing::warn!("CSS minification error: {}", message);
+                    }
+                    Err(e) => {
+                        tracing::warn!("CSS minification RPC error: {}", e);
                     }
                 }
             }
