@@ -18,3 +18,4 @@ dodeca-log.txt
 # Browser tests
 browser-tests/node_modules/
 browser-tests/test-results/
+.tracey/

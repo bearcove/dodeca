@@ -1121,7 +1121,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
     let targets = targets_for_platform(platform);
 
     let mut jobs = IndexMap::new();
-    let groups = cell_groups(1);
+    let groups = cell_groups(100);
 
     // Track jobs required before release (assemble + integration per target)
     let mut all_release_needs: Vec<String> = Vec::new();
