@@ -1,41 +1,6 @@
 //! Requirement definition extraction for specification traceability.
 //!
-//! Supports the `r[req.id]` syntax used by mdbook-spec and similar tools.
-//!
-//! # Requirement Syntax
-//!
-//! Requirements are defined using the `r[req.id]` syntax on their own line:
-//!
-//! ```markdown
-//! r[channel.id.allocation]
-//! Channel IDs MUST be allocated sequentially starting from 0.
-//! ```
-//!
-//! Requirements can also include metadata attributes:
-//!
-//! ```markdown
-//! r[channel.id.allocation status=stable level=must since=1.0]
-//! Channel IDs MUST be allocated sequentially.
-//!
-//! r[experimental.feature status=draft]
-//! This feature is under development.
-//!
-//! r[old.behavior status=deprecated until=3.0]
-//! This behavior is deprecated and will be removed.
-//!
-//! r[optional.feature level=may tags=optional,experimental]
-//! This feature is optional.
-//! ```
-//!
-//! ## Supported Metadata Attributes
-//!
-//! | Attribute | Values | Description |
-//! |-----------|--------|-------------|
-//! | `status`  | `draft`, `stable`, `deprecated`, `removed` | Lifecycle stage |
-//! | `level`   | `must`, `should`, `may` | RFC 2119 requirement level |
-//! | `since`   | version string | When the requirement was introduced |
-//! | `until`   | version string | When the requirement will be deprecated/removed |
-//! | `tags`    | comma-separated | Custom tags for categorization |
+//! Supports the req id syntax used by tracey, see <https://github.com/bearcove/tracey>
 
 use std::path::PathBuf;
 
@@ -263,7 +228,7 @@ pub struct ReqDefinition {
     pub id: String,
     /// The anchor ID for HTML linking (e.g., "r--channel.id.allocation")
     pub anchor_id: String,
-    /// Source span of just the requirement marker (e.g., `r[channel.id.allocation]`)
+    /// Source span of just the requirement marker (e.g., `r[` to `]`)
     /// Use this for inlay hints and diagnostics that should only highlight the marker.
     pub marker_span: SourceSpan,
     /// Source span of the entire requirement (marker + all content paragraphs).

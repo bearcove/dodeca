@@ -94,7 +94,7 @@ pub struct Paragraph {
 pub enum DocElement {
     /// A heading (h1-h6)
     Heading(Heading),
-    /// A requirement definition (r[req.id])
+    /// A requirement definition
     Req(ReqDefinition),
     /// A regular paragraph (not a requirement)
     Paragraph(Paragraph),
@@ -875,7 +875,7 @@ struct SourceInfo {
     line: usize,
 }
 
-/// Regex to match req markers like r[req.id] or r[req.id attr=value]
+/// Regex to match req markers
 fn req_marker_regex() -> &'static regex::Regex {
     static RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     RE.get_or_init(|| regex::Regex::new(r"^r\[[^\]]+\]\s*").unwrap())
@@ -1173,6 +1173,7 @@ fn try_parse_paragraph_req<'a>(
     let line = offset_to_line(markdown, offset);
     let anchor_id = format!("r-{}", req_id);
 
+    // @tracey:ignore-next-line
     // marker_span covers just r[req.id] - use for inlay hints and diagnostics
     let marker_len = marker_end + 1; // includes r[ and ]
 
@@ -1238,6 +1239,7 @@ fn try_parse_blockquote_req(
     let line = offset_to_line(markdown, offset);
     let anchor_id = format!("r-{}", req_id);
 
+    // @tracey:ignore-next-line
     // marker_span covers just r[req.id] - use for inlay hints and diagnostics
     let marker_len = marker_end + 1; // includes r[ and ]
 

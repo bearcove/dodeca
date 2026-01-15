@@ -5,7 +5,7 @@
 //! marq parses markdown documents and renders them to HTML, with support for:
 //! - **Frontmatter**: TOML (`+++`) or YAML (`---`) frontmatter extraction
 //! - **Headings**: Automatic extraction with slug generation for TOC
-//! - **Requirement definitions**: `r[req.id]` syntax for specification traceability
+//! - **Requirement definitions**: req annotation syntax for specification traceability
 //! - **Code blocks**: Pluggable handlers for syntax highlighting, diagrams, etc.
 //! - **Link resolution**: `@/path` absolute links and relative link handling
 //!

@@ -93,10 +93,12 @@ pub trait ReqHandler: Send + Sync {
 /// Type alias for a boxed req handler.
 pub type BoxedReqHandler = Arc<dyn ReqHandler>;
 
+// @tracey:ignore-start
 /// A handler for rendering inline code spans.
 ///
 /// This allows customizing how inline `code` is rendered, for example
 /// to transform `r[rule.id]` references into clickable links.
+// @tracey:ignore-end
 pub trait InlineCodeHandler: Send + Sync {
     /// Render an inline code span to HTML.
     ///
