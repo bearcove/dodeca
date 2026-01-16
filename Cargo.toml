@@ -169,20 +169,20 @@ pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 
 # Patch roam to use local version for debugging
 [patch."https://github.com/bearcove/roam"]
-roam = { path = "..\\roam\\rust\\roam" }
-roam-shm = { path = "..\\roam\\rust\\roam-shm" }
-roam-tracing = { path = "..\\roam\\rust\\roam-tracing" }
-roam-fdpass = { path = "..\\roam\\rust\\roam-fdpass" }
-roam-local = { path = "..\\roam\\rust\\roam-local" }
-shm-primitives = { path = "..\\roam\\rust\\shm-primitives" }
-roam-frame = { path = "..\\roam\\rust\\roam-frame" }
-roam-schema = { path = "..\\roam\\rust\\roam-schema" }
-roam-hash = { path = "..\\roam\\rust\\roam-hash" }
-roam-wire = { path = "..\\roam\\rust\\roam-wire" }
-roam-session = { path = "..\\roam\\rust\\roam-session" }
-roam-stream = { path = "..\\roam\\rust\\roam-stream" }
-roam-service-macros = { path = "..\\roam\\rust\\roam-macros" }
-ur-taking-me-with-you = { path = "..\\roam\\rust\\ur-taking-me-with-you" }
+roam = { path = "../roam/rust/roam" }
+roam-shm = { path = "../roam/rust/roam-shm" }
+roam-tracing = { path = "../roam/rust/roam-tracing" }
+roam-fdpass = { path = "../roam/rust/roam-fdpass" }
+roam-local = { path = "../roam/rust/roam-local" }
+shm-primitives = { path = "../roam/rust/shm-primitives" }
+roam-frame = { path = "../roam/rust/roam-frame" }
+roam-schema = { path = "../roam/rust/roam-schema" }
+roam-hash = { path = "../roam/rust/roam-hash" }
+roam-wire = { path = "../roam/rust/roam-wire" }
+roam-session = { path = "../roam/rust/roam-session" }
+roam-stream = { path = "../roam/rust/roam-stream" }
+roam-service-macros = { path = "../roam/rust/roam-macros" }
+ur-taking-me-with-you = { path = "../roam/rust/ur-taking-me-with-you" }
 
 # Optimize dependencies in dev mode for faster tests
 # (keeps main crate unoptimized for fast incremental builds)
