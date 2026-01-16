@@ -9,71 +9,36 @@ use facet::Facet;
 // ============================================================================
 
 /// Code execution configuration.
-#[derive(Debug, Clone, Default, Facet)]
+#[derive(Debug, Clone, Facet)]
+#[facet(derive(Default))]
 #[facet(rename_all = "snake_case")]
 pub struct CodeExecutionConfig {
     /// Enable/disable code execution
-    #[facet(default)]
-    pub enabled: Option<bool>,
+    #[facet(default = true)]
+    pub enabled: bool,
 
     /// Fail build on execution errors
-    #[facet(default)]
-    pub fail_on_error: Option<bool>,
+    #[facet(default = true)]
+    pub fail_on_error: bool,
 
     /// Execution timeout in seconds
-    #[facet(default)]
-    pub timeout_secs: Option<u64>,
+    #[facet(default = 30)]
+    pub timeout_secs: u64,
 
     /// Cache directory for execution artifacts
-    #[facet(default)]
-    pub cache_dir: Option<String>,
+    #[facet(default = ".cache/code-execution".to_string())]
+    pub cache_dir: String,
 
-    /// Project root directory (for resolving path dependencies)
-    /// Set at runtime, not from config
-    #[facet(default)]
+    /// Project root directory (for resolving path dependencies).
+    /// Set at runtime, not from config.
     pub project_root: Option<String>,
 
     /// Dependencies for code samples
     #[facet(default)]
-    pub dependencies: Option<Vec<DependencySpec>>,
+    pub dependencies: Vec<DependencySpec>,
 
     /// Language-specific configuration
-    #[facet(default)]
     pub rust: Option<RustConfig>,
-}
-
-impl CodeExecutionConfig {
-    /// Whether code execution is enabled (default: true)
-    pub fn is_enabled(&self) -> bool {
-        self.enabled.unwrap_or(true)
-    }
-
-    /// Whether to fail build on execution errors (default: true)
-    pub fn should_fail_on_error(&self) -> bool {
-        self.fail_on_error.unwrap_or(true)
-    }
-
-    /// Execution timeout in seconds (default: 30)
-    pub fn timeout(&self) -> u64 {
-        self.timeout_secs.unwrap_or(30)
-    }
-
-    /// Cache directory (default: ".cache/code-execution")
-    pub fn cache_directory(&self) -> String {
-        self.cache_dir
-            .clone()
-            .unwrap_or_else(|| ".cache/code-execution".to_string())
-    }
-
-    /// Project root directory
-    pub fn project_root(&self) -> Option<&str> {
-        self.project_root.as_deref()
-    }
-
-    /// Get dependencies (default: empty)
-    pub fn dependencies(&self) -> &[DependencySpec] {
-        self.dependencies.as_deref().unwrap_or(&[])
-    }
 }
 
 /// A single dependency specification

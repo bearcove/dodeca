@@ -1402,6 +1402,7 @@ name = "cell-code-execution-proto"
 version = "0.6.1"
 dependencies = [
  "facet",
+ "facet-default",
  "facet-yaml",
  "roam",
 ]
@@ -2829,6 +2830,14 @@ dependencies = [
  "const-fnv1a-hash",
  "impls",
  "indexmap",
+]
+
+[[package]]
+name = "facet-default"
+version = "0.42.0"
+source = "git+https://github.com/facet-rs/facet?branch=main#d501cbc7d6e84aaf577b28726ffeed1f7a7d3d94"
+dependencies = [
+ "facet",
 ]
 
 [[package]]

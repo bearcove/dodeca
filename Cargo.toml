@@ -47,6 +47,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["a
 # Serialization - Facet ecosystem (git)
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-default = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html-dom = { git = "https://github.com/facet-rs/facet", branch = "main" }

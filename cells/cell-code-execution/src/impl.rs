@@ -11,6 +11,10 @@ pub struct CodeExecutorImpl;
 
 impl CodeExecutor for CodeExecutorImpl {
     async fn extract_code_samples(&self, input: ExtractSamplesInput) -> CodeExecutionResult {
+        eprintln!(
+            "[cell-code-execution] extract_code_samples called for {}",
+            input.source_path
+        );
         let options = Options::ENABLE_TABLES
             | Options::ENABLE_FOOTNOTES
             | Options::ENABLE_STRIKETHROUGH
@@ -74,9 +78,15 @@ impl CodeExecutor for CodeExecutorImpl {
     }
 
     async fn execute_code_samples(&self, input: ExecuteSamplesInput) -> CodeExecutionResult {
+        eprintln!(
+            "[cell-code-execution] execute_code_samples called, {} samples, enabled={}",
+            input.samples.len(),
+            input.config.enabled
+        );
         let mut results = Vec::new();
 
-        if !input.config.is_enabled() {
+        if !input.config.enabled {
+            eprintln!("[cell-code-execution] code execution disabled, returning early");
             return CodeExecutionResult::ExecuteSuccess {
                 output: ExecuteSamplesOutput { results },
             };
@@ -84,6 +94,10 @@ impl CodeExecutor for CodeExecutorImpl {
 
         // Simplified execution logic
         for sample in input.samples {
+            eprintln!(
+                "[cell-code-execution] processing sample: {} line {} executable={}",
+                sample.source_path, sample.line, sample.executable
+            );
             let result = if !sample.executable {
                 ExecutionResult {
                     status: ExecutionStatus::Skipped,
