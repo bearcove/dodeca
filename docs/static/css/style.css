@@ -493,7 +493,8 @@ pre {
     position: relative;
 }
 pre .copy-btn {
-    position: absolute;
+    position: sticky;
+    float: right;
     top: 0.5rem;
     right: 0.5rem;
     padding: 0.25rem 0.5rem;

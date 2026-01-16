@@ -81,7 +81,8 @@ fn generate_syntax_highlight_css(light_theme_css: &str, dark_theme_css: &str) ->
 /// CSS for copy button on code blocks
 const COPY_BUTTON_STYLES: &str = r##"<style>
 pre .copy-btn {
-    position: absolute;
+    position: sticky;
+    float: right;
     top: 0.5rem;
     right: 0.5rem;
     padding: 0.25rem 0.5rem;
@@ -121,7 +122,8 @@ document.addEventListener('click', async (e) => {
 /// CSS and JS for build info icon on code blocks
 const BUILD_INFO_STYLES: &str = r##"<style>
 pre .build-info-btn {
-    position: absolute;
+    position: sticky;
+    float: right;
     top: 0.5rem;
     right: 3.5rem;
     padding: 0.25rem;
@@ -167,7 +169,8 @@ pre .build-info-btn.verified { border-color: rgba(50,205,50,0.5); }
     gap: 0.5rem;
 }
 .build-info-popup .close-btn {
-    position: absolute;
+    position: sticky;
+    float: right;
     top: 0.75rem;
     right: 0.75rem;
     background: none;
