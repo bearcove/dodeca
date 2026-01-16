@@ -56,16 +56,16 @@ facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
-# RPC framework (path - temporary for debugging)
-roam = { path = "../roam/rust/roam" }
-roam-shm = { path = "../roam/rust/roam-shm", features = ["tracing"] }
-roam-tracing = { path = "../roam/rust/roam-tracing" }
+# RPC framework
+roam = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-shm = { git = "https://github.com/bearcove/roam", branch = "main", features = ["tracing"] }
+roam-tracing = { git = "https://github.com/bearcove/roam", branch = "main" }
 
 # Process lifecycle (from rapace repo for now - TODO: move to own repo)
 ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", branch = "main", features = ["tokio"] }
 
-# Incremental computation (local for development)
-picante = { path = "../picante/crates/picante" }
+# Incremental computation
+picante = { git = "https://github.com/bearcove/picante", branch = "main" }
 
 # File system
 fs-err = "3"
