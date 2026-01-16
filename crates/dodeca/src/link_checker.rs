@@ -1,20 +1,20 @@
 //! Link checking for generated HTML
 //!
 //! Query-based: works directly with HTML content from SiteOutput,
-//! no disk I/O needed. External links are cached by (url, date).
+//! no disk I/O needed. External links are cached by (url, date) in picante.
 //!
 //! External link checking is done via the linkcheck cell, which handles
 //! per-domain rate limiting internally.
 
-use crate::cells::{CheckOptions, check_urls_cell};
-use crate::db::ExternalLinkStatus;
+use crate::db::{Database, ExternalLinkStatus, HttpErrorDiagnostics};
+use crate::queries::check_external_url;
 use crate::types::Route;
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 use std::time::Duration;
-use tracing::warn;
+use tracing::info;
 
 /// A broken link found during checking
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +27,8 @@ pub struct BrokenLink {
     pub reason: String,
     /// Is this an external link?
     pub is_external: bool,
+    /// HTTP error diagnostics (for external links with HTTP errors)
+    pub diagnostics: Option<HttpErrorDiagnostics>,
 }
 
 /// Results from link checking
@@ -156,6 +158,7 @@ pub fn check_internal_links(extracted: &ExtractedLinks) -> LinkCheckResult {
                 href: link.href.clone(),
                 reason,
                 is_external: false,
+                diagnostics: None,
             });
         }
     }
@@ -203,16 +206,17 @@ impl ExternalLinkOptions {
     }
 }
 
-/// Check external links using the linkcheck cell
-/// Uses date for cache key - same URL + same date = cached
-/// The cell handles per-domain rate limiting internally
+/// Check external links using picante-cached queries.
+/// Each URL is checked via a tracked query keyed by (url, day_bucket).
+/// Same URL on same day = cache hit (instant). New day = cache miss = re-check.
+/// URLs are checked in parallel for speed.
 pub async fn check_external_links(
+    db: &Database,
     extracted: &ExtractedLinks,
-    cache: &mut HashMap<(String, NaiveDate), ExternalLinkStatus>,
     date: NaiveDate,
-    options: &ExternalLinkOptions,
+    _options: &ExternalLinkOptions,
 ) -> (Vec<BrokenLink>, usize) {
-    let mut broken = Vec::new();
+    use futures_util::future::join_all;
 
     // Deduplicate URLs and track which links use each URL
     let mut unique_urls: HashMap<&str, Vec<&ExtractedLink>> = HashMap::new();
@@ -220,107 +224,61 @@ pub async fn check_external_links(
         unique_urls.entry(&link.href).or_default().push(link);
     }
 
-    // Separate cached and uncached URLs
-    let mut cached_results: HashMap<&str, ExternalLinkStatus> = HashMap::new();
-    let mut urls_to_check: Vec<String> = Vec::new();
-    let mut url_order: Vec<&str> = Vec::new(); // Track order for matching results
+    // Compute day bucket (YYYYMMDD as u32)
+    let day_bucket = date.year() as u32 * 10000 + date.month() as u32 * 100 + date.day() as u32;
 
-    for url in unique_urls.keys() {
-        let cache_key = ((*url).to_string(), date);
-        if let Some(status) = cache.get(&cache_key) {
-            cached_results.insert(*url, status.clone());
-        } else {
-            urls_to_check.push((*url).to_string());
-            url_order.push(*url);
-        }
-    }
+    info!(
+        urls = unique_urls.len(),
+        day_bucket, "Checking external links"
+    );
 
-    // Call the cell for uncached URLs (blocking, so we spawn_blocking)
-    let checked_count = if !urls_to_check.is_empty() {
-        let cell_options = CheckOptions {
-            rate_limit_ms: options.rate_limit.as_millis() as u64,
-            timeout_secs: 10,
+    // Check all URLs in parallel via picante queries
+    let urls: Vec<_> = unique_urls.keys().map(|s| (*s).to_string()).collect();
+    let futures: Vec<_> = urls
+        .iter()
+        .map(|url| check_external_url(db, url.clone(), day_bucket))
+        .collect();
+
+    let results = join_all(futures).await;
+
+    // Process results
+    let mut broken = Vec::new();
+    let checked_count = results.len();
+
+    for (url, result) in urls.iter().zip(results.into_iter()) {
+        let status = match result {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(url, error = ?e, "Failed to check URL");
+                ExternalLinkStatus::Failed(format!("query error: {e}"))
+            }
         };
 
-        // Call the cell
-        let cell_result = check_urls_cell(urls_to_check, cell_options).await;
-
-        if let Some(result) = cell_result {
-            // Map results back to URLs and update cache
-            for (url, status) in url_order.iter().zip(result.statuses.iter()) {
-                let external_status = match status.status.as_str() {
-                    "ok" => ExternalLinkStatus::Ok,
-                    "error" => ExternalLinkStatus::Error(status.code.unwrap_or(0)),
-                    "failed" => ExternalLinkStatus::Failed(
-                        status
-                            .message
-                            .clone()
-                            .unwrap_or_else(|| "unknown error".to_string()),
-                    ),
-                    "skipped" => continue, // Don't cache or report skipped URLs
-                    _ => ExternalLinkStatus::Failed(format!("unknown status: {}", status.status)),
-                };
-
-                // Cache the result
-                cache.insert(((*url).to_string(), date), external_status.clone());
-
-                // Report if broken
-                if let ExternalLinkStatus::Ok = external_status {
-                    // Link is fine
-                } else {
-                    let reason = match &external_status {
-                        ExternalLinkStatus::Ok => unreachable!(),
-                        ExternalLinkStatus::Error(code) => format!("HTTP {code}"),
-                        ExternalLinkStatus::Failed(msg) => msg.clone(),
-                    };
-
-                    if let Some(links) = unique_urls.get(url) {
-                        for link in links {
-                            broken.push(BrokenLink {
-                                source_route: link.source_route.clone(),
-                                href: link.href.clone(),
-                                reason: reason.clone(),
-                                is_external: true,
-                            });
-                        }
-                    }
-                }
-            }
-            result.statuses.len()
-        } else {
-            warn!("linkcheck cell call failed");
-            0
-        }
-    } else {
-        0
-    };
-
-    // Process cached results
-    let cached_count = cached_results.len();
-    for (url, status) in cached_results {
-        if let ExternalLinkStatus::Ok = status {
-            // Link is fine
-        } else {
-            let reason = match &status {
+        // Report if broken
+        if !matches!(status, ExternalLinkStatus::Ok) {
+            let (reason, diagnostics) = match &status {
                 ExternalLinkStatus::Ok => unreachable!(),
-                ExternalLinkStatus::Error(code) => format!("HTTP {code}"),
-                ExternalLinkStatus::Failed(msg) => msg.clone(),
+                ExternalLinkStatus::HttpError { code, diagnostics } => {
+                    (format!("HTTP {code}"), Some(diagnostics.clone()))
+                }
+                ExternalLinkStatus::Failed(msg) => (msg.clone(), None),
             };
 
-            if let Some(links) = unique_urls.get(url) {
+            if let Some(links) = unique_urls.get(url.as_str()) {
                 for link in links {
                     broken.push(BrokenLink {
                         source_route: link.source_route.clone(),
                         href: link.href.clone(),
                         reason: reason.clone(),
                         is_external: true,
+                        diagnostics: diagnostics.clone(),
                     });
                 }
             }
         }
     }
 
-    (broken, checked_count + cached_count)
+    (broken, checked_count)
 }
 
 /// Check all links (internal only, for backwards compatibility)

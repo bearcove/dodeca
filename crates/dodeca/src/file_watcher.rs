@@ -138,7 +138,7 @@ fn should_watch_path(path: &Path, config: &WatcherConfig) -> bool {
                     let e = e.to_string_lossy();
                     matches!(
                         e.as_ref(),
-                        "md" | "scss" | "css" | "html" | "kdl" | "json" | "toml" | "yaml" | "yml"
+                        "md" | "scss" | "css" | "html" | "json" | "toml" | "yaml" | "yml"
                     )
                 })
                 .unwrap_or(false)

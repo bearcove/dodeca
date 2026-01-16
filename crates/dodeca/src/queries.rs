@@ -1,9 +1,9 @@
 use crate::db::{
     AllRenderedHtml, CharSet, CodeExecutionMetadata, CodeExecutionResult, CssOutput, DataRegistry,
-    Db, DependencySourceInfo, Heading, ImageVariant, OutputFile, Page, ParsedData, ProcessedImages,
-    RenderedHtml, ReqDefinition, ResolvedDependencyInfo, SassFile, SassRegistry, Section,
-    SiteOutput, SiteTree, SourceFile, SourceRegistry, StaticFile, StaticFileOutput, StaticRegistry,
-    TemplateFile, TemplateRegistry,
+    Db, DependencySourceInfo, ExternalLinkStatus, Heading, ImageVariant, OutputFile, Page,
+    ParsedData, ProcessedImages, RenderedHtml, ReqDefinition, ResolvedDependencyInfo, SassFile,
+    SassRegistry, Section, SiteOutput, SiteTree, SourceFile, SourceRegistry, StaticFile,
+    StaticFileOutput, StaticRegistry, TemplateFile, TemplateRegistry,
 };
 use picante::PicanteResult;
 
@@ -1769,3 +1769,48 @@ fn convert_dependency_source(
 }
 
 // Tests for split_frontmatter and resolve_internal_link moved to mod-markdown
+
+/// Check a single external URL and return its status.
+/// Cached by (url, day_bucket) - same URL on same day returns cached result.
+/// Day bucket is YYYYMMDD as u32 (e.g., 20260116).
+#[picante::tracked]
+#[tracing::instrument(skip(db), name = "check_external_url")]
+pub async fn check_external_url<DB: Db>(
+    db: &DB,
+    url: String,
+    day_bucket: u32,
+) -> PicanteResult<ExternalLinkStatus> {
+    // Ignore db and day_bucket for the actual check - they're just for caching
+    let _ = db;
+    let _ = day_bucket;
+
+    use crate::cells::{CheckOptions, check_urls_cell};
+    use cell_linkcheck_proto::LinkStatus;
+
+    let options = CheckOptions {
+        rate_limit_ms: 100, // Small delay between requests to same domain
+        timeout_secs: 10,
+    };
+
+    let result = check_urls_cell(vec![url.clone()], options).await;
+
+    match result {
+        Some(check_result) => match check_result.statuses.get(&url) {
+            Some(LinkStatus::Ok) => Ok(ExternalLinkStatus::Ok),
+            Some(LinkStatus::Skipped) => Ok(ExternalLinkStatus::Ok),
+            Some(LinkStatus::HttpError { code, diagnostics }) => {
+                Ok(ExternalLinkStatus::HttpError {
+                    code: *code,
+                    diagnostics: crate::db::HttpErrorDiagnostics {
+                        request_headers: diagnostics.request_headers.clone(),
+                        response_headers: diagnostics.response_headers.clone(),
+                        response_body: diagnostics.response_body.clone(),
+                    },
+                })
+            }
+            Some(LinkStatus::Failed { message }) => Ok(ExternalLinkStatus::Failed(message.clone())),
+            None => Ok(ExternalLinkStatus::Failed("URL not in results".to_string())),
+        },
+        None => Ok(ExternalLinkStatus::Failed("link check failed".to_string())),
+    }
+}

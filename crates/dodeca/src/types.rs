@@ -81,7 +81,7 @@ pub struct StaticPath {
 }
 
 /// Relative path to a data file from the data directory.
-/// Example: "versions.toml", "config.json", "meta.kdl"
+/// Example: "versions.toml", "config.json", "meta.yaml"
 #[braid]
 pub struct DataPath {
     inner: String,

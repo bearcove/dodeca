@@ -51,18 +51,24 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::sync::Arc;
 
+/// Check if a file extension is a supported data file format
+fn is_data_file_extension(ext: &str) -> bool {
+    let ext_lower = ext.to_lowercase();
+    matches!(ext_lower.as_str(), "json" | "toml" | "yaml" | "yml")
+}
+
 /// Build command arguments
 #[derive(Facet, Debug)]
 struct BuildArgs {
-    /// Project directory (looks for .config/dodeca.kdl here)
+    /// Project directory (looks for .config/dodeca.yaml here)
     #[facet(args::positional, default)]
     path: Option<String>,
 
-    /// Content directory (uses .config/dodeca.kdl if not specified)
+    /// Content directory (uses .config/dodeca.yaml if not specified)
     #[facet(args::named, args::short = 'c', default)]
     content: Option<String>,
 
-    /// Output directory (uses .config/dodeca.kdl if not specified)
+    /// Output directory (uses .config/dodeca.yaml if not specified)
     #[facet(args::named, args::short = 'o', default)]
     output: Option<String>,
 
@@ -74,15 +80,15 @@ struct BuildArgs {
 /// Serve command arguments
 #[derive(Facet, Debug)]
 struct ServeArgs {
-    /// Project directory (looks for .config/dodeca.kdl here)
+    /// Project directory (looks for .config/dodeca.yaml here)
     #[facet(args::positional, default)]
     path: Option<String>,
 
-    /// Content directory (uses .config/dodeca.kdl if not specified)
+    /// Content directory (uses .config/dodeca.yaml if not specified)
     #[facet(args::named, args::short = 'c', default)]
     content: Option<String>,
 
-    /// Output directory (uses .config/dodeca.kdl if not specified)
+    /// Output directory (uses .config/dodeca.yaml if not specified)
     #[facet(args::named, args::short = 'o', default)]
     output: Option<String>,
 
@@ -118,7 +124,7 @@ struct ServeArgs {
 /// Clean command arguments
 #[derive(Facet, Debug)]
 struct CleanArgs {
-    /// Project directory (looks for .config/dodeca.kdl here)
+    /// Project directory (looks for .config/dodeca.yaml here)
     #[facet(args::positional, default)]
     path: Option<String>,
 }
@@ -793,10 +799,7 @@ impl BuildContext {
                 // Only load supported data file formats
                 e.path()
                     .extension()
-                    .map(|ext| {
-                        let ext = ext.to_string_lossy().to_lowercase();
-                        matches!(ext.as_str(), "kdl" | "json" | "toml" | "yaml" | "yml")
-                    })
+                    .map(|ext| is_data_file_extension(&ext.to_string_lossy()))
                     .unwrap_or(false)
             })
             .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
@@ -918,6 +921,110 @@ pub struct BuildStats {
     pub static_skipped: usize,
 }
 
+/// Format bytes as human-readable size
+fn format_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+/// Load picante cache from disk (shared logic for build and serve)
+async fn load_picante_cache(db: &Database, cache_path: &Utf8Path) {
+    use serve::PICANTE_CACHE_VERSION;
+    use std::time::Instant;
+
+    // Check version file first - if missing or mismatched, delete the cache
+    let version_path = cache_path.with_extension("version");
+    let version_ok = if version_path.exists() {
+        match std::fs::read_to_string(&version_path) {
+            Ok(v) => v.trim().parse::<u32>().ok() == Some(PICANTE_CACHE_VERSION),
+            Err(_) => false,
+        }
+    } else {
+        false
+    };
+
+    if !version_ok {
+        if cache_path.exists() {
+            tracing::info!(
+                "Picante cache version mismatch (expected v{}), deleting stale cache",
+                PICANTE_CACHE_VERSION
+            );
+            let _ = std::fs::remove_file(cache_path);
+        }
+        return;
+    }
+
+    if !cache_path.exists() {
+        tracing::debug!("No picante cache file found, starting fresh");
+        return;
+    }
+
+    // Get file size before loading
+    let file_size = cache_path.metadata().map(|m| m.len()).unwrap_or(0);
+
+    let start = Instant::now();
+    match db.load_from_cache(cache_path.as_std_path()).await {
+        Ok(true) => {
+            let elapsed = start.elapsed();
+            tracing::info!(
+                "Loaded picante cache ({}) in {:.2?}",
+                format_size(file_size),
+                elapsed
+            );
+        }
+        Ok(false) => {
+            tracing::debug!("No cache file found");
+        }
+        Err(e) => {
+            tracing::warn!("Failed to load picante cache: {:?}", e);
+        }
+    }
+}
+
+/// Save picante cache to disk (shared logic for build and serve)
+async fn save_picante_cache(db: &Database, cache_path: &Utf8Path) {
+    use serve::PICANTE_CACHE_VERSION;
+    use std::time::Instant;
+
+    // Ensure cache directory exists
+    if let Some(parent) = cache_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    // Write version file
+    let version_path = cache_path.with_extension("version");
+    if let Err(e) = std::fs::write(&version_path, PICANTE_CACHE_VERSION.to_string()) {
+        tracing::warn!("Failed to write cache version file: {}", e);
+    }
+
+    let start = Instant::now();
+    match db.save_to_cache(cache_path.as_std_path()).await {
+        Ok(()) => {
+            let elapsed = start.elapsed();
+            let file_size = cache_path.metadata().map(|m| m.len()).unwrap_or(0);
+            tracing::info!(
+                "Saved picante cache ({}) in {:.2?}",
+                format_size(file_size),
+                elapsed
+            );
+        }
+        Err(e) => {
+            tracing::warn!("Failed to save picante cache: {:?}", e);
+        }
+    }
+}
+
 pub async fn build(
     content_dir: &Utf8PathBuf,
     output_dir: &Utf8PathBuf,
@@ -945,6 +1052,10 @@ pub async fn build(
     // Create query stats for tracking
     let query_stats = QueryStats::new();
     let mut ctx = BuildContext::with_stats(content_dir, output_dir, Some(Arc::clone(&query_stats)));
+
+    // Load picante cache from disk (for font subsetting, image processing, etc.)
+    let picante_cache_path = cache_dir.join("dodeca.bin");
+    load_picante_cache(&ctx.db, &picante_cache_path).await;
 
     // Phase 1: Load everything into picante
     ctx.load_sources()?;
@@ -1237,8 +1348,7 @@ pub async fn build(
                     known_routes,
                     heading_ids: std::collections::HashMap::new(),
                 };
-                let mut cache = std::collections::HashMap::new();
-                link_checker::check_external_links(&ext, &mut cache, today, &external_options).await
+                link_checker::check_external_links(&*ctx.db, &ext, today, &external_options).await
             };
 
             link_result.external_checked = external_checked;
@@ -1256,6 +1366,10 @@ pub async fn build(
                     std::collections::HashMap::new();
                 let mut is_external: std::collections::HashMap<&str, bool> =
                     std::collections::HashMap::new();
+                let mut diagnostics_by_url: std::collections::HashMap<
+                    &str,
+                    &crate::db::HttpErrorDiagnostics,
+                > = std::collections::HashMap::new();
 
                 for broken in &link_result.broken_links {
                     by_url
@@ -1264,6 +1378,9 @@ pub async fn build(
                         .push(broken.source_route.as_str());
                     reasons.insert(broken.href.as_str(), &broken.reason);
                     is_external.insert(broken.href.as_str(), broken.is_external);
+                    if let Some(ref diag) = broken.diagnostics {
+                        diagnostics_by_url.insert(broken.href.as_str(), diag);
+                    }
                 }
 
                 for (href, sources) in &by_url {
@@ -1289,6 +1406,28 @@ pub async fn build(
                             reason,
                             sources.len()
                         );
+                    }
+
+                    // Show diagnostics for HTTP errors
+                    if let Some(diag) = diagnostics_by_url.get(href) {
+                        eprintln!("      {}", "Request headers:".dimmed());
+                        for (k, v) in &diag.request_headers {
+                            eprintln!("        {}: {}", k.cyan(), v);
+                        }
+                        eprintln!("      {}", "Response headers:".dimmed());
+                        for (k, v) in &diag.response_headers {
+                            eprintln!("        {}: {}", k.cyan(), v);
+                        }
+                        if !diag.response_body.is_empty() {
+                            eprintln!("      {}", "Response body:".dimmed());
+                            // Truncate long bodies for display
+                            let body = if diag.response_body.len() > 200 {
+                                format!("{}...", &diag.response_body[..200])
+                            } else {
+                                diag.response_body.clone()
+                            };
+                            eprintln!("        {}", body.dimmed());
+                        }
                     }
                 }
 
@@ -1338,6 +1477,9 @@ pub async fn build(
 
     // Save content store hashes
     store.save()?;
+
+    // Save picante cache for next build
+    save_picante_cache(&ctx.db, &picante_cache_path).await;
 
     Ok(ctx)
 }
@@ -1987,7 +2129,7 @@ async fn serve_plain(
             if path.is_file() {
                 // Only load supported data formats
                 let ext = path.extension().unwrap_or("");
-                if matches!(ext, "kdl" | "json" | "toml" | "yaml" | "yml") {
+                if is_data_file_extension(ext) {
                     let relative = path.strip_prefix(&data_dir)?;
                     let content = fs::read_to_string(path)?;
 

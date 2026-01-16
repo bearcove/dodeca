@@ -1,0 +1,6 @@
+# Captain configuration
+# All options default to #true. Use #false to disable.
+
+pre-commit:
+
+pre-push:

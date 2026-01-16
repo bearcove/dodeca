@@ -64,8 +64,8 @@ roam-tracing = { path = "../roam/rust/roam-tracing" }
 # Process lifecycle (from rapace repo for now - TODO: move to own repo)
 ur-taking-me-with-you = { git = "https://github.com/bearcove/rapace", branch = "main", features = ["tokio"] }
 
-# Incremental computation (git)
-picante = { git = "https://github.com/bearcove/picante" }
+# Incremental computation (local for development)
+picante = { path = "../picante/crates/picante" }
 
 # File system
 fs-err = "3"

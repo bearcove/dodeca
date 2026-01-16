@@ -5,15 +5,32 @@
 use facet::Facet;
 use std::collections::HashMap;
 
+/// Diagnostics for failed/error responses
+#[derive(Debug, Clone, Facet, PartialEq, Eq)]
+pub struct LinkDiagnostics {
+    /// Request headers that were sent
+    pub request_headers: Vec<(String, String)>,
+    /// Response headers received (filtered to interesting ones)
+    pub response_headers: Vec<(String, String)>,
+    /// Response body snippet (first 500 chars)
+    pub response_body: String,
+}
+
 /// Status of an external link check
 #[derive(Debug, Clone, Facet, PartialEq, Eq)]
-pub struct LinkStatus {
-    /// "ok", "error", "failed", or "skipped"
-    pub status: String,
-    /// HTTP status code (for "error" status)
-    pub code: Option<u16>,
-    /// Error message (for "failed" status)
-    pub message: Option<String>,
+#[repr(u8)]
+pub enum LinkStatus {
+    /// Link is OK (2xx or 3xx response)
+    Ok,
+    /// HTTP error response (4xx, 5xx)
+    HttpError {
+        code: u16,
+        diagnostics: LinkDiagnostics,
+    },
+    /// Request failed (network error, timeout, etc.)
+    Failed { message: String },
+    /// Skipped (e.g., rate limited)
+    Skipped,
 }
 
 /// Input for link checking

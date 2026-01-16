@@ -146,6 +146,7 @@ pub struct Heading {
 
 /// A requirement definition for specification traceability.
 ///
+/// @tracey:ignore-next-line
 /// Requirements are declared with `r[req.name]` syntax in markdown,
 /// similar to the Rust Reference's mdbook-spec.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
@@ -333,13 +334,28 @@ pub enum DependencySourceInfo {
     Path { path: String },
 }
 
+/// Diagnostics for HTTP error responses
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
+pub struct HttpErrorDiagnostics {
+    /// Request headers that were sent
+    pub request_headers: Vec<(String, String)>,
+    /// Response headers received
+    pub response_headers: Vec<(String, String)>,
+    /// Response body snippet (first 500 chars)
+    pub response_body: String,
+}
+
 /// Result of checking an external link
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
+#[repr(u8)]
 pub enum ExternalLinkStatus {
     /// Link is valid (2xx or 3xx response)
     Ok,
     /// Link returned an error status code
-    Error(u16),
+    HttpError {
+        code: u16,
+        diagnostics: HttpErrorDiagnostics,
+    },
     /// Network or other error
     Failed(String),
 }
@@ -443,6 +459,7 @@ pub struct AllRenderedHtml {
         crate::queries::static_file_output,
         crate::queries::css_output,
         crate::queries::serve_html,
+        crate::queries::check_external_url,
     ),
     db_trait(Db)
 )]

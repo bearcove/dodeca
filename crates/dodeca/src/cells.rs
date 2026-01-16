@@ -772,7 +772,7 @@ pub use dialoguer_cell as dialoguer_client;
 /// Result of link checking - wrapper for internal use
 #[derive(Debug, Clone)]
 pub struct UrlCheckResult {
-    pub statuses: Vec<LinkStatus>,
+    pub statuses: std::collections::HashMap<String, LinkStatus>,
 }
 
 pub async fn check_urls_cell(urls: Vec<String>, options: CheckOptions) -> Option<UrlCheckResult> {
@@ -784,7 +784,7 @@ pub async fn check_urls_cell(urls: Vec<String>, options: CheckOptions) -> Option
     };
     match client.check_links(input).await {
         Ok(LinkCheckResult::Success { output }) => Some(UrlCheckResult {
-            statuses: output.results.into_values().collect(),
+            statuses: output.results,
         }),
         Ok(LinkCheckResult::Error { message }) => {
             tracing::warn!("Link check error: {}", message);

@@ -10,7 +10,7 @@ use url::Url;
 
 use cell_linkcheck_proto::{
     LinkCheckInput, LinkCheckOutput, LinkCheckResult, LinkChecker, LinkCheckerDispatcher,
-    LinkStatus,
+    LinkDiagnostics, LinkStatus,
 };
 
 /// Generate a realistic browser User-Agent string.
@@ -53,58 +53,96 @@ impl LinkCheckerImpl {
     async fn check_single_url(&self, url: &str, timeout_secs: u64) -> LinkStatus {
         // Validate URL format
         if !url.starts_with("http://") && !url.starts_with("https://") {
-            return LinkStatus {
-                status: "failed".to_string(),
-                code: None,
-                message: Some(format!("Invalid URL format: {}", url)),
+            return LinkStatus::Failed {
+                message: format!("Invalid URL format: {}", url),
             };
         }
 
         let timeout = Duration::from_secs(timeout_secs);
 
+        // Build request with explicit headers
+        let request = self
+            .client
+            .get(url)
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+            .build();
+
+        let request = match request {
+            Ok(r) => r,
+            Err(e) => {
+                return LinkStatus::Failed {
+                    message: format!("Failed to build request: {e}"),
+                };
+            }
+        };
+
+        // Capture request headers for diagnostics
+        let request_headers: Vec<(String, String)> = request
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("?").to_string()))
+            .collect();
+
         // Always use GET - HEAD is unreliable (many servers don't implement it correctly)
-        match tokio::time::timeout(timeout, self.client.get(url).send()).await {
+        match tokio::time::timeout(timeout, self.client.execute(request)).await {
             Ok(Ok(response)) => {
                 let status_code = response.status().as_u16();
+
                 if response.status().is_success() || response.status().is_redirection() {
-                    LinkStatus {
-                        status: "ok".to_string(),
-                        code: None,
-                        message: None,
-                    }
+                    LinkStatus::Ok
                 } else {
-                    // Try to get a snippet of the response body for context
-                    let body_snippet = response
+                    // Capture response headers for error responses
+                    let response_headers: Vec<(String, String)> = response
+                        .headers()
+                        .iter()
+                        .filter(|(k, _)| {
+                            let name = k.as_str().to_lowercase();
+                            matches!(
+                                name.as_str(),
+                                "content-type"
+                                    | "server"
+                                    | "x-frame-options"
+                                    | "location"
+                                    | "cf-ray"
+                                    | "x-cache"
+                            )
+                        })
+                        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("?").to_string()))
+                        .collect();
+
+                    // Get response body snippet
+                    let response_body = response
                         .text()
                         .await
                         .ok()
                         .map(|text| {
-                            // Take first 200 chars, clean up whitespace
                             let cleaned: String = text
                                 .chars()
-                                .take(200)
+                                .take(500)
                                 .map(|c| if c.is_whitespace() { ' ' } else { c })
                                 .collect();
                             cleaned.trim().to_string()
                         })
-                        .filter(|s| !s.is_empty());
+                        .unwrap_or_default();
 
-                    LinkStatus {
-                        status: "error".to_string(),
-                        code: Some(status_code),
-                        message: body_snippet,
+                    LinkStatus::HttpError {
+                        code: status_code,
+                        diagnostics: LinkDiagnostics {
+                            request_headers,
+                            response_headers,
+                            response_body,
+                        },
                     }
                 }
             }
-            Ok(Err(e)) => LinkStatus {
-                status: "failed".to_string(),
-                code: None,
-                message: Some(e.to_string()),
+            Ok(Err(e)) => LinkStatus::Failed {
+                message: e.to_string(),
             },
-            Err(_) => LinkStatus {
-                status: "failed".to_string(),
-                code: None,
-                message: Some("request timed out".to_string()),
+            Err(_) => LinkStatus::Failed {
+                message: "request timed out".to_string(),
             },
         }
     }
@@ -133,21 +171,18 @@ impl LinkChecker for LinkCheckerImpl {
             let elapsed_ms = start.elapsed().as_millis();
 
             // Log each link check with timing and result
-            match (&status.status.as_str(), &status.code, &status.message) {
-                (&"ok", _, _) => {
+            match &status {
+                LinkStatus::Ok => {
                     tracing::info!(url = %url, elapsed_ms = %elapsed_ms, "OK");
                 }
-                (&"error", Some(code), Some(body)) => {
-                    tracing::info!(url = %url, elapsed_ms = %elapsed_ms, status = %code, body = %body, "HTTP error");
-                }
-                (&"error", Some(code), None) => {
+                LinkStatus::HttpError { code, .. } => {
                     tracing::info!(url = %url, elapsed_ms = %elapsed_ms, status = %code, "HTTP error");
                 }
-                (_, _, Some(msg)) => {
-                    tracing::info!(url = %url, elapsed_ms = %elapsed_ms, error = %msg, "failed");
+                LinkStatus::Failed { message } => {
+                    tracing::info!(url = %url, elapsed_ms = %elapsed_ms, error = %message, "failed");
                 }
-                _ => {
-                    tracing::info!(url = %url, elapsed_ms = %elapsed_ms, status = %status.status, "checked");
+                LinkStatus::Skipped => {
+                    tracing::info!(url = %url, elapsed_ms = %elapsed_ms, "skipped");
                 }
             }
 
