@@ -199,9 +199,9 @@ pub fn discover_cdylib_cells(repo_root: &Utf8Path) -> Vec<String> {
     cells
 }
 
-/// Discover rapace plugins by scanning cells/cell-*/Cargo.toml for `[[bin]]` sections.
-/// Returns (package_name, binary_name) pairs.
-pub fn discover_rapace_cells(repo_root: &Utf8Path) -> Vec<(String, String)> {
+/// Discover cells by scanning cells/cell-*/Cargo.toml for `[[bin]]` sections.
+/// Returns (package_name, binary_name) pairs sorted alphabetically.
+pub fn discover_cells(repo_root: &Utf8Path) -> Vec<(String, String)> {
     let mut cells = Vec::new();
     let cells_dir = repo_root.join("cells");
 
@@ -217,7 +217,7 @@ pub fn discover_rapace_cells(repo_root: &Utf8Path) -> Vec<(String, String)> {
                 if let Ok(content) = std::fs::read_to_string(&cargo_toml)
                     && content.contains("[[bin]]")
                 {
-                    let bin_name = format!("dodeca-{}", name);
+                    let bin_name = format!("ddc-{}", name);
                     cells.push((name.to_string(), bin_name));
                 }
             }
@@ -228,32 +228,12 @@ pub fn discover_rapace_cells(repo_root: &Utf8Path) -> Vec<(String, String)> {
     cells
 }
 
-/// All plugins sorted alphabetically (package_name, binary_name).
-pub const ALL_CELLS: &[(&str, &str)] = &[
-    ("cell-code-execution", "ddc-cell-code-execution"),
-    ("cell-css", "ddc-cell-css"),
-    ("cell-dialoguer", "ddc-cell-dialoguer"),
-    ("cell-fonts", "ddc-cell-fonts"),
-    ("cell-gingembre", "ddc-cell-gingembre"),
-    ("cell-html", "ddc-cell-html"),
-    ("cell-html-diff", "ddc-cell-html-diff"),
-    ("cell-http", "ddc-cell-http"),
-    ("cell-image", "ddc-cell-image"),
-    ("cell-js", "ddc-cell-js"),
-    ("cell-jxl", "ddc-cell-jxl"),
-    ("cell-linkcheck", "ddc-cell-linkcheck"),
-    ("cell-markdown", "ddc-cell-markdown"),
-    ("cell-minify", "ddc-cell-minify"),
-    ("cell-pagefind", "ddc-cell-pagefind"),
-    ("cell-sass", "ddc-cell-sass"),
-    ("cell-svgo", "ddc-cell-svgo"),
-    ("cell-tui", "ddc-cell-tui"),
-    ("cell-webp", "ddc-cell-webp"),
-];
-
-/// Group plugins into chunks of N for parallel CI builds.
-pub fn cell_groups(chunk_size: usize) -> Vec<(String, Vec<(&'static str, &'static str)>)> {
-    ALL_CELLS
+/// Group cells into chunks of N for parallel CI builds.
+pub fn cell_groups(
+    repo_root: &Utf8Path,
+    chunk_size: usize,
+) -> Vec<(String, Vec<(String, String)>)> {
+    discover_cells(repo_root)
         .chunks(chunk_size)
         .enumerate()
         .map(|(i, chunk)| (format!("{}", i + 1), chunk.to_vec()))
@@ -1034,7 +1014,7 @@ done"#,
 
     /// Generate a shell script to verify all expected artifacts exist.
     /// Fails CI if any binary is missing.
-    pub fn verify_artifacts_script() -> String {
+    pub fn verify_artifacts_script(cells: &[(String, String)]) -> String {
         let mut script = String::new();
         script.push_str("#!/bin/bash\nset -euo pipefail\n\n");
         script.push_str("echo 'Verifying all required binaries exist in dist/'\n");
@@ -1049,7 +1029,7 @@ done"#,
         script.push_str("fi\n\n");
 
         // Check all cell binaries
-        for (_, bin) in super::ALL_CELLS {
+        for (_, bin) in cells {
             script.push_str(&format!("if [[ ! -x dist/{bin} ]]; then\n"));
             script.push_str(&format!("  echo '❌ MISSING: {bin}'\n"));
             script.push_str("  missing=1\n");
@@ -1067,7 +1047,7 @@ done"#,
         script.push_str("echo ''\n");
         script.push_str(&format!(
             "echo 'All {} binaries verified.'\n",
-            super::ALL_CELLS.len() + 1
+            cells.len() + 1
         ));
 
         script
@@ -1114,14 +1094,15 @@ fn ci_linux_runner(platform: CiPlatform) -> CiRunner {
 /// - Fan-in: Assemble archives after all cell groups complete
 /// - Integration: Run integration tests
 /// - Release: On tags, publish release (GitHub only)
-pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
+pub fn build_ci_workflow(platform: CiPlatform, repo_root: &Utf8Path) -> Workflow {
     use common::*;
 
     let ci_linux = ci_linux_runner(platform);
     let targets = targets_for_platform(platform);
+    let cells = discover_cells(repo_root);
 
     let mut jobs = IndexMap::new();
-    let groups = cell_groups(100);
+    let groups = cell_groups(repo_root, 100);
 
     // Track jobs required before release (assemble + integration per target)
     let mut all_release_needs: Vec<String> = Vec::new();
@@ -1237,7 +1218,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
 
             let cell_names: String = cells
                 .iter()
-                .map(|(pkg, _)| *pkg)
+                .map(|(pkg, _)| pkg.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
 
@@ -1333,7 +1314,7 @@ pub fn build_ci_workflow(platform: CiPlatform) -> Workflow {
                          find dist -mindepth 1 -type d -empty -delete 2>/dev/null || true",
                     ),
                     Step::run("Prepare binaries", "chmod +x dist/ddc* && ls -la dist/"),
-                    Step::run("Verify artifacts", verify_artifacts_script()),
+                    Step::run("Verify artifacts", verify_artifacts_script(&cells)),
                     Step::run(
                         "Run integration tests",
                         "cargo xtask integration --no-build",
@@ -1547,17 +1528,18 @@ gh release create "{ref_name}" \
 /// - Uses ctree for near-instant COW cache copies on local filesystems
 /// - Uses SSH + rsync for artifact storage (content-addressed, deduplicated)
 /// - Simpler structure optimized for self-hosted runners
-pub fn build_forgejo_workflow() -> Workflow {
+pub fn build_forgejo_workflow(repo_root: &Utf8Path) -> Workflow {
     use common::*;
 
     let platform = CiPlatform::Forgejo;
     let targets = targets_for_platform(platform);
+    let cells = discover_cells(repo_root);
     let linux_cache_base = targets
         .iter()
         .find(|target| target.triple == "x86_64-unknown-linux-gnu")
         .map(|target| target.cache_base_path())
         .unwrap_or("/home/amos/.cache");
-    let groups = cell_groups(1);
+    let groups = cell_groups(repo_root, 1);
 
     // CAS env vars used by all artifact steps (SSH-based content-addressed storage)
     let cas_env = cas_env();
@@ -1698,7 +1680,7 @@ fi"#,
 
             let cell_names: String = cells
                 .iter()
-                .map(|(pkg, _)| *pkg)
+                .map(|(pkg, _)| pkg.as_str())
                 .collect::<Vec<_>>()
                 .join(", ");
 
@@ -1785,7 +1767,7 @@ fi"#,
                         },
                     ),
                     Step::run("List binaries", "ls -la dist/"),
-                    Step::run("Verify artifacts", verify_artifacts_script()),
+                    Step::run("Verify artifacts", verify_artifacts_script(&cells)),
                     Step::run(
                         "Run integration tests",
                         "cargo xtask integration --no-build",
@@ -2196,7 +2178,7 @@ fn check_or_write(path: &Utf8Path, content: &str, check: bool) -> Result<()> {
 pub fn generate_github(repo_root: &Utf8Path, check: bool) -> Result<()> {
     // Generate GitHub Actions workflow
     let github_workflows_dir = repo_root.join(CiPlatform::GitHub.workflows_dir());
-    let github_ci_workflow = build_ci_workflow(CiPlatform::GitHub);
+    let github_ci_workflow = build_ci_workflow(CiPlatform::GitHub, repo_root);
     let github_ci_yaml = workflow_to_yaml(&github_ci_workflow)?;
     check_or_write(&github_workflows_dir.join("ci.yml"), &github_ci_yaml, check)?;
 
@@ -2211,7 +2193,7 @@ pub fn generate_github(repo_root: &Utf8Path, check: bool) -> Result<()> {
 pub fn generate_forgejo(repo_root: &Utf8Path, check: bool) -> Result<()> {
     // Generate Forgejo Actions workflow (completely separate implementation)
     let forgejo_workflows_dir = repo_root.join(CiPlatform::Forgejo.workflows_dir());
-    let forgejo_ci_workflow = build_forgejo_workflow();
+    let forgejo_ci_workflow = build_forgejo_workflow(repo_root);
     let forgejo_ci_yaml = workflow_to_yaml(&forgejo_ci_workflow)?;
     check_or_write(
         &forgejo_workflows_dir.join("ci.yml"),
