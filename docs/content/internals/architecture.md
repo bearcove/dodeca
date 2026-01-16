@@ -1,10 +1,10 @@
 +++
 title = "Architecture"
-description = "How dodeca's host, plugins, and caching layers work together"
+description = "How dodeca's host, cells, and caching layers work together"
 weight = 0
 +++
 
-This document describes dodeca's architecture: how the host process orchestrates plugins, tracks dependencies, and manages caching.
+This document describes dodeca's architecture: how the host process orchestrates cells, tracks dependencies, and manages caching.
 
 ## Overview
 
@@ -25,7 +25,7 @@ Dodeca separates concerns into three layers:
 │  ┌────────────────────────┼────────────────────────────┐   │
 │  │          CAS           │                            │   │
 │  │  • Content-addressed   │  Host reads/writes         │   │
-│  │  • Large blobs on disk │  Plugins never touch       │   │
+│  │  • Large blobs on disk │  Cells never touch         │   │
 │  │  • Survives restarts   │                            │   │
 │  └────────────────────────┼────────────────────────────┘   │
 │                           │                                 │
@@ -37,9 +37,9 @@ Dodeca separates concerns into three layers:
 │  │  (all picante-tracked!)                             │   │
 │  └────────────────────────┬────────────────────────────┘   │
 └───────────────────────────┼─────────────────────────────────┘
-                            │ rapace RPC + SHM
+                            │ roam RPC + SHM
 ┌───────────────────────────▼─────────────────────────────────┐
-│                  PLUGINS (separate processes)               │
+│                  CELLS (separate processes)                 │
 │  • Pure async functions                                     │
 │  • No caching knowledge                                     │
 │  • Call back to host for dependencies                       │
@@ -55,19 +55,19 @@ All caching decisions live in the host:
 
 - **Picante** handles query memoization and dependency tracking
 - **CAS** handles large blob storage (images, fonts, processed outputs)
-- **Plugins have no caching logic** — they're pure functions
+- **Cells have no caching logic** — they're pure functions
 
 This means:
 - Consistent cache invalidation across all functionality
 - Single source of truth for "what needs rebuilding"
-- Plugins stay simple and stateless
+- Cells stay simple and stateless
 
-### 2. Plugins call back to host for dependencies
+### 2. Cells call back to host for dependencies
 
-When a plugin needs additional data, it calls back to the host:
+When a cell needs additional data, it calls back to the host:
 
 ```
-Host                              Plugin (e.g., template renderer)
+Host                              Cell (e.g., template renderer)
   │                                        │
   │── render(page, template_name) ────────▶│
   │                                        │
@@ -85,13 +85,13 @@ Host                              Plugin (e.g., template renderer)
   │                                        │
 ```
 
-The magic: **plugin callbacks flow through picante-tracked host APIs**. When the template plugin calls `resolve_template("base.html")`, the host:
+The magic: **cell callbacks flow through picante-tracked host APIs**. When the template cell calls `resolve_template("base.html")`, the host:
 
 1. Looks up the template (tracked query)
-2. Returns content to plugin
+2. Returns content to cell
 3. Picante records the dependency: "this render depends on base.html"
 
-If `base.html` changes later, picante knows to re-render pages that included it — even though the actual rendering happened in a plugin.
+If `base.html` changes later, picante knows to re-render pages that included it — even though the actual rendering happened in a cell.
 
 ### 3. Large blobs go through CAS, not picante
 
@@ -124,17 +124,17 @@ When actual content is needed, the host reads from CAS using the hash.
 
 ### 4. Shared memory for large transfers
 
-Plugins run as separate processes. Transferring large blobs (images, fonts) over RPC would be expensive.
+Cells run as separate processes. Transferring large blobs (images, fonts) over RPC would be expensive.
 
-Rapace uses shared memory (SHM) for zero-copy transfers:
+Roam uses shared memory (SHM) for zero-copy transfers:
 
 ```
-Host                              Plugin
+Host                              Cell
   │                                  │
   │── process_image(hash) ──────────▶│
   │                                  │
-  │   (plugin reads input from SHM)  │
-  │   (plugin writes output to SHM)  │
+  │   (cell reads input from SHM)    │
+  │   (cell writes output to SHM)    │
   │                                  │
   │◀── output_hash ──────────────────│
   │                                  │
@@ -143,11 +143,11 @@ Host                              Plugin
 ```
 
 The host:
-1. Writes input blob to SHM before calling plugin
-2. Plugin processes in-place or writes output to SHM
+1. Writes input blob to SHM before calling cell
+2. Cell processes in-place or writes output to SHM
 3. Host reads output from SHM and stores in CAS
 
-Plugins never touch CAS directly — the host handles all persistence.
+Cells never touch CAS directly — the host handles all persistence.
 
 ## Query Flow Example
 
@@ -165,18 +165,18 @@ Here's how a page render flows through the system:
        │
        ├─▶ build_tree(db) [cached, inputs unchanged]
        │
-       └─▶ call template plugin via rapace
+       └─▶ call template cell via roam
            │
-           ├─◀ plugin calls resolve_template("page.html")
+           ├─◀ cell calls resolve_template("page.html")
            │   └─▶ host returns template [picante tracks dependency]
            │
-           ├─◀ plugin calls resolve_template("base.html")
+           ├─◀ cell calls resolve_template("base.html")
            │   └─▶ host returns template [picante tracks dependency]
            │
-           ├─◀ plugin calls get_data("site.title")
+           ├─◀ cell calls get_data("site.title")
            │   └─▶ host returns value [picante tracks dependency]
            │
-           └─▶ plugin returns rendered HTML
+           └─▶ cell returns rendered HTML
 
 4. Host stores result
    └─▶ picante caches rendered HTML for this route
@@ -186,37 +186,36 @@ Here's how a page render flows through the system:
        └─▶ picante invalidates all pages that resolved "base.html"
 ```
 
-## Plugin Categories
+## Cell Categories
 
-| Plugin | Inputs | Outputs | Callbacks to Host |
-|--------|--------|---------|-------------------|
-| **Template** | Page data, template name | Rendered HTML | `resolve_template`, `get_data` |
+| Cell | Inputs | Outputs | Callbacks to Host |
+|------|--------|---------|-------------------|
+| **Template** (gingembre) | Page data, template name | Rendered HTML | `resolve_template`, `get_data` |
 | **SASS** | Entry file path | Compiled CSS | `resolve_import` |
 | **Image** | Image bytes (via SHM) | Processed variants (via SHM) | None (pure transform) |
-| **Font** | Font bytes, char set | Subsetted font (via SHM) | None (pure transform) |
-| **Syntax** | Code, language | Highlighted HTML | None (pure transform) |
+| **Fonts** | Font bytes, char set | Subsetted font (via SHM) | None (pure transform) |
+| **Markdown** | Markdown text | Rendered HTML with syntax highlighting | None (pure transform) |
 | **HTTP** | Request | Response | `find_content`, `eval_expression` |
 
-"Pure transform" plugins don't call back — they receive all inputs upfront and return outputs. These are the simplest to implement and reason about.
+"Pure transform" cells don't call back — they receive all inputs upfront and return outputs. These are the simplest to implement and reason about.
 
-Plugins with callbacks enable lazy loading and fine-grained dependency tracking, but require careful design of the provider interface.
+Cells with callbacks enable lazy loading and fine-grained dependency tracking, but require careful design of the provider interface.
 
-## CAS Structure
-
-Content-Addressed Storage uses content hashes as keys:
+## Cache Structure
 
 ```
 .cache/
-├── cas/
-│   ├── images/
-│   │   ├── a1b2c3d4...  # processed image variants
-│   │   └── e5f6g7h8...
-│   ├── fonts/
-│   │   ├── i9j0k1l2...  # subsetted fonts
-│   │   └── m3n4o5p6...
-│   └── decompressed/
-│       └── q7r8s9t0...  # decompressed font (TTF from WOFF2)
-└── picante.bin          # picante's serialized cache (small!)
+├── blobs/              # Content-addressed blob storage
+│   ├── a1b2/           # Subdirectory by hash prefix
+│   │   ├── a1b2c3...img    # processed image data
+│   │   └── a1b2d4...ttf    # decompressed font
+│   └── e5f6/
+│       └── ...
+├── cas.db              # Hash store (path → content hash mapping)
+├── cas.version         # CAS version for cache invalidation
+├── dodeca.bin          # Picante's serialized cache
+├── dodeca.version      # Picante cache version
+└── code-execution/     # Cached code execution results
 ```
 
 Benefits:
@@ -232,7 +231,7 @@ Benefits:
 | Dependency tracking | Picante (host) | Single source of truth for staleness |
 | Query memoization | Picante (host) | Avoids redundant computation |
 | Large blob storage | CAS (host) | Keeps picante cache small |
-| Pure computation | Plugins | Isolation, independent linking |
+| Pure computation | Cells | Isolation, independent linking |
 | Provider services | Host | Callbacks tracked by picante |
 
-The host is the brain; plugins are the muscles. Caching decisions flow through one place, making the system predictable and debuggable.
+The host is the brain; cells are the muscles. Caching decisions flow through one place, making the system predictable and debuggable.

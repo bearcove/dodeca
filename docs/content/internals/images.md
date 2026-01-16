@@ -21,4 +21,4 @@ A single markdown image becomes a responsive `<picture>` with JPEG XL, WebP, and
 
 Browsers pick the best format they support. All images get `loading="lazy"`.
 
-Processed images are cached in `.cache/assets.canopy`. Unchanged images skip reprocessing entirely.
+Processed images are cached in `.cache/blobs/`. Unchanged images skip reprocessing entirely.
