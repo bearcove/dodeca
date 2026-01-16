@@ -888,8 +888,45 @@ fn inject_code_buttons_in_flow_content(
                 had_buttons = true;
             }
             FlowContent::Div(div) => {
-                if inject_code_buttons_in_flow_content(&mut div.children, code_metadata) {
-                    had_buttons = true;
+                // Check if this is a .code-block wrapper containing a pre
+                let is_code_block = div
+                    .attrs
+                    .class
+                    .as_ref()
+                    .is_some_and(|c| c.contains("code-block"));
+
+                if is_code_block {
+                    // Find the pre element inside and extract code text
+                    let mut code_text = String::new();
+                    for child in div.children.iter() {
+                        if let FlowContent::Pre(pre) = child {
+                            code_text = extract_text_from_phrasing(&pre.children);
+                            break;
+                        }
+                    }
+
+                    if !code_text.is_empty() {
+                        let normalized = normalize_code_for_matching(&code_text);
+
+                        // Create buttons as FlowContent for the div
+                        let copy_button = create_copy_button_flow();
+                        let build_info_button = code_metadata
+                            .get(&normalized)
+                            .map(create_build_info_button_flow);
+
+                        // Add buttons to the div (not the pre)
+                        if let Some(btn) = build_info_button {
+                            div.children.push(btn);
+                        }
+                        div.children.push(copy_button);
+
+                        had_buttons = true;
+                    }
+                } else {
+                    // Regular div - recurse into children
+                    if inject_code_buttons_in_flow_content(&mut div.children, code_metadata) {
+                        had_buttons = true;
+                    }
                 }
             }
             FlowContent::Section(section) => {
@@ -1022,6 +1059,39 @@ fn create_build_info_button(meta: &CodeExecutionMetadata) -> PhrasingContent {
             ..Default::default()
         },
         children: vec![PhrasingContent::Text("\u{2139}".to_string())], // Unicode info symbol
+        ..Default::default()
+    })
+}
+
+fn create_copy_button_flow() -> FlowContent {
+    FlowContent::Button(Button {
+        attrs: GlobalAttrs {
+            class: Some("copy-btn".to_string()),
+            ..Default::default()
+        },
+        children: vec![PhrasingContent::Text("Copy".to_string())],
+        ..Default::default()
+    })
+}
+
+fn create_build_info_button_flow(meta: &CodeExecutionMetadata) -> FlowContent {
+    let _json = metadata_to_json(meta);
+    let rustc_short = meta
+        .rustc_version
+        .lines()
+        .next()
+        .unwrap_or(&meta.rustc_version);
+
+    FlowContent::Button(Button {
+        attrs: GlobalAttrs {
+            class: Some("build-info-btn verified".to_string()),
+            tooltip: Some(format!(
+                "Verified: {}",
+                html_escape::encode_text(rustc_short)
+            )),
+            ..Default::default()
+        },
+        children: vec![PhrasingContent::Text("\u{2139}".to_string())],
         ..Default::default()
     })
 }

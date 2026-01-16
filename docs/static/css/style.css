@@ -338,7 +338,7 @@ article code {
     border-radius: 4px;
 }
 
-article pre {
+article pre, .code-block {
     background: var(--code-bg);
     padding: 0.75rem 1rem;
     border-radius: 6px;
@@ -489,10 +489,10 @@ footer a:hover {
 /* ============================================
    Copy Button for Code Blocks
    ============================================ */
-pre {
+pre, .code-block {
     position: relative;
 }
-pre .copy-btn {
+.code-block .copy-btn {
     position: sticky;
     float: right;
     top: 0.5rem;
@@ -507,12 +507,12 @@ pre .copy-btn {
     opacity: 0;
     transition: opacity 0.15s;
 }
-pre:hover .copy-btn {
+.code-block:hover .copy-btn {
     opacity: 1;
 }
-pre .copy-btn:hover {
+.code-block .copy-btn:hover {
     background: rgba(80, 80, 95, 0.95);
 }
-pre .copy-btn.copied {
+.code-block .copy-btn.copied {
     background: rgba(50, 160, 50, 0.9);
 }

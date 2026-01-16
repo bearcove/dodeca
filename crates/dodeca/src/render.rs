@@ -80,9 +80,11 @@ fn generate_syntax_highlight_css(light_theme_css: &str, dark_theme_css: &str) ->
 
 /// CSS for copy button on code blocks
 const COPY_BUTTON_STYLES: &str = r##"<style>
-pre .copy-btn {
-    position: sticky;
-    float: right;
+.code-block {
+    position: relative;
+}
+.code-block .copy-btn {
+    position: absolute;
     top: 0.5rem;
     right: 0.5rem;
     padding: 0.25rem 0.5rem;
@@ -96,9 +98,9 @@ pre .copy-btn {
     transition: opacity 0.15s;
     z-index: 10;
 }
-pre:hover .copy-btn { opacity: 1; }
-pre .copy-btn:hover { background: rgba(80,80,95,0.95); }
-pre .copy-btn.copied { background: rgba(50,160,50,0.9); }
+.code-block:hover .copy-btn { opacity: 1; }
+.code-block .copy-btn:hover { background: rgba(80,80,95,0.95); }
+.code-block .copy-btn.copied { background: rgba(50,160,50,0.9); }
 </style>"##;
 
 /// JavaScript for copy button functionality - uses event delegation for all copy buttons
@@ -106,7 +108,7 @@ const COPY_BUTTON_SCRIPT: &str = r##"<script>
 document.addEventListener('click', async (e) => {
     const btn = e.target.closest('.copy-btn');
     if (!btn) return;
-    const pre = btn.closest('pre');
+    const pre = btn.closest('.code-block') || btn.closest('pre');
     if (!pre) return;
     const code = pre.querySelector('code')?.textContent || pre.textContent;
     await navigator.clipboard.writeText(code);
@@ -121,7 +123,7 @@ document.addEventListener('click', async (e) => {
 
 /// CSS and JS for build info icon on code blocks
 const BUILD_INFO_STYLES: &str = r##"<style>
-pre .build-info-btn {
+.code-block .build-info-btn {
     position: sticky;
     float: right;
     top: 0.5rem;
@@ -138,9 +140,9 @@ pre .build-info-btn {
     line-height: 1;
     z-index: 10;
 }
-pre:hover .build-info-btn { opacity: 1; }
-pre .build-info-btn:hover { background: rgba(255,255,255,0.2); }
-pre .build-info-btn.verified { border-color: rgba(50,205,50,0.5); }
+.code-block:hover .build-info-btn { opacity: 1; }
+.code-block .build-info-btn:hover { background: rgba(255,255,255,0.2); }
+.code-block .build-info-btn.verified { border-color: rgba(50,205,50,0.5); }
 .build-info-popup {
     position: fixed;
     top: 50%;
