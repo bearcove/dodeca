@@ -10,8 +10,6 @@ mod content_service;
 mod data;
 mod db;
 mod error_pages;
-#[cfg(unix)]
-mod fd_passing;
 mod file_watcher;
 mod host;
 mod image;
@@ -117,7 +115,8 @@ struct ServeArgs {
     #[facet(args::named, args::short = 'P', rename = "public")]
     public_access: bool,
 
-    /// Unix socket path to receive listening FD (for testing)
+    /// Control channel path to receive listening socket (for testing)
+    /// Unix: Unix socket path, Windows: named pipe path
     #[facet(args::named, default)]
     fd_socket: Option<String>,
 }
@@ -1903,48 +1902,84 @@ async fn serve_plain(
 ) -> Result<()> {
     use std::sync::Arc;
 
-    // IMPORTANT: Receive listening FD FIRST if --fd-socket was provided (for testing)
+    // IMPORTANT: Receive listening socket FIRST if --fd-socket was provided (for testing)
     // This must happen before any other initialization so the test harness isn't blocked.
-    #[cfg(unix)]
-    let pre_bound_listener = if let Some(ref socket_path) = fd_socket {
-        use std::os::unix::io::FromRawFd;
-        use tokio::io::AsyncWriteExt;
-        use tokio::net::UnixStream;
+    let pre_bound_listener: Option<std::net::TcpListener> =
+        if let Some(ref channel_path) = fd_socket {
+            #[cfg(unix)]
+            {
+                use std::os::unix::io::FromRawFd;
+                use tokio::io::AsyncWriteExt;
+                use tokio::net::UnixStream;
 
-        tracing::info!("Connecting to Unix socket for FD passing: {}", socket_path);
-        let mut unix_stream = UnixStream::connect(socket_path)
-            .await
-            .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", socket_path, e))?;
+                tracing::info!(
+                    "Connecting to Unix socket for FD passing: {}",
+                    channel_path
+                );
+                let mut unix_stream = UnixStream::connect(channel_path)
+                    .await
+                    .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", channel_path, e))?;
 
-        tracing::info!("Receiving TCP listener FD from test harness");
-        let fd = fd_passing::recv_fd(&unix_stream)
-            .await
-            .map_err(|e| eyre!("Failed to receive FD: {}", e))?;
+                tracing::info!("Receiving TCP listener FD from test harness");
+                let fd = roam_fdpass::recv_fd(&unix_stream)
+                    .await
+                    .map_err(|e| eyre!("Failed to receive FD: {}", e))?;
 
-        // SAFETY: We just received this FD from the test harness, which created a valid TcpListener
-        // and sent us its file descriptor. We're the only owner now.
-        let std_listener = unsafe { std::net::TcpListener::from_raw_fd(fd) };
+                // SAFETY: We just received this FD from the test harness, which created a valid TcpListener
+                // and sent us its file descriptor. We're the only owner now.
+                let std_listener = unsafe { std::net::TcpListener::from_raw_fd(fd) };
 
-        // IMPORTANT: tokio requires the listener to be in non-blocking mode
-        std_listener
-            .set_nonblocking(true)
-            .map_err(|e| eyre!("Failed to set listener to non-blocking: {}", e))?;
+                // IMPORTANT: tokio requires the listener to be in non-blocking mode
+                std_listener
+                    .set_nonblocking(true)
+                    .map_err(|e| eyre!("Failed to set listener to non-blocking: {}", e))?;
 
-        tracing::info!("Successfully received TCP listener FD");
+                tracing::info!("Successfully received TCP listener FD");
 
-        // Ack FD receipt to the harness. This avoids any OS-specific edge cases where the
-        // harness closing its copy "immediately after send_fd returns" could still lead to
-        // transient flakiness for the first connection (observed on macOS).
-        unix_stream
-            .write_all(&[0xAC])
-            .await
-            .map_err(|e| eyre!("Failed to send FD ack: {}", e))?;
-        Some(std_listener)
-    } else {
-        None
-    };
-    #[cfg(not(unix))]
-    let pre_bound_listener: Option<std::net::TcpListener> = None;
+                // Ack FD receipt to the harness. This avoids any OS-specific edge cases where the
+                // harness closing its copy "immediately after send_fd returns" could still lead to
+                // transient flakiness for the first connection (observed on macOS).
+                unix_stream
+                    .write_all(&[0xAC])
+                    .await
+                    .map_err(|e| eyre!("Failed to send FD ack: {}", e))?;
+                Some(std_listener)
+            }
+
+            #[cfg(windows)]
+            {
+                use tokio::io::AsyncWriteExt;
+
+                tracing::info!(
+                    "Connecting to named pipe for socket passing: {}",
+                    channel_path
+                );
+                let mut pipe_stream = roam_local::connect(channel_path)
+                    .await
+                    .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", channel_path, e))?;
+
+                tracing::info!("Receiving TCP listener from test harness");
+                let std_listener = roam_fdpass::recv_tcp_listener(&mut pipe_stream)
+                    .await
+                    .map_err(|e| eyre!("Failed to receive TCP listener: {}", e))?;
+
+                // IMPORTANT: tokio requires the listener to be in non-blocking mode
+                std_listener
+                    .set_nonblocking(true)
+                    .map_err(|e| eyre!("Failed to set listener to non-blocking: {}", e))?;
+
+                tracing::info!("Successfully received TCP listener");
+
+                // Ack socket receipt to the harness
+                pipe_stream
+                    .write_all(&[0xAC])
+                    .await
+                    .map_err(|e| eyre!("Failed to send socket ack: {}", e))?;
+                Some(std_listener)
+            }
+        } else {
+            None
+        };
 
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);

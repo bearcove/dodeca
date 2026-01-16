@@ -17,15 +17,14 @@ facet-value.workspace = true
 fs-err.workspace = true
 owo-colors.workspace = true
 regex.workspace = true
+roam-fdpass.workspace = true
+roam-local.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 ureq.workspace = true
 ur-taking-me-with-you.workspace = true
-
-[target.'cfg(unix)'.dependencies]
-passfd.workspace = true
 
 [dev-dependencies]
 libc.workspace = true

@@ -2,11 +2,12 @@
 //!
 //! Provides high-level APIs for testing the server without boilerplate.
 //!
-//! Uses Unix socket FD passing to hand the listening socket to the server process.
+//! Uses FD/socket passing to hand the listening socket to the server process:
+//! - **Unix**: Uses Unix domain sockets with SCM_RIGHTS
+//! - **Windows**: Uses named pipes with WSADuplicateSocket
+//!
 //! The test harness binds the socket first, so connections queue in the TCP backlog
 //! until the server is ready to accept.
-//!
-//! **Note:** This harness only works on Unix platforms due to FD passing requirements.
 //!
 //! # Environment Variables
 //!
@@ -16,9 +17,6 @@
 //!   (e.g., "valgrind --leak-check=full" or "strace -f -o /tmp/trace.out")
 //! - `DODECA_HARNESS_RAW_TCP`: Set to "1" to enable raw TCP probe mode for
 //!   connection diagnostics (measures connect/write/read phases separately)
-
-#[cfg(not(unix))]
-compile_error!("integration-tests harness requires Unix (uses FD passing via Unix sockets)");
 
 use facet_value::Value;
 use fs_err as fs;
@@ -35,9 +33,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[cfg(unix)]
 use tokio::net::UnixListener;
 use tracing::{debug, error, info};
-
-#[cfg(unix)]
-use crate::fd_passing;
 
 // Thread-local storage for the active test id (used to route logs).
 thread_local! {
@@ -272,6 +267,7 @@ pub struct TestSite {
     pub port: u16,
     fixture_dir: PathBuf,
     _temp_dir: tempfile::TempDir,
+    #[cfg(unix)]
     _unix_socket_dir: tempfile::TempDir,
     test_id: u64,
 }
@@ -351,14 +347,6 @@ impl TestSite {
         let _ = fs::remove_dir_all(&cache_dir);
         fs::create_dir_all(&cache_dir).expect("create cache dir");
 
-        // Create Unix socket directory
-        let unix_socket_dir = tempfile::Builder::new()
-            .prefix("dodeca-sock-")
-            .tempdir()
-            .expect("create unix socket dir");
-
-        let unix_socket_path = unix_socket_dir.path().join("server.sock");
-
         // Create runtime for async socket operations
         let rt = tokio::runtime::Runtime::new().expect("create tokio runtime");
 
@@ -366,15 +354,35 @@ impl TestSite {
         let std_listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind TCP");
         let port = std_listener.local_addr().expect("get local addr").port();
         debug!(port, "Bound ephemeral TCP listener for test server");
-        let listener_fd = std_listener.into_raw_fd();
 
-        // Create Unix socket listener
-        let unix_listener =
-            rt.block_on(async { UnixListener::bind(&unix_socket_path).expect("bind Unix socket") });
+        // Platform-specific: create control channel and get socket path for ddc
+        #[cfg(unix)]
+        let (unix_socket_dir, control_channel_path) = {
+            let unix_socket_dir = tempfile::Builder::new()
+                .prefix("dodeca-sock-")
+                .tempdir()
+                .expect("create unix socket dir");
+            let unix_socket_path = unix_socket_dir.path().join("server.sock");
+            let path_str = unix_socket_path.to_string_lossy().to_string();
+            (unix_socket_dir, path_str)
+        };
 
-        // Start server with Unix socket path
+        #[cfg(windows)]
+        let control_channel_path = {
+            // Use a unique named pipe for this test
+            let pipe_name = format!(
+                r"\\.\pipe\dodeca-test-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            );
+            pipe_name
+        };
+
+        // Start server with control channel path
         let fixture_str = fixture_dir.to_string_lossy().to_string();
-        let unix_socket_str = unix_socket_path.to_string_lossy().to_string();
         let rust_log = std::env::var("RUST_LOG").unwrap_or_else(|_| {
             // Default to debug for everything, but turn off specific noisy modules
             "debug,ureq=warn,hyper=warn,h2=warn,tower=warn,tonic=warn".to_string()
@@ -386,7 +394,7 @@ impl TestSite {
             &fixture_str,
             "--no-tui",
             "--fd-socket",
-            &unix_socket_str,
+            &control_channel_path,
         ];
 
         // Build command, optionally wrapping with DODECA_TEST_WRAPPER
@@ -429,6 +437,17 @@ impl TestSite {
         // This prevents orphan accumulation when tests are killed or crash.
         cmd.env("DODECA_DIE_WITH_PARENT", "1");
 
+        // Platform-specific: set up control channel listener before spawning
+        #[cfg(unix)]
+        let unix_listener = {
+            let unix_socket_path = std::path::Path::new(&control_channel_path);
+            rt.block_on(async { UnixListener::bind(unix_socket_path).expect("bind Unix socket") })
+        };
+
+        #[cfg(windows)]
+        let mut pipe_listener = roam_local::LocalListener::bind(&control_channel_path)
+            .expect("bind named pipe");
+
         let mut child = ur_taking_me_with_you::spawn_dying_with_parent(cmd)
             .expect("start server with death-watch");
         debug!(child_pid = child.id(), ddc = %ddc.display(), %rust_log, "Spawned ddc server process");
@@ -441,63 +460,116 @@ impl TestSite {
         let stdout_reader = BufReader::new(stdout);
         let stderr_reader = BufReader::new(stderr);
         info!("spawned ddc pid={}", child.id());
-        // Accept connection from server on Unix socket and send FD
+
+        // Platform-specific: accept connection and send TCP listener
         let child_id = child.id();
-        rt.block_on(async {
-            use tokio::io::AsyncReadExt;
 
-            debug!("waiting for unix socket accept");
-            let accept_future = unix_listener.accept();
-            let timeout_duration = tokio::time::Duration::from_secs(5);
+        #[cfg(unix)]
+        {
+            let listener_fd = std_listener.into_raw_fd();
+            rt.block_on(async {
+                use tokio::io::AsyncReadExt;
 
-            let (mut unix_stream, _) = tokio::time::timeout(timeout_duration, accept_future)
-                .await
-                .unwrap_or_else(|_| {
+                debug!("waiting for unix socket accept");
+                let accept_future = unix_listener.accept();
+                let timeout_duration = tokio::time::Duration::from_secs(5);
+
+                let (mut unix_stream, _) = tokio::time::timeout(timeout_duration, accept_future)
+                    .await
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Timeout waiting for server (PID {}) to connect to Unix socket within 5s",
+                            child_id
+                        )
+                    })
+                    .expect("Failed to accept Unix connection");
+
+                // Send the TCP listener FD to the server
+                roam_fdpass::send_fd(&unix_stream, listener_fd)
+                    .await
+                    .expect("send FD");
+                info!("sent TCP listener FD to ddc");
+                debug!("Sent TCP listener FD to server");
+
+                // FD passing ack:
+                //
+                // The server must confirm it has received and adopted the listening FD before the
+                // harness closes its copy. This eliminates OS-specific edge cases (notably on macOS)
+                // where closing too early can lead to transient ECONNRESET/ECONNREFUSED for the very
+                // first test request.
+                let mut ack_buf = [0u8; 1];
+                tokio::time::timeout(timeout_duration, unix_stream.read_exact(&mut ack_buf))
+                    .await
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Timeout waiting for server (PID {}) to ack FD receipt within 5s",
+                            child_id
+                        )
+                    })
+                    .expect("Failed to read FD ack from server");
+                if ack_buf != [0xAC] {
                     panic!(
-                        "Timeout waiting for server (PID {}) to connect to Unix socket within 5s",
-                        child_id
-                    )
-                })
-                .expect("Failed to accept Unix connection");
+                        "Unexpected FD ack byte from server (PID {}): got 0x{:02x}, expected 0xAC",
+                        child_id, ack_buf[0]
+                    );
+                }
+                info!("server acked listener FD");
 
-            // Send the TCP listener FD to the server
-            fd_passing::send_fd(&unix_stream, listener_fd)
-                .await
-                .expect("send FD");
-            info!("sent TCP listener FD to ddc");
-            debug!("Sent TCP listener FD to server");
+                // Close the local copy *after* the server has acked receipt. The receiver gets its
+                // own duplicate FD via SCM_RIGHTS.
+                use std::os::fd::FromRawFd;
 
-            // FD passing ack:
-            //
-            // The server must confirm it has received and adopted the listening FD before the
-            // harness closes its copy. This eliminates OS-specific edge cases (notably on macOS)
-            // where closing too early can lead to transient ECONNRESET/ECONNREFUSED for the very
-            // first test request.
-            let mut ack_buf = [0u8; 1];
-            tokio::time::timeout(timeout_duration, unix_stream.read_exact(&mut ack_buf))
-                .await
-                .unwrap_or_else(|_| {
+                // SAFETY: We created `listener_fd` from a freshly-bound listener and haven't closed it.
+                let _ = unsafe { std::os::fd::OwnedFd::from_raw_fd(listener_fd) };
+            });
+        }
+
+        #[cfg(windows)]
+        {
+            rt.block_on(async {
+                use tokio::io::AsyncReadExt;
+
+                debug!("waiting for named pipe accept");
+                let timeout_duration = tokio::time::Duration::from_secs(5);
+
+                let mut pipe_stream = tokio::time::timeout(timeout_duration, pipe_listener.accept())
+                    .await
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Timeout waiting for server (PID {}) to connect to named pipe within 5s",
+                            child_id
+                        )
+                    })
+                    .expect("Failed to accept named pipe connection");
+
+                // Send the TCP listener to the server using WSADuplicateSocket
+                roam_fdpass::send_tcp_listener(&mut pipe_stream, &std_listener, child_id)
+                    .await
+                    .expect("send TCP listener");
+                info!("sent TCP listener to ddc");
+                debug!("Sent TCP listener to server via WSADuplicateSocket");
+
+                // Socket passing ack
+                let mut ack_buf = [0u8; 1];
+                tokio::time::timeout(timeout_duration, pipe_stream.read_exact(&mut ack_buf))
+                    .await
+                    .unwrap_or_else(|_| {
+                        panic!(
+                            "Timeout waiting for server (PID {}) to ack socket receipt within 5s",
+                            child_id
+                        )
+                    })
+                    .expect("Failed to read socket ack from server");
+                if ack_buf != [0xAC] {
                     panic!(
-                        "Timeout waiting for server (PID {}) to ack FD receipt within 5s",
-                        child_id
-                    )
-                })
-                .expect("Failed to read FD ack from server");
-            if ack_buf != [0xAC] {
-                panic!(
-                    "Unexpected FD ack byte from server (PID {}): got 0x{:02x}, expected 0xAC",
-                    child_id, ack_buf[0]
-                );
-            }
-            info!("server acked listener FD");
+                        "Unexpected socket ack byte from server (PID {}): got 0x{:02x}, expected 0xAC",
+                        child_id, ack_buf[0]
+                    );
+                }
+                info!("server acked listener socket");
+            });
+        }
 
-            // Close the local copy *after* the server has acked receipt. The receiver gets its
-            // own duplicate FD via SCM_RIGHTS.
-            use std::os::fd::FromRawFd;
-
-            // SAFETY: We created `listener_fd` from a freshly-bound listener and haven't closed it.
-            let _ = unsafe { std::os::fd::OwnedFd::from_raw_fd(listener_fd) };
-        });
         debug!("log capture started");
 
         // Drain stdout in background (capture only, no printing)
@@ -535,6 +607,7 @@ impl TestSite {
             port,
             fixture_dir,
             _temp_dir: temp_dir,
+            #[cfg(unix)]
             _unix_socket_dir: unix_socket_dir,
             test_id,
         };

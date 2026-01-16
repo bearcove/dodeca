@@ -73,6 +73,8 @@ picante.workspace = true
 roam.workspace = true
 roam-shm.workspace = true
 roam-tracing.workspace = true
+roam-fdpass.workspace = true
+roam-local.workspace = true
 rapidhash.workspace = true
 regex.workspace = true
 serde_yaml.workspace = true
@@ -82,9 +84,6 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 ur-taking-me-with-you.workspace = true
 html-escape.workspace = true
-
-[target.'cfg(unix)'.dependencies]
-passfd.workspace = true
 
 [dev-dependencies]
 divan.workspace = true

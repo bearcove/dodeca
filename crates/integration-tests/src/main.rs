@@ -10,8 +10,6 @@
 //!   DODECA_BIN       - Path to the ddc binary (required)
 //!   DODECA_CELL_PATH - Path to cell binaries (optional, defaults to same dir as ddc)
 
-#[cfg(unix)]
-mod fd_passing;
 mod harness;
 mod tests;
 
