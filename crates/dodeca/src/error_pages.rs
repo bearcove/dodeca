@@ -6,8 +6,8 @@
 
 pub use dodeca_protocol::ansi_to_html;
 
-/// Marker for render errors (used to detect errors in production builds)
-pub const RENDER_ERROR_MARKER: &str = "<!-- DODECA_RENDER_ERROR -->";
+/// Marker for render errors (data attribute survives HTML minification)
+pub const RENDER_ERROR_MARKER: &str = "data-dodeca-error";
 
 /// Dodeca logo SVG for error pages
 const DODECA_LOGO_SVG: &str = include_str!("../logo.svg");
@@ -178,8 +178,7 @@ pub fn render_error_page(error: &str) -> String {
     let error_html = ansi_to_html(error);
     format!(
         r#"<!DOCTYPE html>
-<html lang="en">
-{RENDER_ERROR_MARKER}
+<html lang="en" {RENDER_ERROR_MARKER}>
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">

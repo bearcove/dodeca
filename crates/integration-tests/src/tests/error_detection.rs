@@ -59,4 +59,4 @@ pub fn missing_template_shows_error_page() {
     html.assert_contains(RENDER_ERROR_MARKER);
 }
 
-const RENDER_ERROR_MARKER: &str = "<!-- DODECA_RENDER_ERROR -->";
+const RENDER_ERROR_MARKER: &str = "data-dodeca-error";
