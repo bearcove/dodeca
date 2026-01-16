@@ -2560,7 +2560,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "ur-taking-me-with-you 0.5.0",
+ "ur-taking-me-with-you",
 ]
 
 [[package]]
@@ -2574,7 +2574,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "ur-taking-me-with-you 0.5.0",
+ "ur-taking-me-with-you",
 ]
 
 [[package]]
@@ -4219,7 +4219,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "ur-taking-me-with-you 0.5.0",
+ "ur-taking-me-with-you",
  "ureq",
 ]
 
@@ -6502,7 +6502,7 @@ dependencies = [
  "shm-primitives",
  "tokio",
  "tracing",
- "ur-taking-me-with-you 0.6.0",
+ "ur-taking-me-with-you",
 ]
 
 [[package]]
@@ -7898,20 +7898,11 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "ur-taking-me-with-you"
-version = "0.5.0"
-source = "git+https://github.com/bearcove/rapace?branch=main#bd91af0423a0f8cd3fde446a4e386300e301a497"
-dependencies = [
- "libc",
- "tokio",
- "windows-sys 0.61.2",
-]
-
-[[package]]
-name = "ur-taking-me-with-you"
 version = "0.6.0"
 source = "git+https://github.com/bearcove/roam?branch=main#6782af80bb2466ca7ec33cd49d57d425f224e057"
 dependencies = [
  "libc",
+ "tokio",
  "windows-sys 0.61.2",
 ]
 
