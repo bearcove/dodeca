@@ -225,7 +225,7 @@ pub async fn check_external_links(
     }
 
     // Compute day bucket (YYYYMMDD as u32)
-    let day_bucket = date.year() as u32 * 10000 + date.month() as u32 * 100 + date.day() as u32;
+    let day_bucket = date.year() as u32 * 10000 + date.month() * 100 + date.day();
 
     info!(
         urls = unique_urls.len(),

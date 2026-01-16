@@ -1348,7 +1348,7 @@ pub async fn build(
                     known_routes,
                     heading_ids: std::collections::HashMap::new(),
                 };
-                link_checker::check_external_links(&*ctx.db, &ext, today, &external_options).await
+                link_checker::check_external_links(&ctx.db, &ext, today, &external_options).await
             };
 
             link_result.external_checked = external_checked;
