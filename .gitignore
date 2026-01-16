@@ -19,3 +19,6 @@ dodeca-log.txt
 browser-tests/node_modules/
 browser-tests/test-results/
 .tracey/
+
+# Wasm build
+crates/dodeca-devtools/pkg/

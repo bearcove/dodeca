@@ -4,6 +4,10 @@ members = [
     "cells/*",
     "xtask",
 ]
+default-members = [
+    "crates/*",
+    "cells/*",
+]
 resolver = "3"
 
 # getrandom is required for wasm32 targets (enables wasm_js feature)
