@@ -69,7 +69,9 @@ impl CodeBlockHandler for ArboriumHandler {
             // Empty language means no syntax highlighting requested - render as plain
             if language.is_empty() {
                 let escaped = html_escape(code);
-                return Ok(format!("<pre><code>{escaped}</code></pre>"));
+                return Ok(format!(
+                    "<div class=\"code-block\"><pre><code>{escaped}</code></pre></div>"
+                ));
             }
 
             // Map common language aliases to arborium language names
@@ -84,12 +86,16 @@ impl CodeBlockHandler for ArboriumHandler {
             let mut hl = self.highlighter.lock().unwrap();
             let code_html = match hl.highlight(arborium_lang, code) {
                 Ok(html) => {
-                    format!("<pre><code class=\"language-{escaped_lang}\">{html}</code></pre>")
+                    format!(
+                        "<div class=\"code-block\"><pre><code class=\"language-{escaped_lang}\">{html}</code></pre></div>"
+                    )
                 }
                 Err(_e) => {
                     // Fall back to plain text rendering for unsupported languages
                     let escaped = html_escape(code);
-                    format!("<pre><code class=\"language-{escaped_lang}\">{escaped}</code></pre>")
+                    format!(
+                        "<div class=\"code-block\"><pre><code class=\"language-{escaped_lang}\">{escaped}</code></pre></div>"
+                    )
                 }
             };
 
@@ -354,7 +360,9 @@ impl CodeBlockHandler for CompareHandler {
             if sections.is_empty() {
                 // No valid sections found - render as plain text
                 let escaped = html_escape(code);
-                return Ok(format!("<pre><code>{escaped}</code></pre>"));
+                return Ok(format!(
+                    "<div class=\"code-block\"><pre><code>{escaped}</code></pre></div>"
+                ));
             }
 
             let mut html = String::new();
@@ -370,7 +378,7 @@ impl CodeBlockHandler for CompareHandler {
                     escaped_lang
                 ));
                 html.push_str(&format!(
-                    "<pre><code class=\"language-{}\">{}</code></pre>",
+                    "<div class=\"code-block\"><pre><code class=\"language-{}\">{}</code></pre></div>",
                     escaped_lang, highlighted
                 ));
                 html.push_str("</div>");
@@ -490,7 +498,7 @@ key: value"#;
             let result = handler.render("compare", code).await.unwrap();
 
             // Should fall back to plain text rendering
-            assert!(result.contains("<pre><code>"));
+            assert!(result.contains("<div class=\"code-block\"><pre><code>"));
             assert!(result.contains("no valid sections"));
         }
     }

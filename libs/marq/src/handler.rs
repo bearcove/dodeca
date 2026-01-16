@@ -190,7 +190,7 @@ impl ReqHandler for DefaultReqHandler {
     }
 }
 
-/// A simple handler that wraps code in `<pre><code>` tags without processing.
+/// A simple handler that wraps code in `<div class=\"code-block\"><pre><code>` tags without processing.
 ///
 /// This is used as a fallback when no handler is registered for a language.
 pub struct RawCodeHandler;
@@ -208,7 +208,10 @@ impl CodeBlockHandler for RawCodeHandler {
             } else {
                 format!(" class=\"language-{}\"", html_escape(language))
             };
-            Ok(format!("<pre><code{}>{}</code></pre>", lang_class, escaped))
+            Ok(format!(
+                "<div class=\"code-block\"><pre><code{}>{}</code></pre></div>",
+                lang_class, escaped
+            ))
         })
     }
 }
@@ -247,7 +250,7 @@ mod tests {
         let result = handler.render("rust", "fn main() {}").await.unwrap();
         assert_eq!(
             result,
-            "<pre><code class=\"language-rust\">fn main() {}</code></pre>"
+            "<div class=\"code-block\"><pre><code class=\"language-rust\">fn main() {}</code></pre></div>"
         );
     }
 
