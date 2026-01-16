@@ -11,10 +11,6 @@ pub struct CodeExecutorImpl;
 
 impl CodeExecutor for CodeExecutorImpl {
     async fn extract_code_samples(&self, input: ExtractSamplesInput) -> CodeExecutionResult {
-        eprintln!(
-            "[cell-code-execution] extract_code_samples called for {}",
-            input.source_path
-        );
         let options = Options::ENABLE_TABLES
             | Options::ENABLE_FOOTNOTES
             | Options::ENABLE_STRIKETHROUGH
@@ -78,26 +74,15 @@ impl CodeExecutor for CodeExecutorImpl {
     }
 
     async fn execute_code_samples(&self, input: ExecuteSamplesInput) -> CodeExecutionResult {
-        eprintln!(
-            "[cell-code-execution] execute_code_samples called, {} samples, enabled={}",
-            input.samples.len(),
-            input.config.enabled
-        );
         let mut results = Vec::new();
 
         if !input.config.enabled {
-            eprintln!("[cell-code-execution] code execution disabled, returning early");
             return CodeExecutionResult::ExecuteSuccess {
                 output: ExecuteSamplesOutput { results },
             };
         }
 
-        // Simplified execution logic
         for sample in input.samples {
-            eprintln!(
-                "[cell-code-execution] processing sample: {} line {} executable={}",
-                sample.source_path, sample.line, sample.executable
-            );
             let result = if !sample.executable {
                 ExecutionResult {
                     status: ExecutionStatus::Skipped,
@@ -155,34 +140,11 @@ const MAX_OUTPUT_SIZE: usize = 10 * 1024 * 1024;
 /// Execution timeout (5 minutes)
 const EXECUTION_TIMEOUT_SECS: u64 = 300;
 
-/// Check if we're inside a ddc build (reentrancy guard)
-fn is_reentrant_build() -> bool {
-    std::env::var("DODECA_BUILD_ACTIVE").is_ok()
-}
-
 async fn execute_code_sample(
     sample: &CodeSample,
     _config: &CodeExecutionConfig,
 ) -> ExecutionResult {
     use tokio::io::AsyncReadExt;
-
-    // Reentrancy guard: refuse to execute if we're inside a ddc build
-    if is_reentrant_build() {
-        tracing::warn!(
-            "[code-exec] BLOCKED: refusing to execute code inside ddc build (reentrancy guard) - {}:{}",
-            sample.source_path,
-            sample.line
-        );
-        return ExecutionResult {
-            status: ExecutionStatus::Skipped,
-            exit_code: None,
-            stdout: String::new(),
-            stderr: "Code execution blocked: cannot run code samples during ddc build (reentrancy guard)".to_string(),
-            duration_ms: 0,
-            error: Some("Reentrancy guard: code execution disabled during ddc build".to_string()),
-            metadata: None,
-        };
-    }
 
     let start_time = std::time::Instant::now();
     let source_info = format!("{}:{}", sample.source_path, sample.line);

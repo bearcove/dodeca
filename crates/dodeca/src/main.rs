@@ -1032,10 +1032,6 @@ pub async fn build(
 ) -> Result<BuildContext> {
     use std::time::Instant;
 
-    // Set reentrancy guard so code execution cell knows we're in a build
-    // SAFETY: We're single-threaded at this point (before spawning cells)
-    unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
-
     let start = Instant::now();
     let verbose = options.progress.is_none(); // Print to stdout when no TUI progress
     let render_options = options.render_options;
@@ -1945,10 +1941,6 @@ async fn serve_plain(
         None
     };
 
-    // Set reentrancy guard so code execution cell knows we're in a build
-    // SAFETY: We're single-threaded at this point (before spawning cells)
-    unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
-
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
     let cache_dir = parent_dir.join(".cache");
@@ -2267,10 +2259,6 @@ async fn serve_with_tui(
 ) -> Result<()> {
     use std::sync::Arc;
     use tokio::sync::watch;
-
-    // Set reentrancy guard so code execution cell knows we're in a build
-    // SAFETY: We're single-threaded at this point (before spawning cells)
-    unsafe { std::env::set_var("DODECA_BUILD_ACTIVE", "1") };
 
     // Enable quiet mode for cells so they don't print startup messages that corrupt TUI
     cells::set_quiet_mode(true);
