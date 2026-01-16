@@ -1950,6 +1950,9 @@ async fn serve_plain(
             {
                 use tokio::io::AsyncWriteExt;
 
+                use std::io::Write;
+                eprintln!("[ddc] Connecting to named pipe: {}", channel_path);
+                std::io::stderr().flush().ok();
                 tracing::info!(
                     "Connecting to named pipe for socket passing: {}",
                     channel_path
@@ -1958,10 +1961,18 @@ async fn serve_plain(
                     .await
                     .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", channel_path, e))?;
 
+                eprintln!("[ddc] Connected, receiving TCP listener...");
+                std::io::stderr().flush().ok();
                 tracing::info!("Receiving TCP listener from test harness");
                 let std_listener = roam_fdpass::recv_tcp_listener(&mut pipe_stream)
                     .await
-                    .map_err(|e| eyre!("Failed to receive TCP listener: {}", e))?;
+                    .map_err(|e| {
+                        eprintln!("[ddc] Failed to receive TCP listener: {}", e);
+                        std::io::stderr().flush().ok();
+                        eyre!("Failed to receive TCP listener: {}", e)
+                    })?;
+                eprintln!("[ddc] Received TCP listener successfully");
+                std::io::stderr().flush().ok();
 
                 // IMPORTANT: tokio requires the listener to be in non-blocking mode
                 std_listener

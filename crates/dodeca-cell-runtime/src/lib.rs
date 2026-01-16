@@ -56,17 +56,25 @@ macro_rules! run_cell {
             tracing, tracing_subscriber, ur_taking_me_with_you,
         };
 
+        eprintln!("[cell-{}] starting (pid={})", $cell_name, std::process::id());
+
         // Ensure this process dies when the parent dies (required for macOS pipe-based approach)
         ur_taking_me_with_you::die_with_parent();
 
+        eprintln!("[cell-{}] die_with_parent completed", $cell_name);
+
         async fn __run_cell_async() -> Result<(), Box<dyn std::error::Error>> {
+            eprintln!("[cell] async fn starting");
             let args = SpawnArgs::from_env()?;
+            eprintln!("[cell] parsed args: peer_id={}", args.peer_id.get());
             let peer_id = args.peer_id;
             let transport = ShmGuestTransport::from_spawn_args(args)?;
+            eprintln!("[cell] transport created");
 
             // Initialize cell-side tracing
             // Check TRACING_PASSTHROUGH env var - if set, log to stderr instead of via RPC
             let use_passthrough = std::env::var("TRACING_PASSTHROUGH").is_ok();
+            eprintln!("[cell] use_passthrough={}", use_passthrough);
 
             let tracing_service = if use_passthrough {
                 // Passthrough mode: log directly to stderr
@@ -85,6 +93,7 @@ macro_rules! run_cell {
                 tracing_subscriber::registry().with(tracing_layer).init();
                 tracing_service
             };
+            eprintln!("[cell] tracing initialized");
 
             // Let user code create the dispatcher with access to handle
             // We use an Arc<OnceLock> pattern
@@ -92,7 +101,9 @@ macro_rules! run_cell {
                 std::sync::Arc::new(std::sync::OnceLock::new());
 
             let $handle = handle_cell.clone();
+            eprintln!("[cell] creating user dispatcher");
             let user_dispatcher = $make_dispatcher;
+            eprintln!("[cell] user dispatcher created");
 
             // Combine user's dispatcher with tracing dispatcher using RoutedDispatcher
             // RoutedDispatcher routes primary.method_ids() to primary, rest to fallback.
@@ -101,23 +112,30 @@ macro_rules! run_cell {
                 tracing_dispatcher, // primary: handles tracing methods
                 user_dispatcher,    // fallback: handles all cell-specific methods
             );
+            eprintln!("[cell] calling establish_guest");
 
             let (handle, driver) = establish_guest(transport, combined_dispatcher);
+            eprintln!("[cell] establish_guest returned");
 
             // Store the real handle
             let _ = handle_cell.set(handle.clone());
+            eprintln!("[cell] handle stored");
 
             // Spawn driver in background so it can process the ready() RPC
+            eprintln!("[cell] spawning driver task");
             let driver_handle = tokio::spawn(async move {
+                eprintln!("[cell] driver task starting");
                 if let Err(e) = driver.run().await {
                     eprintln!("Driver error: {:?}", e);
                     std::process::exit(1);
                 }
+                eprintln!("[cell] driver task exited cleanly");
             });
+            eprintln!("[cell] driver task spawned");
 
             // Signal readiness to host
             let host = HostServiceClient::new(handle);
-            tracing::debug!("About to call host.ready() for cell {}", $cell_name);
+            eprintln!("[cell] calling host.ready()");
             host.ready(ReadyMsg {
                 peer_id: peer_id.get() as u16,
                 cell_name: $cell_name.to_string(),
@@ -126,7 +144,7 @@ macro_rules! run_cell {
                 features: vec![],
             })
             .await?;
-            tracing::info!("host.ready() returned successfully for cell {}", $cell_name);
+            eprintln!("[cell] host.ready() returned successfully");
 
             // Wait for driver to complete (it runs until connection closes)
             if let Err(e) = driver_handle.await {

@@ -445,8 +445,9 @@ impl TestSite {
         };
 
         #[cfg(windows)]
-        let mut pipe_listener = roam_local::LocalListener::bind(&control_channel_path)
-            .expect("bind named pipe");
+        let mut pipe_listener = rt.block_on(async {
+            roam_local::LocalListener::bind(&control_channel_path).expect("bind named pipe")
+        });
 
         let mut child = ur_taking_me_with_you::spawn_dying_with_parent(cmd)
             .expect("start server with death-watch");
@@ -460,6 +461,32 @@ impl TestSite {
         let stdout_reader = BufReader::new(stdout);
         let stderr_reader = BufReader::new(stderr);
         info!("spawned ddc pid={}", child.id());
+
+        // Start background threads to capture logs BEFORE fd-socket handling
+        // This ensures we capture any early output from ddc
+        std::thread::spawn(move || {
+            for line in stdout_reader.lines() {
+                match line {
+                    Ok(l) => {
+                        process_ddc_log_line(&l, "stdout", test_id);
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        std::thread::spawn(move || {
+            for line in stderr_reader.lines() {
+                match line {
+                    Ok(l) => {
+                        process_ddc_log_line(&l, "stderr", test_id);
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+
+        debug!("log capture threads started");
 
         // Platform-specific: accept connection and send TCP listener
         let child_id = child.id();
@@ -569,32 +596,6 @@ impl TestSite {
                 info!("server acked listener socket");
             });
         }
-
-        debug!("log capture started");
-
-        // Drain stdout in background (capture only, no printing)
-        std::thread::spawn(move || {
-            for line in stdout_reader.lines() {
-                match line {
-                    Ok(l) => {
-                        process_ddc_log_line(&l, "stdout", test_id);
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-
-        // Drain stderr in background (capture only, no printing)
-        std::thread::spawn(move || {
-            for line in stderr_reader.lines() {
-                match line {
-                    Ok(l) => {
-                        process_ddc_log_line(&l, "stderr", test_id);
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
 
         let setup_elapsed = setup_start.elapsed();
         let states = TEST_STATES.get_or_init(|| Mutex::new(std::collections::HashMap::new()));

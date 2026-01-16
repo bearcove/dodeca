@@ -506,7 +506,38 @@ async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: b
             .stderr(Stdio::piped());
     }
 
-    // Spawn the process
+    // Register the peer with the driver BEFORE spawning the child.
+    // On Windows, this starts the named pipe accept() task so the child can connect.
+    // On Unix, accept() is a no-op since socketpairs are already connected.
+    debug!(
+        cell = cell_name,
+        ?peer_id,
+        "spawn_cell_process: registering peer with driver (before spawn)"
+    );
+
+    let host_service = crate::cells::HostServiceImpl::new(
+        crate::cells::HostCellLifecycle::new(crate::cells::cell_ready_registry().clone()),
+        crate::template_host::TemplateHostImpl::new(),
+        Host::get().site_server().cloned(),
+    );
+    let dispatcher = cell_host_proto::HostServiceDispatcher::new(host_service);
+
+    match driver_handle.add_peer(peer_id, dispatcher).await {
+        Ok(handle) => {
+            debug!(
+                cell = cell_name,
+                ?peer_id,
+                "spawn_cell_process: peer registered, storing handle"
+            );
+            Host::get().register_cell_handle(cell_name.to_string(), handle);
+        }
+        Err(e) => {
+            error!(cell = cell_name, ?peer_id, error = ?e, "Failed to register peer with driver");
+            return;
+        }
+    }
+
+    // Spawn the process (after driver is ready to accept doorbell connection)
     debug!(
         cell = cell_name,
         "spawn_cell_process: spawning child process"
@@ -536,35 +567,6 @@ async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: b
 
     // Drop ticket to close our end of the doorbell
     drop(ticket);
-
-    // Register the peer with the driver
-    debug!(
-        cell = cell_name,
-        ?peer_id,
-        "spawn_cell_process: registering peer with driver"
-    );
-
-    let host_service = crate::cells::HostServiceImpl::new(
-        crate::cells::HostCellLifecycle::new(crate::cells::cell_ready_registry().clone()),
-        crate::template_host::TemplateHostImpl::new(),
-        Host::get().site_server().cloned(),
-    );
-    let dispatcher = cell_host_proto::HostServiceDispatcher::new(host_service);
-
-    match driver_handle.add_peer(peer_id, dispatcher).await {
-        Ok(handle) => {
-            debug!(
-                cell = cell_name,
-                ?peer_id,
-                "spawn_cell_process: peer registered, storing handle"
-            );
-            Host::get().register_cell_handle(cell_name.to_string(), handle);
-        }
-        Err(e) => {
-            error!(cell = cell_name, ?peer_id, error = ?e, "Failed to register peer with driver");
-            return;
-        }
-    }
 
     debug!(
         cell = cell_name,
