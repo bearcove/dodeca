@@ -90,9 +90,9 @@ arborium = { version = "2", features = [
     # Data & Scientific
     "lang-julia", "lang-r", "lang-sql",
     # Config & Markup
-    "lang-dockerfile", "lang-ini", "lang-jinja2", "lang-json", "lang-kdl",
+    "lang-dockerfile", "lang-ini", "lang-jinja2", "lang-json",
     "lang-markdown", "lang-nginx", "lang-toml", "lang-typst", "lang-xml",
-    "lang-yaml",
+    "lang-yaml", "lang-styx",
     # Build Systems & Tools
     "lang-cmake", "lang-meson", "lang-nix",
     # Protocol/Data Formats
