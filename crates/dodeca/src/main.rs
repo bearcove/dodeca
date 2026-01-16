@@ -10,6 +10,7 @@ mod content_service;
 mod data;
 mod db;
 mod error_pages;
+#[cfg(unix)]
 mod fd_passing;
 mod file_watcher;
 mod host;
@@ -353,6 +354,7 @@ fn resolve_dirs(
 #[allow(clippy::disallowed_methods)] // Entry point - needs manual runtime management
 fn main() -> Result<()> {
     // Install SIGUSR1 handler for debugging (dumps stack traces)
+    // (no-op on non-Unix platforms)
     dodeca_debug::install_sigusr1_handler("ddc");
 
     // When spawned by test harness with DODECA_DIE_WITH_PARENT=1, install death-watch
@@ -1903,6 +1905,7 @@ async fn serve_plain(
 
     // IMPORTANT: Receive listening FD FIRST if --fd-socket was provided (for testing)
     // This must happen before any other initialization so the test harness isn't blocked.
+    #[cfg(unix)]
     let pre_bound_listener = if let Some(ref socket_path) = fd_socket {
         use std::os::unix::io::FromRawFd;
         use tokio::io::AsyncWriteExt;
@@ -1940,6 +1943,8 @@ async fn serve_plain(
     } else {
         None
     };
+    #[cfg(not(unix))]
+    let pre_bound_listener: Option<std::net::TcpListener> = None;
 
     // Initialize asset cache (processed images, OG images, etc.)
     let parent_dir = content_dir.parent().unwrap_or(content_dir);

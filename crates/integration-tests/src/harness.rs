@@ -6,6 +6,8 @@
 //! The test harness binds the socket first, so connections queue in the TCP backlog
 //! until the server is ready to accept.
 //!
+//! **Note:** This harness only works on Unix platforms due to FD passing requirements.
+//!
 //! # Environment Variables
 //!
 //! - `DODECA_BIN`: Path to the ddc binary (required)
@@ -15,20 +17,26 @@
 //! - `DODECA_HARNESS_RAW_TCP`: Set to "1" to enable raw TCP probe mode for
 //!   connection diagnostics (measures connect/write/read phases separately)
 
+#[cfg(not(unix))]
+compile_error!("integration-tests harness requires Unix (uses FD passing via Unix sockets)");
+
 use facet_value::Value;
 use fs_err as fs;
 use owo_colors::OwoColorize;
 use regex::Regex;
 use std::cell::Cell;
 use std::io::{BufRead, BufReader, Read as _, Write as _};
+#[cfg(unix)]
 use std::os::unix::io::IntoRawFd;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command as StdCommand, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+#[cfg(unix)]
 use tokio::net::UnixListener;
 use tracing::{debug, error, info};
 
+#[cfg(unix)]
 use crate::fd_passing;
 
 // Thread-local storage for the active test id (used to route logs).

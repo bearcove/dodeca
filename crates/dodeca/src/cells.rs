@@ -506,6 +506,9 @@ async fn init_cells_inner() -> eyre::Result<()> {
     let tui_enabled = crate::host::Host::get().is_tui_mode();
 
     for cell_def in CELL_DEFS {
+        #[cfg(windows)]
+        let binary_name = format!("ddc-cell-{}.exe", cell_def.suffix);
+        #[cfg(not(windows))]
         let binary_name = format!("ddc-cell-{}", cell_def.suffix);
         let cell_name = cell_def.suffix; // Logical name (e.g., "gingembre", "html-diff")
         let binary_path = cell_dir.join(&binary_name);
