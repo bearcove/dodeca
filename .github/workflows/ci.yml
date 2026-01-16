@@ -64,7 +64,7 @@ jobs:
           cache-on-failure: "true"
           cache-targets: "false"
       - name: Install wasm-bindgen-cli
-        run: cargo install wasm-bindgen-cli --locked
+        run: cargo install wasm-bindgen-cli@0.2.106 --locked
       - name: Build WASM
         run: cargo xtask wasm
       - name: Upload artifact
