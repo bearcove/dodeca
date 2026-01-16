@@ -42,7 +42,7 @@ This will build the WASM components, plugins, and the main dodeca binary.
 After installation, verify it works:
 
 ```bash
-ddc --version
+ddc --help
 ```
 
 ## Updating

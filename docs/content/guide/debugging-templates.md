@@ -165,7 +165,6 @@ When using `{% extends "base.html" %}`:
 ```jinja
 {{ value | typeof }}              {# Get type name #}
 {{ items | length }}              {# Count items #}
-{{ object | keys }}               {# List object keys (if supported) #}
 {{ items | first }}               {# First element #}
 {{ items | last }}                {# Last element #}
 {{ text | escape }}               {# HTML-escape for safe display #}

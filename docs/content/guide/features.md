@@ -10,8 +10,7 @@ This page describes what’s currently implemented in dodeca (as shipped in this
 
 - **Incremental builds** via picante - only rebuild what changed
 - **Sass/SCSS compilation** - modern CSS workflow built-in
-- **Search indexing** via Pagefind (generates static search files)
-- **Link checking** - fail builds on broken links
+- **Link checking** - validate internal and external links
 
 ## Runtime
 

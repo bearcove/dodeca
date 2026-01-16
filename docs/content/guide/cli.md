@@ -10,10 +10,46 @@ weight = 25
 
 | Command | Description |
 |---------|-------------|
+| `ddc init` | Create a new project from a template |
 | `ddc build` | Build the site to the output directory |
 | `ddc serve` | Build and serve with live reload |
 | `ddc static` | Serve static files from a directory |
 | `ddc clean` | Clear all caches |
+
+## ddc init
+
+Create a new project from a template.
+
+```
+ddc init <name> [OPTIONS]
+```
+
+### Arguments
+
+- `<name>` - Project name (creates a directory with this name)
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `-t, --template <name>` | Template to use (skips interactive selection) |
+
+### Available Templates
+
+| Template | Description |
+|----------|-------------|
+| `minimal` | Clean slate with basic structure |
+| `blog` | Blog with posts section |
+
+### Examples
+
+```bash
+# Create a new project (interactive template selection)
+ddc init my-site
+
+# Create a project with a specific template
+ddc init my-blog --template blog
+```
 
 ## ddc build
 

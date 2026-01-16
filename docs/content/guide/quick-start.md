@@ -6,14 +6,27 @@ weight = 20
 
 ## Create a project
 
-Create a new directory for your site:
+The fastest way to start is with `ddc init`:
+
+```bash
+ddc init my-site
+cd my-site
+```
+
+This creates a new project with the basic structure. You can also specify a template:
+
+```bash
+ddc init my-site --template blog
+```
+
+### Manual setup
+
+Alternatively, create the structure manually:
 
 ```bash
 mkdir my-site
 cd my-site
 ```
-
-## Add configuration
 
 Create `.config/dodeca.yaml`:
 
@@ -21,8 +34,6 @@ Create `.config/dodeca.yaml`:
 content: content
 output: public
 ```
-
-## Create content
 
 Create `content/_index.md`:
 
