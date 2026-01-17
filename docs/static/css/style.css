@@ -32,14 +32,16 @@
 }
 
 :root {
-    --bg: #0a0a0a;
-    --bg-raised: #111;
-    --fg: #d4d4d4;
-    --fg-muted: #737373;
-    --accent: #7aba7a;
-    --accent-dim: #5d8a5d;
-    --code-bg: #161616;
-    --border: #262626;
+    color-scheme: light dark;
+
+    --bg: light-dark(#fafafa, #0a0a0a);
+    --bg-raised: light-dark(#ffffff, #111);
+    --fg: light-dark(#1a1a1a, #d4d4d4);
+    --fg-muted: light-dark(#6b6b6b, #737373);
+    --accent: light-dark(#2d8a2d, #7aba7a);
+    --accent-dim: light-dark(#236623, #5d8a5d);
+    --code-bg: light-dark(#f0f0f0, #161616);
+    --border: light-dark(#e0e0e0, #262626);
     --font-sans: "Public Sans", -apple-system, BlinkMacSystemFont, sans-serif;
     --font-mono: "Iosevka", "SF Mono", Consolas, monospace;
     --sidebar-width: 220px;
@@ -168,11 +170,11 @@ body {
 
 .btn-primary {
     background: var(--accent);
-    color: #000;
+    color: light-dark(#fff, #000);
 }
 
 .btn-primary:visited {
-    color: #000;
+    color: light-dark(#fff, #000);
 }
 
 .btn-primary:hover {
@@ -263,7 +265,7 @@ body {
 
 .sidebar-section a.active {
     color: var(--accent);
-    background: rgba(122, 186, 122, 0.1);
+    background: light-dark(rgba(45, 138, 45, 0.1), rgba(122, 186, 122, 0.1));
 }
 
 /* ============================================
@@ -338,13 +340,22 @@ article code {
     border-radius: 4px;
 }
 
-article pre, .code-block {
+article pre,
+.code-block {
     background: var(--code-bg);
     padding: 0.75rem 1rem;
     border-radius: 6px;
     overflow-x: auto;
     margin-bottom: 1rem;
     border: 1px solid var(--border);
+}
+
+.code-block pre {
+    background: none;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 0;
 }
 
 article pre code {
@@ -384,7 +395,7 @@ article th {
 }
 
 article tr:hover td {
-    background: rgba(255, 255, 255, 0.02);
+    background: light-dark(rgba(0, 0, 0, 0.02), rgba(255, 255, 255, 0.02));
 }
 
 /* ============================================
@@ -489,20 +500,20 @@ footer a:hover {
 /* ============================================
    Copy Button for Code Blocks
    ============================================ */
-pre, .code-block {
+pre,
+.code-block {
     position: relative;
 }
 .code-block .copy-btn {
-    position: sticky;
-    float: right;
+    position: absolute;
     top: 0.5rem;
     right: 0.5rem;
     padding: 0.25rem 0.5rem;
     font-size: 0.75rem;
-    background: rgba(60, 60, 70, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.3);
+    background: light-dark(rgba(220, 220, 230, 0.9), rgba(60, 60, 70, 0.9));
+    border: 1px solid light-dark(rgba(0, 0, 0, 0.2), rgba(255, 255, 255, 0.3));
     border-radius: 0.25rem;
-    color: #c0caf5;
+    color: light-dark(#3a3a4a, #c0caf5);
     cursor: pointer;
     opacity: 0;
     transition: opacity 0.15s;
@@ -511,7 +522,7 @@ pre, .code-block {
     opacity: 1;
 }
 .code-block .copy-btn:hover {
-    background: rgba(80, 80, 95, 0.95);
+    background: light-dark(rgba(200, 200, 215, 0.95), rgba(80, 80, 95, 0.95));
 }
 .code-block .copy-btn.copied {
     background: rgba(50, 160, 50, 0.9);

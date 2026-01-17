@@ -165,6 +165,22 @@ struct InitArgs {
     template: Option<String>,
 }
 
+/// Term command arguments
+#[derive(Facet, Debug)]
+struct TermArgs {
+    /// Command to execute (everything after --)
+    #[facet(args::positional, default)]
+    command: Vec<String>,
+
+    /// Output file path (default: /tmp/ddc-term)
+    #[facet(args::named, args::short = 'o', default)]
+    output: Option<String>,
+
+    /// Skip clipboard copy
+    #[facet(args::named)]
+    no_clipboard: bool,
+}
+
 /// Parsed command from CLI
 enum Command {
     Build(BuildArgs),
@@ -172,6 +188,7 @@ enum Command {
     Clean(CleanArgs),
     Static(StaticArgs),
     Init(InitArgs),
+    Term(TermArgs),
 }
 
 fn print_usage() {
@@ -190,6 +207,10 @@ fn print_usage() {
         "static".green()
     );
     eprintln!("    {}      Clear all caches", "clean".green());
+    eprintln!(
+        "    {}       Record terminal session as HTML",
+        "term".green()
+    );
     eprintln!("\n{}", "INIT OPTIONS:".yellow());
     eprintln!("    <name>           Project name (creates directory)");
     eprintln!("    -t, --template   Template to use (minimal, blog)");
@@ -215,6 +236,10 @@ fn print_usage() {
     eprintln!("    -P, --public     Listen on all interfaces (LAN access)");
     eprintln!("\n{}", "CLEAN OPTIONS:".yellow());
     eprintln!("    [path]           Project directory");
+    eprintln!("\n{}", "TERM OPTIONS:".yellow());
+    eprintln!("    -- <cmd>         Command to execute (optional)");
+    eprintln!("    -o, --output     Output file (default: /tmp/ddc-term)");
+    eprintln!("    --no-clipboard   Skip copying to clipboard");
 }
 
 fn parse_args() -> Result<Command> {
@@ -263,6 +288,13 @@ fn parse_args() -> Result<Command> {
                 eyre!("Failed to parse init arguments")
             })?;
             Ok(Command::Init(init_args))
+        }
+        "term" => {
+            let term_args: TermArgs = facet_args::from_slice(&rest).map_err(|e| {
+                eprintln!("{e}");
+                eyre!("Failed to parse term arguments")
+            })?;
+            Ok(Command::Term(term_args))
         }
 
         "--help" | "-h" | "help" => {
@@ -475,6 +507,51 @@ async fn async_main(command: Command) -> Result<()> {
             .await
         }
         Command::Init(args) => init::run_init(args.name, args.template).await,
+        Command::Term(args) => run_term(args).await,
+    }
+}
+
+/// Run terminal recording
+async fn run_term(args: TermArgs) -> Result<()> {
+    use cell_term_proto::RecordConfig;
+
+    let output_path = args.output.unwrap_or_else(|| "/tmp/ddc-term".to_string());
+    let copy_to_clipboard = !args.no_clipboard;
+
+    let config = RecordConfig { shell: None };
+
+    let result = if args.command.is_empty() {
+        // Interactive mode
+        println!(
+            "{} Recording terminal session. Type {} to exit.",
+            "→".cyan(),
+            "exit".yellow()
+        );
+        cells::record_term_interactive(config).await?
+    } else {
+        // Command mode - join the command parts
+        let command = args.command.join(" ");
+        println!("{} Recording: {}", "→".cyan(), command.yellow());
+        cells::record_term_command(command, config).await?
+    };
+
+    match result {
+        cell_term_proto::TermResult::Success { html } => {
+            // Write output
+            std::fs::write(&output_path, &html)?;
+            println!("\n{} Written to {}", "✓".green(), output_path.cyan());
+
+            // Copy to clipboard if requested (wrapped in ```term fence for markdown)
+            if copy_to_clipboard {
+                let clipboard_content = format!("```term\n{}\n```", html);
+                match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(&clipboard_content)) {
+                    Ok(()) => println!("{} Copied to clipboard", "✓".green()),
+                    Err(e) => eprintln!("{} Could not copy to clipboard: {}", "⚠".yellow(), e),
+                }
+            }
+            Ok(())
+        }
+        cell_term_proto::TermResult::Error { message } => Err(eyre!("{}", message)),
     }
 }
 
@@ -1912,10 +1989,7 @@ async fn serve_plain(
                 use tokio::io::AsyncWriteExt;
                 use tokio::net::UnixStream;
 
-                tracing::info!(
-                    "Connecting to Unix socket for FD passing: {}",
-                    channel_path
-                );
+                tracing::info!("Connecting to Unix socket for FD passing: {}", channel_path);
                 let mut unix_stream = UnixStream::connect(channel_path)
                     .await
                     .map_err(|e| eyre!("Failed to connect to fd-socket {}: {}", channel_path, e))?;

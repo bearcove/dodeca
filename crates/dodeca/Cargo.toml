@@ -41,6 +41,7 @@ cell-markdown-proto = { path = "../../cells/cell-markdown-proto" }
 cell-minify-proto = { path = "../../cells/cell-minify-proto" }
 cell-sass-proto = { path = "../../cells/cell-sass-proto" }
 cell-svgo-proto = { path = "../../cells/cell-svgo-proto" }
+cell-term-proto = { path = "../../cells/cell-term-proto" }
 cell-tui-proto = { path = "../../cells/cell-tui-proto" }
 cell-webp-proto = { path = "../../cells/cell-webp-proto" }
 dodeca-debug = { path = "../dodeca-debug" }
@@ -77,6 +78,7 @@ roam-fdpass.workspace = true
 roam-local.workspace = true
 rapidhash.workspace = true
 regex.workspace = true
+arboard = "3"
 serde_yaml.workspace = true
 strid.workspace = true
 tokio.workspace = true

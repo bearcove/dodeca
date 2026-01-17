@@ -15,6 +15,7 @@ weight = 25
 | `ddc serve` | Build and serve with live reload |
 | `ddc static` | Serve static files from a directory |
 | `ddc clean` | Clear all caches |
+| `ddc term` | Record terminal output with colors |
 
 ## ddc init
 
@@ -201,6 +202,38 @@ ddc clean
 
 # Clean caches for a specific project
 ddc clean ~/my-site
+```
+
+## ddc term
+
+Record terminal sessions with ANSI colors and convert to embeddable HTML. See the [Terminal Recording](@/guide/terminal-recording.md) guide for full details.
+
+```
+ddc term [OPTIONS] [-- <COMMAND>...]
+```
+
+### Arguments
+
+- `[COMMAND]` - Command to execute (everything after `--`). If omitted, starts an interactive session.
+
+### Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-o, --output <path>` | Output file path | `/tmp/ddc-term` |
+| `--no-clipboard` | Skip copying to clipboard | Off |
+
+### Examples
+
+```bash
+# Record a command (output copied to clipboard)
+ddc term -- cargo build
+
+# Interactive session
+ddc term
+
+# Save to a specific file
+ddc term -o recording.html -- make test
 ```
 
 ## Environment Variables
