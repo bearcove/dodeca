@@ -50,10 +50,12 @@ pub fn has_existing_hash(path: &str) -> bool {
 }
 
 /// Check if a string looks like a bundler-generated hash.
-/// Must be 6-12 alphanumeric characters (typical hash lengths).
+/// Must be 6-12 characters using alphanumeric, dash, or underscore (base64url-like).
 fn is_hash_like(s: &str) -> bool {
     let len = s.len();
-    (6..=12).contains(&len) && s.chars().all(|c| c.is_ascii_alphanumeric())
+    (6..=12).contains(&len)
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// The dodeca alphabet: 7 digits (0-6) + 5 unique letters from "dodeca"
