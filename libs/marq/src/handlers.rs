@@ -86,6 +86,9 @@ impl CodeBlockHandler for ArboriumHandler {
             let mut hl = self.highlighter.lock().unwrap();
             let code_html = match hl.highlight(arborium_lang, code) {
                 Ok(html) => {
+                    // Trim trailing newline from arborium output
+                    // See: https://github.com/bearcove/arborium/issues/128
+                    let html = html.trim_end_matches('\n');
                     format!(
                         "<div class=\"code-block\"><pre><code class=\"language-{escaped_lang}\">{html}</code></pre></div>"
                     )

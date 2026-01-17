@@ -14,27 +14,6 @@ use crate::reqs::ReqDefinition;
 ///
 /// Implementations can provide syntax highlighting, diagram rendering,
 /// or any other transformation of code block content.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use marq::{CodeBlockHandler, Result};
-///
-/// struct ArboriumHandler;
-///
-/// impl CodeBlockHandler for ArboriumHandler {
-///     fn render<'a>(
-///         &'a self,
-///         language: &'a str,
-///         code: &'a str,
-///     ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
-///         Box::pin(async move {
-///             // Use arborium to highlight
-///             Ok(arborium::highlight(language, code))
-///         })
-///     }
-/// }
-/// ```
 pub trait CodeBlockHandler: Send + Sync {
     /// Render a code block to HTML.
     ///
@@ -64,9 +43,6 @@ pub trait ReqHandler: Send + Sync {
     /// This is called when a req is first detected. The returned HTML should
     /// contain the opening tags that will wrap the req content.
     ///
-    /// # Arguments
-    /// * `req` - The req definition containing id, anchor_id, metadata, etc.
-    ///
     /// # Returns
     /// The opening HTML string (e.g., `<div class="req" id="r-my.req">`).
     fn start<'a>(
@@ -78,9 +54,6 @@ pub trait ReqHandler: Send + Sync {
     ///
     /// This is called when the req content is finished. The returned HTML
     /// should close any tags opened by `start`.
-    ///
-    /// # Arguments
-    /// * `req` - The req definition (same as passed to `start`)
     ///
     /// # Returns
     /// The closing HTML string (e.g., `</div>`).
@@ -118,32 +91,6 @@ pub type BoxedInlineCodeHandler = Arc<dyn InlineCodeHandler>;
 /// This allows the caller to provide custom link resolution logic,
 /// including dependency tracking for incremental rebuilds.
 ///
-/// # Example
-///
-/// ```rust,ignore
-/// use marq::LinkResolver;
-///
-/// struct SiteTreeResolver {
-///     source_to_route: HashMap<String, String>,
-/// }
-///
-/// impl LinkResolver for SiteTreeResolver {
-///     fn resolve<'a>(
-///         &'a self,
-///         link: &'a str,
-///         source_path: Option<&'a str>,
-///     ) -> Pin<Box<dyn Future<Output = Option<String>> + Send + 'a>> {
-///         Box::pin(async move {
-///             if let Some(path) = link.strip_prefix("@/") {
-///                 // Look up the actual route (handles custom slugs)
-///                 self.source_to_route.get(path).cloned()
-///             } else {
-///                 None // Use default resolution
-///             }
-///         })
-///     }
-/// }
-/// ```
 pub trait LinkResolver: Send + Sync {
     /// Resolve a link to its final URL.
     ///
