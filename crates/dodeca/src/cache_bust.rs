@@ -29,11 +29,14 @@ pub fn has_existing_hash(path: &str) -> bool {
 
     let name_part = &filename[..dot_pos];
 
-    // Check for Vite-style: name-HASH (dash followed by 6-12 alphanumeric chars)
-    if let Some(dash_pos) = name_part.rfind('-') {
-        let potential_hash = &name_part[dash_pos + 1..];
-        if is_hash_like(potential_hash) {
-            return true;
+    // Check for Vite-style: name-HASH (dash followed by 6-12 hash chars)
+    // Try each dash position since hashes can contain dashes (base64url)
+    for (i, c) in name_part.char_indices() {
+        if c == '-' {
+            let potential_hash = &name_part[i + 1..];
+            if is_hash_like(potential_hash) {
+                return true;
+            }
         }
     }
 
@@ -166,6 +169,10 @@ mod tests {
         assert!(has_existing_hash("monaco/main-B6eUmL6x.js"));
         assert!(has_existing_hash("typescript-Bq0JxXsY.js"));
         assert!(has_existing_hash("clojure-BAuDPsal.js"));
+
+        // Vite hashes with dashes/underscores in the hash itself (base64url)
+        assert!(has_existing_hash("main-sF-Bq2iS.js"));
+        assert!(has_existing_hash("main-aB_cD-eF.js"));
 
         // Webpack-style hashes (dot + chars + dot + ext)
         assert!(has_existing_hash("main.abc123.js"));
