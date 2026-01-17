@@ -114,6 +114,43 @@ impl CodeBlockHandler for ArboriumHandler {
     }
 }
 
+/// Terminal output handler that passes through HTML without escaping.
+///
+/// This handler is designed for pre-rendered terminal output from tools like
+/// `ddc term` which produce HTML with `<t-*>` custom elements for styled text.
+/// The content is wrapped in a code block container but not HTML-escaped.
+pub struct TermHandler;
+
+impl TermHandler {
+    /// Create a new TermHandler.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for TermHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl CodeBlockHandler for TermHandler {
+    fn render<'a>(
+        &'a self,
+        _language: &'a str,
+        code: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<String>> + Send + 'a>> {
+        Box::pin(async move {
+            // Pass through the HTML without escaping - it's already valid HTML
+            // from the terminal renderer (contains <t-b>, <t-f>, etc. elements)
+            Ok(format!(
+                "<div class=\"code-block term-output\"><pre><code>{}</code></pre></div>",
+                code
+            ))
+        })
+    }
+}
+
 /// ASCII art to SVG handler using aasvg.
 ///
 /// Requires the `aasvg` feature.

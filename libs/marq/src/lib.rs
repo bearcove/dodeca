@@ -56,6 +56,9 @@ pub use handlers::AasvgHandler;
 #[cfg(feature = "pikru")]
 pub use handlers::PikruHandler;
 
+// Always-available handlers
+pub use handlers::TermHandler;
+
 /// Error type for marq operations.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
