@@ -61,32 +61,5 @@
     </footer>
 
     <script src="/js/dodeca.js"></script>
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        new PagefindUI({
-            element: "#search",
-            showSubResults: true,
-            showImages: false,
-            translations: {
-                placeholder: "Search..."
-            }
-        });
-
-        document.addEventListener('keydown', function(e) {
-            const searchInput = document.querySelector('#search input');
-            if (!searchInput) return;
-            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-                e.preventDefault();
-                searchInput.focus();
-                searchInput.select();
-            }
-            if (e.key === '/' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
-                e.preventDefault();
-                searchInput.focus();
-                searchInput.select();
-            }
-        });
-    });
-    </script>
 </body>
 </html>
