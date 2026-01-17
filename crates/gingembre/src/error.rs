@@ -8,6 +8,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 /// A span in source code (offset, length)
+// r[impl error.span]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct SourceSpan {
     offset: usize,
@@ -98,6 +99,7 @@ pub enum TemplateError {
 }
 
 /// Syntax error during parsing
+// r[impl error.syntax]
 #[derive(Error, Debug)]
 #[error("{}: Unexpected {found}, expected {expected}", src.name)]
 pub struct SyntaxError {
@@ -128,6 +130,7 @@ pub struct UnknownFieldError {
 }
 
 /// Type error (e.g., iterating over non-iterable)
+// r[impl error.type-mismatch]
 #[derive(Error, Debug)]
 #[error("{}: Expected {expected}, found {found} ({context})", src.name)]
 pub struct TypeError {
@@ -158,6 +161,7 @@ pub struct UndefinedError {
 }
 
 /// Unknown filter
+// r[impl error.undefined-filter]
 #[derive(Error, Debug)]
 #[error("{}: Unknown filter `{name}` (available: {})", src.name, known_filters.join(", "))]
 pub struct UnknownFilterError {
@@ -172,6 +176,7 @@ pub struct UnknownFilterError {
 }
 
 /// Unknown test function
+// r[impl error.undefined-test]
 #[derive(Error, Debug)]
 #[error("{}: Unknown test `{name}` (available: starting_with, ending_with, containing, defined, undefined, none, string, number, odd, even, empty)", src.name)]
 pub struct UnknownTestError {

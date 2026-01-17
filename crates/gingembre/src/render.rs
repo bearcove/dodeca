@@ -439,6 +439,7 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                     let eval = Evaluator::new(&self.ctx, &self.source);
                     let condition = eval.eval(&if_node.condition).await?;
 
+                    // r[impl stmt.if.truthiness]
                     if condition.is_truthy().await {
                         let control = self.render_nodes(&if_node.then_body).await?;
                         if control != LoopControl::None {
@@ -487,6 +488,7 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                     } else {
                         let len = items.len();
                         'for_loop: for (index, item) in items.into_iter().enumerate() {
+                            // r[impl scope.for-loop]
                             self.ctx.push_scope();
 
                             // Bind loop variable(s)
@@ -522,12 +524,18 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                             }
 
                             // Bind loop helper variables
+                            // r[impl stmt.for.loop-var]
                             let mut loop_var = VObject::new();
+                            // r[impl stmt.for.loop-index]
                             loop_var
                                 .insert(VString::from("index"), Value::from((index + 1) as i64));
+                            // r[impl stmt.for.loop-index0]
                             loop_var.insert(VString::from("index0"), Value::from(index as i64));
+                            // r[impl stmt.for.loop-first]
                             loop_var.insert(VString::from("first"), Value::from(index == 0));
+                            // r[impl stmt.for.loop-last]
                             loop_var.insert(VString::from("last"), Value::from(index == len - 1));
+                            // r[impl stmt.for.loop-length]
                             loop_var.insert(VString::from("length"), Value::from(len as i64));
                             self.ctx.set("loop", Value::from(loop_var));
 
@@ -542,6 +550,7 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                         }
                     }
                 }
+                // r[impl inherit.include.context]
                 Node::Include(_include) => {
                     // TODO: Template loading/caching
                     self.output.push_str("<!-- include not implemented -->");
@@ -550,11 +559,13 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                     // Check if we have an override for this block
                     let control =
                         if let Some(block_def) = self.blocks.get(&block.name.name).cloned() {
+                            // r[impl inherit.block.override]
                             // Render the overridden block content with its original source
                             // (for correct error reporting)
                             self.render_nodes_with_source(&block_def.nodes, block_def.source)
                                 .await?
                         } else {
+                            // r[impl inherit.block.default]
                             // Render the default block content
                             self.render_nodes(&block.body).await?
                         };
@@ -562,6 +573,8 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                         return Ok(control);
                     }
                 }
+                // r[impl inherit.extends.position]
+                // r[impl inherit.extends.single]
                 Node::Extends(_extends) => {
                     // Extends is handled at the Engine level, not during node rendering
                     // When we reach here, we're rendering the parent template
@@ -569,6 +582,7 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                 Node::Comment(_) => {
                     // Comments are not rendered
                 }
+                // r[impl stmt.set.scope]
                 Node::Set(set_node) => {
                     let eval = Evaluator::new(&self.ctx, &self.source);
                     let value = eval.eval(&set_node.value).await?;
@@ -674,6 +688,7 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
     }
 
     /// Call a macro and return its rendered output
+    // r[impl macro.call.syntax]
     fn call_macro<'b>(
         &'b mut self,
         namespace: &'b str,
@@ -694,6 +709,7 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
             let mut macro_output = String::new();
             std::mem::swap(self.output, &mut macro_output);
 
+            // r[impl macro.call.self]
             // Set up "self" namespace with macros from the called macro's namespace
             // This allows macros to call other macros from the same file via self::
             // Only do this if we're not already calling from the "self" namespace
@@ -707,6 +723,7 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                 None
             };
 
+            // r[impl scope.macro]
             // Push a new scope for macro arguments
             self.ctx.push_scope();
 
@@ -762,12 +779,15 @@ mod tests {
     use crate::eval::ValueExt;
     use facet_value::VArray;
 
+    // r[verify whitespace.raw-text]
     #[tokio::test]
     async fn test_simple_text() {
         let t = Template::parse("test", "Hello, world!").unwrap();
         assert_eq!(t.render(&Context::new()).await.unwrap(), "Hello, world!");
     }
 
+    // r[verify delim.expression]
+    // r[verify expr.var.lookup]
     #[tokio::test]
     async fn test_variable() {
         let t = Template::parse("test", "Hello, {{ name }}!").unwrap();
@@ -778,6 +798,9 @@ mod tests {
         assert_eq!(result, "Hello, Alice!");
     }
 
+    // r[verify stmt.if.syntax]
+    // r[verify stmt.if.truthiness]
+    // r[verify literal.boolean]
     #[tokio::test]
     async fn test_if_true() {
         let t = Template::parse("test", "{% if show %}visible{% endif %}").unwrap();
@@ -785,6 +808,7 @@ mod tests {
         assert_eq!(result, "visible");
     }
 
+    // r[verify stmt.if.truthiness]
     #[tokio::test]
     async fn test_if_false() {
         let t = Template::parse("test", "{% if show %}visible{% endif %}").unwrap();
@@ -792,6 +816,7 @@ mod tests {
         assert_eq!(result, "");
     }
 
+    // r[verify stmt.if.else]
     #[tokio::test]
     async fn test_if_else() {
         let t = Template::parse("test", "{% if show %}yes{% else %}no{% endif %}").unwrap();
@@ -799,6 +824,8 @@ mod tests {
         assert_eq!(result, "no");
     }
 
+    // r[verify stmt.for.syntax]
+    // r[verify literal.list]
     #[tokio::test]
     async fn test_for_loop() {
         let t = Template::parse("test", "{% for item in items %}{{ item }} {% endfor %}").unwrap();
@@ -808,6 +835,8 @@ mod tests {
         assert_eq!(result, "a b c ");
     }
 
+    // r[verify stmt.for.loop-index]
+    // r[verify stmt.for.loop-var]
     #[tokio::test]
     async fn test_loop_index() {
         let t =
@@ -817,6 +846,8 @@ mod tests {
         assert_eq!(result, "12");
     }
 
+    // r[verify filter.syntax]
+    // r[verify filter.upper]
     #[tokio::test]
     async fn test_filter() {
         let t = Template::parse("test", "{{ name | upper }}").unwrap();
@@ -827,6 +858,7 @@ mod tests {
         assert_eq!(result, "ALICE");
     }
 
+    // r[verify expr.field.dot]
     #[tokio::test]
     async fn test_field_access() {
         let t = Template::parse("test", "{{ user.name }}").unwrap();
@@ -837,6 +869,7 @@ mod tests {
         assert_eq!(result, "Bob");
     }
 
+    // r[verify filter.escape]
     #[tokio::test]
     async fn test_html_escape() {
         let t = Template::parse("test", "{{ content }}").unwrap();
@@ -850,6 +883,7 @@ mod tests {
         );
     }
 
+    // r[verify filter.safe]
     #[tokio::test]
     async fn test_safe_filter() {
         let t = Template::parse("test", "{{ content | safe }}").unwrap();
@@ -862,6 +896,8 @@ mod tests {
         assert!(result.contains("bold"));
     }
 
+    // r[verify filter.chaining]
+    // r[verify filter.safe]
     #[tokio::test]
     async fn test_safe_filter_with_other_filters() {
         let t = Template::parse("test", "{{ content | upper | safe }}").unwrap();
@@ -872,6 +908,8 @@ mod tests {
         assert!(result.contains("BOLD"));
     }
 
+    // r[verify filter.split]
+    // r[verify filter.args]
     #[tokio::test]
     async fn test_split_filter() {
         let t = Template::parse(
@@ -886,6 +924,7 @@ mod tests {
         assert_eq!(result, "[a][b][c]");
     }
 
+    // r[verify expr.call.syntax]
     #[tokio::test]
     async fn test_global_function() {
         let t = Template::parse("test", "{{ greet(name) }}").unwrap();
@@ -905,6 +944,8 @@ mod tests {
         assert_eq!(result, "Hello, World!");
     }
 
+    // r[verify stmt.set.syntax]
+    // r[verify literal.integer]
     #[tokio::test]
     async fn test_set() {
         let t = Template::parse("test", "{% set x = 42 %}{{ x }}").unwrap();
@@ -912,6 +953,8 @@ mod tests {
         assert_eq!(result, "42");
     }
 
+    // r[verify stmt.set.scope]
+    // r[verify expr.op.add]
     #[tokio::test]
     async fn test_set_expression() {
         let t = Template::parse("test", "{% set x = 2 + 3 %}{{ x }}").unwrap();
@@ -919,6 +962,10 @@ mod tests {
         assert_eq!(result, "5");
     }
 
+    // r[verify macro.def.syntax]
+    // r[verify macro.def.params]
+    // r[verify macro.call.syntax]
+    // r[verify macro.call.self]
     #[tokio::test]
     async fn test_macro_simple() {
         let t = Template::parse(
@@ -930,6 +977,8 @@ mod tests {
         assert_eq!(result, "Hello, World!");
     }
 
+    // r[verify macro.def.params]
+    // r[verify scope.macro]
     #[tokio::test]
     async fn test_macro_with_default() {
         let t = Template::parse(
@@ -941,6 +990,7 @@ mod tests {
         assert_eq!(result, "Hello, Guest!");
     }
 
+    // r[verify macro.def.params]
     #[tokio::test]
     async fn test_macro_override_default() {
         let t = Template::parse("test", "{% macro greet(name=\"Guest\") %}Hello, {{ name }}!{% endmacro %}{{ self::greet(\"Alice\") }}").unwrap();
@@ -948,6 +998,7 @@ mod tests {
         assert_eq!(result, "Hello, Alice!");
     }
 
+    // r[verify expr.call.kwargs]
     #[tokio::test]
     async fn test_macro_kwargs() {
         let t = Template::parse("test", "{% macro greet(name) %}Hello, {{ name }}!{% endmacro %}{{ self::greet(name=\"Bob\") }}").unwrap();
@@ -955,6 +1006,7 @@ mod tests {
         assert_eq!(result, "Hello, Bob!");
     }
 
+    // r[verify macro.call.syntax]
     #[tokio::test]
     async fn test_macro_multiple_calls() {
         let t = Template::parse(
@@ -966,6 +1018,9 @@ mod tests {
         assert_eq!(result, "abab");
     }
 
+    // r[verify inherit.extends.syntax]
+    // r[verify inherit.block.syntax]
+    // r[verify inherit.block.override]
     #[tokio::test]
     async fn test_template_inheritance() {
         let mut loader = InMemoryLoader::new();
@@ -983,6 +1038,8 @@ mod tests {
         assert_eq!(result, "Header CUSTOM Footer");
     }
 
+    // r[verify inherit.extends.syntax]
+    // r[verify inherit.block.override]
     #[tokio::test]
     async fn test_template_inheritance_with_variables() {
         let mut loader = InMemoryLoader::new();
@@ -999,6 +1056,7 @@ mod tests {
         assert_eq!(result, "My Page");
     }
 
+    // r[verify delim.expression]
     #[tokio::test]
     async fn test_template_no_extends() {
         let mut loader = InMemoryLoader::new();
@@ -1011,6 +1069,8 @@ mod tests {
         assert_eq!(result, "Just text");
     }
 
+    // r[verify inherit.block.default]
+    // r[verify inherit.extends.single]
     #[tokio::test]
     async fn test_block_default_content() {
         let mut loader = InMemoryLoader::new();
@@ -1022,6 +1082,8 @@ mod tests {
         assert_eq!(result, "DEFAULT");
     }
 
+    // r[verify inherit.block.override]
+    // r[verify inherit.block.default]
     #[tokio::test]
     async fn test_multiple_blocks() {
         let mut loader = InMemoryLoader::new();
@@ -1039,6 +1101,8 @@ mod tests {
         assert_eq!(result, "[X][B]");
     }
 
+    // r[verify macro.import.syntax]
+    // r[verify macro.call.syntax]
     #[tokio::test]
     async fn test_macro_import() {
         let mut loader = InMemoryLoader::new();
@@ -1056,6 +1120,8 @@ mod tests {
         assert_eq!(result, "Hello, World!");
     }
 
+    // r[verify test.syntax]
+    // r[verify test.starting-with]
     #[tokio::test]
     async fn test_is_starting_with() {
         let t = Template::parse(
@@ -1070,6 +1136,7 @@ mod tests {
         assert_eq!(result, "admin");
     }
 
+    // r[verify test.containing]
     #[tokio::test]
     async fn test_is_containing() {
         let t = Template::parse(
@@ -1084,6 +1151,8 @@ mod tests {
         assert_eq!(result, "yes");
     }
 
+    // r[verify test.negation]
+    // r[verify test.undefined]
     #[tokio::test]
     async fn test_is_not() {
         // Note: "none" is a keyword, so we test with "defined" instead
@@ -1092,6 +1161,8 @@ mod tests {
         assert_eq!(result, "has_value");
     }
 
+    // r[verify stmt.continue]
+    // r[verify scope.for-loop]
     #[tokio::test]
     async fn test_continue_in_loop() {
         let t = Template::parse(
@@ -1105,6 +1176,7 @@ mod tests {
         assert_eq!(result, "13");
     }
 
+    // r[verify stmt.break]
     #[tokio::test]
     async fn test_break_in_loop() {
         let t = Template::parse(
@@ -1118,6 +1190,8 @@ mod tests {
         assert_eq!(result, "1");
     }
 
+    // r[verify stmt.continue]
+    // r[verify stmt.for.loop-index]
     #[tokio::test]
     async fn test_continue_with_loop_index() {
         let t = Template::parse("test", "{% for x in items %}{% if loop.index == 2 %}{% continue %}{% endif %}[{{ x }}]{% endfor %}").unwrap();
@@ -1127,6 +1201,8 @@ mod tests {
         assert_eq!(result, "[a][c]");
     }
 
+    // r[verify stmt.break]
+    // r[verify expr.op.gt]
     #[tokio::test]
     async fn test_break_in_nested_if() {
         let t = Template::parse("test", "{% for i in items %}{% if i > 1 %}{% if i == 2 %}{% break %}{% endif %}{% endif %}{{ i }}{% endfor %}").unwrap();
@@ -1136,6 +1212,8 @@ mod tests {
         assert_eq!(result, "1");
     }
 
+    // r[verify expr.var.undefined]
+    // r[verify error.span]
     #[tokio::test]
     async fn test_error_source_in_inherited_block() {
         let mut loader = InMemoryLoader::new();
@@ -1161,6 +1239,10 @@ mod tests {
     // New filter tests (#71, #72, #73, #74, #78)
     // ========================================================================
 
+    // r[verify filter.typeof]
+    // r[verify literal.string]
+    // r[verify literal.none]
+    // r[verify literal.dict]
     #[tokio::test]
     async fn test_typeof_filter() {
         let t = Template::parse("test", "{{ x | typeof }}").unwrap();
@@ -1181,6 +1263,7 @@ mod tests {
         assert_eq!(t.render_with([("x", obj)]).await.unwrap(), "dict");
     }
 
+    // r[verify filter.slice]
     #[tokio::test]
     async fn test_slice_filter_kwargs() {
         let t = Template::parse(
@@ -1193,6 +1276,7 @@ mod tests {
         assert_eq!(t.render_with([("items", items)]).await.unwrap(), "ab");
     }
 
+    // r[verify filter.slice]
     #[tokio::test]
     async fn test_slice_filter_start_end() {
         let t = Template::parse(
@@ -1210,6 +1294,8 @@ mod tests {
         assert_eq!(t.render_with([("items", items)]).await.unwrap(), "bc");
     }
 
+    // r[verify filter.slice]
+    // r[verify filter.args]
     #[tokio::test]
     async fn test_slice_filter_positional() {
         let t = Template::parse(
@@ -1227,6 +1313,7 @@ mod tests {
         assert_eq!(t.render_with([("items", items)]).await.unwrap(), "bc");
     }
 
+    // r[verify filter.slice]
     #[tokio::test]
     async fn test_slice_filter_empty() {
         let t = Template::parse(
@@ -1238,6 +1325,8 @@ mod tests {
         assert_eq!(t.render_with([("items", items)]).await.unwrap(), "");
     }
 
+    // r[verify filter.map]
+    // r[verify filter.join]
     #[tokio::test]
     async fn test_map_filter() {
         let t = Template::parse(
@@ -1258,6 +1347,8 @@ mod tests {
         );
     }
 
+    // r[verify filter.map]
+    // r[verify filter.length]
     #[tokio::test]
     async fn test_map_filter_missing_attr() {
         let t =
@@ -1271,6 +1362,8 @@ mod tests {
         assert_eq!(t.render_with([("items", items)]).await.unwrap(), "0");
     }
 
+    // r[verify filter.selectattr]
+    // r[verify test.truthy]
     #[tokio::test]
     async fn test_selectattr_truthy() {
         let t = Template::parse(
@@ -1297,6 +1390,8 @@ mod tests {
         );
     }
 
+    // r[verify filter.selectattr]
+    // r[verify test.eq]
     #[tokio::test]
     async fn test_selectattr_eq() {
         let t = Template::parse("test", "{% for x in items | selectattr(\"status\", \"eq\", \"active\") %}{{ x.name }}{% endfor %}").unwrap();
@@ -1312,6 +1407,8 @@ mod tests {
         assert_eq!(t.render_with([("items", items)]).await.unwrap(), "Alice");
     }
 
+    // r[verify filter.selectattr]
+    // r[verify test.gt]
     #[tokio::test]
     async fn test_selectattr_gt() {
         let t = Template::parse(
@@ -1331,6 +1428,8 @@ mod tests {
         assert_eq!(t.render_with([("items", items)]).await.unwrap(), "Heavy");
     }
 
+    // r[verify filter.rejectattr]
+    // r[verify test.falsy]
     #[tokio::test]
     async fn test_rejectattr_truthy() {
         let t = Template::parse(
@@ -1353,6 +1452,8 @@ mod tests {
         );
     }
 
+    // r[verify filter.selectattr]
+    // r[verify test.starting-with]
     #[tokio::test]
     async fn test_selectattr_starting_with() {
         let t = Template::parse("test", "{% for x in items | selectattr(\"path\", \"starting_with\", \"/admin\") %}{{ x.name }}{% endfor %}").unwrap();
@@ -1368,6 +1469,8 @@ mod tests {
         assert_eq!(t.render_with([("items", items)]).await.unwrap(), "Admin");
     }
 
+    // r[verify filter.groupby]
+    // r[verify stmt.for.tuple-unpacking]
     #[tokio::test]
     async fn test_groupby_filter() {
         // Use tuple unpacking to access category and items
@@ -1390,6 +1493,8 @@ mod tests {
         assert_eq!(result, "[fruit:AppleBanana][vegetable:Carrot]");
     }
 
+    // r[verify stmt.for.tuple-unpacking]
+    // r[verify filter.length]
     #[tokio::test]
     async fn test_groupby_tuple_unpacking() {
         // Test using tuple unpacking syntax in for loop
@@ -1408,6 +1513,10 @@ mod tests {
         assert_eq!(result, "A:2;B:1;");
     }
 
+    // r[verify filter.chaining]
+    // r[verify filter.selectattr]
+    // r[verify filter.map]
+    // r[verify filter.join]
     #[tokio::test]
     async fn test_filters_chained() {
         // Test chaining multiple new filters
@@ -1435,6 +1544,7 @@ mod tests {
         );
     }
 
+    // r[verify error.syntax]
     #[test]
     fn test_unclosed_expression_error() {
         // Unclosed {{ should produce a parse error
@@ -1445,6 +1555,7 @@ mod tests {
         );
     }
 
+    // r[verify error.syntax]
     #[test]
     fn test_unclosed_expression_in_html_template() {
         // Test with content similar to the actual test case

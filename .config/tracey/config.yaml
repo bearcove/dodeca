@@ -1,0 +1,14 @@
+# Tracey configuration for dodeca
+# Tracks gingembre template engine spec coverage
+
+specs:
+  - name: gingembre
+    prefix: r
+    include:
+      - docs/spec/gingembre.md
+    impls:
+      - name: rust
+        include:
+          - crates/gingembre/src/**/*.rs
+        test_include:
+          - crates/gingembre/tests/**/*.rs

@@ -198,6 +198,7 @@ impl Context {
     }
 
     /// Get a variable (searches all scopes)
+    // r[impl scope.lexical]
     pub fn get(&self, name: &str) -> Option<&LazyValue> {
         for scope in self.scopes.iter().rev() {
             if let Some(value) = scope.get(name) {
@@ -216,6 +217,7 @@ impl Context {
     }
 
     /// Push a new scope
+    // r[impl scope.block]
     pub fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
     }
@@ -283,6 +285,7 @@ impl<'a> Evaluator<'a> {
             Literal::Int(i) => Value::from(i.value),
             Literal::Float(f) => Value::from(f.value),
             Literal::String(s) => Value::from(s.value.as_str()),
+            // r[impl literal.list]
             Literal::List(l) => {
                 // List elements are resolved to concrete values
                 let mut elements = Vec::with_capacity(l.elements.len());
@@ -291,6 +294,7 @@ impl<'a> Evaluator<'a> {
                 }
                 VArray::from_iter(elements).into()
             }
+            // r[impl literal.dict]
             Literal::Dict(d) => {
                 let mut obj = VObject::new();
                 for (k, v) in &d.entries {
@@ -303,7 +307,9 @@ impl<'a> Evaluator<'a> {
         }))
     }
 
+    // r[impl expr.var.lookup]
     fn eval_var(&self, ident: &Ident) -> Result<LazyValue> {
+        // r[impl expr.var.undefined]
         self.ctx.get(&ident.name).cloned().ok_or_else(|| {
             UndefinedError {
                 name: ident.name.clone(),
@@ -315,6 +321,7 @@ impl<'a> Evaluator<'a> {
         })
     }
 
+    // r[impl expr.field.missing]
     async fn eval_field(&self, field: &FieldExpr) -> Result<LazyValue> {
         let base = self.eval(&field.base).await?;
         // Use LazyValue's field method - extends path for lazy, normal access for concrete
@@ -359,6 +366,7 @@ impl<'a> Evaluator<'a> {
                         } else {
                             i as usize
                         };
+                        // r[impl expr.index.out-of-bounds]
                         arr.get(i).cloned().map(LazyValue::concrete).ok_or_else(|| {
                             TypeError {
                                 expected: format!("index < {}", arr.len()),
@@ -370,6 +378,7 @@ impl<'a> Evaluator<'a> {
                             .into()
                         })
                     }
+                    // r[impl expr.index.missing-key]
                     (DestructuredRef::Object(obj), DestructuredRef::String(key)) => obj
                         .get(key.as_str())
                         .cloned()
@@ -573,6 +582,7 @@ impl<'a> Evaluator<'a> {
 
         let result = match test.test_name.name.as_str() {
             // String tests
+            // r[impl test.starting-with]
             "starting_with" | "startswith" => {
                 if let (DestructuredRef::String(s), Some(prefix)) =
                     (value.destructure_ref(), args.first())
@@ -586,6 +596,7 @@ impl<'a> Evaluator<'a> {
                     false
                 }
             }
+            // r[impl test.ending-with]
             "ending_with" | "endswith" => {
                 if let (DestructuredRef::String(s), Some(suffix)) =
                     (value.destructure_ref(), args.first())
@@ -599,6 +610,7 @@ impl<'a> Evaluator<'a> {
                     false
                 }
             }
+            // r[impl test.containing]
             "containing" | "contains" => match value.destructure_ref() {
                 DestructuredRef::String(s) => {
                     if let Some(needle) = args.first() {
@@ -618,11 +630,17 @@ impl<'a> Evaluator<'a> {
                 _ => false,
             },
             // Type tests
+            // r[impl test.defined]
             "defined" => !value.is_null(),
+            // r[impl test.undefined]
             "undefined" => value.is_null(),
+            // r[impl test.none]
             "none" => value.is_null(),
+            // r[impl test.string]
             "string" => value.is_string(),
+            // r[impl test.number]
             "number" => value.is_number(),
+            // r[impl test.integer]
             "integer" => {
                 if let DestructuredRef::Number(n) = value.destructure_ref() {
                     n.to_i64().is_some() && n.to_f64().map(|f| f.fract() == 0.0).unwrap_or(false)
@@ -630,6 +648,7 @@ impl<'a> Evaluator<'a> {
                     false
                 }
             }
+            // r[impl test.float]
             "float" => {
                 if let DestructuredRef::Number(n) = value.destructure_ref() {
                     n.to_f64().map(|f| f.fract() != 0.0).unwrap_or(false)
@@ -637,7 +656,9 @@ impl<'a> Evaluator<'a> {
                     false
                 }
             }
+            // r[impl test.mapping]
             "mapping" | "dict" => value.is_object(),
+            // r[impl test.iterable]
             "iterable" | "sequence" => {
                 matches!(
                     value.destructure_ref(),
@@ -647,6 +668,7 @@ impl<'a> Evaluator<'a> {
                 )
             }
             // Value tests
+            // r[impl test.odd]
             "odd" => {
                 if let DestructuredRef::Number(n) = value.destructure_ref() {
                     n.to_i64().map(|i| i % 2 != 0).unwrap_or(false)
@@ -654,6 +676,7 @@ impl<'a> Evaluator<'a> {
                     false
                 }
             }
+            // r[impl test.even]
             "even" => {
                 if let DestructuredRef::Number(n) = value.destructure_ref() {
                     n.to_i64().map(|i| i % 2 == 0).unwrap_or(false)
@@ -661,8 +684,11 @@ impl<'a> Evaluator<'a> {
                     false
                 }
             }
+            // r[impl test.truthy]
             "truthy" => value.is_truthy(),
+            // r[impl test.falsy]
             "falsy" => !value.is_truthy(),
+            // r[impl test.empty]
             "empty" => match value.destructure_ref() {
                 DestructuredRef::String(s) => s.is_empty(),
                 DestructuredRef::Array(arr) => arr.is_empty(),
@@ -670,14 +696,17 @@ impl<'a> Evaluator<'a> {
                 _ => false,
             },
             // Comparison tests
+            // r[impl test.eq]
             "eq" | "equalto" | "sameas" => args
                 .first()
                 .map(|other| values_equal(&value, other))
                 .unwrap_or(false),
+            // r[impl test.ne]
             "ne" => args
                 .first()
                 .map(|other| !values_equal(&value, other))
                 .unwrap_or(false),
+            // r[impl test.lt]
             "lt" | "lessthan" => {
                 if let Some(other) = args.first() {
                     compare_values(&value, other)
@@ -687,6 +716,7 @@ impl<'a> Evaluator<'a> {
                     false
                 }
             }
+            // r[impl test.gt]
             "gt" | "greaterthan" => {
                 if let Some(other) = args.first() {
                     compare_values(&value, other)
@@ -1028,8 +1058,11 @@ fn apply_filter(
         |key: &str| -> Option<&Value> { kwargs.iter().find(|(k, _)| k == key).map(|(_, v)| v) };
 
     Ok(match name {
+        // r[impl filter.upper]
         "upper" => Value::from(value.render_to_string().to_uppercase().as_str()),
+        // r[impl filter.lower]
         "lower" => Value::from(value.render_to_string().to_lowercase().as_str()),
+        // r[impl filter.capitalize]
         "capitalize" => {
             let s = value.render_to_string();
             let mut chars = s.chars();
@@ -1041,6 +1074,7 @@ fn apply_filter(
                 }
             }
         }
+        // r[impl filter.title]
         "title" => {
             let s = value.render_to_string();
             let result = s
@@ -1056,13 +1090,16 @@ fn apply_filter(
                 .join(" ");
             Value::from(result.as_str())
         }
+        // r[impl filter.trim]
         "trim" => Value::from(value.render_to_string().trim()),
+        // r[impl filter.length]
         "length" => match value.destructure_ref() {
             DestructuredRef::String(s) => Value::from(s.len() as i64),
             DestructuredRef::Array(arr) => Value::from(arr.len() as i64),
             DestructuredRef::Object(obj) => Value::from(obj.len() as i64),
             _ => Value::from(0i64),
         },
+        // r[impl filter.first]
         "first" => match value.destructure_ref() {
             DestructuredRef::Array(arr) if !arr.is_empty() => {
                 arr.get(0).cloned().unwrap_or(Value::NULL)
@@ -1075,6 +1112,7 @@ fn apply_filter(
                 .unwrap_or(Value::NULL),
             _ => Value::NULL,
         },
+        // r[impl filter.last]
         "last" => match value.destructure_ref() {
             DestructuredRef::Array(arr) if !arr.is_empty() => {
                 arr.get(arr.len() - 1).cloned().unwrap_or(Value::NULL)
@@ -1087,6 +1125,7 @@ fn apply_filter(
                 .unwrap_or(Value::NULL),
             _ => Value::NULL,
         },
+        // r[impl filter.reverse]
         "reverse" => match value.destructure_ref() {
             DestructuredRef::Array(arr) => {
                 let reversed: Vec<Value> = arr.iter().rev().cloned().collect();
@@ -1098,6 +1137,7 @@ fn apply_filter(
             }
             _ => value,
         },
+        // r[impl filter.sort]
         "sort" => match value.destructure_ref() {
             DestructuredRef::Array(arr) => {
                 let mut items: Vec<Value> = arr.iter().cloned().collect();
@@ -1132,6 +1172,7 @@ fn apply_filter(
             }
             _ => value,
         },
+        // r[impl filter.join]
         "join" => {
             let sep = args
                 .first()
@@ -1145,6 +1186,7 @@ fn apply_filter(
                 _ => value,
             }
         }
+        // r[impl filter.split]
         "split" => {
             // Support both positional: split("/") and kwarg: split(pat="/")
             let pat = get_kwarg("pat")
@@ -1155,6 +1197,7 @@ fn apply_filter(
             let parts: Vec<Value> = s.split(&pat).map(Value::from).collect();
             VArray::from_iter(parts).into()
         }
+        // r[impl filter.default]
         "default" => {
             // Support both positional: default("fallback") and kwarg: default(value="fallback")
             let default_val = get_kwarg("value")
@@ -1170,6 +1213,7 @@ fn apply_filter(
                 value
             }
         }
+        // r[impl filter.escape]
         "escape" => {
             let s = value.render_to_string();
             let escaped = s
@@ -1180,6 +1224,7 @@ fn apply_filter(
                 .replace('\'', "&#x27;");
             Value::from(escaped.as_str())
         }
+        // r[impl filter.safe]
         "safe" => {
             // Convert string to safe string using VSafeString
             if let Some(s) = value.as_string() {
@@ -1189,10 +1234,12 @@ fn apply_filter(
                 value
             }
         }
+        // r[impl filter.typeof]
         "typeof" => {
             // Return the type name of the value
             Value::from(value.type_name())
         }
+        // r[impl filter.slice]
         "slice" => {
             // Slice a list: slice(start=0, end=N) or slice(0, N)
             match value.destructure_ref() {
@@ -1220,6 +1267,7 @@ fn apply_filter(
                 _ => value,
             }
         }
+        // r[impl filter.map]
         "map" => {
             // Extract an attribute from each item: map(attribute="field")
             match value.destructure_ref() {
@@ -1243,14 +1291,17 @@ fn apply_filter(
                 _ => value,
             }
         }
+        // r[impl filter.selectattr]
         "selectattr" => {
             // Filter items where attribute passes a test: selectattr("field", "eq", value)
             filter_by_attr(&value, args, get_kwarg, false)
         }
+        // r[impl filter.rejectattr]
         "rejectattr" => {
             // Filter items where attribute fails a test: rejectattr("field", "eq", value)
             filter_by_attr(&value, args, get_kwarg, true)
         }
+        // r[impl filter.groupby]
         "groupby" => {
             // Group items by attribute: groupby(attribute="field")
             match value.destructure_ref() {
@@ -1292,6 +1343,7 @@ fn apply_filter(
             }
         }
         // Path manipulation filters
+        // r[impl filter.path-segments]
         "path_segments" => {
             // Split path into segments, removing empty strings from leading/trailing slashes
             // "/foo/bar/" -> ["foo", "bar"]
@@ -1303,6 +1355,7 @@ fn apply_filter(
                 .collect();
             VArray::from_iter(segments).into()
         }
+        // r[impl filter.path-first]
         "path_first" => {
             // Get the first segment of a path
             // "/foo/bar" -> "foo"
@@ -1312,6 +1365,7 @@ fn apply_filter(
                 .map(Value::from)
                 .unwrap_or(Value::NULL)
         }
+        // r[impl filter.path-parent]
         "path_parent" => {
             // Get the parent path
             // "/foo/bar" -> "/foo", "/foo" -> "/", "/" -> "/"
@@ -1326,6 +1380,7 @@ fn apply_filter(
                 None => Value::from("/"),
             }
         }
+        // r[impl filter.path-basename]
         "path_basename" => {
             // Get the last segment of a path (basename)
             // "/foo/bar" -> "bar", "/foo/" -> "foo"

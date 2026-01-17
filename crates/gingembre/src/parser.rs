@@ -225,6 +225,9 @@ impl Parser {
         Ok(node)
     }
 
+    // r[impl stmt.if.syntax]
+    // r[impl stmt.if.elif]
+    // r[impl stmt.if.else]
     /// Parse if statement
     fn parse_if(&mut self, start: Span) -> Result<Node> {
         self.expect(&TokenKind::If)?;
@@ -293,6 +296,8 @@ impl Parser {
         }))
     }
 
+    // r[impl stmt.for.syntax]
+    // r[impl stmt.for.else]
     /// Parse for loop
     fn parse_for(&mut self, start: Span) -> Result<Node> {
         self.expect(&TokenKind::For)?;
@@ -340,6 +345,7 @@ impl Parser {
         }))
     }
 
+    // r[impl stmt.for.tuple-unpacking]
     /// Parse loop target
     fn parse_target(&mut self) -> Result<Target> {
         let start = self.current.span;
@@ -367,6 +373,7 @@ impl Parser {
         }
     }
 
+    // r[impl inherit.block.syntax]
     /// Parse block definition
     fn parse_block(&mut self, start: Span) -> Result<Node> {
         self.expect(&TokenKind::Block)?;
@@ -393,6 +400,7 @@ impl Parser {
         }))
     }
 
+    // r[impl inherit.extends.syntax]
     /// Parse extends
     fn parse_extends(&mut self, start: Span) -> Result<Node> {
         self.expect(&TokenKind::Extends)?;
@@ -408,6 +416,7 @@ impl Parser {
         }))
     }
 
+    // r[impl inherit.include.syntax]
     /// Parse include
     fn parse_include(&mut self, start: Span) -> Result<Node> {
         self.expect(&TokenKind::Include)?;
@@ -424,6 +433,7 @@ impl Parser {
         }))
     }
 
+    // r[impl stmt.set.syntax]
     /// Parse set statement: {% set var = expr %}
     fn parse_set(&mut self, start: Span) -> Result<Node> {
         self.expect(&TokenKind::Set)?;
@@ -442,6 +452,7 @@ impl Parser {
         }))
     }
 
+    // r[impl macro.import.syntax]
     /// Parse import statement: {% import "path" as name %}
     fn parse_import(&mut self, start: Span) -> Result<Node> {
         self.expect(&TokenKind::Import)?;
@@ -460,6 +471,7 @@ impl Parser {
         }))
     }
 
+    // r[impl macro.def.syntax]
     /// Parse macro definition: {% macro name(args) %}...{% endmacro %}
     fn parse_macro(&mut self, start: Span) -> Result<Node> {
         self.expect(&TokenKind::Macro)?;
@@ -490,6 +502,7 @@ impl Parser {
         }))
     }
 
+    // r[impl stmt.continue]
     /// Parse continue statement: {% continue %}
     fn parse_continue(&mut self, start: Span) -> Result<Node> {
         self.expect(&TokenKind::Continue)?;
@@ -502,6 +515,7 @@ impl Parser {
         }))
     }
 
+    // r[impl stmt.break]
     /// Parse break statement: {% break %}
     fn parse_break(&mut self, start: Span) -> Result<Node> {
         self.expect(&TokenKind::Break)?;
@@ -514,6 +528,7 @@ impl Parser {
         }))
     }
 
+    // r[impl macro.def.params]
     /// Parse macro parameters with optional defaults
     fn parse_macro_params(&mut self) -> Result<Vec<MacroParam>> {
         let mut params = Vec::new();
@@ -550,6 +565,7 @@ impl Parser {
         self.parse_ternary()
     }
 
+    // r[impl expr.ternary]
     fn parse_ternary(&mut self) -> Result<Expr> {
         let value = self.parse_or()?;
 
@@ -575,6 +591,7 @@ impl Parser {
         }
     }
 
+    // r[impl expr.op.or]
     fn parse_or(&mut self) -> Result<Expr> {
         let mut left = self.parse_and()?;
 
@@ -596,6 +613,7 @@ impl Parser {
         Ok(left)
     }
 
+    // r[impl expr.op.and]
     fn parse_and(&mut self) -> Result<Expr> {
         let mut left = self.parse_not()?;
 
@@ -617,6 +635,7 @@ impl Parser {
         Ok(left)
     }
 
+    // r[impl expr.op.not]
     fn parse_not(&mut self) -> Result<Expr> {
         if self.check(&TokenKind::Not) {
             let start = self.current.span;
@@ -636,6 +655,16 @@ impl Parser {
         }
     }
 
+    // r[impl test.syntax]
+    // r[impl test.negation]
+    // r[impl expr.op.eq]
+    // r[impl expr.op.ne]
+    // r[impl expr.op.lt]
+    // r[impl expr.op.le]
+    // r[impl expr.op.gt]
+    // r[impl expr.op.ge]
+    // r[impl expr.op.in]
+    // r[impl expr.op.not-in]
     fn parse_comparison(&mut self) -> Result<Expr> {
         let mut left = self.parse_add()?;
 
@@ -738,6 +767,9 @@ impl Parser {
         Ok(left)
     }
 
+    // r[impl expr.op.add]
+    // r[impl expr.op.sub]
+    // r[impl expr.op.concat]
     fn parse_add(&mut self) -> Result<Expr> {
         let mut left = self.parse_mul()?;
 
@@ -770,6 +802,10 @@ impl Parser {
         Ok(left)
     }
 
+    // r[impl expr.op.mul]
+    // r[impl expr.op.div]
+    // r[impl expr.op.floordiv]
+    // r[impl expr.op.mod]
     fn parse_mul(&mut self) -> Result<Expr> {
         let mut left = self.parse_unary()?;
 
@@ -835,6 +871,7 @@ impl Parser {
         }
     }
 
+    // r[impl expr.op.pow]
     fn parse_power(&mut self) -> Result<Expr> {
         let base = self.parse_filter()?;
 
@@ -856,6 +893,9 @@ impl Parser {
         }
     }
 
+    // r[impl filter.syntax]
+    // r[impl filter.chaining]
+    // r[impl filter.args]
     fn parse_filter(&mut self) -> Result<Expr> {
         let mut expr = self.parse_postfix()?;
 
@@ -890,6 +930,10 @@ impl Parser {
         Ok(expr)
     }
 
+    // r[impl expr.field.dot]
+    // r[impl expr.index.bracket]
+    // r[impl expr.call.syntax]
+    // r[impl expr.call.kwargs]
     fn parse_postfix(&mut self) -> Result<Expr> {
         let mut expr = self.parse_primary()?;
 

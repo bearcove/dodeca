@@ -100,6 +100,7 @@ pub enum TokenKind {
 }
 
 impl TokenKind {
+    // r[impl keyword.reserved]
     /// Check if this is a keyword
     pub fn from_ident(s: &str) -> TokenKind {
         match s {
@@ -117,8 +118,10 @@ impl TokenKind {
             "import" => TokenKind::Import,
             "macro" => TokenKind::Macro,
             "endmacro" => TokenKind::Endmacro,
+            // r[impl literal.boolean]
             "true" | "True" => TokenKind::True,
             "false" | "False" => TokenKind::False,
+            // r[impl literal.none]
             "none" | "None" => TokenKind::None,
             "not" => TokenKind::Not,
             "and" => TokenKind::And,
@@ -128,6 +131,8 @@ impl TokenKind {
             "set" => TokenKind::Set,
             "continue" => TokenKind::Continue,
             "break" => TokenKind::Break,
+            // r[impl ident.syntax]
+            // r[impl ident.case-sensitive]
             _ => TokenKind::Ident(s.to_string()),
         }
     }
@@ -191,6 +196,7 @@ impl Lexer {
         Some(c)
     }
 
+    // r[impl whitespace.inside-delimiters]
     /// Skip whitespace (only when in code mode)
     fn skip_whitespace(&mut self) {
         while let Some(c) = self.peek() {
@@ -216,6 +222,7 @@ impl Lexer {
         }
     }
 
+    // r[impl whitespace.raw-text]
     /// Lex raw template text until we hit a delimiter
     fn lex_text(&mut self) -> Token {
         let start = self.pos;
@@ -244,16 +251,19 @@ impl Lexer {
         let start = self.pos;
 
         match self.peek_n(2) {
+            // r[impl delim.expression]
             Some("{{") => {
                 self.pos += 2;
                 self.in_code = true;
                 Token::new(TokenKind::ExprOpen, start, 2)
             }
+            // r[impl delim.statement]
             Some("{%") => {
                 self.pos += 2;
                 self.in_code = true;
                 Token::new(TokenKind::TagOpen, start, 2)
             }
+            // r[impl delim.comment]
             Some("{#") => {
                 self.pos += 2;
                 // Skip comment content and continue lexing
@@ -438,6 +448,7 @@ impl Lexer {
         }
     }
 
+    // r[impl literal.string]
     /// Lex a string literal
     fn lex_string(&mut self, quote: char) -> Token {
         let start = self.pos;
@@ -477,6 +488,8 @@ impl Lexer {
         Token::new(TokenKind::String(value), start, self.pos - start)
     }
 
+    // r[impl literal.integer]
+    // r[impl literal.float]
     /// Lex a number (int or float)
     fn lex_number(&mut self) -> Token {
         let start = self.pos;
