@@ -1130,6 +1130,47 @@ fn build_render_context_base(site_tree: &SiteTree) -> Context {
         }),
     );
 
+    // Register bust() function for cache-busted static file URLs
+    ctx.register_fn(
+        "bust",
+        Box::new(move |_args, kwargs| {
+            let path = kwargs
+                .iter()
+                .find(|(k, _)| k == "path")
+                .map(|(_, v)| v.render_to_string())
+                .unwrap_or_default();
+
+            // Normalize path to start with /
+            let normalized_path = if path.starts_with('/') {
+                path
+            } else {
+                format!("/{path}")
+            };
+
+            Box::pin(async move {
+                // Access database via task-local
+                let db = crate::db::TASK_DB
+                    .try_with(|db| db.clone())
+                    .map_err(|_| eyre::eyre!("bust: database not available in this context"))?;
+
+                // Get the static URL map (dereference Arc to get &Database)
+                let url_map = crate::queries::static_url_map(&*db)
+                    .await
+                    .map_err(|e| eyre::eyre!("bust: failed to get static URL map: {}", e))?;
+
+                // Look up the cache-busted URL
+                match url_map.get(&normalized_path) {
+                    Some(cache_busted_url) => Ok(Value::from(cache_busted_url.as_str())),
+                    None => Err(eyre::eyre!(
+                        "bust: path not found: {}. Available paths: {:?}",
+                        normalized_path,
+                        url_map.keys().collect::<Vec<_>>()
+                    )),
+                }
+            })
+        }),
+    );
+
     ctx
 }
 

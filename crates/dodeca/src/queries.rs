@@ -1388,6 +1388,36 @@ pub async fn css_output<DB: Db>(db: &DB) -> PicanteResult<Option<CssOutput>> {
     }))
 }
 
+/// Build a map of original static file paths to their cache-busted URLs
+/// This is used by the `get_static_url` template function
+#[picante::tracked]
+pub async fn static_url_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, String>> {
+    let mut path_map: HashMap<String, String> = HashMap::new();
+
+    // Add CSS path
+    if let Some(css) = css_output(db).await? {
+        path_map.insert(
+            "/main.css".to_string(),
+            format!("/{}", css.cache_busted_path),
+        );
+    }
+
+    // Add static file paths (non-images)
+    let static_files = StaticRegistry::files(db)?.unwrap_or_default();
+    for file in static_files.iter() {
+        let original_path = file.path(db)?.as_str().to_string();
+        if !InputFormat::is_processable(&original_path) {
+            let output = static_file_output(db, *file).await?;
+            path_map.insert(
+                format!("/{original_path}"),
+                format!("/{}", output.cache_busted_path),
+            );
+        }
+    }
+
+    Ok(path_map)
+}
+
 /// Serve a single page or section with full URL rewriting and minification
 /// This is the main entry point for lazy page serving
 #[picante::tracked]
