@@ -6,7 +6,7 @@ use cell_markdown_proto::*;
 use dodeca_cell_runtime::run_cell;
 use marq::{
     AasvgHandler, ArboriumHandler, CompareHandler, LinkResolver, PikruHandler, RenderOptions,
-    render,
+    TermHandler, render,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -56,6 +56,7 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
             .with_handler(&["aa", "aasvg"], AasvgHandler::new())
             .with_handler(&["compare"], CompareHandler::new())
             .with_handler(&["pikchr"], PikruHandler::new())
+            .with_handler(&["term"], TermHandler::new())
             .with_default_handler(ArboriumHandler::new())
             .with_source_path(&source_path)
             // Pass through @/ links unchanged - dodeca will resolve them with site tree

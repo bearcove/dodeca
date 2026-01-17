@@ -466,8 +466,10 @@ pub async fn inject_livereload_with_build_info(
     // Inject after opening <head> tag so content is properly inside <head>
     let config = crate::config::global_config().expect("Config not initialized");
     let syntax_css = generate_syntax_highlight_css(&config.light_theme_css, &config.dark_theme_css);
-    let scripts_to_inject =
-        format!("{syntax_css}{COPY_BUTTON_STYLES}{COPY_BUTTON_SCRIPT}{build_info_assets}");
+    let term_css = format!("<style>\n{}</style>", cell_term_proto::generate_css());
+    let scripts_to_inject = format!(
+        "{syntax_css}{term_css}{COPY_BUTTON_STYLES}{COPY_BUTTON_SCRIPT}{build_info_assets}"
+    );
     result = inject_into_head(&result, &scripts_to_inject);
 
     if options.livereload {

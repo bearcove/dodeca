@@ -541,9 +541,10 @@ async fn run_term(args: TermArgs) -> Result<()> {
             std::fs::write(&output_path, &html)?;
             println!("\n{} Written to {}", "✓".green(), output_path.cyan());
 
-            // Copy to clipboard if requested
+            // Copy to clipboard if requested (wrapped in ```term fence for markdown)
             if copy_to_clipboard {
-                match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(&html)) {
+                let clipboard_content = format!("```term\n{}\n```", html);
+                match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(&clipboard_content)) {
                     Ok(()) => println!("{} Copied to clipboard", "✓".green()),
                     Err(e) => eprintln!("{} Could not copy to clipboard: {}", "⚠".yellow(), e),
                 }
