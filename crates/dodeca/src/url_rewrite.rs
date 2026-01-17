@@ -155,6 +155,66 @@ pub fn resolve_internal_links(html: &str, source_to_route: &HashMap<String, Stri
     result.into_owned()
 }
 
+/// Resolve relative links in HTML by joining them with the base route.
+///
+/// Relative links are those that don't start with `/`, `http://`, `https://`, `#`, `@/`, or `mailto:`.
+/// For example, if base_route is `/comparisons/` and we have `href="github-actions"`,
+/// it becomes `href="/comparisons/github-actions"`.
+///
+/// # Arguments
+/// * `html` - HTML content that may contain relative links
+/// * `base_route` - The route of the page containing this HTML (e.g., "/comparisons/")
+///
+/// # Returns
+/// HTML with relative links resolved to absolute paths.
+pub fn resolve_relative_links(html: &str, base_route: &str) -> String {
+    use regex::Regex;
+
+    // Ensure base_route ends with /
+    let base = if base_route.ends_with('/') {
+        base_route.to_string()
+    } else {
+        format!("{}/", base_route)
+    };
+
+    // Match href="..." with double quotes - capture the full href value
+    let href_re_double = Regex::new(r#"href="([^"]+)""#).unwrap();
+    // Match href='...' with single quotes
+    let href_re_single = Regex::new(r#"href='([^']+)'"#).unwrap();
+
+    let resolve = |caps: &regex::Captures, quote: &str, base: &str| -> String {
+        let href = &caps[1];
+
+        // Skip if already absolute or special
+        if href.starts_with('/')
+            || href.starts_with("http://")
+            || href.starts_with("https://")
+            || href.starts_with('#')
+            || href.starts_with("@/")
+            || href.starts_with("mailto:")
+            || href.starts_with("tel:")
+            || href.starts_with("javascript:")
+        {
+            return caps[0].to_string();
+        }
+
+        // Resolve relative link
+        let resolved = format!("{}{}", base, href);
+        format!("href={quote}{resolved}{quote}")
+    };
+
+    let base_clone = base.clone();
+    // First pass: double quotes
+    let result =
+        href_re_double.replace_all(html, |caps: &regex::Captures| resolve(caps, "\"", &base_clone));
+
+    // Second pass: single quotes
+    let result =
+        href_re_single.replace_all(&result, |caps: &regex::Captures| resolve(caps, "'", &base));
+
+    result.into_owned()
+}
+
 /// Mark dead internal links in HTML using the cell
 ///
 /// Adds `data-dead` attribute to `<a>` tags with internal hrefs that don't exist in known_routes.

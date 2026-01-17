@@ -1133,7 +1133,7 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Bui
 pub async fn all_rendered_html<DB: Db>(
     db: &DB,
 ) -> PicanteResult<Result<AllRenderedHtml, BuildError>> {
-    use crate::url_rewrite::resolve_internal_links;
+    use crate::url_rewrite::{resolve_internal_links, resolve_relative_links};
 
     let site_tree = match build_tree(db).await? {
         Ok(tree) => tree,
@@ -1159,7 +1159,8 @@ pub async fn all_rendered_html<DB: Db>(
             Some(data_value.clone()),
         )
         .await;
-        // Resolve @/ links using the source-to-route map
+        // Resolve relative links based on section route, then @/ links
+        let html = resolve_relative_links(&html, route.as_str());
         let html = resolve_internal_links(&html, &source_route_map);
         pages.insert(route.clone(), html);
     }
@@ -1172,7 +1173,8 @@ pub async fn all_rendered_html<DB: Db>(
             Some(data_value.clone()),
         )
         .await;
-        // Resolve @/ links using the source-to-route map
+        // Resolve relative links based on the page's section route, then @/ links
+        let html = resolve_relative_links(&html, page.section_route.as_str());
         let html = resolve_internal_links(&html, &source_route_map);
         pages.insert(route.clone(), html);
     }
