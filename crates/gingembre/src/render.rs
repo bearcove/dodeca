@@ -1576,4 +1576,605 @@ mod tests {
             "Template with unclosed expression should produce parse error"
         );
     }
+
+    // ========================================================================
+    // Additional tests for verification coverage
+    // ========================================================================
+
+    // r[verify expr.op.sub]
+    #[tokio::test]
+    async fn test_subtraction() {
+        let t = Template::parse("test", "{{ 10 - 3 }}").unwrap();
+        assert_eq!(t.render(&Context::new()).await.unwrap(), "7");
+    }
+
+    // r[verify expr.op.mul]
+    #[tokio::test]
+    async fn test_multiplication() {
+        let t = Template::parse("test", "{{ 4 * 5 }}").unwrap();
+        assert_eq!(t.render(&Context::new()).await.unwrap(), "20");
+    }
+
+    // r[verify expr.op.div]
+    #[tokio::test]
+    async fn test_division() {
+        let t = Template::parse("test", "{{ 10 / 4 }}").unwrap();
+        assert_eq!(t.render(&Context::new()).await.unwrap(), "2.5");
+    }
+
+    // r[verify expr.op.floordiv]
+    #[tokio::test]
+    async fn test_floor_division() {
+        let t = Template::parse("test", "{{ 10 // 3 }}").unwrap();
+        assert_eq!(t.render(&Context::new()).await.unwrap(), "3");
+    }
+
+    // r[verify expr.op.mod]
+    #[tokio::test]
+    async fn test_modulo() {
+        let t = Template::parse("test", "{{ 10 % 3 }}").unwrap();
+        assert_eq!(t.render(&Context::new()).await.unwrap(), "1");
+    }
+
+    // r[verify expr.op.pow]
+    #[tokio::test]
+    async fn test_power() {
+        let t = Template::parse("test", "{{ 2 ** 8 }}").unwrap();
+        assert_eq!(t.render(&Context::new()).await.unwrap(), "256");
+    }
+
+    // r[verify expr.op.eq]
+    #[tokio::test]
+    async fn test_equality() {
+        let t = Template::parse("test", "{% if x == 5 %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(5i64))]).await.unwrap(),
+            "yes"
+        );
+        assert_eq!(
+            t.render_with([("x", Value::from(3i64))]).await.unwrap(),
+            "no"
+        );
+    }
+
+    // r[verify expr.op.ne]
+    #[tokio::test]
+    async fn test_not_equal() {
+        let t = Template::parse("test", "{% if x != 5 %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(3i64))]).await.unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify expr.op.lt]
+    #[tokio::test]
+    async fn test_less_than() {
+        let t = Template::parse("test", "{% if x < 5 %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(3i64))]).await.unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify expr.op.le]
+    #[tokio::test]
+    async fn test_less_than_or_equal() {
+        let t = Template::parse("test", "{% if x <= 5 %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(5i64))]).await.unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify expr.op.ge]
+    #[tokio::test]
+    async fn test_greater_than_or_equal() {
+        let t = Template::parse("test", "{% if x >= 5 %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(5i64))]).await.unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify expr.op.and]
+    #[tokio::test]
+    async fn test_logical_and() {
+        let t = Template::parse("test", "{% if a and b %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("a", Value::from(true)), ("b", Value::from(true))])
+                .await
+                .unwrap(),
+            "yes"
+        );
+        assert_eq!(
+            t.render_with([("a", Value::from(true)), ("b", Value::from(false))])
+                .await
+                .unwrap(),
+            "no"
+        );
+    }
+
+    // r[verify expr.op.or]
+    #[tokio::test]
+    async fn test_logical_or() {
+        let t = Template::parse("test", "{% if a or b %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("a", Value::from(false)), ("b", Value::from(true))])
+                .await
+                .unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify expr.op.not]
+    #[tokio::test]
+    async fn test_logical_not() {
+        let t = Template::parse("test", "{% if not x %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(false))]).await.unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify expr.op.in]
+    #[tokio::test]
+    async fn test_in_operator() {
+        let t = Template::parse("test", "{% if x in items %}yes{% else %}no{% endif %}").unwrap();
+        let items: Value = VArray::from_iter([Value::from(1i64), Value::from(2i64)]).into();
+        assert_eq!(
+            t.render_with([("x", Value::from(2i64)), ("items", items)])
+                .await
+                .unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify expr.op.not-in]
+    #[tokio::test]
+    async fn test_not_in_operator() {
+        let t =
+            Template::parse("test", "{% if x not in items %}yes{% else %}no{% endif %}").unwrap();
+        let items: Value = VArray::from_iter([Value::from(1i64), Value::from(2i64)]).into();
+        assert_eq!(
+            t.render_with([("x", Value::from(5i64)), ("items", items)])
+                .await
+                .unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify expr.op.concat]
+    #[tokio::test]
+    async fn test_string_concat() {
+        let t = Template::parse("test", "{{ a ~ b }}").unwrap();
+        assert_eq!(
+            t.render_with([("a", Value::from("hello")), ("b", Value::from("world"))])
+                .await
+                .unwrap(),
+            "helloworld"
+        );
+    }
+
+    // r[verify expr.ternary]
+    #[tokio::test]
+    async fn test_ternary() {
+        let t = Template::parse("test", "{{ \"yes\" if x else \"no\" }}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(true))]).await.unwrap(),
+            "yes"
+        );
+        assert_eq!(
+            t.render_with([("x", Value::from(false))]).await.unwrap(),
+            "no"
+        );
+    }
+
+    // r[verify filter.first]
+    #[tokio::test]
+    async fn test_first_filter() {
+        let t = Template::parse("test", "{{ items | first }}").unwrap();
+        let items: Value = VArray::from_iter([Value::from("a"), Value::from("b")]).into();
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "a");
+    }
+
+    // r[verify filter.last]
+    #[tokio::test]
+    async fn test_last_filter() {
+        let t = Template::parse("test", "{{ items | last }}").unwrap();
+        let items: Value = VArray::from_iter([Value::from("a"), Value::from("b")]).into();
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "b");
+    }
+
+    // r[verify filter.reverse]
+    #[tokio::test]
+    async fn test_reverse_filter() {
+        let t = Template::parse("test", "{{ items | reverse | join(\",\") }}").unwrap();
+        let items: Value =
+            VArray::from_iter([Value::from("a"), Value::from("b"), Value::from("c")]).into();
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "c,b,a");
+    }
+
+    // r[verify filter.sort]
+    #[tokio::test]
+    async fn test_sort_filter() {
+        let t = Template::parse("test", "{{ items | sort | join(\",\") }}").unwrap();
+        let items: Value =
+            VArray::from_iter([Value::from("c"), Value::from("a"), Value::from("b")]).into();
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "a,b,c");
+    }
+
+    // r[verify filter.lower]
+    #[tokio::test]
+    async fn test_lower_filter() {
+        let t = Template::parse("test", "{{ x | lower }}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from("HELLO"))]).await.unwrap(),
+            "hello"
+        );
+    }
+
+    // r[verify filter.capitalize]
+    #[tokio::test]
+    async fn test_capitalize_filter() {
+        let t = Template::parse("test", "{{ x | capitalize }}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from("hello"))]).await.unwrap(),
+            "Hello"
+        );
+    }
+
+    // r[verify filter.title]
+    #[tokio::test]
+    async fn test_title_filter() {
+        let t = Template::parse("test", "{{ x | title }}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from("hello world"))])
+                .await
+                .unwrap(),
+            "Hello World"
+        );
+    }
+
+    // r[verify filter.trim]
+    #[tokio::test]
+    async fn test_trim_filter() {
+        let t = Template::parse("test", "{{ x | trim }}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from("  hello  "))]).await.unwrap(),
+            "hello"
+        );
+    }
+
+    // r[verify filter.default]
+    #[tokio::test]
+    async fn test_default_filter() {
+        let t = Template::parse("test", "{{ x | default(\"fallback\") }}").unwrap();
+        assert_eq!(t.render_with([("x", Value::NULL)]).await.unwrap(), "fallback");
+        assert_eq!(
+            t.render_with([("x", Value::from("value"))]).await.unwrap(),
+            "value"
+        );
+    }
+
+    // r[verify filter.path-segments]
+    #[tokio::test]
+    async fn test_path_segments_filter() {
+        let t = Template::parse("test", "{{ path | path_segments | join(\",\") }}").unwrap();
+        assert_eq!(
+            t.render_with([("path", Value::from("/foo/bar/baz"))])
+                .await
+                .unwrap(),
+            "foo,bar,baz"
+        );
+    }
+
+    // r[verify filter.path-first]
+    #[tokio::test]
+    async fn test_path_first_filter() {
+        let t = Template::parse("test", "{{ path | path_first }}").unwrap();
+        assert_eq!(
+            t.render_with([("path", Value::from("/foo/bar"))])
+                .await
+                .unwrap(),
+            "foo"
+        );
+    }
+
+    // r[verify filter.path-parent]
+    #[tokio::test]
+    async fn test_path_parent_filter() {
+        let t = Template::parse("test", "{{ path | path_parent }}").unwrap();
+        assert_eq!(
+            t.render_with([("path", Value::from("/foo/bar"))])
+                .await
+                .unwrap(),
+            "/foo"
+        );
+    }
+
+    // r[verify filter.path-basename]
+    #[tokio::test]
+    async fn test_path_basename_filter() {
+        let t = Template::parse("test", "{{ path | path_basename }}").unwrap();
+        assert_eq!(
+            t.render_with([("path", Value::from("/foo/bar"))])
+                .await
+                .unwrap(),
+            "bar"
+        );
+    }
+
+    // r[verify stmt.for.loop-index0]
+    #[tokio::test]
+    async fn test_loop_index0() {
+        let t =
+            Template::parse("test", "{% for x in items %}{{ loop.index0 }}{% endfor %}").unwrap();
+        let items: Value = VArray::from_iter([Value::from("a"), Value::from("b")]).into();
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "01");
+    }
+
+    // r[verify stmt.for.loop-first]
+    // r[verify stmt.for.loop-last]
+    #[tokio::test]
+    async fn test_loop_first_last() {
+        let t = Template::parse(
+            "test",
+            "{% for x in items %}{% if loop.first %}F{% endif %}{% if loop.last %}L{% endif %}{{ x }}{% endfor %}",
+        )
+        .unwrap();
+        let items: Value =
+            VArray::from_iter([Value::from("a"), Value::from("b"), Value::from("c")]).into();
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "FabLc");
+    }
+
+    // r[verify stmt.for.loop-length]
+    #[tokio::test]
+    async fn test_loop_length() {
+        let t = Template::parse("test", "{% for x in items %}{{ loop.length }}{% endfor %}").unwrap();
+        let items: Value =
+            VArray::from_iter([Value::from("a"), Value::from("b"), Value::from("c")]).into();
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "333");
+    }
+
+    // r[verify stmt.for.else]
+    #[tokio::test]
+    async fn test_for_else() {
+        let t = Template::parse(
+            "test",
+            "{% for x in items %}{{ x }}{% else %}empty{% endfor %}",
+        )
+        .unwrap();
+        let empty: Value = VArray::from_iter(Vec::<Value>::new()).into();
+        assert_eq!(t.render_with([("items", empty)]).await.unwrap(), "empty");
+    }
+
+    // r[verify stmt.if.elif]
+    #[tokio::test]
+    async fn test_if_elif() {
+        let t = Template::parse(
+            "test",
+            "{% if x == 1 %}one{% elif x == 2 %}two{% else %}other{% endif %}",
+        )
+        .unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(1i64))]).await.unwrap(),
+            "one"
+        );
+        assert_eq!(
+            t.render_with([("x", Value::from(2i64))]).await.unwrap(),
+            "two"
+        );
+        assert_eq!(
+            t.render_with([("x", Value::from(3i64))]).await.unwrap(),
+            "other"
+        );
+    }
+
+    // r[verify test.defined]
+    #[tokio::test]
+    async fn test_is_defined() {
+        let t = Template::parse("test", "{% if x is defined %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(42i64))]).await.unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify test.none]
+    #[tokio::test]
+    async fn test_is_none() {
+        let t = Template::parse("test", "{% if x is none %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(t.render_with([("x", Value::NULL)]).await.unwrap(), "yes");
+    }
+
+    // r[verify test.string]
+    #[tokio::test]
+    async fn test_is_string() {
+        let t = Template::parse("test", "{% if x is string %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from("hello"))]).await.unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify test.number]
+    #[tokio::test]
+    async fn test_is_number() {
+        let t = Template::parse("test", "{% if x is number %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(42i64))]).await.unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify test.integer]
+    #[tokio::test]
+    async fn test_is_integer() {
+        let t = Template::parse("test", "{% if x is integer %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(42i64))]).await.unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify test.float]
+    // r[verify literal.float]
+    #[tokio::test]
+    async fn test_is_float() {
+        let t = Template::parse("test", "{% if x is float %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(3.14f64))]).await.unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify test.mapping]
+    #[tokio::test]
+    async fn test_is_mapping() {
+        let t = Template::parse("test", "{% if x is mapping %}yes{% else %}no{% endif %}").unwrap();
+        let obj: Value = VObject::new().into();
+        assert_eq!(t.render_with([("x", obj)]).await.unwrap(), "yes");
+    }
+
+    // r[verify test.iterable]
+    #[tokio::test]
+    async fn test_is_iterable() {
+        let t =
+            Template::parse("test", "{% if x is iterable %}yes{% else %}no{% endif %}").unwrap();
+        let items: Value = VArray::from_iter([Value::from(1i64)]).into();
+        assert_eq!(t.render_with([("x", items)]).await.unwrap(), "yes");
+    }
+
+    // r[verify test.odd]
+    #[tokio::test]
+    async fn test_is_odd() {
+        let t = Template::parse("test", "{% if x is odd %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(3i64))]).await.unwrap(),
+            "yes"
+        );
+        assert_eq!(
+            t.render_with([("x", Value::from(4i64))]).await.unwrap(),
+            "no"
+        );
+    }
+
+    // r[verify test.even]
+    #[tokio::test]
+    async fn test_is_even() {
+        let t = Template::parse("test", "{% if x is even %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(4i64))]).await.unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify test.empty]
+    #[tokio::test]
+    async fn test_is_empty() {
+        let t = Template::parse("test", "{% if x is empty %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(""))]).await.unwrap(),
+            "yes"
+        );
+        let empty_arr: Value = VArray::from_iter(Vec::<Value>::new()).into();
+        assert_eq!(t.render_with([("x", empty_arr)]).await.unwrap(), "yes");
+    }
+
+    // r[verify test.ending-with]
+    #[tokio::test]
+    async fn test_is_ending_with() {
+        let t = Template::parse(
+            "test",
+            "{% if path is ending_with(\".html\") %}yes{% else %}no{% endif %}",
+        )
+        .unwrap();
+        assert_eq!(
+            t.render_with([("path", Value::from("index.html"))])
+                .await
+                .unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify test.lt]
+    #[tokio::test]
+    async fn test_is_lt() {
+        let t = Template::parse("test", "{% if x is lt(5) %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(3i64))]).await.unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify test.ne]
+    #[tokio::test]
+    async fn test_is_ne() {
+        let t = Template::parse("test", "{% if x is ne(5) %}yes{% else %}no{% endif %}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from(3i64))]).await.unwrap(),
+            "yes"
+        );
+    }
+
+    // r[verify delim.statement]
+    #[tokio::test]
+    async fn test_statement_delimiter() {
+        let t = Template::parse("test", "{% set x = 1 %}{{ x }}").unwrap();
+        assert_eq!(t.render(&Context::new()).await.unwrap(), "1");
+    }
+
+    // r[verify delim.comment]
+    #[tokio::test]
+    async fn test_comment_delimiter() {
+        let t = Template::parse("test", "a{# this is a comment #}b").unwrap();
+        assert_eq!(t.render(&Context::new()).await.unwrap(), "ab");
+    }
+
+    // r[verify expr.index.bracket]
+    #[tokio::test]
+    async fn test_index_bracket() {
+        let t = Template::parse("test", "{{ items[1] }}").unwrap();
+        let items: Value = VArray::from_iter([Value::from("a"), Value::from("b")]).into();
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "b");
+    }
+
+    // r[verify ident.syntax]
+    // r[verify ident.case-sensitive]
+    #[tokio::test]
+    async fn test_identifier_case_sensitive() {
+        let t = Template::parse("test", "{{ Foo }}{{ foo }}").unwrap();
+        assert_eq!(
+            t.render_with([("Foo", Value::from("A")), ("foo", Value::from("B"))])
+                .await
+                .unwrap(),
+            "AB"
+        );
+    }
+
+    // r[verify whitespace.inside-delimiters]
+    #[tokio::test]
+    async fn test_whitespace_inside_delimiters() {
+        let t = Template::parse("test", "{{   x   }}").unwrap();
+        assert_eq!(
+            t.render_with([("x", Value::from("val"))]).await.unwrap(),
+            "val"
+        );
+    }
+
+    // r[verify scope.lexical]
+    // r[verify scope.block]
+    #[tokio::test]
+    async fn test_lexical_scope() {
+        // Inner set doesn't affect outer scope after for loop ends
+        let t = Template::parse(
+            "test",
+            "{% set x = 1 %}{% for i in items %}{% set x = i %}{% endfor %}{{ x }}",
+        )
+        .unwrap();
+        let items: Value = VArray::from_iter([Value::from(5i64)]).into();
+        // x should still be 1 because the inner set was in a different scope
+        assert_eq!(t.render_with([("items", items)]).await.unwrap(), "1");
+    }
 }

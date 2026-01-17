@@ -679,8 +679,8 @@ impl Parser {
                 } else {
                     false
                 };
-                // Parse test name
-                let test_name = self.expect_ident()?;
+                // Parse test name (accept identifiers or 'none' keyword)
+                let test_name = self.expect_test_name()?;
                 // Parse optional args: test_name(arg1, arg2)
                 let args = if self.check(&TokenKind::LParen) {
                     self.advance();
@@ -1253,6 +1253,33 @@ impl Parser {
                 span: self.current.span,
                 src: self.source.named_source(),
             })?
+        }
+    }
+
+    /// Expect an identifier or a keyword that can be used as a test name.
+    /// This allows `x is none` to work since `none` is lexed as a keyword.
+    fn expect_test_name(&mut self) -> Result<Ident> {
+        match &self.current.kind {
+            TokenKind::Ident(name) => {
+                let name = name.clone();
+                let span = self.current.span;
+                self.advance();
+                Ok(Ident { name, span })
+            }
+            TokenKind::None => {
+                let span = self.current.span;
+                self.advance();
+                Ok(Ident {
+                    name: "none".to_string(),
+                    span,
+                })
+            }
+            _ => Err(SyntaxError {
+                found: format!("{:?}", self.current.kind),
+                expected: "test name".to_string(),
+                span: self.current.span,
+                src: self.source.named_source(),
+            })?,
         }
     }
 
