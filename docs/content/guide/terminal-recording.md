@@ -61,24 +61,6 @@ After running `ddc term`, paste the clipboard contents into your markdown:
 
 The `term` fence tells dodeca to render the content as pre-formatted HTML rather than escaping it.
 
-## Forcing Colors
-
-Many commands detect when they're not running in a real terminal and disable colors. Force colors with:
-
-| Tool | Flag |
-|------|------|
-| `ls` | `--color=always` |
-| `grep` | `--color=always` |
-| `cargo` | Set `CARGO_TERM_COLOR=always` |
-| `git` | `-c color.ui=always` |
-| Most tools | `FORCE_COLOR=1` or `CLICOLOR_FORCE=1` |
-
-Example:
-
-```bash
-CARGO_TERM_COLOR=always ddc term -- cargo build
-```
-
 ## Supported ANSI Features
 
 The terminal recorder supports:
