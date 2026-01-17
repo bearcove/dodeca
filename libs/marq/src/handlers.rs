@@ -27,7 +27,7 @@ impl ArboriumHandler {
     pub fn new() -> Self {
         Self {
             highlighter: std::sync::Mutex::new(arborium::Highlighter::new()),
-            show_language_header: false,
+            show_language_header: true,
         }
     }
 
@@ -35,7 +35,7 @@ impl ArboriumHandler {
     pub fn with_config(config: arborium::Config) -> Self {
         Self {
             highlighter: std::sync::Mutex::new(arborium::Highlighter::with_config(config)),
-            show_language_header: false,
+            show_language_header: true,
         }
     }
 
@@ -84,31 +84,27 @@ impl CodeBlockHandler for ArboriumHandler {
 
             // Try to highlight with arborium
             let mut hl = self.highlighter.lock().unwrap();
-            let code_html = match hl.highlight(arborium_lang, code) {
+            let highlighted_code = match hl.highlight(arborium_lang, code) {
                 Ok(html) => {
                     // Trim trailing newline from arborium output
                     // See: https://github.com/bearcove/arborium/issues/128
-                    let html = html.trim_end_matches('\n');
-                    format!(
-                        "<div class=\"code-block\"><pre><code class=\"language-{escaped_lang}\">{html}</code></pre></div>"
-                    )
+                    html.trim_end_matches('\n').to_string()
                 }
                 Err(_e) => {
                     // Fall back to plain text rendering for unsupported languages
-                    let escaped = html_escape(code);
-                    format!(
-                        "<div class=\"code-block\"><pre><code class=\"language-{escaped_lang}\">{escaped}</code></pre></div>"
-                    )
+                    html_escape(code)
                 }
             };
 
-            // Wrap with header if enabled
+            // Build the output with data-lang for CSS targeting
             if self.show_language_header {
                 Ok(format!(
-                    "<div class=\"code-block\"><div class=\"code-header\">{escaped_lang}</div>{code_html}</div>"
+                    "<div class=\"code-block\" data-lang=\"{escaped_lang}\"><div class=\"code-header\">{escaped_lang}</div><pre><code class=\"language-{escaped_lang}\">{highlighted_code}</code></pre></div>"
                 ))
             } else {
-                Ok(code_html)
+                Ok(format!(
+                    "<div class=\"code-block\" data-lang=\"{escaped_lang}\"><pre><code class=\"language-{escaped_lang}\">{highlighted_code}</code></pre></div>"
+                ))
             }
         })
     }
