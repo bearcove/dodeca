@@ -5,9 +5,56 @@
 //! (a, c, d, e, o) plus digits 0-6: `0123456acdeo`
 //!
 //! Example: `main.css` → `main.0a3dec24oc21.css`
+//!
+//! Also detects files that already have cache-busting hashes (e.g. from Vite/Webpack)
+//! to avoid double-hashing: `main-B6eUmL6x.js` is left unchanged.
 
 use rapidhash::fast::RapidHasher;
 use std::hash::Hasher;
+
+/// Check if a filename already has a cache-busting hash embedded.
+/// Detects common patterns from bundlers like Vite, Webpack, Parcel:
+/// - `name-HASH.ext` (Vite style: main-B6eUmL6x.js)
+/// - `name.HASH.ext` (Webpack style: main.abc123.js)
+///
+/// Returns true if the filename appears to already be cache-busted.
+pub fn has_existing_hash(path: &str) -> bool {
+    // Get just the filename without directory
+    let filename = path.rsplit('/').next().unwrap_or(path);
+
+    // Must have an extension
+    let Some(dot_pos) = filename.rfind('.') else {
+        return false;
+    };
+
+    let name_part = &filename[..dot_pos];
+
+    // Check for Vite-style: name-HASH (dash followed by 6-12 alphanumeric chars)
+    if let Some(dash_pos) = name_part.rfind('-') {
+        let potential_hash = &name_part[dash_pos + 1..];
+        if is_hash_like(potential_hash) {
+            return true;
+        }
+    }
+
+    // Check for Webpack-style: name.HASH (dot followed by 6-12 alphanumeric chars before extension)
+    // e.g., main.abc123.js - need to find second-to-last dot
+    if let Some(second_dot) = name_part.rfind('.') {
+        let potential_hash = &name_part[second_dot + 1..];
+        if is_hash_like(potential_hash) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if a string looks like a bundler-generated hash.
+/// Must be 6-12 alphanumeric characters (typical hash lengths).
+fn is_hash_like(s: &str) -> bool {
+    let len = s.len();
+    (6..=12).contains(&len) && s.chars().all(|c| c.is_ascii_alphanumeric())
+}
 
 /// The dodeca alphabet: 7 digits (0-6) + 5 unique letters from "dodeca"
 /// 12 characters for base12 encoding (dodeca = 12-sided polyhedron)
@@ -108,5 +155,29 @@ mod tests {
             cache_busted_path("noextension", "acdeo0123456"),
             "noextension.acdeo0123456"
         );
+    }
+
+    #[test]
+    fn test_has_existing_hash() {
+        // Vite-style hashes (dash + 6-12 alphanumeric chars)
+        assert!(has_existing_hash("main-B6eUmL6x.js"));
+        assert!(has_existing_hash("monaco/main-B6eUmL6x.js"));
+        assert!(has_existing_hash("typescript-Bq0JxXsY.js"));
+        assert!(has_existing_hash("clojure-BAuDPsal.js"));
+
+        // Webpack-style hashes (dot + chars + dot + ext)
+        assert!(has_existing_hash("main.abc123.js"));
+        assert!(has_existing_hash("vendor.1234abcd.css"));
+
+        // Not hashed - should return false
+        assert!(!has_existing_hash("main.js"));
+        assert!(!has_existing_hash("main.css"));
+        assert!(!has_existing_hash("fonts/Inter.woff2"));
+        assert!(!has_existing_hash("inter-bold.woff2")); // "bold" is only 4 chars
+
+        // Edge cases
+        assert!(!has_existing_hash("noextension"));
+        assert!(!has_existing_hash("file-ab.js")); // hash too short (2 chars)
+        assert!(!has_existing_hash("file-abc.js")); // hash too short (3 chars)
     }
 }

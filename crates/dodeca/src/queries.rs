@@ -1340,9 +1340,15 @@ pub async fn static_file_output<DB: Db>(
         load_static(db, file).await?
     };
 
-    // Hash and create cache-busted path
-    let hash = content_hash(&content);
-    let cache_busted = cache_busted_path(&path, &hash);
+    // Hash and create cache-busted path (unless already hashed by bundler)
+    use crate::cache_bust::has_existing_hash;
+    let cache_busted = if has_existing_hash(&path) {
+        // File already has cache-busting hash (e.g. Vite's main-B6eUmL6x.js)
+        path.clone()
+    } else {
+        let hash = content_hash(&content);
+        cache_busted_path(&path, &hash)
+    };
 
     Ok(StaticFileOutput {
         cache_busted_path: cache_busted,
