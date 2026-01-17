@@ -34,6 +34,7 @@ use cell_markdown_proto::MarkdownProcessorClient;
 use cell_minify_proto::{MinifierClient, MinifyResult};
 use cell_sass_proto::{SassCompilerClient, SassInput, SassResult};
 use cell_svgo_proto::{SvgoOptimizerClient, SvgoResult};
+use cell_term_proto::{RecordConfig, TermRecorderClient, TermResult};
 use cell_tui_proto::TuiDisplayClient;
 use cell_webp_proto::{WebPEncodeInput, WebPProcessorClient, WebPResult};
 use dashmap::DashMap;
@@ -387,6 +388,8 @@ const CELL_DEFS: &[CellDef] = &[
     CellDef::new("code-execution"),
     CellDef::new("http"),
     CellDef::new("gingembre"),
+    // Term needs terminal access for PTY recording
+    CellDef::new("term").inherit_stdio(),
     // TUI needs terminal access
     CellDef::new("tui").inherit_stdio(),
 ];
@@ -698,6 +701,32 @@ cell_client_accessor!(html_diff_cell, "html_diff", HtmlDifferClient);
 cell_client_accessor!(dialoguer_cell, "dialoguer", DialoguerClient);
 cell_client_accessor!(code_execution_cell, "code_execution", CodeExecutorClient);
 cell_client_accessor!(http_cell, "http", TcpTunnelClient);
+cell_client_accessor!(term_cell, "term", TermRecorderClient);
+
+/// Record a terminal session interactively
+pub async fn record_term_interactive(config: RecordConfig) -> Result<TermResult, eyre::Error> {
+    let client = term_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Term cell not available"))?;
+    client
+        .record_interactive(config)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
+
+/// Record a terminal session with an auto-executed command
+pub async fn record_term_command(
+    command: String,
+    config: RecordConfig,
+) -> Result<TermResult, eyre::Error> {
+    let client = term_cell()
+        .await
+        .ok_or_else(|| eyre::eyre!("Term cell not available"))?;
+    client
+        .record_command(command, config)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
+}
 
 pub async fn minify_html(html: String) -> Result<MinifyResult, eyre::Error> {
     let client = minify_cell()

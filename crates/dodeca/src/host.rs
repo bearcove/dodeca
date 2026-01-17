@@ -373,6 +373,7 @@ impl_cell_client!(
 impl_cell_client!(cell_http_proto::TcpTunnelClient, "http");
 impl_cell_client!(cell_gingembre_proto::TemplateRendererClient, "gingembre");
 impl_cell_client!(cell_tui_proto::TuiDisplayClient, "tui");
+impl_cell_client!(cell_term_proto::TermRecorderClient, "term");
 
 // ============================================================================
 // Client Access

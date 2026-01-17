@@ -1,0 +1,31 @@
+[package]
+name = "cell-term"
+version = "0.6.1"
+edition = "2024"
+
+[[bin]]
+name = "ddc-cell-term"
+path = "src/main.rs"
+
+[dependencies]
+cell-term-proto = { path = "../cell-term-proto" }
+dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+
+# ANSI parsing
+anstyle-parse = "0.2"
+
+# PTY
+portable-pty = "0.8"
+
+# Clipboard
+arboard = "3"
+
+# Terminal size
+term_size = "0.3"
+
+# Async runtime
+tokio = { version = "1", features = ["rt", "sync"] }
+
+# Unix-specific
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["term", "process"] }
