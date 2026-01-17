@@ -535,10 +535,13 @@ pub async fn try_render_page_with_loader<L: TemplateLoader>(
     loader: L,
     data: Option<Value>,
 ) -> std::result::Result<String, String> {
+    // Use custom template if specified, otherwise default to "page.html"
+    let template_name = page.template.as_deref().unwrap_or("page.html");
+
     tracing::debug!(
         route = %page.route.as_str(),
         title = %page.title,
-        template = "page.html",
+        template = %template_name,
         "render: rendering page"
     );
 
@@ -555,7 +558,7 @@ pub async fn try_render_page_with_loader<L: TemplateLoader>(
     }
 
     let result = engine
-        .render("page.html", &ctx)
+        .render(template_name, &ctx)
         .await
         .map_err(|e| format!("{e:?}"));
 
@@ -593,11 +596,14 @@ pub async fn try_render_section_with_loader<L: TemplateLoader>(
     loader: L,
     data: Option<Value>,
 ) -> std::result::Result<String, String> {
-    let template_name = if section.route.as_str() == "/" {
-        "index.html"
-    } else {
-        "section.html"
-    };
+    // Use custom template if specified, otherwise use defaults based on route
+    let template_name = section.template.as_deref().unwrap_or_else(|| {
+        if section.route.as_str() == "/" {
+            "index.html"
+        } else {
+            "section.html"
+        }
+    });
 
     // Count pages in this section for logging
     let page_count = site_tree
@@ -673,6 +679,9 @@ pub async fn try_render_page_with_resolver<L: TemplateLoader>(
     loader: L,
     resolver: Arc<dyn DataResolver>,
 ) -> std::result::Result<String, String> {
+    // Use custom template if specified, otherwise default to "page.html"
+    let template_name = page.template.as_deref().unwrap_or("page.html");
+
     let mut engine = Engine::new(loader);
 
     let mut ctx = build_render_context_with_resolver(site_tree, resolver);
@@ -686,7 +695,7 @@ pub async fn try_render_page_with_resolver<L: TemplateLoader>(
     }
 
     engine
-        .render("page.html", &ctx)
+        .render(template_name, &ctx)
         .await
         .map_err(|e| format!("{e:?}"))
 }
@@ -711,6 +720,15 @@ pub async fn try_render_section_with_resolver<L: TemplateLoader>(
     loader: L,
     resolver: Arc<dyn DataResolver>,
 ) -> std::result::Result<String, String> {
+    // Use custom template if specified, otherwise use defaults based on route
+    let template_name = section.template.as_deref().unwrap_or_else(|| {
+        if section.route.as_str() == "/" {
+            "index.html"
+        } else {
+            "section.html"
+        }
+    });
+
     let mut engine = Engine::new(loader);
 
     let mut ctx = build_render_context_with_resolver(site_tree, resolver);
@@ -719,12 +737,6 @@ pub async fn try_render_section_with_resolver<L: TemplateLoader>(
     ctx.set("current_path", Value::from(section.route.as_str()));
     // Set page to NULL so templates can use `{% if page %}` without error
     ctx.set("page", Value::NULL);
-
-    let template_name = if section.route.as_str() == "/" {
-        "index.html"
-    } else {
-        "section.html"
-    };
 
     engine
         .render(template_name, &ctx)
@@ -795,6 +807,9 @@ pub async fn try_render_page_via_cell(
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
 ) -> std::result::Result<String, String> {
+    // Use custom template if specified, otherwise default to "page.html"
+    let template_name = page.template.as_deref().unwrap_or("page.html");
+
     // Check if cell is available and we have a database from task-local
     let db = match (
         gingembre_cell().await,
@@ -820,7 +835,7 @@ pub async fn try_render_page_via_cell(
         build_initial_context_value(Some(page), parent_section, site_tree, page.route.as_str());
 
     // Render via cell
-    let result = match render_template_cell(guard.id(), "page.html", initial_context).await {
+    let result = match render_template_cell(guard.id(), template_name, initial_context).await {
         Ok(cell_gingembre_proto::RenderResult::Success { html }) => Ok(html),
         Ok(cell_gingembre_proto::RenderResult::Error { message }) => Err(message),
         Err(e) => Err(format!("Gingembre cell error: {}", e)),
@@ -847,6 +862,15 @@ pub async fn try_render_section_via_cell(
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
 ) -> std::result::Result<String, String> {
+    // Use custom template if specified, otherwise use defaults based on route
+    let template_name = section.template.as_deref().unwrap_or_else(|| {
+        if section.route.as_str() == "/" {
+            "index.html"
+        } else {
+            "section.html"
+        }
+    });
+
     // Check if cell is available and we have a database from task-local
     let cell_available = gingembre_cell().await.is_some();
     let db_available = crate::db::TASK_DB.try_with(|db| db.clone()).ok();
@@ -877,13 +901,6 @@ pub async fn try_render_section_via_cell(
     // Build initial context
     let initial_context =
         build_initial_context_value(None, Some(section), site_tree, section.route.as_str());
-
-    // Choose template based on route
-    let template_name = if section.route.as_str() == "/" {
-        "index.html"
-    } else {
-        "section.html"
-    };
 
     // Render via cell
     match render_template_cell(guard.id(), template_name, initial_context).await {

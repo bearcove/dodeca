@@ -482,6 +482,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
         reqs,
         last_updated: last_modified,
         extra,
+        template: frontmatter.template,
     }))
 }
 
@@ -560,6 +561,7 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
                 reqs: data.reqs.clone(),
                 last_updated: data.last_updated,
                 extra: data.extra.clone(),
+                template: data.template.clone(),
             },
         );
     }
@@ -575,6 +577,7 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
         reqs: Vec::new(),
         last_updated: 0,
         extra: Value::default(),
+        template: None,
     });
 
     // Second pass: create pages and assign to sections
@@ -592,6 +595,7 @@ pub async fn build_tree<DB: Db>(db: &DB) -> PicanteResult<BuildTreeResult> {
                 rules: data.reqs.clone(),
                 last_updated: data.last_updated,
                 extra: data.extra.clone(),
+                template: data.template.clone(),
             },
         );
     }

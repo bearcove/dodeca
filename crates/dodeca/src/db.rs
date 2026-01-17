@@ -173,6 +173,8 @@ pub struct Section {
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
     pub extra: facet_value::Value,
+    /// Custom template to use for rendering (overrides default)
+    pub template: Option<String>,
 }
 
 /// A page in the site tree (non-index .md files)
@@ -191,6 +193,8 @@ pub struct Page {
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
     pub extra: facet_value::Value,
+    /// Custom template to use for rendering (overrides default)
+    pub template: Option<String>,
 }
 
 /// The complete site tree - sections and pages
@@ -229,6 +233,8 @@ pub struct ParsedData {
     pub last_updated: i64,
     /// Custom fields from the `[extra]` table in frontmatter
     pub extra: facet_value::Value,
+    /// Custom template to use for rendering (overrides default)
+    pub template: Option<String>,
 }
 
 /// A single output file to be written to disk
