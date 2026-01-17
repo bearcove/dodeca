@@ -379,8 +379,8 @@ impl Perform for Performer {
                             }
                             let line = &mut self.screen.lines[row];
                             let start = if row == self.screen.row { col } else { 0 };
-                            for i in start..line.len() {
-                                line[i].c = ' ';
+                            for sc in line.iter_mut().skip(start) {
+                                sc.c = ' ';
                             }
                         }
                     }
@@ -420,8 +420,8 @@ impl Perform for Performer {
                 let line = self.screen.line_mut();
                 match mode {
                     0 => {
-                        for i in col..line.len() {
-                            line[i].c = ' ';
+                        for sc in line.iter_mut().skip(col) {
+                            sc.c = ' ';
                         }
                     }
                     1 => {
