@@ -290,6 +290,7 @@ impl TemplateHost for TemplateHostImpl {
                         Value::from(section.body_html.as_str()),
                     );
                     section_map.insert(VString::from("toc"), headings_to_toc(&section.headings));
+                    section_map.insert(VString::from("extra"), section.extra.clone());
 
                     let section_pages: Vec<Value> = context
                         .site_tree
