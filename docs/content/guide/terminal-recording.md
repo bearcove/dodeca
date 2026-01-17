@@ -48,23 +48,6 @@ ddc term
 
 Type `exit` when done. Everything displayed in the terminal is captured.
 
-### Options
-
-| Option | Description |
-|--------|-------------|
-| `-o, --output <path>` | Write HTML to a file (default: `/tmp/ddc-term`) |
-| `--no-clipboard` | Skip copying to clipboard |
-
-### Examples
-
-```bash
-# Save to a specific file
-ddc term -o recording.html -- make test
-
-# Record without clipboard
-ddc term --no-clipboard -- git status
-```
-
 ## Embedding in Markdown
 
 After running `ddc term`, paste the clipboard contents into your markdown:
