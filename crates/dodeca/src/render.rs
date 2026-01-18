@@ -524,80 +524,107 @@ fn inject_into_head(html: &str, content: &str) -> String {
 // Cell-based rendering (uses gingembre cell for template processing)
 // ============================================================================
 
-/// Build initial context as a Value for passing to the cell.
-/// This includes page/section data and any static context values.
-fn build_initial_context_value(
-    page: Option<&Page>,
-    section: Option<&Section>,
-    site_tree: &SiteTree,
-    current_path: &str,
-) -> Value {
-    let mut obj = VObject::new();
-    let base_url = get_base_url();
-
-    // Add config
-    let mut config_map = VObject::new();
-    let (site_title, site_description) = site_tree
-        .sections
-        .get(&Route::root())
-        .map(|root| {
-            (
-                root.title.to_string(),
-                root.description.clone().unwrap_or_default(),
-            )
-        })
-        .unwrap_or_else(|| ("Untitled".to_string(), String::new()));
-    config_map.insert(
-        VString::from("title"),
-        Value::from(site_title.as_str()),
-    );
-    config_map.insert(
-        VString::from("description"),
-        Value::from(site_description.as_str()),
-    );
-    config_map.insert(
-        VString::from("base_url"),
-        Value::from(base_url.as_str()),
-    );
-    obj.insert(VString::from("config"), Value::from(config_map));
-
-    // Add page if present
-    if let Some(page) = page {
-        obj.insert(VString::from("page"), page_to_value(page, site_tree));
-    } else {
-        obj.insert(VString::from("page"), Value::NULL);
-    }
-
-    // Add section if present
-    if let Some(section) = section {
-        obj.insert(
-            VString::from("section"),
-            section_to_value(section, site_tree, &base_url),
-        );
-    }
-
-    // Add current_path
-    obj.insert(VString::from("current_path"), Value::from(current_path));
-
-    // Add root section if available
-    if let Some(root) = site_tree.sections.get(&Route::root()) {
-        obj.insert(
-            VString::from("root"),
-            section_to_value(root, site_tree, &base_url),
-        );
-    }
-
-    obj.into()
+/// Something that can be rendered (page or section)
+pub enum Renderable<'a> {
+    Page(&'a Page),
+    Section(&'a Section),
 }
 
-/// Render a page via the gingembre cell.
-pub async fn try_render_page_via_cell(
-    page: &Page,
+impl<'a> Renderable<'a> {
+    /// Get the template name for this renderable
+    fn template_name(&self) -> &str {
+        match self {
+            Renderable::Page(page) => page.template.as_deref().unwrap_or("page.html"),
+            Renderable::Section(section) => section.template.as_deref().unwrap_or_else(|| {
+                if section.route.as_str() == "/" {
+                    "index.html"
+                } else {
+                    "section.html"
+                }
+            }),
+        }
+    }
+
+    /// Get the route for this renderable
+    fn route(&self) -> &Route {
+        match self {
+            Renderable::Page(page) => &page.route,
+            Renderable::Section(section) => &section.route,
+        }
+    }
+
+    /// Build the initial context value for template rendering
+    fn build_context(&self, site_tree: &SiteTree) -> Value {
+        let base_url = get_base_url();
+        let mut obj = VObject::new();
+
+        // Add config
+        let mut config_map = VObject::new();
+        let (site_title, site_description) = site_tree
+            .sections
+            .get(&Route::root())
+            .map(|root| {
+                (
+                    root.title.to_string(),
+                    root.description.clone().unwrap_or_default(),
+                )
+            })
+            .unwrap_or_else(|| ("Untitled".to_string(), String::new()));
+        config_map.insert(VString::from("title"), Value::from(site_title.as_str()));
+        config_map.insert(
+            VString::from("description"),
+            Value::from(site_description.as_str()),
+        );
+        config_map.insert(VString::from("base_url"), Value::from(base_url.as_str()));
+        obj.insert(VString::from("config"), Value::from(config_map));
+
+        // Add page and section based on what we're rendering
+        match self {
+            Renderable::Page(page) => {
+                obj.insert(VString::from("page"), page_to_value(page, site_tree));
+                // Find and add parent section
+                if let Some(section) = find_parent_section(&page.route, site_tree) {
+                    obj.insert(
+                        VString::from("section"),
+                        section_to_value(section, site_tree, &base_url),
+                    );
+                }
+            }
+            Renderable::Section(section) => {
+                obj.insert(VString::from("page"), Value::NULL);
+                obj.insert(
+                    VString::from("section"),
+                    section_to_value(section, site_tree, &base_url),
+                );
+            }
+        }
+
+        // Add current_path
+        obj.insert(
+            VString::from("current_path"),
+            Value::from(self.route().as_str()),
+        );
+
+        // Add root section if available
+        if let Some(root) = site_tree.sections.get(&Route::root()) {
+            obj.insert(
+                VString::from("root"),
+                section_to_value(root, site_tree, &base_url),
+            );
+        }
+
+        obj.into()
+    }
+}
+
+/// Render a page or section via the gingembre cell.
+pub async fn try_render_via_cell(
+    renderable: Renderable<'_>,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
 ) -> std::result::Result<String, String> {
-    // Use custom template if specified, otherwise default to "page.html"
-    let template_name = page.template.as_deref().unwrap_or("page.html");
+    let template_name = renderable.template_name();
+    let route = renderable.route().clone();
 
     // Get database from task-local
     let db = crate::db::TASK_DB
@@ -608,12 +635,8 @@ pub async fn try_render_page_via_cell(
     let context = RenderContext::new(templates, db, Arc::new(site_tree.clone()));
     let guard = RenderContextGuard::new(context);
 
-    // Find parent section
-    let parent_section = find_parent_section(&page.route, site_tree);
-
     // Build initial context
-    let initial_context =
-        build_initial_context_value(Some(page), parent_section, site_tree, page.route.as_str());
+    let initial_context = renderable.build_context(site_tree);
 
     // Render via cell
     let result = match render_template_cell(guard.id(), template_name, initial_context).await {
@@ -622,10 +645,11 @@ pub async fn try_render_page_via_cell(
         Err(e) => Err(format!("Gingembre cell error: {}", e)),
     };
 
+    // Debug check for missing doctype
     if let Ok(ref html) = result {
         if !html.contains("<!DOCTYPE") {
             tracing::error!(
-                route = %page.route.as_str(),
+                route = %route.as_str(),
                 html_len = html.len(),
                 html_preview = %html.chars().take(300).collect::<String>(),
                 html_tail = %html.chars().rev().take(100).collect::<String>().chars().rev().collect::<String>(),
@@ -633,7 +657,28 @@ pub async fn try_render_page_via_cell(
             );
         }
     }
+
     result
+}
+
+/// Render via cell - development mode (shows error page on failure)
+pub async fn render_via_cell(
+    renderable: Renderable<'_>,
+    site_tree: &SiteTree,
+    templates: HashMap<String, String>,
+) -> String {
+    try_render_via_cell(renderable, site_tree, templates)
+        .await
+        .unwrap_or_else(|e| render_error_page(&e))
+}
+
+/// Render a page via the gingembre cell.
+pub async fn try_render_page_via_cell(
+    page: &Page,
+    site_tree: &SiteTree,
+    templates: HashMap<String, String>,
+) -> std::result::Result<String, String> {
+    try_render_via_cell(Renderable::Page(page), site_tree, templates).await
 }
 
 /// Render a section via the gingembre cell.
@@ -642,34 +687,7 @@ pub async fn try_render_section_via_cell(
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
 ) -> std::result::Result<String, String> {
-    // Use custom template if specified, otherwise use defaults based on route
-    let template_name = section.template.as_deref().unwrap_or_else(|| {
-        if section.route.as_str() == "/" {
-            "index.html"
-        } else {
-            "section.html"
-        }
-    });
-
-    // Get database from task-local
-    let db = crate::db::TASK_DB
-        .try_with(|db| db.clone())
-        .map_err(|_| "Database not available in task-local context".to_string())?;
-
-    // Create render context with templates and site_tree
-    let context = RenderContext::new(templates, db, Arc::new(site_tree.clone()));
-    let guard = RenderContextGuard::new(context);
-
-    // Build initial context
-    let initial_context =
-        build_initial_context_value(None, Some(section), site_tree, section.route.as_str());
-
-    // Render via cell
-    match render_template_cell(guard.id(), template_name, initial_context).await {
-        Ok(cell_gingembre_proto::RenderResult::Success { html }) => Ok(html),
-        Ok(cell_gingembre_proto::RenderResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("Gingembre cell error: {}", e)),
-    }
+    try_render_via_cell(Renderable::Section(section), site_tree, templates).await
 }
 
 /// Render page via cell - development mode (shows error page on failure)
@@ -678,9 +696,7 @@ pub async fn render_page_via_cell(
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
 ) -> String {
-    try_render_page_via_cell(page, site_tree, templates)
-        .await
-        .unwrap_or_else(|e| render_error_page(&e))
+    render_via_cell(Renderable::Page(page), site_tree, templates).await
 }
 
 /// Render section via cell - development mode (shows error page on failure)
@@ -689,9 +705,7 @@ pub async fn render_section_via_cell(
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
 ) -> String {
-    try_render_section_via_cell(section, site_tree, templates)
-        .await
-        .unwrap_or_else(|e| render_error_page(&e))
+    render_via_cell(Renderable::Section(section), site_tree, templates).await
 }
 
 /// Convert a heading to a Value dict with children field
