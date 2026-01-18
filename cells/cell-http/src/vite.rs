@@ -5,8 +5,8 @@
 
 use axum::{
     body::Body,
-    extract::{FromRequestParts, State, WebSocketUpgrade},
-    http::{Request, StatusCode, header},
+    extract::{ws::Message, FromRequestParts, State, WebSocketUpgrade},
+    http::{header, Request, StatusCode},
     response::{IntoResponse, Response},
 };
 use futures_util::{SinkExt, StreamExt};
@@ -18,6 +18,10 @@ use tokio::sync::OnceCell;
 
 use crate::RouterContext;
 
+/// Localhost addresses to try when connecting to Vite.
+/// IPv6 first (common default on modern systems), then IPv4.
+const LOCALHOST_ADDRS: &[&str] = &["[::1]", "127.0.0.1"];
+
 /// Cached Vite port - fetched once from host
 static VITE_PORT: OnceCell<Option<u16>> = OnceCell::const_new();
 
@@ -26,9 +30,12 @@ async fn get_vite_port(ctx: &Arc<dyn RouterContext>) -> Option<u16> {
     *VITE_PORT
         .get_or_init(|| async {
             match ctx.host_client().get_vite_port().await {
-                Ok(port) => port,
+                Ok(port) => {
+                    tracing::trace!(port = ?port, "fetched vite port from host");
+                    port
+                }
                 Err(e) => {
-                    tracing::warn!("Failed to get Vite port from host: {:?}", e);
+                    tracing::warn!(error = ?e, "failed to get vite port from host");
                     None
                 }
             }
@@ -38,8 +45,7 @@ async fn get_vite_port(ctx: &Arc<dyn RouterContext>) -> Option<u16> {
 
 /// Check if a path should be proxied to Vite
 pub fn is_vite_path(path: &str) -> bool {
-    // Vite-specific paths
-    path.starts_with("/@vite/")
+    let is_vite = path.starts_with("/@vite/")
         || path.starts_with("/@id/")
         || path.starts_with("/@fs/")
         || path.starts_with("/@react-refresh")
@@ -52,7 +58,10 @@ pub fn is_vite_path(path: &str) -> bool {
         || path.ends_with(".tsx")
         || path.ends_with(".jsx")
         || path.ends_with(".vue")
-        || path.ends_with(".svelte")
+        || path.ends_with(".svelte");
+
+    tracing::trace!(path = %path, is_vite = %is_vite, "checked if path is vite path");
+    is_vite
 }
 
 /// Check if request has a WebSocket upgrade
@@ -69,9 +78,12 @@ pub async fn vite_proxy_handler(
     req: Request<Body>,
 ) -> Response<Body> {
     let vite_port = match get_vite_port(&ctx).await {
-        Some(p) => p,
+        Some(p) => {
+            tracing::trace!(port = %p, "vite port available");
+            p
+        }
         None => {
-            // Vite not running, fall through to 404
+            tracing::debug!("vite server not running, returning 404");
             return Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::from("Vite server not running"))
@@ -88,74 +100,138 @@ pub async fn vite_proxy_handler(
         .map(|q| format!("?{}", q))
         .unwrap_or_default();
 
-    tracing::debug!(method = %method, uri = %original_uri, "proxying to vite");
+    tracing::debug!(method = %method, path = %path, "proxying request to vite");
 
     // Check if this is a WebSocket upgrade request (for HMR)
     if is_websocket_upgrade(&req) {
-        tracing::info!(uri = %original_uri, "detected websocket upgrade request for Vite HMR");
-
-        // Split into parts so we can extract WebSocketUpgrade
-        let (mut parts, _body) = req.into_parts();
-
-        // Manually extract WebSocketUpgrade from request parts
-        let ws = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
-            Ok(ws) => ws,
-            Err(e) => {
-                tracing::error!(error = %e, "failed to extract websocket upgrade");
-                return Response::builder()
-                    .status(StatusCode::BAD_REQUEST)
-                    .body(Body::from(format!("WebSocket upgrade failed: {}", e)))
-                    .unwrap();
-            }
-        };
-
-        let target_uri = format!("ws://127.0.0.1:{}{}{}", vite_port, path, query);
-        tracing::info!(target = %target_uri, "upgrading websocket to vite");
-
-        return ws
-            .protocols(["vite-hmr"])
-            .on_upgrade(move |socket| async move {
-                tracing::info!(path = %path, "websocket connection established, starting proxy");
-                if let Err(e) = handle_vite_ws(socket, vite_port, &path, &query).await {
-                    tracing::error!(error = %e, path = %path, "vite websocket proxy error");
-                }
-                tracing::info!(path = %path, "websocket connection closed");
-            })
-            .into_response();
+        tracing::debug!(uri = %original_uri, "detected websocket upgrade for vite HMR");
+        return handle_websocket_upgrade(req, vite_port, path, query).await;
     }
 
     // Regular HTTP proxy
-    let target_uri = format!("http://127.0.0.1:{}{}{}", vite_port, path, query);
+    proxy_http_request(req, vite_port, &method, &path, &query).await
+}
 
-    let client = Client::builder(TokioExecutor::new()).build_http();
+/// Handle WebSocket upgrade for Vite HMR
+async fn handle_websocket_upgrade(
+    req: Request<Body>,
+    vite_port: u16,
+    path: String,
+    query: String,
+) -> Response<Body> {
+    let (mut parts, _body) = req.into_parts();
 
-    let mut proxy_req_builder = Request::builder().method(req.method()).uri(&target_uri);
-
-    // Copy headers (except Host)
-    for (name, value) in req.headers() {
-        if name != header::HOST {
-            proxy_req_builder = proxy_req_builder.header(name, value);
+    let ws = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {
+        Ok(ws) => ws,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to extract websocket upgrade");
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::from(format!("WebSocket upgrade failed: {}", e)))
+                .unwrap();
         }
-    }
+    };
 
-    let proxy_req = proxy_req_builder.body(req.into_body()).unwrap();
+    tracing::trace!(path = %path, "upgrading to websocket for vite HMR");
 
-    match client.request(proxy_req).await {
-        Ok(res) => {
-            let status = res.status();
-            tracing::debug!(status = %status, path = %path, "vite response");
+    ws.protocols(["vite-hmr"])
+        .on_upgrade(move |socket| async move {
+            tracing::debug!(path = %path, "websocket connection established, starting vite proxy");
+            if let Err(e) = handle_vite_ws(socket, vite_port, &path, &query).await {
+                tracing::warn!(error = %e, path = %path, "vite websocket proxy error");
+            }
+            tracing::debug!(path = %path, "vite websocket connection closed");
+        })
+        .into_response()
+}
 
-            let (parts, body) = res.into_parts();
-            Response::from_parts(parts, Body::new(body))
+/// Proxy an HTTP request to Vite, trying both IPv6 and IPv4
+async fn proxy_http_request(
+    req: Request<Body>,
+    vite_port: u16,
+    method: &hyper::Method,
+    path: &str,
+    query: &str,
+) -> Response<Body> {
+    // Capture headers before consuming body
+    let headers: Vec<_> = req
+        .headers()
+        .iter()
+        .filter(|(name, _)| *name != header::HOST)
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect();
+
+    tracing::trace!(header_count = %headers.len(), "captured request headers");
+
+    // Buffer body for potential retry across addresses
+    let body_bytes = match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
+        Ok(b) => {
+            tracing::trace!(body_size = %b.len(), "buffered request body");
+            b
         }
         Err(e) => {
-            tracing::error!(error = %e, target = %target_uri, "vite proxy error");
-            Response::builder()
-                .status(StatusCode::BAD_GATEWAY)
-                .body(Body::from(format!("Vite proxy error: {}", e)))
-                .unwrap()
+            tracing::warn!(error = %e, "failed to read request body for vite proxy");
+            return Response::builder()
+                .status(StatusCode::BAD_REQUEST)
+                .body(Body::from("Failed to read request body"))
+                .unwrap();
+        }
+    };
+
+    let client = Client::builder(TokioExecutor::new()).build_http();
+    let mut last_error = None;
+
+    for addr in LOCALHOST_ADDRS {
+        let target_uri = format!("http://{}:{}{}{}", addr, vite_port, path, query);
+        tracing::trace!(target = %target_uri, "attempting vite proxy connection");
+
+        let mut proxy_req_builder = Request::builder().method(method.clone()).uri(&target_uri);
+
+        for (name, value) in &headers {
+            proxy_req_builder = proxy_req_builder.header(name, value);
+        }
+
+        let proxy_req = proxy_req_builder
+            .body(Body::from(body_bytes.clone()))
+            .unwrap();
+
+        match client.request(proxy_req).await {
+            Ok(res) => {
+                let status = res.status();
+                tracing::debug!(
+                    status = %status,
+                    path = %path,
+                    addr = %addr,
+                    "vite proxy success"
+                );
+                let (parts, body) = res.into_parts();
+                return Response::from_parts(parts, Body::new(body));
+            }
+            Err(e) => {
+                tracing::trace!(
+                    error = %e,
+                    addr = %addr,
+                    path = %path,
+                    "vite proxy attempt failed, will try next address"
+                );
+                last_error = Some((e, addr));
+            }
         }
     }
+
+    // All attempts failed
+    let (error, last_addr) = last_error.unwrap();
+    tracing::warn!(
+        error = %error,
+        path = %path,
+        last_addr = %last_addr,
+        addrs_tried = ?LOCALHOST_ADDRS,
+        "vite proxy failed on all addresses"
+    );
+    Response::builder()
+        .status(StatusCode::BAD_GATEWAY)
+        .body(Body::from(format!("Vite proxy error: {}", error)))
+        .unwrap()
 }
 
 /// Handle WebSocket proxy to Vite for HMR
@@ -165,59 +241,86 @@ async fn handle_vite_ws(
     path: &str,
     query: &str,
 ) -> eyre::Result<()> {
-    use axum::extract::ws::Message;
     use tokio_tungstenite::connect_async_with_config;
     use tokio_tungstenite::tungstenite::http::Request;
 
-    let vite_url = format!("ws://127.0.0.1:{}{}{}", vite_port, path, query);
+    // Try both IPv6 and IPv4 for WebSocket too
+    let mut last_error = None;
 
-    tracing::info!(vite_url = %vite_url, "connecting to vite websocket");
+    for addr in LOCALHOST_ADDRS {
+        let vite_url = format!("ws://{}:{}{}{}", addr, vite_port, path, query);
+        tracing::trace!(vite_url = %vite_url, "attempting vite websocket connection");
 
-    // Build request with vite-hmr subprotocol
-    let request = Request::builder()
-        .uri(&vite_url)
-        .header("Sec-WebSocket-Protocol", "vite-hmr")
-        .header("Host", format!("127.0.0.1:{}", vite_port))
-        .header("Connection", "Upgrade")
-        .header("Upgrade", "websocket")
-        .header("Sec-WebSocket-Version", "13")
-        .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
-        .body(())
-        .unwrap();
+        let request = Request::builder()
+            .uri(&vite_url)
+            .header("Sec-WebSocket-Protocol", "vite-hmr")
+            .header("Host", format!("{}:{}", addr, vite_port))
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .header("Sec-WebSocket-Version", "13")
+            .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+            .body(())
+            .unwrap();
 
-    let connect_timeout = Duration::from_secs(5);
-    let connect_result = tokio::time::timeout(
-        connect_timeout,
-        connect_async_with_config(request, None, false),
-    )
-    .await;
+        let connect_timeout = Duration::from_secs(5);
+        let connect_result = tokio::time::timeout(
+            connect_timeout,
+            connect_async_with_config(request, None, false),
+        )
+        .await;
 
-    let (vite_ws, _response) = match connect_result {
-        Ok(Ok((ws, resp))) => {
-            tracing::info!(vite_url = %vite_url, "successfully connected to vite websocket");
-            (ws, resp)
+        match connect_result {
+            Ok(Ok((vite_ws, _response))) => {
+                tracing::debug!(addr = %addr, path = %path, "vite websocket connected");
+                return run_websocket_proxy(client_socket, vite_ws).await;
+            }
+            Ok(Err(e)) => {
+                tracing::trace!(
+                    addr = %addr,
+                    error = %e,
+                    "vite websocket connection failed, trying next address"
+                );
+                last_error = Some(e.into());
+            }
+            Err(_) => {
+                tracing::trace!(
+                    addr = %addr,
+                    timeout_secs = %connect_timeout.as_secs(),
+                    "vite websocket connection timed out, trying next address"
+                );
+                last_error = Some(eyre::eyre!(
+                    "Timeout connecting to Vite WebSocket after {:?}",
+                    connect_timeout
+                ));
+            }
         }
-        Ok(Err(e)) => {
-            tracing::info!(vite_url = %vite_url, error = %e, "failed to connect to vite websocket");
-            return Err(e.into());
-        }
-        Err(_) => {
-            tracing::info!(vite_url = %vite_url, "timeout connecting to vite websocket");
-            return Err(eyre::eyre!(
-                "Timeout connecting to Vite WebSocket after {:?}",
-                connect_timeout
-            ));
-        }
-    };
+    }
 
+    let error = last_error.unwrap();
+    tracing::warn!(
+        error = %error,
+        path = %path,
+        addrs_tried = ?LOCALHOST_ADDRS,
+        "vite websocket failed on all addresses"
+    );
+    Err(error)
+}
+
+/// Run the bidirectional WebSocket proxy
+async fn run_websocket_proxy(
+    client_socket: axum::extract::ws::WebSocket,
+    vite_ws: tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+) -> eyre::Result<()> {
     let (mut client_tx, mut client_rx) = client_socket.split();
     let (mut vite_tx, mut vite_rx) = vite_ws.split();
 
-    // Bidirectional proxy
     let client_to_vite = async {
         while let Some(msg) = client_rx.next().await {
             match msg {
                 Ok(Message::Text(text)) => {
+                    tracing::trace!(len = %text.len(), "client->vite text message");
                     let text_str: String = text.to_string();
                     if vite_tx
                         .send(tokio_tungstenite::tungstenite::Message::Text(
@@ -230,6 +333,7 @@ async fn handle_vite_ws(
                     }
                 }
                 Ok(Message::Binary(data)) => {
+                    tracing::trace!(len = %data.len(), "client->vite binary message");
                     let data_vec: Vec<u8> = data.to_vec();
                     if vite_tx
                         .send(tokio_tungstenite::tungstenite::Message::Binary(
@@ -241,8 +345,14 @@ async fn handle_vite_ws(
                         break;
                     }
                 }
-                Ok(Message::Close(_)) => break,
-                Err(_) => break,
+                Ok(Message::Close(_)) => {
+                    tracing::trace!("client sent close");
+                    break;
+                }
+                Err(e) => {
+                    tracing::trace!(error = %e, "client websocket error");
+                    break;
+                }
                 _ => {}
             }
         }
@@ -252,6 +362,7 @@ async fn handle_vite_ws(
         while let Some(msg) = vite_rx.next().await {
             match msg {
                 Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                    tracing::trace!(len = %text.len(), "vite->client text message");
                     let text_str: String = text.to_string();
                     if client_tx
                         .send(Message::Text(text_str.into()))
@@ -262,6 +373,7 @@ async fn handle_vite_ws(
                     }
                 }
                 Ok(tokio_tungstenite::tungstenite::Message::Binary(data)) => {
+                    tracing::trace!(len = %data.len(), "vite->client binary message");
                     let data_vec: Vec<u8> = data.to_vec();
                     if client_tx
                         .send(Message::Binary(data_vec.into()))
@@ -271,16 +383,26 @@ async fn handle_vite_ws(
                         break;
                     }
                 }
-                Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => break,
-                Err(_) => break,
+                Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => {
+                    tracing::trace!("vite sent close");
+                    break;
+                }
+                Err(e) => {
+                    tracing::trace!(error = %e, "vite websocket error");
+                    break;
+                }
                 _ => {}
             }
         }
     };
 
     tokio::select! {
-        _ = client_to_vite => {}
-        _ = vite_to_client => {}
+        _ = client_to_vite => {
+            tracing::trace!("client->vite direction ended");
+        }
+        _ = vite_to_client => {
+            tracing::trace!("vite->client direction ended");
+        }
     }
 
     Ok(())
