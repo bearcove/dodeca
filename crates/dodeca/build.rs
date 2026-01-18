@@ -1,13 +1,16 @@
-//! Build script to compile WASM clients (livereload + devtools)
+//! Build script for dodeca
 //!
-//! Run `wasm-pack build --target web crates/dodeca-devtools` before first build,
-//! or this script will attempt to do it (requires wasm-pack installed).
+//! - Compiles WASM clients (livereload + devtools)
+//! - Generates Styx schema from DodecaConfig
 
 use std::process::Command;
 
 fn main() {
     // Build devtools WASM (replaces livereload-client)
     build_wasm_crate("dodeca-devtools");
+
+    // Generate Styx schema from config types
+    facet_styx::generate_schema::<dodeca_config::DodecaConfig>("schema.styx");
 }
 
 fn build_wasm_crate(name: &str) {

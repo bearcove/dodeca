@@ -2577,6 +2577,7 @@ dependencies = [
  "cell-webp-proto",
  "chrono",
  "dashmap 6.1.0",
+ "dodeca-config",
  "dodeca-debug",
  "dodeca-protocol",
  "eyre",
@@ -2607,7 +2608,7 @@ dependencies = [
  "roam-tracing",
  "serde_yaml",
  "strid",
- "styx-schema",
+ "styx-embed",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2626,6 +2627,14 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ur-taking-me-with-you",
+]
+
+[[package]]
+name = "dodeca-config"
+version = "0.6.1"
+dependencies = [
+ "cell-code-execution-proto",
+ "facet",
 ]
 
 [[package]]
@@ -4745,6 +4754,15 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+
+[[package]]
+name = "lz4_flex"
+version = "0.11.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08ab2867e3eeeca90e844d1940eab391c9dc5228783db2ed999acbc0a9ed375a"
+dependencies = [
+ "twox-hash",
+]
 
 [[package]]
 name = "mac"
@@ -7472,6 +7490,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "styx-embed"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "lz4_flex",
+ "styx-embed-macros",
+]
+
+[[package]]
+name = "styx-embed-macros"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "lz4_flex",
+ "proc-macro2",
+ "unsynn",
+]
+
+[[package]]
 name = "styx-format"
 version = "0.1.0"
 dependencies = [
@@ -7484,19 +7521,6 @@ dependencies = [
 [[package]]
 name = "styx-parse"
 version = "0.1.0"
-
-[[package]]
-name = "styx-schema"
-version = "0.1.0"
-dependencies = [
- "ariadne",
- "facet",
- "facet-styx",
- "serde_json",
- "styx-format",
- "styx-parse",
- "styx-tree",
-]
 
 [[package]]
 name = "styx-tree"
@@ -8186,6 +8210,12 @@ dependencies = [
  "thiserror 2.0.17",
  "utf-8",
 ]
+
+[[package]]
+name = "twox-hash"
+version = "2.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ea3136b675547379c4bd395ca6b938e5ad3c3d20fad76e7fe85f9e0d011419c"
 
 [[package]]
 name = "typenum"
@@ -9195,3 +9225,7 @@ checksum = "87c86acb70a85b2c16f071f171847d1945e8f44812630463cd14ec83900ad01c"
 dependencies = [
  "zune-core 0.5.1",
 ]
+
+[[patch.unused]]
+name = "styx-schema"
+version = "0.1.0"

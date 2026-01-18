@@ -1,0 +1,13 @@
+[package]
+name = "dodeca-config"
+version = "0.6.1"
+edition = "2024"
+rust-version = "1.91"
+authors = ["Amos Wenger <amos@bearcove.eu>"]
+license = "MIT OR Apache-2.0"
+description = "Configuration types for dodeca static site generator"
+repository = "https://github.com/bearcove/dodeca"
+
+[dependencies]
+cell-code-execution-proto = { path = "../../cells/cell-code-execution-proto" }
+facet.workspace = true

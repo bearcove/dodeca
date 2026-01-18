@@ -622,14 +622,10 @@ pub async fn try_render_via_cell(
     renderable: Renderable<'_>,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
+    db: Arc<crate::db::Database>,
 ) -> std::result::Result<String, String> {
     let template_name = renderable.template_name();
     let route = renderable.route().clone();
-
-    // Get database from task-local
-    let db = crate::db::TASK_DB
-        .try_with(|db| db.clone())
-        .map_err(|_| "Database not available in task-local context".to_string())?;
 
     // Create render context with templates and site_tree
     let context = RenderContext::new(templates, db, Arc::new(site_tree.clone()));
@@ -666,8 +662,9 @@ pub async fn render_via_cell(
     renderable: Renderable<'_>,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
+    db: Arc<crate::db::Database>,
 ) -> String {
-    try_render_via_cell(renderable, site_tree, templates)
+    try_render_via_cell(renderable, site_tree, templates, db)
         .await
         .unwrap_or_else(|e| render_error_page(&e))
 }
@@ -677,8 +674,9 @@ pub async fn render_page_via_cell(
     page: &Page,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
+    db: Arc<crate::db::Database>,
 ) -> String {
-    render_via_cell(Renderable::Page(page), site_tree, templates).await
+    render_via_cell(Renderable::Page(page), site_tree, templates, db).await
 }
 
 /// Render section via cell - development mode (shows error page on failure)
@@ -686,8 +684,9 @@ pub async fn render_section_via_cell(
     section: &Section,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
+    db: Arc<crate::db::Database>,
 ) -> String {
-    render_via_cell(Renderable::Section(section), site_tree, templates).await
+    render_via_cell(Renderable::Section(section), site_tree, templates, db).await
 }
 
 /// Convert a heading to a Value dict with children field

@@ -24,6 +24,7 @@ path = "src/main.rs"
 
 [dependencies]
 cell-code-execution-proto = { path = "../../cells/cell-code-execution-proto" }
+dodeca-config = { path = "../dodeca-config" }
 cell-lifecycle-proto = { path = "../../cells/cell-lifecycle-proto" }
 cell-dialoguer-proto = { path = "../../cells/cell-dialoguer-proto" }
 cell-css-proto = { path = "../../cells/cell-css-proto" }
@@ -60,7 +61,7 @@ facet-json.workspace = true
 facet-postcard.workspace = true
 facet-styx.workspace = true
 facet-toml.workspace = true
-styx-schema.workspace = true
+styx-embed.workspace = true
 facet-value.workspace = true
 facet-yaml.workspace = true
 futures-util.workspace = true
@@ -87,6 +88,10 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 ur-taking-me-with-you.workspace = true
 html-escape.workspace = true
+
+[build-dependencies]
+dodeca-config = { path = "../dodeca-config" }
+facet-styx.workspace = true
 
 [dev-dependencies]
 regex.workspace = true
