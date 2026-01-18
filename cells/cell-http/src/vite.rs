@@ -64,7 +64,26 @@ pub fn is_vite_path(path: &str) -> bool {
     is_vite
 }
 
-/// Check if request has a WebSocket upgrade
+
+/// Check if request is a Vite HMR WebSocket upgrade
+pub fn is_vite_hmr_websocket(req: &Request<Body>) -> bool {
+    // Must be a websocket upgrade
+    let is_ws = req.headers()
+        .get(header::UPGRADE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.eq_ignore_ascii_case("websocket"));
+    
+    if !is_ws {
+        return false;
+    }
+    
+    // Check for vite-hmr protocol
+    req.headers()
+        .get("sec-websocket-protocol")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.contains("vite-hmr"))
+}
+
 fn is_websocket_upgrade(req: &Request<Body>) -> bool {
     req.headers()
         .get(header::UPGRADE)

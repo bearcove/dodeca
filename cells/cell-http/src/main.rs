@@ -103,7 +103,7 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
         let path = request.uri().path().to_string();
 
         // Check if this should be proxied to Vite
-        if vite::is_vite_path(&path) {
+        if vite::is_vite_path(&path) || vite::is_vite_hmr_websocket(&request) {
             return vite::vite_proxy_handler(State(ctx), request).await;
         }
 
