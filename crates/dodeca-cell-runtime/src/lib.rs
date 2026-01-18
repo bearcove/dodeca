@@ -2,6 +2,8 @@
 //!
 //! Provides the `run_cell!` macro that handles all the boilerplate for connecting
 //! to the host and signaling readiness.
+//!
+//! Set `DODECA_CELL_DEBUG=1` to enable verbose startup logging.
 
 pub use cell_host_proto::{HostServiceClient, ReadyMsg};
 pub use roam::session::{ConnectionHandle, RoutedDispatcher, ServiceDispatcher};
@@ -14,6 +16,16 @@ pub use tokio;
 pub use tracing;
 pub use tracing_subscriber;
 pub use ur_taking_me_with_you;
+
+/// Debug print macro that only prints when DODECA_CELL_DEBUG is set
+#[macro_export]
+macro_rules! cell_debug {
+    ($($arg:tt)*) => {
+        if std::env::var("DODECA_CELL_DEBUG").is_ok() {
+            eprintln!($($arg)*);
+        }
+    };
+}
 
 /// Run a cell with the given name and dispatcher factory.
 ///
@@ -56,25 +68,37 @@ macro_rules! run_cell {
             tracing, tracing_subscriber, ur_taking_me_with_you,
         };
 
-        eprintln!("[cell-{}] starting (pid={})", $cell_name, std::process::id());
+        $crate::cell_debug!("[cell-{}] starting (pid={})", $cell_name, std::process::id());
 
         // Ensure this process dies when the parent dies (required for macOS pipe-based approach)
         ur_taking_me_with_you::die_with_parent();
 
-        eprintln!("[cell-{}] die_with_parent completed", $cell_name);
+        $crate::cell_debug!("[cell-{}] die_with_parent completed", $cell_name);
 
         async fn __run_cell_async() -> Result<(), Box<dyn std::error::Error>> {
-            eprintln!("[cell] async fn starting");
+            // Note: we can't use cell_debug! here because it's inside an async fn
+            // defined in a macro, so we check the env var directly
+            let cell_debug = std::env::var("DODECA_CELL_DEBUG").is_ok();
+
+            macro_rules! dbg_print {
+                ($($arg:tt)*) => {
+                    if cell_debug {
+                        eprintln!($($arg)*);
+                    }
+                };
+            }
+
+            dbg_print!("[cell] async fn starting");
             let args = SpawnArgs::from_env()?;
-            eprintln!("[cell] parsed args: peer_id={}", args.peer_id.get());
+            dbg_print!("[cell] parsed args: peer_id={}", args.peer_id.get());
             let peer_id = args.peer_id;
             let transport = ShmGuestTransport::from_spawn_args(args)?;
-            eprintln!("[cell] transport created");
+            dbg_print!("[cell] transport created");
 
             // Initialize cell-side tracing
             // Check TRACING_PASSTHROUGH env var - if set, log to stderr instead of via RPC
             let use_passthrough = std::env::var("TRACING_PASSTHROUGH").is_ok();
-            eprintln!("[cell] use_passthrough={}", use_passthrough);
+            dbg_print!("[cell] use_passthrough={}", use_passthrough);
 
             let tracing_service = if use_passthrough {
                 // Passthrough mode: log directly to stderr
@@ -93,7 +117,7 @@ macro_rules! run_cell {
                 tracing_subscriber::registry().with(tracing_layer).init();
                 tracing_service
             };
-            eprintln!("[cell] tracing initialized");
+            dbg_print!("[cell] tracing initialized");
 
             // Let user code create the dispatcher with access to handle
             // We use an Arc<OnceLock> pattern
@@ -101,9 +125,9 @@ macro_rules! run_cell {
                 std::sync::Arc::new(std::sync::OnceLock::new());
 
             let $handle = handle_cell.clone();
-            eprintln!("[cell] creating user dispatcher");
+            dbg_print!("[cell] creating user dispatcher");
             let user_dispatcher = $make_dispatcher;
-            eprintln!("[cell] user dispatcher created");
+            dbg_print!("[cell] user dispatcher created");
 
             // Combine user's dispatcher with tracing dispatcher using RoutedDispatcher
             // RoutedDispatcher routes primary.method_ids() to primary, rest to fallback.
@@ -112,30 +136,34 @@ macro_rules! run_cell {
                 tracing_dispatcher, // primary: handles tracing methods
                 user_dispatcher,    // fallback: handles all cell-specific methods
             );
-            eprintln!("[cell] calling establish_guest");
+            dbg_print!("[cell] calling establish_guest");
 
             let (handle, driver) = establish_guest(transport, combined_dispatcher);
-            eprintln!("[cell] establish_guest returned");
+            dbg_print!("[cell] establish_guest returned");
 
             // Store the real handle
             let _ = handle_cell.set(handle.clone());
-            eprintln!("[cell] handle stored");
+            dbg_print!("[cell] handle stored");
 
             // Spawn driver in background so it can process the ready() RPC
-            eprintln!("[cell] spawning driver task");
+            dbg_print!("[cell] spawning driver task");
             let driver_handle = tokio::spawn(async move {
-                eprintln!("[cell] driver task starting");
+                if cell_debug {
+                    eprintln!("[cell] driver task starting");
+                }
                 if let Err(e) = driver.run().await {
                     eprintln!("Driver error: {:?}", e);
                     std::process::exit(1);
                 }
-                eprintln!("[cell] driver task exited cleanly");
+                if cell_debug {
+                    eprintln!("[cell] driver task exited cleanly");
+                }
             });
-            eprintln!("[cell] driver task spawned");
+            dbg_print!("[cell] driver task spawned");
 
             // Signal readiness to host
             let host = HostServiceClient::new(handle);
-            eprintln!("[cell] calling host.ready()");
+            dbg_print!("[cell] calling host.ready()");
             host.ready(ReadyMsg {
                 peer_id: peer_id.get() as u16,
                 cell_name: $cell_name.to_string(),
@@ -144,7 +172,7 @@ macro_rules! run_cell {
                 features: vec![],
             })
             .await?;
-            eprintln!("[cell] host.ready() returned successfully");
+            dbg_print!("[cell] host.ready() returned successfully");
 
             // Wait for driver to complete (it runs until connection closes)
             if let Err(e) = driver_handle.await {

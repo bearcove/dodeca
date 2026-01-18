@@ -581,11 +581,11 @@ async fn init_cells_inner() -> eyre::Result<()> {
     // Spawn driver task
     let driver_handle = tokio::spawn(async move {
         info!("MultiPeerHostDriver: starting (lazy spawning mode)");
-        eprintln!("[driver task] before driver.run()");
+        debug!("[driver task] before driver.run()");
 
         let result = driver.run().await;
 
-        eprintln!("[driver task] after driver.run(), result={:?}", result);
+        debug!("[driver task] after driver.run(), result={:?}", result);
 
         match result {
             Ok(()) => {

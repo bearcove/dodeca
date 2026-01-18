@@ -6682,7 +6682,6 @@ dependencies = [
  "roam-frame",
  "roam-wire",
  "tokio",
- "tracing",
 ]
 
 [[package]]
