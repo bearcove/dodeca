@@ -12,6 +12,76 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
+/// Check if pnpm is available in PATH
+fn check_pnpm_available() -> Result<()> {
+    match std::process::Command::new("pnpm")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+    {
+        Ok(status) if status.success() => Ok(()),
+        Ok(_) => eyre::bail!(
+            "pnpm is installed but returned an error\n\
+             Try running 'pnpm --version' to diagnose"
+        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => eyre::bail!(
+            "pnpm is not installed\n\
+             \n\
+             Vite integration requires pnpm. Install it with:\n\
+             \n\
+             \x20 curl -fsSL https://get.pnpm.io/install.sh | sh\n\
+             \n\
+             Or see: https://pnpm.io/installation"
+        ),
+        Err(e) => eyre::bail!("Failed to run pnpm: {}", e),
+    }
+}
+
+/// Validate package.json exists and has required scripts
+fn validate_package_json(project_dir: &Path, script: &str) -> Result<()> {
+    let package_json_path = project_dir.join("package.json");
+
+    if !package_json_path.exists() {
+        eyre::bail!(
+            "No package.json found in {}\n\
+             \n\
+             Vite integration requires a package.json with a '{}' script.\n\
+             Create one with:\n\
+             \n\
+             \x20 pnpm init\n\
+             \x20 pnpm add -D vite",
+            project_dir.display(),
+            script
+        );
+    }
+
+    let content = fs::read_to_string(&package_json_path)
+        .wrap_err_with(|| format!("Failed to read {}", package_json_path.display()))?;
+
+    // Simple check for script presence (avoid pulling in a JSON parser just for this)
+    let script_pattern = format!("\"{}\"", script);
+    if !content.contains(&script_pattern) {
+        eyre::bail!(
+            "package.json missing '{}' script\n\
+             \n\
+             Add a '{}' script to your package.json:\n\
+             \n\
+             \x20 {{\n\
+             \x20   \"scripts\": {{\n\
+             \x20     \"{}\": \"vite{}\"\n\
+             \x20   }}\n\
+             \x20 }}",
+            script,
+            script,
+            script,
+            if script == "build" { " build" } else { "" }
+        );
+    }
+
+    Ok(())
+}
+
 /// Information about a running Vite dev server
 pub struct ViteServer {
     /// The port Vite is listening on
@@ -23,6 +93,10 @@ pub struct ViteServer {
 impl ViteServer {
     /// Start a Vite dev server in the given directory
     pub async fn start(project_dir: &Path) -> Result<Self> {
+        // Validate setup before attempting to start
+        check_pnpm_available()?;
+        validate_package_json(project_dir, "dev")?;
+
         eprintln!(
             "   {} Vite dev server in {}",
             "Starting".blue().bold(),
@@ -232,6 +306,10 @@ pub async fn maybe_run_vite_build(project_dir: &Path) -> Result<bool> {
     if !has_vite_config(project_dir) {
         return Ok(false);
     }
+
+    // Validate setup before attempting to build
+    check_pnpm_available()?;
+    validate_package_json(project_dir, "build")?;
 
     eprintln!(
         "   {} Vite production build in {}",
