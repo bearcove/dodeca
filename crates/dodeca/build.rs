@@ -10,15 +10,11 @@ fn main() {
     build_wasm_crate("dodeca-devtools");
 
     // Generate Styx schema from config types
-    // TODO: Re-enable once styx-schema::Schema doesn't cause stack overflow (styx#5)
-    // For now, write a placeholder schema
-    let out_dir = std::env::var("OUT_DIR").unwrap();
-    let schema_path = std::path::Path::new(&out_dir).join("schema.styx");
-    std::fs::write(
-        &schema_path,
-        "// Placeholder schema - full generation disabled due to styx#5\nmeta { id \"crate:dodeca-config@1\", cli ddc }\nschema { @ @any }\n",
-    )
-    .expect("Failed to write placeholder schema");
+    facet_styx::GenerateSchema::<dodeca_config::DodecaConfig>::new()
+        .crate_name("dodeca-config")
+        .version("1")
+        .cli("ddc")
+        .write("schema.styx");
 }
 
 fn build_wasm_crate(name: &str) {
