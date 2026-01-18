@@ -83,16 +83,10 @@ pub struct LinkCheckConfig {
 pub struct ProjectPaths {
     /// Project root (where .config/ lives)
     pub root: Utf8PathBuf,
-    /// Content directory (markdown files)
-    pub content: Utf8PathBuf,
     /// Output directory (built site)
     pub output: Utf8PathBuf,
     /// Cache directory (.cache/)
     pub cache: Utf8PathBuf,
-    /// Static assets directory (static/)
-    pub static_dir: Utf8PathBuf,
-    /// Templates directory (templates/)
-    pub templates: Utf8PathBuf,
     /// Vite project directory (where vite.config.ts lives), if any
     pub vite: Option<Utf8PathBuf>,
     /// Vite dist output (vite_dir/dist), if vite exists
@@ -105,18 +99,12 @@ impl ProjectPaths {
     /// Create ProjectPaths from a ResolvedConfig
     pub fn from_config(config: &ResolvedConfig) -> Self {
         let root = config._root.clone();
-
-        // content_dir is already absolute from config
-        let content = config.content_dir.clone();
-
-        // output_dir is already absolute from config
+        let content = &config.content_dir;
         let output = config.output_dir.clone();
 
-        // cache, static, templates are siblings of content
+        // cache is sibling of content
         let content_parent = content.parent().unwrap_or(&root);
         let cache = content_parent.join(".cache");
-        let static_dir = content_parent.join("static");
-        let templates = content_parent.join("templates");
 
         // Find vite project - check content_parent first, then root, then common subdirs
         let vite = Self::find_vite_dir(&root, content_parent);
@@ -125,11 +113,8 @@ impl ProjectPaths {
 
         Self {
             root,
-            content,
             output,
             cache,
-            static_dir,
-            templates,
             vite,
             vite_dist,
             vite_cache,

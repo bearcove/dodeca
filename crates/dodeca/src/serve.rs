@@ -434,13 +434,6 @@ impl SiteServer {
             .unwrap_or_default()
     }
 
-    /// Get a clone of the current static files (for modification)
-    pub fn get_static_files(&self) -> Vec<StaticFile> {
-        StaticRegistry::files(&*self.db)
-            .expect("failed to get static files")
-            .unwrap_or_default()
-    }
-
     /// Notify all connected browsers to reload
     /// Computes patches for all cached routes and sends them
     pub async fn trigger_reload(&self) {
@@ -1184,7 +1177,10 @@ impl SiteServer {
             VString::from("base_url"),
             facet_value::Value::from(base_url.as_str()),
         );
-        ctx.insert(VString::from("config"), facet_value::Value::from(config_map));
+        ctx.insert(
+            VString::from("config"),
+            facet_value::Value::from(config_map),
+        );
 
         // Add current_path
         ctx.insert(
@@ -1215,11 +1211,7 @@ impl SiteServer {
         }
 
         // Create render context for the cell (handles template loading and data resolution)
-        let render_context = RenderContext::new(
-            templates,
-            self.db.clone(),
-            Arc::new(site_tree),
-        );
+        let render_context = RenderContext::new(templates, self.db.clone(), Arc::new(site_tree));
         let guard = RenderContextGuard::new(render_context);
 
         // Convert context to Value
