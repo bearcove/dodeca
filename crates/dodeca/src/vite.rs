@@ -4,6 +4,8 @@
 
 use eyre::{Result, WrapErr};
 use owo_colors::OwoColorize;
+use std::fs;
+use std::io::Write;
 use std::path::Path;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -169,6 +171,60 @@ pub fn has_vite_config(dir: &Path) -> bool {
         || dir.join("vite.config.mjs").exists()
 }
 
+/// Ensure dist/ is in the .gitignore file
+fn ensure_dist_gitignored(project_dir: &Path) {
+    let gitignore_path = project_dir.join(".gitignore");
+    let dist_entry = "dist";
+
+    // Check if dist/ is already in the gitignore
+    let needs_update = if gitignore_path.exists() {
+        match fs::read_to_string(&gitignore_path) {
+            Ok(content) => !content.lines().any(|line| {
+                let trimmed = line.trim();
+                trimmed == dist_entry || trimmed == "dist/"
+            }),
+            Err(_) => true,
+        }
+    } else {
+        // No .gitignore - only create one if we're in a git repo
+        !project_dir.join(".git").exists()
+    };
+
+    if !needs_update {
+        return;
+    }
+
+    // Don't create .gitignore if not in a git repo
+    if !gitignore_path.exists() && !project_dir.join(".git").exists() {
+        return;
+    }
+
+    // Append dist to gitignore
+    let entry = if gitignore_path.exists() {
+        let content = fs::read_to_string(&gitignore_path).unwrap_or_default();
+        if content.ends_with('\n') || content.is_empty() {
+            format!("{}\n", dist_entry)
+        } else {
+            format!("\n{}\n", dist_entry)
+        }
+    } else {
+        format!("{}\n", dist_entry)
+    };
+
+    if let Ok(mut file) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&gitignore_path)
+    {
+        let _ = file.write_all(entry.as_bytes());
+        eprintln!(
+            "   {} Added {} to .gitignore",
+            "OK".green().bold(),
+            dist_entry
+        );
+    }
+}
+
 /// Run Vite production build if configured.
 ///
 /// Returns Ok(true) if Vite build ran successfully, Ok(false) if no Vite config found.
@@ -217,6 +273,8 @@ pub async fn maybe_run_vite_build(project_dir: &Path) -> Result<bool> {
         "OK".green().bold()
     );
 
+    ensure_dist_gitignored(project_dir);
+
     Ok(true)
 }
 
@@ -233,6 +291,7 @@ pub async fn maybe_start_vite(project_dir: &Path) -> Option<ViteServer> {
     match ViteServer::start(project_dir).await {
         Ok(server) => {
             crate::host::Host::get().provide_vite_port(Some(server.port));
+            ensure_dist_gitignored(project_dir);
             Some(server)
         }
         Err(e) => {
