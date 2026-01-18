@@ -208,7 +208,7 @@ mod tests {
         // Verify minimal template has expected files
         // Note: include_dir stores full paths from the root, so we need to include the template name
         let minimal = TEMPLATES.get_dir("minimal").unwrap();
-        assert!(minimal.get_file("minimal/.config/dodeca.yaml").is_some());
+        assert!(minimal.get_file("minimal/.config/dodeca.styx").is_some());
         assert!(minimal.get_file("minimal/content/_index.md").is_some());
         assert!(minimal.get_file("minimal/templates/base.html").is_some());
     }

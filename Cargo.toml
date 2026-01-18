@@ -51,6 +51,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["a
 
 # Serialization - Facet ecosystem (git)
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-styx = { git = "https://github.com/bearcove/styx", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-default = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -167,6 +168,12 @@ facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-xml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
+
+# Patch styx to use local version for development
+[patch."https://github.com/bearcove/styx"]
+facet-styx = { path = "../styx/crates/facet-styx" }
+styx-parse = { path = "../styx/crates/styx-parse" }
+styx-format = { path = "../styx/crates/styx-format" }
 
 # Patch roam to use local version for debugging
 [patch."https://github.com/bearcove/roam"]

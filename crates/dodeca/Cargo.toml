@@ -58,6 +58,7 @@ facet-args.workspace = true
 
 facet-json.workspace = true
 facet-postcard.workspace = true
+facet-styx.workspace = true
 facet-toml.workspace = true
 facet-value.workspace = true
 facet-yaml.workspace = true

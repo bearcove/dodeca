@@ -4,13 +4,15 @@ description = "Configuring dodeca"
 weight = 30
 +++
 
-Configuration lives in `.config/dodeca.yaml` in your project root.
+Configuration lives in `.config/dodeca.styx` in your project root.
+
+> YAML format (`.config/dodeca.yaml`) is also supported for backwards compatibility.
 
 ## Basic settings
 
-```yaml
-content: content
-output: public
+```styx
+content content
+output public
 ```
 
 ## Link checking
@@ -19,13 +21,11 @@ output: public
 
 ### Configuration options
 
-```yaml
-link_check:
-  rate_limit_ms: 1500
-  skip_domains:
-    - linkedin.com
-    - twitter.com
-    - x.com
+```styx
+link_check {
+    rate_limit_ms 1500
+    skip_domains (linkedin.com twitter.com x.com)
+}
 ```
 
 | Option | Type | Default | Description |
@@ -43,15 +43,17 @@ Some sites aggressively block automated requests. Consider skipping:
 
 ### Example with multiple skip domains
 
-```yaml
-link_check:
-  rate_limit_ms: 2000
-  skip_domains:
-    - linkedin.com
-    - twitter.com
-    - x.com
-    - facebook.com
-    - instagram.com
+```styx
+link_check {
+    rate_limit_ms 2000
+    skip_domains (
+        linkedin.com
+        twitter.com
+        x.com
+        facebook.com
+        instagram.com
+    )
+}
 ```
 
 Internal links (links to other pages in your site) are always checked and cannot be skipped.
@@ -60,29 +62,26 @@ Internal links (links to other pages in your site) are always checked and cannot
 
 If the code execution helper is available (`ddc-cell-code-execution`), Rust code blocks can be executed as part of the build.
 
-At the moment, `.config/dodeca.yaml` contains a `code_execution` section, but it is not fully wired through to the build yet (defaults are used). If you need to disable code execution, use the environment variable `DODECA_NO_CODE_EXEC=1`.
+At the moment, `.config/dodeca.styx` contains a `code_execution` section, but it is not fully wired through to the build yet (defaults are used). If you need to disable code execution, use the environment variable `DODECA_NO_CODE_EXEC=1`.
 
 ## Stable assets
 
 Some assets (like favicons) should keep stable URLs for caching:
 
-```yaml
-stable_assets:
-  - favicon.svg
-  - robots.txt
+```styx
+stable_assets (favicon.svg robots.txt)
 ```
 
 ## Full example
 
-```yaml
-content: content
-output: public
+```styx
+content content
+output public
 
-link_check:
-  rate_limit_ms: 1000
-  skip_domains:
-    - example.com
+link_check {
+    rate_limit_ms 1000
+    skip_domains (example.com)
+}
 
-stable_assets:
-  - favicon.svg
+stable_assets (favicon.svg)
 ```
