@@ -684,6 +684,19 @@ impl SiteServer {
         let snapshot = DatabaseSnapshot::from_database(&self.db).await;
         tracing::debug!(path, "find_content: got database snapshot");
 
+        // Wrap all content finding in TASK_DB scope - rendering can be triggered by
+        // font subsetting (static_file_output -> font_char_analysis -> all_rendered_html)
+        crate::db::TASK_DB
+            .scope(db, self.find_content_inner(path, snapshot))
+            .await
+    }
+
+    /// Inner implementation of find_content, runs within TASK_DB scope
+    async fn find_content_inner(
+        &self,
+        path: &str,
+        snapshot: DatabaseSnapshot,
+    ) -> Option<ServeContent> {
         // Get known routes for dead link detection (only in dev mode)
         let known_routes: Option<HashSet<String>> = if self.render_options.livereload {
             let site_tree = build_tree(&snapshot).await.ok()?.ok()?;
@@ -707,10 +720,7 @@ impl SiteServer {
 
         let route = Route::new(route_path.clone());
         tracing::debug!(route = %route.as_str(), "find_content: calling serve_html");
-        // Set task-local db for render functions to access
-        let serve_html_result = crate::db::TASK_DB
-            .scope(db, serve_html(&snapshot, route))
-            .await;
+        let serve_html_result = serve_html(&snapshot, route).await;
         tracing::debug!(route = %route_path, has_result = serve_html_result.is_ok(), "find_content: serve_html returned");
 
         if let Some(html) = match serve_html_result {

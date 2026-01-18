@@ -141,6 +141,8 @@ pub struct ResolvedConfig {
     pub light_theme_css: String,
     /// Generated CSS for dark theme
     pub dark_theme_css: String,
+    /// Build step definitions from config
+    pub build_steps: Option<std::collections::HashMap<String, dodeca_config::BuildStepDef>>,
 }
 
 impl ResolvedConfig {
@@ -329,6 +331,7 @@ fn load_config(config_path: &Utf8Path, format: ConfigFormat) -> Result<ResolvedC
         code_execution: config.code_execution.unwrap_or_default(),
         light_theme_css,
         dark_theme_css,
+        build_steps: config.build_steps,
     })
 }
 
@@ -341,6 +344,13 @@ static RESOLVED_CONFIG: OnceLock<ResolvedConfig> = OnceLock::new();
 
 /// Initialize the global config (call once at startup)
 pub fn set_global_config(config: ResolvedConfig) -> Result<()> {
+    // Initialize build step executor
+    let executor = std::sync::Arc::new(crate::build_steps::BuildStepExecutor::new(
+        config.build_steps.clone(),
+        config._root.clone(),
+    ));
+    crate::host::Host::get().set_build_step_executor(executor);
+
     RESOLVED_CONFIG
         .set(config)
         .map_err(|_| eyre!("Global config already initialized"))

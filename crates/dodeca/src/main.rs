@@ -4,6 +4,7 @@
 styx_embed::embed_outdir_file!("schema.styx");
 
 mod boot_state;
+mod build_steps;
 mod cache_bust;
 mod cas;
 mod cell_server;

@@ -385,6 +385,88 @@ impl TemplateHost for TemplateHostImpl {
                 CallFunctionResult::Error { message }
             }
 
+            "build" => {
+                // Build step invocation: build(step_name, param1=val1, param2=val2, ...)
+                tracing::debug!(num_args = args.len(), num_kwargs = kwargs.len(), "build() function called");
+                let step_name = match args.first() {
+                    Some(v) => value_to_string(v),
+                    None => {
+                        return CallFunctionResult::Error {
+                            message: "build() requires step name as first argument".to_string(),
+                        };
+                    }
+                };
+
+                // Collect kwargs as params
+                let params: std::collections::HashMap<String, String> = kwargs
+                    .iter()
+                    .map(|(k, v)| (k.clone(), value_to_string(v)))
+                    .collect();
+
+                // Get the executor
+                let executor = match crate::host::Host::get().build_step_executor() {
+                    Some(e) => e.clone(),
+                    None => {
+                        return CallFunctionResult::Error {
+                            message: "Build step executor not initialized".to_string(),
+                        };
+                    }
+                };
+
+                // Execute the build step
+                let result = executor.execute(&step_name, &params).await;
+                match result {
+                    crate::build_steps::BuildStepResult::Success(bytes) => {
+                        // Return as string (UTF-8)
+                        match String::from_utf8(bytes) {
+                            Ok(s) => CallFunctionResult::Success {
+                                value: Value::from(s.as_str()),
+                            },
+                            Err(e) => CallFunctionResult::Error {
+                                message: format!("Build step output is not valid UTF-8: {}", e),
+                            },
+                        }
+                    }
+                    crate::build_steps::BuildStepResult::Error(msg) => {
+                        CallFunctionResult::Error { message: msg }
+                    }
+                }
+            }
+
+            "read" => {
+                // Built-in read function: read(file="path/to/file")
+                let file_path = match get_kwarg("file") {
+                    Some(p) => p,
+                    None => {
+                        return CallFunctionResult::Error {
+                            message: "read() requires 'file' parameter".to_string(),
+                        };
+                    }
+                };
+
+                // Get project root from config
+                let project_root = crate::config::global_config()
+                    .map(|c| c._root.clone())
+                    .unwrap_or_else(|| camino::Utf8PathBuf::from("."));
+
+                let result = crate::build_steps::builtin_read(&project_root, &file_path).await;
+                match result {
+                    crate::build_steps::BuildStepResult::Success(bytes) => {
+                        match String::from_utf8(bytes) {
+                            Ok(s) => CallFunctionResult::Success {
+                                value: Value::from(s.as_str()),
+                            },
+                            Err(e) => CallFunctionResult::Error {
+                                message: format!("File content is not valid UTF-8: {}", e),
+                            },
+                        }
+                    }
+                    crate::build_steps::BuildStepResult::Error(msg) => {
+                        CallFunctionResult::Error { message: msg }
+                    }
+                }
+            }
+
             _ => {
                 tracing::warn!(
                     context_id = context_id.0,

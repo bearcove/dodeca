@@ -167,7 +167,8 @@ impl TemplateRendererImpl {
 
         // Register RPC-backed functions
         // These are the standard functions that templates expect
-        let function_names = ["get_url", "get_section", "now", "throw"];
+        let function_names = ["get_url", "get_section", "now", "throw", "build", "read"];
+        tracing::debug!(num_functions = function_names.len(), ?function_names, "registering RPC-backed functions");
         for name in function_names {
             let func = make_rpc_function(self.handle().clone(), context_id, name.to_string());
             ctx.register_fn(name, func);

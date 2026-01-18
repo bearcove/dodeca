@@ -113,6 +113,12 @@ pub struct Host {
     // -------------------------------------------------------------------------
     /// Shared state for receiving tracing records from cells.
     tracing_state: Arc<HostTracingState>,
+
+    // -------------------------------------------------------------------------
+    // Build Steps
+    // -------------------------------------------------------------------------
+    /// Build step executor (set when config is loaded).
+    build_step_executor: std::sync::OnceLock<Arc<crate::build_steps::BuildStepExecutor>>,
 }
 
 impl Host {
@@ -135,6 +141,7 @@ impl Host {
                 vite_port: std::sync::OnceLock::new(),
                 driver_handle: std::sync::OnceLock::new(),
                 tracing_state: HostTracingState::new(8192),
+                build_step_executor: std::sync::OnceLock::new(),
             })
         })
     }
@@ -294,6 +301,20 @@ impl Host {
         &self,
     ) -> Option<tokio::sync::mpsc::Receiver<TaggedRecord>> {
         self.tracing_state.take_receiver()
+    }
+
+    // =========================================================================
+    // Build Steps
+    // =========================================================================
+
+    /// Set the build step executor (call when config is loaded).
+    pub fn set_build_step_executor(&self, executor: Arc<crate::build_steps::BuildStepExecutor>) {
+        let _ = self.build_step_executor.set(executor);
+    }
+
+    /// Get the build step executor.
+    pub fn build_step_executor(&self) -> Option<&Arc<crate::build_steps::BuildStepExecutor>> {
+        self.build_step_executor.get()
     }
 
     // =========================================================================
