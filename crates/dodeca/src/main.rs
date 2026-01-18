@@ -965,11 +965,36 @@ impl BuildContext {
             // Explicitly load .vite/manifest.json (hidden file not picked up by WalkBuilder)
             let manifest_path = dist_dir.join(".vite/manifest.json");
             if manifest_path.exists() {
-                if let Ok(content) = fs::read(&manifest_path) {
-                    let static_path = StaticPath::new(".vite/manifest.json".to_string());
-                    let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
-                    self.static_files.insert(static_path, static_file);
-                }
+                let content = fs::read(&manifest_path)?;
+                tracing::debug!(bytes = content.len(), "loaded vite manifest");
+                let static_path = StaticPath::new(".vite/manifest.json".to_string());
+                let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
+                self.static_files.insert(static_path, static_file);
+            }
+        }
+
+        // Check if vite is configured but manifest is missing
+        let project_dir = self.content_dir.parent().unwrap_or(&self.content_dir);
+        if vite::has_vite_config(project_dir.as_std_path()) {
+            let has_manifest = self
+                .static_files
+                .contains_key(&StaticPath::new(".vite/manifest.json".to_string()));
+            if !has_manifest {
+                let dist_dir = self.dist_dir();
+                let manifest_path = dist_dir.join(".vite/manifest.json");
+                return Err(eyre!(
+                    "Vite is configured but manifest not found.\n\n\
+                    Expected manifest at: {}\n\n\
+                    This usually means one of:\n\
+                    1. Vite build hasn't run yet - try `pnpm run build` in {}\n\
+                    2. vite.config.ts is missing `build.manifest: true`\n\
+                    3. vite.config.ts has a different outDir than 'dist'\n\n\
+                    Looked in:\n\
+                    - {}\n",
+                    manifest_path,
+                    project_dir,
+                    manifest_path,
+                ));
             }
         }
 
