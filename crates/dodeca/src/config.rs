@@ -78,6 +78,111 @@ pub struct LinkCheckConfig {
     pub rate_limit_ms: Option<u64>,
 }
 
+/// All project paths, derived from configuration
+#[derive(Debug, Clone)]
+pub struct ProjectPaths {
+    /// Project root (where .config/ lives)
+    pub root: Utf8PathBuf,
+    /// Content directory (markdown files)
+    pub content: Utf8PathBuf,
+    /// Output directory (built site)
+    pub output: Utf8PathBuf,
+    /// Cache directory (.cache/)
+    pub cache: Utf8PathBuf,
+    /// Static assets directory (static/)
+    pub static_dir: Utf8PathBuf,
+    /// Templates directory (templates/)
+    pub templates: Utf8PathBuf,
+    /// Vite project directory (where vite.config.ts lives), if any
+    pub vite: Option<Utf8PathBuf>,
+    /// Vite dist output (vite_dir/dist), if vite exists
+    pub vite_dist: Option<Utf8PathBuf>,
+    /// Vite node_modules cache (vite_dir/node_modules/.vite), if vite exists
+    pub vite_cache: Option<Utf8PathBuf>,
+}
+
+impl ProjectPaths {
+    /// Create ProjectPaths from a ResolvedConfig
+    pub fn from_config(config: &ResolvedConfig) -> Self {
+        let root = config._root.clone();
+
+        // content_dir is already absolute from config
+        let content = config.content_dir.clone();
+
+        // output_dir is already absolute from config
+        let output = config.output_dir.clone();
+
+        // cache, static, templates are siblings of content
+        let content_parent = content.parent().unwrap_or(&root);
+        let cache = content_parent.join(".cache");
+        let static_dir = content_parent.join("static");
+        let templates = content_parent.join("templates");
+
+        // Find vite project - check content_parent first, then root, then common subdirs
+        let vite = Self::find_vite_dir(&root, content_parent);
+        let vite_dist = vite.as_ref().map(|v| v.join("dist"));
+        let vite_cache = vite.as_ref().map(|v| v.join("node_modules/.vite"));
+
+        Self {
+            root,
+            content,
+            output,
+            cache,
+            static_dir,
+            templates,
+            vite,
+            vite_dist,
+            vite_cache,
+        }
+    }
+
+    /// Find the Vite project directory
+    fn find_vite_dir(root: &Utf8Path, content_parent: &Utf8Path) -> Option<Utf8PathBuf> {
+        // Check content parent first (e.g., docs/)
+        if Self::has_vite_config(content_parent) {
+            return Some(content_parent.to_owned());
+        }
+
+        // Check root
+        if Self::has_vite_config(root) {
+            return Some(root.to_owned());
+        }
+
+        // Check common subdirectories from root
+        for subdir in ["docs", "web", "frontend", "client", "site"] {
+            let candidate = root.join(subdir);
+            if Self::has_vite_config(&candidate) {
+                return Some(candidate);
+            }
+        }
+
+        None
+    }
+
+    /// Check if a directory has a Vite configuration file
+    fn has_vite_config(dir: &Utf8Path) -> bool {
+        dir.join("vite.config.ts").exists()
+            || dir.join("vite.config.js").exists()
+            || dir.join("vite.config.mts").exists()
+            || dir.join("vite.config.mjs").exists()
+    }
+
+    /// Get the relative path of the vite directory from root, for display
+    pub fn vite_prefix(&self) -> String {
+        match &self.vite {
+            Some(vite_dir) => {
+                let rel = vite_dir.strip_prefix(&self.root).unwrap_or(vite_dir);
+                if rel.as_str().is_empty() {
+                    String::new()
+                } else {
+                    format!("{}/", rel)
+                }
+            }
+            None => String::new(),
+        }
+    }
+}
+
 /// Discovered configuration with resolved paths
 #[derive(Debug, Clone)]
 pub struct ResolvedConfig {
@@ -103,6 +208,13 @@ pub struct ResolvedConfig {
     pub light_theme_css: String,
     /// Generated CSS for dark theme
     pub dark_theme_css: String,
+}
+
+impl ResolvedConfig {
+    /// Get all project paths derived from this config
+    pub fn paths(&self) -> ProjectPaths {
+        ProjectPaths::from_config(self)
+    }
 }
 
 impl ResolvedConfig {

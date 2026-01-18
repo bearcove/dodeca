@@ -129,15 +129,15 @@ struct CleanArgs {
     path: Option<String>,
 
     /// Also clean Vite cache (node_modules/.vite)
-    #[facet(args::named, args::short = 'v', default)]
+    #[facet(args::named, default)]
     vite: bool,
 
     /// Also clean build output (output/)
-    #[facet(args::named, args::short = 'o', default)]
+    #[facet(args::named, default)]
     output: bool,
 
     /// Also clean Vite dist (dist/)
-    #[facet(args::named, args::short = 'd', default)]
+    #[facet(args::named, default)]
     dist: bool,
 
     /// Clean everything (equivalent to --vite --output --dist)
@@ -487,92 +487,76 @@ async fn async_main(command: Command) -> Result<()> {
             }
         }
         Command::Clean(args) => {
-            // Find the project directory
-            let base_dir = if let Some(p) = args.path {
-                Utf8PathBuf::from(p)
+            use crate::config::ProjectPaths;
+
+            // Get project paths from config
+            let paths = if let Some(p) = args.path {
+                // Manual path - create minimal ProjectPaths
+                let root = Utf8PathBuf::from(p);
+                ProjectPaths::from_config(
+                    &ResolvedConfig::discover_from(&root)?
+                        .ok_or_else(|| eyre!("No dodeca config found in {}", root))?,
+                )
             } else if let Some(cfg) = ResolvedConfig::discover()? {
-                cfg.content_dir
-                    .parent()
-                    .map(|p| p.to_owned())
-                    .unwrap_or(cfg.content_dir)
+                cfg.paths()
             } else {
-                Utf8PathBuf::from(".")
+                return Err(eyre!("No dodeca project found"));
             };
 
             let clean_vite = args.vite || args.all;
             let clean_output = args.output || args.all;
             let clean_dist = args.dist || args.all;
 
-            let mut cleared_any = false;
+            // Helper to clean a directory
+            let clean_dir = |path: &Utf8Path, name: &str| -> Result<bool> {
+                if path.exists() {
+                    let size = dir_size(path);
+                    fs::remove_dir_all(path)?;
+                    println!("{} {} ({})", "Cleared:".green(), name, format_bytes(size));
+                    Ok(true)
+                } else {
+                    println!("{} {} (not found)", "Skipped:".dimmed(), name);
+                    Ok(false)
+                }
+            };
 
             // Remove .cache directory (contains CAS, picante DB, image cache)
-            let cache_dir = base_dir.join(".cache");
-            if cache_dir.exists() {
-                let size = dir_size(&cache_dir);
-                fs::remove_dir_all(&cache_dir)?;
-                println!("{} .cache/ ({})", "Cleared:".green(), format_bytes(size));
-                cleared_any = true;
-            }
+            let cache_rel = paths
+                .cache
+                .strip_prefix(&paths.root)
+                .map(|p| format!("{}/", p))
+                .unwrap_or_else(|_| ".cache/".to_string());
+            clean_dir(&paths.cache, &cache_rel)?;
 
-            // Remove output/ directory (build output)
+            // Remove output directory
             if clean_output {
-                let output_dir = base_dir.join("output");
-                if output_dir.exists() {
-                    let size = dir_size(&output_dir);
-                    fs::remove_dir_all(&output_dir)?;
-                    println!("{} output/ ({})", "Cleared:".green(), format_bytes(size));
-                    cleared_any = true;
-                }
+                let output_rel = paths
+                    .output
+                    .strip_prefix(&paths.root)
+                    .map(|p| format!("{}/", p))
+                    .unwrap_or_else(|_| "output/".to_string());
+                clean_dir(&paths.output, &output_rel)?;
             }
 
-            // Remove dist/ directory (Vite production build)
-            if clean_dist {
-                let dist_dir = base_dir.join("dist");
-                if dist_dir.exists() {
-                    let size = dir_size(&dist_dir);
-                    fs::remove_dir_all(&dist_dir)?;
-                    println!("{} dist/ ({})", "Cleared:".green(), format_bytes(size));
-                    cleared_any = true;
+            // Remove Vite dist and cache
+            let vite_prefix = paths.vite_prefix();
+            if let Some(ref vite_dist) = paths.vite_dist {
+                if clean_dist {
+                    clean_dir(vite_dist, &format!("{}dist/", vite_prefix))?;
                 }
-                // Also check docs/dist for projects with docs subfolder
-                let docs_dist_dir = base_dir.join("docs/dist");
-                if docs_dist_dir.exists() {
-                    let size = dir_size(&docs_dist_dir);
-                    fs::remove_dir_all(&docs_dist_dir)?;
-                    println!("{} docs/dist/ ({})", "Cleared:".green(), format_bytes(size));
-                    cleared_any = true;
-                }
+            } else if clean_dist {
+                println!("{} dist/ (no Vite project found)", "Skipped:".dimmed());
             }
 
-            // Remove node_modules/.vite (Vite cache)
-            if clean_vite {
-                let vite_cache = base_dir.join("node_modules/.vite");
-                if vite_cache.exists() {
-                    let size = dir_size(&vite_cache);
-                    fs::remove_dir_all(&vite_cache)?;
-                    println!(
-                        "{} node_modules/.vite/ ({})",
-                        "Cleared:".green(),
-                        format_bytes(size)
-                    );
-                    cleared_any = true;
+            if let Some(ref vite_cache) = paths.vite_cache {
+                if clean_vite {
+                    clean_dir(vite_cache, &format!("{}node_modules/.vite/", vite_prefix))?;
                 }
-                // Also check docs/node_modules/.vite
-                let docs_vite_cache = base_dir.join("docs/node_modules/.vite");
-                if docs_vite_cache.exists() {
-                    let size = dir_size(&docs_vite_cache);
-                    fs::remove_dir_all(&docs_vite_cache)?;
-                    println!(
-                        "{} docs/node_modules/.vite/ ({})",
-                        "Cleared:".green(),
-                        format_bytes(size)
-                    );
-                    cleared_any = true;
-                }
-            }
-
-            if !cleared_any {
-                println!("{}", "No caches to clear.".dimmed());
+            } else if clean_vite {
+                println!(
+                    "{} node_modules/.vite/ (no Vite project found)",
+                    "Skipped:".dimmed()
+                );
             }
 
             Ok(())

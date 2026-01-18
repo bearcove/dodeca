@@ -357,10 +357,7 @@ pub async fn maybe_run_vite_build(project_dir: &Path) -> Result<bool> {
         eyre::bail!("Vite build failed");
     }
 
-    status!(
-        "   {} Vite production build complete",
-        "OK".green().bold()
-    );
+    status!("   {} Vite production build complete", "OK".green().bold());
 
     ensure_dist_gitignored(project_dir);
 
