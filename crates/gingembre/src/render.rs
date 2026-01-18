@@ -1841,7 +1841,9 @@ mod tests {
     async fn test_trim_filter() {
         let t = Template::parse("test", "{{ x | trim }}").unwrap();
         assert_eq!(
-            t.render_with([("x", Value::from("  hello  "))]).await.unwrap(),
+            t.render_with([("x", Value::from("  hello  "))])
+                .await
+                .unwrap(),
             "hello"
         );
     }
@@ -1850,7 +1852,10 @@ mod tests {
     #[tokio::test]
     async fn test_default_filter() {
         let t = Template::parse("test", "{{ x | default(\"fallback\") }}").unwrap();
-        assert_eq!(t.render_with([("x", Value::NULL)]).await.unwrap(), "fallback");
+        assert_eq!(
+            t.render_with([("x", Value::NULL)]).await.unwrap(),
+            "fallback"
+        );
         assert_eq!(
             t.render_with([("x", Value::from("value"))]).await.unwrap(),
             "value"
@@ -1931,7 +1936,8 @@ mod tests {
     // r[verify stmt.for.loop-length]
     #[tokio::test]
     async fn test_loop_length() {
-        let t = Template::parse("test", "{% for x in items %}{{ loop.length }}{% endfor %}").unwrap();
+        let t =
+            Template::parse("test", "{% for x in items %}{{ loop.length }}{% endfor %}").unwrap();
         let items: Value =
             VArray::from_iter([Value::from("a"), Value::from("b"), Value::from("c")]).into();
         assert_eq!(t.render_with([("items", items)]).await.unwrap(), "333");
@@ -2024,7 +2030,7 @@ mod tests {
     async fn test_is_float() {
         let t = Template::parse("test", "{% if x is float %}yes{% else %}no{% endif %}").unwrap();
         assert_eq!(
-            t.render_with([("x", Value::from(3.14f64))]).await.unwrap(),
+            t.render_with([("x", Value::from(2.14f64))]).await.unwrap(),
             "yes"
         );
     }
@@ -2238,8 +2244,11 @@ mod tests {
     async fn test_type_mismatch_iteration() {
         // Iterating over a non-iterable (lenient behavior): returns empty, no error
         // This verifies type handling in iteration context
-        let t = Template::parse("test", "{% for x in num %}{{ x }}{% else %}empty{% endfor %}")
-            .unwrap();
+        let t = Template::parse(
+            "test",
+            "{% for x in num %}{{ x }}{% else %}empty{% endfor %}",
+        )
+        .unwrap();
         let result = t.render_with([("num", Value::from(42i64))]).await.unwrap();
         // Falls into else because iteration is empty
         assert_eq!(result, "empty");
@@ -2281,7 +2290,10 @@ mod tests {
         // but spec says it SHOULD be first (implementation doesn't strictly enforce)
         let mut loader = InMemoryLoader::new();
         loader.add("base.html", "BASE{% block content %}default{% endblock %}");
-        loader.add("child.html", "{% extends \"base.html\" %}{% block content %}child{% endblock %}");
+        loader.add(
+            "child.html",
+            "{% extends \"base.html\" %}{% block content %}child{% endblock %}",
+        );
         let mut engine = Engine::new(loader);
         // Valid extends at start - inheritance works
         let result = engine.render("child.html", &Context::new()).await.unwrap();
