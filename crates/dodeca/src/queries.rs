@@ -670,6 +670,9 @@ pub async fn vite_manifest_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String,
 
     for (src, entry) in manifest {
         // Map /src/main.ts → /assets/main-xxx.js
+        let from = format!("/{src}");
+        let to = format!("/{}", entry.file);
+        tracing::trace!(from = %from, to = %to, "vite manifest mapping");
         result.insert(format!("/{src}"), format!("/{}", entry.file));
 
         // Also map any CSS files this entry imports

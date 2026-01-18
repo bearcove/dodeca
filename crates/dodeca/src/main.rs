@@ -127,6 +127,22 @@ struct CleanArgs {
     /// Project directory (looks for .config/dodeca.yaml here)
     #[facet(args::positional, default)]
     path: Option<String>,
+
+    /// Also clean Vite cache (node_modules/.vite)
+    #[facet(args::named, args::short = 'v', default)]
+    vite: bool,
+
+    /// Also clean build output (output/)
+    #[facet(args::named, args::short = 'o', default)]
+    output: bool,
+
+    /// Also clean Vite dist (dist/)
+    #[facet(args::named, args::short = 'd', default)]
+    dist: bool,
+
+    /// Clean everything (equivalent to --vite --output --dist)
+    #[facet(args::named, default)]
+    all: bool,
 }
 
 /// Static file server arguments
@@ -206,7 +222,10 @@ fn print_usage() {
         "    {}     Serve static files from a directory",
         "static".green()
     );
-    eprintln!("    {}      Clear all caches", "clean".green());
+    eprintln!(
+        "    {}      Clear caches (use --all for full clean)",
+        "clean".green()
+    );
     eprintln!(
         "    {}       Record terminal session as HTML",
         "term".green()
@@ -480,16 +499,82 @@ async fn async_main(command: Command) -> Result<()> {
                 Utf8PathBuf::from(".")
             };
 
-            let cache_dir = base_dir.join(".cache");
+            let clean_vite = args.vite || args.all;
+            let clean_output = args.output || args.all;
+            let clean_dist = args.dist || args.all;
+
+            let mut cleared_any = false;
 
             // Remove .cache directory (contains CAS, picante DB, image cache)
+            let cache_dir = base_dir.join(".cache");
             if cache_dir.exists() {
                 let size = dir_size(&cache_dir);
                 fs::remove_dir_all(&cache_dir)?;
                 println!("{} .cache/ ({})", "Cleared:".green(), format_bytes(size));
-            } else {
+                cleared_any = true;
+            }
+
+            // Remove output/ directory (build output)
+            if clean_output {
+                let output_dir = base_dir.join("output");
+                if output_dir.exists() {
+                    let size = dir_size(&output_dir);
+                    fs::remove_dir_all(&output_dir)?;
+                    println!("{} output/ ({})", "Cleared:".green(), format_bytes(size));
+                    cleared_any = true;
+                }
+            }
+
+            // Remove dist/ directory (Vite production build)
+            if clean_dist {
+                let dist_dir = base_dir.join("dist");
+                if dist_dir.exists() {
+                    let size = dir_size(&dist_dir);
+                    fs::remove_dir_all(&dist_dir)?;
+                    println!("{} dist/ ({})", "Cleared:".green(), format_bytes(size));
+                    cleared_any = true;
+                }
+                // Also check docs/dist for projects with docs subfolder
+                let docs_dist_dir = base_dir.join("docs/dist");
+                if docs_dist_dir.exists() {
+                    let size = dir_size(&docs_dist_dir);
+                    fs::remove_dir_all(&docs_dist_dir)?;
+                    println!("{} docs/dist/ ({})", "Cleared:".green(), format_bytes(size));
+                    cleared_any = true;
+                }
+            }
+
+            // Remove node_modules/.vite (Vite cache)
+            if clean_vite {
+                let vite_cache = base_dir.join("node_modules/.vite");
+                if vite_cache.exists() {
+                    let size = dir_size(&vite_cache);
+                    fs::remove_dir_all(&vite_cache)?;
+                    println!(
+                        "{} node_modules/.vite/ ({})",
+                        "Cleared:".green(),
+                        format_bytes(size)
+                    );
+                    cleared_any = true;
+                }
+                // Also check docs/node_modules/.vite
+                let docs_vite_cache = base_dir.join("docs/node_modules/.vite");
+                if docs_vite_cache.exists() {
+                    let size = dir_size(&docs_vite_cache);
+                    fs::remove_dir_all(&docs_vite_cache)?;
+                    println!(
+                        "{} docs/node_modules/.vite/ ({})",
+                        "Cleared:".green(),
+                        format_bytes(size)
+                    );
+                    cleared_any = true;
+                }
+            }
+
+            if !cleared_any {
                 println!("{}", "No caches to clear.".dimmed());
             }
+
             Ok(())
         }
         Command::Static(args) => {
@@ -891,6 +976,16 @@ impl BuildContext {
                 let static_path = StaticPath::new(relative);
                 let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
                 self.static_files.insert(static_path, static_file);
+            }
+
+            // Explicitly load .vite/manifest.json (hidden file not picked up by WalkBuilder)
+            let manifest_path = dist_dir.join(".vite/manifest.json");
+            if manifest_path.exists() {
+                if let Ok(content) = fs::read(&manifest_path) {
+                    let static_path = StaticPath::new(".vite/manifest.json".to_string());
+                    let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
+                    self.static_files.insert(static_path, static_file);
+                }
             }
         }
 
@@ -2286,6 +2381,16 @@ async fn serve_plain(
                     let static_file = StaticFile::new(db, static_path, content)?;
                     static_files_map.insert(key, static_file);
                 }
+            }
+        }
+
+        // Explicitly load .vite/manifest.json (hidden file not picked up by WalkBuilder)
+        let manifest_path = dist_dir.join(".vite/manifest.json");
+        if manifest_path.exists() {
+            if let Ok(content) = fs::read(&manifest_path) {
+                let static_path = StaticPath::new(".vite/manifest.json".to_string());
+                let static_file = StaticFile::new(db, static_path, content)?;
+                static_files_map.insert(".vite/manifest.json".to_string(), static_file);
             }
         }
 

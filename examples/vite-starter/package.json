@@ -1,0 +1,12 @@
+{
+  "name": "vite-starter",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vite": "^7.3.1"
+  }
+}

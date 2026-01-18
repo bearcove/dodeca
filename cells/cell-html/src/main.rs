@@ -496,6 +496,13 @@ fn rewrite_urls_in_flow_content(children: &mut [FlowContent], path_map: &HashMap
             FlowContent::Custom(custom) => {
                 rewrite_urls_in_flow_content(&mut custom.children, path_map);
             }
+            FlowContent::Script(script) => {
+                if let Some(src) = &script.src
+                    && let Some(new_url) = path_map.get(src)
+                {
+                    script.src = Some(new_url.clone());
+                }
+            }
             _ => {}
         }
     }

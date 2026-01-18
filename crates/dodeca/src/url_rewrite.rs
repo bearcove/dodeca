@@ -60,6 +60,11 @@ async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, Stri
 /// Returns original HTML if the html cell is not available.
 pub async fn rewrite_urls_in_html(html: &str, path_map: &HashMap<String, String>) -> String {
     // First: rewrite HTML attributes using the cell
+    // Log vite-related mappings at debug level
+    for (from, to) in path_map.iter().filter(|(k, _)| k.contains("/src/")) {
+        tracing::debug!(from = %from, to = %to, "vite path mapping available");
+    }
+
     let html_with_attrs = match rewrite_urls_in_html_cell(html.to_string(), path_map.clone()).await
     {
         Ok(result) => result,
@@ -205,8 +210,9 @@ pub fn resolve_relative_links(html: &str, base_route: &str) -> String {
 
     let base_clone = base.clone();
     // First pass: double quotes
-    let result =
-        href_re_double.replace_all(html, |caps: &regex::Captures| resolve(caps, "\"", &base_clone));
+    let result = href_re_double.replace_all(html, |caps: &regex::Captures| {
+        resolve(caps, "\"", &base_clone)
+    });
 
     // Second pass: single quotes
     let result =
