@@ -8,7 +8,7 @@ rust-version = "1.91"
 license = "Apache-2.0 OR MIT"
 
 [workspace.dependencies]
-dashmap = "5.5.3"
+dashmap = "6"
 im = "15.1.0"
 divan = "0.1"
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
