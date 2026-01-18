@@ -3,6 +3,10 @@ name = "dodeca-cell-runtime"
 version = "0.6.1"
 edition = "2024"
 
+[features]
+default = []
+cell-debug = []
+
 [package.metadata]
 
 [package.metadata."docs.rs"]

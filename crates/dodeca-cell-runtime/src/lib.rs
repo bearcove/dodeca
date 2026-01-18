@@ -3,7 +3,7 @@
 //! Provides the `run_cell!` macro that handles all the boilerplate for connecting
 //! to the host and signaling readiness.
 //!
-//! Set `DODECA_CELL_DEBUG=1` to enable verbose startup logging.
+//! Enable the `cell-debug` feature for verbose startup logging.
 
 pub use cell_host_proto::{HostServiceClient, ReadyMsg};
 pub use roam::session::{ConnectionHandle, RoutedDispatcher, ServiceDispatcher};
@@ -17,14 +17,20 @@ pub use tracing;
 pub use tracing_subscriber;
 pub use ur_taking_me_with_you;
 
-/// Debug print macro that only prints when DODECA_CELL_DEBUG is set
+/// Debug print macro that only prints when cell-debug feature is enabled
 #[macro_export]
+#[cfg(feature = "cell-debug")]
 macro_rules! cell_debug {
     ($($arg:tt)*) => {
-        if std::env::var("DODECA_CELL_DEBUG").is_ok() {
-            eprintln!($($arg)*);
-        }
+        eprintln!($($arg)*)
     };
+}
+
+/// Debug print macro that compiles to nothing when cell-debug feature is disabled
+#[macro_export]
+#[cfg(not(feature = "cell-debug"))]
+macro_rules! cell_debug {
+    ($($arg:tt)*) => {};
 }
 
 /// Run a cell with the given name and dispatcher factory.
@@ -76,29 +82,17 @@ macro_rules! run_cell {
         $crate::cell_debug!("[cell-{}] die_with_parent completed", $cell_name);
 
         async fn __run_cell_async() -> Result<(), Box<dyn std::error::Error>> {
-            // Note: we can't use cell_debug! here because it's inside an async fn
-            // defined in a macro, so we check the env var directly
-            let cell_debug = std::env::var("DODECA_CELL_DEBUG").is_ok();
-
-            macro_rules! dbg_print {
-                ($($arg:tt)*) => {
-                    if cell_debug {
-                        eprintln!($($arg)*);
-                    }
-                };
-            }
-
-            dbg_print!("[cell] async fn starting");
+            $crate::cell_debug!("[cell] async fn starting");
             let args = SpawnArgs::from_env()?;
-            dbg_print!("[cell] parsed args: peer_id={}", args.peer_id.get());
+            $crate::cell_debug!("[cell] parsed args: peer_id={}", args.peer_id.get());
             let peer_id = args.peer_id;
             let transport = ShmGuestTransport::from_spawn_args(args)?;
-            dbg_print!("[cell] transport created");
+            $crate::cell_debug!("[cell] transport created");
 
             // Initialize cell-side tracing
             // Check TRACING_PASSTHROUGH env var - if set, log to stderr instead of via RPC
             let use_passthrough = std::env::var("TRACING_PASSTHROUGH").is_ok();
-            dbg_print!("[cell] use_passthrough={}", use_passthrough);
+            $crate::cell_debug!("[cell] use_passthrough={}", use_passthrough);
 
             let tracing_service = if use_passthrough {
                 // Passthrough mode: log directly to stderr
@@ -117,7 +111,7 @@ macro_rules! run_cell {
                 tracing_subscriber::registry().with(tracing_layer).init();
                 tracing_service
             };
-            dbg_print!("[cell] tracing initialized");
+            $crate::cell_debug!("[cell] tracing initialized");
 
             // Let user code create the dispatcher with access to handle
             // We use an Arc<OnceLock> pattern
@@ -125,9 +119,9 @@ macro_rules! run_cell {
                 std::sync::Arc::new(std::sync::OnceLock::new());
 
             let $handle = handle_cell.clone();
-            dbg_print!("[cell] creating user dispatcher");
+            $crate::cell_debug!("[cell] creating user dispatcher");
             let user_dispatcher = $make_dispatcher;
-            dbg_print!("[cell] user dispatcher created");
+            $crate::cell_debug!("[cell] user dispatcher created");
 
             // Combine user's dispatcher with tracing dispatcher using RoutedDispatcher
             // RoutedDispatcher routes primary.method_ids() to primary, rest to fallback.
@@ -136,34 +130,30 @@ macro_rules! run_cell {
                 tracing_dispatcher, // primary: handles tracing methods
                 user_dispatcher,    // fallback: handles all cell-specific methods
             );
-            dbg_print!("[cell] calling establish_guest");
+            $crate::cell_debug!("[cell] calling establish_guest");
 
             let (handle, driver) = establish_guest(transport, combined_dispatcher);
-            dbg_print!("[cell] establish_guest returned");
+            $crate::cell_debug!("[cell] establish_guest returned");
 
             // Store the real handle
             let _ = handle_cell.set(handle.clone());
-            dbg_print!("[cell] handle stored");
+            $crate::cell_debug!("[cell] handle stored");
 
             // Spawn driver in background so it can process the ready() RPC
-            dbg_print!("[cell] spawning driver task");
+            $crate::cell_debug!("[cell] spawning driver task");
             let driver_handle = tokio::spawn(async move {
-                if cell_debug {
-                    eprintln!("[cell] driver task starting");
-                }
+                $crate::cell_debug!("[cell] driver task starting");
                 if let Err(e) = driver.run().await {
                     eprintln!("Driver error: {:?}", e);
                     std::process::exit(1);
                 }
-                if cell_debug {
-                    eprintln!("[cell] driver task exited cleanly");
-                }
+                $crate::cell_debug!("[cell] driver task exited cleanly");
             });
-            dbg_print!("[cell] driver task spawned");
+            $crate::cell_debug!("[cell] driver task spawned");
 
             // Signal readiness to host
             let host = HostServiceClient::new(handle);
-            dbg_print!("[cell] calling host.ready()");
+            $crate::cell_debug!("[cell] calling host.ready()");
             host.ready(ReadyMsg {
                 peer_id: peer_id.get() as u16,
                 cell_name: $cell_name.to_string(),
@@ -172,7 +162,7 @@ macro_rules! run_cell {
                 features: vec![],
             })
             .await?;
-            dbg_print!("[cell] host.ready() returned successfully");
+            $crate::cell_debug!("[cell] host.ready() returned successfully");
 
             // Wait for driver to complete (it runs until connection closes)
             if let Err(e) = driver_handle.await {

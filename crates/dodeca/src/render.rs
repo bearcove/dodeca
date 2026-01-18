@@ -672,24 +672,6 @@ pub async fn render_via_cell(
         .unwrap_or_else(|e| render_error_page(&e))
 }
 
-/// Render a page via the gingembre cell.
-pub async fn try_render_page_via_cell(
-    page: &Page,
-    site_tree: &SiteTree,
-    templates: HashMap<String, String>,
-) -> std::result::Result<String, String> {
-    try_render_via_cell(Renderable::Page(page), site_tree, templates).await
-}
-
-/// Render a section via the gingembre cell.
-pub async fn try_render_section_via_cell(
-    section: &Section,
-    site_tree: &SiteTree,
-    templates: HashMap<String, String>,
-) -> std::result::Result<String, String> {
-    try_render_via_cell(Renderable::Section(section), site_tree, templates).await
-}
-
 /// Render page via cell - development mode (shows error page on failure)
 pub async fn render_page_via_cell(
     page: &Page,
