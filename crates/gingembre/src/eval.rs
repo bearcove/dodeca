@@ -561,19 +561,19 @@ impl<'a> Evaluator<'a> {
 
         // Check for method calls on special objects: obj.method()
         // e.g., build.git_hash() -> calls "build" function with step name "git_hash"
-        if let Expr::Field(field) = &*call.func {
-            if let Expr::Var(base_ident) = &*field.base {
-                // Convert obj.method() to obj("method", ...kwargs)
-                let func_name = &base_ident.name;
-                let method_name = &field.field.name;
+        if let Expr::Field(field) = &*call.func
+            && let Expr::Var(base_ident) = &*field.base
+        {
+            // Convert obj.method() to obj("method", ...kwargs)
+            let func_name = &base_ident.name;
+            let method_name = &field.field.name;
 
-                // Prepend method name as first positional arg
-                let mut full_args = vec![Value::from(method_name.as_str())];
-                full_args.extend(args);
+            // Prepend method name as first positional arg
+            let mut full_args = vec![Value::from(method_name.as_str())];
+            full_args.extend(args);
 
-                if let Some(result_fut) = self.ctx.call_fn(func_name, &full_args, &kwargs) {
-                    return result_fut.await.map(LazyValue::concrete);
-                }
+            if let Some(result_fut) = self.ctx.call_fn(func_name, &full_args, &kwargs) {
+                return result_fut.await.map(LazyValue::concrete);
             }
         }
 
