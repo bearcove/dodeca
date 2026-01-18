@@ -11,7 +11,7 @@ pub use roam_shm::driver::establish_guest;
 pub use roam_shm::guest::ShmGuest;
 pub use roam_shm::spawn::SpawnArgs;
 pub use roam_shm::transport::ShmGuestTransport;
-pub use roam_tracing::{CellTracingDispatcher, CellTracingLayer, init_cell_tracing};
+pub use roam_tracing::{CellTracingDispatcher, CellTracingLayer, CellTracingService, init_cell_tracing};
 pub use tokio;
 pub use tracing;
 pub use tracing_subscriber;
@@ -123,6 +123,9 @@ macro_rules! run_cell {
             let user_dispatcher = $make_dispatcher;
             $crate::cell_debug!("[cell] user dispatcher created");
 
+            // Clone tracing_service before moving into dispatcher (for spawn_drain later)
+            let tracing_service_for_drain = tracing_service.clone();
+
             // Combine user's dispatcher with tracing dispatcher using RoutedDispatcher
             // RoutedDispatcher routes primary.method_ids() to primary, rest to fallback.
             let tracing_dispatcher = CellTracingDispatcher::new(tracing_service);
@@ -138,6 +141,12 @@ macro_rules! run_cell {
             // Store the real handle
             let _ = handle_cell.set(handle.clone());
             $crate::cell_debug!("[cell] handle stored");
+
+            // Start the tracing drain task (sends buffered records to host via RPC)
+            if !use_passthrough {
+                tracing_service_for_drain.spawn_drain(handle.clone());
+                $crate::cell_debug!("[cell] tracing drain task spawned");
+            }
 
             // Spawn driver in background so it can process the ready() RPC
             $crate::cell_debug!("[cell] spawning driver task");

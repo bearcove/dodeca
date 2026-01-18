@@ -119,6 +119,13 @@ async fn handle_websocket_upgrade(
     path: String,
     query: String,
 ) -> Response<Body> {
+    // Log the incoming protocol header
+    if let Some(protocol) = req.headers().get("sec-websocket-protocol") {
+        tracing::debug!(protocol = ?protocol, "incoming websocket protocol header");
+    } else {
+        tracing::warn!("no sec-websocket-protocol header in request");
+    }
+
     let (mut parts, _body) = req.into_parts();
 
     let ws = match WebSocketUpgrade::from_request_parts(&mut parts, &()).await {

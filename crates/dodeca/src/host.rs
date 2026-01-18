@@ -18,7 +18,8 @@ use std::time::Duration;
 use cell_gingembre_proto::ContextId;
 use cell_host_proto::{CommandResult, ServerCommand};
 use dashmap::DashMap;
-use roam::session::ConnectionHandle;
+use roam::session::{ConnectionHandle, RoutedDispatcher};
+use roam_tracing::{HostTracingDispatcher, HostTracingState, TaggedRecord};
 use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command;
 use tokio::sync::{Mutex, Notify, mpsc};
@@ -106,6 +107,12 @@ pub struct Host {
     /// MultiPeerHostDriver handle for dynamically creating peers.
     /// Set during cell initialization via `set_driver_handle()`.
     driver_handle: std::sync::OnceLock<roam_shm::driver::MultiPeerHostDriverHandle>,
+
+    // -------------------------------------------------------------------------
+    // Cell Tracing
+    // -------------------------------------------------------------------------
+    /// Shared state for receiving tracing records from cells.
+    tracing_state: Arc<HostTracingState>,
 }
 
 impl Host {
@@ -127,6 +134,7 @@ impl Host {
                 site_server: std::sync::OnceLock::new(),
                 vite_port: std::sync::OnceLock::new(),
                 driver_handle: std::sync::OnceLock::new(),
+                tracing_state: HostTracingState::new(8192),
             })
         })
     }
@@ -267,6 +275,25 @@ impl Host {
     /// Get the driver handle for creating peers dynamically.
     pub fn driver_handle(&self) -> Option<&roam_shm::driver::MultiPeerHostDriverHandle> {
         self.driver_handle.get()
+    }
+
+    // =========================================================================
+    // Cell Tracing
+    // =========================================================================
+
+    /// Get the tracing state for creating per-cell tracing services.
+    pub fn tracing_state(&self) -> &Arc<HostTracingState> {
+        &self.tracing_state
+    }
+
+    /// Take the tracing record receiver.
+    ///
+    /// Call this once during initialization to get the stream of tracing
+    /// records from all cells. Returns `None` if already taken.
+    pub fn take_tracing_receiver(
+        &self,
+    ) -> Option<tokio::sync::mpsc::Receiver<TaggedRecord>> {
+        self.tracing_state.take_receiver()
     }
 
     // =========================================================================
@@ -535,12 +562,22 @@ async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: b
         "spawn_cell_process: registering peer with driver (before spawn)"
     );
 
+    // Create the host service dispatcher (handles ready(), template calls, etc.)
     let host_service = crate::cells::HostServiceImpl::new(
         crate::cells::HostCellLifecycle::new(crate::cells::cell_ready_registry().clone()),
         crate::template_host::TemplateHostImpl::new(),
         Host::get().site_server().cloned(),
     );
-    let dispatcher = cell_host_proto::HostServiceDispatcher::new(host_service);
+    let host_service_dispatcher = cell_host_proto::HostServiceDispatcher::new(host_service);
+
+    // Create the tracing service dispatcher (handles emit_tracing(), get_tracing_config())
+    let tracing_service = Host::get()
+        .tracing_state()
+        .service_for_peer(peer_id.get() as u64, Some(cell_name.to_string()));
+    let tracing_dispatcher = HostTracingDispatcher::new(tracing_service);
+
+    // Compose: HostTracing (primary) + HostService (fallback)
+    let dispatcher = RoutedDispatcher::new(tracing_dispatcher, host_service_dispatcher);
 
     match driver_handle.add_peer(peer_id, dispatcher).await {
         Ok(handle) => {

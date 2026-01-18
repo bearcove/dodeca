@@ -6726,6 +6726,7 @@ dependencies = [
  "roam-session",
  "tokio",
  "tracing",
+ "tracing-core",
  "tracing-subscriber",
 ]
 

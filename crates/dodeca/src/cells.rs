@@ -625,6 +625,18 @@ async fn init_cells_inner() -> eyre::Result<()> {
         }
     });
 
+    // Spawn tracing consumer task (receives records from cells)
+    if let Some(mut tracing_rx) = crate::host::Host::get().take_tracing_receiver() {
+        tokio::spawn(async move {
+            debug!("Tracing consumer: starting");
+            while let Some(tagged) = tracing_rx.recv().await {
+                // Dispatch through the host's tracing subscriber
+                roam_tracing::dispatch_record(&tagged);
+            }
+            debug!("Tracing consumer: channel closed");
+        });
+    }
+
     debug!("init_cells_inner: complete");
     Ok(())
 }
