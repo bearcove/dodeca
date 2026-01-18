@@ -625,7 +625,7 @@ struct ViteManifestEntry {
     css: Option<Vec<String>>,
 }
 
-/// Parse Vite manifest and return source → output path mappings
+/// Parse Vite manifest and return source → cache-busted output path mappings
 ///
 /// The manifest at `.vite/manifest.json` maps source files to their built outputs:
 /// ```json
@@ -638,16 +638,20 @@ struct ViteManifestEntry {
 /// }
 /// ```
 ///
-/// Returns a HashMap mapping `/src/main.ts` → `/assets/main-BhKl2bGh.js`
+/// Returns a HashMap mapping `/src/main.ts` → `/assets/main-BhKl2bGh.xxx.js`
+/// (chained through dodeca's cache-busting for files without vite hashes)
 #[picante::tracked]
 pub async fn vite_manifest_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, String>> {
     let mut result = HashMap::new();
 
     // Look for .vite/manifest.json in static files
     let static_files = StaticRegistry::files(db)?.unwrap_or_default();
-    let manifest_file = static_files
-        .iter()
-        .find(|f| f.path(db).ok().map(|p| p.as_str() == ".vite/manifest.json").unwrap_or(false));
+    let manifest_file = static_files.iter().find(|f| {
+        f.path(db)
+            .ok()
+            .map(|p| p.as_str() == ".vite/manifest.json")
+            .unwrap_or(false)
+    });
 
     let Some(manifest_file) = manifest_file else {
         return Ok(result);
@@ -668,18 +672,43 @@ pub async fn vite_manifest_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String,
         }
     };
 
+    // Build a map of vite output path → static file for cache-bust lookups
+    let static_file_map: HashMap<String, StaticFile> = static_files
+        .iter()
+        .filter_map(|f| {
+            let path = f.path(db).ok()?.as_str().to_string();
+            Some((path, *f))
+        })
+        .collect();
+
     for (src, entry) in manifest {
-        // Map /src/main.ts → /assets/main-xxx.js
+        let vite_output = &entry.file;
+
+        // Look up the static file to get its cache-busted path
+        let final_path = if let Some(static_file) = static_file_map.get(vite_output) {
+            // Get the cache-busted output path
+            let output = static_file_output(db, *static_file).await?;
+            format!("/{}", output.cache_busted_path)
+        } else {
+            // File not found in static files, use raw vite output
+            tracing::warn!(vite_output = %vite_output, "Vite output file not found in static files");
+            format!("/{vite_output}")
+        };
+
         let from = format!("/{src}");
-        let to = format!("/{}", entry.file);
-        tracing::trace!(from = %from, to = %to, "vite manifest mapping");
-        result.insert(format!("/{src}"), format!("/{}", entry.file));
+        tracing::trace!(from = %from, to = %final_path, "vite manifest mapping");
+        result.insert(from, final_path);
 
         // Also map any CSS files this entry imports
         if let Some(css_files) = entry.css {
             for css in css_files {
-                // CSS files are already output paths, but we map the source CSS if it exists
-                result.insert(format!("/{css}"), format!("/{css}"));
+                let css_final = if let Some(static_file) = static_file_map.get(&css) {
+                    let output = static_file_output(db, *static_file).await?;
+                    format!("/{}", output.cache_busted_path)
+                } else {
+                    format!("/{css}")
+                };
+                result.insert(format!("/{css}"), css_final);
             }
         }
     }
