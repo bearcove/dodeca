@@ -1125,7 +1125,9 @@ impl SiteServer {
         route_path: &str,
         expression: &str,
     ) -> Result<ScopeValue, String> {
+        use crate::template_host::{RenderContext, RenderContextGuard};
         use facet_value::{VObject, VString};
+        use std::sync::Arc;
 
         let snapshot = DatabaseSnapshot::from_database(&self.db).await;
 
@@ -1133,6 +1135,11 @@ impl SiteServer {
             .await
             .map_err(|e| format!("Failed to build tree: {:?}", e))?
             .map_err(|e| format!("Source parse errors: {:?}", e))?;
+
+        // Pre-load all templates for sync access during evaluation
+        let templates = crate::queries::load_all_templates(&snapshot)
+            .await
+            .map_err(|e| format!("Failed to load templates: {:?}", e))?;
 
         // Normalize route
         let route_str = if route_path == "/" {
@@ -1147,8 +1154,8 @@ impl SiteServer {
         };
         let route = Route::new(route_str);
 
-        // Build gingembre Context with scope values
-        let mut ctx = gingembre::Context::new();
+        // Build context Value for the expression evaluation
+        let mut ctx = VObject::new();
 
         // Add config
         let mut config_map = VObject::new();
@@ -1177,48 +1184,57 @@ impl SiteServer {
             VString::from("base_url"),
             facet_value::Value::from(base_url.as_str()),
         );
-        ctx.set("config", facet_value::Value::from(config_map));
+        ctx.insert(VString::from("config"), facet_value::Value::from(config_map));
 
         // Add current_path
-        ctx.set("current_path", facet_value::Value::from(route.as_str()));
+        ctx.insert(
+            VString::from("current_path"),
+            facet_value::Value::from(route.as_str()),
+        );
 
         // Check if it's a section or page and add appropriate data
         if let Some(section) = site_tree.sections.get(&route) {
             let section_value = crate::render::section_to_value(section, &site_tree, &base_url);
-            ctx.set("section", section_value);
-            ctx.set("page", facet_value::Value::NULL);
+            ctx.insert(VString::from("section"), section_value);
+            ctx.insert(VString::from("page"), facet_value::Value::NULL);
         } else if let Some(page) = site_tree.pages.get(&route) {
             let page_value = crate::render::page_to_value(page, &site_tree);
-            ctx.set("page", page_value);
+            ctx.insert(VString::from("page"), page_value);
 
             // Add parent section
             if let Some(section) = site_tree.sections.get(&page.section_route) {
                 let section_value = crate::render::section_to_value(section, &site_tree, &base_url);
-                ctx.set("section", section_value);
+                ctx.insert(VString::from("section"), section_value);
             }
         }
 
         // Add site tree info
         if let Some(root) = site_tree.sections.get(&Route::root()) {
             let root_value = crate::render::section_to_value(root, &site_tree, &base_url);
-            ctx.set("root", root_value);
+            ctx.insert(VString::from("root"), root_value);
         }
 
-        // Load data files
-        let raw_data = crate::queries::load_all_data_raw(&snapshot)
-            .await
-            .unwrap_or_default();
-        let data_value = crate::data::parse_raw_data_files(&raw_data);
-        ctx.set("data", data_value);
+        // Create render context for the cell (handles template loading and data resolution)
+        let render_context = RenderContext::new(
+            templates,
+            self.db.clone(),
+            Arc::new(site_tree),
+        );
+        let guard = RenderContextGuard::new(render_context);
 
-        // Evaluate the expression
-        match gingembre::eval_expression(expression, &ctx).await {
-            Ok(value) => Ok(value_to_scope_value(&value)),
-            Err(e) => {
-                // Convert ANSI error to HTML for display in devtools
-                let ansi_error = format!("{:?}", e);
-                Err(crate::error_pages::ansi_to_html(&ansi_error))
+        // Convert context to Value
+        let context_value: facet_value::Value = ctx.into();
+
+        // Evaluate the expression via cell
+        match crate::cells::eval_expression_cell(guard.id(), expression, context_value).await {
+            Ok(cell_gingembre_proto::EvalResult::Success { value }) => {
+                Ok(value_to_scope_value(&value))
             }
+            Ok(cell_gingembre_proto::EvalResult::Error { message }) => {
+                // Convert ANSI error to HTML for display in devtools
+                Err(crate::error_pages::ansi_to_html(&message))
+            }
+            Err(e) => Err(format!("Expression evaluation failed: {}", e)),
         }
     }
 

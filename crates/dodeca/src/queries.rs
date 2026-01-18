@@ -12,8 +12,7 @@ use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
 use crate::url_rewrite::rewrite_urls_in_css;
 use facet::Facet;
-use facet_value::Value;
-use futures_util::future::BoxFuture;
+use facet_value::{DestructuredRef, Value};
 use std::collections::{BTreeMap, HashMap};
 
 /// Load a template file's content - tracked for dependency tracking
@@ -51,27 +50,6 @@ pub async fn build_template_lookup<DB: Db>(
         lookup.insert(path, *template);
     }
     Ok(lookup)
-}
-
-/// A template loader that uses a pre-loaded template map for sync access.
-/// Templates are loaded asynchronously before rendering, then this loader
-/// provides sync access during template evaluation.
-pub struct PicanteTemplateLoader {
-    templates: HashMap<String, String>,
-}
-
-impl PicanteTemplateLoader {
-    /// Create a new loader from pre-loaded templates
-    pub fn new(templates: HashMap<String, String>) -> Self {
-        Self { templates }
-    }
-}
-
-impl gingembre::TemplateLoader for PicanteTemplateLoader {
-    fn load(&self, name: &str) -> BoxFuture<'_, Option<String>> {
-        let result = self.templates.get(name).cloned();
-        Box::pin(async move { result })
-    }
 }
 
 /// Load a sass file's content - tracked for dependency tracking
@@ -116,9 +94,6 @@ pub async fn load_all_data_raw<DB: Db>(db: &DB) -> PicanteResult<Vec<(String, St
 
 use crate::data::{DataFormat, parse_data_file};
 use crate::db::DataFile;
-use facet_value::DestructuredRef;
-use gingembre::{DataPath, DataResolver};
-use std::sync::Arc;
 
 /// An interned path through the data tree.
 ///
@@ -260,92 +235,6 @@ fn extract_filename_without_extension(path: &str) -> String {
     } else {
         filename.to_string()
     }
-}
-
-/// A simple sync data resolver that works with pre-loaded data.
-/// Data is loaded asynchronously before rendering, then this resolver
-/// provides sync access during template evaluation.
-pub struct SyncDataResolver {
-    data: Value,
-}
-
-impl SyncDataResolver {
-    /// Create a new resolver from pre-loaded data
-    #[allow(clippy::new_ret_no_self)] // Returns trait object Arc<dyn DataResolver>
-    pub fn new(data: Value) -> Arc<dyn DataResolver> {
-        Arc::new(Self { data })
-    }
-}
-
-impl DataResolver for SyncDataResolver {
-    fn resolve(
-        &self,
-        path: &DataPath,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<Value>> + Send + '_>> {
-        let mut current = &self.data;
-        for segment in path.segments() {
-            match current.destructure_ref() {
-                DestructuredRef::Object(obj) => {
-                    if let Some(v) = obj.get(segment) {
-                        current = v;
-                    } else {
-                        return Box::pin(async { None });
-                    }
-                }
-                DestructuredRef::Array(arr) => {
-                    let idx: usize = match segment.parse() {
-                        Ok(i) => i,
-                        Err(_) => return Box::pin(async { None }),
-                    };
-                    if let Some(v) = arr.get(idx) {
-                        current = v;
-                    } else {
-                        return Box::pin(async { None });
-                    }
-                }
-                _ => return Box::pin(async { None }),
-            }
-        }
-        let result = current.clone();
-        Box::pin(async move { Some(result) })
-    }
-
-    fn keys_at(
-        &self,
-        path: &DataPath,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<Vec<String>>> + Send + '_>> {
-        let mut current = &self.data;
-        for segment in path.segments() {
-            match current.destructure_ref() {
-                DestructuredRef::Object(obj) => {
-                    if let Some(v) = obj.get(segment) {
-                        current = v;
-                    } else {
-                        return Box::pin(async { None });
-                    }
-                }
-                DestructuredRef::Array(arr) => {
-                    let idx: usize = match segment.parse() {
-                        Ok(i) => i,
-                        Err(_) => return Box::pin(async { None }),
-                    };
-                    if let Some(v) = arr.get(idx) {
-                        current = v;
-                    } else {
-                        return Box::pin(async { None });
-                    }
-                }
-                _ => return Box::pin(async { None }),
-            }
-        }
-        let result = match current.destructure_ref() {
-            DestructuredRef::Object(obj) => Some(obj.iter().map(|(k, _)| k.to_string()).collect()),
-            DestructuredRef::Array(arr) => Some((0..arr.len()).map(|i| i.to_string()).collect()),
-            _ => None,
-        };
-        Box::pin(async move { result })
-    }
-    // len_at has default implementation in the trait
 }
 
 /// Compiled CSS output
@@ -654,7 +543,7 @@ pub async fn render_page<DB: Db>(
     db: &DB,
     route: Route,
 ) -> PicanteResult<Result<RenderedHtml, BuildError>> {
-    use crate::render::{render_page_via_cell, render_page_with_resolver};
+    use crate::render::render_page_via_cell;
 
     tracing::info!(route = %route, "Rendering page");
 
@@ -673,21 +562,9 @@ pub async fn render_page<DB: Db>(
         .get(&route)
         .expect("Page not found for route");
 
-    // Try cell-based rendering (falls back to direct if cell unavailable)
-    let html = render_page_via_cell(page, &site_tree, templates.clone()).await;
-
-    // Check if we got an error (cell unavailable) and need to fallback
-    if html.contains(crate::render::RENDER_ERROR_MARKER) {
-        // Fallback: use direct rendering with resolver
-        let raw_data = load_all_data_raw(db).await?;
-        let data_value = crate::data::parse_raw_data_files(&raw_data);
-        let resolver = SyncDataResolver::new(data_value);
-        let loader = PicanteTemplateLoader::new(templates);
-        let html = render_page_with_resolver(page, &site_tree, loader, resolver).await;
-        Ok(Ok(RenderedHtml(html)))
-    } else {
-        Ok(Ok(RenderedHtml(html)))
-    }
+    // Render via gingembre cell
+    let html = render_page_via_cell(page, &site_tree, templates).await;
+    Ok(Ok(RenderedHtml(html)))
 }
 
 /// Render a single section to HTML
@@ -700,7 +577,7 @@ pub async fn render_section<DB: Db>(
     db: &DB,
     route: Route,
 ) -> PicanteResult<Result<RenderedHtml, BuildError>> {
-    use crate::render::{render_section_via_cell, render_section_with_resolver};
+    use crate::render::render_section_via_cell;
 
     tracing::info!(route = %route, "Rendering section");
 
@@ -719,21 +596,9 @@ pub async fn render_section<DB: Db>(
         .get(&route)
         .expect("Section not found for route");
 
-    // Try cell-based rendering (falls back to direct if cell unavailable)
-    let html = render_section_via_cell(section, &site_tree, templates.clone()).await;
-
-    // Check if we got an error (cell unavailable) and need to fallback
-    if html.contains(crate::render::RENDER_ERROR_MARKER) {
-        // Fallback: use direct rendering with resolver
-        let raw_data = load_all_data_raw(db).await?;
-        let data_value = crate::data::parse_raw_data_files(&raw_data);
-        let resolver = SyncDataResolver::new(data_value);
-        let loader = PicanteTemplateLoader::new(templates);
-        let html = render_section_with_resolver(section, &site_tree, loader, resolver).await;
-        Ok(Ok(RenderedHtml(html)))
-    } else {
-        Ok(Ok(RenderedHtml(html)))
-    }
+    // Render via gingembre cell
+    let html = render_section_via_cell(section, &site_tree, templates).await;
+    Ok(Ok(RenderedHtml(html)))
 }
 
 /// Load a single static file's content - tracked
@@ -1137,6 +1002,7 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Bui
 pub async fn all_rendered_html<DB: Db>(
     db: &DB,
 ) -> PicanteResult<Result<AllRenderedHtml, BuildError>> {
+    use crate::render::{render_page_via_cell, render_section_via_cell};
     use crate::url_rewrite::{resolve_internal_links, resolve_relative_links};
 
     let site_tree = match build_tree(db).await? {
@@ -1149,20 +1015,10 @@ pub async fn all_rendered_html<DB: Db>(
     // This creates dependencies on all source files via parse_file
     let source_route_map = source_to_route_map(db).await?;
 
-    // Load data files and convert to template Value
-    let raw_data = load_all_data_raw(db).await?;
-    let data_value = crate::data::parse_raw_data_files(&raw_data);
-
     let mut pages = HashMap::new();
 
     for (route, section) in &site_tree.sections {
-        let html = crate::render::render_section_to_html(
-            section,
-            &site_tree,
-            &template_map,
-            Some(data_value.clone()),
-        )
-        .await;
+        let html = render_section_via_cell(section, &site_tree, template_map.clone()).await;
         // Resolve relative links based on section route, then @/ links
         let html = resolve_relative_links(&html, route.as_str());
         let html = resolve_internal_links(&html, &source_route_map);
@@ -1170,13 +1026,7 @@ pub async fn all_rendered_html<DB: Db>(
     }
 
     for (route, page) in &site_tree.pages {
-        let html = crate::render::render_page_to_html(
-            page,
-            &site_tree,
-            &template_map,
-            Some(data_value.clone()),
-        )
-        .await;
+        let html = render_page_via_cell(page, &site_tree, template_map.clone()).await;
         // Resolve relative links based on the page's section route, then @/ links
         let html = resolve_relative_links(&html, page.section_route.as_str());
         let html = resolve_internal_links(&html, &source_route_map);

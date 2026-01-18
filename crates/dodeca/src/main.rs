@@ -21,7 +21,6 @@ mod render;
 mod revision;
 mod serve;
 mod svg;
-mod template;
 mod template_host;
 mod theme_resolver;
 mod tui;

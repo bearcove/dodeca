@@ -17,14 +17,40 @@ use cell_gingembre_proto::{
     CallFunctionResult, ContextId, KeysAtResult, LoadTemplateResult, ResolveDataResult,
     TemplateHost,
 };
-use facet_value::Value;
+use facet_value::{DestructuredRef, VArray, VObject, VString, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::db::{Database, SiteTree};
 use crate::queries::{DataValuePath, data_keys_at_path, resolve_data_value};
 use crate::render::{headings_to_toc, path_to_route, route_to_path};
-use crate::template::{VArray, VObject, VString, ValueExt};
+
+/// Convert a Value to a string representation (for template function args)
+fn value_to_string(value: &Value) -> String {
+    match value.destructure_ref() {
+        DestructuredRef::Null => String::new(),
+        DestructuredRef::Bool(b) => if b { "true" } else { "false" }.to_string(),
+        DestructuredRef::Number(n) => {
+            if let Some(i) = n.to_i64() {
+                i.to_string()
+            } else if let Some(f) = n.to_f64() {
+                f.to_string()
+            } else {
+                "0".to_string()
+            }
+        }
+        DestructuredRef::String(s) => s.to_string(),
+        DestructuredRef::Bytes(b) => format!("<bytes: {} bytes>", b.len()),
+        DestructuredRef::Array(arr) => {
+            let items: Vec<String> = arr.iter().map(value_to_string).collect();
+            format!("[{}]", items.join(", "))
+        }
+        DestructuredRef::Object(_) => "[object]".to_string(),
+        DestructuredRef::DateTime(dt) => format!("{:?}", dt),
+        DestructuredRef::QName(qn) => format!("{:?}", qn),
+        DestructuredRef::Uuid(uuid) => format!("{:?}", uuid),
+    }
+}
 
 // ============================================================================
 // Render Context Registry
@@ -255,7 +281,7 @@ impl TemplateHost for TemplateHostImpl {
             kwargs
                 .iter()
                 .find(|(k, _)| k == key)
-                .map(|(_, v)| v.render_to_string())
+                .map(|(_, v)| value_to_string(v))
         };
 
         match name.as_str() {
@@ -353,7 +379,7 @@ impl TemplateHost for TemplateHostImpl {
             "throw" => {
                 let message = args
                     .first()
-                    .map(|v| v.render_to_string())
+                    .map(value_to_string)
                     .or_else(|| get_kwarg("message"))
                     .unwrap_or_else(|| "Template error".to_string());
                 CallFunctionResult::Error { message }

@@ -1,16 +1,13 @@
-use crate::cells::{gingembre_cell, inject_code_buttons_cell, render_template_cell};
+use crate::cells::{inject_code_buttons_cell, render_template_cell};
 use crate::db::{
     CodeExecutionMetadata, CodeExecutionResult, DependencySourceInfo, Heading, Page, Section,
     SiteTree,
 };
 use crate::error_pages::render_error_page;
-use crate::template::{
-    Context, DataResolver, Engine, InMemoryLoader, TemplateLoader, VArray, VObject, VString, Value,
-    ValueExt,
-};
 use crate::template_host::{RenderContext, RenderContextGuard};
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
+use facet_value::{VArray, VObject, VString, Value};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -524,239 +521,6 @@ fn inject_into_head(html: &str, content: &str) -> String {
 }
 
 // ============================================================================
-// Render functions for picante tracked queries
-// ============================================================================
-
-/// Render a page to HTML using a template loader.
-/// Returns Result - caller decides whether to show error page (dev) or fail (prod)
-pub async fn try_render_page_with_loader<L: TemplateLoader>(
-    page: &Page,
-    site_tree: &SiteTree,
-    loader: L,
-    data: Option<Value>,
-) -> std::result::Result<String, String> {
-    // Use custom template if specified, otherwise default to "page.html"
-    let template_name = page.template.as_deref().unwrap_or("page.html");
-
-    tracing::debug!(
-        route = %page.route.as_str(),
-        title = %page.title,
-        template = %template_name,
-        "render: rendering page"
-    );
-
-    let mut engine = Engine::new(loader);
-
-    let mut ctx = build_render_context(site_tree, data);
-    ctx.set("page", page_to_value(page, site_tree));
-    ctx.set("current_path", Value::from(page.route.as_str()));
-
-    // Find the parent section for sidebar navigation
-    let base_url = get_base_url();
-    if let Some(section) = find_parent_section(&page.route, site_tree) {
-        ctx.set("section", section_to_value(section, site_tree, &base_url));
-    }
-
-    let result = engine
-        .render(template_name, &ctx)
-        .await
-        .map_err(|e| format!("{e:?}"));
-
-    if let Ok(ref html) = result {
-        if !html.contains("<!DOCTYPE") {
-            tracing::warn!(
-                route = %page.route.as_str(),
-                html_len = html.len(),
-                html_preview = %html.chars().take(200).collect::<String>(),
-                html_tail = %html.chars().rev().take(100).collect::<String>().chars().rev().collect::<String>(),
-                "template rendered WITHOUT doctype!"
-            );
-        }
-    }
-    result
-}
-
-/// Render page with a loader - development mode (shows error page on failure)
-pub async fn render_page_with_loader<L: TemplateLoader>(
-    page: &Page,
-    site_tree: &SiteTree,
-    loader: L,
-    data: Option<Value>,
-) -> String {
-    try_render_page_with_loader(page, site_tree, loader, data)
-        .await
-        .unwrap_or_else(|e| render_error_page(&e))
-}
-
-/// Render a section to HTML using a template loader.
-/// Returns Result - caller decides whether to show error page (dev) or fail (prod)
-pub async fn try_render_section_with_loader<L: TemplateLoader>(
-    section: &Section,
-    site_tree: &SiteTree,
-    loader: L,
-    data: Option<Value>,
-) -> std::result::Result<String, String> {
-    // Use custom template if specified, otherwise use defaults based on route
-    let template_name = section.template.as_deref().unwrap_or_else(|| {
-        if section.route.as_str() == "/" {
-            "index.html"
-        } else {
-            "section.html"
-        }
-    });
-
-    // Count pages in this section for logging
-    let page_count = site_tree
-        .pages
-        .values()
-        .filter(|p| p.section_route == section.route)
-        .count();
-
-    tracing::debug!(
-        route = %section.route.as_str(),
-        title = %section.title,
-        template = %template_name,
-        section_pages = page_count,
-        "render: rendering section"
-    );
-
-    let mut engine = Engine::new(loader);
-
-    let mut ctx = build_render_context(site_tree, data);
-    let base_url = get_base_url();
-    let section_value = section_to_value(section, site_tree, &base_url);
-
-    // Log section.pages array length
-    if let facet_value::DestructuredRef::Object(obj) = section_value.destructure_ref() {
-        if let Some(pages_value) = obj.get(&VString::from("pages")) {
-            if let facet_value::DestructuredRef::Array(pages) = pages_value.destructure_ref() {
-                tracing::debug!(
-                    route = %section.route.as_str(),
-                    pages_in_context = pages.len(),
-                    "render: section.pages set in context"
-                );
-            }
-        }
-    }
-
-    ctx.set("section", section_value);
-    ctx.set("current_path", Value::from(section.route.as_str()));
-    // Set page to NULL so templates can use `{% if page %}` without error
-    ctx.set("page", Value::NULL);
-
-    engine
-        .render(template_name, &ctx)
-        .await
-        .map_err(|e| format!("{e:?}"))
-}
-
-/// Render section with a loader - development mode (shows error page on failure)
-pub async fn render_section_with_loader<L: TemplateLoader>(
-    section: &Section,
-    site_tree: &SiteTree,
-    loader: L,
-    data: Option<Value>,
-) -> String {
-    let result = try_render_section_with_loader(section, site_tree, loader, data).await;
-    match result {
-        Ok(html) => html,
-        Err(e) => {
-            tracing::warn!("Template error in {}: {}", section.route.as_str(), e);
-            render_error_page(&e)
-        }
-    }
-}
-
-// ============================================================================
-// Lazy data resolver variants (for fine-grained picante tracking)
-// ============================================================================
-
-/// Render a page to HTML with lazy data resolver.
-/// Each data path access becomes a tracked picante dependency.
-pub async fn try_render_page_with_resolver<L: TemplateLoader>(
-    page: &Page,
-    site_tree: &SiteTree,
-    loader: L,
-    resolver: Arc<dyn DataResolver>,
-) -> std::result::Result<String, String> {
-    // Use custom template if specified, otherwise default to "page.html"
-    let template_name = page.template.as_deref().unwrap_or("page.html");
-
-    let mut engine = Engine::new(loader);
-
-    let mut ctx = build_render_context_with_resolver(site_tree, resolver);
-    ctx.set("page", page_to_value(page, site_tree));
-    ctx.set("current_path", Value::from(page.route.as_str()));
-
-    // Find the parent section for sidebar navigation
-    let base_url = get_base_url();
-    if let Some(section) = find_parent_section(&page.route, site_tree) {
-        ctx.set("section", section_to_value(section, site_tree, &base_url));
-    }
-
-    engine
-        .render(template_name, &ctx)
-        .await
-        .map_err(|e| format!("{e:?}"))
-}
-
-/// Render page with lazy resolver - development mode (shows error page on failure)
-pub async fn render_page_with_resolver<L: TemplateLoader>(
-    page: &Page,
-    site_tree: &SiteTree,
-    loader: L,
-    resolver: Arc<dyn DataResolver>,
-) -> String {
-    try_render_page_with_resolver(page, site_tree, loader, resolver)
-        .await
-        .unwrap_or_else(|e| render_error_page(&e))
-}
-
-/// Render a section to HTML with lazy data resolver.
-/// Each data path access becomes a tracked picante dependency.
-pub async fn try_render_section_with_resolver<L: TemplateLoader>(
-    section: &Section,
-    site_tree: &SiteTree,
-    loader: L,
-    resolver: Arc<dyn DataResolver>,
-) -> std::result::Result<String, String> {
-    // Use custom template if specified, otherwise use defaults based on route
-    let template_name = section.template.as_deref().unwrap_or_else(|| {
-        if section.route.as_str() == "/" {
-            "index.html"
-        } else {
-            "section.html"
-        }
-    });
-
-    let mut engine = Engine::new(loader);
-
-    let mut ctx = build_render_context_with_resolver(site_tree, resolver);
-    let base_url = get_base_url();
-    ctx.set("section", section_to_value(section, site_tree, &base_url));
-    ctx.set("current_path", Value::from(section.route.as_str()));
-    // Set page to NULL so templates can use `{% if page %}` without error
-    ctx.set("page", Value::NULL);
-
-    engine
-        .render(template_name, &ctx)
-        .await
-        .map_err(|e| format!("{e:?}"))
-}
-
-/// Render section with lazy resolver - development mode (shows error page on failure)
-pub async fn render_section_with_resolver<L: TemplateLoader>(
-    section: &Section,
-    site_tree: &SiteTree,
-    loader: L,
-    resolver: Arc<dyn DataResolver>,
-) -> String {
-    try_render_section_with_resolver(section, site_tree, loader, resolver)
-        .await
-        .unwrap_or_else(|e| render_error_page(&e))
-}
-
-// ============================================================================
 // Cell-based rendering (uses gingembre cell for template processing)
 // ============================================================================
 
@@ -770,6 +534,32 @@ fn build_initial_context_value(
 ) -> Value {
     let mut obj = VObject::new();
     let base_url = get_base_url();
+
+    // Add config
+    let mut config_map = VObject::new();
+    let (site_title, site_description) = site_tree
+        .sections
+        .get(&Route::root())
+        .map(|root| {
+            (
+                root.title.to_string(),
+                root.description.clone().unwrap_or_default(),
+            )
+        })
+        .unwrap_or_else(|| ("Untitled".to_string(), String::new()));
+    config_map.insert(
+        VString::from("title"),
+        Value::from(site_title.as_str()),
+    );
+    config_map.insert(
+        VString::from("description"),
+        Value::from(site_description.as_str()),
+    );
+    config_map.insert(
+        VString::from("base_url"),
+        Value::from(base_url.as_str()),
+    );
+    obj.insert(VString::from("config"), Value::from(config_map));
 
     // Add page if present
     if let Some(page) = page {
@@ -801,7 +591,6 @@ fn build_initial_context_value(
 }
 
 /// Render a page via the gingembre cell.
-/// Falls back to direct rendering if cell is not available.
 pub async fn try_render_page_via_cell(
     page: &Page,
     site_tree: &SiteTree,
@@ -810,18 +599,10 @@ pub async fn try_render_page_via_cell(
     // Use custom template if specified, otherwise default to "page.html"
     let template_name = page.template.as_deref().unwrap_or("page.html");
 
-    // Check if cell is available and we have a database from task-local
-    let db = match (
-        gingembre_cell().await,
-        crate::db::TASK_DB.try_with(|db| db.clone()).ok(),
-    ) {
-        (Some(_), Some(db)) => db,
-        _ => {
-            // Fall back to direct rendering
-            return try_render_page_with_loader(page, site_tree, loader_from_map(&templates), None)
-                .await;
-        }
-    };
+    // Get database from task-local
+    let db = crate::db::TASK_DB
+        .try_with(|db| db.clone())
+        .map_err(|_| "Database not available in task-local context".to_string())?;
 
     // Create render context with templates and site_tree
     let context = RenderContext::new(templates, db, Arc::new(site_tree.clone()));
@@ -856,7 +637,6 @@ pub async fn try_render_page_via_cell(
 }
 
 /// Render a section via the gingembre cell.
-/// Falls back to direct rendering if cell is not available.
 pub async fn try_render_section_via_cell(
     section: &Section,
     site_tree: &SiteTree,
@@ -871,28 +651,10 @@ pub async fn try_render_section_via_cell(
         }
     });
 
-    // Check if cell is available and we have a database from task-local
-    let cell_available = gingembre_cell().await.is_some();
-    let db_available = crate::db::TASK_DB.try_with(|db| db.clone()).ok();
-    let db = match (cell_available, db_available) {
-        (true, Some(db)) => db,
-        (cell, db) => {
-            tracing::debug!(
-                route = %section.route,
-                cell_available = cell,
-                db_available = db.is_some(),
-                "try_render_section_via_cell: falling back to direct rendering"
-            );
-            // Fall back to direct rendering
-            return try_render_section_with_loader(
-                section,
-                site_tree,
-                loader_from_map(&templates),
-                None,
-            )
-            .await;
-        }
-    };
+    // Get database from task-local
+    let db = crate::db::TASK_DB
+        .try_with(|db| db.clone())
+        .map_err(|_| "Database not available in task-local context".to_string())?;
 
     // Create render context with templates and site_tree
     let context = RenderContext::new(templates, db, Arc::new(site_tree.clone()));
@@ -930,248 +692,6 @@ pub async fn render_section_via_cell(
     try_render_section_via_cell(section, site_tree, templates)
         .await
         .unwrap_or_else(|e| render_error_page(&e))
-}
-
-// ============================================================================
-// Convenience functions using HashMap (backward compatibility)
-// ============================================================================
-
-/// Helper to create an InMemoryLoader from a HashMap
-fn loader_from_map(templates: &HashMap<String, String>) -> InMemoryLoader {
-    let mut loader = InMemoryLoader::new();
-    for (path, content) in templates {
-        loader.add(path.clone(), content.clone());
-    }
-    loader
-}
-
-/// Render page - development mode (shows error page on failure)
-pub async fn render_page_to_html(
-    page: &Page,
-    site_tree: &SiteTree,
-    templates: &HashMap<String, String>,
-    data: Option<Value>,
-) -> String {
-    render_page_with_loader(page, site_tree, loader_from_map(templates), data).await
-}
-
-/// Render section - development mode (shows error page on failure)
-pub async fn render_section_to_html(
-    section: &Section,
-    site_tree: &SiteTree,
-    templates: &HashMap<String, String>,
-    data: Option<Value>,
-) -> String {
-    render_section_with_loader(section, site_tree, loader_from_map(templates), data).await
-}
-
-/// Build the render context with config and global functions
-fn build_render_context(site_tree: &SiteTree, data: Option<Value>) -> Context {
-    let mut ctx = build_render_context_base(site_tree);
-
-    // Add data files (if any)
-    if let Some(data_value) = data {
-        ctx.set("data", data_value);
-    } else {
-        ctx.set("data", Value::from(VObject::new()));
-    }
-
-    ctx
-}
-
-/// Build the render context with a lazy data resolver
-///
-/// Instead of loading all data upfront, this uses a resolver that will
-/// fetch data on-demand. Each data path access becomes a tracked picante dependency.
-fn build_render_context_with_resolver(
-    site_tree: &SiteTree,
-    resolver: Arc<dyn DataResolver>,
-) -> Context {
-    let mut ctx = build_render_context_base(site_tree);
-
-    // Set the data resolver for lazy data loading
-    ctx.set_data_resolver(resolver);
-
-    ctx
-}
-
-/// Base context builder with config and global functions (no data)
-fn build_render_context_base(site_tree: &SiteTree) -> Context {
-    let mut ctx = Context::new();
-
-    // Get base_url from config (defaults to "/" if not set)
-    let base_url = get_base_url();
-
-    // Add config - derive title/description from root section's frontmatter
-    let mut config_map = VObject::new();
-    let (site_title, site_description) = site_tree
-        .sections
-        .get(&Route::root())
-        .map(|root| {
-            (
-                root.title.to_string(),
-                root.description.clone().unwrap_or_default(),
-            )
-        })
-        .unwrap_or_else(|| ("Untitled".to_string(), String::new()));
-    config_map.insert(VString::from("title"), Value::from(site_title.as_str()));
-    config_map.insert(
-        VString::from("description"),
-        Value::from(site_description.as_str()),
-    );
-    config_map.insert(VString::from("base_url"), Value::from(base_url.as_str()));
-    ctx.set("config", Value::from(config_map));
-
-    // Add root section for sidebar navigation
-    if let Some(root) = site_tree.sections.get(&Route::root()) {
-        ctx.set("root", section_to_value(root, site_tree, &base_url));
-    }
-
-    // Register get_url function
-    ctx.register_fn(
-        "get_url",
-        Box::new(move |_args, kwargs| {
-            let path = kwargs
-                .iter()
-                .find(|(k, _)| k == "path")
-                .map(|(_, v)| v.render_to_string())
-                .unwrap_or_default();
-
-            let url = if path.starts_with('/') {
-                path
-            } else if path.is_empty() {
-                "/".to_string()
-            } else {
-                format!("/{path}")
-            };
-            let result = Value::from(url.as_str());
-            Box::pin(async move { Ok(result) })
-        }),
-    );
-
-    // Register get_section function
-    let sections = site_tree.sections.clone();
-    let pages = site_tree.pages.clone();
-    let base_url_for_get_section = base_url.clone();
-    ctx.register_fn(
-        "get_section",
-        Box::new(move |_args, kwargs| {
-            let path = kwargs
-                .iter()
-                .find(|(k, _)| k == "path")
-                .map(|(_, v)| v.render_to_string())
-                .unwrap_or_default();
-
-            let route = path_to_route(&path);
-            let base_url = &base_url_for_get_section;
-
-            let Some(section) = sections.get(&route) else {
-                let available: Vec<_> = sections.keys().map(|k| k.to_string()).collect();
-                return Box::pin(async move {
-                    Err(eyre::eyre!(
-                        "get_section: section not found for path={:?} (resolved to route={:?}). Available sections: {:?}",
-                        path,
-                        route,
-                        available
-                    ))
-                });
-            };
-
-            let mut section_map = VObject::new();
-            section_map.insert(VString::from("title"), Value::from(section.title.as_str()));
-            section_map.insert(
-                VString::from("permalink"),
-                Value::from(make_permalink(base_url, section.route.as_str()).as_str()),
-            );
-            section_map.insert(VString::from("path"), Value::from(section.route.as_str()));
-            section_map.insert(
-                VString::from("content"),
-                Value::from(section.body_html.as_str()),
-            );
-            section_map.insert(VString::from("toc"), headings_to_toc(&section.headings));
-            section_map.insert(VString::from("extra"), section.extra.clone());
-
-            let section_pages: Vec<Value> = pages
-                .values()
-                .filter(|p| p.section_route == section.route)
-                .map(|p| {
-                    let mut page_map = VObject::new();
-                    page_map.insert(VString::from("title"), Value::from(p.title.as_str()));
-                    page_map.insert(
-                        VString::from("permalink"),
-                        Value::from(make_permalink(base_url, p.route.as_str()).as_str()),
-                    );
-                    page_map.insert(VString::from("path"), Value::from(p.route.as_str()));
-                    page_map.insert(VString::from("weight"), Value::from(p.weight as i64));
-                    page_map.insert(VString::from("toc"), headings_to_toc(&p.headings));
-                    page_map.into()
-                })
-                .collect();
-            section_map.insert(VString::from("pages"), VArray::from_iter(section_pages));
-
-            let subsections: Vec<Value> = sections
-                .values()
-                .filter(|s| {
-                    s.route != section.route
-                        && s.route.as_str().starts_with(section.route.as_str())
-                        && s.route.as_str()[section.route.as_str().len()..]
-                            .trim_matches('/')
-                            .chars()
-                            .filter(|c| *c == '/')
-                            .count()
-                            == 0
-                })
-                .map(|s| Value::from(s.route.as_str()))
-                .collect();
-            section_map.insert(VString::from("subsections"), VArray::from_iter(subsections));
-
-            let result: Value = section_map.into();
-            Box::pin(async move { Ok(result) })
-        }),
-    );
-
-    // Register bust() function for cache-busted static file URLs
-    ctx.register_fn(
-        "bust",
-        Box::new(move |_args, kwargs| {
-            let path = kwargs
-                .iter()
-                .find(|(k, _)| k == "path")
-                .map(|(_, v)| v.render_to_string())
-                .unwrap_or_default();
-
-            // Normalize path to start with /
-            let normalized_path = if path.starts_with('/') {
-                path
-            } else {
-                format!("/{path}")
-            };
-
-            Box::pin(async move {
-                // Access database via task-local
-                let db = crate::db::TASK_DB
-                    .try_with(|db| db.clone())
-                    .map_err(|_| eyre::eyre!("bust: database not available in this context"))?;
-
-                // Get the static URL map (dereference Arc to get &Database)
-                let url_map = crate::queries::static_url_map(&*db)
-                    .await
-                    .map_err(|e| eyre::eyre!("bust: failed to get static URL map: {}", e))?;
-
-                // Look up the cache-busted URL
-                match url_map.get(&normalized_path) {
-                    Some(cache_busted_url) => Ok(Value::from(cache_busted_url.as_str())),
-                    None => Err(eyre::eyre!(
-                        "bust: path not found: {}. Available paths: {:?}",
-                        normalized_path,
-                        url_map.keys().collect::<Vec<_>>()
-                    )),
-                }
-            })
-        }),
-    );
-
-    ctx
 }
 
 /// Convert a heading to a Value dict with children field

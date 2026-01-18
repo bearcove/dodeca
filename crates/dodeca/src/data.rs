@@ -18,7 +18,7 @@
 //! ```
 
 use crate::db::DataFile;
-use crate::template::{VObject, VString, Value};
+use facet_value::{VObject, VString, Value};
 
 /// Supported data file formats
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

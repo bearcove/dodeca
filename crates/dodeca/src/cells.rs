@@ -885,6 +885,22 @@ pub async fn render_template_cell(
     render_template(context_id, template_name, initial_context).await
 }
 
+pub async fn eval_expression_cell(
+    context_id: ContextId,
+    expression: &str,
+    context: Value,
+) -> eyre::Result<cell_gingembre_proto::EvalResult> {
+    let cell = crate::host::Host::get()
+        .client_async::<TemplateRendererClient>()
+        .await
+        .ok_or_else(|| eyre::eyre!("Gingembre cell not available"))?;
+    let result = cell
+        .eval_expression(context_id, expression.to_string(), context)
+        .await
+        .map_err(|e| eyre::eyre!("RPC call error: {:?}", e))?;
+    Ok(result)
+}
+
 pub async fn diff_html_cell(input: DiffInput) -> Result<HtmlDiffResult, eyre::Error> {
     diff_html(input).await
 }
