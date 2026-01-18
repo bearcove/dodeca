@@ -12,6 +12,17 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
+/// Log a status message, routing through tracing in TUI mode
+macro_rules! status {
+    ($($arg:tt)*) => {
+        if crate::host::Host::get().is_tui_mode() {
+            tracing::info!(target: "vite", $($arg)*);
+        } else {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 /// Check if pnpm is available in PATH
 fn check_pnpm_available() -> Result<()> {
     match std::process::Command::new("pnpm")
@@ -97,7 +108,7 @@ impl ViteServer {
         check_pnpm_available()?;
         validate_package_json(project_dir, "dev")?;
 
-        eprintln!(
+        status!(
             "   {} Vite dev server in {}",
             "Starting".blue().bold(),
             project_dir.display()
@@ -151,7 +162,7 @@ impl ViteServer {
             .wrap_err("Timeout waiting for Vite to start")?
             .ok_or_else(|| eyre::eyre!("Vite process exited before reporting port"))?;
 
-        eprintln!(
+        status!(
             "   {} Vite dev server running on port {}",
             "OK".green().bold(),
             port
@@ -178,7 +189,7 @@ async fn relay_output<R: tokio::io::AsyncRead + Unpin>(reader: R, tx: mpsc::Send
 
         // Skip empty lines
         if !line.trim().is_empty() {
-            eprintln!("   {} {}", "[vite]".dimmed(), line);
+            status!("   {} {}", "[vite]".dimmed(), line);
         }
     }
 }
@@ -291,7 +302,7 @@ fn ensure_dist_gitignored(project_dir: &Path) {
         .open(&gitignore_path)
     {
         let _ = file.write_all(entry.as_bytes());
-        eprintln!(
+        status!(
             "   {} Added {} to .gitignore",
             "OK".green().bold(),
             dist_entry
@@ -311,7 +322,7 @@ pub async fn maybe_run_vite_build(project_dir: &Path) -> Result<bool> {
     check_pnpm_available()?;
     validate_package_json(project_dir, "build")?;
 
-    eprintln!(
+    status!(
         "   {} Vite production build in {}",
         "Running".blue().bold(),
         project_dir.display()
@@ -346,7 +357,7 @@ pub async fn maybe_run_vite_build(project_dir: &Path) -> Result<bool> {
         eyre::bail!("Vite build failed");
     }
 
-    eprintln!(
+    status!(
         "   {} Vite production build complete",
         "OK".green().bold()
     );

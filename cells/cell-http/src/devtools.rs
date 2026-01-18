@@ -25,8 +25,7 @@ pub async fn ws_handler(
 }
 
 async fn handle_socket(socket: WebSocket, ctx: Arc<dyn RouterContext>) {
-    eprintln!("[cell-http] DevTools WebSocket connection received, opening tunnel to host...");
-    tracing::info!("DevTools WebSocket connection received, opening tunnel to host...");
+    tracing::debug!("DevTools WebSocket connection received, opening tunnel to host...");
 
     // Create a tunnel pair - local stays here, remote goes to host
     let (local, remote) = tunnel_pair();
@@ -38,7 +37,7 @@ async fn handle_socket(socket: WebSocket, ctx: Arc<dyn RouterContext>) {
         return;
     }
 
-    tracing::info!(channel_id, "WebSocket tunnel opened to host");
+    tracing::debug!(channel_id, "WebSocket tunnel opened to host");
 
     let (mut ws_sender, mut ws_receiver) = socket.split();
 

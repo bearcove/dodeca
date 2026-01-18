@@ -59,19 +59,19 @@ impl HostWebSocketTunnel {
 impl WebSocketTunnel for HostWebSocketTunnel {
     async fn open(&self, tunnel: Tunnel) {
         let channel_id = tunnel.tx.channel_id();
-        tracing::info!(channel_id, "DevTools WebSocket tunnel opened on host");
+        tracing::debug!(channel_id, "DevTools WebSocket tunnel opened on host");
 
         // Spawn a task to handle the devtools protocol on this tunnel
         let server = self.server.clone();
         tokio::spawn(async move {
             use futures_util::FutureExt;
-            tracing::info!(channel_id, "DevTools tunnel handler task spawned");
+            tracing::debug!(channel_id, "DevTools tunnel handler task spawned");
             let result =
                 std::panic::AssertUnwindSafe(handle_devtools_tunnel(channel_id, tunnel, server))
                     .catch_unwind()
                     .await;
             match result {
-                Ok(()) => tracing::info!(channel_id, "DevTools tunnel handler task ended normally"),
+                Ok(()) => tracing::debug!(channel_id, "DevTools tunnel handler task ended normally"),
                 Err(e) => {
                     tracing::error!(channel_id, "DevTools tunnel handler task PANICKED: {:?}", e)
                 }
@@ -89,7 +89,7 @@ async fn handle_devtools_tunnel(channel_id: u64, tunnel: Tunnel, server: Arc<Sit
     use roam::{DEFAULT_TUNNEL_CHUNK_SIZE, tunnel_stream};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    tracing::info!(channel_id, "DevTools tunnel handler starting");
+    tracing::debug!(channel_id, "DevTools tunnel handler starting");
 
     // Track what route this client is currently viewing
     let mut current_route: Option<String> = None;
@@ -162,7 +162,7 @@ async fn handle_devtools_tunnel(channel_id: u64, tunnel: Tunnel, server: Arc<Sit
         }
     }
 
-    tracing::info!(channel_id, "Entering main loop, waiting for messages...");
+    tracing::debug!(channel_id, "Entering main loop, waiting for messages...");
 
     loop {
         tokio::select! {
@@ -171,7 +171,7 @@ async fn handle_devtools_tunnel(channel_id: u64, tunnel: Tunnel, server: Arc<Sit
                 tracing::debug!(channel_id, "read_half.read returned: {:?}", result.as_ref().map(|n| *n));
                 match result {
                     Ok(0) => {
-                        tracing::info!(channel_id, "DevTools tunnel closed (EOF)");
+                        tracing::debug!(channel_id, "DevTools tunnel closed (EOF)");
                         break;
                     }
                     Ok(n) => {
@@ -284,7 +284,7 @@ async fn handle_devtools_tunnel(channel_id: u64, tunnel: Tunnel, server: Arc<Sit
         }
     }
 
-    tracing::info!(channel_id, "DevTools tunnel handler finished");
+    tracing::debug!(channel_id, "DevTools tunnel handler finished");
 }
 
 /// Start the HTTP cell server with optional shutdown signal
