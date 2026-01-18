@@ -466,6 +466,7 @@ pub struct AllRenderedHtml {
         crate::queries::css_output,
         crate::queries::static_url_map,
         crate::queries::vite_manifest_map,
+        crate::queries::vite_css_for_entries,
         crate::queries::serve_html,
         crate::queries::check_external_url,
     ),

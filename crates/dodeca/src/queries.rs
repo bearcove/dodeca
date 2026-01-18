@@ -610,7 +610,7 @@ pub async fn load_static<DB: Db>(db: &DB, file: StaticFile) -> PicanteResult<Vec
 }
 
 /// A single entry in the Vite manifest
-#[derive(Facet, Default)]
+#[derive(Facet, Default, Clone)]
 struct ViteManifestEntry {
     /// Output file path (e.g., "assets/main-BhKl2bGh.js")
     file: String,
@@ -623,6 +623,9 @@ struct ViteManifestEntry {
     /// CSS files imported by this entry
     #[facet(default)]
     css: Option<Vec<String>>,
+    /// Other chunks this entry imports (for transitive CSS resolution)
+    #[facet(default)]
+    imports: Option<Vec<String>>,
 }
 
 /// Parse Vite manifest and return source → cache-busted output path mappings
@@ -715,6 +718,125 @@ pub async fn vite_manifest_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String,
 
     if !result.is_empty() {
         tracing::debug!(count = result.len(), "Loaded Vite manifest mappings");
+    }
+
+    Ok(result)
+}
+
+/// Collect transitive CSS files for a manifest entry by following its imports chain
+fn collect_transitive_css(
+    manifest: &HashMap<String, ViteManifestEntry>,
+    entry_key: &str,
+    visited: &mut std::collections::HashSet<String>,
+) -> Vec<String> {
+    // Prevent infinite loops
+    if visited.contains(entry_key) {
+        return Vec::new();
+    }
+    visited.insert(entry_key.to_string());
+
+    let Some(entry) = manifest.get(entry_key) else {
+        return Vec::new();
+    };
+
+    let mut css_files = Vec::new();
+
+    // Collect direct CSS
+    if let Some(css) = &entry.css {
+        css_files.extend(css.iter().cloned());
+    }
+
+    // Recursively collect CSS from imported chunks
+    if let Some(imports) = &entry.imports {
+        for import_key in imports {
+            css_files.extend(collect_transitive_css(manifest, import_key, visited));
+        }
+    }
+
+    css_files
+}
+
+/// Returns a map of Vite entry source paths to their required CSS files (including transitive imports)
+///
+/// When HTML contains `<script src="/src/monaco/main.ts">`, we need to inject `<link>` tags
+/// for any CSS files that this entry point (and its imports) require.
+#[picante::tracked]
+pub async fn vite_css_for_entries<DB: Db>(
+    db: &DB,
+) -> PicanteResult<HashMap<String, Vec<String>>> {
+    let mut result: HashMap<String, Vec<String>> = HashMap::new();
+
+    // Look for .vite/manifest.json in static files
+    let static_files = StaticRegistry::files(db)?.unwrap_or_default();
+    let manifest_file = static_files.iter().find(|f| {
+        f.path(db)
+            .ok()
+            .map(|p| p.as_str() == ".vite/manifest.json")
+            .unwrap_or(false)
+    });
+
+    let Some(manifest_file) = manifest_file else {
+        return Ok(result);
+    };
+
+    let content = manifest_file.content(db)?;
+    let Ok(manifest_str) = std::str::from_utf8(&content) else {
+        return Ok(result);
+    };
+
+    let manifest: HashMap<String, ViteManifestEntry> = match facet_json::from_str(manifest_str) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!("Failed to parse Vite manifest for CSS collection: {}", e);
+            return Ok(result);
+        }
+    };
+
+    // Build a map of vite output path → static file for cache-bust lookups
+    let static_file_map: HashMap<String, StaticFile> = static_files
+        .iter()
+        .filter_map(|f| {
+            let path = f.path(db).ok()?.as_str().to_string();
+            Some((path, *f))
+        })
+        .collect();
+
+    // For each entry point, collect all transitive CSS
+    for (src, entry) in &manifest {
+        // Skip non-entry points and chunk keys (start with _)
+        if !entry.is_entry.unwrap_or(false) || src.starts_with('_') {
+            continue;
+        }
+
+        let mut visited = std::collections::HashSet::new();
+        let css_files = collect_transitive_css(&manifest, src, &mut visited);
+
+        if css_files.is_empty() {
+            continue;
+        }
+
+        // Convert CSS paths to cache-busted URLs
+        let mut css_urls = Vec::new();
+        for css in css_files {
+            let css_url = if let Some(static_file) = static_file_map.get(&css) {
+                let output = static_file_output(db, *static_file).await?;
+                format!("/{}", output.cache_busted_path)
+            } else {
+                format!("/{css}")
+            };
+            // Avoid duplicates
+            if !css_urls.contains(&css_url) {
+                css_urls.push(css_url);
+            }
+        }
+
+        let source_path = format!("/{src}");
+        tracing::debug!(
+            source = %source_path,
+            css_count = css_urls.len(),
+            "Vite entry CSS dependencies"
+        );
+        result.insert(source_path, css_urls);
     }
 
     Ok(result)
@@ -1447,6 +1569,9 @@ pub async fn serve_html<DB: Db>(
     let vite_map = vite_manifest_map(db).await?;
     path_map.extend(vite_map);
 
+    // Collect CSS that needs to be injected for Vite entry points
+    let vite_css_map = vite_css_for_entries(db).await?;
+
     // Build image variants map for <picture> transformation
     // Uses image_metadata (fast decode) + input-based hashes (no encoding needed)
     let mut image_variants: HashMap<String, ResponsiveImageInfo> = HashMap::new();
@@ -1524,12 +1649,20 @@ pub async fn serve_html<DB: Db>(
         }
     }
 
-    // Rewrite URLs in HTML
-    let rewritten_html = rewrite_urls_in_html(&raw_html, &path_map).await;
+    // Inject CSS links for Vite entry points BEFORE URL rewriting
+    // We need to find script tags with src matching Vite entry source paths (e.g., /src/monaco/main.ts)
+    // and inject the corresponding CSS <link> tags
+    let html_with_css = inject_vite_css_links(&raw_html, &vite_css_map);
+
+    // Rewrite URLs in HTML (this transforms /src/monaco/main.ts -> /monaco.xxx.js)
+    let rewritten_html = rewrite_urls_in_html(&html_with_css, &path_map).await;
     let rewritten_has_doctype = rewritten_html.contains("<!DOCTYPE");
 
+    // Use injected_html as alias for clarity in subsequent steps
+    let injected_html = rewritten_html;
+
     // Transform <img> to <picture> for responsive images
-    let transformed_html = transform_images_to_picture(&rewritten_html, &image_variants);
+    let transformed_html = transform_images_to_picture(&injected_html, &image_variants);
     let transformed_has_doctype = transformed_html.contains("<!DOCTYPE");
 
     // Minify HTML (but skip for error pages to preserve the error marker comment)
@@ -1555,6 +1688,79 @@ pub async fn serve_html<DB: Db>(
     }
 
     Ok(Ok(Some(final_html)))
+}
+
+/// Inject CSS `<link>` tags for Vite entry points found in HTML
+///
+/// Scans the HTML for:
+/// - `<script src="/src/...">` attributes
+/// - `import ... from '/src/...'` statements in inline scripts
+///
+/// For each Vite entry found, injects the corresponding CSS links into `<head>`.
+fn inject_vite_css_links(html: &str, vite_css_map: &HashMap<String, Vec<String>>) -> String {
+    if vite_css_map.is_empty() {
+        return html.to_string();
+    }
+
+    // Collect all CSS URLs that need to be injected
+    let mut css_to_inject: Vec<String> = Vec::new();
+
+    // Pattern 1: <script src="/src/..."> or <script type="module" src="/src/...">
+    let script_src_re = regex::Regex::new(r#"<script[^>]*\ssrc=["']([^"']+)["'][^>]*>"#).unwrap();
+    for cap in script_src_re.captures_iter(html) {
+        let src = &cap[1];
+        if let Some(css_urls) = vite_css_map.get(src) {
+            for url in css_urls {
+                if !css_to_inject.contains(url) {
+                    css_to_inject.push(url.clone());
+                }
+            }
+        }
+    }
+
+    // Pattern 2: import ... from '/src/...' in inline scripts
+    let import_re = regex::Regex::new(r#"import\s+.*?\s+from\s+['"]([^'"]+)['"]"#).unwrap();
+    for cap in import_re.captures_iter(html) {
+        let import_path = &cap[1];
+        if let Some(css_urls) = vite_css_map.get(import_path) {
+            for url in css_urls {
+                if !css_to_inject.contains(url) {
+                    css_to_inject.push(url.clone());
+                }
+            }
+        }
+    }
+
+    if css_to_inject.is_empty() {
+        return html.to_string();
+    }
+
+    tracing::debug!(
+        css_count = css_to_inject.len(),
+        css_urls = ?css_to_inject,
+        "Injecting Vite CSS links"
+    );
+
+    // Build the link tags to inject
+    let link_tags: String = css_to_inject
+        .iter()
+        .map(|url| format!(r#"<link rel="stylesheet" href="{url}">"#))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Try to inject before </head>, or before first <link>, or at the start
+    if let Some(pos) = html.find("</head>") {
+        let mut result = html.to_string();
+        result.insert_str(pos, &format!("{link_tags}\n"));
+        result
+    } else if let Some(pos) = html.find("<link") {
+        let mut result = html.to_string();
+        result.insert_str(pos, &format!("{link_tags}\n"));
+        result
+    } else {
+        // Fallback: prepend to HTML
+        format!("{link_tags}\n{html}")
+    }
 }
 
 /// Check if a path is a font file
