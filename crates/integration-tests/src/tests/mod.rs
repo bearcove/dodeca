@@ -4,6 +4,7 @@ use std::time::Duration;
 
 pub mod basic;
 pub mod boot_contract;
+pub mod build_steps;
 pub mod cache_busting;
 pub mod code_execution;
 pub mod content;

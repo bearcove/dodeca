@@ -708,5 +708,66 @@ fn collect_tests() -> Vec<Test> {
             func: boot_contract::immediate_request_after_fd_pass_succeeds,
             ignored: false,
         },
+        // build_steps tests
+        Test {
+            name: "build_step_basic_command",
+            module: "build_steps",
+            func: build_steps::build_step_basic_command,
+            ignored: false,
+        },
+        Test {
+            name: "build_step_read_file",
+            module: "build_steps",
+            func: build_steps::build_step_read_file,
+            ignored: false,
+        },
+        Test {
+            name: "build_step_command_with_file_param",
+            module: "build_steps",
+            func: build_steps::build_step_command_with_file_param,
+            ignored: false,
+        },
+        Test {
+            name: "build_step_string_param",
+            module: "build_steps",
+            func: build_steps::build_step_string_param,
+            ignored: false,
+        },
+        Test {
+            name: "build_step_caching_same_call",
+            module: "build_steps",
+            func: build_steps::build_step_caching_same_call,
+            ignored: false,
+        },
+        Test {
+            name: "build_step_caching_different_files",
+            module: "build_steps",
+            func: build_steps::build_step_caching_different_files,
+            ignored: false,
+        },
+        Test {
+            name: "build_step_cache_consistency",
+            module: "build_steps",
+            func: build_steps::build_step_cache_consistency,
+            ignored: false,
+        },
+        Test {
+            name: "builtin_read_function",
+            module: "build_steps",
+            func: build_steps::builtin_read_function,
+            ignored: false,
+        },
+        Test {
+            name: "build_step_unknown_step_error",
+            module: "build_steps",
+            func: build_steps::build_step_unknown_step_error,
+            ignored: false,
+        },
+        Test {
+            name: "build_step_missing_param_error",
+            module: "build_steps",
+            func: build_steps::build_step_missing_param_error,
+            ignored: false,
+        },
     ]
 }
