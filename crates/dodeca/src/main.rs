@@ -27,6 +27,7 @@ mod tui;
 mod tui_host;
 mod types;
 mod url_rewrite;
+mod vite;
 
 use crate::config::ResolvedConfig;
 use crate::db::{
@@ -410,6 +411,10 @@ async fn async_main(command: Command) -> Result<()> {
 
             // Initialize tracing (respects RUST_LOG)
             logging::init_standard_tracing();
+
+            // Run Vite build if configured (before dodeca build so assets are available)
+            let project_dir = cfg.content_dir.parent().unwrap_or(&cfg.content_dir);
+            vite::maybe_run_vite_build(project_dir.as_std_path()).await?;
 
             let options = BuildOptions {
                 render_options: render::RenderOptions {
@@ -2075,6 +2080,9 @@ async fn serve_plain(
     );
     cas::init_asset_cache(cache_dir.as_std_path())?;
 
+    // Start Vite dev server if configured
+    let _vite_server = vite::maybe_start_vite(parent_dir.as_std_path()).await;
+
     let render_options = render::RenderOptions {
         livereload: true, // Enable live reload in plain mode too
         dev_mode: true,
@@ -2406,6 +2414,9 @@ async fn serve_with_tui(
     let parent_dir = content_dir.parent().unwrap_or(content_dir);
     let cache_dir = parent_dir.join(".cache");
     cas::init_asset_cache(cache_dir.as_std_path())?;
+
+    // Start Vite dev server if configured
+    let _vite_server = vite::maybe_start_vite(parent_dir.as_std_path()).await;
 
     // Create channels
     let (progress_tx, mut progress_rx) = tui::progress_channel();

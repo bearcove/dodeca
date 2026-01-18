@@ -86,4 +86,12 @@ pub trait HostService {
 
     /// Request graceful shutdown.
     async fn quit(&self);
+
+    // =========================================================================
+    // Vite Integration
+    // =========================================================================
+
+    /// Get the Vite dev server port if one is running.
+    /// Returns None if Vite is not enabled for this project.
+    async fn get_vite_port(&self) -> Option<u16>;
 }

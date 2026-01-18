@@ -94,6 +94,13 @@ pub struct Host {
     site_server: std::sync::OnceLock<Arc<crate::serve::SiteServer>>,
 
     // -------------------------------------------------------------------------
+    // Vite Dev Server
+    // -------------------------------------------------------------------------
+    /// Vite dev server port (if Vite is running).
+    /// Set via `provide_vite_port()` after ViteServer starts.
+    vite_port: std::sync::OnceLock<Option<u16>>,
+
+    // -------------------------------------------------------------------------
     // Driver Handle (for lazy spawning)
     // -------------------------------------------------------------------------
     /// MultiPeerHostDriver handle for dynamically creating peers.
@@ -118,6 +125,7 @@ impl Host {
                 pending_cells: std::sync::Mutex::new(std::collections::HashMap::new()),
                 quiet_mode: std::sync::atomic::AtomicBool::new(false),
                 site_server: std::sync::OnceLock::new(),
+                vite_port: std::sync::OnceLock::new(),
                 driver_handle: std::sync::OnceLock::new(),
             })
         })
@@ -237,6 +245,17 @@ impl Host {
     /// Get the SiteServer reference, if provided.
     pub fn site_server(&self) -> Option<&Arc<crate::serve::SiteServer>> {
         self.site_server.get()
+    }
+
+    /// Provide the Vite dev server port.
+    /// Call this after ViteServer starts, or with None if Vite is not enabled.
+    pub fn provide_vite_port(&self, port: Option<u16>) {
+        let _ = self.vite_port.set(port);
+    }
+
+    /// Get the Vite dev server port, if Vite is running.
+    pub fn get_vite_port(&self) -> Option<u16> {
+        self.vite_port.get().copied().flatten()
     }
 
     /// Set the driver handle for dynamic peer creation (lazy spawning).

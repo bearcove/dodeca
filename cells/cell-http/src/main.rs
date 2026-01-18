@@ -28,6 +28,7 @@ use cell_http_proto::TcpTunnelDispatcher;
 
 mod devtools;
 mod tunnel;
+mod vite;
 
 /// Trait for router context - allows lazy initialization
 pub trait RouterContext: Send + Sync + 'static {
@@ -100,6 +101,12 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
         request: Request,
     ) -> Response {
         let path = request.uri().path().to_string();
+
+        // Check if this should be proxied to Vite
+        if vite::is_vite_path(&path) {
+            return vite::vite_proxy_handler(State(ctx), request).await;
+        }
+
         let client = ctx.host_client();
 
         // Call host to get content

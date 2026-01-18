@@ -39,9 +39,10 @@ tokio = { version = "1.48", features = ["full", "macros", "process", "rt", "rt-m
 # HTTP/networking
 axum = { version = "0.8", features = ["ws"] }
 hyper = { version = "1", features = ["server", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
+hyper-util = { version = "0.1", features = ["tokio", "client", "client-legacy", "http1"] }
 if-addrs = "0.14"
 reqwest = { version = "0.13", features = ["blocking"] }
+tokio-tungstenite = "0.26"
 ureq = { version = "3", default-features = false }
 
 # Logging/tracing

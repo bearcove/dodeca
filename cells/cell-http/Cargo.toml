@@ -19,9 +19,11 @@ axum.workspace = true
 cell-host-proto = { path = "../cell-host-proto" }
 cell-http-proto = { path = "../cell-http-proto" }
 dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
+eyre.workspace = true
 futures-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
 roam.workspace = true
 tokio.workspace = true
+tokio-tungstenite.workspace = true
 tracing.workspace = true

@@ -286,6 +286,11 @@ impl HostService for HostServiceImpl {
     async fn quit(&self) {
         crate::host::Host::get().signal_exit();
     }
+
+    // Vite Integration
+    async fn get_vite_port(&self) -> Option<u16> {
+        crate::host::Host::get().get_vite_port()
+    }
 }
 
 /// Get the TUI display client for pushing updates to the TUI cell.
