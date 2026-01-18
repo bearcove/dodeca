@@ -15,6 +15,10 @@ content content
 output public
 ```
 
+## Schema support
+
+Dodeca supports Styx schema discovery via CLI. When you have `ddc` installed, editors can run `ddc @dump-styx-schema` to discover the config schema automatically for autocomplete and validation.
+
 ## Link checking
 
 `ddc build` checks all internal and external links, failing the build if any are broken.

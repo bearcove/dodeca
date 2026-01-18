@@ -2607,6 +2607,7 @@ dependencies = [
  "roam-tracing",
  "serde_yaml",
  "strid",
+ "styx-schema",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -7483,6 +7484,19 @@ dependencies = [
 [[package]]
 name = "styx-parse"
 version = "0.1.0"
+
+[[package]]
+name = "styx-schema"
+version = "0.1.0"
+dependencies = [
+ "ariadne",
+ "facet",
+ "facet-styx",
+ "serde_json",
+ "styx-format",
+ "styx-parse",
+ "styx-tree",
+]
 
 [[package]]
 name = "styx-tree"

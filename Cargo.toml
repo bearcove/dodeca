@@ -62,6 +62,7 @@ facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+styx-schema = { git = "https://github.com/bearcove/styx", branch = "main" }
 
 # RPC framework
 roam = { git = "https://github.com/bearcove/roam", branch = "main" }
@@ -174,6 +175,7 @@ pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 facet-styx = { path = "../styx/crates/facet-styx" }
 styx-parse = { path = "../styx/crates/styx-parse" }
 styx-format = { path = "../styx/crates/styx-format" }
+styx-schema = { path = "../styx/crates/styx-schema" }
 
 # Patch roam to use local version for debugging
 [patch."https://github.com/bearcove/roam"]
