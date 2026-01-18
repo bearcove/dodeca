@@ -94,7 +94,7 @@ arborium = { version = "2", features = [
     "lang-markdown", "lang-nginx", "lang-toml", "lang-typst", "lang-xml",
     "lang-yaml", "lang-styx",
     # Build Systems & Tools
-    "lang-cmake", "lang-meson", "lang-nix",
+    "lang-cmake", "lang-meson", "lang-nix", "lang-hcl",
     # Protocol/Data Formats
     "lang-capnp", "lang-textproto", "lang-thrift",
     # Misc
