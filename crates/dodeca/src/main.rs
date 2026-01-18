@@ -721,6 +721,14 @@ impl BuildContext {
             .join("static")
     }
 
+    /// Get the dist directory (sibling to content dir, for generated/build output)
+    pub fn dist_dir(&self) -> Utf8PathBuf {
+        self.content_dir
+            .parent()
+            .unwrap_or(&self.content_dir)
+            .join("dist")
+    }
+
     /// Get the data directory (sibling to content dir)
     pub fn data_dir(&self) -> Utf8PathBuf {
         self.content_dir
@@ -837,30 +845,53 @@ impl BuildContext {
         Ok(())
     }
 
-    /// Load all static files into the database
+    /// Load all static files into the database (from static/ and dist/, with dist/ taking priority)
     pub fn load_static(&mut self) -> Result<()> {
         let static_dir = self.static_dir();
-        if !static_dir.exists() {
-            return Ok(()); // No static directory is fine
+        let dist_dir = self.dist_dir();
+
+        // Load from static/ first
+        if static_dir.exists() {
+            let static_files: Vec<Utf8PathBuf> = WalkBuilder::new(&static_dir)
+                .build()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+                .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+                .collect();
+
+            for path in static_files {
+                let content = fs::read(&path)?;
+                let relative = path
+                    .strip_prefix(&static_dir)
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|_| path.to_string());
+
+                let static_path = StaticPath::new(relative);
+                let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
+                self.static_files.insert(static_path, static_file);
+            }
         }
 
-        let static_files: Vec<Utf8PathBuf> = WalkBuilder::new(&static_dir)
-            .build()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
-            .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
-            .collect();
+        // Load from dist/ (overwrites static/ on conflict)
+        if dist_dir.exists() {
+            let dist_files: Vec<Utf8PathBuf> = WalkBuilder::new(&dist_dir)
+                .build()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().map(|ft| ft.is_file()).unwrap_or(false))
+                .filter_map(|e| Utf8PathBuf::from_path_buf(e.into_path()).ok())
+                .collect();
 
-        for path in static_files {
-            let content = fs::read(&path)?;
-            let relative = path
-                .strip_prefix(&static_dir)
-                .map(|p| p.to_string())
-                .unwrap_or_else(|_| path.to_string());
+            for path in dist_files {
+                let content = fs::read(&path)?;
+                let relative = path
+                    .strip_prefix(&dist_dir)
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|_| path.to_string());
 
-            let static_path = StaticPath::new(relative);
-            let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
-            self.static_files.insert(static_path, static_file);
+                let static_path = StaticPath::new(relative);
+                let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
+                self.static_files.insert(static_path, static_file);
+            }
         }
 
         Ok(())
@@ -1682,7 +1713,7 @@ fn handle_file_changed(
                 SassRegistry::set(db, sass_files).expect("failed to set sass files");
             }
         }
-        PathCategory::Static => {
+        PathCategory::Static | PathCategory::Dist => {
             if let Ok(content) = fs::read(path) {
                 // Skip empty files (transient state during git operations)
                 if content.is_empty() {
@@ -1802,7 +1833,7 @@ fn handle_file_removed(
                 SassRegistry::set(db, sass_files).expect("failed to set sass files");
             }
         }
-        PathCategory::Static => {
+        PathCategory::Static | PathCategory::Dist => {
             let db = &*server.db;
             let mut static_files = StaticRegistry::files(db).ok().flatten().unwrap_or_default();
             if let Some(pos) = static_files.iter().position(|s| {
@@ -2212,30 +2243,57 @@ async fn serve_plain(
         println!("  Loaded {} templates", count);
     }
 
-    // Load static files into picante
+    // Load static files into picante (from static/ and dist/, with dist/ taking priority)
     let static_dir = parent_dir.join("static");
-    if static_dir.exists() {
-        let walker = WalkBuilder::new(&static_dir).build();
+    let dist_dir = parent_dir.join("dist");
+    {
         let db = &*server.db;
-        let mut static_files = Vec::new();
+        let mut static_files_map: std::collections::BTreeMap<String, StaticFile> =
+            std::collections::BTreeMap::new();
 
-        for entry in walker {
-            let entry = entry?;
-            let path = Utf8Path::from_path(entry.path())
-                .ok_or_else(|| eyre!("Non-UTF8 path in static directory"))?;
+        // Load from static/ first
+        if static_dir.exists() {
+            let walker = WalkBuilder::new(&static_dir).build();
+            for entry in walker {
+                let entry = entry?;
+                let path = Utf8Path::from_path(entry.path())
+                    .ok_or_else(|| eyre!("Non-UTF8 path in static directory"))?;
 
-            if path.is_file() {
-                let relative = path.strip_prefix(&static_dir)?;
-                let content = fs::read(path)?;
-
-                let static_path = StaticPath::new(relative.to_string());
-                let static_file = StaticFile::new(db, static_path, content)?;
-                static_files.push(static_file);
+                if path.is_file() {
+                    let relative = path.strip_prefix(&static_dir)?;
+                    let content = fs::read(path)?;
+                    let key = relative.to_string();
+                    let static_path = StaticPath::new(key.clone());
+                    let static_file = StaticFile::new(db, static_path, content)?;
+                    static_files_map.insert(key, static_file);
+                }
             }
         }
-        let count = static_files.len();
-        server.set_static_files(static_files);
-        println!("  Loaded {count} static files");
+
+        // Load from dist/ (overwrites static/ on conflict)
+        if dist_dir.exists() {
+            let walker = WalkBuilder::new(&dist_dir).build();
+            for entry in walker {
+                let entry = entry?;
+                let path = Utf8Path::from_path(entry.path())
+                    .ok_or_else(|| eyre!("Non-UTF8 path in dist directory"))?;
+
+                if path.is_file() {
+                    let relative = path.strip_prefix(&dist_dir)?;
+                    let content = fs::read(path)?;
+                    let key = relative.to_string();
+                    let static_path = StaticPath::new(key.clone());
+                    let static_file = StaticFile::new(db, static_path, content)?;
+                    static_files_map.insert(key, static_file);
+                }
+            }
+        }
+
+        let count = static_files_map.len();
+        server.set_static_files(static_files_map.into_values().collect());
+        if count > 0 {
+            println!("  Loaded {count} static files");
+        }
     }
 
     // Load data files into picante
@@ -2318,6 +2376,7 @@ async fn serve_plain(
     // data_dir already defined above when loading data files
 
     // Canonicalize paths for comparison with notify events
+    let dist_dir = parent_dir.join("dist");
     let watcher_config = file_watcher::WatcherConfig {
         content_dir: content_dir
             .canonicalize_utf8()
@@ -2331,6 +2390,9 @@ async fn serve_plain(
         static_dir: static_dir
             .canonicalize_utf8()
             .unwrap_or_else(|_| static_dir.clone()),
+        dist_dir: dist_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| dist_dir.clone()),
         data_dir: data_dir
             .canonicalize_utf8()
             .unwrap_or_else(|_| data_dir.clone()),
@@ -2598,33 +2660,57 @@ async fn serve_with_tui(
         let _ = event_tx.send(LogEvent::build(format!("Loaded {} templates", count)));
     }
 
-    // Load static files into picante
+    // Load static files into picante (from static/ and dist/, with dist/ taking priority)
     let static_dir = parent_dir.join("static");
-    if static_dir.exists() {
-        let walker = WalkBuilder::new(&static_dir).build();
-        // Get current static files BEFORE locking db to avoid deadlock
-        let mut static_files = server.get_static_files();
+    let dist_dir = parent_dir.join("dist");
+    {
         let db = &*server.db;
-        let mut count = 0;
+        let mut static_files_map: std::collections::BTreeMap<String, StaticFile> =
+            std::collections::BTreeMap::new();
 
-        for entry in walker {
-            let entry = entry?;
-            let path = Utf8Path::from_path(entry.path())
-                .ok_or_else(|| eyre!("Non-UTF8 path in static directory"))?;
+        // Load from static/ first
+        if static_dir.exists() {
+            let walker = WalkBuilder::new(&static_dir).build();
+            for entry in walker {
+                let entry = entry?;
+                let path = Utf8Path::from_path(entry.path())
+                    .ok_or_else(|| eyre!("Non-UTF8 path in static directory"))?;
 
-            if path.is_file() {
-                let relative = path.strip_prefix(&static_dir)?;
-                let content = fs::read(path)?;
-
-                let static_path = StaticPath::new(relative.to_string());
-                let static_file = StaticFile::new(db, static_path, content)?;
-                static_files.push(static_file);
-                count += 1;
+                if path.is_file() {
+                    let relative = path.strip_prefix(&static_dir)?;
+                    let content = fs::read(path)?;
+                    let key = relative.to_string();
+                    let static_path = StaticPath::new(key.clone());
+                    let static_file = StaticFile::new(db, static_path, content)?;
+                    static_files_map.insert(key, static_file);
+                }
             }
         }
 
-        server.set_static_files(static_files);
-        let _ = event_tx.send(LogEvent::build(format!("Loaded {count} static files")));
+        // Load from dist/ (overwrites static/ on conflict)
+        if dist_dir.exists() {
+            let walker = WalkBuilder::new(&dist_dir).build();
+            for entry in walker {
+                let entry = entry?;
+                let path = Utf8Path::from_path(entry.path())
+                    .ok_or_else(|| eyre!("Non-UTF8 path in dist directory"))?;
+
+                if path.is_file() {
+                    let relative = path.strip_prefix(&dist_dir)?;
+                    let content = fs::read(path)?;
+                    let key = relative.to_string();
+                    let static_path = StaticPath::new(key.clone());
+                    let static_file = StaticFile::new(db, static_path, content)?;
+                    static_files_map.insert(key, static_file);
+                }
+            }
+        }
+
+        let count = static_files_map.len();
+        server.set_static_files(static_files_map.into_values().collect());
+        if count > 0 {
+            let _ = event_tx.send(LogEvent::build(format!("Loaded {count} static files")));
+        }
     }
 
     // Load SASS files into picante (CSS compiled on-demand via query)
@@ -2683,6 +2769,7 @@ async fn serve_with_tui(
     // Set up file watcher (shared pipeline with plain serve)
     let sass_dir = parent_dir.join("sass");
     let static_dir = parent_dir.join("static");
+    let dist_dir = parent_dir.join("dist");
     let data_dir = parent_dir.join("data");
 
     let watcher_config = file_watcher::WatcherConfig {
@@ -2698,6 +2785,9 @@ async fn serve_with_tui(
         static_dir: static_dir
             .canonicalize_utf8()
             .unwrap_or_else(|_| static_dir.clone()),
+        dist_dir: dist_dir
+            .canonicalize_utf8()
+            .unwrap_or_else(|_| dist_dir.clone()),
         data_dir: data_dir
             .canonicalize_utf8()
             .unwrap_or_else(|_| data_dir.clone()),
@@ -2712,6 +2802,9 @@ async fn serve_with_tui(
     }
     if static_dir.exists() {
         watched_dirs.push("static".to_string());
+    }
+    if dist_dir.exists() {
+        watched_dirs.push("dist".to_string());
     }
     if data_dir.exists() {
         watched_dirs.push("data".to_string());

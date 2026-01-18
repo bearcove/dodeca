@@ -609,6 +609,85 @@ pub async fn load_static<DB: Db>(db: &DB, file: StaticFile) -> PicanteResult<Vec
     Ok(content)
 }
 
+/// A single entry in the Vite manifest
+#[derive(Facet, Default)]
+struct ViteManifestEntry {
+    /// Output file path (e.g., "assets/main-BhKl2bGh.js")
+    file: String,
+    /// Source file path (e.g., "src/main.ts")
+    #[facet(default)]
+    src: Option<String>,
+    /// Whether this is an entry point
+    #[facet(rename = "isEntry", default)]
+    is_entry: Option<bool>,
+    /// CSS files imported by this entry
+    #[facet(default)]
+    css: Option<Vec<String>>,
+}
+
+/// Parse Vite manifest and return source → output path mappings
+///
+/// The manifest at `.vite/manifest.json` maps source files to their built outputs:
+/// ```json
+/// {
+///   "src/main.ts": {
+///     "file": "assets/main-BhKl2bGh.js",
+///     "src": "src/main.ts",
+///     "isEntry": true
+///   }
+/// }
+/// ```
+///
+/// Returns a HashMap mapping `/src/main.ts` → `/assets/main-BhKl2bGh.js`
+#[picante::tracked]
+pub async fn vite_manifest_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, String>> {
+    let mut result = HashMap::new();
+
+    // Look for .vite/manifest.json in static files
+    let static_files = StaticRegistry::files(db)?.unwrap_or_default();
+    let manifest_file = static_files
+        .iter()
+        .find(|f| f.path(db).ok().map(|p| p.as_str() == ".vite/manifest.json").unwrap_or(false));
+
+    let Some(manifest_file) = manifest_file else {
+        return Ok(result);
+    };
+
+    let content = manifest_file.content(db)?;
+    let Ok(manifest_str) = std::str::from_utf8(&content) else {
+        tracing::warn!("Vite manifest is not valid UTF-8");
+        return Ok(result);
+    };
+
+    // Parse as JSON - the manifest is { "src/file.ts": { "file": "assets/out.js", ... }, ... }
+    let manifest: HashMap<String, ViteManifestEntry> = match facet_json::from_str(manifest_str) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!("Failed to parse Vite manifest: {}", e);
+            return Ok(result);
+        }
+    };
+
+    for (src, entry) in manifest {
+        // Map /src/main.ts → /assets/main-xxx.js
+        result.insert(format!("/{src}"), format!("/{}", entry.file));
+
+        // Also map any CSS files this entry imports
+        if let Some(css_files) = entry.css {
+            for css in css_files {
+                // CSS files are already output paths, but we map the source CSS if it exists
+                result.insert(format!("/{css}"), format!("/{css}"));
+            }
+        }
+    }
+
+    if !result.is_empty() {
+        tracing::debug!(count = result.len(), "Loaded Vite manifest mappings");
+    }
+
+    Ok(result)
+}
+
 /// Process an SVG file - tracked
 /// Currently passes through unchanged (optimization disabled)
 #[picante::tracked]
@@ -1330,6 +1409,11 @@ pub async fn serve_html<DB: Db>(
             );
         }
     }
+
+    // Add Vite manifest mappings (source → built output)
+    // This allows templates to reference /src/main.ts and have it rewritten to /assets/main-xxx.js
+    let vite_map = vite_manifest_map(db).await?;
+    path_map.extend(vite_map);
 
     // Build image variants map for <picture> transformation
     // Uses image_metadata (fast decode) + input-based hashes (no encoding needed)

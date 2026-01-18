@@ -82,6 +82,12 @@ my-site/
 │   └── index.md
 ├── templates/
 │   └── base.html.jinja
+├── static/                 # Hand-crafted static assets
+│   └── favicon.ico
+├── dist/                   # Generated assets (Vite build output)
+│   └── assets/
+│       ├── main-abc123.js
+│       └── style-def456.css
 ├── src/                    # Frontend source (Vite)
 │   ├── main.ts
 │   └── style.css
@@ -89,6 +95,8 @@ my-site/
 ├── pnpm-lock.yaml
 └── vite.config.ts
 ```
+
+Note: The `dist/` directory is for generated/build output and should be gitignored. Files in `dist/` take priority over files in `static/` when paths conflict.
 
 ## Proxied paths
 
@@ -133,7 +141,7 @@ When you run `ddc build`, dodeca automatically:
 3. Runs `pnpm run build` to build frontend assets
 4. Then proceeds with the normal dodeca build
 
-Configure Vite to output to a directory dodeca serves as static files:
+Configure Vite to output to the `dist/` directory:
 
 ```typescript
 // vite.config.ts
@@ -141,29 +149,26 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   build: {
-    outDir: 'static/dist',  // Output to dodeca's static directory
+    outDir: 'dist',         // Output to dodeca's dist directory
     manifest: true,         // Generate manifest for asset references
   }
 })
 ```
 
-The built assets will be included in dodeca's output automatically since they're in `static/`.
+The built assets in `dist/` are automatically included in dodeca's output. Remember to add `dist/` to your `.gitignore` since these are generated files.
 
 ### Dev vs Production assets
 
-In templates, you can conditionally reference dev or production assets:
+You can reference source files directly - dodeca automatically rewrites them to the built output in production:
 
 ```html
-{% if dev_mode %}
-  <!-- Vite dev server serves this with HMR -->
-  <script type="module" src="/src/main.ts"></script>
-{% else %}
-  <!-- Production build output -->
-  <script type="module" src="/dist/main.js"></script>
-{% endif %}
+<!-- Works in both dev and production -->
+<script type="module" src="/src/main.ts"></script>
 ```
 
-The `dev_mode` variable is available in templates when running `ddc serve`.
+In development, Vite serves `/src/main.ts` directly with HMR. In production (`ddc build`), dodeca reads the Vite manifest at `dist/.vite/manifest.json` and automatically rewrites `/src/main.ts` to `/assets/main-abc123.js`.
+
+This means you don't need conditional logic in your templates - the same markup works everywhere.
 
 ## Framework examples
 

@@ -25,6 +25,7 @@ pub struct WatcherConfig {
     pub templates_dir: Utf8PathBuf,
     pub sass_dir: Utf8PathBuf,
     pub static_dir: Utf8PathBuf,
+    pub dist_dir: Utf8PathBuf,
     pub data_dir: Utf8PathBuf,
 }
 
@@ -70,6 +71,8 @@ pub enum PathCategory {
     Template,
     Sass,
     Static,
+    /// Dist directory (generated/build output) - takes priority over Static
+    Dist,
     Data,
     Unknown,
 }
@@ -83,6 +86,8 @@ impl WatcherConfig {
             PathCategory::Template
         } else if path.starts_with(&self.sass_dir) {
             PathCategory::Sass
+        } else if path.starts_with(&self.dist_dir) {
+            PathCategory::Dist
         } else if path.starts_with(&self.static_dir) {
             PathCategory::Static
         } else if path.starts_with(&self.data_dir) {
@@ -108,6 +113,7 @@ impl WatcherConfig {
                 .strip_prefix(&self.static_dir)
                 .ok()
                 .map(|p| p.to_owned()),
+            PathCategory::Dist => path.strip_prefix(&self.dist_dir).ok().map(|p| p.to_owned()),
             PathCategory::Data => path.strip_prefix(&self.data_dir).ok().map(|p| p.to_owned()),
             PathCategory::Unknown => None,
         }
@@ -130,7 +136,7 @@ fn should_watch_path(path: &Path, config: &WatcherConfig) -> bool {
     };
 
     match config.categorize(utf8_path) {
-        PathCategory::Static | PathCategory::Data => true,
+        PathCategory::Static | PathCategory::Dist | PathCategory::Data => true,
         PathCategory::Content | PathCategory::Template | PathCategory::Sass => {
             // For these, check extension
             path.extension()
@@ -337,6 +343,9 @@ pub fn create_watcher(config: &WatcherConfig) -> eyre::Result<(WatcherHandle, Wa
         if config.static_dir.exists() {
             w.watch(config.static_dir.as_std_path(), RecursiveMode::Recursive)?;
         }
+        if config.dist_dir.exists() {
+            w.watch(config.dist_dir.as_std_path(), RecursiveMode::Recursive)?;
+        }
         if config.data_dir.exists() {
             w.watch(config.data_dir.as_std_path(), RecursiveMode::Recursive)?;
         }
@@ -357,6 +366,7 @@ mod tests {
             templates_dir: base.join("templates"),
             sass_dir: base.join("sass"),
             static_dir: base.join("static"),
+            dist_dir: base.join("dist"),
             data_dir: base.join("data"),
         }
     }
@@ -383,6 +393,10 @@ mod tests {
             PathCategory::Static
         );
         assert_eq!(
+            config.categorize(Utf8Path::new("/project/dist/main.js")),
+            PathCategory::Dist
+        );
+        assert_eq!(
             config.categorize(Utf8Path::new("/project/data/config.toml")),
             PathCategory::Data
         );
@@ -404,6 +418,10 @@ mod tests {
         assert_eq!(
             config.relative_path(Utf8Path::new("/project/static/fonts/Inter.woff2")),
             Some(Utf8PathBuf::from("fonts/Inter.woff2"))
+        );
+        assert_eq!(
+            config.relative_path(Utf8Path::new("/project/dist/assets/main.js")),
+            Some(Utf8PathBuf::from("assets/main.js"))
         );
         assert_eq!(config.relative_path(Utf8Path::new("/other/file.txt")), None);
     }
