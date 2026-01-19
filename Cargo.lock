@@ -1174,7 +1174,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "regex",
@@ -4415,15 +4415,6 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
@@ -6668,7 +6659,7 @@ dependencies = [
 [[package]]
 name = "roam"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -6681,7 +6672,7 @@ dependencies = [
 [[package]]
 name = "roam-fdpass"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "libc",
  "passfd",
@@ -6692,7 +6683,7 @@ dependencies = [
 [[package]]
 name = "roam-frame"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "bytes",
  "facet",
@@ -6702,7 +6693,7 @@ dependencies = [
 [[package]]
 name = "roam-hash"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "blake3",
  "facet-core",
@@ -6713,7 +6704,7 @@ dependencies = [
 [[package]]
 name = "roam-local"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "tokio",
  "tracing",
@@ -6722,7 +6713,7 @@ dependencies = [
 [[package]]
 name = "roam-macros-parse"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "proc-macro2",
  "unsynn",
@@ -6731,7 +6722,7 @@ dependencies = [
 [[package]]
 name = "roam-schema"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "facet",
  "facet-core",
@@ -6740,7 +6731,7 @@ dependencies = [
 [[package]]
 name = "roam-service-macros"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "facet-cargo-toml",
  "heck",
@@ -6752,7 +6743,7 @@ dependencies = [
 [[package]]
 name = "roam-session"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -6764,7 +6755,7 @@ dependencies = [
 [[package]]
 name = "roam-shm"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "facet-postcard",
  "futures-util",
@@ -6783,7 +6774,7 @@ dependencies = [
 [[package]]
 name = "roam-stream"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "cobs 0.5.0",
  "ctor",
@@ -6797,7 +6788,7 @@ dependencies = [
 [[package]]
 name = "roam-tracing"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "facet",
  "roam",
@@ -6811,7 +6802,7 @@ dependencies = [
 [[package]]
 name = "roam-wire"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "cobs 0.5.0",
  "facet",
@@ -7303,7 +7294,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shm-primitives"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "libc",
  "loom",
@@ -8386,7 +8377,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 [[package]]
 name = "ur-taking-me-with-you"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#24040a9ea1c48d8ec7175b44186843d5fc14f414"
+source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "libc",
  "tokio",

@@ -11,7 +11,7 @@ pub use roam_shm::driver::establish_guest;
 pub use roam_shm::guest::ShmGuest;
 pub use roam_shm::spawn::SpawnArgs;
 pub use roam_shm::transport::ShmGuestTransport;
-pub use roam_tracing::{CellTracingDispatcher, CellTracingLayer, CellTracingService, init_cell_tracing};
+pub use roam_tracing::{CellTracingDispatcher, CellTracingGuard, CellTracingLayer, CellTracingService, init_cell_tracing};
 pub use tokio;
 pub use tracing;
 pub use tracing_subscriber;
@@ -94,7 +94,7 @@ macro_rules! run_cell {
             let use_passthrough = std::env::var("TRACING_PASSTHROUGH").is_ok();
             $crate::cell_debug!("[cell] use_passthrough={}", use_passthrough);
 
-            let tracing_service = if use_passthrough {
+            let tracing_guard = if use_passthrough {
                 // Passthrough mode: log directly to stderr
                 tracing_subscriber::fmt()
                     .with_writer(std::io::stderr)
@@ -102,14 +102,13 @@ macro_rules! run_cell {
                     .with_target(true)
                     .init();
 
-                // Return a dummy service (won't be used)
-                let (_layer, service) = init_cell_tracing(1);
-                service
+                // No tracing guard needed in passthrough mode
+                None
             } else {
                 // Normal mode: use roam RPC for tracing
-                let (tracing_layer, tracing_service) = init_cell_tracing(1024);
+                let (tracing_layer, tracing_guard) = init_cell_tracing(1024);
                 tracing_subscriber::registry().with(tracing_layer).init();
-                tracing_service
+                Some(tracing_guard)
             };
             $crate::cell_debug!("[cell] tracing initialized");
 
@@ -123,16 +122,21 @@ macro_rules! run_cell {
             let user_dispatcher = $make_dispatcher;
             $crate::cell_debug!("[cell] user dispatcher created");
 
-            // Clone tracing_service before moving into dispatcher (for spawn_drain later)
-            let tracing_service_for_drain = tracing_service.clone();
-
             // Combine user's dispatcher with tracing dispatcher using RoutedDispatcher
             // RoutedDispatcher routes primary.method_ids() to primary, rest to fallback.
-            let tracing_dispatcher = CellTracingDispatcher::new(tracing_service);
-            let combined_dispatcher = RoutedDispatcher::new(
-                tracing_dispatcher, // primary: handles tracing methods
-                user_dispatcher,    // fallback: handles all cell-specific methods
-            );
+            let combined_dispatcher = if let Some(ref guard) = tracing_guard {
+                let tracing_dispatcher = CellTracingDispatcher::new(guard.service());
+                RoutedDispatcher::new(
+                    tracing_dispatcher, // primary: handles tracing methods
+                    user_dispatcher,    // fallback: handles all cell-specific methods
+                )
+            } else {
+                // Passthrough mode: no tracing dispatcher needed, but we need same type
+                // Create a dummy service just for the dispatcher (it won't receive calls)
+                let (_, dummy_guard) = init_cell_tracing(1);
+                let tracing_dispatcher = CellTracingDispatcher::new(dummy_guard.defuse());
+                RoutedDispatcher::new(tracing_dispatcher, user_dispatcher)
+            };
             $crate::cell_debug!("[cell] calling establish_guest");
 
             let (handle, driver) = establish_guest(transport, combined_dispatcher);
@@ -142,10 +146,11 @@ macro_rules! run_cell {
             let _ = handle_cell.set(handle.clone());
             $crate::cell_debug!("[cell] handle stored");
 
-            // Start the tracing drain task (sends buffered records to host via RPC)
-            if !use_passthrough {
-                tracing_service_for_drain.spawn_drain(handle.clone());
-                $crate::cell_debug!("[cell] tracing drain task spawned");
+            // Start the tracing service: queries host config, then spawns drain task
+            // This MUST be called before any real work - ensures filter matches host's RUST_LOG
+            if let Some(guard) = tracing_guard {
+                guard.start(handle.clone()).await;
+                $crate::cell_debug!("[cell] tracing started (queried host config)");
             }
 
             // Spawn driver in background so it can process the ready() RPC
