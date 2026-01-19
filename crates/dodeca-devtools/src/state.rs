@@ -3,12 +3,11 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use sycamore::prelude::*;
+use wasm_bindgen::JsCast;
 
-use crate::protocol::{
-    DevtoolsEvent, DevtoolsServiceClient, ErrorInfo, EvalResult, ScopeEntry, ScopeValue,
-};
+use crate::protocol::{DevtoolsEvent, DevtoolsServiceClient, ErrorInfo, ScopeEntry, ScopeValue};
 use roam::Rx;
-use roam_stream::{ConnectionHandle, HandshakeConfig, NoDispatcher, accept_framed};
+use roam_session::{ConnectionHandle, HandshakeConfig, NoDispatcher, accept_framed};
 use roam_websocket::WsTransport;
 
 /// A single REPL entry with expression and result
@@ -106,6 +105,11 @@ thread_local! {
     static STATE_SIGNAL: RefCell<Option<Signal<DevtoolsState>>> = const { RefCell::new(None) };
 }
 
+/// Get a clone of the RPC client from thread-local storage
+fn get_client() -> Option<DevtoolsServiceClient<ConnectionHandle>> {
+    RPC_CLIENT.with(|cell| cell.borrow().clone())
+}
+
 /// Connect to the devtools WebSocket endpoint
 pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), String> {
     // Store signal in thread-local for handlers to use
@@ -131,19 +135,18 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
         .await
         .map_err(|e| format!("WebSocket connect failed: {:?}", e))?;
 
-    // Establish roam RPC session (we're the initiator, server is acceptor)
-    // Using accept_framed because we don't need reconnection logic for browser devtools
+    // Establish roam RPC session
     let config = HandshakeConfig::default();
     let (handle, driver) = accept_framed(transport, config, NoDispatcher)
         .await
         .map_err(|e| format!("RPC handshake failed: {:?}", e))?;
 
     // Create the RPC client
-    let client = DevtoolsServiceClient::new(handle.clone());
+    let client = DevtoolsServiceClient::new(handle);
 
     // Store client for later use
     RPC_CLIENT.with(|cell| {
-        *cell.borrow_mut() = Some(client);
+        *cell.borrow_mut() = Some(client.clone());
     });
 
     state.update(|s| s.connection_state = ConnectionState::Connected);
@@ -155,19 +158,10 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
         .unwrap_or_else(|| "/".to_string());
 
     // Subscribe to events for this route
-    let subscription = RPC_CLIENT.with(|cell| {
-        let binding = cell.borrow();
-        let client = binding.as_ref().expect("client just set");
-        client.subscribe(route)
-    });
-
-    let rx = match subscription.await {
-        Ok(rx) => rx,
-        Err(e) => {
-            tracing::error!("[devtools] subscribe failed: {:?}", e);
-            return Err(format!("subscribe failed: {:?}", e));
-        }
-    };
+    let rx = client
+        .subscribe(route)
+        .await
+        .map_err(|e| format!("subscribe failed: {:?}", e))?;
 
     // Spawn the driver to run the RPC protocol
     wasm_bindgen_futures::spawn_local(async move {
@@ -211,47 +205,40 @@ async fn handle_events(mut rx: Rx<DevtoolsEvent>) {
 
 /// Request scope from the server for the current route
 pub fn request_scope() {
-    wasm_bindgen_futures::spawn_local(async {
+    let Some(client) = get_client() else {
+        return;
+    };
+
+    wasm_bindgen_futures::spawn_local(async move {
         STATE_SIGNAL.with(|cell| {
             if let Some(state) = cell.borrow().as_ref() {
                 state.update(|s| s.scope_loading = true);
             }
         });
 
-        let result = RPC_CLIENT.with(|cell| {
-            let binding = cell.borrow();
-            if let Some(client) = binding.as_ref() {
-                Some(client.get_scope(None))
-            } else {
-                None
+        match client.get_scope(None).await {
+            Ok(scope) => {
+                STATE_SIGNAL.with(|cell| {
+                    if let Some(state) = cell.borrow().as_ref() {
+                        state.update(|s| {
+                            s.scope_loading = false;
+                            s.scope_entries = scope;
+                            s.scope_children.clear();
+                            tracing::info!(
+                                "[devtools] scope response: {} entries",
+                                s.scope_entries.len()
+                            );
+                        });
+                    }
+                });
             }
-        });
-
-        if let Some(future) = result {
-            match future.await {
-                Ok(scope) => {
-                    STATE_SIGNAL.with(|cell| {
-                        if let Some(state) = cell.borrow().as_ref() {
-                            state.update(|s| {
-                                s.scope_loading = false;
-                                s.scope_entries = scope;
-                                s.scope_children.clear();
-                                tracing::info!(
-                                    "[devtools] scope response: {} entries",
-                                    s.scope_entries.len()
-                                );
-                            });
-                        }
-                    });
-                }
-                Err(e) => {
-                    tracing::error!("[devtools] get_scope failed: {:?}", e);
-                    STATE_SIGNAL.with(|cell| {
-                        if let Some(state) = cell.borrow().as_ref() {
-                            state.update(|s| s.scope_loading = false);
-                        }
-                    });
-                }
+            Err(e) => {
+                tracing::error!("[devtools] get_scope failed: {:?}", e);
+                STATE_SIGNAL.with(|cell| {
+                    if let Some(state) = cell.borrow().as_ref() {
+                        state.update(|s| s.scope_loading = false);
+                    }
+                });
             }
         }
     });
@@ -259,36 +246,29 @@ pub fn request_scope() {
 
 /// Request scope children at a specific path
 pub fn request_scope_children(path: Vec<String>) {
+    let Some(client) = get_client() else {
+        return;
+    };
+
     let path_key = path.join(".");
     wasm_bindgen_futures::spawn_local(async move {
-        let result = RPC_CLIENT.with(|cell| {
-            let binding = cell.borrow();
-            if let Some(client) = binding.as_ref() {
-                Some(client.get_scope(Some(path.clone())))
-            } else {
-                None
+        match client.get_scope(Some(path.clone())).await {
+            Ok(scope) => {
+                STATE_SIGNAL.with(|cell| {
+                    if let Some(state) = cell.borrow().as_ref() {
+                        state.update(|s| {
+                            tracing::info!(
+                                "[devtools] scope children response for {}: {} entries",
+                                path_key,
+                                scope.len()
+                            );
+                            s.scope_children.insert(path_key.clone(), scope);
+                        });
+                    }
+                });
             }
-        });
-
-        if let Some(future) = result {
-            match future.await {
-                Ok(scope) => {
-                    STATE_SIGNAL.with(|cell| {
-                        if let Some(state) = cell.borrow().as_ref() {
-                            state.update(|s| {
-                                tracing::info!(
-                                    "[devtools] scope children response for {}: {} entries",
-                                    path_key,
-                                    scope.len()
-                                );
-                                s.scope_children.insert(path_key.clone(), scope);
-                            });
-                        }
-                    });
-                }
-                Err(e) => {
-                    tracing::error!("[devtools] get_scope children failed: {:?}", e);
-                }
+            Err(e) => {
+                tracing::error!("[devtools] get_scope children failed: {:?}", e);
             }
         }
     });
@@ -296,6 +276,10 @@ pub fn request_scope_children(path: Vec<String>) {
 
 /// Evaluate an expression in a snapshot's context
 pub fn eval_expression(snapshot_id: String, expression: String) {
+    let Some(client) = get_client() else {
+        return;
+    };
+
     let expr_clone = expression.clone();
     wasm_bindgen_futures::spawn_local(async move {
         // Add pending entry
@@ -311,52 +295,41 @@ pub fn eval_expression(snapshot_id: String, expression: String) {
             }
         });
 
-        let result = RPC_CLIENT.with(|cell| {
-            let binding = cell.borrow();
-            if let Some(client) = binding.as_ref() {
-                Some(client.eval(snapshot_id, expression.clone()))
-            } else {
-                None
+        match client.eval(snapshot_id, expression.clone()).await {
+            Ok(eval_result) => {
+                STATE_SIGNAL.with(|cell| {
+                    if let Some(state) = cell.borrow().as_ref() {
+                        state.update(|s| {
+                            s.pending_evals.remove(&expression);
+                            // Find the entry in history and update it
+                            if let Some(entry) = s
+                                .repl_history
+                                .iter_mut()
+                                .find(|e| e.expression == expression && e.result.is_none())
+                            {
+                                entry.result = Some(eval_result.clone().into());
+                            }
+                            tracing::info!("[devtools] eval response: {:?}", eval_result);
+                        });
+                    }
+                });
             }
-        });
-
-        if let Some(future) = result {
-            match future.await {
-                Ok(eval_result) => {
-                    STATE_SIGNAL.with(|cell| {
-                        if let Some(state) = cell.borrow().as_ref() {
-                            state.update(|s| {
-                                s.pending_evals.remove(&expression);
-                                // Find the entry in history and update it
-                                if let Some(entry) = s
-                                    .repl_history
-                                    .iter_mut()
-                                    .find(|e| e.expression == expression && e.result.is_none())
-                                {
-                                    entry.result = Some(eval_result.clone().into());
-                                }
-                                tracing::info!("[devtools] eval response: {:?}", eval_result);
-                            });
-                        }
-                    });
-                }
-                Err(e) => {
-                    STATE_SIGNAL.with(|cell| {
-                        if let Some(state) = cell.borrow().as_ref() {
-                            state.update(|s| {
-                                s.pending_evals.remove(&expression);
-                                // Update entry with error
-                                if let Some(entry) = s
-                                    .repl_history
-                                    .iter_mut()
-                                    .find(|e| e.expression == expression && e.result.is_none())
-                                {
-                                    entry.result = Some(Err(format!("RPC error: {:?}", e)));
-                                }
-                            });
-                        }
-                    });
-                }
+            Err(e) => {
+                STATE_SIGNAL.with(|cell| {
+                    if let Some(state) = cell.borrow().as_ref() {
+                        state.update(|s| {
+                            s.pending_evals.remove(&expression);
+                            // Update entry with error
+                            if let Some(entry) = s
+                                .repl_history
+                                .iter_mut()
+                                .find(|e| e.expression == expression && e.result.is_none())
+                            {
+                                entry.result = Some(Err(format!("RPC error: {:?}", e)));
+                            }
+                        });
+                    }
+                });
             }
         }
     });
@@ -364,20 +337,13 @@ pub fn eval_expression(snapshot_id: String, expression: String) {
 
 /// Dismiss an error
 pub fn dismiss_error(route: String) {
-    wasm_bindgen_futures::spawn_local(async move {
-        let result = RPC_CLIENT.with(|cell| {
-            let binding = cell.borrow();
-            if let Some(client) = binding.as_ref() {
-                Some(client.dismiss_error(route))
-            } else {
-                None
-            }
-        });
+    let Some(client) = get_client() else {
+        return;
+    };
 
-        if let Some(future) = result {
-            if let Err(e) = future.await {
-                tracing::error!("[devtools] dismiss_error failed: {:?}", e);
-            }
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Err(e) = client.dismiss_error(route).await {
+            tracing::error!("[devtools] dismiss_error failed: {:?}", e);
         }
     });
 }
@@ -488,8 +454,6 @@ fn handle_devtools_event(event: DevtoolsEvent) {
                 match livereload_client::apply_patches(patches) {
                     Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
                     Err(e) => {
-                        // Don't reload on patch failure - the devtools modifies the DOM
-                        // which can cause patch paths to be invalid. User can refresh manually.
                         tracing::warn!(
                             "[devtools] patch failed (manual refresh may be needed): {:?}",
                             e

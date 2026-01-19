@@ -2681,7 +2681,6 @@ dependencies = [
  "livereload-client",
  "roam",
  "roam-session",
- "roam-stream",
  "roam-websocket",
  "sycamore",
  "tracing",

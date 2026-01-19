@@ -23,7 +23,6 @@ livereload-client = { path = "../livereload-client" }
 # RPC transport
 roam.workspace = true
 roam-session.workspace = true
-roam-stream = { git = "https://github.com/bearcove/roam", branch = "main" }
 roam-websocket.workspace = true
 
 # UI framework
