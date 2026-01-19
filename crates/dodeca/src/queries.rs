@@ -1353,9 +1353,47 @@ pub async fn font_char_analysis<DB: Db>(db: &DB) -> PicanteResult<LocalFontAnaly
     })
 }
 
+/// Compute the cache-busted path for a static file based on its SOURCE content.
+/// This is used to build path maps without triggering rewriting, avoiding recursion.
+#[picante::tracked]
+pub async fn static_file_cache_path<DB: Db>(db: &DB, file: StaticFile) -> PicanteResult<String> {
+    use crate::cache_bust::{cache_busted_path, content_hash, has_existing_hash};
+
+    let path = file.path(db)?.as_str().to_string();
+
+    // If file already has a hash (e.g. Vite output), use as-is
+    if has_existing_hash(&path) {
+        return Ok(path);
+    }
+
+    // Hash the source content
+    let content = load_static(db, file).await?;
+    let hash = content_hash(&content);
+    Ok(cache_busted_path(&path, &hash))
+}
+
+/// Build a path map from original paths to cache-busted paths for all static files.
+/// This uses source content hashing (no rewriting) to avoid recursion.
+#[picante::tracked]
+pub async fn static_path_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, String>> {
+    let static_files = StaticRegistry::files(db)?.unwrap_or_default();
+    let mut path_map = HashMap::new();
+
+    for file in static_files.iter() {
+        let original_path = file.path(db)?.as_str().to_string();
+        // Skip images - they get transcoded to different formats with different hashing
+        if !InputFormat::is_processable(&original_path) {
+            let cache_busted = static_file_cache_path(db, *file).await?;
+            path_map.insert(format!("/{original_path}"), format!("/{cache_busted}"));
+        }
+    }
+
+    Ok(path_map)
+}
+
 /// Process a single static file and return its cache-busted output
 /// For fonts, this triggers global font analysis for subsetting
-/// For CSS files, URLs are rewritten to cache-busted versions
+/// For CSS/JS files, URLs/string literals are rewritten to cache-busted versions
 #[picante::tracked]
 pub async fn static_file_output<DB: Db>(
     db: &DB,
@@ -1395,59 +1433,21 @@ pub async fn static_file_output<DB: Db>(
         let raw_content = load_static(db, file).await?;
         let css_str = String::from_utf8_lossy(&raw_content);
 
-        // Build path map for non-CSS, non-image static files
-        let mut path_map: HashMap<String, String> = HashMap::new();
-        let static_files = StaticRegistry::files(db)?.unwrap_or_default();
-        for other_file in static_files.iter() {
-            let other_path = other_file.path(db)?.as_str().to_string();
-            // Skip CSS files (would cause recursion), JS files (they also do rewriting), and images (different handling)
-            if !other_path.to_lowercase().ends_with(".css")
-                && !other_path.to_lowercase().ends_with(".js")
-                && !InputFormat::is_processable(&other_path)
-            {
-                // Recursively get the output for this file (safe - no CSS/JS files)
-                let other_output = static_file_output(db, *other_file).await?;
-                path_map.insert(
-                    format!("/{other_path}"),
-                    format!("/{}", other_output.cache_busted_path),
-                );
-            }
-        }
+        // Use pre-computed path map (no recursion needed)
+        let path_map = static_path_map(db).await?;
 
         // Rewrite URLs in CSS
         let rewritten = rewrite_urls_in_css(&css_str, &path_map).await;
         rewritten.into_bytes()
     } else if path.to_lowercase().ends_with(".js") {
         // JS file - rewrite string literals to cache-busted versions
-        tracing::trace!(js_path = %path, "static_file_output: processing JS file");
         let raw_content = load_static(db, file).await?;
         let js_str = String::from_utf8_lossy(&raw_content);
 
-        // Build path map for static files (similar to CSS handling)
-        let mut path_map: HashMap<String, String> = HashMap::new();
-        let static_files = StaticRegistry::files(db)?.unwrap_or_default();
-        for other_file in static_files.iter() {
-            let other_path = other_file.path(db)?.as_str().to_string();
-            // Skip JS files (would cause recursion) and images (different handling)
-            if !other_path.to_lowercase().ends_with(".js")
-                && !InputFormat::is_processable(&other_path)
-            {
-                // Recursively get the output for this file (safe - no JS files)
-                let other_output = static_file_output(db, *other_file).await?;
-                path_map.insert(
-                    format!("/{other_path}"),
-                    format!("/{}", other_output.cache_busted_path),
-                );
-            }
-        }
+        // Use pre-computed path map (no recursion needed)
+        let path_map = static_path_map(db).await?;
 
         // Rewrite string literals in JS
-        tracing::info!(js_file = %path, path_map_count = path_map.len(), "JS rewrite: processing file");
-        for (from, to) in &path_map {
-            if from.contains("wasm") || to.contains("wasm") {
-                tracing::info!(from = %from, to = %to, "JS rewrite: wasm path mapping");
-            }
-        }
         let rewritten = rewrite_string_literals_in_js(&js_str, &path_map).await;
         rewritten.into_bytes()
     } else {
@@ -1481,23 +1481,11 @@ pub async fn css_output<DB: Db>(db: &DB) -> PicanteResult<Option<CssOutput>> {
         return Ok(None);
     };
 
-    // Build static path map for URL rewriting
-    let mut static_path_map: HashMap<String, String> = HashMap::new();
-    let static_files = StaticRegistry::files(db)?.unwrap_or_default();
-    for file in static_files.iter() {
-        let original_path = file.path(db)?.as_str().to_string();
-        // Skip images - they get transcoded to different formats
-        if !InputFormat::is_processable(&original_path) {
-            let output = static_file_output(db, *file).await?;
-            static_path_map.insert(
-                format!("/{original_path}"),
-                format!("/{}", output.cache_busted_path),
-            );
-        }
-    }
+    // Use pre-computed path map (no recursion needed)
+    let path_map = static_path_map(db).await?;
 
     // Rewrite URLs in CSS
-    let rewritten_css = rewrite_urls_in_css(&css_content.0, &static_path_map).await;
+    let rewritten_css = rewrite_urls_in_css(&css_content.0, &path_map).await;
 
     // Hash and create cache-busted path
     let hash = content_hash(rewritten_css.as_bytes());
