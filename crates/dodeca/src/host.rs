@@ -28,6 +28,50 @@ use tracing::{debug, error, info, warn};
 use crate::template_host::RenderContext;
 
 // ============================================================================
+// MaybeDevtoolsDispatcher - Either includes DevtoolsService or not
+// ============================================================================
+
+type BaseDispatcher = RoutedDispatcher<
+    cell_host_proto::HostServiceDispatcher<crate::cells::HostServiceImpl>,
+    HostTracingDispatcher<roam_tracing::HostTracingService>,
+>;
+
+type DevtoolsDispatcher = dodeca_protocol::DevtoolsServiceDispatcher<crate::cell_server::HostDevtoolsService>;
+
+/// Enum dispatcher that includes DevtoolsService when site_server is available.
+pub enum MaybeDevtoolsDispatcher {
+    WithDevtools(RoutedDispatcher<DevtoolsDispatcher, BaseDispatcher>),
+    WithoutDevtools(BaseDispatcher),
+}
+
+impl roam::session::ServiceDispatcher for MaybeDevtoolsDispatcher {
+    fn method_ids(&self) -> Vec<u64> {
+        match self {
+            MaybeDevtoolsDispatcher::WithDevtools(d) => d.method_ids(),
+            MaybeDevtoolsDispatcher::WithoutDevtools(d) => d.method_ids(),
+        }
+    }
+
+    fn dispatch(
+        &self,
+        method_id: u64,
+        message: Vec<u8>,
+        channels: Vec<u64>,
+        request_id: u64,
+        registry: &mut roam::session::ChannelRegistry,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
+        match self {
+            MaybeDevtoolsDispatcher::WithDevtools(d) => {
+                d.dispatch(method_id, message, channels, request_id, registry)
+            }
+            MaybeDevtoolsDispatcher::WithoutDevtools(d) => {
+                d.dispatch(method_id, message, channels, request_id, registry)
+            }
+        }
+    }
+}
+
+// ============================================================================
 // Pending Cell (Lazy Spawning)
 // ============================================================================
 
@@ -597,8 +641,20 @@ async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: b
         .service_for_peer(peer_id.get() as u64, Some(cell_name.to_string()));
     let tracing_dispatcher = HostTracingDispatcher::new(tracing_service);
 
-    // Compose: HostTracing (primary) + HostService (fallback)
-    let dispatcher = RoutedDispatcher::new(tracing_dispatcher, host_service_dispatcher);
+    // Compose dispatchers: Tracing -> HostService -> DevtoolsService (if available)
+    // We always route to the DevtoolsService if site_server is available
+    let base_dispatcher = RoutedDispatcher::new(host_service_dispatcher, tracing_dispatcher);
+
+    // Create the devtools service dispatcher (handles browser devtools RPC calls)
+    // Only active if site_server is available (i.e., serve command, not build)
+    let dispatcher = match Host::get().site_server() {
+        Some(server) => {
+            let devtools_service = crate::cell_server::HostDevtoolsService::new(server.clone());
+            let devtools_dispatcher = dodeca_protocol::DevtoolsServiceDispatcher::new(devtools_service);
+            MaybeDevtoolsDispatcher::WithDevtools(RoutedDispatcher::new(devtools_dispatcher, base_dispatcher))
+        }
+        None => MaybeDevtoolsDispatcher::WithoutDevtools(base_dispatcher),
+    };
 
     match driver_handle.add_peer(peer_id, dispatcher).await {
         Ok(handle) => {

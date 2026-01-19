@@ -71,6 +71,8 @@ roam-shm = { git = "https://github.com/bearcove/roam", branch = "main", features
 roam-tracing = { git = "https://github.com/bearcove/roam", branch = "main" }
 roam-fdpass = { git = "https://github.com/bearcove/roam", branch = "main" }
 roam-local = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-session = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-websocket = { git = "https://github.com/bearcove/roam", branch = "main" }
 
 # Process lifecycle
 ur-taking-me-with-you = { git = "https://github.com/bearcove/roam", branch = "main", features = ["tokio"] }
@@ -180,22 +182,23 @@ pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 # styx-embed = { path = "../styx/crates/styx-embed" }
 # styx-embed-macros = { path = "../styx/crates/styx-embed-macros" }
 
-# Uncomment to use local roam for debugging
-# [patch."https://github.com/bearcove/roam"]
-# roam = { path = "../roam/rust/roam" }
-# roam-shm = { path = "../roam/rust/roam-shm" }
-# roam-tracing = { path = "../roam/rust/roam-tracing" }
-# roam-fdpass = { path = "../roam/rust/roam-fdpass" }
-# roam-local = { path = "../roam/rust/roam-local" }
-# shm-primitives = { path = "../roam/rust/shm-primitives" }
-# roam-frame = { path = "../roam/rust/roam-frame" }
-# roam-schema = { path = "../roam/rust/roam-schema" }
-# roam-hash = { path = "../roam/rust/roam-hash" }
-# roam-wire = { path = "../roam/rust/roam-wire" }
-# roam-session = { path = "../roam/rust/roam-session" }
-# roam-stream = { path = "../roam/rust/roam-stream" }
-# roam-service-macros = { path = "../roam/rust/roam-macros" }
-# ur-taking-me-with-you = { path = "../roam/rust/ur-taking-me-with-you" }
+# Use local roam for WASM devtools work
+[patch."https://github.com/bearcove/roam"]
+roam = { path = "../roam/rust/roam" }
+roam-shm = { path = "../roam/rust/roam-shm" }
+roam-tracing = { path = "../roam/rust/roam-tracing" }
+roam-fdpass = { path = "../roam/rust/roam-fdpass" }
+roam-local = { path = "../roam/rust/roam-local" }
+shm-primitives = { path = "../roam/rust/shm-primitives" }
+roam-frame = { path = "../roam/rust/roam-frame" }
+roam-schema = { path = "../roam/rust/roam-schema" }
+roam-hash = { path = "../roam/rust/roam-hash" }
+roam-wire = { path = "../roam/rust/roam-wire" }
+roam-session = { path = "../roam/rust/roam-session" }
+roam-stream = { path = "../roam/rust/roam-stream" }
+roam-websocket = { path = "../roam/rust/roam-websocket" }
+roam-service-macros = { path = "../roam/rust/roam-macros" }
+ur-taking-me-with-you = { path = "../roam/rust/ur-taking-me-with-you" }
 
 # Optimize dependencies in dev mode for faster tests
 # (keeps main crate unoptimized for fast incremental builds)

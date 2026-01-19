@@ -10,7 +10,7 @@ use wasm_bindgen::prelude::*;
 mod protocol;
 mod state;
 
-pub use protocol::{ClientMessage, ErrorInfo, ScopeValue, ServerMessage};
+pub use protocol::{DevtoolsEvent, ErrorInfo, ScopeValue};
 pub use state::DevtoolsState;
 
 /// Mount the devtools overlay into the page

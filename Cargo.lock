@@ -191,7 +191,7 @@ dependencies = [
  "objc2-foundation",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
  "x11rb",
 ]
 
@@ -976,6 +976,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-channel"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "924ed96dd52d1b75e9c1a3e6275715fd320f5f9439fb5a4a11fa51f4221158d2"
+dependencies = [
+ "concurrent-queue",
+ "event-listener-strategy",
+ "futures-core",
+ "pin-project-lite",
+]
+
+[[package]]
 name = "atomic"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1580,10 +1592,14 @@ dependencies = [
  "cell-http-proto",
  "dodeca-cell-runtime",
  "eyre",
+ "facet-postcard",
  "futures-util",
  "hyper",
  "hyper-util",
  "roam",
+ "roam-session",
+ "roam-stream",
+ "roam-wire",
  "tokio",
  "tokio-tungstenite 0.26.2",
  "tracing",
@@ -2020,6 +2036,15 @@ dependencies = [
  "rustversion",
  "ryu",
  "static_assertions",
+]
+
+[[package]]
+name = "concurrent-queue"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
+dependencies = [
+ "crossbeam-utils",
 ]
 
 [[package]]
@@ -2535,7 +2560,7 @@ checksum = "6738d2e996274e499bc7b0d693c858b7720b9cd2543a0643a3087e6cb0a4fa16"
 dependencies = [
  "cfg-if",
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2654,6 +2679,10 @@ dependencies = [
  "getrandom 0.3.4",
  "js-sys",
  "livereload-client",
+ "roam",
+ "roam-session",
+ "roam-stream",
+ "roam-websocket",
  "sycamore",
  "tracing",
  "tracing-wasm",
@@ -2668,6 +2697,7 @@ version = "0.6.1"
 dependencies = [
  "facet",
  "facet-postcard",
+ "roam",
 ]
 
 [[package]]
@@ -2811,7 +2841,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2827,6 +2857,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ad9cdb4b747e485a12abb0e6566612956c7a1bafa3bdb8d682c5b6d403589e48"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "event-listener"
+version = "5.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e13b66accf52311f30a0db42147dadea9850cb48cd070028831ae5f5d4b856ab"
+dependencies = [
+ "concurrent-queue",
+ "parking",
+ "pin-project-lite",
+]
+
+[[package]]
+name = "event-listener-strategy"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
+dependencies = [
+ "event-listener",
+ "pin-project-lite",
 ]
 
 [[package]]
@@ -3633,6 +3684,18 @@ dependencies = [
  "log",
  "regex-automata",
  "regex-syntax",
+]
+
+[[package]]
+name = "gloo-timers"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
+dependencies = [
+ "futures-channel",
+ "futures-core",
+ "js-sys",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -5735,6 +5798,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "parking"
+version = "2.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6264,7 +6333,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6659,7 +6728,6 @@ dependencies = [
 [[package]]
 name = "roam"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "facet",
  "facet-postcard",
@@ -6672,7 +6740,6 @@ dependencies = [
 [[package]]
 name = "roam-fdpass"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "libc",
  "passfd",
@@ -6683,7 +6750,6 @@ dependencies = [
 [[package]]
 name = "roam-frame"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "bytes",
  "facet",
@@ -6693,7 +6759,6 @@ dependencies = [
 [[package]]
 name = "roam-hash"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "blake3",
  "facet-core",
@@ -6704,7 +6769,6 @@ dependencies = [
 [[package]]
 name = "roam-local"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "tokio",
  "tracing",
@@ -6713,7 +6777,6 @@ dependencies = [
 [[package]]
 name = "roam-macros-parse"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "proc-macro2",
  "unsynn",
@@ -6722,7 +6785,6 @@ dependencies = [
 [[package]]
 name = "roam-schema"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "facet",
  "facet-core",
@@ -6731,7 +6793,6 @@ dependencies = [
 [[package]]
 name = "roam-service-macros"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "facet-cargo-toml",
  "heck",
@@ -6743,19 +6804,22 @@ dependencies = [
 [[package]]
 name = "roam-session"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
+ "async-channel",
  "facet",
  "facet-postcard",
+ "futures-channel",
+ "futures-util",
+ "gloo-timers",
  "roam-frame",
  "roam-wire",
  "tokio",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
 name = "roam-shm"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "facet-postcard",
  "futures-util",
@@ -6774,12 +6838,12 @@ dependencies = [
 [[package]]
 name = "roam-stream"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "cobs 0.5.0",
  "ctor",
  "facet",
  "facet-postcard",
+ "futures-util",
  "roam-session",
  "roam-wire",
  "tokio",
@@ -6788,7 +6852,6 @@ dependencies = [
 [[package]]
 name = "roam-tracing"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "facet",
  "roam",
@@ -6800,9 +6863,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "roam-websocket"
+version = "0.6.0"
+dependencies = [
+ "facet-postcard",
+ "futures-channel",
+ "futures-util",
+ "js-sys",
+ "roam-session",
+ "roam-stream",
+ "roam-wire",
+ "tokio",
+ "tokio-tungstenite 0.26.2",
+ "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
 name = "roam-wire"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "cobs 0.5.0",
  "facet",
@@ -6868,7 +6947,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6925,7 +7004,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7294,7 +7373,6 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shm-primitives"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "libc",
  "loom",
@@ -7786,7 +7864,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8377,7 +8455,6 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 [[package]]
 name = "ur-taking-me-with-you"
 version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#4c8f9874804d104ddbb00cabe28da9c6671585eb"
 dependencies = [
  "libc",
  "tokio",
@@ -8754,7 +8831,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

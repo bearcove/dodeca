@@ -15,3 +15,4 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 [dependencies]
 facet.workspace = true
 facet-postcard = { workspace = true, features = ["alloc"] }
+roam.workspace = true

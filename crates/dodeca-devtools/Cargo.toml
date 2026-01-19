@@ -20,6 +20,12 @@ crate-type = ["cdylib", "rlib"]
 dodeca-protocol = { path = "../dodeca-protocol" }
 livereload-client = { path = "../livereload-client" }
 
+# RPC transport
+roam.workspace = true
+roam-session.workspace = true
+roam-stream = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-websocket.workspace = true
+
 # UI framework
 sycamore = "0.9"
 

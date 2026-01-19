@@ -287,6 +287,139 @@ async fn handle_devtools_tunnel(channel_id: u64, tunnel: Tunnel, server: Arc<Sit
     tracing::debug!(channel_id, "DevTools tunnel handler finished");
 }
 
+// ============================================================================
+// HostDevtoolsService - roam RPC implementation of DevtoolsService
+// ============================================================================
+
+use dodeca_protocol::{DevtoolsEvent, DevtoolsService, EvalResult, ScopeEntry};
+use roam::Rx;
+
+/// Host-side implementation of DevtoolsService for direct roam RPC.
+///
+/// This implements the `DevtoolsService` trait from `dodeca-protocol`,
+/// allowing browser devtools to call methods directly via roam RPC
+/// over WebSocket (proxied through cell-http via ForwardingDispatcher).
+#[derive(Clone)]
+pub struct HostDevtoolsService {
+    server: Arc<SiteServer>,
+}
+
+impl HostDevtoolsService {
+    pub fn new(server: Arc<SiteServer>) -> Self {
+        Self { server }
+    }
+}
+
+impl DevtoolsService for HostDevtoolsService {
+    /// Subscribe to devtools events for a route.
+    ///
+    /// Creates a streaming channel that forwards LiveReload broadcasts
+    /// to the connected client.
+    async fn subscribe(&self, route: String) -> Rx<DevtoolsEvent> {
+        let (tx, rx) = roam::channel::<DevtoolsEvent>();
+        let server = self.server.clone();
+
+        // Spawn a task to forward LiveReload messages to the channel
+        tokio::spawn(async move {
+            let mut livereload_rx = server.livereload_tx.subscribe();
+
+            // Send any existing errors first
+            for error in server.get_current_errors() {
+                if tx.send(&DevtoolsEvent::Error(error)).await.is_err() {
+                    return; // Client disconnected
+                }
+            }
+
+            // Forward LiveReload messages
+            loop {
+                match livereload_rx.recv().await {
+                    Ok(msg) => {
+                        let event = match msg {
+                            crate::serve::LiveReloadMsg::Reload => Some(DevtoolsEvent::Reload),
+                            crate::serve::LiveReloadMsg::CssUpdate { path } => {
+                                Some(DevtoolsEvent::CssChanged { path })
+                            }
+                            crate::serve::LiveReloadMsg::Patches {
+                                route: patch_route,
+                                patches,
+                            } => {
+                                // Only send patches for the subscribed route
+                                if patch_route == route {
+                                    Some(DevtoolsEvent::Patches(patches))
+                                } else {
+                                    None
+                                }
+                            }
+                            crate::serve::LiveReloadMsg::Error {
+                                route: error_route,
+                                message,
+                                template,
+                                line,
+                                snapshot_id,
+                            } => Some(DevtoolsEvent::Error(dodeca_protocol::ErrorInfo {
+                                route: error_route,
+                                message,
+                                template,
+                                line,
+                                column: None,
+                                source_snippet: None,
+                                snapshot_id,
+                                available_variables: vec![],
+                            })),
+                            crate::serve::LiveReloadMsg::ErrorResolved {
+                                route: resolved_route,
+                            } => Some(DevtoolsEvent::ErrorResolved {
+                                route: resolved_route,
+                            }),
+                        };
+
+                        if let Some(event) = event {
+                            if tx.send(&event).await.is_err() {
+                                return; // Client disconnected
+                            }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(lagged = n, "DevtoolsService subscriber lagged");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        return; // Channel closed
+                    }
+                }
+            }
+        });
+
+        rx
+    }
+
+    /// Get scope entries for the current route.
+    async fn get_scope(&self, path: Option<Vec<String>>) -> Vec<ScopeEntry> {
+        // Use "/" as default route - the client should call subscribe() first
+        // to establish which route they're viewing
+        let path = path.unwrap_or_default();
+        self.server.get_scope_for_route("/", &path).await
+    }
+
+    /// Evaluate an expression in a snapshot's context.
+    async fn eval(&self, snapshot_id: String, expression: String) -> EvalResult {
+        match self
+            .server
+            .eval_expression_for_route(&snapshot_id, &expression)
+            .await
+        {
+            Ok(value) => EvalResult::Ok(value),
+            Err(e) => EvalResult::Err(e),
+        }
+    }
+
+    /// Dismiss an error notification.
+    async fn dismiss_error(&self, route: String) {
+        tracing::debug!(route = %route, "Client dismissed error via RPC");
+        // The existing implementation just logs this - errors are resolved
+        // when the template successfully re-renders
+    }
+}
+
 /// Start the HTTP cell server with optional shutdown signal
 ///
 /// This:

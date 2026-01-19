@@ -1,14 +1,15 @@
-//! Devtools state management and WebSocket connection
+//! Devtools state management and roam RPC connection
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use sycamore::prelude::*;
-use wasm_bindgen::prelude::*;
-use web_sys::{MessageEvent, WebSocket};
 
 use crate::protocol::{
-    ClientMessage, ErrorInfo, ScopeEntry, ScopeValue, ServerMessage, facet_postcard,
+    DevtoolsEvent, DevtoolsServiceClient, ErrorInfo, EvalResult, ScopeEntry, ScopeValue,
 };
+use roam::Rx;
+use roam_stream::{ConnectionHandle, HandshakeConfig, NoDispatcher, accept_framed};
+use roam_websocket::WsTransport;
 
 /// A single REPL entry with expression and result
 #[derive(Debug, Clone, PartialEq)]
@@ -43,8 +44,8 @@ pub struct DevtoolsState {
     /// Current REPL input
     pub repl_input: String,
 
-    /// Pending REPL evaluations: request_id -> expression
-    pub pending_evals: HashMap<u32, String>,
+    /// Pending REPL evaluations: expression string
+    pub pending_evals: HashMap<String, ()>,
 
     /// WebSocket connection state
     pub connection_state: ConnectionState,
@@ -55,11 +56,8 @@ pub struct DevtoolsState {
     /// Whether we're waiting for scope data
     pub scope_loading: bool,
 
-    /// Next request ID for scope/eval requests
-    pub next_request_id: u32,
-
-    /// Pending scope requests: request_id -> path
-    pub pending_scope_requests: HashMap<u32, Vec<String>>,
+    /// Pending scope requests: path string
+    pub pending_scope_requests: HashMap<String, ()>,
 
     /// Cached scope children by path (joined with ".")
     pub scope_children: HashMap<String, Vec<ScopeEntry>>,
@@ -100,23 +98,11 @@ impl DevtoolsState {
     pub fn current_error(&self) -> Option<&ErrorInfo> {
         self.errors.first()
     }
-
-    /// Request scope from the server for the current route
-    pub fn request_scope(&mut self) {
-        self.scope_loading = true;
-        let request_id = self.next_request_id;
-        self.next_request_id += 1;
-        send_message(&ClientMessage::GetScope {
-            request_id,
-            snapshot_id: None, // Use current route
-            path: None,        // Get top-level scope
-        });
-    }
 }
 
-// Thread-local storage for WebSocket (WASM is single-threaded)
+// Thread-local storage for RPC client (WASM is single-threaded)
 thread_local! {
-    static WEBSOCKET: RefCell<Option<WebSocket>> = const { RefCell::new(None) };
+    static RPC_CLIENT: RefCell<Option<DevtoolsServiceClient<ConnectionHandle>>> = const { RefCell::new(None) };
     static STATE_SIGNAL: RefCell<Option<Signal<DevtoolsState>>> = const { RefCell::new(None) };
 }
 
@@ -140,74 +126,258 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
 
     state.update(|s| s.connection_state = ConnectionState::Connecting);
 
-    let ws = WebSocket::new(&url).map_err(|e| format!("WebSocket::new failed: {:?}", e))?;
-    ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
+    // Connect via roam WebSocket transport
+    let transport = WsTransport::connect(&url)
+        .await
+        .map_err(|e| format!("WebSocket connect failed: {:?}", e))?;
 
-    // Set up message handler
-    let onmessage = Closure::wrap(Box::new(move |event: MessageEvent| {
-        let data = event.data();
+    // Establish roam RPC session (we're the initiator, server is acceptor)
+    // Using accept_framed because we don't need reconnection logic for browser devtools
+    let config = HandshakeConfig::default();
+    let (handle, driver) = accept_framed(transport, config, NoDispatcher)
+        .await
+        .map_err(|e| format!("RPC handshake failed: {:?}", e))?;
 
-        // All messages are binary (ArrayBuffer)
-        if let Ok(buffer) = data.dyn_into::<js_sys::ArrayBuffer>() {
-            let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
+    // Create the RPC client
+    let client = DevtoolsServiceClient::new(handle.clone());
 
-            match facet_postcard::from_slice::<ServerMessage>(&bytes) {
-                Ok(msg) => handle_server_message(msg),
-                Err(e) => tracing::warn!("[devtools] failed to parse server message: {:?}", e),
-            }
-        }
-    }) as Box<dyn FnMut(MessageEvent)>);
-
-    ws.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
-    onmessage.forget();
-
-    // Set up open handler
-    let onopen = Closure::wrap(Box::new(move |_| {
-        STATE_SIGNAL.with(|cell| {
-            if let Some(state) = cell.borrow().as_ref() {
-                state.update(|s| s.connection_state = ConnectionState::Connected);
-            }
-        });
-        tracing::info!("[devtools] connected");
-
-        // Send current route
-        let route = web_sys::window()
-            .and_then(|w| w.location().pathname().ok())
-            .unwrap_or_else(|| "/".to_string());
-        send_message(&ClientMessage::Route { path: route });
-    }) as Box<dyn FnMut(JsValue)>);
-
-    ws.set_onopen(Some(onopen.as_ref().unchecked_ref()));
-    onopen.forget();
-
-    // Set up close handler
-    let onclose = Closure::wrap(Box::new(move |_| {
-        STATE_SIGNAL.with(|cell| {
-            if let Some(state) = cell.borrow().as_ref() {
-                state.update(|s| s.connection_state = ConnectionState::Disconnected);
-            }
-        });
-        tracing::info!("[devtools] disconnected");
-        // TODO: reconnect logic
-    }) as Box<dyn FnMut(JsValue)>);
-
-    ws.set_onclose(Some(onclose.as_ref().unchecked_ref()));
-    onclose.forget();
-
-    WEBSOCKET.with(|cell| {
-        *cell.borrow_mut() = Some(ws);
+    // Store client for later use
+    RPC_CLIENT.with(|cell| {
+        *cell.borrow_mut() = Some(client);
     });
+
+    state.update(|s| s.connection_state = ConnectionState::Connected);
+    tracing::info!("[devtools] connected via roam RPC");
+
+    // Get current route and subscribe
+    let route = web_sys::window()
+        .and_then(|w| w.location().pathname().ok())
+        .unwrap_or_else(|| "/".to_string());
+
+    // Subscribe to events for this route
+    let subscription = RPC_CLIENT.with(|cell| {
+        let binding = cell.borrow();
+        let client = binding.as_ref().expect("client just set");
+        client.subscribe(route)
+    });
+
+    let rx = match subscription.await {
+        Ok(rx) => rx,
+        Err(e) => {
+            tracing::error!("[devtools] subscribe failed: {:?}", e);
+            return Err(format!("subscribe failed: {:?}", e));
+        }
+    };
+
+    // Spawn the driver to run the RPC protocol
+    wasm_bindgen_futures::spawn_local(async move {
+        if let Err(e) = driver.run().await {
+            tracing::warn!("[devtools] driver error: {:?}", e);
+            STATE_SIGNAL.with(|cell| {
+                if let Some(state) = cell.borrow().as_ref() {
+                    state.update(|s| s.connection_state = ConnectionState::Disconnected);
+                }
+            });
+        }
+    });
+
+    // Spawn event handler loop
+    wasm_bindgen_futures::spawn_local(handle_events(rx));
+
     Ok(())
 }
 
-/// Send a message to the server
-pub fn send_message(msg: &ClientMessage) {
-    WEBSOCKET.with(|cell| {
-        if let Some(ws) = cell.borrow().as_ref()
-            && ws.ready_state() == WebSocket::OPEN
-            && let Ok(bytes) = facet_postcard::to_vec(msg)
-        {
-            let _ = ws.send_with_u8_array(&bytes);
+/// Handle incoming events from the server
+async fn handle_events(mut rx: Rx<DevtoolsEvent>) {
+    loop {
+        match rx.recv().await {
+            Ok(Some(event)) => handle_devtools_event(event),
+            Ok(None) => {
+                tracing::info!("[devtools] event stream closed");
+                STATE_SIGNAL.with(|cell| {
+                    if let Some(state) = cell.borrow().as_ref() {
+                        state.update(|s| s.connection_state = ConnectionState::Disconnected);
+                    }
+                });
+                break;
+            }
+            Err(e) => {
+                tracing::warn!("[devtools] event recv error: {:?}", e);
+                break;
+            }
+        }
+    }
+}
+
+/// Request scope from the server for the current route
+pub fn request_scope() {
+    wasm_bindgen_futures::spawn_local(async {
+        STATE_SIGNAL.with(|cell| {
+            if let Some(state) = cell.borrow().as_ref() {
+                state.update(|s| s.scope_loading = true);
+            }
+        });
+
+        let result = RPC_CLIENT.with(|cell| {
+            let binding = cell.borrow();
+            if let Some(client) = binding.as_ref() {
+                Some(client.get_scope(None))
+            } else {
+                None
+            }
+        });
+
+        if let Some(future) = result {
+            match future.await {
+                Ok(scope) => {
+                    STATE_SIGNAL.with(|cell| {
+                        if let Some(state) = cell.borrow().as_ref() {
+                            state.update(|s| {
+                                s.scope_loading = false;
+                                s.scope_entries = scope;
+                                s.scope_children.clear();
+                                tracing::info!(
+                                    "[devtools] scope response: {} entries",
+                                    s.scope_entries.len()
+                                );
+                            });
+                        }
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("[devtools] get_scope failed: {:?}", e);
+                    STATE_SIGNAL.with(|cell| {
+                        if let Some(state) = cell.borrow().as_ref() {
+                            state.update(|s| s.scope_loading = false);
+                        }
+                    });
+                }
+            }
+        }
+    });
+}
+
+/// Request scope children at a specific path
+pub fn request_scope_children(path: Vec<String>) {
+    let path_key = path.join(".");
+    wasm_bindgen_futures::spawn_local(async move {
+        let result = RPC_CLIENT.with(|cell| {
+            let binding = cell.borrow();
+            if let Some(client) = binding.as_ref() {
+                Some(client.get_scope(Some(path.clone())))
+            } else {
+                None
+            }
+        });
+
+        if let Some(future) = result {
+            match future.await {
+                Ok(scope) => {
+                    STATE_SIGNAL.with(|cell| {
+                        if let Some(state) = cell.borrow().as_ref() {
+                            state.update(|s| {
+                                tracing::info!(
+                                    "[devtools] scope children response for {}: {} entries",
+                                    path_key,
+                                    scope.len()
+                                );
+                                s.scope_children.insert(path_key.clone(), scope);
+                            });
+                        }
+                    });
+                }
+                Err(e) => {
+                    tracing::error!("[devtools] get_scope children failed: {:?}", e);
+                }
+            }
+        }
+    });
+}
+
+/// Evaluate an expression in a snapshot's context
+pub fn eval_expression(snapshot_id: String, expression: String) {
+    let expr_clone = expression.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        // Add pending entry
+        STATE_SIGNAL.with(|cell| {
+            if let Some(state) = cell.borrow().as_ref() {
+                state.update(|s| {
+                    s.pending_evals.insert(expr_clone.clone(), ());
+                    s.repl_history.push(ReplEntry {
+                        expression: expr_clone.clone(),
+                        result: None,
+                    });
+                });
+            }
+        });
+
+        let result = RPC_CLIENT.with(|cell| {
+            let binding = cell.borrow();
+            if let Some(client) = binding.as_ref() {
+                Some(client.eval(snapshot_id, expression.clone()))
+            } else {
+                None
+            }
+        });
+
+        if let Some(future) = result {
+            match future.await {
+                Ok(eval_result) => {
+                    STATE_SIGNAL.with(|cell| {
+                        if let Some(state) = cell.borrow().as_ref() {
+                            state.update(|s| {
+                                s.pending_evals.remove(&expression);
+                                // Find the entry in history and update it
+                                if let Some(entry) = s
+                                    .repl_history
+                                    .iter_mut()
+                                    .find(|e| e.expression == expression && e.result.is_none())
+                                {
+                                    entry.result = Some(eval_result.clone().into());
+                                }
+                                tracing::info!("[devtools] eval response: {:?}", eval_result);
+                            });
+                        }
+                    });
+                }
+                Err(e) => {
+                    STATE_SIGNAL.with(|cell| {
+                        if let Some(state) = cell.borrow().as_ref() {
+                            state.update(|s| {
+                                s.pending_evals.remove(&expression);
+                                // Update entry with error
+                                if let Some(entry) = s
+                                    .repl_history
+                                    .iter_mut()
+                                    .find(|e| e.expression == expression && e.result.is_none())
+                                {
+                                    entry.result = Some(Err(format!("RPC error: {:?}", e)));
+                                }
+                            });
+                        }
+                    });
+                }
+            }
+        }
+    });
+}
+
+/// Dismiss an error
+pub fn dismiss_error(route: String) {
+    wasm_bindgen_futures::spawn_local(async move {
+        let result = RPC_CLIENT.with(|cell| {
+            let binding = cell.borrow();
+            if let Some(client) = binding.as_ref() {
+                Some(client.dismiss_error(route))
+            } else {
+                None
+            }
+        });
+
+        if let Some(future) = result {
+            if let Err(e) = future.await {
+                tracing::error!("[devtools] dismiss_error failed: {:?}", e);
+            }
         }
     });
 }
@@ -276,15 +446,15 @@ fn hot_reload_css(new_path: &str) {
     }
 }
 
-fn handle_server_message(msg: ServerMessage) {
+fn handle_devtools_event(event: DevtoolsEvent) {
     STATE_SIGNAL.with(|cell| {
         let binding = cell.borrow();
         let Some(state) = binding.as_ref() else {
             return;
         };
 
-        match msg {
-            ServerMessage::Error(error) => {
+        match event {
+            DevtoolsEvent::Error(error) => {
                 state.update(|s| {
                     // Remove any existing error for this route
                     s.errors.retain(|e| e.route != error.route);
@@ -295,7 +465,7 @@ fn handle_server_message(msg: ServerMessage) {
                 });
             }
 
-            ServerMessage::ErrorResolved { route } => {
+            DevtoolsEvent::ErrorResolved { route } => {
                 state.update(|s| {
                     s.errors.retain(|e| e.route != route);
                     if s.errors.is_empty() && s.active_tab == DevtoolsTab::Errors {
@@ -304,17 +474,17 @@ fn handle_server_message(msg: ServerMessage) {
                 });
             }
 
-            ServerMessage::Reload => {
+            DevtoolsEvent::Reload => {
                 if let Some(window) = web_sys::window() {
                     let _ = window.location().reload();
                 }
             }
 
-            ServerMessage::CssChanged { path } => {
+            DevtoolsEvent::CssChanged { path } => {
                 hot_reload_css(&path);
             }
 
-            ServerMessage::Patches(patches) => {
+            DevtoolsEvent::Patches(patches) => {
                 match livereload_client::apply_patches(patches) {
                     Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
                     Err(e) => {
@@ -326,49 +496,6 @@ fn handle_server_message(msg: ServerMessage) {
                         );
                     }
                 }
-            }
-
-            ServerMessage::ScopeResponse { request_id, scope } => {
-                state.update(|s| {
-                    // Check if this is a response to a pending child request
-                    if let Some(path) = s.pending_scope_requests.remove(&request_id) {
-                        let path_key = path.join(".");
-                        tracing::info!(
-                            "[devtools] scope children response for {}: {} entries",
-                            path_key,
-                            scope.len()
-                        );
-                        s.scope_children.insert(path_key, scope);
-                    } else {
-                        // Top-level scope response
-                        s.scope_loading = false;
-                        s.scope_entries = scope;
-                        // Clear children cache when refreshing
-                        s.scope_children.clear();
-                        tracing::info!(
-                            "[devtools] scope response: {} entries",
-                            s.scope_entries.len()
-                        );
-                    }
-                });
-            }
-
-            ServerMessage::EvalResponse { request_id, result } => {
-                state.update(|s| {
-                    // Find the pending entry and update it with the result
-                    if let Some(expr) = s.pending_evals.remove(&request_id) {
-                        // Find the entry in history and update it
-                        if let Some(entry) = s
-                            .repl_history
-                            .iter_mut()
-                            .find(|e| e.expression == expr && e.result.is_none())
-                        {
-                            // Convert EvalResult to Result<ScopeValue, String>
-                            entry.result = Some(result.clone().into());
-                        }
-                    }
-                    tracing::info!("[devtools] eval response {request_id}: {:?}", result);
-                });
             }
         }
     });

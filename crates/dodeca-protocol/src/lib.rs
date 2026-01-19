@@ -1,14 +1,91 @@
 //! Shared protocol types for dodeca devtools
 //!
-//! Uses facet-postcard for binary serialization over WebSocket.
+//! This crate defines the protocol for communication between the dodeca
+//! devtools overlay (running in the browser) and the dodeca server.
+//!
+//! # Architecture
+//!
+//! The devtools use roam RPC over WebSocket:
+//! - Browser connects to `/_/ws` endpoint
+//! - cell-http forwards roam RPC calls via `ForwardingDispatcher`
+//! - Host implements `DevtoolsService`
+//!
+//! # Legacy Protocol
+//!
+//! The `ClientMessage` and `ServerMessage` types are kept for backwards
+//! compatibility during migration.
 
 use facet::Facet;
+use roam::Rx;
 
 mod ansi;
 pub use ansi::ansi_to_html;
 
 // Re-export for consumers
 pub use facet_postcard;
+
+// ============================================================================
+// RPC Service Definition
+// ============================================================================
+
+/// Service for devtools communication between browser and server.
+///
+/// This service is implemented by the dodeca host and called by the
+/// browser-based devtools overlay via roam RPC over WebSocket.
+#[roam::service]
+pub trait DevtoolsService {
+    /// Subscribe to devtools events for a route.
+    ///
+    /// Returns a streaming channel that receives events like:
+    /// - Live reload notifications
+    /// - CSS hot reload
+    /// - DOM patches
+    /// - Template errors
+    ///
+    /// The subscription remains active until the channel is dropped.
+    async fn subscribe(&self, route: String) -> Rx<DevtoolsEvent>;
+
+    /// Get scope entries for the current route.
+    ///
+    /// - `path`: Optional path into the scope tree (e.g., `["data", "items"]`)
+    ///   If None, returns top-level scope entries.
+    async fn get_scope(&self, path: Option<Vec<String>>) -> Vec<ScopeEntry>;
+
+    /// Evaluate an expression in a snapshot's context.
+    ///
+    /// - `snapshot_id`: The snapshot to evaluate in (from ErrorInfo)
+    /// - `expression`: The expression to evaluate
+    async fn eval(&self, snapshot_id: String, expression: String) -> EvalResult;
+
+    /// Dismiss an error notification.
+    ///
+    /// Called when the user acknowledges an error.
+    async fn dismiss_error(&self, route: String);
+}
+
+/// Events pushed from server to browser devtools.
+#[derive(Debug, Clone, PartialEq, Facet)]
+#[repr(u8)]
+pub enum DevtoolsEvent {
+    /// Full page reload requested
+    Reload,
+
+    /// CSS file changed - hot reload it
+    CssChanged { path: String },
+
+    /// DOM patches to apply incrementally
+    Patches(Vec<Patch>),
+
+    /// A template error occurred
+    Error(ErrorInfo),
+
+    /// Error was resolved (template now renders successfully)
+    ErrorResolved { route: String },
+}
+
+// ============================================================================
+// Legacy Protocol (for migration)
+// ============================================================================
 
 /// Messages sent from server to client
 #[derive(Debug, Clone, PartialEq, Facet)]
