@@ -629,7 +629,10 @@ pub async fn try_render_via_cell(
     // Get database from task-local
     let db = crate::db::TASK_DB
         .try_with(|db| db.clone())
-        .map_err(|_| "Database not available in task-local context".to_string())?;
+        .map_err(|_| {
+            let bt = std::backtrace::Backtrace::force_capture();
+            format!("Database not available in task-local context\n\nBacktrace:\n{bt}")
+        })?;
 
     // Create render context with templates and site_tree
     let context = RenderContext::new(templates, db, Arc::new(site_tree.clone()));

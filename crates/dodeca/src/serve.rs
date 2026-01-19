@@ -444,7 +444,10 @@ impl SiteServer {
             let cache = self.css_cache.read().unwrap();
             cache.clone()
         };
-        let new_css_path = self.get_current_css_path().await;
+        // Wrap in TASK_DB scope - css_output can trigger rendering via font subsetting
+        let new_css_path = crate::db::TASK_DB
+            .scope(self.db.clone(), self.get_current_css_path())
+            .await;
         let css_changed = old_css_path != new_css_path;
 
         if css_changed {
