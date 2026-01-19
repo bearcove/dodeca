@@ -5,11 +5,54 @@
 use cell_markdown_proto::*;
 use dodeca_cell_runtime::run_cell;
 use marq::{
-    AasvgHandler, ArboriumHandler, CompareHandler, LinkResolver, PikruHandler, RenderOptions,
-    TermHandler, render,
+    AasvgHandler, ArboriumHandler, CompareHandler, InlineCodeHandler, LinkResolver, PikruHandler,
+    RenderOptions, TermHandler, render,
 };
 use std::future::Future;
 use std::pin::Pin;
+
+/// Escape HTML special characters
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Inline code handler that converts `r[rule.name]` to links.
+/// Links to #r-rule.name anchors on the same page.
+struct RuleRefHandler;
+
+impl InlineCodeHandler for RuleRefHandler {
+    fn render(&self, code: &str) -> Option<String> {
+        let code = code.trim();
+
+        // Match r[rule.id] pattern
+        if !code.starts_with("r[") || !code.ends_with(']') {
+            return None;
+        }
+
+        // Extract rule.id from r[rule.id]
+        let rule_id = &code[2..code.len() - 1];
+
+        // Validate it looks like a rule ID (alphanumeric, dots, dashes, underscores)
+        if rule_id.is_empty()
+            || !rule_id
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+        {
+            return None;
+        }
+
+        // Generate link to #r-rule.id anchor on same page
+        let anchor = format!("r-{}", rule_id);
+        Some(format!(
+            "<code><a href=\"#{}\" class=\"rule-ref\">{}</a></code>",
+            anchor,
+            html_escape(code)
+        ))
+    }
+}
 
 /// Link resolver that passes through @/ links unchanged for dodeca to post-process.
 /// This allows dodeca to resolve links using the site tree (for custom slugs)
@@ -60,7 +103,9 @@ impl MarkdownProcessor for MarkdownProcessorImpl {
             .with_default_handler(ArboriumHandler::new())
             .with_source_path(&source_path)
             // Pass through @/ links unchanged - dodeca will resolve them with site tree
-            .with_link_resolver(PassthroughLinkResolver);
+            .with_link_resolver(PassthroughLinkResolver)
+            // Convert `r[rule.name]` inline code to links
+            .with_inline_code_handler(RuleRefHandler);
 
         // Render markdown with all code blocks rendered inline
         match render(&markdown, &opts).await {
