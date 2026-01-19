@@ -1373,7 +1373,8 @@ pub async fn static_file_cache_path<DB: Db>(db: &DB, file: StaticFile) -> Picant
 }
 
 /// Build a path map from original paths to cache-busted paths for all static files.
-/// This uses source content hashing (no rewriting) to avoid recursion.
+/// This uses source content hashing (no rewriting) to avoid recursion for CSS/JS.
+/// For fonts, we use static_file_output to get the subsetted content hash.
 #[picante::tracked]
 pub async fn static_path_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, String>> {
     let static_files = StaticRegistry::files(db)?.unwrap_or_default();
@@ -1383,7 +1384,14 @@ pub async fn static_path_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, S
         let original_path = file.path(db)?.as_str().to_string();
         // Skip images - they get transcoded to different formats with different hashing
         if !InputFormat::is_processable(&original_path) {
-            let cache_busted = static_file_cache_path(db, *file).await?;
+            // For fonts, use static_file_output to get the subsetted content hash
+            // (fonts are subsetted based on character analysis, so we need the final hash)
+            let cache_busted = if is_font_file(&original_path) {
+                let output = static_file_output(db, *file).await?;
+                output.cache_busted_path
+            } else {
+                static_file_cache_path(db, *file).await?
+            };
             path_map.insert(format!("/{original_path}"), format!("/{cache_busted}"));
         }
     }
