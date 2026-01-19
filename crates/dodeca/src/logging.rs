@@ -26,14 +26,13 @@ use tracing_subscriber::{
 /// Threshold for logging slow spans (in milliseconds)
 const SLOW_SPAN_THRESHOLD_MS: u128 = 50;
 
-/// Default tracing filter that silences noisy dependencies.
-/// Format: `warn,ddc=info` - warn for everything, info for dodeca code.
+/// Default tracing filter - INFO for everything, with noisy deps silenced.
 /// This is used by:
 /// - `ddc build` (non-TUI mode)
 /// - `ddc serve --no-tui` (non-TUI mode)
 /// - `ddc serve` (TUI mode default)
 /// - Cells (pushed via TracingConfig RPC)
-pub const DEFAULT_TRACING_FILTER: &str = "warn,ddc=info";
+pub const DEFAULT_TRACING_FILTER: &str = "info,hyper=warn,h2=warn,tower=warn,rustls=warn";
 
 /// A tracing layer that sends formatted events to a channel (for TUI Activity panel)
 pub struct TuiLayer {
@@ -114,6 +113,7 @@ where
                         level: LogLevel::Warn,
                         kind: EventKind::Build,
                         message: format!("slow query: {} took {}ms", name, elapsed_ms),
+                        fields: vec![],
                     });
                 }
             }
@@ -142,14 +142,14 @@ where
             }
         }
 
-        // Format the event
+        // Extract message and fields
         let mut visitor = MessageVisitor::default();
         event.record(&mut visitor);
 
-        let msg = if let Some(message) = visitor.message {
-            message
+        let (msg, fields) = if let Some(parts) = visitor.into_parts() {
+            parts
         } else {
-            format!("{}: {}", target, metadata.name())
+            (format!("{}: {}", target, metadata.name()), vec![])
         };
 
         // Convert tracing Level to our LogLevel
@@ -168,6 +168,7 @@ where
             level: log_level,
             kind,
             message: msg,
+            fields,
         });
     }
 }
@@ -380,23 +381,47 @@ impl FilterHandle {
     }
 }
 
-/// Visitor to extract the message field from an event
+/// Visitor to extract the message and all fields from an event
 #[derive(Default)]
 struct MessageVisitor {
     message: Option<String>,
+    fields: Vec<(String, String)>,
+}
+
+impl MessageVisitor {
+    /// Extract message and fields separately
+    fn into_parts(self) -> Option<(String, Vec<(String, String)>)> {
+        Some((self.message?, self.fields))
+    }
 }
 
 impl tracing::field::Visit for MessageVisitor {
     fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
         if field.name() == "message" {
             self.message = Some(value.to_string());
+        } else {
+            self.fields.push((field.name().to_string(), value.to_string()));
         }
     }
 
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
         if field.name() == "message" {
             self.message = Some(format!("{value:?}"));
+        } else {
+            self.fields.push((field.name().to_string(), format!("{value:?}")));
         }
+    }
+
+    fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
+        self.fields.push((field.name().to_string(), value.to_string()));
+    }
+
+    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+        self.fields.push((field.name().to_string(), value.to_string()));
+    }
+
+    fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
+        self.fields.push((field.name().to_string(), value.to_string()));
     }
 }
 

@@ -2688,9 +2688,9 @@ async fn serve_with_tui(
         urls: build_urls(&initial_ips, display_port),
         is_running: false,
         bind_mode: initial_mode,
-        picante_cache_size: picante_size,
-        cas_cache_size: cas_size,
-        code_exec_cache_size: code_exec_size,
+        picante_cache_size: picante_size as u64,
+        cas_cache_size: cas_size as u64,
+        code_exec_cache_size: code_exec_size as u64,
     });
 
     // Load source files into the server
@@ -3028,9 +3028,9 @@ async fn serve_with_tui(
                 urls: build_urls(&ips, actual_port),
                 is_running: true,
                 bind_mode: mode,
-                picante_cache_size: picante_size,
-                cas_cache_size: cas_size,
-                code_exec_cache_size: code_exec_size,
+                picante_cache_size: picante_size as u64,
+                cas_cache_size: cas_size as u64,
+                code_exec_cache_size: code_exec_size as u64,
             });
 
             // Log the binding
@@ -3136,6 +3136,8 @@ async fn serve_with_tui(
             let new_mode = match cmd {
                 tui::ServerCommand::GoPublic => tui::BindMode::Lan,
                 tui::ServerCommand::GoLocal => tui::BindMode::Local,
+                // Other commands are handled by the TUI host, not here
+                _ => continue,
             };
 
             // Signal current server to shutdown

@@ -47,6 +47,26 @@ impl TaskProgress {
             self.completed as f64 / self.total as f64
         }
     }
+
+    pub fn start(&mut self, total: usize) {
+        self.total = total as u32;
+        self.completed = 0;
+        self.status = TaskStatus::Running;
+    }
+
+    pub fn advance(&mut self) {
+        self.completed = (self.completed + 1).min(self.total);
+    }
+
+    pub fn finish(&mut self) {
+        self.completed = self.total;
+        self.status = TaskStatus::Done;
+    }
+
+    pub fn fail(&mut self, msg: impl Into<String>) {
+        self.status = TaskStatus::Error;
+        self.message = Some(msg.into());
+    }
 }
 
 /// All build progress state
@@ -104,12 +124,14 @@ pub enum EventKind {
     Generic,
 }
 
-/// A log event with level, kind, and message
+/// A log event with level, kind, message, and structured fields
 #[derive(Debug, Clone, facet::Facet)]
 pub struct LogEvent {
     pub level: LogLevel,
     pub kind: EventKind,
     pub message: String,
+    /// Structured key-value fields for colored display
+    pub fields: Vec<(String, String)>,
 }
 
 impl LogEvent {
@@ -118,6 +140,7 @@ impl LogEvent {
             level: LogLevel::Info,
             kind: EventKind::Generic,
             message: message.into(),
+            fields: vec![],
         }
     }
 
@@ -126,6 +149,7 @@ impl LogEvent {
             level: LogLevel::Warn,
             kind: EventKind::Generic,
             message: message.into(),
+            fields: vec![],
         }
     }
 
@@ -134,11 +158,17 @@ impl LogEvent {
             level: LogLevel::Error,
             kind: EventKind::Generic,
             message: message.into(),
+            fields: vec![],
         }
     }
 
     pub fn with_kind(mut self, kind: EventKind) -> Self {
         self.kind = kind;
+        self
+    }
+
+    pub fn with_fields(mut self, fields: Vec<(String, String)>) -> Self {
+        self.fields = fields;
         self
     }
 
@@ -151,6 +181,7 @@ impl LogEvent {
             },
             kind: EventKind::Http { status },
             message: message.into(),
+            fields: vec![],
         }
     }
 
@@ -159,6 +190,7 @@ impl LogEvent {
             level: LogLevel::Info,
             kind: EventKind::FileChange,
             message: message.into(),
+            fields: vec![],
         }
     }
 
@@ -167,6 +199,7 @@ impl LogEvent {
             level: LogLevel::Info,
             kind: EventKind::Reload,
             message: message.into(),
+            fields: vec![],
         }
     }
 
@@ -175,6 +208,7 @@ impl LogEvent {
             level: LogLevel::Info,
             kind: EventKind::Patch,
             message: message.into(),
+            fields: vec![],
         }
     }
 
@@ -183,6 +217,7 @@ impl LogEvent {
             level: LogLevel::Info,
             kind: EventKind::Search,
             message: message.into(),
+            fields: vec![],
         }
     }
 
@@ -191,6 +226,7 @@ impl LogEvent {
             level: LogLevel::Info,
             kind: EventKind::Server,
             message: message.into(),
+            fields: vec![],
         }
     }
 
@@ -199,6 +235,7 @@ impl LogEvent {
             level: LogLevel::Info,
             kind: EventKind::Build,
             message: message.into(),
+            fields: vec![],
         }
     }
 }

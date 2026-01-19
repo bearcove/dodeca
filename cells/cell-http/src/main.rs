@@ -102,14 +102,6 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
     ) -> Response {
         let path = request.uri().path().to_string();
 
-        tracing::error!("error");
-        tracing::warn!("warn");
-        tracing::info!("info");
-        tracing::debug!("debug");
-        tracing::trace!("trace");
-        tokio::time::sleep(std::time::Duration::from_secs(1));
-        panic!("HELLO I AM CELL HTTP");
-
         // Check if this should be proxied to Vite
         if vite::is_vite_path(&path) || vite::is_vite_hmr_websocket(&request) {
             return vite::vite_proxy_handler(State(ctx), request).await;
@@ -211,10 +203,9 @@ fn build_router(ctx: Arc<dyn RouterContext>) -> axum::Router {
         let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
 
         if status >= 500 {
-            tracing::error!("{} {} -> {} in {:.1}ms", method, path, status, latency_ms);
+            tracing::error!(status, latency_ms, "{} {} -> {}", method, path, status);
         } else {
-            // 2xx, 3xx, 4xx are all normal in a dev server (404s are common during probing)
-            tracing::debug!("{} {} -> {} in {:.1}ms", method, path, status, latency_ms);
+            tracing::info!(status, latency_ms, "{} {} -> {}", method, path, status);
         }
 
         response

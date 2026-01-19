@@ -77,6 +77,7 @@ pub fn convert_log_event(event: &crate::tui::LogEvent) -> LogEvent {
         level: convert_log_level(event.level),
         kind: convert_event_kind(event.kind),
         message: event.message.clone(),
+        fields: event.fields.clone(),
     }
 }
 

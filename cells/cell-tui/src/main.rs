@@ -28,7 +28,7 @@ use dodeca_cell_runtime::{ConnectionHandle, run_cell};
 
 use cell_host_proto::{HostServiceClient, ServerCommand};
 use cell_tui_proto::{
-    BindMode, BuildProgress, EventKind, LogEvent, LogLevel, ServerStatus, TaskStatus, TuiDisplay,
+    BindMode, BuildProgress, EventKind, LogEvent, ServerStatus, TaskStatus, TuiDisplay,
     TuiDisplayDispatcher,
 };
 
@@ -40,12 +40,10 @@ const MAX_EVENTS: usize = 100;
 /// Preset log filter expressions (cycled with 'f' key)
 /// Note: The first preset matches DEFAULT_TRACING_FILTER in dodeca/src/logging.rs
 const FILTER_PRESETS: &[&str] = &[
-    "warn,ddc=info",            // Quiet deps, info for dodeca (default)
-    "warn,ddc=debug",           // Quiet deps, debug for dodeca
-    "warn,ddc=trace",           // Quiet deps, trace for dodeca
-    "info",                     // Info level for everything
-    "debug",                    // Debug everything
-    "warn,hyper=off,tower=off", // Suppress HTTP noise
+    "info,hyper=warn,h2=warn,tower=warn,rustls=warn", // Info (default)
+    "debug,hyper=warn,h2=warn,tower=warn,rustls=warn", // Debug
+    "trace,hyper=warn,h2=warn,tower=warn,rustls=warn", // Trace
+    "warn", // Quiet (warnings only)
 ];
 
 /// Format bytes as compact human-readable size
@@ -265,32 +263,27 @@ impl TuiApp {
         frame.render_widget(progress_widget, chunks[1]);
 
         // Events log
-        let max_events = (chunks[2].height.saturating_sub(2)) as usize;
-        let recent_events: Vec<Line> = self
-            .event_buffer
-            .iter()
-            .rev()
-            .take(max_events)
-            .rev()
-            .map(|e| {
-                let (symbol, symbol_color) = match e.level {
-                    LogLevel::Error => ("✗", RED),
-                    LogLevel::Warn => (event_symbol(&e.kind), YELLOW),
-                    _ => (event_symbol(&e.kind), event_color(&e.kind)),
-                };
+        let available_width = chunks[2].width.saturating_sub(2) as usize; // account for borders
+        let max_lines = (chunks[2].height.saturating_sub(2)) as usize;
 
-                Line::from(vec![
-                    Span::styled(format!("{} ", symbol), Style::default().fg(symbol_color)),
-                    Span::raw(&e.message).fg(event_color(&e.kind)),
-                ])
-            })
-            .collect();
-        let events_widget = Paragraph::new(recent_events).block(
-            Block::default()
-                .title(" 📋 Activity ")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(FG_GUTTER)),
-        );
+        // Render events into lines with smart field wrapping (chronological order)
+        let mut all_lines: Vec<Line> = Vec::new();
+        for e in self.event_buffer.iter() {
+            let lines = format_event(e, available_width);
+            all_lines.extend(lines);
+        }
+
+        // Take the last max_lines (most recent)
+        let skip = all_lines.len().saturating_sub(max_lines);
+        let recent_lines: Vec<Line> = all_lines.into_iter().skip(skip).collect();
+
+        let events_widget = Paragraph::new(recent_lines)
+            .block(
+                Block::default()
+                    .title(" Activity ")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(FG_GUTTER)),
+            );
         frame.render_widget(events_widget, chunks[2]);
 
         // Footer
@@ -447,27 +440,90 @@ impl TuiApp {
     }
 }
 
-fn event_symbol(kind: &EventKind) -> &'static str {
-    match kind {
-        EventKind::Http { status } => {
-            if *status >= 500 {
-                "⚠"
-            } else if *status >= 400 {
-                "✗"
-            } else if *status >= 300 {
-                "↪"
+/// Format a log event into one or more lines with colored fields
+fn format_event(e: &LogEvent, max_width: usize) -> Vec<Line<'static>> {
+    use theme::*;
+
+    let msg_color = event_color(&e.kind);
+
+    let mut lines: Vec<Line<'static>> = Vec::new();
+
+    if e.fields.is_empty() {
+        // No fields - just message
+        lines.push(Line::from(vec![
+            Span::styled(e.message.clone(), Style::default().fg(msg_color)),
+        ]));
+    } else {
+        // Message + fields with smart wrapping
+        let mut first_line_spans = vec![
+            Span::styled(e.message.clone(), Style::default().fg(msg_color)),
+        ];
+
+        let mut current_line_len = e.message.chars().count();
+        let indent = "    "; // continuation indent
+        let indent_len = indent.chars().count();
+
+        // Track if we need to start a new line for fields
+        let mut continuation_spans: Vec<Span<'static>> = Vec::new();
+        let mut continuation_len = indent_len;
+
+        for (key, value) in &e.fields {
+            // Format: key=value (with space before)
+            let field_len = key.chars().count() + 1 + value.chars().count(); // key + = + value
+            let space_needed = 1; // always need space before field
+
+            let total_field_len = space_needed + field_len;
+
+            // Decide where to put this field
+            if continuation_spans.is_empty() {
+                // Still on first line
+                if current_line_len + total_field_len <= max_width {
+                    // Fits on first line
+                    first_line_spans.push(Span::raw(" "));
+                    first_line_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
+                    first_line_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
+                    first_line_spans.push(Span::styled(value.clone(), Style::default().fg(GREEN)));
+                    current_line_len += total_field_len;
+                } else {
+                    // Start continuation line
+                    lines.push(Line::from(std::mem::take(&mut first_line_spans)));
+                    continuation_spans.push(Span::raw(indent.to_string()));
+                    continuation_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
+                    continuation_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
+                    continuation_spans.push(Span::styled(value.clone(), Style::default().fg(GREEN)));
+                    continuation_len = indent_len + field_len;
+                }
             } else {
-                "→"
+                // Already on continuation line
+                if continuation_len + total_field_len <= max_width {
+                    // Fits on current continuation
+                    continuation_spans.push(Span::raw(" "));
+                    continuation_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
+                    continuation_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
+                    continuation_spans.push(Span::styled(value.clone(), Style::default().fg(GREEN)));
+                    continuation_len += total_field_len;
+                } else {
+                    // Start new continuation line
+                    lines.push(Line::from(std::mem::take(&mut continuation_spans)));
+                    continuation_spans.push(Span::raw(indent.to_string()));
+                    continuation_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
+                    continuation_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
+                    continuation_spans.push(Span::styled(value.clone(), Style::default().fg(GREEN)));
+                    continuation_len = indent_len + field_len;
+                }
             }
         }
-        EventKind::FileChange => "📝",
-        EventKind::Reload => "🔄",
-        EventKind::Patch => "✨",
-        EventKind::Search => "🔍",
-        EventKind::Server => "🌐",
-        EventKind::Build => "🔨",
-        EventKind::Generic => "•",
+
+        // Flush remaining spans
+        if !first_line_spans.is_empty() {
+            lines.push(Line::from(first_line_spans));
+        }
+        if !continuation_spans.is_empty() {
+            lines.push(Line::from(continuation_spans));
+        }
     }
+
+    lines
 }
 
 fn event_color(kind: &EventKind) -> Color {

@@ -49,7 +49,7 @@ pub fn is_vite_path(path: &str) -> bool {
         || path.starts_with("/@id/")
         || path.starts_with("/@fs/")
         || path.starts_with("/@react-refresh")
-        || path.starts_with("/__vite_plugin")
+        || path.starts_with("/__vite-plugin")
         || path.starts_with("/node_modules/.vite/")
         || path.starts_with("/node_modules/")
         || path.ends_with(".hot-update.json")
@@ -225,12 +225,33 @@ async fn proxy_http_request(
         match client.request(proxy_req).await {
             Ok(res) => {
                 let status = res.status();
-                tracing::debug!(
-                    status = %status,
-                    path = %path,
-                    addr = %addr,
-                    "vite proxy success"
-                );
+                if status.is_server_error() {
+                    // Vite returned 5xx - log details for debugging
+                    let response_headers: Vec<_> = res
+                        .headers()
+                        .iter()
+                        .map(|(k, v)| format!("{}={:?}", k, v))
+                        .collect();
+                    let request_headers: Vec<_> = headers
+                        .iter()
+                        .map(|(k, v)| format!("{}={:?}", k, v))
+                        .collect();
+                    tracing::warn!(
+                        status = %status,
+                        path = %path,
+                        addr = %addr,
+                        ?response_headers,
+                        ?request_headers,
+                        "vite returned server error"
+                    );
+                } else {
+                    tracing::debug!(
+                        status = %status,
+                        path = %path,
+                        addr = %addr,
+                        "vite proxy success"
+                    );
+                }
                 let (parts, body) = res.into_parts();
                 return Response::from_parts(parts, Body::new(body));
             }

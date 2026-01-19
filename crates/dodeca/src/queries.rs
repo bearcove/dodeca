@@ -308,7 +308,7 @@ pub async fn parse_file<DB: Db>(db: &DB, source: SourceFile) -> PicanteResult<Pa
     let last_modified = source.last_modified(db)?;
 
     tracing::Span::current().record("path", path.as_str());
-    tracing::info!(path = %path, "Parsing markdown");
+    tracing::debug!(path = %path, "Parsing markdown");
 
     // Use the markdown cell to parse frontmatter and render markdown
     let parse_result = match parse_and_render_markdown_cell(path.as_str(), content.as_str()).await {
@@ -545,7 +545,7 @@ pub async fn render_page<DB: Db>(
 ) -> PicanteResult<Result<RenderedHtml, BuildError>> {
     use crate::render::render_page_via_cell;
 
-    tracing::info!(route = %route, "Rendering page");
+    tracing::debug!(route = %route, "Rendering page");
 
     // Build tree (cached)
     let site_tree = match build_tree(db).await? {
@@ -579,7 +579,7 @@ pub async fn render_section<DB: Db>(
 ) -> PicanteResult<Result<RenderedHtml, BuildError>> {
     use crate::render::render_section_via_cell;
 
-    tracing::info!(route = %route, "Rendering section");
+    tracing::debug!(route = %route, "Rendering section");
 
     // Build tree (cached)
     let site_tree = match build_tree(db).await? {
@@ -1049,7 +1049,7 @@ pub async fn process_image<DB: Db>(
         return Ok(Some(cached));
     }
 
-    tracing::info!(image = %path, bytes = data.len(), "Processing image");
+    tracing::debug!(image = %path, bytes = data.len(), "Processing image");
 
     let Some(processed) = image::process_image(&data, input_format).await else {
         return Ok(None);

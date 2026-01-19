@@ -31,7 +31,7 @@ impl TcpTunnelImpl {
 impl TcpTunnel for TcpTunnelImpl {
     async fn open(&self, tunnel: Tunnel) {
         let channel_id = tunnel.tx.channel_id();
-        tracing::info!(channel_id, "HTTP tunnel opened");
+        tracing::trace!(channel_id, "HTTP tunnel opened");
 
         let service = self.app.clone();
 
@@ -44,7 +44,7 @@ impl TcpTunnel for TcpTunnelImpl {
         // Serve HTTP on the server side of the duplex
         tokio::spawn(async move {
             let started_at = Instant::now();
-            tracing::info!(channel_id, "HTTP connection starting");
+            tracing::trace!(channel_id, "HTTP connection starting");
             if let Err(e) = hyper::server::conn::http1::Builder::new()
                 .serve_connection(
                     hyper_util::rt::TokioIo::new(server),
@@ -61,7 +61,7 @@ impl TcpTunnel for TcpTunnelImpl {
                     "HTTP connection error"
                 );
             }
-            tracing::info!(
+            tracing::trace!(
                 channel_id,
                 elapsed_ms = started_at.elapsed().as_millis(),
                 "HTTP connection finished"

@@ -188,8 +188,15 @@ async fn relay_output<R: tokio::io::AsyncRead + Unpin>(reader: R, tx: mpsc::Send
         }
 
         // Skip empty lines
-        if !line.trim().is_empty() {
-            status!("   {} {}", "[vite]".dimmed(), line);
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            // Strip ANSI codes for cleaner log output
+            let clean_line = strip_ansi_escapes(trimmed);
+            if crate::host::Host::get().is_tui_mode() {
+                tracing::info!(target: "vite", "{}", clean_line);
+            } else {
+                eprintln!("   {} {}", "[vite]".dimmed(), line);
+            }
         }
     }
 }
