@@ -95,9 +95,9 @@ pub fn convert_server_status(status: &crate::tui::ServerStatus) -> ServerStatus 
         urls: status.urls.clone(),
         is_running: status.is_running,
         bind_mode: convert_bind_mode(status.bind_mode),
-        picante_cache_size: status.picante_cache_size as u64,
-        cas_cache_size: status.cas_cache_size as u64,
-        code_exec_cache_size: status.code_exec_cache_size as u64,
+        picante_cache_size: status.picante_cache_size,
+        cas_cache_size: status.cas_cache_size,
+        code_exec_cache_size: status.code_exec_cache_size,
     }
 }
 
