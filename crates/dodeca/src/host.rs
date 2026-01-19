@@ -740,26 +740,34 @@ fn capture_cell_stdio(label: &str, child: &mut tokio::process::Child) {
 }
 
 /// Pump a stdio stream to the logger.
-fn spawn_stdio_pump<R>(label: String, stream: &'static str, reader: R)
+///
+/// Uses dynamic tracing targets so messages appear as if from the cell itself.
+fn spawn_stdio_pump<R>(label: String, _stream: &'static str, reader: R)
 where
     R: AsyncRead + Unpin + Send + 'static,
 {
     tokio::spawn(async move {
+        let target = format!("cell-{label}");
         let mut reader = BufReader::new(reader);
         let mut line = String::new();
         loop {
             line.clear();
             match reader.read_line(&mut line).await {
                 Ok(0) => {
-                    debug!(cell = %label, %stream, "cell stdio EOF");
+                    roam_tracing::dispatch_message(
+                        roam_tracing::Level::Debug,
+                        &target,
+                        "stdio EOF",
+                    );
                     break;
                 }
                 Ok(_) => {
                     let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
-                    info!(cell = %label, %stream, "{trimmed}");
+                    roam_tracing::dispatch_message(roam_tracing::Level::Info, &target, trimmed);
                 }
                 Err(e) => {
-                    warn!(cell = %label, %stream, error = ?e, "cell stdio read failed");
+                    let msg = format!("stdio read failed: {e:?}");
+                    roam_tracing::dispatch_message(roam_tracing::Level::Warn, &target, &msg);
                     break;
                 }
             }
@@ -774,7 +782,13 @@ async fn wait_for_cell_ready(cell_name: &str) {
     debug!(cell = cell_name, "wait_for_cell_ready: starting");
 
     // Wait for the cell to report ready via CellLifecycle::ready()
-    let timeout = Duration::from_secs(1);
+    // Default timeout is 10 seconds to handle cold starts on slower machines/CI
+    // Can be overridden with DODECA_CELL_TIMEOUT_SECS env var
+    let timeout_secs: u64 = std::env::var("DODECA_CELL_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
+    let timeout = Duration::from_secs(timeout_secs);
     let start = std::time::Instant::now();
 
     let mut check_count = 0u32;
@@ -796,9 +810,12 @@ async fn wait_for_cell_ready(cell_name: &str) {
             error!(
                 cell = cell_name,
                 elapsed_ms = start.elapsed().as_millis(),
+                timeout_secs,
                 check_count,
-                "Cell failed to start within 1 second - exiting"
+                "Cell failed to start within timeout - exiting"
             );
+            // Give stdio pump tasks time to flush cell's stderr (e.g., panic messages)
+            tokio::time::sleep(Duration::from_millis(100)).await;
             std::process::exit(1);
         }
 
