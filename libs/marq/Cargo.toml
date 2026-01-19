@@ -12,7 +12,7 @@ repository = "https://github.com/bearcove/marq"
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [features]
-default = []
+default = ["default-langs"]
 # Syntax highlighting via arborium (tree-sitter based)
 highlight = ["dep:arborium"]
 # ASCII art to SVG conversion
@@ -21,6 +21,82 @@ aasvg = ["dep:aasvg"]
 pikru = ["dep:pikru"]
 # All handlers
 all-handlers = ["highlight", "aasvg", "pikru"]
+
+# Default set of languages (enabled by default)
+default-langs = [
+    "lang-asm", "lang-c", "lang-cpp", "lang-rust", "lang-zig",
+    "lang-bash", "lang-fish", "lang-powershell", "lang-zsh",
+    "lang-css", "lang-html", "lang-javascript", "lang-scss", "lang-svelte",
+    "lang-typescript", "lang-tsx", "lang-vue",
+    "lang-elixir", "lang-go", "lang-graphql", "lang-java", "lang-php",
+    "lang-python", "lang-ruby",
+    "lang-clojure", "lang-haskell", "lang-ocaml", "lang-scala",
+    "lang-julia", "lang-r", "lang-sql",
+    "lang-dockerfile", "lang-ini", "lang-jinja2", "lang-json",
+    "lang-markdown", "lang-nginx", "lang-toml", "lang-typst", "lang-xml",
+    "lang-yaml", "lang-styx",
+    "lang-cmake", "lang-meson", "lang-nix", "lang-hcl",
+    "lang-capnp", "lang-textproto", "lang-thrift",
+    "lang-diff", "lang-kotlin", "lang-lua", "lang-perl", "lang-swift",
+    "lang-vim",
+]
+
+# Individual language features (forwarded to arborium)
+lang-asm = ["arborium?/lang-asm"]
+lang-bash = ["arborium?/lang-bash"]
+lang-c = ["arborium?/lang-c"]
+lang-capnp = ["arborium?/lang-capnp"]
+lang-clojure = ["arborium?/lang-clojure"]
+lang-cmake = ["arborium?/lang-cmake"]
+lang-cpp = ["arborium?/lang-cpp"]
+lang-css = ["arborium?/lang-css"]
+lang-diff = ["arborium?/lang-diff"]
+lang-dockerfile = ["arborium?/lang-dockerfile"]
+lang-elixir = ["arborium?/lang-elixir"]
+lang-fish = ["arborium?/lang-fish"]
+lang-go = ["arborium?/lang-go"]
+lang-graphql = ["arborium?/lang-graphql"]
+lang-haskell = ["arborium?/lang-haskell"]
+lang-hcl = ["arborium?/lang-hcl"]
+lang-html = ["arborium?/lang-html"]
+lang-ini = ["arborium?/lang-ini"]
+lang-java = ["arborium?/lang-java"]
+lang-javascript = ["arborium?/lang-javascript"]
+lang-jinja2 = ["arborium?/lang-jinja2"]
+lang-json = ["arborium?/lang-json"]
+lang-julia = ["arborium?/lang-julia"]
+lang-kotlin = ["arborium?/lang-kotlin"]
+lang-lua = ["arborium?/lang-lua"]
+lang-markdown = ["arborium?/lang-markdown"]
+lang-meson = ["arborium?/lang-meson"]
+lang-nginx = ["arborium?/lang-nginx"]
+lang-nix = ["arborium?/lang-nix"]
+lang-ocaml = ["arborium?/lang-ocaml"]
+lang-perl = ["arborium?/lang-perl"]
+lang-php = ["arborium?/lang-php"]
+lang-powershell = ["arborium?/lang-powershell"]
+lang-python = ["arborium?/lang-python"]
+lang-r = ["arborium?/lang-r"]
+lang-ruby = ["arborium?/lang-ruby"]
+lang-rust = ["arborium?/lang-rust"]
+lang-scala = ["arborium?/lang-scala"]
+lang-scss = ["arborium?/lang-scss"]
+lang-sql = ["arborium?/lang-sql"]
+lang-styx = ["arborium?/lang-styx"]
+lang-svelte = ["arborium?/lang-svelte"]
+lang-swift = ["arborium?/lang-swift"]
+lang-textproto = ["arborium?/lang-textproto"]
+lang-thrift = ["arborium?/lang-thrift"]
+lang-toml = ["arborium?/lang-toml"]
+lang-tsx = ["arborium?/lang-tsx"]
+lang-typescript = ["arborium?/lang-typescript"]
+lang-typst = ["arborium?/lang-typst"]
+lang-vim = ["arborium?/lang-vim"]
+lang-vue = ["arborium?/lang-vue"]
+lang-xml = ["arborium?/lang-xml"]
+lang-yaml = ["arborium?/lang-yaml"]
+lang-zig = ["arborium?/lang-zig"]
+lang-zsh = ["arborium?/lang-zsh"]
 
 [dependencies]
 # Markdown parsing
@@ -73,34 +149,8 @@ aasvg = "1.0"
 # Pikchr diagrams (git for facet compat)
 pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 
-# Syntax highlighting
-arborium = { version = "2", features = [
-    # Systems & Low-level
-    "lang-asm", "lang-c", "lang-cpp", "lang-rust", "lang-zig",
-    # Shells & Scripts
-    "lang-bash", "lang-fish", "lang-powershell", "lang-zsh",
-    # Web Frontend
-    "lang-css", "lang-html", "lang-javascript", "lang-scss", "lang-svelte",
-    "lang-typescript", "lang-tsx", "lang-vue",
-    # Web Backend & APIs
-    "lang-elixir", "lang-go", "lang-graphql", "lang-java", "lang-php",
-    "lang-python", "lang-ruby",
-    # Functional & Academic
-    "lang-clojure", "lang-haskell", "lang-ocaml", "lang-scala",
-    # Data & Scientific
-    "lang-julia", "lang-r", "lang-sql",
-    # Config & Markup
-    "lang-dockerfile", "lang-ini", "lang-jinja2", "lang-json",
-    "lang-markdown", "lang-nginx", "lang-toml", "lang-typst", "lang-xml",
-    "lang-yaml", "lang-styx",
-    # Build Systems & Tools
-    "lang-cmake", "lang-meson", "lang-nix", "lang-hcl",
-    # Protocol/Data Formats
-    "lang-capnp", "lang-textproto", "lang-thrift",
-    # Misc
-    "lang-diff", "lang-kotlin", "lang-lua", "lang-perl", "lang-swift",
-    "lang-vim",
-] }
+# Syntax highlighting - features controlled by marq's lang-* features
+arborium = { version = "2", default-features = false }
 
 # Force all transitive facet dependencies to use git version
 [patch.crates-io]
