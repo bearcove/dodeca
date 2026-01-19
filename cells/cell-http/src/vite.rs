@@ -46,6 +46,7 @@ async fn get_vite_port(ctx: &Arc<dyn RouterContext>) -> Option<u16> {
 /// Check if a path should be proxied to Vite
 pub fn is_vite_path(path: &str) -> bool {
     let is_vite = path.starts_with("/@vite/")
+        || path.starts_with("/src/")
         || path.starts_with("/@id/")
         || path.starts_with("/@fs/")
         || path.starts_with("/@react-refresh")
