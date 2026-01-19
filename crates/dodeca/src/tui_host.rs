@@ -28,8 +28,8 @@ pub fn convert_task_status(status: crate::tui::TaskStatus) -> TaskStatus {
 pub fn convert_task_progress(task: &crate::tui::TaskProgress) -> TaskProgress {
     TaskProgress {
         name: task.name.to_string(),
-        total: task.total as u32,
-        completed: task.completed as u32,
+        total: task.total,
+        completed: task.completed,
         status: convert_task_status(task.status),
         message: task.message.clone(),
     }

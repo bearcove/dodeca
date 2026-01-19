@@ -3,6 +3,10 @@
 //! Provides interactive debugging tools for dodeca sites:
 //! - Live-reload connection indicator
 //! - Template error display
+//!
+//! This crate is WASM-only.
+
+#![cfg(target_arch = "wasm32")]
 
 use sycamore::prelude::*;
 use wasm_bindgen::prelude::*;
