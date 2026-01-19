@@ -5,16 +5,6 @@
 use facet::Facet;
 use std::collections::HashMap;
 
-/// Result of JS processing operations
-#[derive(Debug, Clone, Facet)]
-#[repr(u8)]
-pub enum JsResult {
-    /// Successfully processed JS
-    Success { js: String },
-    /// Error during processing
-    Error { message: String },
-}
-
 /// Input for JS string literal rewriting
 #[derive(Debug, Clone, Facet)]
 pub struct JsRewriteInput {
@@ -34,5 +24,5 @@ pub trait JsProcessor {
     ///
     /// Parses JavaScript, finds string literals matching paths in path_map,
     /// and replaces them with the new paths.
-    async fn rewrite_string_literals(&self, input: JsRewriteInput) -> JsResult;
+    async fn rewrite_string_literals(&self, input: JsRewriteInput) -> Result<String, String>;
 }

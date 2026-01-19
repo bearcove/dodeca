@@ -10,7 +10,7 @@ use picante::PicanteResult;
 use crate::cells::{MarkdownParseError, parse_and_render_markdown_cell};
 use crate::image::{self, InputFormat, OutputFormat, add_width_suffix};
 use crate::types::{HtmlBody, Route, SassContent, StaticPath, TemplateContent, Title};
-use crate::url_rewrite::rewrite_urls_in_css;
+use crate::url_rewrite::{rewrite_string_literals_in_js, rewrite_urls_in_css};
 use facet::Facet;
 use facet_value::{DestructuredRef, Value};
 use std::collections::{BTreeMap, HashMap};
@@ -761,9 +761,7 @@ fn collect_transitive_css(
 /// When HTML contains `<script src="/src/monaco/main.ts">`, we need to inject `<link>` tags
 /// for any CSS files that this entry point (and its imports) require.
 #[picante::tracked]
-pub async fn vite_css_for_entries<DB: Db>(
-    db: &DB,
-) -> PicanteResult<HashMap<String, Vec<String>>> {
+pub async fn vite_css_for_entries<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, Vec<String>>> {
     let mut result: HashMap<String, Vec<String>> = HashMap::new();
 
     // Look for .vite/manifest.json in static files
@@ -1093,6 +1091,7 @@ pub async fn process_image<DB: Db>(
 /// static_file_output) to ensure consistency between `ddc build` and `ddc serve`.
 #[picante::tracked]
 pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, BuildError>> {
+    tracing::debug!("build_site: starting");
     let mut files = Vec::new();
 
     // Build the site tree to get all routes
@@ -1139,8 +1138,13 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Bui
 
     // --- Phase 3: Process static files ---
     let static_files = StaticRegistry::files(db)?.unwrap_or_default();
+    tracing::debug!(
+        count = static_files.len(),
+        "build_site: processing static files"
+    );
     for file in static_files.iter() {
         let path = file.path(db)?.as_str().to_string();
+        tracing::trace!(path = %path, "build_site: processing static file");
 
         // Check if this is a processable image (PNG, JPG, GIF, WebP, JXL)
         if InputFormat::is_processable(&path) {
@@ -1360,17 +1364,11 @@ pub async fn static_file_output<DB: Db>(
     use crate::cache_bust::{cache_busted_path, content_hash};
 
     let path = file.path(db)?.as_str().to_string();
-    tracing::debug!(
-        file_path = %path,
-        "🔵 QUERY: static_file_output COMPUTING (picante cache miss)"
-    );
+    tracing::debug!(file_path = %path, "static_file_output: processing");
     // Get processed content based on file type
     let content = if is_font_file(&path) {
         // Font file - need to subset based on char analysis
-        tracing::debug!(
-            font_path = %path,
-            "🟢 static_file_output: processing FONT file"
-        );
+        tracing::trace!(font_path = %path, "static_file_output: processing font file");
         let analysis = font_char_analysis(db).await?;
         if let Some(chars) = find_chars_for_font_file(&path, &analysis) {
             if !chars.is_empty() {
@@ -1402,11 +1400,12 @@ pub async fn static_file_output<DB: Db>(
         let static_files = StaticRegistry::files(db)?.unwrap_or_default();
         for other_file in static_files.iter() {
             let other_path = other_file.path(db)?.as_str().to_string();
-            // Skip CSS files (would cause recursion) and images (different handling)
+            // Skip CSS files (would cause recursion), JS files (they also do rewriting), and images (different handling)
             if !other_path.to_lowercase().ends_with(".css")
+                && !other_path.to_lowercase().ends_with(".js")
                 && !InputFormat::is_processable(&other_path)
             {
-                // Recursively get the output for this file (safe - no CSS files)
+                // Recursively get the output for this file (safe - no CSS/JS files)
                 let other_output = static_file_output(db, *other_file).await?;
                 path_map.insert(
                     format!("/{other_path}"),
@@ -1417,6 +1416,39 @@ pub async fn static_file_output<DB: Db>(
 
         // Rewrite URLs in CSS
         let rewritten = rewrite_urls_in_css(&css_str, &path_map).await;
+        rewritten.into_bytes()
+    } else if path.to_lowercase().ends_with(".js") {
+        // JS file - rewrite string literals to cache-busted versions
+        tracing::trace!(js_path = %path, "static_file_output: processing JS file");
+        let raw_content = load_static(db, file).await?;
+        let js_str = String::from_utf8_lossy(&raw_content);
+
+        // Build path map for static files (similar to CSS handling)
+        let mut path_map: HashMap<String, String> = HashMap::new();
+        let static_files = StaticRegistry::files(db)?.unwrap_or_default();
+        for other_file in static_files.iter() {
+            let other_path = other_file.path(db)?.as_str().to_string();
+            // Skip JS files (would cause recursion) and images (different handling)
+            if !other_path.to_lowercase().ends_with(".js")
+                && !InputFormat::is_processable(&other_path)
+            {
+                // Recursively get the output for this file (safe - no JS files)
+                let other_output = static_file_output(db, *other_file).await?;
+                path_map.insert(
+                    format!("/{other_path}"),
+                    format!("/{}", other_output.cache_busted_path),
+                );
+            }
+        }
+
+        // Rewrite string literals in JS
+        tracing::info!(js_file = %path, path_map_count = path_map.len(), "JS rewrite: processing file");
+        for (from, to) in &path_map {
+            if from.contains("wasm") || to.contains("wasm") {
+                tracing::info!(from = %from, to = %to, "JS rewrite: wasm path mapping");
+            }
+        }
+        let rewritten = rewrite_string_literals_in_js(&js_str, &path_map).await;
         rewritten.into_bytes()
     } else {
         // Other static files - just load
@@ -1493,6 +1525,10 @@ pub async fn static_url_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, St
 
     // Add static file paths (non-images)
     let static_files = StaticRegistry::files(db)?.unwrap_or_default();
+    tracing::trace!(
+        count = static_files.len(),
+        "build_static_path_map: adding static files"
+    );
     for file in static_files.iter() {
         let original_path = file.path(db)?.as_str().to_string();
         if !InputFormat::is_processable(&original_path) {
@@ -1515,6 +1551,7 @@ pub async fn serve_html<DB: Db>(
     db: &DB,
     route: Route,
 ) -> PicanteResult<Result<Option<String>, BuildError>> {
+    tracing::debug!(route = %route.as_str(), "serve_html: rendering");
     use crate::url_rewrite::{
         ResponsiveImageInfo, rewrite_urls_in_html, transform_images_to_picture,
     };

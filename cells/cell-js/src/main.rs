@@ -11,14 +11,14 @@ use oxc::ast_visit::Visit;
 use oxc::parser::Parser;
 use oxc::span::SourceType;
 
-use cell_js_proto::{JsProcessor, JsProcessorDispatcher, JsResult, JsRewriteInput};
+use cell_js_proto::{JsProcessor, JsProcessorDispatcher, JsRewriteInput};
 
 /// JS processor implementation
 #[derive(Clone)]
 pub struct JsProcessorImpl;
 
 impl JsProcessor for JsProcessorImpl {
-    async fn rewrite_string_literals(&self, input: JsRewriteInput) -> JsResult {
+    async fn rewrite_string_literals(&self, input: JsRewriteInput) -> Result<String, String> {
         let js = &input.js;
         let path_map = &input.path_map;
 
@@ -28,8 +28,12 @@ impl JsProcessor for JsProcessorImpl {
         let parser_result = Parser::new(&allocator, js, source_type).parse();
 
         if parser_result.panicked || !parser_result.errors.is_empty() {
-            // If parsing fails, return unchanged (could be a snippet or invalid JS)
-            return JsResult::Success { js: js.to_string() };
+            let first_error = parser_result
+                .errors
+                .first()
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "parser panicked".to_string());
+            return Err(first_error);
         }
 
         // Collect string literal positions and their replacement values
@@ -43,7 +47,7 @@ impl JsProcessor for JsProcessorImpl {
 
         // Apply replacements in reverse order (so offsets stay valid)
         if replacements.is_empty() {
-            return JsResult::Success { js: js.to_string() };
+            return Ok(js.to_string());
         }
 
         replacements.sort_by(|a, b| b.0.cmp(&a.0)); // Sort by start position, descending
@@ -53,7 +57,7 @@ impl JsProcessor for JsProcessorImpl {
             result.replace_range(start as usize..end as usize, &new_value);
         }
 
-        JsResult::Success { js: result }
+        Ok(result)
     }
 }
 

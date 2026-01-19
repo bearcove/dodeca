@@ -34,7 +34,7 @@ pub async fn rewrite_urls_in_css(css: &str, path_map: &HashMap<String, String>) 
 
 /// Rewrite string literals in JavaScript that contain asset paths (async version)
 /// Returns original JS if cell is not available.
-async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, String>) -> String {
+pub async fn rewrite_string_literals_in_js(js: &str, path_map: &HashMap<String, String>) -> String {
     // Check if JS cell is available
     if crate::cells::js_cell().await.is_none() {
         return js.to_string();

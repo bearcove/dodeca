@@ -961,6 +961,8 @@ impl BuildContext {
                     .map(|p| p.to_string())
                     .unwrap_or_else(|_| path.to_string());
 
+                tracing::trace!(path = %relative, "load_static: loading file from dist");
+
                 let static_path = StaticPath::new(relative);
                 let static_file = StaticFile::new(&*self.db, static_path.clone(), content)?;
                 self.static_files.insert(static_path, static_file);

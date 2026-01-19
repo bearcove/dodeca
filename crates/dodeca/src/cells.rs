@@ -26,7 +26,7 @@ use cell_html_diff_proto::{DiffInput, HtmlDiffResult, HtmlDifferClient};
 use cell_html_proto::HtmlProcessorClient;
 use cell_http_proto::{ScopeEntry, TcpTunnelClient};
 use cell_image_proto::{ImageProcessorClient, ImageResult, ResizeInput, ThumbhashInput};
-use cell_js_proto::{JsProcessorClient, JsResult, JsRewriteInput};
+use cell_js_proto::{JsProcessorClient, JsRewriteInput};
 use cell_jxl_proto::{JXLEncodeInput, JXLProcessorClient, JXLResult};
 use cell_lifecycle_proto::CellLifecycle;
 use cell_linkcheck_proto::{LinkCheckInput, LinkCheckResult, LinkCheckerClient, LinkStatus};
@@ -968,11 +968,10 @@ pub async fn rewrite_string_literals_in_js_cell(
         .await
         .ok_or_else(|| eyre::eyre!("JS cell not available"))?;
     let input = JsRewriteInput { js, path_map };
-    match client.rewrite_string_literals(input).await {
-        Ok(JsResult::Success { js }) => Ok(js),
-        Ok(JsResult::Error { message }) => Err(eyre::eyre!(message)),
-        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
-    }
+    client
+        .rewrite_string_literals(input)
+        .await
+        .map_err(|e| eyre::eyre!("RPC error: {:?}", e))
 }
 
 pub async fn rewrite_urls_in_css_cell(
