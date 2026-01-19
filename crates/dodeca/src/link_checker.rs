@@ -59,9 +59,9 @@ impl LinkCheckResult {
 static HREF_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"<a\s[^>]*href=["']([^"']+)["']"#).unwrap());
 
-/// Regex to extract id attributes from heading tags (h1-h6)
-static HEADING_ID_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"<h[1-6][^>]*\sid=["']([^"']+)["']"#).unwrap());
+/// Regex to extract id attributes from any element
+static ELEMENT_ID_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\sid=["']([^"']+)["']"#).unwrap());
 
 /// A page with its route and HTML content
 pub struct Page<'a> {
@@ -84,14 +84,14 @@ pub fn extract_links<'a>(pages: impl Iterator<Item = Page<'a>>) -> ExtractedLink
     result.known_routes = pages.iter().map(|p| p.route.as_str().to_string()).collect();
 
     for page in &pages {
-        // Extract heading IDs for fragment validation
-        let mut heading_ids = HashSet::new();
-        for cap in HEADING_ID_REGEX.captures_iter(page.html) {
-            heading_ids.insert(cap[1].to_string());
+        // Extract element IDs for fragment validation
+        let mut element_ids = HashSet::new();
+        for cap in ELEMENT_ID_REGEX.captures_iter(page.html) {
+            element_ids.insert(cap[1].to_string());
         }
         result
-            .heading_ids
-            .insert(page.route.as_str().to_string(), heading_ids);
+            .element_ids
+            .insert(page.route.as_str().to_string(), element_ids);
 
         // Extract links
         for cap in HREF_REGEX.captures_iter(page.html) {
@@ -134,7 +134,7 @@ pub struct ExtractedLinks {
     pub external: Vec<ExtractedLink>,
     pub known_routes: HashSet<String>,
     /// Heading IDs per route (for fragment validation)
-    pub heading_ids: HashMap<String, HashSet<String>>,
+    pub element_ids: HashMap<String, HashSet<String>>,
 }
 
 /// Check internal links only (fast, no network)
@@ -151,7 +151,7 @@ pub fn check_internal_links(extracted: &ExtractedLinks) -> LinkCheckResult {
             &link.source_route,
             &link.href,
             &extracted.known_routes,
-            &extracted.heading_ids,
+            &extracted.element_ids,
         ) {
             result.broken_links.push(BrokenLink {
                 source_route: link.source_route.clone(),
@@ -293,7 +293,7 @@ fn check_internal_link(
     source_route: &Route,
     href: &str,
     known_routes: &HashSet<String>,
-    heading_ids: &HashMap<String, HashSet<String>>,
+    element_ids: &HashMap<String, HashSet<String>>,
 ) -> Option<String> {
     // Split href into path and fragment
     let (path, fragment) = match href.find('#') {
@@ -308,7 +308,7 @@ fn check_internal_link(
             && !frag.is_empty()
         {
             let source_key = source_route.as_str().to_string();
-            if let Some(ids) = heading_ids.get(&source_key)
+            if let Some(ids) = element_ids.get(&source_key)
                 && !ids.contains(frag)
             {
                 return Some(format!("anchor '#{frag}' not found on page"));
@@ -353,13 +353,13 @@ fn check_internal_link(
     if let Some(frag) = fragment
         && !frag.is_empty()
     {
-        // Find the target route's heading IDs (try with/without trailing slash)
-        let target_ids = heading_ids
+        // Find the target route's element IDs (try with/without trailing slash)
+        let target_ids = element_ids
             .get(&target_route)
-            .or_else(|| heading_ids.get(target_route.trim_end_matches('/')))
+            .or_else(|| element_ids.get(target_route.trim_end_matches('/')))
             .or_else(|| {
                 let with_slash = format!("{}/", target_route.trim_end_matches('/'));
-                heading_ids.get(&with_slash)
+                element_ids.get(&with_slash)
             });
 
         if let Some(ids) = target_ids
@@ -564,19 +564,25 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_heading_ids() {
+    fn test_extract_element_ids() {
         let page = Route::from_static("/page");
         let pages = vec![Page {
             route: &page,
             html: "<h1 id=\"title\">Title</h1>\
                    <h2 id=\"intro\">Intro</h2>\
-                   <h3 id=\"details\">Details</h3>",
+                   <h3 id=\"details\">Details</h3>\
+                   <div id=\"r-rule.one\">Rule</div>\
+                   <span id=\"custom-anchor\">Anchor</span>",
         }];
 
         let extracted = extract_links(pages.into_iter());
-        let ids = extracted.heading_ids.get("/page").unwrap();
+        let ids = extracted.element_ids.get("/page").unwrap();
+        // Heading IDs
         assert!(ids.contains("title"));
         assert!(ids.contains("intro"));
         assert!(ids.contains("details"));
+        // Non-heading element IDs
+        assert!(ids.contains("r-rule.one"));
+        assert!(ids.contains("custom-anchor"));
     }
 }

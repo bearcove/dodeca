@@ -1565,7 +1565,7 @@ pub async fn build(
                     internal: vec![],
                     external: extracted_external,
                     known_routes,
-                    heading_ids: std::collections::HashMap::new(),
+                    element_ids: std::collections::HashMap::new(),
                 };
                 link_checker::check_external_links(&ctx.db, &ext, today, &external_options).await
             };
