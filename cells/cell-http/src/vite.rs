@@ -5,8 +5,8 @@
 
 use axum::{
     body::Body,
-    extract::{ws::Message, FromRequestParts, State, WebSocketUpgrade},
-    http::{header, Request, StatusCode},
+    extract::{FromRequestParts, State, WebSocketUpgrade, ws::Message},
+    http::{Request, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use futures_util::{SinkExt, StreamExt};
@@ -49,6 +49,7 @@ pub fn is_vite_path(path: &str) -> bool {
         || path.starts_with("/@id/")
         || path.starts_with("/@fs/")
         || path.starts_with("/@react-refresh")
+        || path.starts_with("/__vite_plugin")
         || path.starts_with("/node_modules/.vite/")
         || path.starts_with("/node_modules/")
         || path.ends_with(".hot-update.json")
@@ -64,19 +65,19 @@ pub fn is_vite_path(path: &str) -> bool {
     is_vite
 }
 
-
 /// Check if request is a Vite HMR WebSocket upgrade
 pub fn is_vite_hmr_websocket(req: &Request<Body>) -> bool {
     // Must be a websocket upgrade
-    let is_ws = req.headers()
+    let is_ws = req
+        .headers()
         .get(header::UPGRADE)
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.eq_ignore_ascii_case("websocket"));
-    
+
     if !is_ws {
         return false;
     }
-    
+
     // Check for vite-hmr protocol
     req.headers()
         .get("sec-websocket-protocol")
