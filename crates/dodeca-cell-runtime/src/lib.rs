@@ -146,14 +146,7 @@ macro_rules! run_cell {
             let _ = handle_cell.set(handle.clone());
             $crate::cell_debug!("[cell] handle stored");
 
-            // Start the tracing service: queries host config, then spawns drain task
-            // This MUST be called before any real work - ensures filter matches host's RUST_LOG
-            if let Some(guard) = tracing_guard {
-                guard.start(handle.clone()).await;
-                $crate::cell_debug!("[cell] tracing started (queried host config)");
-            }
-
-            // Spawn driver in background so it can process the ready() RPC
+            // Spawn driver FIRST - it needs to be running for RPC calls to work
             $crate::cell_debug!("[cell] spawning driver task");
             let driver_handle = tokio::spawn(async move {
                 $crate::cell_debug!("[cell] driver task starting");
@@ -164,6 +157,13 @@ macro_rules! run_cell {
                 $crate::cell_debug!("[cell] driver task exited cleanly");
             });
             $crate::cell_debug!("[cell] driver task spawned");
+
+            // Now start tracing service - this queries host config via RPC
+            // (driver must be running for this to work)
+            if let Some(guard) = tracing_guard {
+                guard.start(handle.clone()).await;
+                $crate::cell_debug!("[cell] tracing started (queried host config)");
+            }
 
             // Signal readiness to host
             let host = HostServiceClient::new(handle);
