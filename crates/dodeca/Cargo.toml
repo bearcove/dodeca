@@ -74,6 +74,7 @@ open.workspace = true
 owo-colors.workspace = true
 picante.workspace = true
 roam.workspace = true
+roam-session.workspace = true
 roam-shm.workspace = true
 roam-tracing.workspace = true
 roam-fdpass.workspace = true

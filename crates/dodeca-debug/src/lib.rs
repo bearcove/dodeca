@@ -161,128 +161,36 @@ impl ProcessName {
 #[cfg(unix)]
 extern "C" fn sigusr1_handler(_sig: libc::c_int) {
     // SAFETY: We're in a signal handler, so we need to be careful.
-    // backtrace and eprintln are not strictly signal-safe, but for debugging
+    // eprintln is not strictly signal-safe, but for debugging
     // purposes this is acceptable - we're already in a hung state.
 
     let process_name = PROCESS_NAME.load();
     let pid = std::process::id();
 
-    eprintln!("\n{}", "=".repeat(60));
-    eprintln!("[{process_name}] SIGUSR1 received - dumping stack traces (pid={pid})");
-    eprintln!("{}\n", "=".repeat(60));
+    eprintln!("[{process_name}] SIGUSR1 (pid={pid})");
 
     // Forward SIGUSR1 to all registered child processes
-    if let Ok(pids) = CHILD_PIDS.read()
+    // Use try_read to avoid deadlock if lock is held by interrupted thread
+    if let Ok(pids) = CHILD_PIDS.try_read()
         && !pids.is_empty()
     {
-        eprintln!(
-            "[{process_name}] Forwarding SIGUSR1 to {} child processes: {:?}",
-            pids.len(),
-            *pids
-        );
+        eprintln!("[{process_name}] forwarding to {} children", pids.len());
         for &child_pid in pids.iter() {
             unsafe {
                 libc::kill(child_pid as i32, libc::SIGUSR1);
             }
         }
-        // Give children a moment to print their traces
-        // (not ideal in signal handler, but we're debugging)
+        // Give children a moment to print their output
         unsafe {
             libc::usleep(100_000); // 100ms
         }
     }
 
-    // Get current thread's backtrace
-    let bt = backtrace::Backtrace::new();
-    eprintln!("[{process_name}] Main thread backtrace:\n{bt:?}");
-
-    // Note: Getting backtraces of OTHER threads from a signal handler is tricky.
-    // The backtrace crate only captures the current thread.
-    // For a full solution, we'd need to use ptrace or /proc/self/task/*/stack
-
-    // Let's try reading /proc/self/task to list all threads
-    if let Ok(entries) = std::fs::read_dir("/proc/self/task") {
-        let tids: Vec<_> = entries
-            .filter_map(|e| e.ok())
-            .filter_map(|e| e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()))
-            .collect();
-
-        eprintln!("[{process_name}] Thread IDs in this process: {tids:?}");
-
-        // Full kernel stacks first (for detailed analysis)
-        for tid in &tids {
-            if let Ok(stack) = std::fs::read_to_string(format!("/proc/self/task/{tid}/stack")) {
-                eprintln!("[{process_name}] Thread {tid} kernel stack:\n{stack}");
-            }
-            // Also try to get the thread's status
-            if let Ok(status) = std::fs::read_to_string(format!("/proc/self/task/{tid}/status")) {
-                // Extract just the State line
-                for line in status.lines() {
-                    if line.starts_with("State:") || line.starts_with("Name:") {
-                        eprintln!("[{process_name}] Thread {tid}: {line}");
-                    }
-                }
-            }
-        }
-
-        // CONCISE SUMMARY at the end: Show top 3 kernel stack frames for each thread
-        eprintln!("\n[{process_name}] === THREAD SUMMARY (top 3 frames) ===");
-        for tid in &tids {
-            let name = std::fs::read_to_string(format!("/proc/self/task/{tid}/comm"))
-                .map(|s| s.trim().to_string())
-                .unwrap_or_else(|_| "?".to_string());
-            let state = std::fs::read_to_string(format!("/proc/self/task/{tid}/status"))
-                .ok()
-                .and_then(|s| {
-                    s.lines()
-                        .find(|l| l.starts_with("State:"))
-                        .map(|l| l.trim_start_matches("State:").trim().to_string())
-                })
-                .unwrap_or_else(|| "?".to_string());
-
-            let top_frames: String =
-                std::fs::read_to_string(format!("/proc/self/task/{tid}/stack"))
-                    .map(|s| {
-                        s.lines()
-                            .take(3)
-                            .map(|l| {
-                                // Extract just the function name from kernel stack line
-                                // Format: "[<addr>] func_name+0x..."
-                                if let Some(start) = l.find(']') {
-                                    l[start + 1..]
-                                        .trim()
-                                        .split('+')
-                                        .next()
-                                        .unwrap_or("?")
-                                        .trim()
-                                } else {
-                                    l.trim()
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" → ")
-                    })
-                    .unwrap_or_else(|_| "?".to_string());
-
-            eprintln!("  [{tid}] {name} ({state}): {top_frames}");
-        }
-        eprintln!("[{process_name}] === END SUMMARY ===");
-    }
-
     // Call registered diagnostic callbacks
-    if let Ok(callbacks) = DIAGNOSTIC_CALLBACKS.read()
-        && !callbacks.is_empty()
-    {
-        eprintln!(
-            "\n[{process_name}] Running {} diagnostic callback(s)...",
-            callbacks.len()
-        );
+    // Use try_read to avoid deadlock if lock is held by interrupted thread
+    if let Ok(callbacks) = DIAGNOSTIC_CALLBACKS.try_read() {
         for callback in callbacks.iter() {
             callback();
         }
     }
-
-    eprintln!("\n{}", "=".repeat(60));
-    eprintln!("[{process_name}] End of stack trace dump");
-    eprintln!("{}\n", "=".repeat(60));
 }

@@ -343,6 +343,8 @@ impl SiteServer {
 
     pub async fn wait_revision_ready(&self) {
         let mut rx = self.revision_tx.subscribe();
+        let start = std::time::Instant::now();
+        let mut warned = false;
         loop {
             let state = rx.borrow().clone();
             if state.status == crate::revision::RevisionStatus::Ready {
@@ -354,6 +356,17 @@ impl SiteServer {
                 reason = state.reason.as_deref().unwrap_or(""),
                 "revision: waiting"
             );
+
+            // Warn if waiting too long
+            if !warned && start.elapsed() > std::time::Duration::from_secs(5) {
+                tracing::warn!(
+                    generation = state.generation,
+                    reason = state.reason.as_deref().unwrap_or(""),
+                    elapsed_secs = start.elapsed().as_secs(),
+                    "wait_revision_ready: still waiting after 5s - possible deadlock"
+                );
+                warned = true;
+            }
 
             if rx.changed().await.is_err() {
                 return;

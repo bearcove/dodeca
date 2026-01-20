@@ -495,6 +495,16 @@ async fn init_cells_inner() -> eyre::Result<()> {
     let host = ShmHost::create(&shm_path, config)?;
     debug!("init_cells_inner: SHM host created");
 
+    // Extract diagnostic view before host is moved into driver
+    let diagnostic_view = roam_shm::ShmDiagnosticView::from_host(&host);
+    dodeca_debug::register_diagnostic(move || {
+        let output = diagnostic_view.diagnostics().format();
+        if !output.is_empty() {
+            eprint!("{}", output);
+        }
+    });
+    debug!("init_cells_inner: SHM diagnostic view registered for SIGUSR1");
+
     // On Unix: spawn watchdog and create .meta file
     #[cfg(unix)]
     {

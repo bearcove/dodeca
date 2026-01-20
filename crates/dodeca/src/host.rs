@@ -567,6 +567,7 @@ async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: b
                 );
                 std::process::exit(1);
             })),
+            diagnostic_state: None, // Created later in add_peer_with_diagnostics
         })
         .await
     {
@@ -656,7 +657,13 @@ async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: b
         None => MaybeDevtoolsDispatcher::WithoutDevtools(base_dispatcher),
     };
 
-    match driver_handle.add_peer(peer_id, dispatcher).await {
+    // Create diagnostic state for host's view of this connection (for SIGUSR1 dumps)
+    let diagnostic_state = std::sync::Arc::new(
+        roam_session::diagnostic::DiagnosticState::new(format!("host→{}", cell_name))
+    );
+    roam_session::diagnostic::register_diagnostic_state(&diagnostic_state);
+
+    match driver_handle.add_peer_with_diagnostics(peer_id, dispatcher, Some(diagnostic_state)).await {
         Ok(handle) => {
             debug!(
                 cell = cell_name,
@@ -679,6 +686,10 @@ async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: b
     let mut child = match ur_taking_me_with_you::spawn_dying_with_parent_async(cmd) {
         Ok(c) => {
             debug!(cell = cell_name, pid = ?c.id(), "spawn_cell_process: child spawned successfully");
+            // Register child PID for SIGUSR1 forwarding
+            if let Some(pid) = c.id() {
+                dodeca_debug::register_child_pid(pid);
+            }
             c
         }
         Err(e) => {

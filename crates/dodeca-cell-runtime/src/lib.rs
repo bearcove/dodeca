@@ -6,8 +6,12 @@
 //! Enable the `cell-debug` feature for verbose startup logging.
 
 pub use cell_host_proto::{HostServiceClient, ReadyMsg};
+pub use dodeca_debug;
+pub use roam::session::diagnostic::{
+    DiagnosticState, dump_all_diagnostics, register_diagnostic_state,
+};
 pub use roam::session::{ConnectionHandle, RoutedDispatcher, ServiceDispatcher};
-pub use roam_shm::driver::establish_guest;
+pub use roam_shm::driver::{establish_guest, establish_guest_with_diagnostics};
 pub use roam_shm::guest::ShmGuest;
 pub use roam_shm::spawn::SpawnArgs;
 pub use roam_shm::transport::ShmGuestTransport;
@@ -69,12 +73,26 @@ macro_rules! run_cell {
     ($cell_name:expr, |$handle:ident| $make_dispatcher:expr) => {{
         use tracing_subscriber::prelude::*;
         use $crate::{
-            CellTracingDispatcher, ConnectionHandle, HostServiceClient, ReadyMsg, RoutedDispatcher,
-            ShmGuest, ShmGuestTransport, SpawnArgs, establish_guest, init_cell_tracing, tokio,
-            tracing, tracing_subscriber, ur_taking_me_with_you,
+            CellTracingDispatcher, ConnectionHandle, DiagnosticState, HostServiceClient, ReadyMsg,
+            RoutedDispatcher, ShmGuest, ShmGuestTransport, SpawnArgs, dodeca_debug,
+            dump_all_diagnostics, establish_guest_with_diagnostics, init_cell_tracing,
+            register_diagnostic_state, tokio, tracing, tracing_subscriber, ur_taking_me_with_you,
         };
 
         $crate::cell_debug!("[cell-{}] starting (pid={})", $cell_name, std::process::id());
+
+        // Install SIGUSR1 handler for diagnostics (must be done early, before async runtime)
+        // We use a leaked static string since install_sigusr1_handler expects &'static str
+        let cell_name_static: &'static str = Box::leak(format!("cell-{}", $cell_name).into_boxed_str());
+        dodeca_debug::install_sigusr1_handler(cell_name_static);
+
+        // Register diagnostic callback to dump all connection states
+        dodeca_debug::register_diagnostic(|| {
+            let diagnostics = dump_all_diagnostics();
+            if !diagnostics.is_empty() {
+                eprint!("{}", diagnostics);
+            }
+        });
 
         // Ensure this process dies when the parent dies (required for macOS pipe-based approach)
         ur_taking_me_with_you::die_with_parent();
@@ -95,11 +113,13 @@ macro_rules! run_cell {
             $crate::cell_debug!("[cell] use_passthrough={}", use_passthrough);
 
             let tracing_guard = if use_passthrough {
-                // Passthrough mode: log directly to stderr
+                // Passthrough mode: log directly to stderr, respecting RUST_LOG
+                use $crate::tracing_subscriber::EnvFilter;
                 tracing_subscriber::fmt()
                     .with_writer(std::io::stderr)
                     .with_ansi(false)
                     .with_target(true)
+                    .with_env_filter(EnvFilter::from_default_env())
                     .init();
 
                 // No tracing guard needed in passthrough mode
@@ -137,10 +157,18 @@ macro_rules! run_cell {
                 let tracing_dispatcher = CellTracingDispatcher::new(dummy_guard.defuse());
                 RoutedDispatcher::new(tracing_dispatcher, user_dispatcher)
             };
-            $crate::cell_debug!("[cell] calling establish_guest");
+            // Create diagnostic state for this connection
+            let diagnostic_state = std::sync::Arc::new(DiagnosticState::new(format!("cell-{}", $cell_name)));
+            register_diagnostic_state(&diagnostic_state);
+            $crate::cell_debug!("[cell] diagnostic state registered");
 
-            let (handle, driver) = establish_guest(transport, combined_dispatcher);
-            $crate::cell_debug!("[cell] establish_guest returned");
+            $crate::cell_debug!("[cell] calling establish_guest_with_diagnostics");
+            let (handle, driver) = establish_guest_with_diagnostics(
+                transport,
+                combined_dispatcher,
+                Some(diagnostic_state),
+            );
+            $crate::cell_debug!("[cell] establish_guest_with_diagnostics returned");
 
             // Store the real handle
             let _ = handle_cell.set(handle.clone());

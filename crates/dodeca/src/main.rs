@@ -411,6 +411,12 @@ fn main() -> Result<()> {
     // (no-op on non-Unix platforms)
     dodeca_debug::install_sigusr1_handler("ddc");
 
+    // Register diagnostic callback to dump all RPC connection states
+    dodeca_debug::register_diagnostic(|| {
+        let diagnostics = roam_session::diagnostic::dump_all_diagnostics();
+        eprint!("{}", diagnostics);
+    });
+
     // When spawned by test harness with DODECA_DIE_WITH_PARENT=1, install death-watch
     // so we exit when the test process dies. This prevents orphan accumulation.
     if std::env::var("DODECA_DIE_WITH_PARENT").is_ok() {
