@@ -17,15 +17,9 @@ pub fn apply_patches(patches: Vec<Patch>) -> Result<usize, JsValue> {
         .ok_or_else(|| JsValue::from_str("no document"))?;
 
     let count = patches.len();
-    web_sys::console::log_1(&JsValue::from_str(&format!(
-        "[livereload] applying {} patches",
-        count
-    )));
+    log(&format!("[livereload] applying {} patches", count));
     for (i, patch) in patches.into_iter().enumerate() {
-        web_sys::console::log_1(&JsValue::from_str(&format!(
-            "[livereload] patch {}: {:?}",
-            i, patch
-        )));
+        log(&format!("[livereload] patch {}: {:?}", i, patch));
         apply_patch(&document, &patch)?;
     }
 
@@ -62,6 +56,10 @@ fn apply_patch(doc: &Document, patch: &Patch) -> Result<(), JsValue> {
             } else {
                 el.set_outer_html(html);
             }
+        }
+        Patch::ReplaceInnerHtml { path, html } => {
+            let el = find_element(doc, path)?;
+            el.set_inner_html(html);
         }
         Patch::InsertBefore { path, html } => {
             let el = find_element(doc, path)?;

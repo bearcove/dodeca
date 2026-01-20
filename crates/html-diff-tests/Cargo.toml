@@ -4,12 +4,23 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[features]
+default = []
+matching-stats = ["facet-diff/matching-stats"]
+tracing = ["dep:tracing", "dep:tracing-subscriber"]
+
 [dependencies]
 dodeca-protocol = { path = "../dodeca-protocol" }
 facet.workspace = true
 facet-diff.workspace = true
+facet-dom.workspace = true
 facet-html.workspace = true
 facet-html-dom.workspace = true
+facet-json.workspace = true
+tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
+
+tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
 
 [dev-dependencies]
-facet-json.workspace = true
+facet-testhelpers.workspace = true
+proptest = "1.9"

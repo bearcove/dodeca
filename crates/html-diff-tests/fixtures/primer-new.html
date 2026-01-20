@@ -1,0 +1,2402 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head><style>
+a[data-dead] {
+    text-decoration: overline !important;
+    text-decoration-color: rgba(255, 107, 107, 0.6) !important;
+}
+</style><script type="module">
+(async function() {
+    try {
+        const { default: init, mount_devtools } = await import('/_/e264f5d251b688f9.js');
+        await init('/_/a4e90d2c10bb4427.wasm');
+        mount_devtools();
+        console.log('[dodeca] devtools loaded');
+    } catch (e) {
+        console.error('[dodeca] failed to load devtools:', e);
+    }
+})();
+</script><style>
+/* Arborium syntax highlighting - Light theme */
+@media (prefers-color-scheme: light) {
+pre {
+  background: #ffffff;
+  --bg: #ffffff;
+  --surface: #f2f2f2;
+  color: #1f2328;
+  --fg: #1f2328;
+  --accent: #8250df;
+  --muted: #6e7781;
+  a-at { color: #0550ae; }
+  a-co { color: #0550ae; }
+  a-cb { color: #0550ae; }
+  a-fb { color: #8250df; }
+  a-f { color: #8250df; }
+  a-fm { color: #8250df; }
+  a-k { color: #cf222e; }
+  a-kc { color: #cf222e; }
+  a-ko { color: #cf222e; }
+  a-kd { color: #cf222e; }
+  a-ke { color: #cf222e; }
+  a-kf { color: #cf222e; }
+  a-ki { color: #cf222e; }
+  a-kp { color: #cf222e; }
+  a-kr { color: #cf222e; }
+  a-kt { color: #cf222e; }
+  a-ky { color: #cf222e; }
+  a-o { color: #cf222e; }
+  a-pr { color: #0550ae; }
+  a-p { color: #1f2328; }
+  a-pb { color: #1f2328; }
+  a-pd { color: #1f2328; }
+  a-ps { color: #0550ae; }
+  a-s { color: #0a3069; }
+  a-ss { color: #cf222e; }
+  a-tg { color: #116329; }
+  a-td { color: #116329; }
+  a-te { color: #116329; }
+  a-t { color: #953800; }
+  a-tb { color: #953800; }
+  a-tq { color: #953800; }
+  a-v { color: #1f2328; }
+  a-vb { color: #953800; }
+  a-vp { color: #953800; }
+  a-c { color: #6e7781; }
+  a-cd { color: #6e7781; }
+  a-m { color: #0550ae; }
+  a-l { color: #8250df; }
+  a-n { color: #0550ae; }
+  a-tl { color: #1f2328; }
+  a-em { font-style: italic; }
+  a-st { font-weight: bold; }
+  a-tu { color: #0969da; text-decoration: underline; }
+  a-tr { color: #8250df; }
+  a-se { color: #0550ae; }
+  a-tt { color: #8250df; font-weight: bold; }
+  a-tx { text-decoration: line-through; }
+  a-sp { color: #1f2328; }
+  a-in { color: #cf222e; }
+  a-sc { color: #cf222e; }
+  a-rp { color: #cf222e; }
+  a-cn { color: #cf222e; }
+  a-ex { color: #cf222e; }
+  a-pp { color: #cf222e; }
+  a-ch { color: #0a3069; }
+  a-cs { color: #0a3069; }
+  a-vm { color: #1f2328; }
+  a-fd { color: #8250df; }
+  a-tf { color: #953800; }
+  a-fc { color: #8250df; }
+  a-km { color: #cf222e; }
+  a-dr { color: #cf222e; }
+  a-rx { color: #0a3069; }
+}
+
+}
+
+/* Arborium syntax highlighting - Dark theme */
+@media (prefers-color-scheme: dark) {
+pre {
+  background: #1a1b26;
+  --bg: #1a1b26;
+  --surface: #2c2d37;
+  color: #a9b1d6;
+  --fg: #a9b1d6;
+  --accent: #7aa2f7;
+  --muted: #565f89;
+  a-at { color: #e0af68; }
+  a-co { color: #ff9e64; }
+  a-cb { color: #ff9e64; }
+  a-fb { color: #7dcfff; }
+  a-f { color: #7aa2f7; }
+  a-fm { color: #7aa2f7; }
+  a-k { color: #bb9af7; }
+  a-kc { color: #bb9af7; }
+  a-ko { color: #bb9af7; }
+  a-kd { color: #bb9af7; }
+  a-ke { color: #bb9af7; }
+  a-kf { color: #bb9af7; }
+  a-ki { color: #bb9af7; }
+  a-kp { color: #bb9af7; }
+  a-kr { color: #bb9af7; }
+  a-kt { color: #bb9af7; }
+  a-ky { color: #bb9af7; }
+  a-o { color: #89ddff; }
+  a-pr { color: #7aa2f7; }
+  a-p { color: #a9b1d6; }
+  a-pb { color: #a9b1d6; }
+  a-pd { color: #a9b1d6; }
+  a-ps { color: #89ddff; }
+  a-s { color: #9ece6a; }
+  a-ss { color: #f7768e; }
+  a-tg { color: #f7768e; }
+  a-td { color: #f7768e; }
+  a-te { color: #f7768e; }
+  a-t { color: #2ac3de; }
+  a-tb { color: #2ac3de; }
+  a-tq { color: #2ac3de; }
+  a-v { color: #c0caf5; }
+  a-vb { color: #f7768e; }
+  a-vp { color: #e0af68; }
+  a-c { color: #565f89; }
+  a-cd { color: #565f89; }
+  a-m { color: #7dcfff; }
+  a-l { color: #ff9e64; }
+  a-n { color: #ff9e64; }
+  a-tl { color: #a9b1d6; }
+  a-em { font-style: italic; }
+  a-st { font-weight: bold; }
+  a-tu { color: #7aa2f7; text-decoration: underline; }
+  a-tr { color: #7dcfff; }
+  a-se { color: #89ddff; }
+  a-tt { color: #bb9af7; font-weight: bold; }
+  a-tx { text-decoration: line-through; }
+  a-sp { color: #a9b1d6; }
+  a-in { color: #bb9af7; }
+  a-sc { color: #bb9af7; }
+  a-rp { color: #bb9af7; }
+  a-cn { color: #bb9af7; }
+  a-ex { color: #bb9af7; }
+  a-pp { color: #bb9af7; }
+  a-ch { color: #9ece6a; }
+  a-cs { color: #9ece6a; }
+  a-vm { color: #c0caf5; }
+  a-fd { color: #7aa2f7; }
+  a-tf { color: #2ac3de; }
+  a-fc { color: #7aa2f7; }
+  a-km { color: #bb9af7; }
+  a-dr { color: #bb9af7; }
+  a-rx { color: #9ece6a; }
+}
+
+}
+</style><style>
+/* Terminal styling for <t-*> custom tags */
+
+/* Attributes */
+t-b { font-weight: bold; }
+t-l { opacity: 0.7; }
+t-i { font-style: italic; }
+t-u { text-decoration: underline; }
+t-st { text-decoration: line-through; }
+
+/* Classic 16 foreground colors */
+t-fblk { color: light-dark(#292929, #6e6e6e); }
+t-fred { color: light-dark(#c41a16, #ff6b6b); }
+t-fgrn { color: light-dark(#007400, #5af78e); }
+t-fylw { color: light-dark(#826b00, #f3f99d); }
+t-fblu { color: light-dark(#0000d6, #57c7ff); }
+t-fmag { color: light-dark(#a90d91, #ff6ac1); }
+t-fcyn { color: light-dark(#007482, #9aedfe); }
+t-fwht { color: light-dark(#6e6e6e, #f1f1f0); }
+t-flblk { color: light-dark(#5c5c5c, #8e8e8e); }
+t-flred { color: light-dark(#ff6b6b, #ff9d9d); }
+t-flgrn { color: light-dark(#5af78e, #98ffbd); }
+t-flylw { color: light-dark(#f3f99d, #ffffb3); }
+t-flblu { color: light-dark(#57c7ff, #9dd9ff); }
+t-flmag { color: light-dark(#ff6ac1, #ff9dd9); }
+t-flcyn { color: light-dark(#9aedfe, #c0f5ff); }
+t-flwht { color: light-dark(#f1f1f0, #ffffff); }
+
+/* Classic 16 background colors */
+t-bblk { background-color: light-dark(#292929, #6e6e6e); }
+t-bred { background-color: light-dark(#c41a16, #ff6b6b); }
+t-bgrn { background-color: light-dark(#007400, #5af78e); }
+t-bylw { background-color: light-dark(#826b00, #f3f99d); }
+t-bblu { background-color: light-dark(#0000d6, #57c7ff); }
+t-bmag { background-color: light-dark(#a90d91, #ff6ac1); }
+t-bcyn { background-color: light-dark(#007482, #9aedfe); }
+t-bwht { background-color: light-dark(#6e6e6e, #f1f1f0); }
+t-blblk { background-color: light-dark(#5c5c5c, #8e8e8e); }
+t-blred { background-color: light-dark(#ff6b6b, #ff9d9d); }
+t-blgrn { background-color: light-dark(#5af78e, #98ffbd); }
+t-blylw { background-color: light-dark(#f3f99d, #ffffb3); }
+t-blblu { background-color: light-dark(#57c7ff, #9dd9ff); }
+t-blmag { background-color: light-dark(#ff6ac1, #ff9dd9); }
+t-blcyn { background-color: light-dark(#9aedfe, #c0f5ff); }
+t-blwht { background-color: light-dark(#f1f1f0, #ffffff); }
+
+/* 256-color ANSI palette */
+t-f0 { color: light-dark(#000000, #000000); }
+t-b0 { background-color: light-dark(#000000, #000000); }
+t-f1 { color: light-dark(#800000, #800000); }
+t-b1 { background-color: light-dark(#800000, #800000); }
+t-f2 { color: light-dark(#008000, #008000); }
+t-b2 { background-color: light-dark(#008000, #008000); }
+t-f3 { color: light-dark(#808000, #808000); }
+t-b3 { background-color: light-dark(#808000, #808000); }
+t-f4 { color: light-dark(#000080, #000080); }
+t-b4 { background-color: light-dark(#000080, #000080); }
+t-f5 { color: light-dark(#800080, #800080); }
+t-b5 { background-color: light-dark(#800080, #800080); }
+t-f6 { color: light-dark(#008080, #008080); }
+t-b6 { background-color: light-dark(#008080, #008080); }
+t-f7 { color: light-dark(#c0c0c0, #c0c0c0); }
+t-b7 { background-color: light-dark(#c0c0c0, #c0c0c0); }
+t-f8 { color: light-dark(#808080, #808080); }
+t-b8 { background-color: light-dark(#808080, #808080); }
+t-f9 { color: light-dark(#ff0000, #ff0000); }
+t-b9 { background-color: light-dark(#ff0000, #ff0000); }
+t-f10 { color: light-dark(#00ff00, #00ff00); }
+t-b10 { background-color: light-dark(#00ff00, #00ff00); }
+t-f11 { color: light-dark(#ffff00, #ffff00); }
+t-b11 { background-color: light-dark(#ffff00, #ffff00); }
+t-f12 { color: light-dark(#0000ff, #0000ff); }
+t-b12 { background-color: light-dark(#0000ff, #0000ff); }
+t-f13 { color: light-dark(#ff00ff, #ff00ff); }
+t-b13 { background-color: light-dark(#ff00ff, #ff00ff); }
+t-f14 { color: light-dark(#00ffff, #00ffff); }
+t-b14 { background-color: light-dark(#00ffff, #00ffff); }
+t-f15 { color: light-dark(#ffffff, #ffffff); }
+t-b15 { background-color: light-dark(#ffffff, #ffffff); }
+t-f16 { color: light-dark(#000000, #000000); }
+t-b16 { background-color: light-dark(#000000, #000000); }
+t-f17 { color: light-dark(#000042, #000072); }
+t-b17 { background-color: light-dark(#000042, #000072); }
+t-f18 { color: light-dark(#00005e, #0000a2); }
+t-b18 { background-color: light-dark(#00005e, #0000a2); }
+t-f19 { color: light-dark(#00007a, #0000d2); }
+t-b19 { background-color: light-dark(#00007a, #0000d2); }
+t-f20 { color: light-dark(#000096, #0000ff); }
+t-b20 { background-color: light-dark(#000096, #0000ff); }
+t-f21 { color: light-dark(#0000b2, #0000ff); }
+t-b21 { background-color: light-dark(#0000b2, #0000ff); }
+t-f22 { color: light-dark(#004200, #007200); }
+t-b22 { background-color: light-dark(#004200, #007200); }
+t-f23 { color: light-dark(#004242, #007272); }
+t-b23 { background-color: light-dark(#004242, #007272); }
+t-f24 { color: light-dark(#00425e, #0072a2); }
+t-b24 { background-color: light-dark(#00425e, #0072a2); }
+t-f25 { color: light-dark(#00427a, #0072d2); }
+t-b25 { background-color: light-dark(#00427a, #0072d2); }
+t-f26 { color: light-dark(#004296, #0072ff); }
+t-b26 { background-color: light-dark(#004296, #0072ff); }
+t-f27 { color: light-dark(#0042b2, #0072ff); }
+t-b27 { background-color: light-dark(#0042b2, #0072ff); }
+t-f28 { color: light-dark(#005e00, #00a200); }
+t-b28 { background-color: light-dark(#005e00, #00a200); }
+t-f29 { color: light-dark(#005e42, #00a272); }
+t-b29 { background-color: light-dark(#005e42, #00a272); }
+t-f30 { color: light-dark(#005e5e, #00a2a2); }
+t-b30 { background-color: light-dark(#005e5e, #00a2a2); }
+t-f31 { color: light-dark(#005e7a, #00a2d2); }
+t-b31 { background-color: light-dark(#005e7a, #00a2d2); }
+t-f32 { color: light-dark(#005e96, #00a2ff); }
+t-b32 { background-color: light-dark(#005e96, #00a2ff); }
+t-f33 { color: light-dark(#005eb2, #00a2ff); }
+t-b33 { background-color: light-dark(#005eb2, #00a2ff); }
+t-f34 { color: light-dark(#007a00, #00d200); }
+t-b34 { background-color: light-dark(#007a00, #00d200); }
+t-f35 { color: light-dark(#007a42, #00d272); }
+t-b35 { background-color: light-dark(#007a42, #00d272); }
+t-f36 { color: light-dark(#007a5e, #00d2a2); }
+t-b36 { background-color: light-dark(#007a5e, #00d2a2); }
+t-f37 { color: light-dark(#007a7a, #00d2d2); }
+t-b37 { background-color: light-dark(#007a7a, #00d2d2); }
+t-f38 { color: light-dark(#007a96, #00d2ff); }
+t-b38 { background-color: light-dark(#007a96, #00d2ff); }
+t-f39 { color: light-dark(#007ab2, #00d2ff); }
+t-b39 { background-color: light-dark(#007ab2, #00d2ff); }
+t-f40 { color: light-dark(#009600, #00ff00); }
+t-b40 { background-color: light-dark(#009600, #00ff00); }
+t-f41 { color: light-dark(#009642, #00ff72); }
+t-b41 { background-color: light-dark(#009642, #00ff72); }
+t-f42 { color: light-dark(#00965e, #00ffa2); }
+t-b42 { background-color: light-dark(#00965e, #00ffa2); }
+t-f43 { color: light-dark(#00967a, #00ffd2); }
+t-b43 { background-color: light-dark(#00967a, #00ffd2); }
+t-f44 { color: light-dark(#009696, #00ffff); }
+t-b44 { background-color: light-dark(#009696, #00ffff); }
+t-f45 { color: light-dark(#0096b2, #00ffff); }
+t-b45 { background-color: light-dark(#0096b2, #00ffff); }
+t-f46 { color: light-dark(#00b200, #00ff00); }
+t-b46 { background-color: light-dark(#00b200, #00ff00); }
+t-f47 { color: light-dark(#00b242, #00ff72); }
+t-b47 { background-color: light-dark(#00b242, #00ff72); }
+t-f48 { color: light-dark(#00b25e, #00ffa2); }
+t-b48 { background-color: light-dark(#00b25e, #00ffa2); }
+t-f49 { color: light-dark(#00b27a, #00ffd2); }
+t-b49 { background-color: light-dark(#00b27a, #00ffd2); }
+t-f50 { color: light-dark(#00b296, #00ffff); }
+t-b50 { background-color: light-dark(#00b296, #00ffff); }
+t-f51 { color: light-dark(#00b2b2, #00ffff); }
+t-b51 { background-color: light-dark(#00b2b2, #00ffff); }
+t-f52 { color: light-dark(#420000, #720000); }
+t-b52 { background-color: light-dark(#420000, #720000); }
+t-f53 { color: light-dark(#420042, #720072); }
+t-b53 { background-color: light-dark(#420042, #720072); }
+t-f54 { color: light-dark(#42005e, #7200a2); }
+t-b54 { background-color: light-dark(#42005e, #7200a2); }
+t-f55 { color: light-dark(#42007a, #7200d2); }
+t-b55 { background-color: light-dark(#42007a, #7200d2); }
+t-f56 { color: light-dark(#420096, #7200ff); }
+t-b56 { background-color: light-dark(#420096, #7200ff); }
+t-f57 { color: light-dark(#4200b2, #7200ff); }
+t-b57 { background-color: light-dark(#4200b2, #7200ff); }
+t-f58 { color: light-dark(#424200, #727200); }
+t-b58 { background-color: light-dark(#424200, #727200); }
+t-f59 { color: light-dark(#424242, #727272); }
+t-b59 { background-color: light-dark(#424242, #727272); }
+t-f60 { color: light-dark(#42425e, #7272a2); }
+t-b60 { background-color: light-dark(#42425e, #7272a2); }
+t-f61 { color: light-dark(#42427a, #7272d2); }
+t-b61 { background-color: light-dark(#42427a, #7272d2); }
+t-f62 { color: light-dark(#424296, #7272ff); }
+t-b62 { background-color: light-dark(#424296, #7272ff); }
+t-f63 { color: light-dark(#4242b2, #7272ff); }
+t-b63 { background-color: light-dark(#4242b2, #7272ff); }
+t-f64 { color: light-dark(#425e00, #72a200); }
+t-b64 { background-color: light-dark(#425e00, #72a200); }
+t-f65 { color: light-dark(#425e42, #72a272); }
+t-b65 { background-color: light-dark(#425e42, #72a272); }
+t-f66 { color: light-dark(#425e5e, #72a2a2); }
+t-b66 { background-color: light-dark(#425e5e, #72a2a2); }
+t-f67 { color: light-dark(#425e7a, #72a2d2); }
+t-b67 { background-color: light-dark(#425e7a, #72a2d2); }
+t-f68 { color: light-dark(#425e96, #72a2ff); }
+t-b68 { background-color: light-dark(#425e96, #72a2ff); }
+t-f69 { color: light-dark(#425eb2, #72a2ff); }
+t-b69 { background-color: light-dark(#425eb2, #72a2ff); }
+t-f70 { color: light-dark(#427a00, #72d200); }
+t-b70 { background-color: light-dark(#427a00, #72d200); }
+t-f71 { color: light-dark(#427a42, #72d272); }
+t-b71 { background-color: light-dark(#427a42, #72d272); }
+t-f72 { color: light-dark(#427a5e, #72d2a2); }
+t-b72 { background-color: light-dark(#427a5e, #72d2a2); }
+t-f73 { color: light-dark(#427a7a, #72d2d2); }
+t-b73 { background-color: light-dark(#427a7a, #72d2d2); }
+t-f74 { color: light-dark(#427a96, #72d2ff); }
+t-b74 { background-color: light-dark(#427a96, #72d2ff); }
+t-f75 { color: light-dark(#427ab2, #72d2ff); }
+t-b75 { background-color: light-dark(#427ab2, #72d2ff); }
+t-f76 { color: light-dark(#429600, #72ff00); }
+t-b76 { background-color: light-dark(#429600, #72ff00); }
+t-f77 { color: light-dark(#429642, #72ff72); }
+t-b77 { background-color: light-dark(#429642, #72ff72); }
+t-f78 { color: light-dark(#42965e, #72ffa2); }
+t-b78 { background-color: light-dark(#42965e, #72ffa2); }
+t-f79 { color: light-dark(#42967a, #72ffd2); }
+t-b79 { background-color: light-dark(#42967a, #72ffd2); }
+t-f80 { color: light-dark(#429696, #72ffff); }
+t-b80 { background-color: light-dark(#429696, #72ffff); }
+t-f81 { color: light-dark(#4296b2, #72ffff); }
+t-b81 { background-color: light-dark(#4296b2, #72ffff); }
+t-f82 { color: light-dark(#42b200, #72ff00); }
+t-b82 { background-color: light-dark(#42b200, #72ff00); }
+t-f83 { color: light-dark(#42b242, #72ff72); }
+t-b83 { background-color: light-dark(#42b242, #72ff72); }
+t-f84 { color: light-dark(#42b25e, #72ffa2); }
+t-b84 { background-color: light-dark(#42b25e, #72ffa2); }
+t-f85 { color: light-dark(#42b27a, #72ffd2); }
+t-b85 { background-color: light-dark(#42b27a, #72ffd2); }
+t-f86 { color: light-dark(#42b296, #72ffff); }
+t-b86 { background-color: light-dark(#42b296, #72ffff); }
+t-f87 { color: light-dark(#42b2b2, #72ffff); }
+t-b87 { background-color: light-dark(#42b2b2, #72ffff); }
+t-f88 { color: light-dark(#5e0000, #a20000); }
+t-b88 { background-color: light-dark(#5e0000, #a20000); }
+t-f89 { color: light-dark(#5e0042, #a20072); }
+t-b89 { background-color: light-dark(#5e0042, #a20072); }
+t-f90 { color: light-dark(#5e005e, #a200a2); }
+t-b90 { background-color: light-dark(#5e005e, #a200a2); }
+t-f91 { color: light-dark(#5e007a, #a200d2); }
+t-b91 { background-color: light-dark(#5e007a, #a200d2); }
+t-f92 { color: light-dark(#5e0096, #a200ff); }
+t-b92 { background-color: light-dark(#5e0096, #a200ff); }
+t-f93 { color: light-dark(#5e00b2, #a200ff); }
+t-b93 { background-color: light-dark(#5e00b2, #a200ff); }
+t-f94 { color: light-dark(#5e4200, #a27200); }
+t-b94 { background-color: light-dark(#5e4200, #a27200); }
+t-f95 { color: light-dark(#5e4242, #a27272); }
+t-b95 { background-color: light-dark(#5e4242, #a27272); }
+t-f96 { color: light-dark(#5e425e, #a272a2); }
+t-b96 { background-color: light-dark(#5e425e, #a272a2); }
+t-f97 { color: light-dark(#5e427a, #a272d2); }
+t-b97 { background-color: light-dark(#5e427a, #a272d2); }
+t-f98 { color: light-dark(#5e4296, #a272ff); }
+t-b98 { background-color: light-dark(#5e4296, #a272ff); }
+t-f99 { color: light-dark(#5e42b2, #a272ff); }
+t-b99 { background-color: light-dark(#5e42b2, #a272ff); }
+t-f100 { color: light-dark(#5e5e00, #a2a200); }
+t-b100 { background-color: light-dark(#5e5e00, #a2a200); }
+t-f101 { color: light-dark(#5e5e42, #a2a272); }
+t-b101 { background-color: light-dark(#5e5e42, #a2a272); }
+t-f102 { color: light-dark(#5e5e5e, #a2a2a2); }
+t-b102 { background-color: light-dark(#5e5e5e, #a2a2a2); }
+t-f103 { color: light-dark(#5e5e7a, #a2a2d2); }
+t-b103 { background-color: light-dark(#5e5e7a, #a2a2d2); }
+t-f104 { color: light-dark(#5e5e96, #a2a2ff); }
+t-b104 { background-color: light-dark(#5e5e96, #a2a2ff); }
+t-f105 { color: light-dark(#5e5eb2, #a2a2ff); }
+t-b105 { background-color: light-dark(#5e5eb2, #a2a2ff); }
+t-f106 { color: light-dark(#5e7a00, #a2d200); }
+t-b106 { background-color: light-dark(#5e7a00, #a2d200); }
+t-f107 { color: light-dark(#5e7a42, #a2d272); }
+t-b107 { background-color: light-dark(#5e7a42, #a2d272); }
+t-f108 { color: light-dark(#5e7a5e, #a2d2a2); }
+t-b108 { background-color: light-dark(#5e7a5e, #a2d2a2); }
+t-f109 { color: light-dark(#5e7a7a, #a2d2d2); }
+t-b109 { background-color: light-dark(#5e7a7a, #a2d2d2); }
+t-f110 { color: light-dark(#5e7a96, #a2d2ff); }
+t-b110 { background-color: light-dark(#5e7a96, #a2d2ff); }
+t-f111 { color: light-dark(#5e7ab2, #a2d2ff); }
+t-b111 { background-color: light-dark(#5e7ab2, #a2d2ff); }
+t-f112 { color: light-dark(#5e9600, #a2ff00); }
+t-b112 { background-color: light-dark(#5e9600, #a2ff00); }
+t-f113 { color: light-dark(#5e9642, #a2ff72); }
+t-b113 { background-color: light-dark(#5e9642, #a2ff72); }
+t-f114 { color: light-dark(#5e965e, #a2ffa2); }
+t-b114 { background-color: light-dark(#5e965e, #a2ffa2); }
+t-f115 { color: light-dark(#5e967a, #a2ffd2); }
+t-b115 { background-color: light-dark(#5e967a, #a2ffd2); }
+t-f116 { color: light-dark(#5e9696, #a2ffff); }
+t-b116 { background-color: light-dark(#5e9696, #a2ffff); }
+t-f117 { color: light-dark(#5e96b2, #a2ffff); }
+t-b117 { background-color: light-dark(#5e96b2, #a2ffff); }
+t-f118 { color: light-dark(#5eb200, #a2ff00); }
+t-b118 { background-color: light-dark(#5eb200, #a2ff00); }
+t-f119 { color: light-dark(#5eb242, #a2ff72); }
+t-b119 { background-color: light-dark(#5eb242, #a2ff72); }
+t-f120 { color: light-dark(#5eb25e, #a2ffa2); }
+t-b120 { background-color: light-dark(#5eb25e, #a2ffa2); }
+t-f121 { color: light-dark(#5eb27a, #a2ffd2); }
+t-b121 { background-color: light-dark(#5eb27a, #a2ffd2); }
+t-f122 { color: light-dark(#5eb296, #a2ffff); }
+t-b122 { background-color: light-dark(#5eb296, #a2ffff); }
+t-f123 { color: light-dark(#5eb2b2, #a2ffff); }
+t-b123 { background-color: light-dark(#5eb2b2, #a2ffff); }
+t-f124 { color: light-dark(#7a0000, #d20000); }
+t-b124 { background-color: light-dark(#7a0000, #d20000); }
+t-f125 { color: light-dark(#7a0042, #d20072); }
+t-b125 { background-color: light-dark(#7a0042, #d20072); }
+t-f126 { color: light-dark(#7a005e, #d200a2); }
+t-b126 { background-color: light-dark(#7a005e, #d200a2); }
+t-f127 { color: light-dark(#7a007a, #d200d2); }
+t-b127 { background-color: light-dark(#7a007a, #d200d2); }
+t-f128 { color: light-dark(#7a0096, #d200ff); }
+t-b128 { background-color: light-dark(#7a0096, #d200ff); }
+t-f129 { color: light-dark(#7a00b2, #d200ff); }
+t-b129 { background-color: light-dark(#7a00b2, #d200ff); }
+t-f130 { color: light-dark(#7a4200, #d27200); }
+t-b130 { background-color: light-dark(#7a4200, #d27200); }
+t-f131 { color: light-dark(#7a4242, #d27272); }
+t-b131 { background-color: light-dark(#7a4242, #d27272); }
+t-f132 { color: light-dark(#7a425e, #d272a2); }
+t-b132 { background-color: light-dark(#7a425e, #d272a2); }
+t-f133 { color: light-dark(#7a427a, #d272d2); }
+t-b133 { background-color: light-dark(#7a427a, #d272d2); }
+t-f134 { color: light-dark(#7a4296, #d272ff); }
+t-b134 { background-color: light-dark(#7a4296, #d272ff); }
+t-f135 { color: light-dark(#7a42b2, #d272ff); }
+t-b135 { background-color: light-dark(#7a42b2, #d272ff); }
+t-f136 { color: light-dark(#7a5e00, #d2a200); }
+t-b136 { background-color: light-dark(#7a5e00, #d2a200); }
+t-f137 { color: light-dark(#7a5e42, #d2a272); }
+t-b137 { background-color: light-dark(#7a5e42, #d2a272); }
+t-f138 { color: light-dark(#7a5e5e, #d2a2a2); }
+t-b138 { background-color: light-dark(#7a5e5e, #d2a2a2); }
+t-f139 { color: light-dark(#7a5e7a, #d2a2d2); }
+t-b139 { background-color: light-dark(#7a5e7a, #d2a2d2); }
+t-f140 { color: light-dark(#7a5e96, #d2a2ff); }
+t-b140 { background-color: light-dark(#7a5e96, #d2a2ff); }
+t-f141 { color: light-dark(#7a5eb2, #d2a2ff); }
+t-b141 { background-color: light-dark(#7a5eb2, #d2a2ff); }
+t-f142 { color: light-dark(#7a7a00, #d2d200); }
+t-b142 { background-color: light-dark(#7a7a00, #d2d200); }
+t-f143 { color: light-dark(#7a7a42, #d2d272); }
+t-b143 { background-color: light-dark(#7a7a42, #d2d272); }
+t-f144 { color: light-dark(#7a7a5e, #d2d2a2); }
+t-b144 { background-color: light-dark(#7a7a5e, #d2d2a2); }
+t-f145 { color: light-dark(#7a7a7a, #d2d2d2); }
+t-b145 { background-color: light-dark(#7a7a7a, #d2d2d2); }
+t-f146 { color: light-dark(#7a7a96, #d2d2ff); }
+t-b146 { background-color: light-dark(#7a7a96, #d2d2ff); }
+t-f147 { color: light-dark(#7a7ab2, #d2d2ff); }
+t-b147 { background-color: light-dark(#7a7ab2, #d2d2ff); }
+t-f148 { color: light-dark(#7a9600, #d2ff00); }
+t-b148 { background-color: light-dark(#7a9600, #d2ff00); }
+t-f149 { color: light-dark(#7a9642, #d2ff72); }
+t-b149 { background-color: light-dark(#7a9642, #d2ff72); }
+t-f150 { color: light-dark(#7a965e, #d2ffa2); }
+t-b150 { background-color: light-dark(#7a965e, #d2ffa2); }
+t-f151 { color: light-dark(#7a967a, #d2ffd2); }
+t-b151 { background-color: light-dark(#7a967a, #d2ffd2); }
+t-f152 { color: light-dark(#7a9696, #d2ffff); }
+t-b152 { background-color: light-dark(#7a9696, #d2ffff); }
+t-f153 { color: light-dark(#7a96b2, #d2ffff); }
+t-b153 { background-color: light-dark(#7a96b2, #d2ffff); }
+t-f154 { color: light-dark(#7ab200, #d2ff00); }
+t-b154 { background-color: light-dark(#7ab200, #d2ff00); }
+t-f155 { color: light-dark(#7ab242, #d2ff72); }
+t-b155 { background-color: light-dark(#7ab242, #d2ff72); }
+t-f156 { color: light-dark(#7ab25e, #d2ffa2); }
+t-b156 { background-color: light-dark(#7ab25e, #d2ffa2); }
+t-f157 { color: light-dark(#7ab27a, #d2ffd2); }
+t-b157 { background-color: light-dark(#7ab27a, #d2ffd2); }
+t-f158 { color: light-dark(#7ab296, #d2ffff); }
+t-b158 { background-color: light-dark(#7ab296, #d2ffff); }
+t-f159 { color: light-dark(#7ab2b2, #d2ffff); }
+t-b159 { background-color: light-dark(#7ab2b2, #d2ffff); }
+t-f160 { color: light-dark(#960000, #ff0000); }
+t-b160 { background-color: light-dark(#960000, #ff0000); }
+t-f161 { color: light-dark(#960042, #ff0072); }
+t-b161 { background-color: light-dark(#960042, #ff0072); }
+t-f162 { color: light-dark(#96005e, #ff00a2); }
+t-b162 { background-color: light-dark(#96005e, #ff00a2); }
+t-f163 { color: light-dark(#96007a, #ff00d2); }
+t-b163 { background-color: light-dark(#96007a, #ff00d2); }
+t-f164 { color: light-dark(#960096, #ff00ff); }
+t-b164 { background-color: light-dark(#960096, #ff00ff); }
+t-f165 { color: light-dark(#9600b2, #ff00ff); }
+t-b165 { background-color: light-dark(#9600b2, #ff00ff); }
+t-f166 { color: light-dark(#964200, #ff7200); }
+t-b166 { background-color: light-dark(#964200, #ff7200); }
+t-f167 { color: light-dark(#964242, #ff7272); }
+t-b167 { background-color: light-dark(#964242, #ff7272); }
+t-f168 { color: light-dark(#96425e, #ff72a2); }
+t-b168 { background-color: light-dark(#96425e, #ff72a2); }
+t-f169 { color: light-dark(#96427a, #ff72d2); }
+t-b169 { background-color: light-dark(#96427a, #ff72d2); }
+t-f170 { color: light-dark(#964296, #ff72ff); }
+t-b170 { background-color: light-dark(#964296, #ff72ff); }
+t-f171 { color: light-dark(#9642b2, #ff72ff); }
+t-b171 { background-color: light-dark(#9642b2, #ff72ff); }
+t-f172 { color: light-dark(#965e00, #ffa200); }
+t-b172 { background-color: light-dark(#965e00, #ffa200); }
+t-f173 { color: light-dark(#965e42, #ffa272); }
+t-b173 { background-color: light-dark(#965e42, #ffa272); }
+t-f174 { color: light-dark(#965e5e, #ffa2a2); }
+t-b174 { background-color: light-dark(#965e5e, #ffa2a2); }
+t-f175 { color: light-dark(#965e7a, #ffa2d2); }
+t-b175 { background-color: light-dark(#965e7a, #ffa2d2); }
+t-f176 { color: light-dark(#965e96, #ffa2ff); }
+t-b176 { background-color: light-dark(#965e96, #ffa2ff); }
+t-f177 { color: light-dark(#965eb2, #ffa2ff); }
+t-b177 { background-color: light-dark(#965eb2, #ffa2ff); }
+t-f178 { color: light-dark(#967a00, #ffd200); }
+t-b178 { background-color: light-dark(#967a00, #ffd200); }
+t-f179 { color: light-dark(#967a42, #ffd272); }
+t-b179 { background-color: light-dark(#967a42, #ffd272); }
+t-f180 { color: light-dark(#967a5e, #ffd2a2); }
+t-b180 { background-color: light-dark(#967a5e, #ffd2a2); }
+t-f181 { color: light-dark(#967a7a, #ffd2d2); }
+t-b181 { background-color: light-dark(#967a7a, #ffd2d2); }
+t-f182 { color: light-dark(#967a96, #ffd2ff); }
+t-b182 { background-color: light-dark(#967a96, #ffd2ff); }
+t-f183 { color: light-dark(#967ab2, #ffd2ff); }
+t-b183 { background-color: light-dark(#967ab2, #ffd2ff); }
+t-f184 { color: light-dark(#969600, #ffff00); }
+t-b184 { background-color: light-dark(#969600, #ffff00); }
+t-f185 { color: light-dark(#969642, #ffff72); }
+t-b185 { background-color: light-dark(#969642, #ffff72); }
+t-f186 { color: light-dark(#96965e, #ffffa2); }
+t-b186 { background-color: light-dark(#96965e, #ffffa2); }
+t-f187 { color: light-dark(#96967a, #ffffd2); }
+t-b187 { background-color: light-dark(#96967a, #ffffd2); }
+t-f188 { color: light-dark(#969696, #ffffff); }
+t-b188 { background-color: light-dark(#969696, #ffffff); }
+t-f189 { color: light-dark(#9696b2, #ffffff); }
+t-b189 { background-color: light-dark(#9696b2, #ffffff); }
+t-f190 { color: light-dark(#96b200, #ffff00); }
+t-b190 { background-color: light-dark(#96b200, #ffff00); }
+t-f191 { color: light-dark(#96b242, #ffff72); }
+t-b191 { background-color: light-dark(#96b242, #ffff72); }
+t-f192 { color: light-dark(#96b25e, #ffffa2); }
+t-b192 { background-color: light-dark(#96b25e, #ffffa2); }
+t-f193 { color: light-dark(#96b27a, #ffffd2); }
+t-b193 { background-color: light-dark(#96b27a, #ffffd2); }
+t-f194 { color: light-dark(#96b296, #ffffff); }
+t-b194 { background-color: light-dark(#96b296, #ffffff); }
+t-f195 { color: light-dark(#96b2b2, #ffffff); }
+t-b195 { background-color: light-dark(#96b2b2, #ffffff); }
+t-f196 { color: light-dark(#b20000, #ff0000); }
+t-b196 { background-color: light-dark(#b20000, #ff0000); }
+t-f197 { color: light-dark(#b20042, #ff0072); }
+t-b197 { background-color: light-dark(#b20042, #ff0072); }
+t-f198 { color: light-dark(#b2005e, #ff00a2); }
+t-b198 { background-color: light-dark(#b2005e, #ff00a2); }
+t-f199 { color: light-dark(#b2007a, #ff00d2); }
+t-b199 { background-color: light-dark(#b2007a, #ff00d2); }
+t-f200 { color: light-dark(#b20096, #ff00ff); }
+t-b200 { background-color: light-dark(#b20096, #ff00ff); }
+t-f201 { color: light-dark(#b200b2, #ff00ff); }
+t-b201 { background-color: light-dark(#b200b2, #ff00ff); }
+t-f202 { color: light-dark(#b24200, #ff7200); }
+t-b202 { background-color: light-dark(#b24200, #ff7200); }
+t-f203 { color: light-dark(#b24242, #ff7272); }
+t-b203 { background-color: light-dark(#b24242, #ff7272); }
+t-f204 { color: light-dark(#b2425e, #ff72a2); }
+t-b204 { background-color: light-dark(#b2425e, #ff72a2); }
+t-f205 { color: light-dark(#b2427a, #ff72d2); }
+t-b205 { background-color: light-dark(#b2427a, #ff72d2); }
+t-f206 { color: light-dark(#b24296, #ff72ff); }
+t-b206 { background-color: light-dark(#b24296, #ff72ff); }
+t-f207 { color: light-dark(#b242b2, #ff72ff); }
+t-b207 { background-color: light-dark(#b242b2, #ff72ff); }
+t-f208 { color: light-dark(#b25e00, #ffa200); }
+t-b208 { background-color: light-dark(#b25e00, #ffa200); }
+t-f209 { color: light-dark(#b25e42, #ffa272); }
+t-b209 { background-color: light-dark(#b25e42, #ffa272); }
+t-f210 { color: light-dark(#b25e5e, #ffa2a2); }
+t-b210 { background-color: light-dark(#b25e5e, #ffa2a2); }
+t-f211 { color: light-dark(#b25e7a, #ffa2d2); }
+t-b211 { background-color: light-dark(#b25e7a, #ffa2d2); }
+t-f212 { color: light-dark(#b25e96, #ffa2ff); }
+t-b212 { background-color: light-dark(#b25e96, #ffa2ff); }
+t-f213 { color: light-dark(#b25eb2, #ffa2ff); }
+t-b213 { background-color: light-dark(#b25eb2, #ffa2ff); }
+t-f214 { color: light-dark(#b27a00, #ffd200); }
+t-b214 { background-color: light-dark(#b27a00, #ffd200); }
+t-f215 { color: light-dark(#b27a42, #ffd272); }
+t-b215 { background-color: light-dark(#b27a42, #ffd272); }
+t-f216 { color: light-dark(#b27a5e, #ffd2a2); }
+t-b216 { background-color: light-dark(#b27a5e, #ffd2a2); }
+t-f217 { color: light-dark(#b27a7a, #ffd2d2); }
+t-b217 { background-color: light-dark(#b27a7a, #ffd2d2); }
+t-f218 { color: light-dark(#b27a96, #ffd2ff); }
+t-b218 { background-color: light-dark(#b27a96, #ffd2ff); }
+t-f219 { color: light-dark(#b27ab2, #ffd2ff); }
+t-b219 { background-color: light-dark(#b27ab2, #ffd2ff); }
+t-f220 { color: light-dark(#b29600, #ffff00); }
+t-b220 { background-color: light-dark(#b29600, #ffff00); }
+t-f221 { color: light-dark(#b29642, #ffff72); }
+t-b221 { background-color: light-dark(#b29642, #ffff72); }
+t-f222 { color: light-dark(#b2965e, #ffffa2); }
+t-b222 { background-color: light-dark(#b2965e, #ffffa2); }
+t-f223 { color: light-dark(#b2967a, #ffffd2); }
+t-b223 { background-color: light-dark(#b2967a, #ffffd2); }
+t-f224 { color: light-dark(#b29696, #ffffff); }
+t-b224 { background-color: light-dark(#b29696, #ffffff); }
+t-f225 { color: light-dark(#b296b2, #ffffff); }
+t-b225 { background-color: light-dark(#b296b2, #ffffff); }
+t-f226 { color: light-dark(#b2b200, #ffff00); }
+t-b226 { background-color: light-dark(#b2b200, #ffff00); }
+t-f227 { color: light-dark(#b2b242, #ffff72); }
+t-b227 { background-color: light-dark(#b2b242, #ffff72); }
+t-f228 { color: light-dark(#b2b25e, #ffffa2); }
+t-b228 { background-color: light-dark(#b2b25e, #ffffa2); }
+t-f229 { color: light-dark(#b2b27a, #ffffd2); }
+t-b229 { background-color: light-dark(#b2b27a, #ffffd2); }
+t-f230 { color: light-dark(#b2b296, #ffffff); }
+t-b230 { background-color: light-dark(#b2b296, #ffffff); }
+t-f231 { color: light-dark(#b2b2b2, #ffffff); }
+t-b231 { background-color: light-dark(#b2b2b2, #ffffff); }
+t-f232 { color: light-dark(#050505, #090909); }
+t-b232 { background-color: light-dark(#050505, #090909); }
+t-f233 { color: light-dark(#0c0c0c, #151515); }
+t-b233 { background-color: light-dark(#0c0c0c, #151515); }
+t-f234 { color: light-dark(#131313, #212121); }
+t-b234 { background-color: light-dark(#131313, #212121); }
+t-f235 { color: light-dark(#1a1a1a, #2d2d2d); }
+t-b235 { background-color: light-dark(#1a1a1a, #2d2d2d); }
+t-f236 { color: light-dark(#212121, #393939); }
+t-b236 { background-color: light-dark(#212121, #393939); }
+t-f237 { color: light-dark(#282828, #454545); }
+t-b237 { background-color: light-dark(#282828, #454545); }
+t-f238 { color: light-dark(#2f2f2f, #515151); }
+t-b238 { background-color: light-dark(#2f2f2f, #515151); }
+t-f239 { color: light-dark(#363636, #5d5d5d); }
+t-b239 { background-color: light-dark(#363636, #5d5d5d); }
+t-f240 { color: light-dark(#3d3d3d, #696969); }
+t-b240 { background-color: light-dark(#3d3d3d, #696969); }
+t-f241 { color: light-dark(#444444, #757575); }
+t-b241 { background-color: light-dark(#444444, #757575); }
+t-f242 { color: light-dark(#4b4b4b, #818181); }
+t-b242 { background-color: light-dark(#4b4b4b, #818181); }
+t-f243 { color: light-dark(#525252, #8d8d8d); }
+t-b243 { background-color: light-dark(#525252, #8d8d8d); }
+t-f244 { color: light-dark(#595959, #999999); }
+t-b244 { background-color: light-dark(#595959, #999999); }
+t-f245 { color: light-dark(#606060, #a5a5a5); }
+t-b245 { background-color: light-dark(#606060, #a5a5a5); }
+t-f246 { color: light-dark(#676767, #b1b1b1); }
+t-b246 { background-color: light-dark(#676767, #b1b1b1); }
+t-f247 { color: light-dark(#6e6e6e, #bdbdbd); }
+t-b247 { background-color: light-dark(#6e6e6e, #bdbdbd); }
+t-f248 { color: light-dark(#757575, #c9c9c9); }
+t-b248 { background-color: light-dark(#757575, #c9c9c9); }
+t-f249 { color: light-dark(#7c7c7c, #d5d5d5); }
+t-b249 { background-color: light-dark(#7c7c7c, #d5d5d5); }
+t-f250 { color: light-dark(#838383, #e1e1e1); }
+t-b250 { background-color: light-dark(#838383, #e1e1e1); }
+t-f251 { color: light-dark(#8a8a8a, #ededed); }
+t-b251 { background-color: light-dark(#8a8a8a, #ededed); }
+t-f252 { color: light-dark(#919191, #f9f9f9); }
+t-b252 { background-color: light-dark(#919191, #f9f9f9); }
+t-f253 { color: light-dark(#989898, #ffffff); }
+t-b253 { background-color: light-dark(#989898, #ffffff); }
+t-f254 { color: light-dark(#9f9f9f, #ffffff); }
+t-b254 { background-color: light-dark(#9f9f9f, #ffffff); }
+t-f255 { color: light-dark(#a6a6a6, #ffffff); }
+t-b255 { background-color: light-dark(#a6a6a6, #ffffff); }
+
+/* RGB colors via --c custom property */
+t-f { color: var(--c); }
+t-b { background-color: var(--c); }
+</style><style>
+.code-block {
+    position: relative;
+}
+.code-block .copy-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    background: rgba(80,80,95,0.8);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 0.25rem;
+    color: #c0caf5;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s;
+    z-index: 10;
+}
+.code-block:hover .copy-btn { opacity: 1; }
+.code-block .copy-btn:hover { background: rgba(80,80,95,0.95); }
+.code-block .copy-btn.copied { background: rgba(50,160,50,0.9); }
+</style><script>
+document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.copy-btn');
+    if (!btn) return;
+    const pre = btn.closest('.code-block') || btn.closest('pre');
+    if (!pre) return;
+    const code = pre.querySelector('code')?.textContent || pre.textContent;
+    await navigator.clipboard.writeText(code);
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+        btn.textContent = 'Copy';
+        btn.classList.remove('copied');
+    }, 2000);
+});
+</script>
+
+
+
+    <meta charset="utf-8">
+
+
+
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+
+
+
+                <title>Primer - Styx</title>
+
+
+
+                <meta name="description" content="Styx - A document language for mortals">
+
+
+
+                <link href="https://fonts.googleapis.com" rel="preconnect">
+
+
+
+                <link href="https://fonts.gstatic.com" rel="preconnect" crossorigin="">
+
+
+
+                <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&amp;family=Lato:wght@200&amp;display=swap" rel="stylesheet">
+
+
+
+                <link href="/main.204c3ee02661.css" rel="stylesheet">
+
+
+
+                <link href="/favicon.d0e2d0o2146d.svg" rel="icon" type="image/svg+xml">
+
+
+
+
+            <link href="/assets/quiz.13oa0dd0d02a.css" rel="stylesheet">
+
+
+
+      </head>
+  <body>
+
+
+
+    <header class="header">
+
+
+
+      <nav class="nav">
+            <a class="logo" href="/">
+                <span class="logo-text">Styx</span>
+            </a>
+
+
+
+        <div class="nav-links">
+                <a class="active" href="/guide/primer">Guide</a>
+                <a href="/reference/spec/parser">Reference</a>
+                <a href="/tools/editor">Tools</a>
+                <a href="/comparisons/k8s">Styx vs</a>
+            </div>
+
+
+
+            <a class="nav-github" aria-label="GitHub" href="https://github.com/bearcove/styx">
+                <svg fill="currentColor" height="20" viewbox="0 0 24 24" width="20">
+                                            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"></path>
+
+
+
+                </svg>
+            </a>
+                          </nav>
+
+
+
+                </header>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            <div class="docs">
+
+
+
+
+
+      <aside class="sidebar">
+
+
+
+        <nav class="sidebar-nav">
+
+
+
+          <div class="sidebar-section">
+                <a class="sidebar-title" href="/guide">Guide</a>
+            </div>
+
+
+
+
+
+
+
+
+                                  <ul>
+            <li>
+            <a class="active" href="/guide/primer">
+                Primer
+            </a>
+        </li>
+            <li>
+            <a href="/guide/integrate-rust">
+                Integrate with Rust
+            </a>
+        </li>
+            <li>
+            <a href="/guide/integrate-python">
+                Integrate with Python
+            </a>
+        </li>
+        <li>
+        <a href="/guide/integrate-haskell">
+            Integrate with Haskell
+        </a>
+    </li>
+            <li>
+            <a href="/guide/integrate-javascript">
+                Integrate with JavaScript
+            </a>
+        </li>
+            <li>
+            <a href="/guide/integrate-go">
+                Integrate with Go
+            </a>
+        </li>
+          </ul>
+
+
+
+
+
+                                </nav>
+
+
+
+                      </aside>
+
+
+
+
+
+                      <main class="docs-content">
+
+
+
+        <article class="article">
+
+
+
+          <h1>Primer</h1>
+
+
+
+                                          <p data-source-file="guide/primer.md" data-source-line="2">Styx is a configuration language. Compared to JSON:</p>
+
+
+
+                              <ul>
+            <li><strong>Bare scalars</strong> — quotes only when necessary</li>
+            <li><strong>Whitespace separation</strong> — no <code>:</code> between keys and values</li>
+            <li><strong>Flexible separators</strong> — commas or newlines, not both</li>
+            <li><strong>Scalars are opaque</strong> — the parser assigns no type information</li>
+            <li><strong>Two-dimensional values</strong> — every value has a tag and a payload</li>
+          </ul>
+
+
+
+                              <h2 id="the-basics">The basics</h2>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="12">A JSON object like this becomes this in Styx:</p>
+
+
+
+                              <div class="compare-container">
+
+
+            <div class="compare-section">
+
+
+              <div class="compare-header">json</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-json">{<a-s>"name"</a-s>: <a-s>"Alice"</a-s>, <a-s>"age"</a-s>: <a-n>30</a-n>}</code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                                    <div class="compare-section">
+
+
+              <div class="compare-header">styx</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-styx"><a-p>{</a-p><a-pr>name</a-pr> <a-s>Alice</a-s><a-p>,</a-p> <a-pr>age</a-pr> <a-s>30</a-s><a-p>}</a-p></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                              </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="21">The differences:</p>
+
+
+
+                              <ul>
+            <li>No colons between keys and values — whitespace separates them</li>
+            <li>No quotes around <code>Alice</code> — bare scalars work for simple text</li>
+            <li><code>30</code> is not a number, just an atom (more on this later)</li>
+          </ul>
+
+
+
+                              <h3 id="the-basics--when-you-need-quotes">When you need quotes</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="29">A bare scalar is terminated by whitespace or any of: <code>{</code>, <code>}</code>, <code>(</code>, <code>)</code>, <code>,</code>, <code>"</code>, <code>&gt;</code>.</p>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="31">A bare scalar cannot <em>start</em> with <code>@</code> or <code>=</code>, but these are fine after the first character. This allows URLs with <code>@</code> and query strings with <code>=</code>.</p>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="33">So paths and URLs work unquoted:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>path</a-pr> <a-s>/usr/local/bin</a-s>
+<a-pr>url</a-pr> <a-s>https://example.com/path?query=value</a-s></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="40">But you need quotes when your value contains terminating characters:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>greeting</a-pr> <a-s>"Hello, world!"</a-s>
+<a-pr>template</a-pr> <a-s>"{{name}}"</a-s></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <h3 id="the-basics--escape-sequences">Escape sequences</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="49">Quoted scalars support escape sequences:</p>
+
+
+
+                              <table>
+            <thead>
+              <tr>
+                <th>Escape</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th><code>\\</code></th>
+                <th>backslash</th>
+              </tr>
+              <tr>
+                <th><code>\"</code></th>
+                <th>quote</th>
+              </tr>
+              <tr>
+                <th><code>\n</code></th>
+                <th>newline (LF)</th>
+              </tr>
+              <tr>
+                <th><code>\r</code></th>
+                <th>carriage return</th>
+              </tr>
+              <tr>
+                <th><code>\t</code></th>
+                <th>tab</th>
+              </tr>
+              <tr>
+                <th><code>\uXXXX</code></th>
+                <th>Unicode codepoint</th>
+              </tr>
+              <tr>
+                <th><code>\u{X...}</code></th>
+                <th>Unicode codepoint (variable length)</th>
+              </tr>
+            </tbody>
+          </table>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>multiline</a-pr> <a-s>"first line\nsecond line"</a-s>
+<a-pr>emoji</a-pr> <a-s>"\u{1F600}"</a-s></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <h3 id="the-basics--raw-scalars">Raw scalars</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="68">For values with many quotes or escapes, use raw scalars — no escape processing:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>json</a-pr> <a-s>r#"{"key": "value"}"#</a-s></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="74">The number of <code>#</code> must match on both sides. Need a <code>"#</code> in your content? Use more <code>#</code>:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>code</a-pr> <a-s>r##"println!(r#"nested"#);"##</a-s></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <h3 id="the-basics--documents-are-implicit-objects">Documents are implicit objects</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="82">A Styx document is implicitly an object. These are equivalent:</p>
+
+
+
+                              <div class="compare-container">
+
+
+            <div class="compare-section">
+
+
+              <div class="compare-header">styx</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-styx"><a-pr>name</a-pr> <a-s>Alice</a-s>
+<a-pr>age</a-pr> <a-s>30</a-s></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                                    <div class="compare-section">
+
+
+              <div class="compare-header">styx</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-styx"><a-p>{</a-p>
+    <a-pr>name</a-pr> <a-s>Alice</a-s>
+    <a-pr>age</a-pr> <a-s>30</a-s>
+<a-p>}</a-p></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                              </div>
+
+
+                              <h3 id="the-basics--separator-rules">Separator rules</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="97">Objects use either commas OR newlines as separators — never both in the same object. This prevents the ambiguity that plagues YAML.</p>
+
+
+
+                              <h3 id="the-basics--what-can-be-a-key">What can be a key?</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="101">Keys are scalars or unit, optionally tagged. Objects, sequences, and heredocs cannot be keys.</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>host</a-pr> <a-s>localhost</a-s>              <a-c>// bare scalar</a-c>
+<a-pr>"content-type"</a-pr> <a-s>application/json</a-s>  <a-c>// quoted scalar</a-c>
+<a-co>@</a-co> <a-s>default-value</a-s>             <a-c>// unit</a-c>
+<a-co>@env</a-co><a-pr>"PATH"</a-pr> <a-s>/usr/bin</a-s>         <a-c>// tagged scalar</a-c></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <h3 id="the-basics--sequences">Sequences</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="112">Ordered collections use parentheses and are called sequences:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>colors</a-pr> <a-p>(</a-p><a-s>red</a-s> <a-s>green</a-s> <a-s>blue</a-s><a-p>)</a-p></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="118">Sequences are whitespace-separated. Commas are not allowed:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-c>// WRONG: commas in sequences</a-c>
+<a-pr>colors</a-pr> <a-p>(</a-p><a-s>red</a-s><a-p>,</a-p> <a-s>green</a-s><a-p>,</a-p> <a-s>blue</a-s><a-p>)</a-p>
+
+<a-c>// RIGHT: whitespace-separated</a-c>
+<a-pr>colors</a-pr> <a-p>(</a-p><a-s>red</a-s> <a-s>green</a-s> <a-s>blue</a-s><a-p>)</a-p></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <h3 id="the-basics--recap">Recap</h3>
+
+
+                              <div data-quiz="basics-json-to-styx"></div>
+
+
+
+                              <div data-quiz="bare-scalar-path"></div>
+
+
+
+                              <div data-quiz="bare-scalar-url"></div>
+
+
+
+                              <div data-quiz="bare-scalar-space"></div>
+
+
+
+                              <div data-quiz="bare-scalar-comma"></div>
+
+
+
+                              <div data-quiz="basics-sequence-syntax"></div>
+
+
+
+                              <div data-quiz="basics-comma-sequence"></div>
+
+
+
+                              <div data-quiz="basics-mixing-separators"></div>
+
+
+
+                              <h2 id="scalars-are-opaque-text">Scalars are opaque text</h2>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="148">Scalars are just atoms of text. The parser assigns no type information.</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>name</a-pr> <a-s>Alice</a-s>
+<a-pr>age</a-pr> <a-s>30</a-s>
+<a-pr>active</a-pr> <a-s>true</a-s>
+<a-pr>ratio</a-pr> <a-s>3.14</a-s></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="157">These are all text. Types come later, from schemas or deserialization.</p>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="159">In YAML, <code>NO</code> is parsed as boolean false, and <code>1.10</code> is parsed as <code>1.1</code>,
+leading to these comical situations:</p>
+
+
+
+                              <div class="compare-container">
+
+
+            <div class="compare-section">
+
+
+              <div class="compare-header">yaml</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-yaml"><a-p>-</a-p> <a-pr>country</a-pr><a-p>:</a-p> <a-s>FR</a-s>
+<a-p>-</a-p> <a-pr>country</a-pr><a-p>:</a-p> <a-s>NL</a-s>
+<a-p>-</a-p> <a-pr>country</a-pr><a-p>:</a-p> <a-s>NO</a-s></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                                    <div class="compare-section">
+
+
+              <div class="compare-header">yaml</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-yaml"><a-p>-</a-p> <a-pr>country</a-pr><a-p>:</a-p> <a-s>FR</a-s>
+<a-p>-</a-p> <a-pr>country</a-pr><a-p>:</a-p> <a-s>NL</a-s>
+<a-p>-</a-p> <a-pr>country</a-pr><a-p>:</a-p> <a-co>false</a-co></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                              </div>
+
+
+                              <div class="compare-container">
+
+
+            <div class="compare-section">
+
+
+              <div class="compare-header">yaml</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-yaml"><a-pr>version</a-pr><a-p>:</a-p> <a-n>1.10</a-n></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                                    <div class="compare-section">
+
+
+              <div class="compare-header">yaml</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-yaml"><a-pr>version</a-pr><a-p>:</a-p> <a-n>1.1</a-n></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                              </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="180">Styx does not assign a type at parse time — only later, at deserialization time, do
+these become what you want them to become.</p>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="183">When deserializing to a strongly typed language like Rust, it's no problem — you
+already have types! When doing it in JavaScript, Python, etc. then you can bring
+a schema with you. More on that later.</p>
+
+
+
+                              <h3 id="scalars-are-opaque-text--recap">Recap</h3>
+
+
+                              <div data-quiz="scalars-number"></div>
+
+
+
+                              <h2 id="the-two-dimensions">The two dimensions</h2>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="193">Every Styx value has two parts:</p>
+
+
+
+                              <ul>
+            <li>A <strong>tag</strong> — identifies what kind of thing it is</li>
+            <li>A <strong>payload</strong> — the thing itself</li>
+          </ul>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="198">Both default to <code>@</code> (the unit value) when not specified.</p>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="200">When you write a bare scalar like <code>Alice</code>, the full form is <code>@"Alice"</code> — tag is unit, payload is the text.</p>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="202">When you write <code>@pending</code>, the full form is <code>@pending@</code> — tag is <code>pending</code>, payload is unit.</p>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="204">When you write <code>@rgb(255 128 0)</code>, you're explicitly setting both: tag is <code>rgb</code>, payload is the sequence <code>(255 128 0)</code>.</p>
+
+
+
+                              <h3 id="the-two-dimensions--tags-in-practice">Tags in practice</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="208">Tags are useful for:</p>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="210"><strong>Discriminated unions</strong> — distinguishing between variants:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>result</a-pr> <a-co>@ok</a-co><a-p>{</a-p><a-pr>data</a-pr> <a-s>"success"</a-s><a-p>}</a-p>
+<a-pr>result</a-pr> <a-co>@err</a-co><a-p>{</a-p><a-pr>message</a-pr> <a-s>"not found"</a-s><a-p>}</a-p></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="217"><strong>Type hints</strong> — indicating how to interpret a value:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>created</a-pr> <a-co>@datetime</a-co><a-s>"2024-01-15T10:30:00Z"</a-s>
+<a-pr>color</a-pr> <a-co>@hex</a-co><a-s>"#ff5500"</a-s></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="224"><strong>Nullability</strong> — distinguishing "no value" from "empty":</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>middle_name</a-pr> <a-co>@none</a-co>
+<a-pr>nickname</a-pr> <a-s>""</a-s></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <h3 id="the-two-dimensions--the-space-rule">The space rule</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="233">This is the most important whitespace rule in Styx:</p>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="235"><strong>There is never a space between a tag and its payload.</strong></p>
+
+
+
+                              <div class="compare-container">
+
+
+            <div class="compare-section">
+
+
+              <div class="compare-header">styx</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-styx"><a-co>@tag</a-co><a-p>()</a-p></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                                    <div class="compare-section">
+
+
+              <div class="compare-header">styx</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-styx"><a-co>@tag</a-co> <a-p>()</a-p></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                              </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="244">The left is ONE value (<code>tag=tag</code>, <code>payload=()</code>). The right is TWO values: <code>@tag</code> and <code>()</code>.</p>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="246">This matters because <code>@tag()</code> is a single value (a tagged empty sequence), while <code>@tag ()</code> is two separate values. In an entry context:</p>
+
+
+
+                              <div class="compare-container">
+
+
+            <div class="compare-section">
+
+
+              <div class="compare-header">styx</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-styx"><a-pr>a</a-pr> <a-co>@tag</a-co><a-p>()</a-p></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                                    <div class="compare-section">
+
+
+              <div class="compare-header">styx</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-styx"><a-pr>b</a-pr> <a-co>@tag</a-co> <a-p>()</a-p></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                              </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="255">The left is valid (<code>key=a</code>, <code>value=@tag()</code>). The right has three atoms (<code>b</code>, <code>@tag</code>, <code>()</code>) — entries can only have two atoms (key and value), so it's invalid.</p>
+
+
+
+                              <h3 id="the-two-dimensions--recap">Recap</h3>
+
+
+                              <div data-quiz="tags-two-dimensions"></div>
+
+
+
+                              <div data-quiz="tags-explicit"></div>
+
+
+
+                              <div data-quiz="tags-unit-payload"></div>
+
+
+
+                              <div data-quiz="tags-space-matters"></div>
+
+
+
+                              <div data-quiz="tags-standalone-vs-payload"></div>
+
+
+
+                              <div data-quiz="tags-on-objects"></div>
+
+
+
+                              <h2 id="unit-and-elision">Unit and elision</h2>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="273"><code>@</code> by itself is the <strong>unit</strong> value. It represents the absence of a meaningful value — similar to <code>null</code> in other languages, but more principled because it's just another value, not a special case.</p>
+
+
+
+                              <h3 id="unit-and-elision--canonical-vs-idiomatic-forms">Canonical vs idiomatic forms</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="277">Styx has a fully explicit (canonical) form and shorter (idiomatic) forms:</p>
+
+
+
+                              <table>
+            <thead>
+              <tr>
+                <th>Canonical</th>
+                <th>Idiomatic</th>
+                <th>Meaning</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th><code>@@</code></th>
+                <th><code>@</code></th>
+                <th>unit value (tag=unit, payload=unit)</th>
+              </tr>
+              <tr>
+                <th><code>@ok@</code></th>
+                <th><code>@ok</code></th>
+                <th>tag <code>ok</code> with unit payload</th>
+              </tr>
+              <tr>
+                <th><code>key @</code></th>
+                <th><code>key</code></th>
+                <th>key with unit value</th>
+              </tr>
+            </tbody>
+          </table>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="285">The idiomatic forms are preferred in practice. The canonical forms exist for completeness and are useful when you need to be explicit.</p>
+
+
+
+                              <h3 id="unit-and-elision--unit-in-sequences">Unit in sequences</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="289">Unit values can appear in sequences, which is useful for sparse data:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>row</a-pr> <a-p>(</a-p><a-s>1</a-s> <a-co>@</a-co> <a-co>@</a-co> <a-s>4</a-s> <a-s>5</a-s><a-p>)</a-p>  <a-c>// sparse row with gaps</a-c></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <h3 id="unit-and-elision--recap">Recap</h3>
+
+
+                              <div data-quiz="unit-what-is"></div>
+
+
+
+                              <div data-quiz="unit-canonical"></div>
+
+
+
+                              <div data-quiz="unit-elision-key"></div>
+
+
+
+                              <div data-quiz="unit-sparse-sequence"></div>
+
+
+
+                              <h2 id="dotted-paths">Dotted paths</h2>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="307">Dotted keys define nested structure:</p>
+
+
+
+                              <div class="compare-container">
+
+
+            <div class="compare-section">
+
+
+              <div class="compare-header">styx</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-styx"><a-pr>server.host</a-pr> <a-s>localhost</a-s>
+<a-pr>server.port</a-pr> <a-s>8080</a-s></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                                    <div class="compare-section">
+
+
+              <div class="compare-header">styx</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-styx"><a-pr>server</a-pr> <a-p>{</a-p>
+  <a-pr>host</a-pr> <a-s>localhost</a-s>
+  <a-pr>port</a-pr> <a-s>8080</a-s>
+<a-p>}</a-p></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                              </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="320">Useful for deeply nested configuration:</p>
+
+
+
+                              <div class="compare-container">
+
+
+            <div class="compare-section">
+
+
+              <div class="compare-header">styx</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-styx"><a-pr>selector.matchLabels.app</a-pr> <a-s>web</a-s></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                                    <div class="compare-section">
+
+
+              <div class="compare-header">yaml</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-yaml"><a-pr>selector</a-pr><a-p>:</a-p>
+  <a-pr>matchLabels</a-pr><a-p>:</a-p>
+    <a-pr>app</a-pr><a-p>:</a-p> <a-s>web</a-s></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                              </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="331">Sibling paths are fine, but you can't reopen a closed path:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>foo.bar</a-pr> <a-s>1</a-s>
+<a-pr>foo.baz</a-pr> <a-s>2</a-s>    <a-c>// ok: foo still open</a-c>
+<a-pr>other</a-pr> <a-s>3</a-s>      <a-c>// closes foo</a-c>
+<a-pr>foo.qux</a-pr> <a-s>4</a-s>    <a-c>// ERROR: foo was closed</a-c></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <h3 id="dotted-paths--attributes">Attributes</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="342">For tabular data, the <code>key&gt;value</code> attribute syntax is more readable:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-p>{</a-p>
+    <a-pr>web</a-pr>  <a-pr>host</a-pr><a-k>&gt;</a-k><a-s>example.org</a-s> <a-pr>port</a-pr><a-k>&gt;</a-k><a-s>80</a-s>
+    <a-pr>api</a-pr>  <a-pr>host</a-pr><a-k>&gt;</a-k><a-s>api.example</a-s> <a-pr>port</a-pr><a-k>&gt;</a-k><a-s>8080</a-s>
+    <a-pr>db</a-pr>   <a-pr>host</a-pr><a-k>&gt;</a-k><a-s>localhost</a-s>   <a-pr>port</a-pr><a-k>&gt;</a-k><a-s>5432</a-s>
+<a-p>}</a-p></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="352">Attributes produce the same structure as nested objects but read better for record-like data.</p>
+
+
+
+                              <h3 id="dotted-paths--recap">Recap</h3>
+
+
+                              <div data-quiz="dotted-paths-basic"></div>
+
+
+
+                              <div data-quiz="attributes-basic"></div>
+
+
+
+                              <div data-quiz="attributes-multiple"></div>
+
+
+
+                              <h2 id="heredocs">Heredocs</h2>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="364">Multiline strings use heredoc syntax:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>query</a-pr> <a-s>&lt;&lt;SQL
+SELECT * FROM users
+WHERE active = true
+SQL</a-s></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="373">The delimiter must be uppercase letters (optionally with digits and underscores). The closing delimiter ends the heredoc.</p>
+
+
+
+                              <h3 id="heredocs--language-hints">Language hints</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="377">A language hint after the delimiter enables syntax highlighting in editors:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-pr>code</a-pr> <a-s>&lt;&lt;SRC,rust
+</a-s><a-k>fn</a-k><a-s> </a-s><a-f>main</a-f><a-p>()</a-p><a-s> </a-s><a-p>{</a-p><a-s>
+    </a-s><a-m>println!</a-m><a-p>(</a-p><a-s>"Hello!"</a-s><a-p>);</a-p><a-s>
+</a-s><a-p>}</a-p><a-s>
+SRC</a-s></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="387">The hint (<code>,rust</code>) is metadata — it doesn't affect the content.</p>
+
+
+
+                              <h3 id="heredocs--indented-heredocs">Indented heredocs</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="391">If the closing delimiter is indented, that indentation is stripped from all content lines:</p>
+
+
+
+                              <div class="compare-container">
+
+
+            <div class="compare-section">
+
+
+              <div class="compare-header">styx</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-styx"><a-pr>script</a-pr> <a-s>&lt;&lt;BASH
+    echo "hello"
+    echo "world"
+    BASH</a-s></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                                    <div class="compare-section">
+
+
+              <div class="compare-header">styx</div>
+
+
+                                          <div class="code-block">
+
+
+                <pre><code class="language-styx"><a-pr>script</a-pr> <a-s>&lt;&lt;BASH
+echo "hello"
+echo "world"
+BASH</a-s></code></pre>
+
+
+                            <button class="copy-btn">Copy</button>              </div>
+
+
+                                    </div>
+
+
+                              </div>
+
+
+                              <h3 id="heredocs--recap">Recap</h3>
+
+
+                              <div data-quiz="heredoc-basic"></div>
+
+
+
+                              <div data-quiz="heredoc-hint"></div>
+
+
+
+                              <h2 id="schemas">Schemas</h2>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="414">Most Styx files you edit will have a schema. The schema tells your editor what keys are valid, what types they expect, and provides documentation on hover.</p>
+
+
+
+                              <h3 id="schemas--where-schemas-come-from">Where schemas come from</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="418">When you open a config file, you'll typically see something like:</p>
+
+
+
+                              <div class="code-block" data-lang="styx">
+
+
+            <div class="code-header">styx</div>
+
+
+                                    <pre><code class="language-styx"><a-co>@schema</a-co> <a-p>{</a-p><a-pr>source</a-pr> <a-s>crate:tracey-config@1</a-s><a-p>,</a-p> <a-pr>cli</a-pr> <a-s>tracey</a-s><a-p>}</a-p>
+
+<a-pr>spec</a-pr> <a-p>{</a-p>
+  <a-c>// your config here</a-c>
+<a-p>}</a-p></code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="428">The <code>@schema</code> line tells tooling where to find the schema:</p>
+
+
+
+                              <ul>
+            <li><code>crate:tracey-config@1</code> — the schema is published to crates.io</li>
+            <li><code>cli tracey</code> — or extract it from the <code>tracey</code> binary on your PATH</li>
+          </ul>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="432">Tooling tries the binary first (instant, works offline), then falls back to crates.io.</p>
+
+
+
+                              <h3 id="schemas--what-you-get">What you get</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="436">With a schema, your editor provides:</p>
+
+
+
+                              <ul>
+            <li><strong>Validation</strong> — red squiggles for typos and type errors</li>
+            <li><strong>Autocomplete</strong> — suggestions as you type</li>
+            <li><strong>Hover docs</strong> — documentation for each field</li>
+            <li><strong>Go to definition</strong> — jump to where a field is defined in the schema</li>
+          </ul>
+
+
+
+                              <h3 id="schemas--getting-started-with-a-new-tool">Getting started with a new tool</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="444">Tools that use Styx typically provide an <code>init</code> command:</p>
+
+
+
+                              <div class="code-block" data-lang="bash">
+
+
+            <div class="code-header">bash</div>
+
+
+                                    <pre><code class="language-bash"><a-o>$</a-o><a-f> </a-f><a-pr>mytool</a-pr> init <a-o>&gt;</a-o> config.styx</code></pre>
+
+
+                    <button class="copy-btn">Copy</button>          </div>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="450">This generates a starter config with the <code>@schema</code> declaration already in place.</p>
+
+
+
+                              <h3 id="schemas--known-schema-patterns">Known schema patterns</h3>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="454">The Styx CLI includes a registry of known config patterns. If you open a file like <code>.config/tracey/config.styx</code> without an <code>@schema</code> declaration, your editor will suggest adding one.</p>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="456">For more details, see <a href="/tools/schema-distribution/">Schema Distribution</a> and <a href="/tools/schema-registry/">Schema Registry</a>.</p>
+
+
+
+                              <h2 id="summary">Summary</h2>
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="460">The key concepts:</p>
+
+
+
+                              <ol>
+            <li><strong>Whitespace-separated syntax</strong> — no colons, minimal quotes</li>
+            <li><strong>Opaque scalars</strong> — types come from schemas, not syntax</li>
+            <li><strong>Two dimensions</strong> — every value has a tag and a payload</li>
+            <li><strong>The space rule</strong> — no space between tag and payload</li>
+            <li><strong>Unit and elision</strong> — <code>@</code> is the unit value, often implicit</li>
+            <li><strong>Schemas</strong> — validation and editor support</li>
+          </ol>
+
+
+
+                              <p data-source-file="guide/primer.md" data-source-line="469">For the full specification, see the <a href="/reference/">reference documentation</a>.</p>
+
+
+
+                              <script src="/quiz.6462a121351d.js" type="module"></script>
+
+
+
+
+                                </article>
+
+
+
+
+
+                                <aside class="toc">
+
+
+
+          <div class="toc-inner">
+
+
+
+            <h2>On this page</h2>
+
+
+
+                                                    <ul>
+              <li>
+                        <a href="#the-basics">The basics</a>
+
+
+
+
+                <ul>
+                  <li><a href="#the-basics--when-you-need-quotes">When you need quotes</a></li>
+                  <li><a href="#the-basics--escape-sequences">Escape sequences</a></li>
+                  <li><a href="#the-basics--raw-scalars">Raw scalars</a></li>
+                  <li><a href="#the-basics--documents-are-implicit-objects">Documents are implicit objects</a></li>
+                  <li><a href="#the-basics--separator-rules">Separator rules</a></li>
+                  <li><a href="#the-basics--what-can-be-a-key">What can be a key?</a></li>
+                  <li><a href="#the-basics--sequences">Sequences</a></li>
+                  <li><a href="#the-basics--recap">Recap</a></li>
+                </ul>
+
+
+
+
+                                                              </li>
+              <li>
+                        <a href="#scalars-are-opaque-text">Scalars are opaque text</a>
+
+
+
+
+                <ul>
+                  <li><a href="#scalars-are-opaque-text--recap">Recap</a></li>
+                </ul>
+
+
+
+
+                                                              </li>
+              <li>
+                        <a href="#the-two-dimensions">The two dimensions</a>
+
+
+
+
+                <ul>
+                  <li><a href="#the-two-dimensions--tags-in-practice">Tags in practice</a></li>
+                  <li><a href="#the-two-dimensions--the-space-rule">The space rule</a></li>
+                  <li><a href="#the-two-dimensions--recap">Recap</a></li>
+                </ul>
+
+
+
+
+                                                              </li>
+              <li>
+                        <a href="#unit-and-elision">Unit and elision</a>
+
+
+
+
+                <ul>
+                  <li><a href="#unit-and-elision--canonical-vs-idiomatic-forms">Canonical vs idiomatic forms</a></li>
+                  <li><a href="#unit-and-elision--unit-in-sequences">Unit in sequences</a></li>
+                  <li><a href="#unit-and-elision--recap">Recap</a></li>
+                </ul>
+
+
+
+
+                                                              </li>
+              <li>
+                        <a href="#dotted-paths">Dotted paths</a>
+
+
+
+
+                <ul>
+                  <li><a href="#dotted-paths--attributes">Attributes</a></li>
+                  <li><a href="#dotted-paths--recap">Recap</a></li>
+                </ul>
+
+
+
+
+                                                              </li>
+              <li>
+                        <a href="#heredocs">Heredocs</a>
+
+
+
+
+                <ul>
+                  <li><a href="#heredocs--language-hints">Language hints</a></li>
+                  <li><a href="#heredocs--indented-heredocs">Indented heredocs</a></li>
+                  <li><a href="#heredocs--recap">Recap</a></li>
+                </ul>
+
+
+
+
+                                                              </li>
+              <li>
+                        <a href="#schemas">Schemas</a>
+
+
+
+
+                <ul>
+                  <li><a href="#schemas--where-schemas-come-from">Where schemas come from</a></li>
+                  <li><a href="#schemas--what-you-get">What you get</a></li>
+                  <li><a href="#schemas--getting-started-with-a-new-tool">Getting started with a new tool</a></li>
+                  <li><a href="#schemas--known-schema-patterns">Known schema patterns</a></li>
+                </ul>
+
+
+
+
+                                                              </li>
+              <li>
+                        <a href="#summary">Summary</a>
+
+                    </li>
+            </ul>
+
+
+
+                                          </div>
+
+
+
+                                </aside>
+
+
+
+
+                      </main>
+
+
+
+            </div>
+
+
+
+
+
+
+                <footer class="footer">
+
+
+
+      <div class="footer-content">
+
+
+
+        <p>Styx is an open <a href="/reference">specification</a> (<a href="https://creativecommons.org/publicdomain/zero/1.0/">CC0</a>) by <a href="https://fasterthanli.me">Amos Wenger</a> (<a href="https://github.com/fasterthanlime">@fasterthanlime</a>).</p>
+
+
+
+                                    <p>The Rust implementation is <a href="https://opensource.org/licenses/MIT">MIT</a> or <a href="https://opensource.org/licenses/Apache-2.0">Apache-2.0</a>.</p>
+
+
+
+                          </div>
+
+
+
+                </footer>
+
+
+
+
+                <script>
+    (function() {
+        const toc = document.querySelector('.toc');
+        if (!toc) return;
+
+        const tocLinks = toc.querySelectorAll('a[href^="#"]');
+        if (!tocLinks.length) return;
+
+        const headings = [];
+        tocLinks.forEach(link => {
+            const id = link.getAttribute('href').slice(1);
+            const heading = document.getElementById(id);
+            if (heading) headings.push({ id, heading, link });
+        });
+
+        if (!headings.length) return;
+
+        function updateActive() {
+            const scrollY = window.scrollY;
+            const offset = 100;
+
+            let current = headings[0];
+            for (const h of headings) {
+                if (h.heading.offsetTop - offset <= scrollY) {
+                    current = h;
+                }
+            }
+
+            tocLinks.forEach(link => link.classList.remove('active'));
+            if (current) current.link.classList.add('active');
+        }
+
+        window.addEventListener('scroll', updateActive, { passive: true });
+        updateActive();
+    })();
+    </script>
+
+
+
+      </body>
+</html>

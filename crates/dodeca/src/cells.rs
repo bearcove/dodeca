@@ -571,7 +571,7 @@ async fn init_cells_inner() -> eyre::Result<()> {
 
     // Build driver with NO peers initially (lazy spawning)
     let builder = MultiPeerHostDriver::builder(host);
-    let (driver, _handles, driver_handle) = builder.build();
+    let (driver, _handles, _incoming_connections, driver_handle) = builder.build();
     debug!("init_cells_inner: driver built with no peers (lazy spawning enabled)");
 
     // Store driver handle for dynamic peer creation

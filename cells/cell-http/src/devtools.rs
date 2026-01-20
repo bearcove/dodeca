@@ -30,9 +30,17 @@ pub async fn ws_handler(
 async fn handle_socket(socket: WebSocket, ctx: Arc<dyn RouterContext>) {
     tracing::debug!("DevTools WebSocket connection received, setting up RPC forwarding...");
 
-    // Create a ForwardingDispatcher that proxies all RPC calls to the host
-    let upstream = ctx.handle().clone();
-    let dispatcher = ForwardingDispatcher::new(upstream);
+    // Each browser gets its own virtual connection to the host
+    let virtual_handle = match ctx.handle().connect(roam_wire::Metadata::default()).await {
+        Ok(handle) => handle,
+        Err(e) => {
+            tracing::error!("Failed to open virtual connection to host: {:?}", e);
+            return;
+        }
+    };
+
+    // Create a ForwardingDispatcher that proxies all RPC calls through the virtual connection
+    let dispatcher = ForwardingDispatcher::new(virtual_handle);
 
     // Wrap the axum WebSocket in a transport adapter
     let transport = AxumWsTransport::new(socket);
@@ -40,7 +48,7 @@ async fn handle_socket(socket: WebSocket, ctx: Arc<dyn RouterContext>) {
     // Accept the roam session with the forwarding dispatcher
     let config = HandshakeConfig::default();
     match accept_framed(transport, config, dispatcher).await {
-        Ok((_handle, driver)) => {
+        Ok((_handle, _incoming, driver)) => {
             tracing::debug!("DevTools RPC session established, running driver...");
             // Run the driver until the connection closes
             if let Err(e) = driver.run().await {
@@ -58,10 +66,10 @@ async fn handle_socket(socket: WebSocket, ctx: Arc<dyn RouterContext>) {
 // AxumWsTransport - Adapts axum WebSocket to MessageTransport
 // ============================================================================
 
-use std::io;
-use std::time::Duration;
 use roam_session::MessageTransport;
 use roam_wire::Message as RoamMessage;
+use std::io;
+use std::time::Duration;
 
 /// Adapter that implements MessageTransport for axum WebSocket.
 ///
@@ -115,8 +123,8 @@ impl MessageTransport for AxumWsTransport {
             match self.receiver.next().await {
                 Some(Ok(Message::Binary(data))) => {
                     self.last_decoded = data.to_vec();
-                    let msg: RoamMessage = facet_postcard::from_slice(&self.last_decoded)
-                        .map_err(|e| {
+                    let msg: RoamMessage =
+                        facet_postcard::from_slice(&self.last_decoded).map_err(|e| {
                             io::Error::new(io::ErrorKind::InvalidData, format!("postcard: {e}"))
                         })?;
                     return Ok(Some(msg));
@@ -124,8 +132,8 @@ impl MessageTransport for AxumWsTransport {
                 Some(Ok(Message::Text(text))) => {
                     // Treat text as binary (shouldn't happen for roam protocol)
                     self.last_decoded = text.as_bytes().to_vec();
-                    let msg: RoamMessage = facet_postcard::from_slice(&self.last_decoded)
-                        .map_err(|e| {
+                    let msg: RoamMessage =
+                        facet_postcard::from_slice(&self.last_decoded).map_err(|e| {
                             io::Error::new(io::ErrorKind::InvalidData, format!("postcard: {e}"))
                         })?;
                     return Ok(Some(msg));

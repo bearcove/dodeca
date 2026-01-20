@@ -28,7 +28,7 @@ impl HtmlDiffer for HtmlDifferImpl {
             "diffing HTML"
         );
 
-        match html_diff_tests::diff_html(&input.old_html, &input.new_html) {
+        match html_diff_tests::diff_html_debug(&input.old_html, &input.new_html, true) {
             Ok(patches) => {
                 tracing::debug!(count = patches.len(), "generated patches");
                 for (i, patch) in patches.iter().enumerate() {
@@ -53,5 +53,7 @@ impl HtmlDiffer for HtmlDifferImpl {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("html_diff", |_handle| HtmlDifferDispatcher::new(HtmlDifferImpl))
+    run_cell!("html_diff", |_handle| HtmlDifferDispatcher::new(
+        HtmlDifferImpl
+    ))
 }

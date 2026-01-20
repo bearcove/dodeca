@@ -3,6 +3,7 @@
 //! This module handles:
 //! - Setting up ContentService on the http cell's session (via hub)
 //! - Handling TCP connections from browsers via TcpTunnel
+//! - Accepting virtual connections from browsers through cell-http
 //!
 //! The http cell is loaded through the hub like all other cells.
 
@@ -12,11 +13,13 @@ use std::time::Instant;
 
 use eyre::Result;
 use roam::{Tunnel, tunnel_pair};
+use roam_shm::driver::IncomingConnections;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 
 use cell_http_proto::{TcpTunnelClient, WebSocketTunnel};
+use dodeca_protocol::BrowserServiceClient;
 
 use crate::boot_state::BootStateManager;
 use crate::host::Host;
@@ -71,7 +74,9 @@ impl WebSocketTunnel for HostWebSocketTunnel {
                     .catch_unwind()
                     .await;
             match result {
-                Ok(()) => tracing::debug!(channel_id, "DevTools tunnel handler task ended normally"),
+                Ok(()) => {
+                    tracing::debug!(channel_id, "DevTools tunnel handler task ended normally")
+                }
                 Err(e) => {
                     tracing::error!(channel_id, "DevTools tunnel handler task PANICKED: {:?}", e)
                 }
@@ -292,7 +297,6 @@ async fn handle_devtools_tunnel(channel_id: u64, tunnel: Tunnel, server: Arc<Sit
 // ============================================================================
 
 use dodeca_protocol::{DevtoolsEvent, DevtoolsService, EvalResult, ScopeEntry};
-use roam::Rx;
 
 /// Host-side implementation of DevtoolsService for direct roam RPC.
 ///
@@ -310,101 +314,41 @@ impl HostDevtoolsService {
     }
 }
 
+/// Returns a short summary of a DevtoolsEvent for logging
+pub fn event_summary(event: &DevtoolsEvent) -> String {
+    match event {
+        DevtoolsEvent::Reload => "Reload".to_string(),
+        DevtoolsEvent::CssChanged { path } => format!("CssChanged({})", path),
+        DevtoolsEvent::Patches(patches) => format!("Patches(count={})", patches.len()),
+        DevtoolsEvent::Error(info) => {
+            let msg_preview: String = info.message.chars().take(50).collect();
+            let ellipsis = if info.message.len() > 50 { "…" } else { "" };
+            format!(
+                "Error(route={}, msg={}{})",
+                info.route, msg_preview, ellipsis
+            )
+        }
+        DevtoolsEvent::ErrorResolved { route } => format!("ErrorResolved(route={})", route),
+    }
+}
+
 impl DevtoolsService for HostDevtoolsService {
     /// Subscribe to devtools events for a route.
     ///
-    /// Creates a streaming channel that forwards LiveReload broadcasts
-    /// to the connected client.
-    async fn subscribe(&self, route: String) -> Rx<DevtoolsEvent> {
+    /// This registers the browser's interest in a route. Events will be pushed
+    /// via BrowserService::on_event() on the browser's virtual connection.
+    ///
+    /// Note: The actual browser registration happens when the virtual connection
+    /// is accepted in `accept_browser_connections`. This method just sets the route.
+    async fn subscribe(&self, route: String) {
         tracing::info!(route = %route, "devtools: client subscribing to route");
-        let (tx, rx) = roam::channel::<DevtoolsEvent>();
-        let server = self.server.clone();
-
-        // Spawn a task to forward LiveReload messages to the channel
-        tokio::spawn(async move {
-            let mut livereload_rx = server.livereload_tx.subscribe();
-            tracing::debug!(route = %route, "devtools: subscription task started");
-
-            // Send any existing errors first
-            for error in server.get_current_errors() {
-                if tx.send(&DevtoolsEvent::Error(error)).await.is_err() {
-                    return; // Client disconnected
-                }
-            }
-
-            // Forward LiveReload messages
-            loop {
-                match livereload_rx.recv().await {
-                    Ok(msg) => {
-                        let event = match msg {
-                            crate::serve::LiveReloadMsg::Reload => Some(DevtoolsEvent::Reload),
-                            crate::serve::LiveReloadMsg::CssUpdate { path } => {
-                                Some(DevtoolsEvent::CssChanged { path })
-                            }
-                            crate::serve::LiveReloadMsg::Patches {
-                                route: patch_route,
-                                patches,
-                            } => {
-                                // Only send patches for the subscribed route
-                                if patch_route == route {
-                                    tracing::debug!(
-                                        subscribed_route = %route,
-                                        patch_route = %patch_route,
-                                        patch_count = patches.len(),
-                                        "devtools: forwarding patches to client"
-                                    );
-                                    Some(DevtoolsEvent::Patches(patches))
-                                } else {
-                                    tracing::debug!(
-                                        subscribed_route = %route,
-                                        patch_route = %patch_route,
-                                        "devtools: skipping patches (route mismatch)"
-                                    );
-                                    None
-                                }
-                            }
-                            crate::serve::LiveReloadMsg::Error {
-                                route: error_route,
-                                message,
-                                template,
-                                line,
-                                snapshot_id,
-                            } => Some(DevtoolsEvent::Error(dodeca_protocol::ErrorInfo {
-                                route: error_route,
-                                message,
-                                template,
-                                line,
-                                column: None,
-                                source_snippet: None,
-                                snapshot_id,
-                                available_variables: vec![],
-                            })),
-                            crate::serve::LiveReloadMsg::ErrorResolved {
-                                route: resolved_route,
-                            } => Some(DevtoolsEvent::ErrorResolved {
-                                route: resolved_route,
-                            }),
-                        };
-
-                        if let Some(event) = event {
-                            tracing::debug!(route = %route, event = ?event, "devtools: sending event to client");
-                            if tx.send(&event).await.is_err() {
-                                tracing::debug!(route = %route, "devtools: client disconnected");
-                                return; // Client disconnected
-                            }
-                        }
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                        tracing::warn!(lagged = n, "DevtoolsService subscriber lagged");
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        return; // Channel closed
-                    }
-                }
-            }
-        });
-
-        rx
+        // TODO: We need to associate this subscription with the browser's connection.
+        // For now, this is a placeholder - the browser is already registered when
+        // its virtual connection was accepted. We'd need the connection context here
+        // to call server.set_browser_route(browser_id, route).
+        //
+        // The current architecture doesn't pass the browser_id through.
+        // We may need to refactor to pass context or use a different pattern.
     }
 
     /// Get scope entries for the current route.
@@ -796,4 +740,43 @@ async fn handle_browser_connection(
         "handle_browser_connection: end"
     );
     Ok(())
+}
+
+// ============================================================================
+// Browser Virtual Connection Handling
+// ============================================================================
+
+/// Accept incoming virtual connections from browsers through cell-http.
+///
+/// Each browser that connects via WebSocket to /_/ws opens a virtual connection
+/// through cell-http to the host. This function accepts those connections and
+/// registers them with the SiteServer for receiving devtools events.
+pub async fn accept_browser_connections(
+    mut incoming: IncomingConnections,
+    server: Arc<SiteServer>,
+) {
+    tracing::info!("Starting browser virtual connection acceptor");
+
+    while let Some(conn) = incoming.recv().await {
+        tracing::debug!("Received incoming virtual connection from browser");
+
+        // Accept the connection
+        let handle = match conn.accept(roam::wire::Metadata::default()).await {
+            Ok(h) => h,
+            Err(e) => {
+                tracing::warn!(error = ?e, "Failed to accept browser virtual connection");
+                continue;
+            }
+        };
+
+        tracing::info!("Accepted browser virtual connection");
+
+        // Create a BrowserServiceClient to call the browser
+        let browser_client = BrowserServiceClient::new(handle);
+
+        // Register this browser with the server
+        server.register_browser(browser_client);
+    }
+
+    tracing::info!("Browser virtual connection acceptor finished");
 }

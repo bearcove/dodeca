@@ -23,7 +23,7 @@ pub fn mount_devtools() {
     // Set up tracing for WASM
     tracing_wasm::set_as_global_default_with_config(
         tracing_wasm::WASMLayerConfigBuilder::new()
-            .set_max_level(tracing::Level::INFO)
+            .set_max_level(tracing::Level::DEBUG)
             .build(),
     );
 

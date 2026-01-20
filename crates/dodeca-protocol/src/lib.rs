@@ -16,7 +16,6 @@
 //! compatibility during migration.
 
 use facet::Facet;
-use roam::Rx;
 
 mod ansi;
 pub use ansi::ansi_to_html;
@@ -28,22 +27,33 @@ pub use facet_postcard;
 // RPC Service Definition
 // ============================================================================
 
+/// Service implemented by the browser, called by the server to push events.
+///
+/// This is the reverse of the traditional client-server model - the server
+/// calls methods on the browser when events occur (patches, errors, etc.)
+#[roam::service]
+pub trait BrowserService {
+    /// Called by the server when a devtools event occurs.
+    ///
+    /// Events include:
+    /// - Live reload notifications
+    /// - CSS hot reload
+    /// - DOM patches
+    /// - Template errors
+    async fn on_event(&self, event: DevtoolsEvent);
+}
+
 /// Service for devtools communication between browser and server.
 ///
 /// This service is implemented by the dodeca host and called by the
 /// browser-based devtools overlay via roam RPC over WebSocket.
 #[roam::service]
 pub trait DevtoolsService {
-    /// Subscribe to devtools events for a route.
+    /// Register this browser connection for a route.
     ///
-    /// Returns a streaming channel that receives events like:
-    /// - Live reload notifications
-    /// - CSS hot reload
-    /// - DOM patches
-    /// - Template errors
-    ///
-    /// The subscription remains active until the channel is dropped.
-    async fn subscribe(&self, route: String) -> Rx<DevtoolsEvent>;
+    /// After calling this, the server will call `BrowserService::on_event()`
+    /// on this connection whenever events occur for this route.
+    async fn subscribe(&self, route: String);
 
     /// Get scope entries for the current route.
     ///
@@ -127,6 +137,10 @@ pub struct NodePath(pub Vec<usize>);
 pub enum Patch {
     /// Replace node at path with new HTML
     Replace { path: NodePath, html: String },
+
+    /// Replace all children of node at path with new HTML (innerHTML replacement)
+    /// The node itself and its attributes are preserved.
+    ReplaceInnerHtml { path: NodePath, html: String },
 
     /// Insert HTML before the node at path
     InsertBefore { path: NodePath, html: String },

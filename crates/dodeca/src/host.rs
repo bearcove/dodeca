@@ -36,7 +36,8 @@ type BaseDispatcher = RoutedDispatcher<
     HostTracingDispatcher<roam_tracing::HostTracingService>,
 >;
 
-type DevtoolsDispatcher = dodeca_protocol::DevtoolsServiceDispatcher<crate::cell_server::HostDevtoolsService>;
+type DevtoolsDispatcher =
+    dodeca_protocol::DevtoolsServiceDispatcher<crate::cell_server::HostDevtoolsService>;
 
 /// Enum dispatcher that includes DevtoolsService when site_server is available.
 pub enum MaybeDevtoolsDispatcher {
@@ -54,18 +55,19 @@ impl roam::session::ServiceDispatcher for MaybeDevtoolsDispatcher {
 
     fn dispatch(
         &self,
+        conn_id: roam::wire::ConnectionId,
         method_id: u64,
-        message: Vec<u8>,
+        payload: Vec<u8>,
         channels: Vec<u64>,
         request_id: u64,
         registry: &mut roam::session::ChannelRegistry,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
         match self {
             MaybeDevtoolsDispatcher::WithDevtools(d) => {
-                d.dispatch(method_id, message, channels, request_id, registry)
+                d.dispatch(conn_id, method_id, payload, channels, request_id, registry)
             }
             MaybeDevtoolsDispatcher::WithoutDevtools(d) => {
-                d.dispatch(method_id, message, channels, request_id, registry)
+                d.dispatch(conn_id, method_id, payload, channels, request_id, registry)
             }
         }
     }
@@ -341,9 +343,7 @@ impl Host {
     ///
     /// Call this once during initialization to get the stream of tracing
     /// records from all cells. Returns `None` if already taken.
-    pub fn take_tracing_receiver(
-        &self,
-    ) -> Option<tokio::sync::mpsc::Receiver<TaggedRecord>> {
+    pub fn take_tracing_receiver(&self) -> Option<tokio::sync::mpsc::Receiver<TaggedRecord>> {
         self.tracing_state.take_receiver()
     }
 
@@ -651,26 +651,47 @@ async fn spawn_cell_process(cell_name: &str, pending: PendingCell, quiet_mode: b
     let dispatcher = match Host::get().site_server() {
         Some(server) => {
             let devtools_service = crate::cell_server::HostDevtoolsService::new(server.clone());
-            let devtools_dispatcher = dodeca_protocol::DevtoolsServiceDispatcher::new(devtools_service);
-            MaybeDevtoolsDispatcher::WithDevtools(RoutedDispatcher::new(devtools_dispatcher, base_dispatcher))
+            let devtools_dispatcher =
+                dodeca_protocol::DevtoolsServiceDispatcher::new(devtools_service);
+            MaybeDevtoolsDispatcher::WithDevtools(RoutedDispatcher::new(
+                devtools_dispatcher,
+                base_dispatcher,
+            ))
         }
         None => MaybeDevtoolsDispatcher::WithoutDevtools(base_dispatcher),
     };
 
     // Create diagnostic state for host's view of this connection (for SIGUSR1 dumps)
-    let diagnostic_state = std::sync::Arc::new(
-        roam_session::diagnostic::DiagnosticState::new(format!("host→{}", cell_name))
-    );
+    let diagnostic_state = std::sync::Arc::new(roam_session::diagnostic::DiagnosticState::new(
+        format!("host→{}", cell_name),
+    ));
     roam_session::diagnostic::register_diagnostic_state(&diagnostic_state);
 
-    match driver_handle.add_peer_with_diagnostics(peer_id, dispatcher, Some(diagnostic_state)).await {
-        Ok(handle) => {
+    match driver_handle
+        .add_peer_with_diagnostics(peer_id, dispatcher, Some(diagnostic_state))
+        .await
+    {
+        Ok((handle, incoming_connections)) => {
             debug!(
                 cell = cell_name,
                 ?peer_id,
                 "spawn_cell_process: peer registered, storing handle"
             );
             Host::get().register_cell_handle(cell_name.to_string(), handle);
+
+            // For the HTTP cell, spawn a task to accept incoming virtual connections from browsers
+            if cell_name == "http" {
+                if let Some(site_server) = Host::get().site_server() {
+                    let server = site_server.clone();
+                    tokio::spawn(async move {
+                        crate::cell_server::accept_browser_connections(
+                            incoming_connections,
+                            server,
+                        )
+                        .await;
+                    });
+                }
+            }
         }
         Err(e) => {
             error!(cell = cell_name, ?peer_id, error = ?e, "Failed to register peer with driver");

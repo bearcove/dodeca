@@ -137,7 +137,7 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
 
     // Establish roam RPC session
     let config = HandshakeConfig::default();
-    let (handle, driver) = accept_framed(transport, config, NoDispatcher)
+    let (handle, _incoming, driver) = accept_framed(transport, config, NoDispatcher)
         .await
         .map_err(|e| format!("RPC handshake failed: {:?}", e))?;
 
@@ -186,9 +186,14 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
 
 /// Handle incoming events from the server
 async fn handle_events(mut rx: Rx<DevtoolsEvent>) {
+    tracing::debug!("[devtools] handle_events loop started, waiting for events...");
     loop {
+        tracing::debug!("[devtools] calling rx.recv()...");
         match rx.recv().await {
-            Ok(Some(event)) => handle_devtools_event(event),
+            Ok(Some(event)) => {
+                tracing::debug!("[devtools] received event from rx");
+                handle_devtools_event(event);
+            }
             Ok(None) => {
                 tracing::info!("[devtools] event stream closed");
                 STATE_SIGNAL.with(|cell| {
@@ -415,7 +420,32 @@ fn hot_reload_css(new_path: &str) {
     }
 }
 
+/// Returns a short summary of a DevtoolsEvent for logging
+fn event_summary(event: &DevtoolsEvent) -> String {
+    match event {
+        DevtoolsEvent::Reload => "Reload".to_string(),
+        DevtoolsEvent::CssChanged { path } => format!("CssChanged({})", path),
+        DevtoolsEvent::Patches(patches) => format!("Patches(count={})", patches.len()),
+        DevtoolsEvent::Error(info) => format!(
+            "Error(route={}, msg={})",
+            info.route,
+            truncate(&info.message, 50)
+        ),
+        DevtoolsEvent::ErrorResolved { route } => format!("ErrorResolved(route={})", route),
+    }
+}
+
+fn truncate(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..max_len])
+    }
+}
+
 fn handle_devtools_event(event: DevtoolsEvent) {
+    tracing::debug!("[devtools] event: {}", event_summary(&event));
+
     STATE_SIGNAL.with(|cell| {
         let binding = cell.borrow();
         let Some(state) = binding.as_ref() else {
@@ -453,17 +483,15 @@ fn handle_devtools_event(event: DevtoolsEvent) {
                 hot_reload_css(&path);
             }
 
-            DevtoolsEvent::Patches(patches) => {
-                match livereload_client::apply_patches(patches) {
-                    Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
-                    Err(e) => {
-                        tracing::warn!(
-                            "[devtools] patch failed (manual refresh may be needed): {:?}",
-                            e
-                        );
-                    }
+            DevtoolsEvent::Patches(patches) => match livereload_client::apply_patches(patches) {
+                Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
+                Err(e) => {
+                    tracing::warn!(
+                        "[devtools] patch failed (manual refresh may be needed): {:?}",
+                        e
+                    );
                 }
-            }
+            },
         }
     });
 }

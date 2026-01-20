@@ -55,6 +55,7 @@ facet-styx = { git = "https://github.com/bearcove/styx", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-default = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-dom = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html-dom = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -62,6 +63,7 @@ facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-testhelpers = { git = "https://github.com/facet-rs/facet", branch = "main" }
 styx-schema = { git = "https://github.com/bearcove/styx", branch = "main" }
 styx-embed = { git = "https://github.com/bearcove/styx", branch = "main" }
 
@@ -151,10 +153,12 @@ rust-version = "1.91"
 
 # Force all transitive facet dependencies to use local version
 [patch.crates-io]
+cinereus = { path = "../facet/cinereus" }
 facet = { path = "../facet/facet" }
 facet-args = { path = "../facet/facet-args" }
 facet-core = { path = "../facet/facet-core" }
 facet-diff = { path = "../facet/facet-diff" }
+facet-dom = { path = "../facet/facet-dom" }
 facet-html = { path = "../facet/facet-html" }
 facet-html-dom = { path = "../facet/facet-html-dom" }
 facet-json = { path = "../facet/facet-json" }
@@ -175,10 +179,12 @@ pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 
 # Also patch git-based facet dependencies (from roam, etc.)
 [patch."https://github.com/facet-rs/facet"]
+cinereus = { path = "../facet/cinereus" }
 facet = { path = "../facet/facet" }
 facet-args = { path = "../facet/facet-args" }
 facet-core = { path = "../facet/facet-core" }
 facet-diff = { path = "../facet/facet-diff" }
+facet-dom = { path = "../facet/facet-dom" }
 facet-html = { path = "../facet/facet-html" }
 facet-html-dom = { path = "../facet/facet-html-dom" }
 facet-json = { path = "../facet/facet-json" }

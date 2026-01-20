@@ -210,7 +210,7 @@ fn summarize_patches(patches: &[dodeca_protocol::Patch]) -> String {
 
     for patch in patches {
         match patch {
-            Patch::Replace { .. } => replace += 1,
+            Patch::Replace { .. } | Patch::ReplaceInnerHtml { .. } => replace += 1,
             Patch::InsertBefore { .. } | Patch::InsertAfter { .. } | Patch::AppendChild { .. } => {
                 insert += 1
             }
@@ -252,7 +252,7 @@ fn summarize_patches(patches: &[dodeca_protocol::Patch]) -> String {
 pub struct SiteServer {
     /// The picante database - all queries go through here
     pub db: Arc<Database>,
-    /// Live reload broadcast
+    /// Live reload broadcast (legacy - will be removed)
     pub livereload_tx: broadcast::Sender<LiveReloadMsg>,
     /// Render options (dev mode, etc.)
     pub render_options: RenderOptions,
@@ -268,6 +268,23 @@ pub struct SiteServer {
     code_execution_results: RwLock<Vec<crate::db::CodeExecutionResult>>,
     /// Revision readiness gate
     revision_tx: watch::Sender<crate::revision::RevisionState>,
+    /// Connected browsers (keyed by a unique ID for removal on disconnect)
+    browsers: std::sync::Mutex<BrowserRegistry>,
+}
+
+/// Registry of connected browsers for direct event pushing.
+#[derive(Default)]
+struct BrowserRegistry {
+    next_id: u64,
+    browsers: HashMap<u64, RegisteredBrowser>,
+}
+
+/// A registered browser connection.
+struct RegisteredBrowser {
+    /// The route this browser is subscribed to (if any)
+    route: Option<String>,
+    /// Client for calling BrowserService::on_event()
+    client: dodeca_protocol::BrowserServiceClient,
 }
 
 impl SiteServer {
@@ -291,6 +308,97 @@ impl SiteServer {
             current_errors: RwLock::new(HashMap::new()),
             code_execution_results: RwLock::new(Vec::new()),
             revision_tx,
+            browsers: std::sync::Mutex::new(BrowserRegistry::default()),
+        }
+    }
+
+    /// Register a browser connection for receiving devtools events.
+    ///
+    /// Returns a browser ID that can be used to set the route or unregister.
+    pub fn register_browser(&self, client: dodeca_protocol::BrowserServiceClient) -> u64 {
+        let mut registry = self.browsers.lock().unwrap();
+        let id = registry.next_id;
+        registry.next_id += 1;
+        registry.browsers.insert(
+            id,
+            RegisteredBrowser {
+                route: None,
+                client,
+            },
+        );
+        tracing::info!(browser_id = id, "Browser registered");
+        id
+    }
+
+    /// Set the route a browser is subscribed to.
+    pub fn set_browser_route(&self, browser_id: u64, route: String) {
+        let mut registry = self.browsers.lock().unwrap();
+        if let Some(browser) = registry.browsers.get_mut(&browser_id) {
+            tracing::debug!(browser_id, route = %route, "Browser subscribed to route");
+            browser.route = Some(route);
+        }
+    }
+
+    /// Unregister a browser connection.
+    pub fn unregister_browser(&self, browser_id: u64) {
+        let mut registry = self.browsers.lock().unwrap();
+        if registry.browsers.remove(&browser_id).is_some() {
+            tracing::info!(browser_id, "Browser unregistered");
+        }
+    }
+
+    /// Notify all connected browsers of a devtools event.
+    ///
+    /// For route-specific events (like Patches), only browsers subscribed
+    /// to that route will receive the event.
+    pub fn notify_browsers(&self, event: dodeca_protocol::DevtoolsEvent) {
+        let registry = self.browsers.lock().unwrap();
+        let browser_count = registry.browsers.len();
+
+        if browser_count == 0 {
+            tracing::trace!(event = %crate::cell_server::event_summary(&event), "No browsers to notify");
+            return;
+        }
+
+        tracing::debug!(
+            event = %crate::cell_server::event_summary(&event),
+            browser_count,
+            "Notifying browsers"
+        );
+
+        for (browser_id, browser) in &registry.browsers {
+            // For route-specific events, check if this browser is subscribed
+            let should_send = match (&event, &browser.route) {
+                // Patches: only send to browsers viewing this route (handled by browser-side filtering)
+                // Actually, for patches we should filter here to avoid sending unnecessary data
+                (dodeca_protocol::DevtoolsEvent::Patches(_), Some(_browser_route)) => {
+                    // We send patches to all browsers - they'll filter by their current route
+                    // TODO: Could optimize by tracking route per-browser and filtering here
+                    true
+                }
+                (dodeca_protocol::DevtoolsEvent::Patches(_), None) => {
+                    // Browser hasn't subscribed yet, skip
+                    false
+                }
+                // Errors go to specific routes
+                (dodeca_protocol::DevtoolsEvent::Error(_), _) => true,
+                (dodeca_protocol::DevtoolsEvent::ErrorResolved { .. }, _) => true,
+                // Global events go to everyone
+                _ => true,
+            };
+
+            if should_send {
+                let client = browser.client.clone();
+                let event_clone = event.clone();
+                let browser_id = *browser_id;
+                tokio::spawn(async move {
+                    if let Err(e) = client.on_event(event_clone).await {
+                        tracing::debug!(browser_id, error = ?e, "Failed to send event to browser (disconnected?)");
+                        // Note: We can't unregister here because we'd need mutable access
+                        // The browser will be cleaned up when it reconnects or the connection fully closes
+                    }
+                });
+            }
         }
     }
 
@@ -578,10 +686,17 @@ impl SiteServer {
                                     summary,
                                     patch_count
                                 );
-                                let _ = self.livereload_tx.send(LiveReloadMsg::Patches {
+                                let receiver_count_before = self.livereload_tx.receiver_count();
+                                let send_result = self.livereload_tx.send(LiveReloadMsg::Patches {
                                     route: route.clone(),
                                     patches: diff_result.patches,
                                 });
+                                tracing::debug!(
+                                    route = %route,
+                                    receiver_count_before,
+                                    receivers_notified = send_result.as_ref().map(|n| *n).unwrap_or(0),
+                                    "livereload: sent Patches to broadcast channel"
+                                );
                             }
                         }
                         Ok(cell_html_diff_proto::HtmlDiffResult::Error { message }) => {

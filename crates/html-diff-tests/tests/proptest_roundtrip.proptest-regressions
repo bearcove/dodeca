@@ -1,0 +1,14 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5590ef4af3e1ae7b17fd54be1697f6bbdf4acf51626527159dc9c46b12c35f86 # shrinks to old_children = [Text("A")], new_children = [Text(" ")]
+cc e0ccd8db88d26e670f5168d9f023fb1c315fde641cafd71bc9d1d54edcf03f2d # shrinks to node_a = Div { class: None, id: None, children: [] }, node_b = Text("0")
+cc f757ea53c57a0a38529ab76eae02f69107bb97153f4bd87c75e5320cb67f8744 # shrinks to node_a = Div { class: None, id: None, children: [] }, node_b = P { class: None, text: "0" }
+cc e8669c9b4db60956ac25bb433a11651c12decc596fe25b5aa1bcd84a4fba4a05 # shrinks to old_children = [Text(" ")], new_children = [Div { class: None, id: None, children: [P { class: None, text: "0" }] }]
+cc 2f7ad782ae1322466bf4b2b894e25d1597e59fc9d8bc103f2fab4b94c876409c # shrinks to node_a = Div { class: None, id: None, children: [P { class: None, text: "A" }] }, node_b = Text("a")
+cc 8aeee18ad56ee6387f85b4e685cfe98761badb8d8f3e995b7d4ddcd1a063f4ad # shrinks to node_a = Div { class: None, id: Some("a"), children: [Text(" ")] }, node_b = Div { class: None, id: None, children: [] }
+cc 49ee1f6789631a29dbe7cdf13d88a9e4ab6ecb9eb546d1fe30accb45d25ce427 # shrinks to old_children = [Div { class: None, id: None, children: [P { class: None, text: "A" }] }, Span { class: None, text: "A" }], new_children = [Div { class: None, id: None, children: [P { class: None, text: "a" }, Div { class: None, id: None, children: [P { class: None, text: "0" }] }] }]
+cc b5ef779a1da3a3c32cbf0071b40e7285af524237fbad0db28f6c6365946e8b48 # shrinks to node_a = Div { class: None, id: None, children: [Text("a"), P { class: None, text: "A" }] }, node_b = Div { class: None, id: None, children: [P { class: None, text: "a" }] }
