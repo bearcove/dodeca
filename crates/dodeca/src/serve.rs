@@ -1424,22 +1424,18 @@ enum ServeContent {
     StaticNoCache(Vec<u8>, &'static str),
 }
 
-fn devtools_js_path() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../dodeca-devtools/pkg/dodeca_devtools.js")
-}
+/// Embedded devtools JavaScript (compiled at build time by wasm-pack)
+static DEVTOOLS_JS: &str = include_str!("../../dodeca-devtools/pkg/dodeca_devtools.js");
 
-fn devtools_wasm_path() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../dodeca-devtools/pkg/dodeca_devtools_bg.wasm")
-}
+/// Embedded devtools WebAssembly (compiled at build time by wasm-pack)
+static DEVTOOLS_WASM: &[u8] = include_bytes!("../../dodeca-devtools/pkg/dodeca_devtools_bg.wasm");
 
 fn load_devtools_js() -> Option<String> {
-    std::fs::read_to_string(devtools_js_path()).ok()
+    Some(DEVTOOLS_JS.to_string())
 }
 
 fn load_devtools_wasm() -> Option<Vec<u8>> {
-    std::fs::read(devtools_wasm_path()).ok()
+    Some(DEVTOOLS_WASM.to_vec())
 }
 
 /// Compute a short hash for cache busting
@@ -1534,29 +1530,17 @@ pub fn get_devtools_asset(path: &str) -> Option<(Vec<u8>, &'static str)> {
 
     // Check for JS (cache-busted)
     if asset_path.ends_with(".js") {
-        if let Some(js) = load_devtools_js() {
-            return Some((
-                rewrite_devtools_js(&js).into_bytes(),
-                "application/javascript",
-            ));
-        }
-        tracing::warn!(
-            path = %devtools_js_path().display(),
-            "devtools js missing"
-        );
-        return None;
+        let js = load_devtools_js().expect("devtools JS is embedded at compile time");
+        return Some((
+            rewrite_devtools_js(&js).into_bytes(),
+            "application/javascript",
+        ));
     }
 
     // Check for WASM (cache-busted)
     if asset_path.ends_with(".wasm") {
-        if let Some(bytes) = load_devtools_wasm() {
-            return Some((bytes, "application/wasm"));
-        }
-        tracing::warn!(
-            path = %devtools_wasm_path().display(),
-            "devtools wasm missing"
-        );
-        return None;
+        let bytes = load_devtools_wasm().expect("devtools WASM is embedded at compile time");
+        return Some((bytes, "application/wasm"));
     }
 
     None
