@@ -442,6 +442,23 @@ fn main() -> Result<()> {
 }
 
 async fn async_main(command: Command) -> Result<()> {
+    // Spawn background task to print SHM diagnostics periodically when SHM_DEBUG is set
+    if std::env::var("SHM_DEBUG").is_ok() {
+        tokio::spawn(async {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
+            loop {
+                interval.tick().await;
+                let diagnostics = roam_session::diagnostic::dump_all_diagnostics();
+                let channels = roam_shm::dump_all_channels();
+                if diagnostics.is_empty() && channels.is_empty() {
+                    eprintln!("[SHM_DEBUG] (idle)");
+                } else {
+                    eprint!("{}{}", diagnostics, channels);
+                }
+            }
+        });
+    }
+
     match command {
         Command::Build(args) => {
             let cfg = resolve_dirs(args.path, args.content, args.output)?;
