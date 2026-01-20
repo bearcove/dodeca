@@ -71,7 +71,7 @@ roam-shm = { git = "https://github.com/bearcove/roam", branch = "main", features
 roam-tracing = { git = "https://github.com/bearcove/roam", branch = "main" }
 roam-fdpass = { git = "https://github.com/bearcove/roam", branch = "main" }
 roam-local = { git = "https://github.com/bearcove/roam", branch = "main" }
-roam-session = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-session = { git = "https://github.com/bearcove/roam", branch = "main", features = ["tracing"] }
 roam-websocket = { git = "https://github.com/bearcove/roam", branch = "main" }
 
 # Process lifecycle
