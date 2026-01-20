@@ -759,7 +759,8 @@ impl SiteServer {
             }
         } {
             // Check if this is an error page and notify devtools
-            if html.contains(crate::render::RENDER_ERROR_MARKER) {
+            let is_error_page = html.contains(crate::render::RENDER_ERROR_MARKER);
+            if is_error_page {
                 // Extract error message HTML from between <pre> tags
                 // Keep the HTML spans for color - they'll be displayed with dangerous_inner_html
                 let error_msg = html
@@ -821,10 +822,16 @@ impl SiteServer {
             }
 
             let code_results: Vec<_> = self.code_execution_results.read().unwrap().clone();
+            // Skip dead link checking for error pages - no point checking our own error HTML
+            let routes_for_dead_links = if is_error_page {
+                None
+            } else {
+                known_routes.as_ref()
+            };
             let html = inject_livereload_with_build_info(
                 &html,
                 self.render_options,
-                known_routes.as_ref(),
+                routes_for_dead_links,
                 &code_results,
             )
             .await;
