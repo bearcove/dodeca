@@ -21,28 +21,6 @@ permissions:
 env: 
   CARGO_TERM_COLOR: always
 jobs: 
-  clippy: 
-    name: Clippy
-    runs-on: 
-      - depot-ubuntu-24.04-32
-    timeout-minutes: 30
-    continue-on-error: true
-    steps: 
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
-        with: 
-          toolchain: 1.92.0
-          components: clippy
-          targets: wasm32-unknown-unknown
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-        with: 
-          cache-on-failure: "true"
-          cache-targets: "false"
-      - name: Clippy
-        run: cargo clippy --all-features --all-targets -- -D warnings
   build-wasm: 
     name: Build WASM
     runs-on: 
@@ -72,11 +50,42 @@ jobs:
         with: 
           name: dodeca-devtools-wasm
           path: crates/dodeca-devtools/pkg
+  clippy: 
+    name: Clippy
+    runs-on: 
+      - depot-ubuntu-24.04-32
+    timeout-minutes: 30
+    needs: 
+      - build-wasm
+    continue-on-error: true
+    steps: 
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with: 
+          toolchain: 1.92.0
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with: 
+          cache-on-failure: "true"
+          cache-targets: "false"
+      - name: Download WASM
+        uses: actions/download-artifact@v4
+        with: 
+          name: dodeca-devtools-wasm
+          path: crates/dodeca-devtools/pkg
+      - name: Clippy
+        run: cargo clippy --all-features --all-targets -- -D warnings
   build-ddc-linux-x64: 
     name: Build ddc (linux-x64)
     runs-on: 
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
+    needs: 
+      - build-wasm
     steps: 
       - name: Checkout
         uses: actions/checkout@v4
@@ -89,6 +98,11 @@ jobs:
         with: 
           cache-on-failure: "true"
           cache-targets: "false"
+      - name: Download WASM
+        uses: actions/download-artifact@v4
+        with: 
+          name: dodeca-devtools-wasm
+          path: crates/dodeca-devtools/pkg
       - name: Build ddc
         run: cargo build --release -p dodeca --verbose
       - name: Test ddc
@@ -99,7 +113,7 @@ jobs:
           name: ddc-linux-x64
           path: target/release/ddc
   build-cells-linux-x64-1: 
-    name: Build cells (linux-x64) [cell-code-execution, cell-css, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image, cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-sass, cell-svgo, cell-tui, cell-webp]
+    name: Build cells (linux-x64) [cell-code-execution, cell-css, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image, cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-sass, cell-svgo, cell-term, cell-tui, cell-webp]
     runs-on: 
       - depot-ubuntu-24.04-32
     timeout-minutes: 30
@@ -116,9 +130,9 @@ jobs:
           cache-on-failure: "true"
           cache-targets: "true"
       - name: Build cells
-        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
+        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-term --bin ddc-cell-term -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
       - name: Test cells
-        run: cargo test --release -p cell-code-execution -p cell-css -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
+        run: cargo test --release -p cell-code-execution -p cell-css -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-sass -p cell-svgo -p cell-term -p cell-tui -p cell-webp
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
@@ -140,6 +154,7 @@ jobs:
             target/release/ddc-cell-minify
             target/release/ddc-cell-sass
             target/release/ddc-cell-svgo
+            target/release/ddc-cell-term
             target/release/ddc-cell-tui
             target/release/ddc-cell-webp
   integration-linux-x64: 
@@ -306,6 +321,13 @@ jobs:
             echo '✓ ddc-cell-svgo'
           fi
           
+          if [[ ! -x dist/ddc-cell-term ]]; then
+            echo '❌ MISSING: ddc-cell-term'
+            missing=1
+          else
+            echo '✓ ddc-cell-term'
+          fi
+          
           if [[ ! -x dist/ddc-cell-tui ]]; then
             echo '❌ MISSING: ddc-cell-tui'
             missing=1
@@ -328,7 +350,7 @@ jobs:
           fi
           
           echo ''
-          echo 'All 19 binaries verified.'
+          echo 'All 20 binaries verified.'
       - name: Run integration tests
         run: cargo xtask integration --no-build
         env: 
@@ -423,6 +445,8 @@ jobs:
     runs-on: 
       - mac-arm64-oakhost
     timeout-minutes: 30
+    needs: 
+      - build-wasm
     steps: 
       - name: Checkout
         uses: actions/checkout@v4
@@ -436,6 +460,11 @@ jobs:
           cache-on-failure: "true"
           cache-targets: "false"
           cache-bin: "false"
+      - name: Download WASM
+        uses: actions/download-artifact@v4
+        with: 
+          name: dodeca-devtools-wasm
+          path: crates/dodeca-devtools/pkg
       - name: Build ddc
         run: cargo build --release -p dodeca --verbose
       - name: Test ddc
@@ -446,7 +475,7 @@ jobs:
           name: ddc-macos-arm64
           path: target/release/ddc
   build-cells-macos-arm64-1: 
-    name: Build cells (macos-arm64) [cell-code-execution, cell-css, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image, cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-sass, cell-svgo, cell-tui, cell-webp]
+    name: Build cells (macos-arm64) [cell-code-execution, cell-css, cell-dialoguer, cell-fonts, cell-gingembre, cell-html, cell-html-diff, cell-http, cell-image, cell-js, cell-jxl, cell-linkcheck, cell-markdown, cell-minify, cell-sass, cell-svgo, cell-term, cell-tui, cell-webp]
     runs-on: 
       - mac-arm64-oakhost
     timeout-minutes: 30
@@ -464,9 +493,9 @@ jobs:
           cache-targets: "true"
           cache-bin: "false"
       - name: Build cells
-        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
+        run: cargo build --release -p cell-code-execution --bin ddc-cell-code-execution -p cell-css --bin ddc-cell-css -p cell-dialoguer --bin ddc-cell-dialoguer -p cell-fonts --bin ddc-cell-fonts -p cell-gingembre --bin ddc-cell-gingembre -p cell-html --bin ddc-cell-html -p cell-html-diff --bin ddc-cell-html-diff -p cell-http --bin ddc-cell-http -p cell-image --bin ddc-cell-image -p cell-js --bin ddc-cell-js -p cell-jxl --bin ddc-cell-jxl -p cell-linkcheck --bin ddc-cell-linkcheck -p cell-markdown --bin ddc-cell-markdown -p cell-minify --bin ddc-cell-minify -p cell-sass --bin ddc-cell-sass -p cell-svgo --bin ddc-cell-svgo -p cell-term --bin ddc-cell-term -p cell-tui --bin ddc-cell-tui -p cell-webp --bin ddc-cell-webp --verbose
       - name: Test cells
-        run: cargo test --release -p cell-code-execution -p cell-css -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-sass -p cell-svgo -p cell-tui -p cell-webp
+        run: cargo test --release -p cell-code-execution -p cell-css -p cell-dialoguer -p cell-fonts -p cell-gingembre -p cell-html -p cell-html-diff -p cell-http -p cell-image -p cell-js -p cell-jxl -p cell-linkcheck -p cell-markdown -p cell-minify -p cell-sass -p cell-svgo -p cell-term -p cell-tui -p cell-webp
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with: 
@@ -488,6 +517,7 @@ jobs:
             target/release/ddc-cell-minify
             target/release/ddc-cell-sass
             target/release/ddc-cell-svgo
+            target/release/ddc-cell-term
             target/release/ddc-cell-tui
             target/release/ddc-cell-webp
   integration-macos-arm64: 
@@ -655,6 +685,13 @@ jobs:
             echo '✓ ddc-cell-svgo'
           fi
           
+          if [[ ! -x dist/ddc-cell-term ]]; then
+            echo '❌ MISSING: ddc-cell-term'
+            missing=1
+          else
+            echo '✓ ddc-cell-term'
+          fi
+          
           if [[ ! -x dist/ddc-cell-tui ]]; then
             echo '❌ MISSING: ddc-cell-tui'
             missing=1
@@ -677,7 +714,7 @@ jobs:
           fi
           
           echo ''
-          echo 'All 19 binaries verified.'
+          echo 'All 20 binaries verified.'
       - name: Run integration tests
         run: cargo xtask integration --no-build
         env: 
