@@ -774,7 +774,9 @@ where
                 }
                 Ok(_) => {
                     let trimmed = line.trim_end_matches(&['\r', '\n'][..]);
-                    roam_tracing::dispatch_message(roam_tracing::Level::Info, &target, trimmed);
+                    if !trimmed.is_empty() {
+                        roam_tracing::dispatch_message(roam_tracing::Level::Info, &target, trimmed);
+                    }
                 }
                 Err(e) => {
                     let msg = format!("stdio read failed: {e:?}");

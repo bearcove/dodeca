@@ -417,6 +417,14 @@ fn main() -> Result<()> {
         eprint!("{}", diagnostics);
     });
 
+    // Register diagnostic callback to dump all auditable channel states
+    dodeca_debug::register_diagnostic(|| {
+        let channels = roam_shm::dump_all_channels();
+        if !channels.is_empty() {
+            eprint!("{}", channels);
+        }
+    });
+
     // When spawned by test harness with DODECA_DIE_WITH_PARENT=1, install death-watch
     // so we exit when the test process dies. This prevents orphan accumulation.
     if std::env::var("DODECA_DIE_WITH_PARENT").is_ok() {
