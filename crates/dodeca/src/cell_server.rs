@@ -316,12 +316,14 @@ impl DevtoolsService for HostDevtoolsService {
     /// Creates a streaming channel that forwards LiveReload broadcasts
     /// to the connected client.
     async fn subscribe(&self, route: String) -> Rx<DevtoolsEvent> {
+        tracing::info!(route = %route, "devtools: client subscribing to route");
         let (tx, rx) = roam::channel::<DevtoolsEvent>();
         let server = self.server.clone();
 
         // Spawn a task to forward LiveReload messages to the channel
         tokio::spawn(async move {
             let mut livereload_rx = server.livereload_tx.subscribe();
+            tracing::debug!(route = %route, "devtools: subscription task started");
 
             // Send any existing errors first
             for error in server.get_current_errors() {
@@ -345,8 +347,19 @@ impl DevtoolsService for HostDevtoolsService {
                             } => {
                                 // Only send patches for the subscribed route
                                 if patch_route == route {
+                                    tracing::debug!(
+                                        subscribed_route = %route,
+                                        patch_route = %patch_route,
+                                        patch_count = patches.len(),
+                                        "devtools: forwarding patches to client"
+                                    );
                                     Some(DevtoolsEvent::Patches(patches))
                                 } else {
+                                    tracing::debug!(
+                                        subscribed_route = %route,
+                                        patch_route = %patch_route,
+                                        "devtools: skipping patches (route mismatch)"
+                                    );
                                     None
                                 }
                             }
@@ -374,7 +387,9 @@ impl DevtoolsService for HostDevtoolsService {
                         };
 
                         if let Some(event) = event {
+                            tracing::debug!(route = %route, event = ?event, "devtools: sending event to client");
                             if tx.send(&event).await.is_err() {
+                                tracing::debug!(route = %route, "devtools: client disconnected");
                                 return; // Client disconnected
                             }
                         }

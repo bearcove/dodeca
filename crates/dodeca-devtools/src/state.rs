@@ -149,21 +149,8 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
         *cell.borrow_mut() = Some(client.clone());
     });
 
-    state.update(|s| s.connection_state = ConnectionState::Connected);
-    tracing::info!("[devtools] connected via roam RPC");
-
-    // Get current route and subscribe
-    let route = web_sys::window()
-        .and_then(|w| w.location().pathname().ok())
-        .unwrap_or_else(|| "/".to_string());
-
-    // Subscribe to events for this route
-    let rx = client
-        .subscribe(route)
-        .await
-        .map_err(|e| format!("subscribe failed: {:?}", e))?;
-
-    // Spawn the driver to run the RPC protocol
+    // IMPORTANT: Spawn the driver BEFORE making RPC calls.
+    // The driver must be running to receive responses to our calls.
     wasm_bindgen_futures::spawn_local(async move {
         if let Err(e) = driver.run().await {
             tracing::warn!("[devtools] driver error: {:?}", e);
@@ -174,6 +161,22 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
             });
         }
     });
+
+    state.update(|s| s.connection_state = ConnectionState::Connected);
+    tracing::info!("[devtools] connected");
+
+    // Get current route and subscribe
+    let route = web_sys::window()
+        .and_then(|w| w.location().pathname().ok())
+        .unwrap_or_else(|| "/".to_string());
+
+    // Subscribe to events for this route
+    tracing::debug!("[devtools] subscribing to route: {}", route);
+    let rx = client
+        .subscribe(route)
+        .await
+        .map_err(|e| format!("subscribe failed: {:?}", e))?;
+    tracing::debug!("[devtools] subscription established");
 
     // Spawn event handler loop
     wasm_bindgen_futures::spawn_local(handle_events(rx));

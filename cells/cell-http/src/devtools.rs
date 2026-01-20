@@ -88,6 +88,13 @@ impl MessageTransport for AxumWsTransport {
         let payload = facet_postcard::to_vec(msg)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
+        tracing::debug!(
+            msg_type = ?std::mem::discriminant(msg),
+            payload_len = payload.len(),
+            payload_bytes = ?&payload[..payload.len().min(64)],
+            "Sending WebSocket message to browser"
+        );
+
         self.sender
             .send(Message::Binary(payload.into()))
             .await
