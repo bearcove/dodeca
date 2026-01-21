@@ -15,7 +15,10 @@ pub use roam_shm::driver::{establish_guest, establish_guest_with_diagnostics};
 pub use roam_shm::guest::ShmGuest;
 pub use roam_shm::spawn::SpawnArgs;
 pub use roam_shm::transport::ShmGuestTransport;
-pub use roam_tracing::{CellTracingDispatcher, CellTracingGuard, CellTracingLayer, CellTracingService, init_cell_tracing};
+pub use roam_tracing::{
+    CellTracingDispatcher, CellTracingGuard, CellTracingLayer, CellTracingService,
+    init_cell_tracing,
+};
 pub use tokio;
 pub use tracing;
 pub use tracing_subscriber;
@@ -79,11 +82,16 @@ macro_rules! run_cell {
             register_diagnostic_state, tokio, tracing, tracing_subscriber, ur_taking_me_with_you,
         };
 
-        $crate::cell_debug!("[cell-{}] starting (pid={})", $cell_name, std::process::id());
+        $crate::cell_debug!(
+            "[cell-{}] starting (pid={})",
+            $cell_name,
+            std::process::id()
+        );
 
         // Install SIGUSR1 handler for diagnostics (must be done early, before async runtime)
         // We use a leaked static string since install_sigusr1_handler expects &'static str
-        let cell_name_static: &'static str = Box::leak(format!("cell-{}", $cell_name).into_boxed_str());
+        let cell_name_static: &'static str =
+            Box::leak(format!("cell-{}", $cell_name).into_boxed_str());
         dodeca_debug::install_sigusr1_handler(cell_name_static);
 
         // Register diagnostic callback to dump all connection states
@@ -158,12 +166,13 @@ macro_rules! run_cell {
                 RoutedDispatcher::new(tracing_dispatcher, user_dispatcher)
             };
             // Create diagnostic state for this connection
-            let diagnostic_state = std::sync::Arc::new(DiagnosticState::new(format!("cell-{}", $cell_name)));
+            let diagnostic_state =
+                std::sync::Arc::new(DiagnosticState::new(format!("cell-{}", $cell_name)));
             register_diagnostic_state(&diagnostic_state);
             $crate::cell_debug!("[cell] diagnostic state registered");
 
             $crate::cell_debug!("[cell] calling establish_guest_with_diagnostics");
-            let (handle, driver) = establish_guest_with_diagnostics(
+            let (handle, _incoming, driver) = establish_guest_with_diagnostics(
                 transport,
                 combined_dispatcher,
                 Some(diagnostic_state),

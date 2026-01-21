@@ -211,8 +211,8 @@ fn summarize_patches(patches: &[dodeca_protocol::Patch]) -> String {
 
     for patch in patches {
         match patch {
-            Patch::Replace { .. } | Patch::ReplaceInnerHtml { .. } => replace += 1,
-            Patch::InsertBefore { .. } | Patch::InsertAfter { .. } | Patch::AppendChild { .. } => {
+            Patch::Replace { .. } => replace += 1,
+            Patch::InsertAt { .. } | Patch::InsertAfter { .. } | Patch::AppendChild { .. } => {
                 insert += 1
             }
             Patch::Remove { .. } => remove += 1,

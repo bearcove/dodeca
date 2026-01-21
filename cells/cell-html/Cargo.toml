@@ -18,8 +18,8 @@ cell-html-proto = { path = "../cell-html-proto" }
 color-eyre.workspace = true
 dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
 dodeca-protocol = { path = "../../crates/dodeca-protocol" }
-facet-diff.workspace = true
 facet-html.workspace = true
+facet-html-diff.workspace = true
 facet-html-dom.workspace = true
 html-escape.workspace = true
 tracing.workspace = true

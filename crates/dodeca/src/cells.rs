@@ -16,7 +16,7 @@ use cell_code_execution_proto::{
 };
 use cell_css_proto::{CssProcessorClient, CssResult};
 use cell_dialoguer_proto::DialoguerClient;
-use cell_fonts_proto::{FontAnalysis, FontProcessorClient, FontResult, SubsetFontInput};
+use cell_fonts_proto::{FontProcessorClient, FontResult, SubsetFontInput};
 use cell_gingembre_proto::{ContextId, RenderResult, TemplateRendererClient};
 use cell_host_proto::{
     CallFunctionResult, CommandResult, HostService, KeysAtResult, LoadTemplateResult, ReadyAck,
@@ -1259,32 +1259,3 @@ impl std::fmt::Display for MarkdownParseError {
 }
 
 impl std::error::Error for MarkdownParseError {}
-
-// HTML/CSS extraction
-pub async fn extract_css_from_html_cell(html: &str) -> Result<String, eyre::Error> {
-    let client = font_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
-    match client.extract_css_from_html(html.to_string()).await {
-        Ok(FontResult::CssSuccess { css }) => Ok(css),
-        Ok(FontResult::Error { message }) => Err(eyre::eyre!(message)),
-        Ok(other) => Err(eyre::eyre!("Unexpected result: {:?}", other)),
-        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
-    }
-}
-
-// Font analysis
-pub async fn analyze_fonts_cell(html: &str, css: &str) -> Result<FontAnalysis, eyre::Error> {
-    let client = font_cell()
-        .await
-        .ok_or_else(|| eyre::eyre!("Font cell not available"))?;
-    match client
-        .analyze_fonts(html.to_string(), css.to_string())
-        .await
-    {
-        Ok(FontResult::AnalysisSuccess { analysis }) => Ok(analysis),
-        Ok(FontResult::Error { message }) => Err(eyre::eyre!(message)),
-        Ok(other) => Err(eyre::eyre!("Unexpected result: {:?}", other)),
-        Err(e) => Err(eyre::eyre!("RPC error: {:?}", e)),
-    }
-}

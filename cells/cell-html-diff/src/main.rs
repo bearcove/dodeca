@@ -28,7 +28,7 @@ impl HtmlDiffer for HtmlDifferImpl {
             "diffing HTML"
         );
 
-        match html_diff_tests::diff_html_debug(&input.old_html, &input.new_html, true) {
+        match facet_html_diff::diff_html(&input.old_html, &input.new_html) {
             Ok(patches) => {
                 tracing::debug!(count = patches.len(), "generated patches");
                 for (i, patch) in patches.iter().enumerate() {

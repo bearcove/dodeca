@@ -10,7 +10,7 @@ use facet::Facet;
 // Re-export code execution config
 pub use cell_code_execution_proto::CodeExecutionConfig;
 // Re-export Schema for build step param types
-pub use styx_schema::Schema;
+pub use facet_styx::Schema;
 
 /// Dodeca configuration from `.config/dodeca.styx`
 #[derive(Debug, Clone, Facet)]

@@ -5,9 +5,11 @@ use std::collections::HashMap;
 use sycamore::prelude::*;
 use wasm_bindgen::JsCast;
 
-use crate::protocol::{DevtoolsEvent, DevtoolsServiceClient, ErrorInfo, ScopeEntry, ScopeValue};
-use roam::Rx;
-use roam_session::{ConnectionHandle, HandshakeConfig, NoDispatcher, accept_framed};
+use crate::protocol::{
+    BrowserService, BrowserServiceDispatcher, DevtoolsEvent, DevtoolsServiceClient, ErrorInfo,
+    ScopeEntry, ScopeValue,
+};
+use roam_session::{ConnectionHandle, HandshakeConfig, accept_framed};
 use roam_websocket::WsTransport;
 
 /// A single REPL entry with expression and result
@@ -105,6 +107,22 @@ thread_local! {
     static STATE_SIGNAL: RefCell<Option<Signal<DevtoolsState>>> = const { RefCell::new(None) };
 }
 
+/// Browser-side implementation of BrowserService.
+///
+/// The host calls `on_event` to push devtools events to the browser.
+#[derive(Clone)]
+struct BrowserServiceImpl;
+
+impl BrowserService for BrowserServiceImpl {
+    async fn on_event(&self, event: DevtoolsEvent) {
+        tracing::debug!(
+            "[devtools] received event via on_event: {:?}",
+            event_summary(&event)
+        );
+        handle_devtools_event(event);
+    }
+}
+
 /// Get a clone of the RPC client from thread-local storage
 fn get_client() -> Option<DevtoolsServiceClient<ConnectionHandle>> {
     RPC_CLIENT.with(|cell| cell.borrow().clone())
@@ -135,9 +153,11 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
         .await
         .map_err(|e| format!("WebSocket connect failed: {:?}", e))?;
 
-    // Establish roam RPC session
+    // Establish roam RPC session with BrowserService dispatcher
+    // This allows the host to call on_event() to push events to us
     let config = HandshakeConfig::default();
-    let (handle, _incoming, driver) = accept_framed(transport, config, NoDispatcher)
+    let dispatcher = BrowserServiceDispatcher::new(BrowserServiceImpl);
+    let (handle, _incoming, driver) = accept_framed(transport, config, dispatcher)
         .await
         .map_err(|e| format!("RPC handshake failed: {:?}", e))?;
 
@@ -171,44 +191,15 @@ pub async fn connect_websocket(state: Signal<DevtoolsState>) -> Result<(), Strin
         .unwrap_or_else(|| "/".to_string());
 
     // Subscribe to events for this route
+    // Events will be pushed to us via BrowserService::on_event()
     tracing::debug!("[devtools] subscribing to route: {}", route);
-    let rx = client
+    client
         .subscribe(route)
         .await
         .map_err(|e| format!("subscribe failed: {:?}", e))?;
     tracing::debug!("[devtools] subscription established");
 
-    // Spawn event handler loop
-    wasm_bindgen_futures::spawn_local(handle_events(rx));
-
     Ok(())
-}
-
-/// Handle incoming events from the server
-async fn handle_events(mut rx: Rx<DevtoolsEvent>) {
-    tracing::debug!("[devtools] handle_events loop started, waiting for events...");
-    loop {
-        tracing::debug!("[devtools] calling rx.recv()...");
-        match rx.recv().await {
-            Ok(Some(event)) => {
-                tracing::debug!("[devtools] received event from rx");
-                handle_devtools_event(event);
-            }
-            Ok(None) => {
-                tracing::info!("[devtools] event stream closed");
-                STATE_SIGNAL.with(|cell| {
-                    if let Some(state) = cell.borrow().as_ref() {
-                        state.update(|s| s.connection_state = ConnectionState::Disconnected);
-                    }
-                });
-                break;
-            }
-            Err(e) => {
-                tracing::warn!("[devtools] event recv error: {:?}", e);
-                break;
-            }
-        }
-    }
 }
 
 /// Request scope from the server for the current route
@@ -483,7 +474,7 @@ fn handle_devtools_event(event: DevtoolsEvent) {
                 hot_reload_css(&path);
             }
 
-            DevtoolsEvent::Patches(patches) => match livereload_client::apply_patches(patches) {
+            DevtoolsEvent::Patches(patches) => match livereload_client::apply_patches(&patches) {
                 Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
                 Err(e) => {
                     tracing::warn!(

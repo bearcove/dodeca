@@ -59,6 +59,7 @@ facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-dom = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-html-diff-wasm = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html-dom = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -66,7 +67,6 @@ facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-testhelpers = { git = "https://github.com/facet-rs/facet", branch = "main" }
-styx-schema = { git = "https://github.com/bearcove/styx", branch = "main" }
 styx-embed = { git = "https://github.com/bearcove/styx", branch = "main" }
 
 # RPC framework
@@ -114,7 +114,7 @@ thumbhash = "0.1"
 webp = "0.3"
 
 # Font processing
-fontcull = { version = "2.0", default-features = false, features = ["static-analysis"] }
+fontcull = { version = "2.0", default-features = false }
 
 # Markdown
 pulldown-cmark = "0.13"
@@ -153,88 +153,130 @@ minijinja = "2"
 [workspace.package]
 rust-version = "1.91"
 
-# Force all transitive facet dependencies to use local version
+# Force all transitive facet dependencies to use git version
 [patch.crates-io]
-cinereus = { path = "../facet/cinereus" }
-facet = { path = "../facet/facet" }
-facet-args = { path = "../facet/facet-args" }
-facet-core = { path = "../facet/facet-core" }
-facet-diff = { path = "../facet/facet-diff" }
-facet-dom = { path = "../facet/facet-dom" }
-facet-html = { path = "../facet/facet-html" }
-facet-html-diff = { path = "../facet/facet-html-diff" }
-facet-html-dom = { path = "../facet/facet-html-dom" }
-facet-json = { path = "../facet/facet-json" }
-facet-macro-parse = { path = "../facet/facet-macro-parse" }
-facet-macro-types = { path = "../facet/facet-macro-types" }
-facet-macros = { path = "../facet/facet-macros" }
-facet-macros-impl = { path = "../facet/facet-macros-impl" }
-facet-postcard = { path = "../facet/facet-postcard" }
-facet-testhelpers = { path = "../facet/facet-testhelpers" }
-facet-pretty = { path = "../facet/facet-pretty" }
-facet-reflect = { path = "../facet/facet-reflect" }
-facet-solver = { path = "../facet/facet-solver" }
-facet-svg = { path = "../facet/facet-svg" }
-facet-toml = { path = "../facet/facet-toml" }
-facet-value = { path = "../facet/facet-value" }
-facet-xml = { path = "../facet/facet-xml" }
-facet-yaml = { path = "../facet/facet-yaml" }
+cinereus = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-dom = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-html-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-html-diff-wasm = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-html-dom = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macro-parse = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macro-types = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macros = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-macros-impl = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-testhelpers = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-pretty = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-solver = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-svg = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-xml = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
+roam = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-shm = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-tracing = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-fdpass = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-local = { git = "https://github.com/bearcove/roam", branch = "main" }
+shm-primitives = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-frame = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-schema = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-hash = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-wire = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-session = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-stream = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-websocket = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-service-macros = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-task-local = { git = "https://github.com/bearcove/roam", branch = "main" }
+ur-taking-me-with-you = { git = "https://github.com/bearcove/roam", branch = "main" }
 
-# Also patch git-based facet dependencies (from roam, etc.)
-[patch."https://github.com/facet-rs/facet"]
-cinereus = { path = "../facet/cinereus" }
-facet = { path = "../facet/facet" }
-facet-args = { path = "../facet/facet-args" }
-facet-core = { path = "../facet/facet-core" }
-facet-diff = { path = "../facet/facet-diff" }
-facet-dom = { path = "../facet/facet-dom" }
-facet-html = { path = "../facet/facet-html" }
-facet-html-diff = { path = "../facet/facet-html-diff" }
-facet-html-dom = { path = "../facet/facet-html-dom" }
-facet-json = { path = "../facet/facet-json" }
-facet-macro-parse = { path = "../facet/facet-macro-parse" }
-facet-macro-types = { path = "../facet/facet-macro-types" }
-facet-macros = { path = "../facet/facet-macros" }
-facet-macros-impl = { path = "../facet/facet-macros-impl" }
-facet-postcard = { path = "../facet/facet-postcard" }
-facet-testhelpers = { path = "../facet/facet-testhelpers" }
-facet-pretty = { path = "../facet/facet-pretty" }
-facet-reflect = { path = "../facet/facet-reflect" }
-facet-solver = { path = "../facet/facet-solver" }
-facet-svg = { path = "../facet/facet-svg" }
-facet-toml = { path = "../facet/facet-toml" }
-facet-value = { path = "../facet/facet-value" }
-facet-xml = { path = "../facet/facet-xml" }
-facet-yaml = { path = "../facet/facet-yaml" }
+# Uncomment to use local facet for development
+# [patch.crates-io]
+# cinereus = { path = "../facet/cinereus" }
+# facet = { path = "../facet/facet" }
+# facet-args = { path = "../facet/facet-args" }
+# facet-core = { path = "../facet/facet-core" }
+# facet-diff = { path = "../facet/facet-diff" }
+# facet-dom = { path = "../facet/facet-dom" }
+# facet-html = { path = "../facet/facet-html" }
+# facet-html-diff = { path = "../facet/facet-html-diff" }
+# facet-html-dom = { path = "../facet/facet-html-dom" }
+# facet-json = { path = "../facet/facet-json" }
+# facet-macro-parse = { path = "../facet/facet-macro-parse" }
+# facet-macro-types = { path = "../facet/facet-macro-types" }
+# facet-macros = { path = "../facet/facet-macros" }
+# facet-macros-impl = { path = "../facet/facet-macros-impl" }
+# facet-postcard = { path = "../facet/facet-postcard" }
+# facet-testhelpers = { path = "../facet/facet-testhelpers" }
+# facet-pretty = { path = "../facet/facet-pretty" }
+# facet-reflect = { path = "../facet/facet-reflect" }
+# facet-solver = { path = "../facet/facet-solver" }
+# facet-svg = { path = "../facet/facet-svg" }
+# facet-toml = { path = "../facet/facet-toml" }
+# facet-value = { path = "../facet/facet-value" }
+# facet-xml = { path = "../facet/facet-xml" }
+# facet-yaml = { path = "../facet/facet-yaml" }
+
+# [patch."https://github.com/facet-rs/facet"]
+# cinereus = { path = "../facet/cinereus" }
+# facet = { path = "../facet/facet" }
+# facet-args = { path = "../facet/facet-args" }
+# facet-core = { path = "../facet/facet-core" }
+# facet-diff = { path = "../facet/facet-diff" }
+# facet-dom = { path = "../facet/facet-dom" }
+# facet-html = { path = "../facet/facet-html" }
+# facet-html-diff = { path = "../facet/facet-html-diff" }
+# facet-html-dom = { path = "../facet/facet-html-dom" }
+# facet-json = { path = "../facet/facet-json" }
+# facet-macro-parse = { path = "../facet/facet-macro-parse" }
+# facet-macro-types = { path = "../facet/facet-macro-types" }
+# facet-macros = { path = "../facet/facet-macros" }
+# facet-macros-impl = { path = "../facet/facet-macros-impl" }
+# facet-postcard = { path = "../facet/facet-postcard" }
+# facet-testhelpers = { path = "../facet/facet-testhelpers" }
+# facet-pretty = { path = "../facet/facet-pretty" }
+# facet-reflect = { path = "../facet/facet-reflect" }
+# facet-solver = { path = "../facet/facet-solver" }
+# facet-svg = { path = "../facet/facet-svg" }
+# facet-toml = { path = "../facet/facet-toml" }
+# facet-value = { path = "../facet/facet-value" }
+# facet-xml = { path = "../facet/facet-xml" }
+# facet-yaml = { path = "../facet/facet-yaml" }
 
 # Uncomment to use local styx for development
 # [patch."https://github.com/bearcove/styx"]
 # facet-styx = { path = "../styx/crates/facet-styx" }
 # styx-parse = { path = "../styx/crates/styx-parse" }
 # styx-format = { path = "../styx/crates/styx-format" }
-# styx-schema = { path = "../styx/crates/styx-schema" }
 # styx-embed = { path = "../styx/crates/styx-embed" }
 # styx-embed-macros = { path = "../styx/crates/styx-embed-macros" }
 
 # Uncomment to use local roam for development
-[patch."https://github.com/bearcove/roam"]
-roam = { path = "../roam/rust/roam" }
-roam-shm = { path = "../roam/rust/roam-shm" }
-roam-tracing = { path = "../roam/rust/roam-tracing" }
-roam-fdpass = { path = "../roam/rust/roam-fdpass" }
-roam-local = { path = "../roam/rust/roam-local" }
-shm-primitives = { path = "../roam/rust/shm-primitives" }
-roam-frame = { path = "../roam/rust/roam-frame" }
-roam-schema = { path = "../roam/rust/roam-schema" }
-roam-hash = { path = "../roam/rust/roam-hash" }
-roam-wire = { path = "../roam/rust/roam-wire" }
-roam-session = { path = "../roam/rust/roam-session" }
-roam-stream = { path = "../roam/rust/roam-stream" }
-roam-websocket = { path = "../roam/rust/roam-websocket" }
-roam-service-macros = { path = "../roam/rust/roam-macros" }
-roam-task-local = { path = "../roam/rust/roam-task-local" }
-ur-taking-me-with-you = { path = "../roam/rust/ur-taking-me-with-you" }
+# [patch."https://github.com/bearcove/roam"]
+# roam = { path = "../roam/rust/roam" }
+# roam-shm = { path = "../roam/rust/roam-shm" }
+# roam-tracing = { path = "../roam/rust/roam-tracing" }
+# roam-fdpass = { path = "../roam/rust/roam-fdpass" }
+# roam-local = { path = "../roam/rust/roam-local" }
+# shm-primitives = { path = "../roam/rust/shm-primitives" }
+# roam-frame = { path = "../roam/rust/roam-frame" }
+# roam-schema = { path = "../roam/rust/roam-schema" }
+# roam-hash = { path = "../roam/rust/roam-hash" }
+# roam-wire = { path = "../roam/rust/roam-wire" }
+# roam-session = { path = "../roam/rust/roam-session" }
+# roam-stream = { path = "../roam/rust/roam-stream" }
+# roam-websocket = { path = "../roam/rust/roam-websocket" }
+# roam-service-macros = { path = "../roam/rust/roam-macros" }
+# roam-task-local = { path = "../roam/rust/roam-task-local" }
+# ur-taking-me-with-you = { path = "../roam/rust/ur-taking-me-with-you" }
 
 # Optimize dependencies in dev mode for faster tests
 # (keeps main crate unoptimized for fast incremental builds)

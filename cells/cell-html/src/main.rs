@@ -22,8 +22,6 @@ use cell_html_proto::{
 };
 use dodeca_cell_runtime::{ConnectionHandle, run_cell};
 
-mod diff;
-
 /// HTML processor implementation
 #[derive(Clone)]
 pub struct HtmlProcessorImpl {
@@ -150,7 +148,9 @@ impl HtmlProcessor for HtmlProcessorImpl {
             "diffing HTML"
         );
 
-        match diff::diff_html(&old_html, &new_html) {
+        // Note: This method exists for protocol compatibility but diffing
+        // is done via cell-html-diff in practice. This is a passthrough.
+        match facet_html_diff::diff_html(&old_html, &new_html) {
             Ok(patches) => {
                 tracing::debug!(count = patches.len(), "generated patches");
                 for (i, patch) in patches.iter().enumerate() {

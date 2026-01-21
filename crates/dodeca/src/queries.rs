@@ -1273,84 +1273,114 @@ pub async fn all_rendered_html<DB: Db>(
     Ok(Ok(AllRenderedHtml { pages }))
 }
 
-/// Local font-face representation for picante tracking
-#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
-pub struct LocalFontFace {
-    pub family: String,
-    pub src: String,
-    pub weight: Option<String>,
-    pub style: Option<String>,
-}
+/// Extract text content from HTML by stripping tags
+///
+/// This is a simple extraction that gets all visible text characters.
+/// Used for font subsetting - we collect all characters used across the site.
+fn extract_text_from_html(html: &str) -> String {
+    let mut result = String::new();
+    let mut in_tag = false;
+    let mut in_script_or_style = false;
+    let mut tag_name = String::new();
 
-/// Local font analysis result for picante tracking
-#[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
-pub struct LocalFontAnalysis {
-    pub chars_per_font: std::collections::HashMap<String, Vec<char>>,
-    pub font_faces: Vec<LocalFontFace>,
-}
-
-/// Analyze all rendered HTML for font character usage
-/// Returns the FontAnalysis needed for font subsetting
-#[picante::tracked]
-pub async fn font_char_analysis<DB: Db>(db: &DB) -> PicanteResult<LocalFontAnalysis> {
-    let all_html = all_rendered_html(db)
-        .await?
-        .expect("build errors should be caught before font analysis");
-    let sass_css = compile_sass(db).await?;
-    let sass_str = sass_css.as_ref().map(|c| c.0.as_str()).unwrap_or("");
-
-    // Collect CSS from static files
-    let mut static_css_parts = Vec::new();
-    let static_files = StaticRegistry::files(db)?.unwrap_or_default();
-    for file in static_files.iter() {
-        let path = file.path(db)?.as_str().to_string();
-        if path.to_lowercase().ends_with(".css") {
-            let content = load_static(db, *file).await?;
-            if let Ok(css_str) = String::from_utf8(content) {
-                static_css_parts.push(css_str);
+    let mut chars = html.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '<' {
+            in_tag = true;
+            tag_name.clear();
+        } else if c == '>' && in_tag {
+            in_tag = false;
+            let tag_lower = tag_name.to_lowercase();
+            if tag_lower.starts_with("script") || tag_lower.starts_with("style") {
+                in_script_or_style = true;
+            } else if tag_lower.starts_with("/script") || tag_lower.starts_with("/style") {
+                in_script_or_style = false;
+            }
+        } else if in_tag {
+            if !c.is_whitespace() && tag_name.len() < 20 {
+                tag_name.push(c);
+            }
+        } else if !in_script_or_style {
+            // Decode common HTML entities
+            if c == '&' {
+                let mut entity = String::new();
+                while let Some(&next) = chars.peek() {
+                    if next == ';' {
+                        chars.next();
+                        break;
+                    }
+                    if entity.len() > 10 {
+                        // Not a valid entity, just output what we have
+                        result.push('&');
+                        result.push_str(&entity);
+                        break;
+                    }
+                    entity.push(chars.next().unwrap());
+                }
+                match entity.as_str() {
+                    "amp" => result.push('&'),
+                    "lt" => result.push('<'),
+                    "gt" => result.push('>'),
+                    "quot" => result.push('"'),
+                    "apos" => result.push('\''),
+                    "nbsp" => result.push(' '),
+                    s if s.starts_with('#') => {
+                        // Numeric entity like &#39; or &#x27;
+                        let num_str = &s[1..];
+                        let code = if num_str.starts_with('x') || num_str.starts_with('X') {
+                            u32::from_str_radix(&num_str[1..], 16).ok()
+                        } else {
+                            num_str.parse().ok()
+                        };
+                        if let Some(code) = code {
+                            if let Some(ch) = char::from_u32(code) {
+                                result.push(ch);
+                            }
+                        }
+                    }
+                    _ => {
+                        // Unknown entity, skip it
+                    }
+                }
+            } else {
+                result.push(c);
             }
         }
     }
-    let static_css = static_css_parts.join("\n");
+    result
+}
 
-    // Combine all HTML for analysis
-    let combined_html: String = all_html
-        .pages
-        .values()
-        .cloned()
-        .collect::<Vec<_>>()
-        .join("\n");
-    // Missing cells are hard errors - this panic gives an actionable message.
-    let inline_css = crate::cells::extract_css_from_html_cell(&combined_html)
-        .await
-        .expect(
-            "fonts cell not available: ddc-cell-fonts binary missing or failed to start. \
-             Check DODECA_CELL_PATH and ensure all cell binaries are built.",
-        );
-    let all_css = format!("{sass_str}\n{static_css}\n{inline_css}");
+/// Collect all unique characters used across the entire site
+///
+/// This is used for font subsetting - all fonts are subsetted to include
+/// the same global character set. This is simpler than per-font analysis
+/// and produces nearly identical results in practice.
+#[picante::tracked]
+pub async fn global_char_set<DB: Db>(db: &DB) -> PicanteResult<CharSet> {
+    let all_html = all_rendered_html(db)
+        .await?
+        .expect("build errors should be caught before font analysis");
 
-    let analysis = crate::cells::analyze_fonts_cell(&combined_html, &all_css)
-        .await
-        .expect(
-            "fonts cell not available: ddc-cell-fonts binary missing or failed to start. \
-             Check DODECA_CELL_PATH and ensure all cell binaries are built.",
-        );
+    let mut chars = std::collections::HashSet::new();
 
-    let font_faces = analysis
-        .font_faces
-        .into_iter()
-        .map(|face| LocalFontFace {
-            family: face.family,
-            src: face.src,
-            weight: face.weight,
-            style: face.style,
-        })
-        .collect();
+    // Extract text from all rendered HTML pages
+    for html in all_html.pages.values() {
+        let text = extract_text_from_html(html);
+        for c in text.chars() {
+            chars.insert(c);
+        }
+    }
 
-    Ok(LocalFontAnalysis {
-        chars_per_font: analysis.chars_per_font,
-        font_faces,
-    })
+    // Sort for deterministic output
+    let mut sorted: Vec<char> = chars.into_iter().collect();
+    sorted.sort();
+
+    tracing::info!(
+        num_chars = sorted.len(),
+        "Collected global character set for font subsetting"
+    );
+
+    CharSet::new(db, sorted)
 }
 
 /// Compute the cache-busted path for a static file based on its SOURCE content.
@@ -1413,23 +1443,12 @@ pub async fn static_file_output<DB: Db>(
     tracing::debug!(file_path = %path, "static_file_output: processing");
     // Get processed content based on file type
     let content = if is_font_file(&path) {
-        // Font file - need to subset based on char analysis
+        // Font file - subset to global character set
         tracing::trace!(font_path = %path, "static_file_output: processing font file");
-        let analysis = font_char_analysis(db).await?;
-        if let Some(chars) = find_chars_for_font_file(&path, &analysis) {
-            if !chars.is_empty() {
-                let mut sorted_chars: Vec<char> = chars.into_iter().collect();
-                sorted_chars.sort();
-                let char_set = CharSet::new(db, sorted_chars)?;
+        let char_set = global_char_set(db).await?;
 
-                if let Some(subsetted) = subset_font(db, file, char_set).await? {
-                    subsetted
-                } else {
-                    load_static(db, file).await?
-                }
-            } else {
-                load_static(db, file).await?
-            }
+        if let Some(subsetted) = subset_font(db, file, char_set).await? {
+            subsetted
         } else {
             load_static(db, file).await?
         }
@@ -1803,32 +1822,6 @@ fn is_font_file(path: &str) -> bool {
         || lower.ends_with(".otf")
         || lower.ends_with(".woff")
         || lower.ends_with(".woff2")
-}
-
-/// Find the character set needed for a font file based on @font-face analysis
-fn find_chars_for_font_file(
-    path: &str,
-    analysis: &LocalFontAnalysis,
-) -> Option<std::collections::HashSet<char>> {
-    // Normalize path: remove leading slash and 'static/' prefix
-    // File paths are like "static/fonts/Foo.woff2"
-    // CSS URLs are like "/fonts/Foo.woff2"
-    let normalized = path.trim_start_matches('/').trim_start_matches("static/");
-
-    // Find @font-face rules that reference this font file
-    for face in &analysis.font_faces {
-        let face_src = face.src.trim_start_matches('/');
-        if face_src == normalized {
-            // Found a match - return chars for this font-family
-            // Convert Vec<char> to HashSet<char>
-            return analysis
-                .chars_per_font
-                .get(&face.family)
-                .map(|chars| chars.iter().copied().collect());
-        }
-    }
-
-    None
 }
 
 // ============================================================================
