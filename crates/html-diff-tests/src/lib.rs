@@ -33,16 +33,16 @@ pub fn diff_html_debug(old_html: &str, new_html: &str) -> Result<Vec<Patch>, Str
 
     let edit_ops = tree_diff(&old_doc, &new_doc);
 
-    tracing::info!(count = edit_ops.len(), "Edit ops from facet-diff");
+    tracing::debug!(count = edit_ops.len(), "Edit ops from facet-diff");
     for op in &edit_ops {
-        tracing::info!(?op, "edit op");
+        tracing::debug!(?op, "edit op");
     }
 
     let patches = translate_to_patches(&edit_ops, &new_doc);
 
-    tracing::info!(count = patches.len(), "Translated patches");
+    tracing::debug!(count = patches.len(), "Translated patches");
     for patch in &patches {
-        tracing::info!(?patch, "patch");
+        tracing::debug!(?patch, "patch");
     }
 
     Ok(patches)
@@ -61,7 +61,7 @@ pub fn diff_html_debug(old_html: &str, new_html: &str) -> Result<Vec<Patch>, Str
 pub fn translate_to_patches(edit_ops: &[EditOp], new_doc: &Html) -> Vec<Patch> {
     edit_ops
         .iter()
-        .filter_map(|op| translate_op(op, new_doc))
+        .flat_map(|op| translate_op_multi(op, new_doc))
         .collect()
 }
 
@@ -69,14 +69,25 @@ pub fn translate_to_patches(edit_ops: &[EditOp], new_doc: &Html) -> Vec<Patch> {
 fn translate_op(op: &EditOp, new_doc: &Html) -> Option<Patch> {
     trace!("translate_op: op={op:?}");
     match op {
-        EditOp::Insert { path, value, .. } => translate_insert(&path.0, value.as_deref(), new_doc),
-        EditOp::Delete { path, .. } => translate_delete(&path.0),
+        EditOp::Insert {
+            path,
+            label_path,
+            value,
+            ..
+        } => translate_insert(&path.0, &label_path.0, value.as_deref(), new_doc),
+        EditOp::Delete { path, .. } => translate_delete(&path.0, new_doc),
         EditOp::Update { path, new_value, .. } => translate_update(&path.0, new_value.as_deref()),
         EditOp::Move {
             old_path,
             new_path,
             ..
         } => translate_move(&old_path.0, &new_path.0, new_doc),
+        EditOp::UpdateAttribute {
+            path,
+            attr_name,
+            old_value: _,
+            new_value,
+        } => translate_update_attribute(&path.0, attr_name, new_value.as_deref()),
         #[allow(unreachable_patterns)]
         _ => None,
     }
@@ -185,17 +196,24 @@ fn is_direct_attribute(name: &str) -> bool {
 }
 
 /// Translate an Insert operation.
-fn translate_insert(segments: &[PathSegment], value: Option<&str>, new_doc: &Html) -> Option<Patch> {
+/// `segments` is the shadow tree path (for DOM operations)
+/// `label_segments` is the tree_b path (for navigating new_doc)
+fn translate_insert(
+    segments: &[PathSegment],
+    label_segments: &[PathSegment],
+    value: Option<&str>,
+    new_doc: &Html,
+) -> Option<Patch> {
     let target = path_target(segments);
     let dom_path = to_dom_path(segments);
 
-    trace!("translate_insert: segments={segments:?}, dom_path={dom_path:?}, target={target:?}, value={value:?}");
+    trace!("translate_insert: segments={segments:?}, label_segments={label_segments:?}, dom_path={dom_path:?}, target={target:?}, value={value:?}");
 
     match target {
         PathTarget::Element => {
-            // For elements, we still need to navigate new_doc to serialize the whole subtree
+            // For elements, navigate using label_segments (tree_b coordinates)
             let peek = facet::Peek::new(new_doc);
-            let node_peek = navigate_peek(peek, segments)?;
+            let node_peek = navigate_peek(peek, label_segments)?;
             let html = serialize_to_html(node_peek)?;
 
             if dom_path.is_empty() {
@@ -213,15 +231,49 @@ fn translate_insert(segments: &[PathSegment], value: Option<&str>, new_doc: &Htm
             }
         }
         PathTarget::Attribute(name) => {
-            // Use the value directly from the EditOp
-            let attr_value = value?.to_string();
             // DOM path is the element, not the attribute
             let elem_path = to_dom_path(&segments[..segments.len().saturating_sub(2)]);
-            Some(Patch::SetAttribute {
-                path: NodePath(elem_path),
-                name,
-                value: attr_value,
-            })
+
+            // Check the actual value in new_doc using label_segments (tree_b coordinates)
+            let peek = facet::Peek::new(new_doc);
+            if let Some(attr_peek) = navigate_peek(peek, label_segments) {
+                if let Ok(opt) = attr_peek.into_option() {
+                    if opt.value().is_some() {
+                        // Attribute has a value in new_doc - use the EditOp value or lookup
+                        let attr_value = value
+                            .map(|s| s.to_string())
+                            .or_else(|| {
+                                let p2 = facet::Peek::new(new_doc);
+                                navigate_peek(p2, label_segments)
+                                    .and_then(|peek| peek.into_option().ok())
+                                    .and_then(|opt| opt.value())
+                                    .and_then(|inner| inner.as_str().map(|s| s.to_string()))
+                            })?;
+                        return Some(Patch::SetAttribute {
+                            path: NodePath(elem_path),
+                            name,
+                            value: attr_value,
+                        });
+                    } else {
+                        // Attribute is None in new_doc - emit RemoveAttribute
+                        return Some(Patch::RemoveAttribute {
+                            path: NodePath(elem_path),
+                            name,
+                        });
+                    }
+                }
+            }
+
+            // Fallback: use the EditOp value if available
+            if let Some(attr_value) = value {
+                Some(Patch::SetAttribute {
+                    path: NodePath(elem_path),
+                    name,
+                    value: attr_value.to_string(),
+                })
+            } else {
+                None
+            }
         }
         PathTarget::Text => {
             // Use the value directly from the EditOp
@@ -244,7 +296,8 @@ fn translate_insert(segments: &[PathSegment], value: Option<&str>, new_doc: &Htm
                 if name == "body" {
                     trace!("handling body insert");
                     let peek = facet::Peek::new(new_doc);
-                    if let Some(body_peek) = navigate_peek(peek, segments) {
+                    // Use label_segments (tree_b coordinates) to navigate new_doc
+                    if let Some(body_peek) = navigate_peek(peek, label_segments) {
                         // Unwrap Option<Body>
                         if let Ok(opt) = body_peek.into_option() {
                             if let Some(inner) = opt.value() {
@@ -272,17 +325,18 @@ fn translate_insert(segments: &[PathSegment], value: Option<&str>, new_doc: &Htm
                 if name == "children" {
                     trace!("handling children insert");
                     // Get the parent element's children and serialize them
-                    let parent_segments = &segments[..segments.len() - 1];
-                    trace!("parent_segments={parent_segments:?}");
+                    // Use label_segments (tree_b coordinates) to navigate new_doc
+                    let parent_label_segments = &label_segments[..label_segments.len().saturating_sub(1)];
+                    trace!("parent_label_segments={parent_label_segments:?}");
                     let peek = facet::Peek::new(new_doc);
-                    if let Some(parent_peek) = navigate_peek(peek, parent_segments) {
+                    if let Some(parent_peek) = navigate_peek(peek, parent_label_segments) {
                         trace!("navigated to parent, shape={:?}", parent_peek.shape());
                         // Handle Option<Body> or similar by unwrapping
                         let struct_peek = if let Ok(opt) = parent_peek.into_option() {
                             opt.value()
                         } else {
                             let peek2 = facet::Peek::new(new_doc);
-                            navigate_peek(peek2, parent_segments)
+                            navigate_peek(peek2, parent_label_segments)
                         };
                         if let Some(struct_peek) = struct_peek {
                             if let Ok(s) = struct_peek.into_struct() {
@@ -315,7 +369,14 @@ fn translate_insert(segments: &[PathSegment], value: Option<&str>, new_doc: &Htm
                             trace!("parent Option is None or couldn't unwrap");
                         }
                     } else {
-                        trace!("failed to navigate to parent");
+                        trace!("failed to navigate to parent - path may be in wrong coordinates");
+                        // If we can't navigate using the path (likely shadow tree coordinates after Move),
+                        // emit ReplaceInnerHtml with empty content. This handles cases where the element
+                        // was moved and its children need to be cleared.
+                        return Some(Patch::ReplaceInnerHtml {
+                            path: NodePath(dom_path),
+                            html: String::new(),
+                        });
                     }
                 }
             }
@@ -325,7 +386,10 @@ fn translate_insert(segments: &[PathSegment], value: Option<&str>, new_doc: &Htm
 }
 
 /// Translate a Delete operation.
-fn translate_delete(segments: &[PathSegment]) -> Option<Patch> {
+///
+/// Takes new_doc to verify attribute deletions - we only delete if the
+/// attribute doesn't exist in new_doc (to handle matching algorithm quirks).
+fn translate_delete(segments: &[PathSegment], new_doc: &Html) -> Option<Patch> {
     let target = path_target(segments);
     let dom_path = to_dom_path(segments);
 
@@ -343,14 +407,57 @@ fn translate_delete(segments: &[PathSegment]) -> Option<Patch> {
             }
         }
         PathTarget::Attribute(name) => {
+            // Check if this attribute exists in new_doc - if so, don't delete it.
+            // This handles cases where the matching algorithm matched values across
+            // different attribute fields (e.g., old.id matched to new.class).
             let elem_path = to_dom_path(&segments[..segments.len().saturating_sub(2)]);
+
+            // Navigate to the attribute in new_doc to check if it exists
+            let peek = facet::Peek::new(new_doc);
+            if let Some(attr_peek) = navigate_peek(peek, segments) {
+                // Try to get the Option value
+                if let Ok(opt) = attr_peek.into_option() {
+                    if opt.value().is_some() {
+                        // Attribute exists in new_doc, don't delete it
+                        trace!("  skipping delete - attribute exists in new_doc");
+                        return None;
+                    }
+                }
+            }
+
             Some(Patch::RemoveAttribute {
                 path: NodePath(elem_path),
                 name,
             })
         }
-        PathTarget::Text | PathTarget::Other => {
-            // Text deletion or structural - handled by parent operations
+        PathTarget::Text => {
+            // Text deletion - handled by SetText on parent
+            None
+        }
+        PathTarget::Other => {
+            // Check if this is deleting a "children" field
+            if let Some(PathSegment::Field(name)) = segments.last() {
+                if name == "children" {
+                    // Same pattern as attributes: check if new_doc has content at this path.
+                    // If it does, skip - the Insert op will handle setting the content.
+                    let peek = facet::Peek::new(new_doc);
+                    if let Some(children_peek) = navigate_peek(peek, segments) {
+                        if let Ok(list) = children_peek.into_list() {
+                            if list.len() > 0 {
+                                // new_doc has children - Insert will handle it
+                                trace!("  skipping delete - children exist in new_doc");
+                                return None;
+                            }
+                        }
+                    }
+
+                    // Element is empty in new_doc - clear it
+                    return Some(Patch::ReplaceInnerHtml {
+                        path: NodePath(dom_path),
+                        html: String::new(),
+                    });
+                }
+            }
             None
         }
     }
@@ -411,6 +518,95 @@ fn translate_move(old_segments: &[PathSegment], new_segments: &[PathSegment], ne
     None
 }
 
+/// Translate facet-diff EditOps into DOM Patches, returning multiple patches if needed.
+///
+/// Some ops (like attrs struct inserts/moves/deletes) need to generate multiple patches.
+fn translate_op_multi(op: &EditOp, new_doc: &Html) -> Vec<Patch> {
+    // Check for attrs struct inserts that need special handling
+    if let EditOp::Insert { path, .. } = op {
+        if let Some(PathSegment::Field(name)) = path.0.last() {
+            if name == "attrs" {
+                // Inserting an attrs struct - sync all attributes from new_doc
+                return sync_attrs_from_new_doc(&path.0, &path.0, new_doc);
+            }
+        }
+    }
+
+    // For Move of attrs structs, skip entirely.
+    // Moves indicate the attrs are being reused/matched between elements.
+    // The actual attribute changes are handled by Insert and Delete ops.
+    if let EditOp::Move { new_path, .. } = op {
+        if let Some(PathSegment::Field(name)) = new_path.0.last() {
+            if name == "attrs" {
+                return vec![];
+            }
+        }
+    }
+
+    // Check for attrs struct deletes that need special handling
+    if let EditOp::Delete { path, .. } = op {
+        if let Some(PathSegment::Field(name)) = path.0.last() {
+            if name == "attrs" {
+                // Deleting an attrs struct - sync all attributes from new_doc
+                // The element at this position should have whatever attrs new_doc specifies
+                return sync_attrs_from_new_doc(&path.0, &path.0, new_doc);
+            }
+        }
+    }
+
+    // For all other ops, delegate to the single-patch translation
+    translate_op(op, new_doc).into_iter().collect()
+}
+
+/// Sync all attributes from new_doc for an element.
+///
+/// - `old_attrs_path`: Path to attrs in OLD tree (for DOM position)
+/// - `new_attrs_path`: Path to attrs in NEW tree (for looking up values)
+fn sync_attrs_from_new_doc(
+    old_attrs_path: &[PathSegment],
+    new_attrs_path: &[PathSegment],
+    new_doc: &Html,
+) -> Vec<Patch> {
+    use facet::HasFields;
+
+    let mut patches = Vec::new();
+
+    // Compute DOM path from OLD attrs path (where element currently is)
+    let elem_path = &old_attrs_path[..old_attrs_path.len().saturating_sub(1)];
+    let dom_path = to_dom_path(elem_path);
+
+    // Navigate to the attrs struct in new_doc using NEW path (for values)
+    let peek = facet::Peek::new(new_doc);
+    if let Some(attrs_peek) = navigate_peek(peek, new_attrs_path) {
+        if let Ok(s) = attrs_peek.into_struct() {
+            // Iterate over ALL fields in the attrs struct
+            for (field, field_peek) in s.fields() {
+                let attr_name = field.name;
+                if let Ok(opt) = field_peek.into_option() {
+                    if let Some(inner) = opt.value() {
+                        // Has a value - SetAttribute
+                        if let Some(v) = inner.as_str() {
+                            patches.push(Patch::SetAttribute {
+                                path: NodePath(dom_path.clone()),
+                                name: attr_name.to_string(),
+                                value: v.to_string(),
+                            });
+                        }
+                    } else {
+                        // None - RemoveAttribute
+                        patches.push(Patch::RemoveAttribute {
+                            path: NodePath(dom_path.clone()),
+                            name: attr_name.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    patches
+}
+
 /// Translate an Update operation.
 ///
 /// Uses the new_value directly from the EditOp.
@@ -418,20 +614,16 @@ fn translate_update(segments: &[PathSegment], new_value: Option<&str>) -> Option
     let target = path_target(segments);
     let dom_path = to_dom_path(segments);
 
-    trace!("translate_update: segments={segments:?}");
-    trace!("  dom_path={dom_path:?}, target={target:?}, new_value={new_value:?}");
+    eprintln!("translate_update: segments={segments:?}, dom_path={dom_path:?}, target={target:?}, new_value={new_value:?}");
 
     match target {
         PathTarget::Text => {
             // Use the value directly from the EditOp
             let text = new_value?.to_string();
-            let parent_path = if dom_path.is_empty() {
-                vec![]
-            } else {
-                dom_path[..dom_path.len() - 1].to_vec()
-            };
+            // SetText on the node at dom_path - if it's a text node, update it directly;
+            // if it's an element, replace its children with the text
             Some(Patch::SetText {
-                path: NodePath(parent_path),
+                path: NodePath(dom_path),
                 text,
             })
         }
@@ -449,6 +641,38 @@ fn translate_update(segments: &[PathSegment], new_value: Option<&str>) -> Option
             // Structural updates don't translate to DOM patches directly
             // The leaf changes (text, attributes) are what matter
             None
+        }
+    }
+}
+
+/// Translate an UpdateAttribute op directly to a DOM patch.
+/// The path points to the element node, and attr_name specifies which attribute.
+fn translate_update_attribute(
+    segments: &[PathSegment],
+    attr_name: &str,
+    new_value: Option<&str>,
+) -> Option<Patch> {
+    let dom_path = to_dom_path(segments);
+
+    eprintln!(
+        "translate_update_attribute: segments={segments:?}, dom_path={dom_path:?}, attr={attr_name}, value={new_value:?}"
+    );
+
+    match new_value {
+        Some(value) => {
+            // Set or update the attribute
+            Some(Patch::SetAttribute {
+                path: NodePath(dom_path),
+                name: attr_name.to_string(),
+                value: value.to_string(),
+            })
+        }
+        None => {
+            // Remove the attribute
+            Some(Patch::RemoveAttribute {
+                path: NodePath(dom_path),
+                name: attr_name.to_string(),
+            })
         }
     }
 }

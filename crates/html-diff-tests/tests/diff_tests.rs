@@ -172,3 +172,84 @@ fn attribute_swap() {
         r#"<html><body><div class="a"></div></body></html>"#,
     );
 }
+
+// Proptest failure case 5: Both attrs present, change class and remove id
+#[test]
+fn change_class_remove_id() {
+    assert_roundtrip(
+        r#"<html><body><div class="a" id="a"></div></body></html>"#,
+        r#"<html><body><div class="a-"></div></body></html>"#,
+    );
+}
+
+// Proptest failure case 6: Remove P and text, replace with different text
+#[test]
+fn replace_p_and_text_with_text() {
+    assert_roundtrip(
+        r#"<html><body><p>0</p>0</body></html>"#,
+        r#"<html><body> </body></html>"#,
+    );
+}
+
+// Proptest failure case 7: Remove class from span, change text, remove sibling
+#[test]
+fn remove_class_and_sibling() {
+    assert_roundtrip(
+        r#"<html><body><span class="a">0</span><span> </span></body></html>"#,
+        r#"<html><body><span>A</span></body></html>"#,
+    );
+}
+
+// Proptest failure: Text + two Spans -> one Span
+#[test]
+fn text_and_spans_to_span() {
+    assert_roundtrip(
+        r#"<html><body> <span>0</span><span> </span></body></html>"#,
+        r#"<html><body><span>A</span></body></html>"#,
+    );
+}
+
+// Proptest failure: Add class to P and add another P
+#[test]
+fn add_class_and_sibling() {
+    assert_roundtrip(
+        r#"<html><body><p>A</p></body></html>"#,
+        r#"<html><body><p class="a">A</p><p> </p></body></html>"#,
+    );
+}
+
+// Proptest failure: Remove text from div
+#[test]
+fn remove_div_text() {
+    assert_roundtrip(
+        r#"<html><body><div>0</div></body></html>"#,
+        r#"<html><body><div></div></body></html>"#,
+    );
+}
+
+// Proptest failure: Text + Div with text -> empty Div
+#[test]
+fn text_and_div_to_empty_div() {
+    assert_roundtrip(
+        r#"<html><body>A<div>0</div></body></html>"#,
+        r#"<html><body><div></div></body></html>"#,
+    );
+}
+
+// Proptest failure: Text + Div with text -> empty Div + Text
+#[test]
+fn text_and_div_to_empty_div_and_text() {
+    assert_roundtrip(
+        r#"<html><body>A<div>0</div></body></html>"#,
+        r#"<html><body><div></div> </body></html>"#,
+    );
+}
+
+// Proptest failure: Text moves into div (sibling becomes child)
+#[test]
+fn text_moves_into_div() {
+    assert_roundtrip(
+        r#"<html><body>0<div></div></body></html>"#,
+        r#"<html><body><div>0</div></body></html>"#,
+    );
+}
