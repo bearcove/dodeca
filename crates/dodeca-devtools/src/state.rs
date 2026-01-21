@@ -114,7 +114,7 @@ thread_local! {
 struct BrowserServiceImpl;
 
 impl BrowserService for BrowserServiceImpl {
-    async fn on_event(&self, event: DevtoolsEvent) {
+    async fn on_event(&self, _cx: &roam::Context, event: DevtoolsEvent) {
         tracing::debug!(
             "[devtools] received event via on_event: {:?}",
             event_summary(&event)

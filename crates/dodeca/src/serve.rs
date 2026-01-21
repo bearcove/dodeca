@@ -358,55 +358,89 @@ impl SiteServer {
     ///
     /// For route-specific events (like Patches), only browsers subscribed
     /// to that route will receive the event.
-    pub fn notify_browsers(&self, event: dodeca_protocol::DevtoolsEvent) {
-        let registry = self.browsers.lock().unwrap();
-        let browser_count = registry.browsers.len();
+    ///
+    /// Failed sends (disconnected browsers) are cleaned up asynchronously.
+    pub fn notify_browsers(self: &Arc<Self>, event: dodeca_protocol::DevtoolsEvent) {
+        // Collect browsers to notify (under lock)
+        let to_notify: Vec<(u64, dodeca_protocol::BrowserServiceClient)> = {
+            let registry = self.browsers.lock().unwrap();
+            let browser_count = registry.browsers.len();
 
-        if browser_count == 0 {
-            tracing::trace!(event = %crate::cell_server::event_summary(&event), "No browsers to notify");
-            return;
-        }
-
-        tracing::debug!(
-            event = %crate::cell_server::event_summary(&event),
-            browser_count,
-            "Notifying browsers"
-        );
-
-        for (browser_id, browser) in &registry.browsers {
-            // For route-specific events, check if this browser is subscribed
-            let should_send = match (&event, &browser.route) {
-                // Patches: only send to browsers viewing this route (handled by browser-side filtering)
-                // Actually, for patches we should filter here to avoid sending unnecessary data
-                (dodeca_protocol::DevtoolsEvent::Patches(_), Some(_browser_route)) => {
-                    // We send patches to all browsers - they'll filter by their current route
-                    // TODO: Could optimize by tracking route per-browser and filtering here
-                    true
-                }
-                (dodeca_protocol::DevtoolsEvent::Patches(_), None) => {
-                    // Browser hasn't subscribed yet, skip
-                    false
-                }
-                // Errors go to specific routes
-                (dodeca_protocol::DevtoolsEvent::Error(_), _) => true,
-                (dodeca_protocol::DevtoolsEvent::ErrorResolved { .. }, _) => true,
-                // Global events go to everyone
-                _ => true,
-            };
-
-            if should_send {
-                let client = browser.client.clone();
-                let event_clone = event.clone();
-                let browser_id = *browser_id;
-                tokio::spawn(async move {
-                    if let Err(e) = client.on_event(event_clone).await {
-                        tracing::debug!(browser_id, error = ?e, "Failed to send event to browser (disconnected?)");
-                        // Note: We can't unregister here because we'd need mutable access
-                        // The browser will be cleaned up when it reconnects or the connection fully closes
-                    }
-                });
+            if browser_count == 0 {
+                tracing::trace!(event = %crate::cell_server::event_summary(&event), "No browsers to notify");
+                return;
             }
-        }
+
+            tracing::debug!(
+                event = %crate::cell_server::event_summary(&event),
+                browser_count,
+                "Notifying browsers"
+            );
+
+            registry
+                .browsers
+                .iter()
+                .filter_map(|(browser_id, browser)| {
+                    // For route-specific events, check if this browser is subscribed
+                    let should_send = match (&event, &browser.route) {
+                        // Patches: only send to browsers viewing this route (handled by browser-side filtering)
+                        // Actually, for patches we should filter here to avoid sending unnecessary data
+                        (dodeca_protocol::DevtoolsEvent::Patches(_), Some(_browser_route)) => {
+                            // We send patches to all browsers - they'll filter by their current route
+                            // TODO: Could optimize by tracking route per-browser and filtering here
+                            true
+                        }
+                        (dodeca_protocol::DevtoolsEvent::Patches(_), None) => {
+                            // Browser hasn't subscribed yet, skip
+                            false
+                        }
+                        // Errors go to specific routes
+                        (dodeca_protocol::DevtoolsEvent::Error(_), _) => true,
+                        (dodeca_protocol::DevtoolsEvent::ErrorResolved { .. }, _) => true,
+                        // Global events go to everyone
+                        _ => true,
+                    };
+
+                    if should_send {
+                        Some((*browser_id, browser.client.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+
+        // Spawn notification tasks and collect failures
+        let server = Arc::clone(self);
+        tokio::spawn(async move {
+            let mut failed_ids = Vec::new();
+
+            // Send to all browsers concurrently
+            let futures: Vec<_> = to_notify
+                .into_iter()
+                .map(|(browser_id, client)| {
+                    let event_clone = event.clone();
+                    async move {
+                        let result = client.on_event(event_clone).await;
+                        (browser_id, result)
+                    }
+                })
+                .collect();
+
+            let results = futures_util::future::join_all(futures).await;
+
+            for (browser_id, result) in results {
+                if let Err(e) = result {
+                    tracing::debug!(browser_id, error = ?e, "Failed to send event to browser (disconnected?)");
+                    failed_ids.push(browser_id);
+                }
+            }
+
+            // Clean up disconnected browsers
+            for browser_id in failed_ids {
+                server.unregister_browser(browser_id);
+            }
+        });
     }
 
     pub fn begin_revision(&self, reason: impl Into<String>) -> crate::revision::RevisionToken {
@@ -564,7 +598,7 @@ impl SiteServer {
 
     /// Notify all connected browsers to reload
     /// Computes patches for all cached routes and sends them
-    pub async fn trigger_reload(&self) {
+    pub async fn trigger_reload(self: &Arc<Self>) {
         use crate::cells::diff_html_cell;
 
         // Check for CSS changes first
@@ -589,6 +623,10 @@ impl SiteServer {
                 let _ = self
                     .livereload_tx
                     .send(LiveReloadMsg::CssUpdate { path: path.clone() });
+                // Also notify via RPC
+                self.notify_browsers(dodeca_protocol::DevtoolsEvent::CssChanged {
+                    path: path.clone(),
+                });
             }
         }
 
@@ -634,6 +672,7 @@ impl SiteServer {
                 }
                 // Send full page reload since we can't patch a deleted page
                 let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
+                self.notify_browsers(dodeca_protocol::DevtoolsEvent::Reload);
                 continue;
             }
 
@@ -694,9 +733,10 @@ impl SiteServer {
                                     patch_count
                                 );
                                 let receiver_count_before = self.livereload_tx.receiver_count();
+                                let patches = diff_result.patches;
                                 let send_result = self.livereload_tx.send(LiveReloadMsg::Patches {
                                     route: route.clone(),
-                                    patches: diff_result.patches,
+                                    patches: patches.clone(),
                                 });
                                 tracing::debug!(
                                     route = %route,
@@ -704,6 +744,10 @@ impl SiteServer {
                                     receivers_notified = send_result.as_ref().map(|n| *n).unwrap_or(0),
                                     "livereload: sent Patches to broadcast channel"
                                 );
+                                // Also notify via RPC
+                                self.notify_browsers(dodeca_protocol::DevtoolsEvent::Patches(
+                                    patches,
+                                ));
                             }
                         }
                         Ok(cell_html_diff_proto::HtmlDiffResult::Error { message }) => {
@@ -714,6 +758,7 @@ impl SiteServer {
                                 message
                             );
                             let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
+                            self.notify_browsers(dodeca_protocol::DevtoolsEvent::Reload);
                         }
                         Err(e) => {
                             // Cell not available or RPC failed - fall back to full reload
@@ -723,6 +768,7 @@ impl SiteServer {
                                 e
                             );
                             let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
+                            self.notify_browsers(dodeca_protocol::DevtoolsEvent::Reload);
                         }
                     }
                 }
@@ -816,7 +862,7 @@ impl SiteServer {
     }
 
     /// Find content for a given path using lazy picante queries
-    async fn find_content(&self, path: &str) -> Option<ServeContent> {
+    async fn find_content(self: &Arc<Self>, path: &str) -> Option<ServeContent> {
         tracing::debug!(path, "find_content: called");
         let db = self.db.clone();
         let snapshot = DatabaseSnapshot::from_database(&self.db).await;
@@ -831,7 +877,7 @@ impl SiteServer {
 
     /// Inner implementation of find_content, runs within TASK_DB scope
     async fn find_content_inner(
-        &self,
+        self: &Arc<Self>,
         path: &str,
         snapshot: DatabaseSnapshot,
     ) -> Option<ServeContent> {
@@ -945,6 +991,8 @@ impl SiteServer {
                     send_result.is_ok(),
                     self.livereload_tx.receiver_count()
                 );
+                // Also notify via RPC
+                self.notify_browsers(dodeca_protocol::DevtoolsEvent::Error(error_info));
             } else {
                 // Page rendered successfully - clear any previous error
                 {
@@ -952,6 +1000,10 @@ impl SiteServer {
                     errors.remove(path);
                 }
                 let _ = self.livereload_tx.send(LiveReloadMsg::ErrorResolved {
+                    route: path.to_string(),
+                });
+                // Also notify via RPC
+                self.notify_browsers(dodeca_protocol::DevtoolsEvent::ErrorResolved {
                     route: path.to_string(),
                 });
             }
@@ -1388,7 +1440,10 @@ impl SiteServer {
     /// Find content for RPC serving (returns protocol ServeContent type)
     ///
     /// This wraps find_content and converts the result to the protocol's ServeContent.
-    pub async fn find_content_for_rpc(&self, path: &str) -> cell_http_proto::ServeContent {
+    pub async fn find_content_for_rpc(
+        self: &Arc<Self>,
+        path: &str,
+    ) -> cell_http_proto::ServeContent {
         use cell_http_proto::ServeContent as RpcServeContent;
 
         // Get current generation
