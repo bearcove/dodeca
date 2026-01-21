@@ -278,9 +278,11 @@ pub struct SiteServer {
 }
 
 /// Registry of connected browsers for direct event pushing.
+///
+/// Browsers are keyed by their roam `conn_id`, which is available in the
+/// RPC context when they call `subscribe()`.
 #[derive(Default)]
 struct BrowserRegistry {
-    next_id: u64,
     browsers: HashMap<u64, RegisteredBrowser>,
 }
 
@@ -319,36 +321,36 @@ impl SiteServer {
 
     /// Register a browser connection for receiving devtools events.
     ///
-    /// Returns a browser ID that can be used to set the route or unregister.
-    pub fn register_browser(&self, client: dodeca_protocol::BrowserServiceClient) -> u64 {
+    /// The `conn_id` is the roam connection ID, which uniquely identifies this
+    /// browser's virtual connection. It's used as the key for routing events.
+    pub fn register_browser(&self, conn_id: u64, client: dodeca_protocol::BrowserServiceClient) {
         let mut registry = self.browsers.lock().unwrap();
-        let id = registry.next_id;
-        registry.next_id += 1;
         registry.browsers.insert(
-            id,
+            conn_id,
             RegisteredBrowser {
                 route: None,
                 client,
             },
         );
-        tracing::info!(browser_id = id, "Browser registered");
-        id
+        tracing::info!(conn_id, "Browser registered");
     }
 
     /// Set the route a browser is subscribed to.
-    pub fn set_browser_route(&self, browser_id: u64, route: String) {
+    pub fn set_browser_route(&self, conn_id: u64, route: String) {
         let mut registry = self.browsers.lock().unwrap();
-        if let Some(browser) = registry.browsers.get_mut(&browser_id) {
-            tracing::debug!(browser_id, route = %route, "Browser subscribed to route");
+        if let Some(browser) = registry.browsers.get_mut(&conn_id) {
+            tracing::debug!(conn_id, route = %route, "Browser subscribed to route");
             browser.route = Some(route);
+        } else {
+            tracing::warn!(conn_id, route = %route, "set_browser_route: browser not found");
         }
     }
 
     /// Unregister a browser connection.
-    pub fn unregister_browser(&self, browser_id: u64) {
+    pub fn unregister_browser(&self, conn_id: u64) {
         let mut registry = self.browsers.lock().unwrap();
-        if registry.browsers.remove(&browser_id).is_some() {
-            tracing::info!(browser_id, "Browser unregistered");
+        if registry.browsers.remove(&conn_id).is_some() {
+            tracing::info!(conn_id, "Browser unregistered");
         }
     }
 

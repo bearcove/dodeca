@@ -338,17 +338,12 @@ impl DevtoolsService for HostDevtoolsService {
     /// This registers the browser's interest in a route. Events will be pushed
     /// via BrowserService::on_event() on the browser's virtual connection.
     ///
-    /// Note: The actual browser registration happens when the virtual connection
-    /// is accepted in `accept_browser_connections`. This method just sets the route.
-    async fn subscribe(&self, _cx: &roam::Context, route: String) {
-        tracing::info!(route = %route, "devtools: client subscribing to route");
-        // TODO: We need to associate this subscription with the browser's connection.
-        // For now, this is a placeholder - the browser is already registered when
-        // its virtual connection was accepted. We'd need the connection context here
-        // to call server.set_browser_route(browser_id, route).
-        //
-        // The current architecture doesn't pass the browser_id through.
-        // We may need to refactor to pass context or use a different pattern.
+    /// The browser was already registered when its virtual connection was accepted.
+    /// This method associates the subscription with the browser using `cx.conn_id`.
+    async fn subscribe(&self, cx: &roam::Context, route: String) {
+        let conn_id = cx.conn_id().raw();
+        tracing::info!(conn_id, route = %route, "devtools: client subscribing to route");
+        self.server.set_browser_route(conn_id, route);
     }
 
     /// Get scope entries for the current route.
@@ -774,13 +769,16 @@ pub async fn accept_browser_connections(
             }
         };
 
-        tracing::info!("Accepted browser virtual connection");
+        // Get the conn_id for this virtual connection - this is the key we'll use
+        // to look up the browser when it calls subscribe()
+        let conn_id = handle.conn_id().raw();
+        tracing::info!(conn_id, "Accepted browser virtual connection");
 
         // Create a BrowserServiceClient to call the browser
         let browser_client = BrowserServiceClient::new(handle);
 
-        // Register this browser with the server
-        server.register_browser(browser_client);
+        // Register this browser with the server using conn_id as the key
+        server.register_browser(conn_id, browser_client);
     }
 
     tracing::info!("Browser virtual connection acceptor finished");
