@@ -15,7 +15,11 @@ use cell_fonts_proto::{FontProcessor, FontProcessorDispatcher, FontResult, Subse
 pub struct FontProcessorImpl;
 
 impl FontProcessor for FontProcessorImpl {
-    async fn decompress_font(&self, data: Vec<u8>) -> FontResult {
+    async fn decompress_font(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        data: Vec<u8>,
+    ) -> FontResult {
         spawn_blocking(move || match fontcull::decompress_font(&data) {
             Ok(decompressed) => FontResult::DecompressSuccess { data: decompressed },
             Err(e) => FontResult::Error {
@@ -28,7 +32,11 @@ impl FontProcessor for FontProcessorImpl {
         })
     }
 
-    async fn subset_font(&self, input: SubsetFontInput) -> FontResult {
+    async fn subset_font(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        input: SubsetFontInput,
+    ) -> FontResult {
         spawn_blocking(move || {
             let char_set: HashSet<char> = input.chars.into_iter().collect();
 
@@ -45,7 +53,11 @@ impl FontProcessor for FontProcessorImpl {
         })
     }
 
-    async fn compress_to_woff2(&self, data: Vec<u8>) -> FontResult {
+    async fn compress_to_woff2(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        data: Vec<u8>,
+    ) -> FontResult {
         spawn_blocking(move || match fontcull::compress_to_woff2(&data) {
             Ok(woff2) => FontResult::CompressSuccess { data: woff2 },
             Err(e) => FontResult::Error {

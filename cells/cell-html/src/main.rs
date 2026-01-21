@@ -44,7 +44,11 @@ impl HtmlProcessorImpl {
 }
 
 impl HtmlProcessor for HtmlProcessorImpl {
-    async fn process(&self, input: HtmlProcessInput) -> HtmlProcessResult {
+    async fn process(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        input: HtmlProcessInput,
+    ) -> HtmlProcessResult {
         let input_has_doctype = input.html.contains("<!DOCTYPE");
 
         // Parse HTML once
@@ -141,7 +145,12 @@ impl HtmlProcessor for HtmlProcessorImpl {
         }
     }
 
-    async fn diff(&self, old_html: String, new_html: String) -> HtmlDiffResult {
+    async fn diff(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        old_html: String,
+        new_html: String,
+    ) -> HtmlDiffResult {
         tracing::debug!(
             old_len = old_html.len(),
             new_len = new_html.len(),
@@ -175,7 +184,12 @@ impl HtmlProcessor for HtmlProcessorImpl {
 
     // === Legacy methods ===
 
-    async fn rewrite_urls(&self, html: String, path_map: HashMap<String, String>) -> HtmlResult {
+    async fn rewrite_urls(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        html: String,
+        path_map: HashMap<String, String>,
+    ) -> HtmlResult {
         let input_has_doctype = html.contains("<!DOCTYPE");
         let mut doc: Html = match fhtml::from_str(&html) {
             Ok(doc) => doc,
@@ -212,7 +226,12 @@ impl HtmlProcessor for HtmlProcessorImpl {
         }
     }
 
-    async fn mark_dead_links(&self, html: String, known_routes: HashSet<String>) -> HtmlResult {
+    async fn mark_dead_links(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        html: String,
+        known_routes: HashSet<String>,
+    ) -> HtmlResult {
         let input_has_doctype = html.contains("<!DOCTYPE");
         let mut doc: Html = match fhtml::from_str(&html) {
             Ok(doc) => doc,
@@ -247,6 +266,7 @@ impl HtmlProcessor for HtmlProcessorImpl {
 
     async fn inject_code_buttons(
         &self,
+        _cx: &dodeca_cell_runtime::Context,
         html: String,
         code_metadata: HashMap<String, CodeExecutionMetadata>,
     ) -> HtmlResult {

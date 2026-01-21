@@ -134,7 +134,7 @@ impl HostCellLifecycle {
 }
 
 impl CellLifecycle for HostCellLifecycle {
-    async fn ready(&self, msg: ReadyMsg) -> ReadyAck {
+    async fn ready(&self, _cx: &roam::Context, msg: ReadyMsg) -> ReadyAck {
         let peer_id = msg.peer_id;
         let cell_name = msg.cell_name.clone();
         debug!("Cell {} (peer_id={}) is ready", cell_name, peer_id);
@@ -183,7 +183,7 @@ impl HostServiceImpl {
 
 impl HostService for HostServiceImpl {
     // Cell Lifecycle
-    async fn ready(&self, msg: ReadyMsg) -> ReadyAck {
+    async fn ready(&self, _cx: &roam::Context, msg: ReadyMsg) -> ReadyAck {
         let peer_id = msg.peer_id;
         let cell_name = msg.cell_name.clone();
         debug!("Cell {} (peer_id={}) is ready", cell_name, peer_id);
@@ -201,23 +201,39 @@ impl HostService for HostServiceImpl {
     }
 
     // Template Host
-    async fn load_template(&self, context_id: ContextId, name: String) -> LoadTemplateResult {
+    async fn load_template(
+        &self,
+        cx: &roam::Context,
+        context_id: ContextId,
+        name: String,
+    ) -> LoadTemplateResult {
         use cell_gingembre_proto::TemplateHost;
-        self.template_host.load_template(context_id, name).await
+        self.template_host.load_template(cx, context_id, name).await
     }
 
-    async fn resolve_data(&self, context_id: ContextId, path: Vec<String>) -> ResolveDataResult {
+    async fn resolve_data(
+        &self,
+        cx: &roam::Context,
+        context_id: ContextId,
+        path: Vec<String>,
+    ) -> ResolveDataResult {
         use cell_gingembre_proto::TemplateHost;
-        self.template_host.resolve_data(context_id, path).await
+        self.template_host.resolve_data(cx, context_id, path).await
     }
 
-    async fn keys_at(&self, context_id: ContextId, path: Vec<String>) -> KeysAtResult {
+    async fn keys_at(
+        &self,
+        cx: &roam::Context,
+        context_id: ContextId,
+        path: Vec<String>,
+    ) -> KeysAtResult {
         use cell_gingembre_proto::TemplateHost;
-        self.template_host.keys_at(context_id, path).await
+        self.template_host.keys_at(cx, context_id, path).await
     }
 
     async fn call_function(
         &self,
+        cx: &roam::Context,
         context_id: ContextId,
         name: String,
         args: Vec<Value>,
@@ -225,16 +241,16 @@ impl HostService for HostServiceImpl {
     ) -> CallFunctionResult {
         use cell_gingembre_proto::TemplateHost;
         self.template_host
-            .call_function(context_id, name, args, kwargs)
+            .call_function(cx, context_id, name, args, kwargs)
             .await
     }
 
     // Content Service
-    async fn find_content(&self, path: String) -> ServeContent {
+    async fn find_content(&self, cx: &roam::Context, path: String) -> ServeContent {
         if let Some(server) = &self.site_server {
             use cell_http_proto::ContentService;
             let content_service = crate::content_service::HostContentService::new(server.clone());
-            content_service.find_content(path).await
+            content_service.find_content(cx, path).await
         } else {
             ServeContent::NotFound {
                 html: "Not in serve mode".to_string(),
@@ -243,11 +259,16 @@ impl HostService for HostServiceImpl {
         }
     }
 
-    async fn get_scope(&self, route: String, path: Vec<String>) -> Vec<ScopeEntry> {
+    async fn get_scope(
+        &self,
+        cx: &roam::Context,
+        route: String,
+        path: Vec<String>,
+    ) -> Vec<ScopeEntry> {
         if let Some(server) = &self.site_server {
             use cell_http_proto::ContentService;
             let content_service = crate::content_service::HostContentService::new(server.clone());
-            content_service.get_scope(route, path).await
+            content_service.get_scope(cx, route, path).await
         } else {
             vec![]
         }
@@ -255,40 +276,41 @@ impl HostService for HostServiceImpl {
 
     async fn eval_expression(
         &self,
+        cx: &roam::Context,
         route: String,
         expression: String,
     ) -> cell_host_proto::EvalResult {
         if let Some(server) = &self.site_server {
             use cell_http_proto::ContentService;
             let content_service = crate::content_service::HostContentService::new(server.clone());
-            content_service.eval_expression(route, expression).await
+            content_service.eval_expression(cx, route, expression).await
         } else {
             cell_host_proto::EvalResult::Err("Not in serve mode".to_string())
         }
     }
 
     // WebSocket Tunnel
-    async fn open_websocket(&self, tunnel: Tunnel) {
+    async fn open_websocket(&self, cx: &roam::Context, tunnel: Tunnel) {
         if let Some(server) = &self.site_server {
             use cell_http_proto::WebSocketTunnel;
             let ws_tunnel = crate::cell_server::HostWebSocketTunnel::new(server.clone());
-            ws_tunnel.open(tunnel).await
+            ws_tunnel.open(cx, tunnel).await
         }
         // Not in serve mode - drop the tunnel
     }
 
     // TUI Commands (TUI → Host)
-    async fn send_command(&self, command: ServerCommand) -> CommandResult {
+    async fn send_command(&self, _cx: &roam::Context, command: ServerCommand) -> CommandResult {
         // Forward to Host singleton
         crate::host::Host::get().handle_tui_command(command)
     }
 
-    async fn quit(&self) {
+    async fn quit(&self, _cx: &roam::Context) {
         crate::host::Host::get().signal_exit();
     }
 
     // Vite Integration
-    async fn get_vite_port(&self) -> Option<u16> {
+    async fn get_vite_port(&self, _cx: &roam::Context) -> Option<u16> {
         crate::host::Host::get().get_vite_port()
     }
 }

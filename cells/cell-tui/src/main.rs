@@ -43,7 +43,7 @@ const FILTER_PRESETS: &[&str] = &[
     "info,hyper=warn,h2=warn,tower=warn,rustls=warn", // Info (default)
     "debug,hyper=warn,h2=warn,tower=warn,rustls=warn", // Debug
     "trace,hyper=warn,h2=warn,tower=warn,rustls=warn", // Trace
-    "warn", // Quiet (warnings only)
+    "warn",                                           // Quiet (warnings only)
 ];
 
 /// Format bytes as compact human-readable size
@@ -277,13 +277,12 @@ impl TuiApp {
         let skip = all_lines.len().saturating_sub(max_lines);
         let recent_lines: Vec<Line> = all_lines.into_iter().skip(skip).collect();
 
-        let events_widget = Paragraph::new(recent_lines)
-            .block(
-                Block::default()
-                    .title(" Activity ")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(FG_GUTTER)),
-            );
+        let events_widget = Paragraph::new(recent_lines).block(
+            Block::default()
+                .title(" Activity ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(FG_GUTTER)),
+        );
         frame.render_widget(events_widget, chunks[2]);
 
         // Footer
@@ -450,14 +449,16 @@ fn format_event(e: &LogEvent, max_width: usize) -> Vec<Line<'static>> {
 
     if e.fields.is_empty() {
         // No fields - just message
-        lines.push(Line::from(vec![
-            Span::styled(e.message.clone(), Style::default().fg(msg_color)),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            e.message.clone(),
+            Style::default().fg(msg_color),
+        )]));
     } else {
         // Message + fields with smart wrapping
-        let mut first_line_spans = vec![
-            Span::styled(e.message.clone(), Style::default().fg(msg_color)),
-        ];
+        let mut first_line_spans = vec![Span::styled(
+            e.message.clone(),
+            Style::default().fg(msg_color),
+        )];
 
         let mut current_line_len = e.message.chars().count();
         let indent = "    "; // continuation indent
@@ -490,7 +491,8 @@ fn format_event(e: &LogEvent, max_width: usize) -> Vec<Line<'static>> {
                     continuation_spans.push(Span::raw(indent.to_string()));
                     continuation_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
                     continuation_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
-                    continuation_spans.push(Span::styled(value.clone(), Style::default().fg(GREEN)));
+                    continuation_spans
+                        .push(Span::styled(value.clone(), Style::default().fg(GREEN)));
                     continuation_len = indent_len + field_len;
                 }
             } else {
@@ -500,7 +502,8 @@ fn format_event(e: &LogEvent, max_width: usize) -> Vec<Line<'static>> {
                     continuation_spans.push(Span::raw(" "));
                     continuation_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
                     continuation_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
-                    continuation_spans.push(Span::styled(value.clone(), Style::default().fg(GREEN)));
+                    continuation_spans
+                        .push(Span::styled(value.clone(), Style::default().fg(GREEN)));
                     continuation_len += total_field_len;
                 } else {
                     // Start new continuation line
@@ -508,7 +511,8 @@ fn format_event(e: &LogEvent, max_width: usize) -> Vec<Line<'static>> {
                     continuation_spans.push(Span::raw(indent.to_string()));
                     continuation_spans.push(Span::styled(key.clone(), Style::default().fg(CYAN)));
                     continuation_spans.push(Span::styled("=", Style::default().fg(FG_DARK)));
-                    continuation_spans.push(Span::styled(value.clone(), Style::default().fg(GREEN)));
+                    continuation_spans
+                        .push(Span::styled(value.clone(), Style::default().fg(GREEN)));
                     continuation_len = indent_len + field_len;
                 }
             }
@@ -565,15 +569,15 @@ struct TuiDisplayImpl {
 }
 
 impl TuiDisplay for TuiDisplayImpl {
-    async fn update_progress(&self, progress: BuildProgress) {
+    async fn update_progress(&self, _cx: &dodeca_cell_runtime::Context, progress: BuildProgress) {
         let _ = self.progress_tx.send(progress);
     }
 
-    async fn push_event(&self, event: LogEvent) {
+    async fn push_event(&self, _cx: &dodeca_cell_runtime::Context, event: LogEvent) {
         let _ = self.event_tx.send(event);
     }
 
-    async fn update_status(&self, status: ServerStatus) {
+    async fn update_status(&self, _cx: &dodeca_cell_runtime::Context, status: ServerStatus) {
         let _ = self.status_tx.send(status);
     }
 }

@@ -18,7 +18,11 @@ use cell_js_proto::{JsProcessor, JsProcessorDispatcher, JsRewriteInput};
 pub struct JsProcessorImpl;
 
 impl JsProcessor for JsProcessorImpl {
-    async fn rewrite_string_literals(&self, input: JsRewriteInput) -> Result<String, String> {
+    async fn rewrite_string_literals(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        input: JsRewriteInput,
+    ) -> Result<String, String> {
         let js = &input.js;
         let path_map = &input.path_map;
 

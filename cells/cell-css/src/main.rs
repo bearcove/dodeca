@@ -14,6 +14,7 @@ pub struct CssProcessorImpl;
 impl CssProcessor for CssProcessorImpl {
     async fn rewrite_and_minify(
         &self,
+        _cx: &dodeca_cell_runtime::Context,
         css: String,
         path_map: std::collections::HashMap<String, String>,
     ) -> cell_css_proto::CssResult {
@@ -76,5 +77,7 @@ impl<'i, 'a> lightningcss::visitor::Visitor<'i> for UrlRewriter<'a> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("css", |_handle| CssProcessorDispatcher::new(CssProcessorImpl))
+    run_cell!("css", |_handle| CssProcessorDispatcher::new(
+        CssProcessorImpl
+    ))
 }

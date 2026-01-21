@@ -21,7 +21,11 @@ pub use dodeca_protocol::{NodePath, Patch};
 pub struct HtmlDifferImpl;
 
 impl HtmlDiffer for HtmlDifferImpl {
-    async fn diff_html(&self, input: DiffInput) -> HtmlDiffResult {
+    async fn diff_html(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        input: DiffInput,
+    ) -> HtmlDiffResult {
         tracing::debug!(
             old_len = input.old_html.len(),
             new_len = input.new_html.len(),

@@ -10,7 +10,7 @@ use dodeca_cell_runtime::run_cell;
 pub struct MinifierImpl;
 
 impl Minifier for MinifierImpl {
-    async fn minify_html(&self, html: String) -> MinifyResult {
+    async fn minify_html(&self, _cx: &dodeca_cell_runtime::Context, html: String) -> MinifyResult {
         // TODO: Use facet-html for minification instead
         // For now, just return the input unchanged (no-op)
         MinifyResult::Success { content: html }

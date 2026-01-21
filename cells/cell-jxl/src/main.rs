@@ -12,7 +12,7 @@ use cell_jxl_proto::{JXLEncodeInput, JXLProcessor, JXLProcessorDispatcher, JXLRe
 pub struct JXLProcessorImpl;
 
 impl JXLProcessor for JXLProcessorImpl {
-    async fn decode_jxl(&self, data: Vec<u8>) -> JXLResult {
+    async fn decode_jxl(&self, _cx: &dodeca_cell_runtime::Context, data: Vec<u8>) -> JXLResult {
         let decoder = match jpegxl_rs::decoder_builder().build() {
             Ok(d) => d,
             Err(e) => {
@@ -40,7 +40,11 @@ impl JXLProcessor for JXLProcessorImpl {
         }
     }
 
-    async fn encode_jxl(&self, input: JXLEncodeInput) -> JXLResult {
+    async fn encode_jxl(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        input: JXLEncodeInput,
+    ) -> JXLResult {
         if input.pixels.len() != (input.width * input.height * 4) as usize {
             return JXLResult::Error {
                 message: format!(
@@ -89,5 +93,7 @@ impl JXLProcessor for JXLProcessorImpl {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("jxl", |_handle| JXLProcessorDispatcher::new(JXLProcessorImpl))
+    run_cell!("jxl", |_handle| JXLProcessorDispatcher::new(
+        JXLProcessorImpl
+    ))
 }

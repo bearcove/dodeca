@@ -11,7 +11,12 @@ use dodeca_cell_runtime::run_cell;
 pub struct DialoguerImpl;
 
 impl Dialoguer for DialoguerImpl {
-    async fn select(&self, prompt: String, items: Vec<String>) -> SelectResult {
+    async fn select(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        prompt: String,
+        items: Vec<String>,
+    ) -> SelectResult {
         // Run the blocking dialoguer call in a blocking task
         let result = tokio::task::spawn_blocking(move || {
             Select::with_theme(&ColorfulTheme::default())
@@ -29,7 +34,12 @@ impl Dialoguer for DialoguerImpl {
         }
     }
 
-    async fn confirm(&self, prompt: String, default: bool) -> ConfirmResult {
+    async fn confirm(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        prompt: String,
+        default: bool,
+    ) -> ConfirmResult {
         let result = tokio::task::spawn_blocking(move || {
             Confirm::with_theme(&ColorfulTheme::default())
                 .with_prompt(&prompt)
@@ -48,5 +58,7 @@ impl Dialoguer for DialoguerImpl {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("dialoguer", |_handle| DialoguerDispatcher::new(DialoguerImpl))
+    run_cell!("dialoguer", |_handle| DialoguerDispatcher::new(
+        DialoguerImpl
+    ))
 }

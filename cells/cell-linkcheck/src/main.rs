@@ -149,7 +149,11 @@ impl LinkCheckerImpl {
 }
 
 impl LinkChecker for LinkCheckerImpl {
-    async fn check_links(&self, input: LinkCheckInput) -> LinkCheckResult {
+    async fn check_links(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        input: LinkCheckInput,
+    ) -> LinkCheckResult {
         let mut results: HashMap<String, LinkStatus> = HashMap::new();
         let mut last_request_per_domain: HashMap<String, tokio::time::Instant> = HashMap::new();
         let delay = Duration::from_millis(input.delay_ms);

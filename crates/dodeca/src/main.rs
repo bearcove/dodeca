@@ -3359,7 +3359,7 @@ async fn serve_static(
     }
 
     impl ContentService for StaticContentService {
-        async fn find_content(&self, path: String) -> ServeContent {
+        async fn find_content(&self, _cx: &roam::Context, path: String) -> ServeContent {
             // Normalize path - remove leading slash
             let path = path.trim_start_matches('/');
 
@@ -3421,6 +3421,7 @@ async fn serve_static(
 
         async fn get_scope(
             &self,
+            _cx: &roam::Context,
             _route: String,
             _path: Vec<String>,
         ) -> Vec<cell_http_proto::ScopeEntry> {
@@ -3429,6 +3430,7 @@ async fn serve_static(
 
         async fn eval_expression(
             &self,
+            _cx: &roam::Context,
             _route: String,
             _expression: String,
         ) -> cell_http_proto::EvalResult {

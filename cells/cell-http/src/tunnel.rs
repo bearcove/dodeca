@@ -29,7 +29,7 @@ impl TcpTunnelImpl {
 }
 
 impl TcpTunnel for TcpTunnelImpl {
-    async fn open(&self, tunnel: Tunnel) {
+    async fn open(&self, _cx: &dodeca_cell_runtime::Context, tunnel: Tunnel) {
         let channel_id = tunnel.tx.channel_id();
         tracing::trace!(channel_id, "HTTP tunnel opened");
 

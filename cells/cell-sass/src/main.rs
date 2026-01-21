@@ -14,7 +14,11 @@ use cell_sass_proto::{SassCompiler, SassCompilerDispatcher, SassInput, SassResul
 pub struct SassCompilerImpl;
 
 impl SassCompiler for SassCompilerImpl {
-    async fn compile_sass(&self, input: SassInput) -> SassResult {
+    async fn compile_sass(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        input: SassInput,
+    ) -> SassResult {
         let files = input.files;
 
         // Find main.scss
@@ -79,5 +83,7 @@ impl grass::Fs for InMemorySassFs {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("sass", |_handle| SassCompilerDispatcher::new(SassCompilerImpl))
+    run_cell!("sass", |_handle| SassCompilerDispatcher::new(
+        SassCompilerImpl
+    ))
 }

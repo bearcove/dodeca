@@ -16,19 +16,23 @@ use dodeca_cell_runtime::run_cell;
 pub struct ImageProcessorImpl;
 
 impl ImageProcessor for ImageProcessorImpl {
-    async fn decode_png(&self, data: Vec<u8>) -> ImageResult {
+    async fn decode_png(&self, _cx: &dodeca_cell_runtime::Context, data: Vec<u8>) -> ImageResult {
         decode_format(&data, image::ImageFormat::Png)
     }
 
-    async fn decode_jpeg(&self, data: Vec<u8>) -> ImageResult {
+    async fn decode_jpeg(&self, _cx: &dodeca_cell_runtime::Context, data: Vec<u8>) -> ImageResult {
         decode_format(&data, image::ImageFormat::Jpeg)
     }
 
-    async fn decode_gif(&self, data: Vec<u8>) -> ImageResult {
+    async fn decode_gif(&self, _cx: &dodeca_cell_runtime::Context, data: Vec<u8>) -> ImageResult {
         decode_format(&data, image::ImageFormat::Gif)
     }
 
-    async fn resize_image(&self, input: ResizeInput) -> ImageResult {
+    async fn resize_image(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        input: ResizeInput,
+    ) -> ImageResult {
         let img =
             match pixels_to_dynamic_image(&input.pixels, input.width, input.height, input.channels)
             {
@@ -61,7 +65,11 @@ impl ImageProcessor for ImageProcessorImpl {
         }
     }
 
-    async fn generate_thumbhash_data_url(&self, input: ThumbhashInput) -> ImageResult {
+    async fn generate_thumbhash_data_url(
+        &self,
+        _cx: &dodeca_cell_runtime::Context,
+        input: ThumbhashInput,
+    ) -> ImageResult {
         let img = match pixels_to_dynamic_image(&input.pixels, input.width, input.height, 4) {
             Some(img) => img,
             None => {
@@ -171,5 +179,7 @@ fn pixels_to_dynamic_image(
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("image", |_handle| ImageProcessorDispatcher::new(ImageProcessorImpl))
+    run_cell!("image", |_handle| ImageProcessorDispatcher::new(
+        ImageProcessorImpl
+    ))
 }

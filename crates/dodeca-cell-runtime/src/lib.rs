@@ -7,6 +7,8 @@
 
 pub use cell_host_proto::{HostServiceClient, ReadyMsg};
 pub use dodeca_debug;
+pub use roam;
+pub use roam::Context;
 pub use roam::session::diagnostic::{
     DiagnosticState, dump_all_diagnostics, register_diagnostic_state,
 };

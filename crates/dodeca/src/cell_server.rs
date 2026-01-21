@@ -60,7 +60,7 @@ impl HostWebSocketTunnel {
 }
 
 impl WebSocketTunnel for HostWebSocketTunnel {
-    async fn open(&self, tunnel: Tunnel) {
+    async fn open(&self, _cx: &roam::Context, tunnel: Tunnel) {
         let channel_id = tunnel.tx.channel_id();
         tracing::debug!(channel_id, "DevTools WebSocket tunnel opened on host");
 
@@ -340,7 +340,7 @@ impl DevtoolsService for HostDevtoolsService {
     ///
     /// Note: The actual browser registration happens when the virtual connection
     /// is accepted in `accept_browser_connections`. This method just sets the route.
-    async fn subscribe(&self, route: String) {
+    async fn subscribe(&self, _cx: &roam::Context, route: String) {
         tracing::info!(route = %route, "devtools: client subscribing to route");
         // TODO: We need to associate this subscription with the browser's connection.
         // For now, this is a placeholder - the browser is already registered when
@@ -352,7 +352,7 @@ impl DevtoolsService for HostDevtoolsService {
     }
 
     /// Get scope entries for the current route.
-    async fn get_scope(&self, path: Option<Vec<String>>) -> Vec<ScopeEntry> {
+    async fn get_scope(&self, _cx: &roam::Context, path: Option<Vec<String>>) -> Vec<ScopeEntry> {
         // Use "/" as default route - the client should call subscribe() first
         // to establish which route they're viewing
         let path = path.unwrap_or_default();
@@ -360,7 +360,12 @@ impl DevtoolsService for HostDevtoolsService {
     }
 
     /// Evaluate an expression in a snapshot's context.
-    async fn eval(&self, snapshot_id: String, expression: String) -> EvalResult {
+    async fn eval(
+        &self,
+        _cx: &roam::Context,
+        snapshot_id: String,
+        expression: String,
+    ) -> EvalResult {
         match self
             .server
             .eval_expression_for_route(&snapshot_id, &expression)
@@ -372,7 +377,7 @@ impl DevtoolsService for HostDevtoolsService {
     }
 
     /// Dismiss an error notification.
-    async fn dismiss_error(&self, route: String) {
+    async fn dismiss_error(&self, _cx: &roam::Context, route: String) {
         tracing::debug!(route = %route, "Client dismissed error via RPC");
         // The existing implementation just logs this - errors are resolved
         // when the template successfully re-renders

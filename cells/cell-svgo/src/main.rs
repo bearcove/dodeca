@@ -10,7 +10,7 @@ use dodeca_cell_runtime::run_cell;
 pub struct SvgoOptimizerImpl;
 
 impl SvgoOptimizer for SvgoOptimizerImpl {
-    async fn optimize_svg(&self, svg: String) -> SvgoResult {
+    async fn optimize_svg(&self, _cx: &dodeca_cell_runtime::Context, svg: String) -> SvgoResult {
         match svag::minify(&svg) {
             Ok(optimized) => SvgoResult::Success { svg: optimized },
             Err(e) => SvgoResult::Error {
@@ -21,5 +21,7 @@ impl SvgoOptimizer for SvgoOptimizerImpl {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    run_cell!("svgo", |_handle| SvgoOptimizerDispatcher::new(SvgoOptimizerImpl))
+    run_cell!("svgo", |_handle| SvgoOptimizerDispatcher::new(
+        SvgoOptimizerImpl
+    ))
 }
