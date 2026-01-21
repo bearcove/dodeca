@@ -84,6 +84,22 @@ fn add_attribute() {
 }
 
 #[test]
+fn remove_attribute() {
+    assert_roundtrip(
+        r#"<html><body><div id="main">Content</div></body></html>"#,
+        r#"<html><body><div>Content</div></body></html>"#,
+    );
+}
+
+#[test]
+fn remove_attribute_and_change_text() {
+    assert_roundtrip(
+        r#"<html><body><div id="a"><p class="a">A</p></div></body></html>"#,
+        r#"<html><body><div><p>a</p></div></body></html>"#,
+    );
+}
+
+#[test]
 fn identical_documents() {
     let html = r#"<html><body><p>Same content</p></body></html>"#;
     assert_roundtrip(html, html);

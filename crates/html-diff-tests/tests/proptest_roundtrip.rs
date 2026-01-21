@@ -192,6 +192,7 @@ proptest! {
         node_a in arb_node(1),
         node_b in arb_node(1)
     ) {
+        facet_testhelpers::setup();
         let old_html = node_a.to_full_html();
         let new_html = node_b.to_full_html();
 
