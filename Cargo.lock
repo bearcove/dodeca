@@ -1888,6 +1888,8 @@ dependencies = [
 name = "cinereus"
 version = "0.42.0"
 dependencies = [
+ "facet-core",
+ "facet-pretty",
  "indextree",
  "rapidhash 1.4.0",
  "rayon",
@@ -3034,6 +3036,7 @@ name = "facet-diff-core"
 version = "0.42.0"
 dependencies = [
  "confusables",
+ "facet",
  "facet-core",
  "facet-pretty",
  "facet-reflect",
@@ -3234,7 +3237,6 @@ dependencies = [
 [[package]]
 name = "facet-testhelpers"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#31ba932598994be5625ef5a01f9140e46d9b2d61"
 dependencies = [
  "color-backtrace",
  "facet-testhelpers-macros",
@@ -3246,7 +3248,6 @@ dependencies = [
 [[package]]
 name = "facet-testhelpers-macros"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#31ba932598994be5625ef5a01f9140e46d9b2d61"
 dependencies = [
  "quote",
  "unsynn",

@@ -168,6 +168,7 @@ facet-macro-types = { path = "../facet/facet-macro-types" }
 facet-macros = { path = "../facet/facet-macros" }
 facet-macros-impl = { path = "../facet/facet-macros-impl" }
 facet-postcard = { path = "../facet/facet-postcard" }
+facet-testhelpers = { path = "../facet/facet-testhelpers" }
 facet-pretty = { path = "../facet/facet-pretty" }
 facet-reflect = { path = "../facet/facet-reflect" }
 facet-solver = { path = "../facet/facet-solver" }
@@ -194,6 +195,7 @@ facet-macro-types = { path = "../facet/facet-macro-types" }
 facet-macros = { path = "../facet/facet-macros" }
 facet-macros-impl = { path = "../facet/facet-macros-impl" }
 facet-postcard = { path = "../facet/facet-postcard" }
+facet-testhelpers = { path = "../facet/facet-testhelpers" }
 facet-pretty = { path = "../facet/facet-pretty" }
 facet-reflect = { path = "../facet/facet-reflect" }
 facet-solver = { path = "../facet/facet-solver" }

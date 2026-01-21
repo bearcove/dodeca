@@ -154,3 +154,21 @@ fn remove_text_and_modify_sibling() {
         r#"<html><body><div><p>a</p></div></body></html>"#,
     );
 }
+
+// Proptest failure case 3: Wrap content in div - produces empty patches!
+#[test]
+fn wrap_in_div() {
+    assert_roundtrip(
+        r#"<html><body><p>A</p></body></html>"#,
+        r#"<html><body><div><p>a</p><p>A</p></div></body></html>"#,
+    );
+}
+
+// Proptest failure case 4: Attribute swap - remove one attr, add another
+#[test]
+fn attribute_swap() {
+    assert_roundtrip(
+        r#"<html><body><div id="a"></div></body></html>"#,
+        r#"<html><body><div class="a"></div></body></html>"#,
+    );
+}
