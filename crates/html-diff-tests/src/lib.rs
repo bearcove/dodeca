@@ -23,12 +23,9 @@ pub fn diff_html(old_html: &str, new_html: &str) -> Result<Vec<Patch>, String> {
     Ok(translate_to_patches(&edit_ops, &new_doc))
 }
 
-/// Diff with debug output of raw edit ops.
-pub fn diff_html_debug(
-    old_html: &str,
-    new_html: &str,
-    print_ops: bool,
-) -> Result<Vec<Patch>, String> {
+/// Diff with debug tracing of raw edit ops.
+#[cfg(feature = "tracing")]
+pub fn diff_html_debug(old_html: &str, new_html: &str) -> Result<Vec<Patch>, String> {
     let old_doc: Html =
         facet_html::from_str(old_html).map_err(|e| format!("Failed to parse old HTML: {e}"))?;
     let new_doc: Html =
@@ -36,194 +33,57 @@ pub fn diff_html_debug(
 
     let edit_ops = tree_diff(&old_doc, &new_doc);
 
-    if print_ops {
-        println!("=== Edit ops from facet-diff ({} total) ===", edit_ops.len());
-        for op in &edit_ops {
-            println!("  {op:?}");
-        }
-        println!("=== End edit ops ===");
+    tracing::info!(count = edit_ops.len(), "Edit ops from facet-diff");
+    for op in &edit_ops {
+        tracing::info!(?op, "edit op");
     }
 
-    Ok(translate_to_patches(&edit_ops, &new_doc))
+    let patches = translate_to_patches(&edit_ops, &new_doc);
+
+    tracing::info!(count = patches.len(), "Translated patches");
+    for patch in &patches {
+        tracing::info!(?patch, "patch");
+    }
+
+    Ok(patches)
+}
+
+/// Diff with debug tracing of raw edit ops.
+#[cfg(not(feature = "tracing"))]
+pub fn diff_html_debug(old_html: &str, new_html: &str) -> Result<Vec<Patch>, String> {
+    diff_html(old_html, new_html)
 }
 
 /// Translate facet-diff EditOps into DOM Patches.
 ///
-/// Strategy:
-/// 1. Find Insert+Delete pairs at "children" paths -> ReplaceInnerHtml for parent
-/// 2. Body-level replacement only if NO specific leaf operations exist
-/// 3. Process remaining ops normally
+/// Simple approach: translate each op directly. Update ops for non-leaf paths
+/// (elements, containers) are skipped as they just bubble up from leaf changes.
 pub fn translate_to_patches(edit_ops: &[EditOp], new_doc: &Html) -> Vec<Patch> {
-    // Find all Insert+Delete pairs at paths ending in "children"
-    // These need ReplaceInnerHtml for the parent element
-    let mut children_replacements: Vec<Vec<PathSegment>> = Vec::new();
+    let mut patches = Vec::new();
+
     for op in edit_ops {
-        if let EditOp::Insert { path, .. } = op {
-            if let Some(PathSegment::Field(name)) = path.0.last() {
-                if name == "children" {
-                    // Check if there's a corresponding Delete
-                    let has_delete = edit_ops.iter().any(|op2| {
-                        if let EditOp::Delete { path: del_path, .. } = op2 {
-                            del_path.0 == path.0
-                        } else {
-                            false
-                        }
-                    });
-                    if has_delete {
-                        children_replacements.push(path.0.clone());
-                    }
-                }
-            }
+        if let Some(patch) = translate_op(op, new_doc) {
+            patches.push(patch);
         }
     }
 
-    // Body-level replacement paths
-    let body_path = vec![PathSegment::Field("body".into())];
-    let body_children_path = vec![
-        PathSegment::Field("body".into()),
-        PathSegment::Field("children".into()),
-    ];
+    deduplicate_patches(patches)
+}
 
-    // If we have children replacements at non-body level, handle those
-    let non_body_children_replacements: Vec<_> = children_replacements
+/// Remove redundant patches.
+fn deduplicate_patches(patches: Vec<Patch>) -> Vec<Patch> {
+    use std::collections::HashSet;
+
+    // Collect paths where we're replacing inner HTML
+    let replace_inner_paths: HashSet<Vec<usize>> = patches
         .iter()
-        .filter(|p| **p != body_children_path)
-        .cloned()
-        .collect();
-
-    if !non_body_children_replacements.is_empty() {
-        let mut patches = Vec::new();
-
-        // Emit ReplaceInnerHtml for each children replacement
-        for path in &non_body_children_replacements {
-            // Path to parent element (without "children")
-            let parent_path = &path[..path.len() - 1];
-            let dom_path = to_dom_path(parent_path);
-
-            // Get the new children HTML
-            let peek = facet::Peek::new(new_doc);
-            if let Some(parent_peek) = navigate_peek(peek, parent_path) {
-                if let Ok(s) = parent_peek.into_struct() {
-                    if let Ok(children) = s.field_by_name("children") {
-                        if let Ok(list) = children.into_list() {
-                            let mut children_html = String::new();
-                            for child in list.iter() {
-                                if let Some(html) = serialize_to_html(child) {
-                                    children_html.push_str(&html);
-                                }
-                            }
-                            patches.push(Patch::ReplaceInnerHtml {
-                                path: NodePath(dom_path),
-                                html: children_html,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        // Process remaining ops that aren't dominated by the replacements
-        for op in edit_ops {
-            // Skip Insert/Delete on paths we're replacing
-            let dominated = match op {
-                EditOp::Insert { path, .. } | EditOp::Delete { path, .. } => {
-                    non_body_children_replacements.iter().any(|rp| {
-                        // Skip if path starts with a replacement path
-                        path.0.starts_with(rp) || *rp == path.0
-                    })
-                }
-                _ => false,
-            };
-            if !dominated {
-                if let Some(patch) = translate_op(op, new_doc) {
-                    patches.push(patch);
-                }
-            }
-        }
-
-        return deduplicate_attr_patches(patches);
-    }
-
-    // Body-level replacement: if body Insert+Delete exists, use ReplaceInnerHtml
-    // This handles cases where the body structure changed significantly
-    let body_insert_delete = edit_ops.iter().any(|op| {
-        if let EditOp::Insert { path, .. } = op {
-            path.0 == body_path || path.0 == body_children_path
-        } else {
-            false
-        }
-    }) && edit_ops.iter().any(|op| {
-        if let EditOp::Delete { path, .. } = op {
-            path.0 == body_path || path.0 == body_children_path
-        } else {
-            false
-        }
-    });
-
-    if body_insert_delete {
-        if let Some(body) = &new_doc.body {
-            let mut children_html = String::new();
-            for child in &body.children {
-                let child_peek = facet::Peek::new(child);
-                let mut serializer = html::HtmlSerializer::new();
-                let _ = facet_dom::serialize(&mut serializer, child_peek);
-                if let Ok(html) = String::from_utf8(serializer.finish()) {
-                    children_html.push_str(&html);
-                }
-            }
-            return vec![Patch::ReplaceInnerHtml {
-                path: NodePath(vec![]),
-                html: children_html,
-            }];
-        }
-    }
-
-    // Standard processing for all other cases
-    // First, collect all element Insert paths so we can skip dominated operations
-    let element_inserts: Vec<&[PathSegment]> = edit_ops
-        .iter()
-        .filter_map(|op| {
-            if let EditOp::Insert { path, .. } = op {
-                // Check if this is an element insert (ends with Index after children)
-                if path_target(&path.0) == PathTarget::Element {
-                    return Some(path.0.as_slice());
-                }
-            }
-            None
+        .filter_map(|p| match p {
+            Patch::ReplaceInnerHtml { path, .. } => Some(path.0.clone()),
+            _ => None,
         })
         .collect();
 
-    let mut patches = Vec::new();
-    for op in edit_ops {
-        // Skip if this operation is dominated by an element insert
-        let dominated = match op {
-            EditOp::Insert { path, .. }
-            | EditOp::Delete { path, .. }
-            | EditOp::Update { path, .. } => {
-                // Skip if this is a descendant of an element insert (or attribute/text within it)
-                element_inserts.iter().any(|insert_path| {
-                    // This path is dominated if it starts with insert_path and is deeper
-                    path.0.len() > insert_path.len() && path.0.starts_with(insert_path)
-                })
-            }
-            _ => false,
-        };
-
-        if !dominated {
-            if let Some(patch) = translate_op(op, new_doc) {
-                patches.push(patch);
-            }
-        }
-    }
-    deduplicate_attr_patches(patches)
-}
-
-/// Remove redundant attribute patches.
-fn deduplicate_attr_patches(mut patches: Vec<Patch>) -> Vec<Patch> {
-    use std::collections::HashSet;
-
-    // If we have SetAttribute for (path, name), remove any RemoveAttribute for the same (path, name).
-    // This happens because facet-diff emits Delete for old value and Insert/Update for new value.
+    // Collect SetAttribute paths to filter RemoveAttribute
     let set_attrs: HashSet<(Vec<usize>, String)> = patches
         .iter()
         .filter_map(|p| match p {
@@ -232,23 +92,69 @@ fn deduplicate_attr_patches(mut patches: Vec<Patch>) -> Vec<Patch> {
         })
         .collect();
 
-    patches.retain(|p| match p {
-        Patch::RemoveAttribute { path, name } => !set_attrs.contains(&(path.0.clone(), name.clone())),
-        _ => true,
-    });
-
     patches
+        .into_iter()
+        .filter(|p| {
+            // If we have SetAttribute, remove corresponding RemoveAttribute
+            if let Patch::RemoveAttribute { path, name } = p {
+                if set_attrs.contains(&(path.0.clone(), name.clone())) {
+                    return false;
+                }
+            }
+
+            // If we're replacing inner HTML at path X, skip child operations
+            let child_path = match p {
+                Patch::InsertBefore { path, .. }
+                | Patch::AppendChild { path, .. }
+                | Patch::Remove { path }
+                | Patch::Move { to: path, .. } => Some(&path.0),
+                _ => None,
+            };
+
+            if let Some(child) = child_path {
+                for parent in &replace_inner_paths {
+                    // Check if child is a descendant of parent (starts with parent's path)
+                    if child.len() > parent.len() && child.starts_with(parent) {
+                        return false;
+                    }
+                    // Also skip if it's a direct child (same length + 1)
+                    if child.len() == parent.len() + 1 && child[..parent.len()] == parent[..] {
+                        return false;
+                    }
+                    // Skip if it's at the same level but parent path is empty (body level)
+                    if parent.is_empty() && !child.is_empty() {
+                        return false;
+                    }
+                }
+            }
+
+            true
+        })
+        .collect()
 }
 
 /// Translate a single EditOp to a DOM Patch.
 fn translate_op(op: &EditOp, new_doc: &Html) -> Option<Patch> {
+    debug!("translate_op: op={op:?}");
     match op {
         EditOp::Insert { path, .. } => translate_insert(&path.0, new_doc),
         EditOp::Delete { path, .. } => translate_delete(&path.0),
         EditOp::Update { path, .. } => translate_update(&path.0, new_doc),
-        EditOp::Move { .. } => {
-            // Move = Delete + Insert, facet-diff should emit those separately
-            None
+        EditOp::Move {
+            old_path,
+            new_path,
+            ..
+        } => {
+            // Only translate element moves, not internal structure moves (attrs, text, etc.)
+            if path_target(&old_path.0) != PathTarget::Element {
+                return None;
+            }
+            let from = to_dom_path(&old_path.0);
+            let to = to_dom_path(&new_path.0);
+            Some(Patch::Move {
+                from: NodePath(from),
+                to: NodePath(to),
+            })
         }
         #[allow(unreachable_patterns)]
         _ => None,
@@ -362,8 +268,7 @@ fn translate_insert(segments: &[PathSegment], new_doc: &Html) -> Option<Patch> {
     let target = path_target(segments);
     let dom_path = to_dom_path(segments);
 
-    debug!("translate_insert: segments={segments:?}");
-    debug!("  dom_path={dom_path:?}, target={target:?}");
+    debug!("translate_insert: segments={segments:?}, dom_path={dom_path:?}, target={target:?}");
 
     match target {
         PathTarget::Element => {
@@ -412,114 +317,61 @@ fn translate_insert(segments: &[PathSegment], new_doc: &Html) -> Option<Patch> {
             })
         }
         PathTarget::Other => {
-            // Check if this is an insert on a "children" field
+            // Check if this is an Insert at a "children" field - replace inner HTML of parent
             if let Some(PathSegment::Field(name)) = segments.last() {
                 if name == "children" {
-                    // Try to get text content first
-                    if let Some(text) = try_get_element_text(new_doc, segments) {
-                        return Some(Patch::SetText {
-                            path: NodePath(dom_path),
-                            text,
-                        });
-                    }
-                    // Otherwise try to get element content (Replace the whole body contents)
-                    if let Some(html) = try_get_element_html(new_doc, segments) {
-                        return Some(Patch::Replace {
-                            path: NodePath(dom_path.iter().chain(std::iter::once(&0)).copied().collect()),
-                            html,
-                        });
+                    debug!("handling children insert");
+                    // Get the parent element's children and serialize them
+                    let parent_segments = &segments[..segments.len() - 1];
+                    debug!("parent_segments={parent_segments:?}");
+                    let peek = facet::Peek::new(new_doc);
+                    if let Some(parent_peek) = navigate_peek(peek, parent_segments) {
+                        debug!("navigated to parent, shape={:?}", parent_peek.shape());
+                        // Handle Option<Body> or similar by unwrapping
+                        let struct_peek = if let Ok(opt) = parent_peek.into_option() {
+                            opt.value()
+                        } else {
+                            let peek2 = facet::Peek::new(new_doc);
+                            navigate_peek(peek2, parent_segments)
+                        };
+                        if let Some(struct_peek) = struct_peek {
+                            if let Ok(s) = struct_peek.into_struct() {
+                                debug!("parent is struct");
+                                if let Ok(children) = s.field_by_name("children") {
+                                    debug!("got children field, shape={:?}", children.shape());
+                                    if let Ok(list) = children.into_list() {
+                                        debug!("children is list with {} items", list.len());
+                                        let mut children_html = String::new();
+                                        for child in list.iter() {
+                                            if let Some(html) = serialize_to_html(child) {
+                                                children_html.push_str(&html);
+                                            }
+                                        }
+                                        debug!("serialized children_html={children_html:?}");
+                                        return Some(Patch::ReplaceInnerHtml {
+                                            path: NodePath(dom_path),
+                                            html: children_html,
+                                        });
+                                    } else {
+                                        debug!("children is NOT a list");
+                                    }
+                                } else {
+                                    debug!("no children field in struct");
+                                }
+                            } else {
+                                debug!("unwrapped parent is NOT a struct");
+                            }
+                        } else {
+                            debug!("parent Option is None or couldn't unwrap");
+                        }
+                    } else {
+                        debug!("failed to navigate to parent");
                     }
                 }
             }
             None
         }
     }
-}
-
-/// Try to get text content from an element's children.
-fn try_get_element_text(doc: &Html, segments: &[PathSegment]) -> Option<String> {
-    // Navigate to the element (path without the final "children")
-    let elem_segments = if segments.last() == Some(&PathSegment::Field("children".into())) {
-        &segments[..segments.len() - 1]
-    } else {
-        return None;
-    };
-
-    let peek = facet::Peek::new(doc);
-    let elem_peek = navigate_peek(peek, elem_segments)?;
-
-    // The element might be wrapped in Option (e.g., body field)
-    let elem_struct = if let Ok(s) = elem_peek.into_struct() {
-        s
-    } else {
-        // Try unwrapping Option first
-        let peek2 = facet::Peek::new(doc);
-        let elem_peek2 = navigate_peek(peek2, elem_segments)?;
-        if let Ok(opt) = elem_peek2.into_option() {
-            opt.value()?.into_struct().ok()?
-        } else {
-            return None;
-        }
-    };
-
-    // Try to get the children field and check for text content
-    if let Ok(children) = elem_struct.field_by_name("children") {
-        if let Ok(list) = children.into_list() {
-            // Check if first child is text
-            if let Some(first) = list.get(0) {
-                // Text variants are either FlowContent::Text or PhrasingContent::Text
-                if let Ok(e) = first.into_enum() {
-                    if e.variant_name_active() == Ok("Text") {
-                        if let Ok(Some(field)) = e.field(0) {
-                            if let Some(s) = field.as_str() {
-                                return Some(s.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    None
-}
-
-/// Try to get HTML for an element's first child (for replacing content).
-fn try_get_element_html(doc: &Html, segments: &[PathSegment]) -> Option<String> {
-    // Navigate to the element (path without the final "children")
-    let elem_segments = if segments.last() == Some(&PathSegment::Field("children".into())) {
-        &segments[..segments.len() - 1]
-    } else {
-        return None;
-    };
-
-    let peek = facet::Peek::new(doc);
-    let elem_peek = navigate_peek(peek, elem_segments)?;
-
-    // The element might be wrapped in Option (e.g., body field)
-    let elem_struct = if let Ok(s) = elem_peek.into_struct() {
-        s
-    } else {
-        let peek2 = facet::Peek::new(doc);
-        let elem_peek2 = navigate_peek(peek2, elem_segments)?;
-        if let Ok(opt) = elem_peek2.into_option() {
-            opt.value()?.into_struct().ok()?
-        } else {
-            return None;
-        }
-    };
-
-    // Get the children field and serialize the first child
-    if let Ok(children) = elem_struct.field_by_name("children") {
-        if let Ok(list) = children.into_list() {
-            if let Some(first) = list.get(0) {
-                // Serialize this child element to HTML
-                return serialize_to_html(first);
-            }
-        }
-    }
-
-    None
 }
 
 /// Translate a Delete operation.
@@ -555,13 +407,6 @@ fn translate_delete(segments: &[PathSegment]) -> Option<Patch> {
 }
 
 /// Translate an Update operation.
-///
-/// Update operations bubble up the tree - we only emit patches for leaf changes:
-/// - Text content changed -> SetText
-/// - Attribute changed -> SetAttribute
-///
-/// Element structural updates are NOT translated here because the actual changes
-/// are represented by Insert/Delete operations at the leaf level.
 fn translate_update(segments: &[PathSegment], new_doc: &Html) -> Option<Patch> {
     let target = path_target(segments);
     let dom_path = to_dom_path(segments);
@@ -592,7 +437,6 @@ fn translate_update(segments: &[PathSegment], new_doc: &Html) -> Option<Patch> {
             })
         }
         // Element/Other updates are NOT translated - they just bubble up from leaf changes
-        // The actual changes are represented by Insert/Delete ops
         PathTarget::Element | PathTarget::Other => None,
     }
 }

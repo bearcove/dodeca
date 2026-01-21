@@ -1,158 +1,118 @@
 //! Tests for HTML diff path translation.
+//!
+//! All tests verify the core invariant: `apply(A, diff(A, B)) == B`
 
-use dodeca_protocol::{NodePath, Patch};
 use facet_testhelpers::test;
+use html_diff_tests::apply::{apply_patches, Node};
 
-#[test]
-fn test_simple_text_change() {
-    let old = r#"<html><body><p>Hello</p></body></html>"#;
-    let new = r#"<html><body><p>Goodbye</p></body></html>"#;
+/// Assert that diffing old -> new and applying patches produces the expected result.
+#[track_caller]
+fn assert_roundtrip(old: &str, new: &str) {
+    let patches = html_diff_tests::diff_html_debug(old, new).unwrap();
 
-    let patches = html_diff_tests::diff_html(old, new).unwrap();
+    let mut tree = Node::parse(old).unwrap();
+    apply_patches(&mut tree, &patches).unwrap();
+    let result = tree.to_html();
 
-    assert_eq!(patches.len(), 1);
+    let expected_tree = Node::parse(new).unwrap();
+    let expected = expected_tree.to_html();
+
     assert_eq!(
-        patches[0],
-        Patch::SetText {
-            path: NodePath(vec![0]),
-            text: "Goodbye".to_string(),
-        }
+        result, expected,
+        "Roundtrip failed!\nOld: {old}\nNew: {new}\nPatches: {patches:?}\nResult: {result}\nExpected: {expected}"
     );
 }
 
 #[test]
-fn test_insert_element() {
-    let old = r#"<html><body><p>First</p></body></html>"#;
-    let new = r#"<html><body><p>First</p><p>Second</p></body></html>"#;
-
-    let patches = html_diff_tests::diff_html(old, new).unwrap();
-
-    // Should insert the second paragraph
-    assert!(
-        patches.iter().any(|p| matches!(p,
-            Patch::InsertBefore { path, html } | Patch::AppendChild { path, html }
-            if html.contains("Second")
-        )),
-        "Expected insert patch for 'Second', got: {:?}",
-        patches
+fn simple_text_change() {
+    assert_roundtrip(
+        r#"<html><body><p>Hello</p></body></html>"#,
+        r#"<html><body><p>Goodbye</p></body></html>"#,
     );
 }
 
 #[test]
-fn test_remove_element() {
-    let old = r#"<html><body><p>First</p><p>Second</p></body></html>"#;
-    let new = r#"<html><body><p>First</p></body></html>"#;
-
-    let patches = html_diff_tests::diff_html(old, new).unwrap();
-
-    assert!(
-        patches.iter().any(|p| matches!(p, Patch::Remove { path } if path.0 == vec![1])),
-        "Expected Remove at path [1], got: {:?}",
-        patches
+fn insert_element() {
+    assert_roundtrip(
+        r#"<html><body><p>First</p></body></html>"#,
+        r#"<html><body><p>First</p><p>Second</p></body></html>"#,
     );
 }
 
 #[test]
-fn test_attribute_change() {
-    let old = r#"<html><body><div class="old">Content</div></body></html>"#;
-    let new = r#"<html><body><div class="new">Content</div></body></html>"#;
-
-    let patches = html_diff_tests::diff_html(old, new).unwrap();
-
-    assert!(
-        patches.iter().any(|p| matches!(p,
-            Patch::SetAttribute { path, name, value }
-            if path.0 == vec![0] && name == "class" && value == "new"
-        )),
-        "Expected SetAttribute for class='new', got: {:?}",
-        patches
+fn remove_element() {
+    assert_roundtrip(
+        r#"<html><body><p>First</p><p>Second</p></body></html>"#,
+        r#"<html><body><p>First</p></body></html>"#,
     );
 }
 
 #[test]
-fn test_mixed_changes() {
-    let old = r#"<html><body><div class="box"><p>One</p><p>Two</p></div></body></html>"#;
-    let new = r#"<html><body><div class="container"><p>One</p><p>Modified</p><p>Three</p></div></body></html>"#;
-
-    let patches = html_diff_tests::diff_html(old, new).unwrap();
-
-    // Should have attribute change
-    assert!(
-        patches.iter().any(|p| matches!(p,
-            Patch::SetAttribute { name, value, .. }
-            if name == "class" && value == "container"
-        )),
-        "Expected SetAttribute for class='container', got: {:?}",
-        patches
-    );
-
-    // Should have some patch for "Modified" (could be SetText or InsertBefore depending on diff algorithm)
-    assert!(
-        patches.iter().any(|p| matches!(p,
-            Patch::SetText { text, .. } if text == "Modified"
-        ) || matches!(p,
-            Patch::InsertBefore { html, .. } | Patch::AppendChild { html, .. }
-            if html.contains("Modified")
-        )),
-        "Expected patch for 'Modified', got: {:?}",
-        patches
-    );
-
-    // Should have some patch for "Three" (SetText or Insert)
-    assert!(
-        patches.iter().any(|p| matches!(p,
-            Patch::SetText { text, .. } if text == "Three"
-        ) || matches!(p,
-            Patch::InsertBefore { html, .. } | Patch::AppendChild { html, .. }
-            if html.contains("Three")
-        )),
-        "Expected patch for 'Three', got: {:?}",
-        patches
+fn attribute_change() {
+    assert_roundtrip(
+        r#"<html><body><div class="old">Content</div></body></html>"#,
+        r#"<html><body><div class="new">Content</div></body></html>"#,
     );
 }
 
 #[test]
-fn test_nested_text_change() {
-    let old = r#"<html><body><div><span>Hello</span></div></body></html>"#;
-    let new = r#"<html><body><div><span>World</span></div></body></html>"#;
-
-    let patches = html_diff_tests::diff_html(old, new).unwrap();
-
-    assert!(
-        patches.iter().any(|p| matches!(p,
-            Patch::SetText { text, .. } if text == "World"
-        )),
-        "Expected SetText for 'World', got: {:?}",
-        patches
+fn mixed_changes() {
+    assert_roundtrip(
+        r#"<html><body><div class="box"><p>One</p><p>Two</p></div></body></html>"#,
+        r#"<html><body><div class="container"><p>One</p><p>Modified</p><p>Three</p></div></body></html>"#,
     );
 }
 
 #[test]
-fn test_add_attribute() {
-    let old = r#"<html><body><div>Content</div></body></html>"#;
-    let new = r#"<html><body><div id="main">Content</div></body></html>"#;
-
-    let patches = html_diff_tests::diff_html(old, new).unwrap();
-
-    assert!(
-        patches.iter().any(|p| matches!(p,
-            Patch::SetAttribute { name, value, .. }
-            if name == "id" && value == "main"
-        )),
-        "Expected SetAttribute for id='main', got: {:?}",
-        patches
+fn nested_text_change() {
+    assert_roundtrip(
+        r#"<html><body><div><span>Hello</span></div></body></html>"#,
+        r#"<html><body><div><span>World</span></div></body></html>"#,
     );
 }
 
 #[test]
-fn test_identical_documents() {
+fn add_attribute() {
+    assert_roundtrip(
+        r#"<html><body><div>Content</div></body></html>"#,
+        r#"<html><body><div id="main">Content</div></body></html>"#,
+    );
+}
+
+#[test]
+fn identical_documents() {
     let html = r#"<html><body><p>Same content</p></body></html>"#;
+    assert_roundtrip(html, html);
+}
 
-    let patches = html_diff_tests::diff_html(html, html).unwrap();
+#[test]
+fn replace_element_type() {
+    assert_roundtrip(
+        r#"<html><body><p>a</p></body></html>"#,
+        r#"<html><body><div></div></body></html>"#,
+    );
+}
 
-    assert!(
-        patches.is_empty(),
-        "Expected no patches for identical documents, got: {:?}",
-        patches
+#[test]
+fn add_nested_element() {
+    assert_roundtrip(
+        r#"<html><body><div>a</div></body></html>"#,
+        r#"<html><body><div><p>a</p></div></body></html>"#,
+    );
+}
+
+#[test]
+fn body_text_change() {
+    assert_roundtrip(
+        r#"<html><body>0</body></html>"#,
+        r#"<html><body>A</body></html>"#,
+    );
+}
+
+#[test]
+fn add_id_and_child_to_empty_div() {
+    assert_roundtrip(
+        r#"<html><body><div></div></body></html>"#,
+        r#"<html><body><div id="a"><p>a</p></div></body></html>"#,
     );
 }

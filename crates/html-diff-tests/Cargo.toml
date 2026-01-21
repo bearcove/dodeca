@@ -24,3 +24,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 [dev-dependencies]
 facet-testhelpers.workspace = true
 proptest = "1.9"
+tracing = { workspace = true }

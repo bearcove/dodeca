@@ -414,86 +414,9 @@ fn convert_attrs(attrs: &facet_html_dom::GlobalAttrs) -> HashMap<String, String>
     map
 }
 
-/// Apply a list of patches to a Node tree.
-///
-/// Patches are applied in a specific order to handle index shifting:
-/// 1. ReplaceInnerHtml (doesn't affect indices)
-/// 2. Replace (doesn't affect sibling indices)
-/// 3. SetText, SetAttribute, RemoveAttribute (don't affect indices)
-/// 4. Remove (from highest index to lowest to avoid shifting)
-/// 5. Insert operations (from lowest index to highest)
+/// Apply a list of patches to a Node tree in order.
 pub fn apply_patches(root: &mut Node, patches: &[Patch]) -> Result<(), String> {
-    // Group patches by type
-    let mut replace_inner: Vec<&Patch> = Vec::new();
-    let mut replace: Vec<&Patch> = Vec::new();
-    let mut set_ops: Vec<&Patch> = Vec::new();
-    let mut removes: Vec<&Patch> = Vec::new();
-    let mut inserts: Vec<&Patch> = Vec::new();
-
     for patch in patches {
-        match patch {
-            Patch::ReplaceInnerHtml { .. } => replace_inner.push(patch),
-            Patch::Replace { .. } => replace.push(patch),
-            Patch::SetText { .. } | Patch::SetAttribute { .. } | Patch::RemoveAttribute { .. } => {
-                set_ops.push(patch)
-            }
-            Patch::Remove { .. } => removes.push(patch),
-            Patch::InsertBefore { .. } | Patch::InsertAfter { .. } | Patch::AppendChild { .. } => {
-                inserts.push(patch)
-            }
-        }
-    }
-
-    // Sort removes by path (deepest/highest index first)
-    removes.sort_by(|a, b| {
-        let path_a = match a {
-            Patch::Remove { path } => &path.0,
-            _ => unreachable!(),
-        };
-        let path_b = match b {
-            Patch::Remove { path } => &path.0,
-            _ => unreachable!(),
-        };
-        // Sort by path length (deeper first), then by last index (higher first)
-        match path_b.len().cmp(&path_a.len()) {
-            std::cmp::Ordering::Equal => {
-                path_b.last().cmp(&path_a.last())
-            }
-            other => other,
-        }
-    });
-
-    // Sort inserts by path (lowest index first)
-    inserts.sort_by(|a, b| {
-        let path_a = match a {
-            Patch::InsertBefore { path, .. }
-            | Patch::InsertAfter { path, .. }
-            | Patch::AppendChild { path, .. } => &path.0,
-            _ => unreachable!(),
-        };
-        let path_b = match b {
-            Patch::InsertBefore { path, .. }
-            | Patch::InsertAfter { path, .. }
-            | Patch::AppendChild { path, .. } => &path.0,
-            _ => unreachable!(),
-        };
-        path_a.cmp(path_b)
-    });
-
-    // Apply in order: ReplaceInnerHtml, Replace, Set ops, Removes, Inserts
-    for patch in replace_inner {
-        apply_patch(root, patch)?;
-    }
-    for patch in replace {
-        apply_patch(root, patch)?;
-    }
-    for patch in set_ops {
-        apply_patch(root, patch)?;
-    }
-    for patch in removes {
-        apply_patch(root, patch)?;
-    }
-    for patch in inserts {
         apply_patch(root, patch)?;
     }
     Ok(())
@@ -613,6 +536,35 @@ fn apply_patch(root: &mut Node, patch: &Patch) -> Result<(), String> {
                 .attrs_mut(&path.0)
                 .ok_or_else(|| format!("RemoveAttribute: node not found at {:?}", path.0))?;
             attrs.remove(name);
+        }
+        Patch::Move { from, to } => {
+            // Remove the node from the old location
+            if from.0.is_empty() {
+                return Err("Move: cannot move root".to_string());
+            }
+            let from_parent_path = &from.0[..from.0.len() - 1];
+            let from_idx = from.0[from.0.len() - 1];
+            let from_children = root
+                .children_mut(from_parent_path)
+                .ok_or_else(|| format!("Move: source parent not found at {from_parent_path:?}"))?;
+            if from_idx >= from_children.len() {
+                return Err(format!("Move: source index {from_idx} out of bounds"));
+            }
+            let node = from_children.remove(from_idx);
+
+            // Insert at the new location
+            if to.0.is_empty() {
+                return Err("Move: cannot move to root".to_string());
+            }
+            let to_parent_path = &to.0[..to.0.len() - 1];
+            let to_idx = to.0[to.0.len() - 1];
+            let to_children = root
+                .children_mut(to_parent_path)
+                .ok_or_else(|| format!("Move: target parent not found at {to_parent_path:?}"))?;
+            if to_idx > to_children.len() {
+                return Err(format!("Move: target index {to_idx} out of bounds"));
+            }
+            to_children.insert(to_idx, node);
         }
     }
     Ok(())

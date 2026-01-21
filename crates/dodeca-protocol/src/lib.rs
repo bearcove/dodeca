@@ -166,6 +166,10 @@ pub enum Patch {
 
     /// Remove attribute from node at path
     RemoveAttribute { path: NodePath, name: String },
+
+    /// Move a node from one location to another
+    /// The node is removed from `from` and inserted at `to`
+    Move { from: NodePath, to: NodePath },
 }
 
 /// Result of expression evaluation (facet-compatible)
