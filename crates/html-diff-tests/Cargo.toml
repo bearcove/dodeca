@@ -6,25 +6,17 @@ publish = false
 
 [features]
 default = []
-matching-stats = ["facet-diff/matching-stats"]
-tracing = ["dep:tracing", "dep:tracing-subscriber", "facet-diff/tracing"]
+matching-stats = ["facet-html-diff/matching-stats"]
+tracing = ["facet-html-diff/tracing"]
 
 [dependencies]
-dodeca-protocol = { path = "../dodeca-protocol" }
-facet.workspace = true
-facet-diff.workspace = true
-facet-dom.workspace = true
-facet-html.workspace = true
-facet-html-dom.workspace = true
-facet-json.workspace = true
-tracing = { version = "0.1", default-features = false, features = ["std"], optional = true }
-
-tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = true }
+facet-html-diff.workspace = true
 
 [dev-dependencies]
 facet-testhelpers.workspace = true
 proptest = "1.9"
 tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Enable tracing in tests for free debugging
 facet-diff = { workspace = true, features = ["tracing"] }
 cinereus = { workspace = true, features = ["tracing"] }

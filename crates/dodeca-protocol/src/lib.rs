@@ -23,6 +23,9 @@ pub use ansi::ansi_to_html;
 // Re-export for consumers
 pub use facet_postcard;
 
+// Re-export HTML diff types from facet-html-diff
+pub use facet_html_diff::{NodePath, Patch};
+
 // ============================================================================
 // RPC Service Definition
 // ============================================================================
@@ -124,52 +127,6 @@ pub enum ServerMessage {
 
     /// Response to an expression evaluation
     EvalResponse { request_id: u32, result: EvalResult },
-}
-
-/// A path to a node in the DOM tree
-/// e.g., [0, 2, 1] means: body's child 0, then child 2, then child 1
-#[derive(Debug, Clone, PartialEq, Eq, Facet)]
-pub struct NodePath(pub Vec<usize>);
-
-/// Operations to transform the DOM
-#[derive(Debug, Clone, PartialEq, Eq, Facet)]
-#[repr(u8)]
-pub enum Patch {
-    /// Replace node at path with new HTML
-    Replace { path: NodePath, html: String },
-
-    /// Replace all children of node at path with new HTML (innerHTML replacement)
-    /// The node itself and its attributes are preserved.
-    ReplaceInnerHtml { path: NodePath, html: String },
-
-    /// Insert HTML before the node at path
-    InsertBefore { path: NodePath, html: String },
-
-    /// Insert HTML after the node at path
-    InsertAfter { path: NodePath, html: String },
-
-    /// Append HTML as last child of node at path
-    AppendChild { path: NodePath, html: String },
-
-    /// Remove the node at path
-    Remove { path: NodePath },
-
-    /// Update text content of node at path
-    SetText { path: NodePath, text: String },
-
-    /// Set attribute on node at path
-    SetAttribute {
-        path: NodePath,
-        name: String,
-        value: String,
-    },
-
-    /// Remove attribute from node at path
-    RemoveAttribute { path: NodePath, name: String },
-
-    /// Move a node from one location to another
-    /// The node is removed from `from` and inserted at `to`
-    Move { from: NodePath, to: NodePath },
 }
 
 /// Result of expression evaluation (facet-compatible)

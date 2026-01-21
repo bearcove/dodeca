@@ -207,6 +207,7 @@ fn summarize_patches(patches: &[dodeca_protocol::Patch]) -> String {
     let mut set_text = 0;
     let mut set_attr = 0;
     let mut remove_attr = 0;
+    let mut moves = 0;
 
     for patch in patches {
         match patch {
@@ -218,6 +219,7 @@ fn summarize_patches(patches: &[dodeca_protocol::Patch]) -> String {
             Patch::SetText { .. } => set_text += 1,
             Patch::SetAttribute { .. } => set_attr += 1,
             Patch::RemoveAttribute { .. } => remove_attr += 1,
+            Patch::Move { .. } => moves += 1,
         }
     }
 
@@ -239,6 +241,9 @@ fn summarize_patches(patches: &[dodeca_protocol::Patch]) -> String {
     }
     if remove_attr > 0 {
         parts.push(format!("{} -attr", remove_attr));
+    }
+    if moves > 0 {
+        parts.push(format!("{} move", moves));
     }
 
     if parts.is_empty() {

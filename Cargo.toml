@@ -58,6 +58,7 @@ facet-default = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-dom = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-html-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-html-dom = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -161,6 +162,7 @@ facet-core = { path = "../facet/facet-core" }
 facet-diff = { path = "../facet/facet-diff" }
 facet-dom = { path = "../facet/facet-dom" }
 facet-html = { path = "../facet/facet-html" }
+facet-html-diff = { path = "../facet/facet-html-diff" }
 facet-html-dom = { path = "../facet/facet-html-dom" }
 facet-json = { path = "../facet/facet-json" }
 facet-macro-parse = { path = "../facet/facet-macro-parse" }
@@ -188,6 +190,7 @@ facet-core = { path = "../facet/facet-core" }
 facet-diff = { path = "../facet/facet-diff" }
 facet-dom = { path = "../facet/facet-dom" }
 facet-html = { path = "../facet/facet-html" }
+facet-html-diff = { path = "../facet/facet-html-diff" }
 facet-html-dom = { path = "../facet/facet-html-dom" }
 facet-json = { path = "../facet/facet-json" }
 facet-macro-parse = { path = "../facet/facet-macro-parse" }

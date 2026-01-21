@@ -2733,6 +2733,7 @@ name = "dodeca-protocol"
 version = "0.6.1"
 dependencies = [
  "facet",
+ "facet-html-diff",
  "facet-postcard",
  "roam",
 ]
@@ -2994,7 +2995,7 @@ dependencies = [
 [[package]]
 name = "facet-default"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#31ba932598994be5625ef5a01f9140e46d9b2d61"
+source = "git+https://github.com/facet-rs/facet?branch=main#6fa9c6eafb004853ab04676c38d5dadc05b00290"
 dependencies = [
  "facet",
 ]
@@ -3010,7 +3011,7 @@ dependencies = [
 [[package]]
 name = "facet-dessert"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#31ba932598994be5625ef5a01f9140e46d9b2d61"
+source = "git+https://github.com/facet-rs/facet?branch=main#6fa9c6eafb004853ab04676c38d5dadc05b00290"
 dependencies = [
  "facet-core",
  "facet-reflect",
@@ -3062,7 +3063,7 @@ dependencies = [
 [[package]]
 name = "facet-error"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#31ba932598994be5625ef5a01f9140e46d9b2d61"
+source = "git+https://github.com/facet-rs/facet?branch=main#6fa9c6eafb004853ab04676c38d5dadc05b00290"
 dependencies = [
  "facet",
 ]
@@ -3081,7 +3082,7 @@ dependencies = [
 [[package]]
 name = "facet-format"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#31ba932598994be5625ef5a01f9140e46d9b2d61"
+source = "git+https://github.com/facet-rs/facet?branch=main#6fa9c6eafb004853ab04676c38d5dadc05b00290"
 dependencies = [
  "facet-core",
  "facet-dessert 0.42.0 (git+https://github.com/facet-rs/facet?branch=main)",
@@ -3099,6 +3100,20 @@ dependencies = [
  "facet-dom",
  "facet-reflect",
  "html5gum",
+]
+
+[[package]]
+name = "facet-html-diff"
+version = "0.42.0"
+dependencies = [
+ "facet",
+ "facet-core",
+ "facet-diff",
+ "facet-dom",
+ "facet-html",
+ "facet-html-dom",
+ "facet-reflect",
+ "tracing",
 ]
 
 [[package]]
@@ -3167,7 +3182,7 @@ dependencies = [
 [[package]]
 name = "facet-path"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#31ba932598994be5625ef5a01f9140e46d9b2d61"
+source = "git+https://github.com/facet-rs/facet?branch=main#6fa9c6eafb004853ab04676c38d5dadc05b00290"
 dependencies = [
  "facet-core",
 ]
@@ -3960,13 +3975,8 @@ name = "html-diff-tests"
 version = "0.1.0"
 dependencies = [
  "cinereus",
- "dodeca-protocol",
- "facet",
  "facet-diff",
- "facet-dom",
- "facet-html",
- "facet-html-dom",
- "facet-json",
+ "facet-html-diff",
  "facet-testhelpers",
  "proptest",
  "tracing",

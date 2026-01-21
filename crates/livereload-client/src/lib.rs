@@ -73,6 +73,19 @@ fn apply_patch(doc: &Document, patch: &Patch) -> Result<(), JsValue> {
             let el = find_element(doc, path)?;
             el.insert_adjacent_html("beforeend", html)?;
         }
+        Patch::Move { from, to } => {
+            // Remove node from old location
+            let node = find_node(doc, from)?;
+            if let Some(parent) = node.parent_node() {
+                parent.remove_child(&node)?;
+            }
+            // Insert at new location
+            let target = find_element(doc, to)?;
+            let element = node
+                .dyn_into::<Element>()
+                .map_err(|_| JsValue::from_str("moved node is not an element"))?;
+            target.insert_adjacent_element("beforebegin", &element)?;
+        }
     }
     Ok(())
 }
