@@ -7,7 +7,7 @@ publish = false
 [features]
 default = []
 matching-stats = ["facet-diff/matching-stats"]
-tracing = ["dep:tracing", "dep:tracing-subscriber"]
+tracing = ["dep:tracing", "dep:tracing-subscriber", "facet-diff/tracing"]
 
 [dependencies]
 dodeca-protocol = { path = "../dodeca-protocol" }
