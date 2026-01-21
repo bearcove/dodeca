@@ -137,9 +137,9 @@ fn deduplicate_patches(patches: Vec<Patch>) -> Vec<Patch> {
 fn translate_op(op: &EditOp, new_doc: &Html) -> Option<Patch> {
     debug!("translate_op: op={op:?}");
     match op {
-        EditOp::Insert { path, .. } => translate_insert(&path.0, new_doc),
+        EditOp::Insert { path, value, .. } => translate_insert(&path.0, value.as_deref(), new_doc),
         EditOp::Delete { path, .. } => translate_delete(&path.0),
-        EditOp::Update { path, .. } => translate_update(&path.0, new_doc),
+        EditOp::Update { path, new_value, .. } => translate_update(&path.0, new_value.as_deref()),
         EditOp::Move {
             old_path,
             new_path,
@@ -264,15 +264,15 @@ fn is_direct_attribute(name: &str) -> bool {
 }
 
 /// Translate an Insert operation.
-fn translate_insert(segments: &[PathSegment], new_doc: &Html) -> Option<Patch> {
+fn translate_insert(segments: &[PathSegment], value: Option<&str>, new_doc: &Html) -> Option<Patch> {
     let target = path_target(segments);
     let dom_path = to_dom_path(segments);
 
-    debug!("translate_insert: segments={segments:?}, dom_path={dom_path:?}, target={target:?}");
+    debug!("translate_insert: segments={segments:?}, dom_path={dom_path:?}, target={target:?}, value={value:?}");
 
     match target {
         PathTarget::Element => {
-            // Navigate to the node and serialize it
+            // For elements, we still need to navigate new_doc to serialize the whole subtree
             let peek = facet::Peek::new(new_doc);
             let node_peek = navigate_peek(peek, segments)?;
             let html = serialize_to_html(node_peek)?;
@@ -292,19 +292,19 @@ fn translate_insert(segments: &[PathSegment], new_doc: &Html) -> Option<Patch> {
             }
         }
         PathTarget::Attribute(name) => {
-            // Get the attribute value
-            let value = get_attribute_value(new_doc, segments, &name)?;
+            // Use the value directly from the EditOp
+            let attr_value = value?.to_string();
             // DOM path is the element, not the attribute
             let elem_path = to_dom_path(&segments[..segments.len().saturating_sub(2)]);
             Some(Patch::SetAttribute {
                 path: NodePath(elem_path),
                 name,
-                value,
+                value: attr_value,
             })
         }
         PathTarget::Text => {
-            // Get the text content
-            let text = get_text_value(new_doc, segments)?;
+            // Use the value directly from the EditOp
+            let text = value?.to_string();
             // DOM path is the parent element
             let parent_path = if dom_path.is_empty() {
                 vec![]
@@ -407,16 +407,19 @@ fn translate_delete(segments: &[PathSegment]) -> Option<Patch> {
 }
 
 /// Translate an Update operation.
-fn translate_update(segments: &[PathSegment], new_doc: &Html) -> Option<Patch> {
+///
+/// Now uses the new_value directly from the EditOp instead of looking it up.
+fn translate_update(segments: &[PathSegment], new_value: Option<&str>) -> Option<Patch> {
     let target = path_target(segments);
     let dom_path = to_dom_path(segments);
 
     debug!("translate_update: segments={segments:?}");
-    debug!("  dom_path={dom_path:?}, target={target:?}");
+    debug!("  dom_path={dom_path:?}, target={target:?}, new_value={new_value:?}");
 
     match target {
         PathTarget::Text => {
-            let text = get_text_value(new_doc, segments)?;
+            // Use the value directly from the EditOp
+            let text = new_value?.to_string();
             let parent_path = if dom_path.is_empty() {
                 vec![]
             } else {
@@ -428,7 +431,8 @@ fn translate_update(segments: &[PathSegment], new_doc: &Html) -> Option<Patch> {
             })
         }
         PathTarget::Attribute(name) => {
-            let value = get_attribute_value(new_doc, segments, &name)?;
+            // Use the value directly from the EditOp
+            let value = new_value?.to_string();
             let elem_path = to_dom_path(&segments[..segments.len().saturating_sub(2)]);
             Some(Patch::SetAttribute {
                 path: NodePath(elem_path),

@@ -9,6 +9,10 @@ use html_diff_tests::apply::{apply_patches, Node};
 #[track_caller]
 fn assert_roundtrip(old: &str, new: &str) {
     let patches = html_diff_tests::diff_html_debug(old, new).unwrap();
+    tracing::debug!("Patches for {old} -> {new}:");
+    for patch in &patches {
+        tracing::debug!("  {patch:?}");
+    }
 
     let mut tree = Node::parse(old).unwrap();
     apply_patches(&mut tree, &patches).unwrap();
@@ -114,5 +118,23 @@ fn add_id_and_child_to_empty_div() {
     assert_roundtrip(
         r#"<html><body><div></div></body></html>"#,
         r#"<html><body><div id="a"><p>a</p></div></body></html>"#,
+    );
+}
+
+// Proptest failure case 1: Replace two P elements with just text
+#[test]
+fn replace_elements_with_text() {
+    assert_roundtrip(
+        r#"<html><body><p>a</p><p>0</p></body></html>"#,
+        r#"<html><body>A</body></html>"#,
+    );
+}
+
+// Proptest failure case 2: Delete text node, change P text
+#[test]
+fn remove_text_and_modify_sibling() {
+    assert_roundtrip(
+        r#"<html><body><div>a<p>A</p></div></body></html>"#,
+        r#"<html><body><div><p>a</p></div></body></html>"#,
     );
 }

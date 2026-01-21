@@ -25,3 +25,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"], optional = tr
 facet-testhelpers.workspace = true
 proptest = "1.9"
 tracing = { workspace = true }
+# Enable tracing in tests for free debugging
+facet-diff = { workspace = true, features = ["tracing"] }
+cinereus = { workspace = true, features = ["tracing"] }

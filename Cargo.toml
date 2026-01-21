@@ -50,6 +50,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "fmt", "json", "smallvec", "std"] }
 
 # Serialization - Facet ecosystem (git)
+cinereus = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-styx = { git = "https://github.com/bearcove/styx", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
