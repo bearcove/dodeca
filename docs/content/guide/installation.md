@@ -4,6 +4,8 @@ description = "How to install dodeca"
 weight = 10
 +++
 
+Ha.
+
 The recommended way to install dodeca is from GitHub releases. Releases ship the `ddc` binary plus a set of helper binaries (`ddc-cell-*`) used for things like image processing, Sass, search indexing, etc.
 
 ## macOS / Linux

@@ -14,7 +14,7 @@ use axum::extract::{
 };
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
-use roam_session::ForwardingDispatcher;
+use roam_session::{ForwardingDispatcher, LateBoundForwarder, LateBoundHandle};
 use roam_stream::{HandshakeConfig, accept_framed};
 
 use crate::RouterContext;
@@ -30,8 +30,24 @@ pub async fn ws_handler(
 async fn handle_socket(socket: WebSocket, ctx: Arc<dyn RouterContext>) {
     tracing::debug!("DevTools WebSocket connection received, setting up RPC forwarding...");
 
-    // Each browser gets its own virtual connection to the host
-    let virtual_handle = match ctx.handle().connect(roam_wire::Metadata::default()).await {
+    // Wrap the axum WebSocket in a transport adapter
+    let transport = AxumWsTransport::new(socket);
+
+    // Create a late-bound forwarder for Host → Browser direction.
+    // We can't create this yet because we don't have the browser handle.
+    let late_bound = LateBoundHandle::new();
+    let host_to_browser = LateBoundForwarder::new(late_bound.clone());
+
+    // Each browser gets its own virtual connection to the host.
+    // Pass the late-bound forwarder so the host can push calls to the browser.
+    let virtual_handle = match ctx
+        .handle()
+        .connect(
+            roam_wire::Metadata::default(),
+            Some(Box::new(host_to_browser)),
+        )
+        .await
+    {
         Ok(handle) => handle,
         Err(e) => {
             tracing::error!("Failed to open virtual connection to host: {:?}", e);
@@ -39,17 +55,17 @@ async fn handle_socket(socket: WebSocket, ctx: Arc<dyn RouterContext>) {
         }
     };
 
-    // Create a ForwardingDispatcher that proxies all RPC calls through the virtual connection
-    let dispatcher = ForwardingDispatcher::new(virtual_handle);
-
-    // Wrap the axum WebSocket in a transport adapter
-    let transport = AxumWsTransport::new(socket);
+    // Create forwarding dispatcher for Browser → Host direction (immediate)
+    let browser_to_host = ForwardingDispatcher::new(virtual_handle);
 
     // Accept the roam session with the forwarding dispatcher
     let config = HandshakeConfig::default();
-    match accept_framed(transport, config, dispatcher).await {
-        Ok((_handle, _incoming, driver)) => {
-            tracing::debug!("DevTools RPC session established, running driver...");
+    match accept_framed(transport, config, browser_to_host).await {
+        Ok((browser_handle, _incoming, driver)) => {
+            // NOW we can bind the late-bound forwarder for Host → Browser
+            late_bound.set(browser_handle);
+
+            tracing::debug!("DevTools RPC session established (bidirectional forwarding active)");
             // Run the driver until the connection closes
             if let Err(e) = driver.run().await {
                 tracing::warn!("DevTools RPC driver error: {:?}", e);

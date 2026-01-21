@@ -761,7 +761,9 @@ pub async fn accept_browser_connections(
         tracing::debug!("Received incoming virtual connection from browser");
 
         // Accept the connection
-        let handle = match conn.accept(roam::wire::Metadata::default()).await {
+        // r[impl core.conn.dispatcher-default]
+        // Host doesn't serve methods on this connection, only calls back to browser
+        let handle = match conn.accept(roam::wire::Metadata::default(), None).await {
             Ok(h) => h,
             Err(e) => {
                 tracing::warn!(error = ?e, "Failed to accept browser virtual connection");
