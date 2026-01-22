@@ -17,13 +17,13 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/bearcove/hotmeal"
 
 [workspace.dependencies]
-# Facet dependencies (path to local checkout)
-facet = { path = "../facet/facet" }
-facet-core = { path = "../facet/facet-core" }
-facet-diff = { path = "../facet/facet-diff" }
-facet-reflect = { path = "../facet/facet-reflect" }
-facet-json = { path = "../facet/facet-json" }
-facet-testhelpers = { path = "../facet/facet-testhelpers" }
+# Facet dependencies
+facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-testhelpers = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
 # Local crates
 hotmeal = { path = "hotmeal" }

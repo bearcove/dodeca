@@ -164,6 +164,88 @@ fn escape_attr(s: &str) -> String {
 pub fn parse_html(html: &str) -> Result<Element, String> {
     Ok(crate::parse_untyped(html))
 }
+
+// =============================================================================
+// Conversion from untyped_dom types
+// =============================================================================
+
+impl From<&crate::untyped_dom::Element> for Element {
+    fn from(e: &crate::untyped_dom::Element) -> Self {
+        Element {
+            tag: e.tag.clone(),
+            attrs: e.attrs.clone(),
+            children: e
+                .children
+                .iter()
+                .filter_map(|n| Content::try_from(n).ok())
+                .collect(),
+        }
+    }
+}
+
+impl From<crate::untyped_dom::Element> for Element {
+    fn from(e: crate::untyped_dom::Element) -> Self {
+        Element {
+            tag: e.tag,
+            attrs: e.attrs,
+            children: e
+                .children
+                .into_iter()
+                .filter_map(|n| Content::try_from(n).ok())
+                .collect(),
+        }
+    }
+}
+
+impl TryFrom<&crate::untyped_dom::Node> for Content {
+    type Error = ();
+
+    fn try_from(n: &crate::untyped_dom::Node) -> Result<Self, Self::Error> {
+        match n {
+            crate::untyped_dom::Node::Element(e) => Ok(Content::Element(Element::from(e))),
+            crate::untyped_dom::Node::Text(t) => Ok(Content::Text(t.clone())),
+            crate::untyped_dom::Node::Comment(_) => Err(()), // Skip comments
+        }
+    }
+}
+
+impl TryFrom<crate::untyped_dom::Node> for Content {
+    type Error = ();
+
+    fn try_from(n: crate::untyped_dom::Node) -> Result<Self, Self::Error> {
+        match n {
+            crate::untyped_dom::Node::Element(e) => Ok(Content::Element(Element::from(e))),
+            crate::untyped_dom::Node::Text(t) => Ok(Content::Text(t)),
+            crate::untyped_dom::Node::Comment(_) => Err(()), // Skip comments
+        }
+    }
+}
+
+// =============================================================================
+// Conversion to untyped_dom types
+// =============================================================================
+
+impl From<&Element> for crate::untyped_dom::Element {
+    fn from(e: &Element) -> Self {
+        crate::untyped_dom::Element {
+            tag: e.tag.clone(),
+            ns: crate::untyped_dom::Namespace::Html,
+            attrs: e.attrs.clone(),
+            children: e.children.iter().map(|c| c.into()).collect(),
+        }
+    }
+}
+
+impl From<&Content> for crate::untyped_dom::Node {
+    fn from(c: &Content) -> Self {
+        match c {
+            Content::Element(e) => {
+                crate::untyped_dom::Node::Element(crate::untyped_dom::Element::from(e))
+            }
+            Content::Text(t) => crate::untyped_dom::Node::Text(t.clone()),
+        }
+    }
+}
 /// Navigate within an element using a relative path (all but the last index) and return the children vec.
 /// The last element of the path is the target index within the returned children.
 /// Used for operations on nodes within detached slots.

@@ -1,33 +1,47 @@
 //! HTML toolkit based on facet, html5ever, and cinereus.
 //!
 //! hotmeal provides:
-//! - **DOM types**: Strongly-typed HTML element definitions
+//! - **Untyped DOM**: Simple Element/Node tree for flexible parsing
 //! - **Parsing**: Browser-compatible HTML5 parsing via html5ever with full error recovery
-//! - **Diffing**: DOM patch generation for live-reloading (via hotmeal-diff)
+//! - **Serialization**: HTML5-correct serialization with proper escaping
+//! - **Diffing**: DOM patch generation for live-reloading
 //!
 //! # Example
 //!
-//! ```rust,ignore
-//! use hotmeal::{Html, Body, Div, FlowContent};
+//! ```rust
+//! use hotmeal::{parse_document, parse_body};
+//! use hotmeal::untyped_dom::{Element, Node};
 //!
-//! // Parse HTML with browser-compatible error recovery
-//! let html = hotmeal::parse("<div><p>Hello</div>");
+//! // Parse a full document
+//! let doc = parse_document("<!DOCTYPE html><html><body><p>Hello!</p></body></html>");
+//! assert_eq!(doc.doctype, Some("html".to_string()));
 //!
-//! // Access the typed DOM
-//! if let Some(body) = &html.body {
+//! if let Some(body) = doc.body() {
 //!     for child in &body.children {
-//!         if let FlowContent::Div(div) = child {
-//!             println!("Found div with class: {:?}", div.attrs.class);
+//!         if let Node::Element(elem) = child {
+//!             println!("Found {} element", elem.tag);
 //!         }
 //!     }
 //! }
+//!
+//! // Serialize back to HTML
+//! let html = doc.to_html();
+//!
+//! // Or parse just a body fragment
+//! let body = parse_body("<p>Hello!</p><p>World!</p>");
+//! assert_eq!(body.tag, "body");
 //! ```
 
 pub mod diff;
-mod dom;
 mod parser;
-mod serializer;
+pub mod serialize;
+pub mod untyped_dom;
 
-pub use dom::*;
-pub use parser::{parse, parse_untyped};
-pub use serializer::{SerializeOptions, to_string, to_string_pretty, to_string_with_options};
+// Re-export parsing functions
+pub use parser::{parse_body, parse_document, parse_untyped};
+
+// Re-export serialization
+pub use serialize::{SerializeOptions, serialize_document, serialize_element, serialize_fragment};
+
+// Re-export untyped DOM types at crate root for convenience
+pub use untyped_dom::{Document, Element, Namespace, Node};

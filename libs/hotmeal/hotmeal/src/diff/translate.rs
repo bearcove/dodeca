@@ -29,6 +29,28 @@ fn to_element_name(name: &str) -> Cow<'_, str> {
     }
 }
 
+/// Map a facet-diff PropKey (via its string representation) to a DOM property name.
+///
+/// facet-diff PropKey's Display impl produces:
+/// - `"tag"` for Tag
+/// - `"text"` for Text (the `#[facet(text)]` annotated field like Content::Text)
+/// - `"@name"` for Attr(name) (HashMap attribute entries)
+///
+/// We convert:
+/// - `"text"` -> `"_text"` (our internal marker for text content)
+/// - `"@name"` -> `"name"` (strip the @ prefix for attributes)
+/// - `"tag"` -> `"tag"` (shouldn't happen in UpdateProps, but handle it)
+fn map_facet_key_to_prop_name(key: &impl std::fmt::Display) -> String {
+    let key_str = key.to_string();
+    if key_str == "text" {
+        "_text".to_string()
+    } else if let Some(stripped) = key_str.strip_prefix('@') {
+        stripped.to_string()
+    } else {
+        key_str
+    }
+}
+
 /// A path to a node in the DOM tree.
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 #[facet(transparent)]
@@ -140,6 +162,48 @@ pub enum Patch {
 pub fn diff_html(old_html: &str, new_html: &str) -> Result<Vec<Patch>, String> {
     let old_doc = crate::parse_untyped(old_html);
     let new_doc = crate::parse_untyped(new_html);
+
+    let edit_ops = tree_diff(&old_doc, &new_doc);
+
+    debug!(count = edit_ops.len(), "Edit ops from facet-diff");
+    for _op in &edit_ops {
+        debug!(?_op, "edit op");
+    }
+
+    let patches =
+        translate_to_patches(&edit_ops, &new_doc).map_err(|e| format!("Translation error: {e}"))?;
+
+    debug!(count = patches.len(), "Translated patches");
+    for _patch in &patches {
+        debug!(?_patch, "patch");
+    }
+
+    Ok(patches)
+}
+
+/// Diff two Element trees and return DOM patches.
+///
+/// This function works with `untyped_dom::Element` types directly.
+/// Internally, it converts to the diff module's types.
+///
+/// # Example
+///
+/// ```rust
+/// use hotmeal::{parse_body, diff::diff};
+///
+/// let old = parse_body("<div><p>Hello</p></div>");
+/// let new = parse_body("<div><p>World</p></div>");
+///
+/// let patches = diff(&old, &new).expect("diffing should succeed");
+/// // patches contains the changes needed to transform old into new
+/// ```
+pub fn diff(
+    old: &crate::untyped_dom::Element,
+    new: &crate::untyped_dom::Element,
+) -> Result<Vec<Patch>, String> {
+    // Convert to diff module types
+    let old_doc: super::apply::Element = old.into();
+    let new_doc: super::apply::Element = new.into();
 
     let edit_ops = tree_diff(&old_doc, &new_doc);
 
@@ -589,7 +653,10 @@ fn translate_op(op: &EditOp, new_doc: &Element) -> Result<Vec<Patch>, TranslateE
             let prop_changes: Vec<PropChange> = changes
                 .iter()
                 .map(|c| PropChange {
-                    name: c.attr_name.to_string(),
+                    // Map facet-diff keys to DOM property names:
+                    // - "@attr" -> "attr" (strip @ prefix for attributes from HashMap)
+                    // - "text" -> "_text" (text content marker)
+                    name: map_facet_key_to_prop_name(&c.key),
                     value: c.new_value.clone(),
                 })
                 .collect();
