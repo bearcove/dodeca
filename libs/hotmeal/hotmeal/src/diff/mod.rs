@@ -9,7 +9,7 @@ mod tracing_macros;
 mod apply;
 mod translate;
 
-pub use apply::{Content, Element, apply_patches};
+pub use apply::{Content, Element, apply_patches, parse_html};
 pub use translate::{
     InsertContent, NodePath, NodeRef, Patch, PathTarget, PropChange, TranslateError, diff_html,
     translate_to_patches,

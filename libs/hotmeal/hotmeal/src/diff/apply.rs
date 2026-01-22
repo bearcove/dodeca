@@ -3,7 +3,9 @@
 //! For property testing: apply(A, diff(A, B)) == B
 
 use super::translate::{InsertContent, NodePath, NodeRef, Patch, PropChange};
+use crate::Html;
 use std::collections::HashMap;
+use std::fmt::Write;
 
 /// A simple DOM element for patch application.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +71,419 @@ impl Element {
         children
             .get_mut(idx)
             .ok_or_else(|| format!("index {idx} out of bounds"))
+    }
+
+    /// Serialize this element to an HTML string (body content only).
+    pub fn to_html(&self) -> String {
+        let mut out = String::new();
+        self.write_html(&mut out);
+        out
+    }
+
+    /// Write HTML to a string buffer.
+    fn write_html(&self, out: &mut String) {
+        write!(out, "<{}", self.tag).unwrap();
+
+        // Sort attributes for deterministic output
+        let mut attrs: Vec<_> = self.attrs.iter().collect();
+        attrs.sort_by_key(|(k, _)| *k);
+        for (name, value) in attrs {
+            write!(out, " {}=\"{}\"", name, escape_attr(value)).unwrap();
+        }
+        out.push('>');
+
+        for child in &self.children {
+            child.write_html(out);
+        }
+
+        out.push_str("</");
+        out.push_str(&self.tag);
+        out.push('>');
+    }
+
+    /// Get concatenated text content of this element and all descendants.
+    pub fn text_content(&self) -> String {
+        let mut out = String::new();
+        self.collect_text(&mut out);
+        out
+    }
+
+    fn collect_text(&self, out: &mut String) {
+        for child in &self.children {
+            match child {
+                Content::Text(t) => out.push_str(t),
+                Content::Element(e) => e.collect_text(out),
+            }
+        }
+    }
+}
+
+impl Content {
+    fn write_html(&self, out: &mut String) {
+        match self {
+            Content::Text(t) => out.push_str(&escape_text(t)),
+            Content::Element(e) => e.write_html(out),
+        }
+    }
+}
+
+/// Escape text content for HTML.
+fn escape_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Escape attribute value for HTML.
+fn escape_attr(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '"' => out.push_str("&quot;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Parse an HTML string into an Element tree, returning the body.
+pub fn parse_html(html: &str) -> Result<Element, String> {
+    let doc: Html = crate::parse(html);
+    let body_elem = typed_to_untyped_body(&doc);
+    Ok(body_elem)
+}
+
+/// Convert the typed Html DOM to an untyped Element tree (body only).
+fn typed_to_untyped_body(html: &Html) -> Element {
+    use crate::*;
+
+    fn convert_flow_content(content: &FlowContent) -> Content {
+        match content {
+            FlowContent::Text(t) => Content::Text(t.clone()),
+            FlowContent::Div(div) => Content::Element(Element {
+                tag: "div".to_string(),
+                attrs: global_attrs_to_map(&div.attrs),
+                children: div.children.iter().map(convert_flow_content).collect(),
+            }),
+            FlowContent::P(p) => Content::Element(Element {
+                tag: "p".to_string(),
+                attrs: global_attrs_to_map(&p.attrs),
+                children: p.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::Span(span) => Content::Element(Element {
+                tag: "span".to_string(),
+                attrs: global_attrs_to_map(&span.attrs),
+                children: span.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::A(a) => Content::Element(Element {
+                tag: "a".to_string(),
+                attrs: a_attrs_to_map(a),
+                children: a.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::Ul(ul) => Content::Element(Element {
+                tag: "ul".to_string(),
+                attrs: global_attrs_to_map(&ul.attrs),
+                children: ul.children.iter().map(convert_ul_content).collect(),
+            }),
+            FlowContent::Ol(ol) => Content::Element(Element {
+                tag: "ol".to_string(),
+                attrs: global_attrs_to_map(&ol.attrs),
+                children: ol.children.iter().map(convert_ol_content).collect(),
+            }),
+            FlowContent::Table(table) => Content::Element(Element {
+                tag: "table".to_string(),
+                attrs: global_attrs_to_map(&table.attrs),
+                children: table.children.iter().map(convert_table_content).collect(),
+            }),
+            FlowContent::Strong(strong) => Content::Element(Element {
+                tag: "strong".to_string(),
+                attrs: global_attrs_to_map(&strong.attrs),
+                children: strong
+                    .children
+                    .iter()
+                    .map(convert_phrasing_content)
+                    .collect(),
+            }),
+            FlowContent::Em(em) => Content::Element(Element {
+                tag: "em".to_string(),
+                attrs: global_attrs_to_map(&em.attrs),
+                children: em.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::Code(code) => Content::Element(Element {
+                tag: "code".to_string(),
+                attrs: global_attrs_to_map(&code.attrs),
+                children: code.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::Pre(pre) => Content::Element(Element {
+                tag: "pre".to_string(),
+                attrs: global_attrs_to_map(&pre.attrs),
+                children: pre.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::Blockquote(bq) => Content::Element(Element {
+                tag: "blockquote".to_string(),
+                attrs: global_attrs_to_map(&bq.attrs),
+                children: bq.children.iter().map(convert_flow_content).collect(),
+            }),
+            FlowContent::H1(h) => Content::Element(Element {
+                tag: "h1".to_string(),
+                attrs: global_attrs_to_map(&h.attrs),
+                children: h.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::H2(h) => Content::Element(Element {
+                tag: "h2".to_string(),
+                attrs: global_attrs_to_map(&h.attrs),
+                children: h.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::H3(h) => Content::Element(Element {
+                tag: "h3".to_string(),
+                attrs: global_attrs_to_map(&h.attrs),
+                children: h.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::H4(h) => Content::Element(Element {
+                tag: "h4".to_string(),
+                attrs: global_attrs_to_map(&h.attrs),
+                children: h.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::H5(h) => Content::Element(Element {
+                tag: "h5".to_string(),
+                attrs: global_attrs_to_map(&h.attrs),
+                children: h.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::H6(h) => Content::Element(Element {
+                tag: "h6".to_string(),
+                attrs: global_attrs_to_map(&h.attrs),
+                children: h.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::Hr(_) => Content::Element(Element {
+                tag: "hr".to_string(),
+                attrs: HashMap::new(),
+                children: vec![],
+            }),
+            FlowContent::Br(_) => Content::Element(Element {
+                tag: "br".to_string(),
+                attrs: HashMap::new(),
+                children: vec![],
+            }),
+            FlowContent::Img(img) => Content::Element(Element {
+                tag: "img".to_string(),
+                attrs: img_attrs_to_map(img),
+                children: vec![],
+            }),
+            FlowContent::Custom(custom) => Content::Element(Element {
+                tag: custom.tag.clone(),
+                attrs: global_attrs_to_map(&custom.attrs),
+                children: custom.children.iter().map(convert_flow_content).collect(),
+            }),
+            // Handle remaining variants with a generic approach
+            _ => Content::Element(Element {
+                tag: "div".to_string(),
+                attrs: HashMap::new(),
+                children: vec![],
+            }),
+        }
+    }
+
+    fn convert_phrasing_content(content: &PhrasingContent) -> Content {
+        match content {
+            PhrasingContent::Text(t) => Content::Text(t.clone()),
+            PhrasingContent::Span(span) => Content::Element(Element {
+                tag: "span".to_string(),
+                attrs: global_attrs_to_map(&span.attrs),
+                children: span.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            PhrasingContent::Strong(strong) => Content::Element(Element {
+                tag: "strong".to_string(),
+                attrs: global_attrs_to_map(&strong.attrs),
+                children: strong
+                    .children
+                    .iter()
+                    .map(convert_phrasing_content)
+                    .collect(),
+            }),
+            PhrasingContent::Em(em) => Content::Element(Element {
+                tag: "em".to_string(),
+                attrs: global_attrs_to_map(&em.attrs),
+                children: em.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            PhrasingContent::Code(code) => Content::Element(Element {
+                tag: "code".to_string(),
+                attrs: global_attrs_to_map(&code.attrs),
+                children: code.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            PhrasingContent::A(a) => Content::Element(Element {
+                tag: "a".to_string(),
+                attrs: a_attrs_to_map(a),
+                children: a.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            PhrasingContent::Br(_) => Content::Element(Element {
+                tag: "br".to_string(),
+                attrs: HashMap::new(),
+                children: vec![],
+            }),
+            PhrasingContent::Img(img) => Content::Element(Element {
+                tag: "img".to_string(),
+                attrs: img_attrs_to_map(img),
+                children: vec![],
+            }),
+            PhrasingContent::Custom(custom) => Content::Element(Element {
+                tag: custom.tag.clone(),
+                attrs: global_attrs_to_map(&custom.attrs),
+                children: custom
+                    .children
+                    .iter()
+                    .map(convert_phrasing_content)
+                    .collect(),
+            }),
+            _ => Content::Text(String::new()),
+        }
+    }
+
+    fn convert_ul_content(content: &UlContent) -> Content {
+        match content {
+            UlContent::Text(t) => Content::Text(t.clone()),
+            UlContent::Li(li) => Content::Element(Element {
+                tag: "li".to_string(),
+                attrs: global_attrs_to_map(&li.attrs),
+                children: li.children.iter().map(convert_flow_content).collect(),
+            }),
+        }
+    }
+
+    fn convert_ol_content(content: &OlContent) -> Content {
+        match content {
+            OlContent::Text(t) => Content::Text(t.clone()),
+            OlContent::Li(li) => Content::Element(Element {
+                tag: "li".to_string(),
+                attrs: global_attrs_to_map(&li.attrs),
+                children: li.children.iter().map(convert_flow_content).collect(),
+            }),
+        }
+    }
+
+    fn convert_table_content(content: &TableContent) -> Content {
+        match content {
+            TableContent::Text(t) => Content::Text(t.clone()),
+            TableContent::Thead(thead) => Content::Element(Element {
+                tag: "thead".to_string(),
+                attrs: global_attrs_to_map(&thead.attrs),
+                children: thead
+                    .children
+                    .iter()
+                    .map(convert_table_section_content)
+                    .collect(),
+            }),
+            TableContent::Tbody(tbody) => Content::Element(Element {
+                tag: "tbody".to_string(),
+                attrs: global_attrs_to_map(&tbody.attrs),
+                children: tbody
+                    .children
+                    .iter()
+                    .map(convert_table_section_content)
+                    .collect(),
+            }),
+            TableContent::Tfoot(tfoot) => Content::Element(Element {
+                tag: "tfoot".to_string(),
+                attrs: global_attrs_to_map(&tfoot.attrs),
+                children: tfoot
+                    .children
+                    .iter()
+                    .map(convert_table_section_content)
+                    .collect(),
+            }),
+            TableContent::Tr(tr) => Content::Element(Element {
+                tag: "tr".to_string(),
+                attrs: global_attrs_to_map(&tr.attrs),
+                children: tr.children.iter().map(convert_tr_content).collect(),
+            }),
+            _ => Content::Text(String::new()),
+        }
+    }
+
+    fn convert_table_section_content(content: &TableSectionContent) -> Content {
+        match content {
+            TableSectionContent::Text(t) => Content::Text(t.clone()),
+            TableSectionContent::Tr(tr) => Content::Element(Element {
+                tag: "tr".to_string(),
+                attrs: global_attrs_to_map(&tr.attrs),
+                children: tr.children.iter().map(convert_tr_content).collect(),
+            }),
+        }
+    }
+
+    fn convert_tr_content(content: &TrContent) -> Content {
+        match content {
+            TrContent::Text(t) => Content::Text(t.clone()),
+            TrContent::Th(th) => Content::Element(Element {
+                tag: "th".to_string(),
+                attrs: global_attrs_to_map(&th.attrs),
+                children: th.children.iter().map(convert_flow_content).collect(),
+            }),
+            TrContent::Td(td) => Content::Element(Element {
+                tag: "td".to_string(),
+                attrs: global_attrs_to_map(&td.attrs),
+                children: td.children.iter().map(convert_flow_content).collect(),
+            }),
+        }
+    }
+
+    fn global_attrs_to_map(attrs: &GlobalAttrs) -> HashMap<String, String> {
+        let mut map = HashMap::new();
+        if let Some(id) = &attrs.id {
+            map.insert("id".to_string(), id.clone());
+        }
+        if let Some(class) = &attrs.class {
+            map.insert("class".to_string(), class.clone());
+        }
+        if let Some(style) = &attrs.style {
+            map.insert("style".to_string(), style.clone());
+        }
+        for (k, v) in &attrs.extra {
+            map.insert(k.clone(), v.clone());
+        }
+        map
+    }
+
+    fn a_attrs_to_map(a: &A) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&a.attrs);
+        if let Some(href) = &a.href {
+            map.insert("href".to_string(), href.clone());
+        }
+        map
+    }
+
+    fn img_attrs_to_map(img: &Img) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&img.attrs);
+        if let Some(src) = &img.src {
+            map.insert("src".to_string(), src.clone());
+        }
+        if let Some(alt) = &img.alt {
+            map.insert("alt".to_string(), alt.clone());
+        }
+        map
+    }
+
+    // Build body element
+    let mut body_children = Vec::new();
+    if let Some(body) = &html.body {
+        for child in &body.children {
+            body_children.push(convert_flow_content(child));
+        }
+    }
+
+    Element {
+        tag: "body".to_string(),
+        attrs: HashMap::new(),
+        children: body_children,
     }
 }
 

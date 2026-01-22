@@ -26,6 +26,11 @@ tendril = { workspace = true }
 
 [dev-dependencies]
 facet-testhelpers = { workspace = true }
+datatest-stable = { workspace = true }
+
+[[test]]
+name = "roundtrip"
+harness = false
 
 [lints]
 workspace = true
