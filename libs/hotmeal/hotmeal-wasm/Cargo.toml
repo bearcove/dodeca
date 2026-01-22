@@ -7,7 +7,7 @@ license.workspace = true
 description = "WASM client for hotmeal - applies DOM patches in the browser"
 keywords = ["html", "diff", "wasm", "dom", "patches"]
 categories = ["wasm", "web-programming"]
-publish = false
+repository = "https://github.com/bearcove/hotmeal"
 
 [package.metadata]
 
