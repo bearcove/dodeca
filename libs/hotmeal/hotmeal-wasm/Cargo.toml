@@ -24,12 +24,15 @@ tracing = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-tracing = { workspace = true }
 web-sys = { workspace = true, features = [
+    "Attr",
+    "Comment",
     "console",
     "Document",
     "DocumentFragment",
     "Element",
     "HtmlElement",
     "HtmlTemplateElement",
+    "NamedNodeMap",
     "Node",
     "NodeList",
     "Text",

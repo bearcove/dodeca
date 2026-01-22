@@ -15,40 +15,36 @@ const XLARGE_HTML: &str = include_str!("../tests/fixtures/https_fasterthanli.me.
 
 #[divan::bench]
 fn serialize_small(bencher: Bencher) {
-    let doc = hotmeal::parse_document(SMALL_HTML);
-    let opts = hotmeal::SerializeOptions::default();
+    let doc = hotmeal::arena_dom::parse(SMALL_HTML);
     bencher.bench_local(|| {
-        let html = hotmeal::serialize_document(black_box(&doc), &opts);
+        let html = black_box(&doc).to_html();
         black_box(html);
     });
 }
 
 #[divan::bench]
 fn serialize_medium(bencher: Bencher) {
-    let doc = hotmeal::parse_document(MEDIUM_HTML);
-    let opts = hotmeal::SerializeOptions::default();
+    let doc = hotmeal::arena_dom::parse(MEDIUM_HTML);
     bencher.bench_local(|| {
-        let html = hotmeal::serialize_document(black_box(&doc), &opts);
+        let html = black_box(&doc).to_html();
         black_box(html);
     });
 }
 
 #[divan::bench]
 fn serialize_large(bencher: Bencher) {
-    let doc = hotmeal::parse_document(LARGE_HTML);
-    let opts = hotmeal::SerializeOptions::default();
+    let doc = hotmeal::arena_dom::parse(LARGE_HTML);
     bencher.bench_local(|| {
-        let html = hotmeal::serialize_document(black_box(&doc), &opts);
+        let html = black_box(&doc).to_html();
         black_box(html);
     });
 }
 
 #[divan::bench]
 fn serialize_xlarge(bencher: Bencher) {
-    let doc = hotmeal::parse_document(XLARGE_HTML);
-    let opts = hotmeal::SerializeOptions::default();
+    let doc = hotmeal::arena_dom::parse(XLARGE_HTML);
     bencher.bench_local(|| {
-        let html = hotmeal::serialize_document(black_box(&doc), &opts);
+        let html = black_box(&doc).to_html();
         black_box(html);
     });
 }

@@ -15,6 +15,7 @@
 //! println!("Doctype: {:?}", doc.doctype);
 //! ```
 
+use indexmap::IndexMap;
 use std::collections::HashMap;
 
 /// XML/HTML namespace for elements.
@@ -203,9 +204,9 @@ pub struct Element {
     /// The namespace (Html, Svg, or MathMl)
     #[facet(skip)]
     pub ns: Namespace,
-    /// Attributes as key-value pairs
+    /// Attributes as key-value pairs (preserves insertion order)
     #[facet(flatten)]
-    pub attrs: HashMap<String, String>,
+    pub attrs: IndexMap<String, String>,
     /// Child nodes
     #[facet(flatten)]
     pub children: Vec<Node>,
@@ -217,7 +218,7 @@ impl Element {
         Self {
             tag: tag.into(),
             ns: Namespace::Html,
-            attrs: HashMap::new(),
+            attrs: IndexMap::new(),
             children: Vec::new(),
         }
     }
@@ -227,7 +228,7 @@ impl Element {
         Self {
             tag: tag.into(),
             ns,
-            attrs: HashMap::new(),
+            attrs: IndexMap::new(),
             children: Vec::new(),
         }
     }
@@ -244,7 +245,7 @@ impl Element {
 
     /// Remove an attribute.
     pub fn remove_attr(&mut self, name: &str) -> Option<String> {
-        self.attrs.remove(name)
+        self.attrs.shift_remove(name)
     }
 
     /// Add a child node.
@@ -297,7 +298,7 @@ impl Element {
     }
 
     /// Get mutable reference to attrs at a path.
-    pub fn attrs_mut(&mut self, path: &[usize]) -> Result<&mut HashMap<String, String>, String> {
+    pub fn attrs_mut(&mut self, path: &[usize]) -> Result<&mut IndexMap<String, String>, String> {
         let mut current = self;
         for &idx in path {
             let child = current
@@ -332,7 +333,7 @@ impl Default for Element {
         Self {
             tag: String::new(),
             ns: Namespace::Html,
-            attrs: HashMap::new(),
+            attrs: IndexMap::new(),
             children: Vec::new(),
         }
     }

@@ -15,7 +15,7 @@ categories = ["encoding", "parsing", "web-programming"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-facet = { workspace = true }
+facet = { workspace = true, features = ["indexmap"] }
 
 # Tree diffing - GumTree/Chawathe algorithm
 cinereus = { workspace = true }
@@ -27,6 +27,7 @@ tendril = { workspace = true }
 
 # Optional tracing support
 tracing = { version = "0.1", optional = true }
+indexmap = "2.13.0"
 
 [features]
 tracing = ["dep:tracing"]

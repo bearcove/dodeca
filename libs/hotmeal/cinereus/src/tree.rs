@@ -65,15 +65,23 @@ impl From<NodeHash> for u64 {
     }
 }
 
-/// A property change detected between matched nodes.
+/// Value of a property in the final state after diff.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PropertyChange<K, V> {
+pub enum PropValue<V> {
+    /// Value is unchanged from the old state
+    Same,
+    /// Value is new or changed
+    Different(V),
+}
+
+/// A property in the final state after diff.
+/// Position is implicit from the Vec index.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PropertyInFinalState<K, V> {
     /// The property key
     pub key: K,
-    /// The old value (None if property was added)
-    pub old_value: Option<V>,
-    /// The new value (None if property was removed)
-    pub new_value: Option<V>,
+    /// The value in the final state
+    pub value: PropValue<V>,
 }
 
 /// Trait for node properties (key-value pairs that are NOT tree children).
@@ -91,9 +99,9 @@ pub trait Properties: Clone {
     /// Used during bottom-up matching to prefer nodes with similar properties.
     fn similarity(&self, other: &Self) -> f64;
 
-    /// Find all property differences between self and other.
-    /// Returns changes needed to transform self into other.
-    fn diff(&self, other: &Self) -> Vec<PropertyChange<Self::Key, Self::Value>>;
+    /// Generate the final property state needed to transform self into other.
+    /// Returns ALL properties in the final state in order, with values marked as Same or Different.
+    fn diff(&self, other: &Self) -> Vec<PropertyInFinalState<Self::Key, Self::Value>>;
 
     /// Check if this property set is empty (no properties defined).
     fn is_empty(&self) -> bool;
@@ -133,8 +141,8 @@ impl Properties for NoProps {
         1.0 // No properties = perfect match
     }
 
-    fn diff(&self, _other: &Self) -> Vec<PropertyChange<Self::Key, Self::Value>> {
-        vec![] // No properties = no changes
+    fn diff(&self, _other: &Self) -> Vec<PropertyInFinalState<Self::Key, Self::Value>> {
+        vec![] // No properties = no final state
     }
 
     fn is_empty(&self) -> bool {

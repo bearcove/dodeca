@@ -13,12 +13,12 @@ use crate::{debug, trace};
 use core::fmt;
 
 use crate::matching::Matching;
-use crate::tree::{Properties, PropertyChange, Tree, TreeTypes};
+use crate::tree::{Properties, PropertyInFinalState, Tree, TreeTypes};
 use indextree::NodeId;
 
-/// Type alias for property changes to satisfy clippy::type_complexity
+/// Type alias for final property states to satisfy clippy::type_complexity
 pub type PropChanges<T> = Vec<
-    PropertyChange<
+    PropertyInFinalState<
         <<T as TreeTypes>::Props as Properties>::Key,
         <<T as TreeTypes>::Props as Properties>::Value,
     >,
@@ -79,11 +79,9 @@ impl<T: TreeTypes> fmt::Display for EditOp<T> {
                 write!(f, "UpdateProps(a:{}", usize::from(*node_a))?;
                 for change in changes {
                     write!(f, " {}:", change.key)?;
-                    match (&change.old_value, &change.new_value) {
-                        (Some(old), Some(new)) => write!(f, " {} → {}", old, new)?,
-                        (None, Some(new)) => write!(f, " + {}", new)?,
-                        (Some(old), None) => write!(f, " - {}", old)?,
-                        (None, None) => {}
+                    match &change.value {
+                        crate::tree::PropValue::Same => write!(f, "=")?,
+                        crate::tree::PropValue::Different(v) => write!(f, " → {}", v)?,
                     }
                 }
                 write!(f, ")")
@@ -171,7 +169,10 @@ pub fn generate_edit_script<T: TreeTypes>(
         let b_data = tree_b.get(b_id);
 
         let changes: Vec<_> = a_data.properties.diff(&b_data.properties);
-        if !changes.is_empty() {
+        // Generate UpdateProperties if:
+        // 1. There are changes in the final state, OR
+        // 2. The old node had properties but now has none (removal case)
+        if !changes.is_empty() || !a_data.properties.is_empty() {
             ops.push(EditOp::UpdateProperties {
                 node_a: a_id,
                 node_b: b_id,
@@ -281,7 +282,7 @@ mod tests {
     use super::*;
     use crate::matching::MatchingConfig;
     use crate::matching::compute_matching;
-    use crate::tree::{NodeData, PropertyChange, SimpleTypes};
+    use crate::tree::{NodeData, PropValue, PropertyInFinalState, SimpleTypes};
     use facet::Facet;
     use facet_testhelpers::test;
 
@@ -641,26 +642,33 @@ mod tests {
             }
         }
 
-        fn diff(&self, other: &Self) -> Vec<PropertyChange<Self::Key, Self::Value>> {
-            let mut changes = vec![];
+        fn diff(&self, other: &Self) -> Vec<PropertyInFinalState<Self::Key, Self::Value>> {
+            let mut result = vec![];
 
-            if self.id != other.id {
-                changes.push(PropertyChange {
+            // Always include properties in a consistent order: id, then class
+            if let Some(id) = &other.id {
+                result.push(PropertyInFinalState {
                     key: "id",
-                    old_value: self.id.clone(),
-                    new_value: other.id.clone(),
+                    value: if self.id.as_ref() == Some(id) {
+                        PropValue::Same
+                    } else {
+                        PropValue::Different(id.clone())
+                    },
                 });
             }
 
-            if self.class != other.class {
-                changes.push(PropertyChange {
+            if let Some(class) = &other.class {
+                result.push(PropertyInFinalState {
                     key: "class",
-                    old_value: self.class.clone(),
-                    new_value: other.class.clone(),
+                    value: if self.class.as_ref() == Some(class) {
+                        PropValue::Same
+                    } else {
+                        PropValue::Different(class.clone())
+                    },
                 });
             }
 
-            changes
+            result
         }
 
         fn is_empty(&self) -> bool {
@@ -752,15 +760,13 @@ mod tests {
             let id_change = changes.iter().find(|c| c.key == "id");
             assert!(id_change.is_some(), "Should have change for 'id'");
             if let Some(change) = id_change {
-                assert_eq!(change.old_value, Some("foo".to_string()));
-                assert_eq!(change.new_value, Some("bar".to_string()));
+                assert_eq!(change.value, PropValue::Different("bar".to_string()));
             }
 
             let class_change = changes.iter().find(|c| c.key == "class");
             assert!(class_change.is_some(), "Should have change for 'class'");
             if let Some(change) = class_change {
-                assert_eq!(change.old_value, None);
-                assert_eq!(change.new_value, Some("container".to_string()));
+                assert_eq!(change.value, PropValue::Different("container".to_string()));
             }
         }
     }

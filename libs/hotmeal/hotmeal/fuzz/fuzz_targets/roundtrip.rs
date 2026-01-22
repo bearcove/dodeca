@@ -414,16 +414,17 @@ fuzz_target!(|input: FuzzInput| {
     let old_html = nodes_to_html(&input.old, &input.old_doctype, input.add_invalid_nesting);
     let new_html = nodes_to_html(&input.new, &input.new_doctype, false); // Don't add invalid nesting to new
 
+    // Use arena_dom (the new implementation)
     let patches = hotmeal::diff::diff_html(&old_html, &new_html).expect("diff failed");
-    let mut tree = hotmeal::diff::parse_html(&old_html).expect("parse old failed");
+    let mut doc = hotmeal::arena_dom::parse(&old_html);
     // eprintln!("OLD HTML: {}", old_html);
     // eprintln!("NEW HTML: {}", new_html);
     // eprintln!("PATCHES: {:?}", patches);
-    hotmeal::diff::apply_patches(&mut tree, &patches).expect("apply failed");
+    doc.apply_patches(&patches).expect("apply failed");
 
-    let result = tree.to_html();
-    let expected_tree = hotmeal::diff::parse_html(&new_html).expect("parse new failed");
-    let expected = expected_tree.to_html();
+    let result = doc.to_html();
+    let expected_doc = hotmeal::arena_dom::parse(&new_html);
+    let expected = expected_doc.to_html();
 
     assert_eq!(
         result, expected,

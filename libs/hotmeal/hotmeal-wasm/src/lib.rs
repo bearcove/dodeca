@@ -301,27 +301,121 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
             )?;
         }
 
+        Patch::InsertComment {
+            at,
+            text,
+            detach_to_slot,
+        } => {
+            // Extract parent and position from NodeRef
+            let (parent_el, position) = match at {
+                NodeRef::Path(path) => {
+                    if path.0.is_empty() {
+                        return Err(JsValue::from_str("InsertComment: empty path"));
+                    }
+                    let parent_path = NodePath(path.0[..path.0.len() - 1].to_vec());
+                    let position = path.0[path.0.len() - 1];
+                    let parent_node = if parent_path.0.is_empty() {
+                        let body = doc.body().ok_or_else(|| JsValue::from_str("no body"))?;
+                        body.into()
+                    } else {
+                        find_node(doc, &parent_path, slots)?
+                    };
+                    let parent_el = parent_node
+                        .dyn_ref::<Element>()
+                        .ok_or_else(|| JsValue::from_str("parent is not an element"))?
+                        .clone();
+                    (parent_el, position)
+                }
+                NodeRef::Slot(slot, rel_path) => {
+                    let slot_root = slots
+                        .get(*slot)
+                        .cloned()
+                        .ok_or_else(|| JsValue::from_str(&format!("slot {} is empty", slot)))?;
+
+                    let rel_path = rel_path.as_ref().ok_or_else(|| {
+                        JsValue::from_str("InsertComment: slot reference without relative path")
+                    })?;
+
+                    if rel_path.0.is_empty() {
+                        return Err(JsValue::from_str("InsertComment: empty relative path"));
+                    }
+
+                    let parent_path_in_slot = if rel_path.0.len() > 1 {
+                        Some(NodePath(rel_path.0[..rel_path.0.len() - 1].to_vec()))
+                    } else {
+                        None
+                    };
+                    let position = rel_path.0[rel_path.0.len() - 1];
+
+                    let parent_node = if let Some(p) = parent_path_in_slot {
+                        navigate_within_node(&slot_root, &p)?
+                    } else {
+                        slot_root
+                    };
+
+                    let parent_el = parent_node
+                        .dyn_ref::<Element>()
+                        .ok_or_else(|| JsValue::from_str("slot parent is not an element"))?
+                        .clone();
+                    (parent_el, position)
+                }
+            };
+
+            // Create comment node
+            let comment_node = doc.create_comment(text);
+
+            // Insert at position with Chawathe displacement semantics
+            insert_at_position(
+                doc,
+                &parent_el,
+                &comment_node.into(),
+                position,
+                *detach_to_slot,
+                slots,
+            )?;
+        }
+
         Patch::UpdateProps { path, changes } => {
             let node = find_node(doc, path, slots)?;
-            for change in changes {
-                if change.name == "_text" {
-                    // Special handling for _text property - sets text content
-                    // Works on both text nodes and elements
-                    match &change.value {
-                        Some(v) => node.set_text_content(Some(v)),
-                        None => node.set_text_content(None),
+
+            // Handle text content updates
+            if let Some(text_change) = changes.iter().find(|c| c.name == "_text")
+                && let Some(v) = &text_change.value
+            {
+                node.set_text_content(Some(v));
+            }
+            // None means keep existing - do nothing
+
+            // Handle element attribute updates
+            // The changes vec represents the ENTIRE final attribute state
+            if let Some(el) = node.dyn_ref::<Element>() {
+                // Collect attribute names in changes (excluding _text)
+                let final_attrs: std::collections::HashSet<_> = changes
+                    .iter()
+                    .filter(|c| c.name != "_text")
+                    .map(|c| c.name.as_str())
+                    .collect();
+
+                // Remove attributes not in final state
+                let current_attrs: Vec<String> = (0..el.attributes().length())
+                    .filter_map(|i| el.attributes().item(i).map(|a| a.name()))
+                    .collect();
+
+                for attr_name in current_attrs {
+                    if !final_attrs.contains(attr_name.as_str()) {
+                        el.remove_attribute(&attr_name)?;
                     }
-                } else {
-                    // Regular attribute - requires an element
-                    let el = node.dyn_ref::<Element>().ok_or_else(|| {
-                        JsValue::from_str(
-                            "UpdateProps: node is not an element for attribute change",
-                        )
-                    })?;
-                    match &change.value {
-                        Some(v) => el.set_attribute(&change.name, v)?,
-                        None => el.remove_attribute(&change.name)?,
+                }
+
+                // Set attributes from changes
+                for change in changes {
+                    if change.name != "_text"
+                        && let Some(new_value) = &change.value
+                    {
+                        // Different value - update it
+                        el.set_attribute(&change.name, new_value)?;
                     }
+                    // None means keep existing - do nothing (attribute already exists)
                 }
             }
         }
@@ -476,6 +570,7 @@ fn create_insert_content(doc: &Document, content: &InsertContent) -> Result<Node
             Ok(el.into())
         }
         InsertContent::Text(text) => Ok(doc.create_text_node(text).into()),
+        InsertContent::Comment(text) => Ok(doc.create_comment(text).into()),
     }
 }
 
@@ -610,7 +705,7 @@ pub fn dump_rust_parsed(html: &str) -> Result<String, JsValue> {
     use hotmeal::diff::{Content, Element};
 
     let full_html = format!("<html><body>{}</body></html>", html);
-    let parsed: Element = hotmeal::parse_untyped(&full_html);
+    let parsed: Element = hotmeal::parser::parse_untyped(&full_html);
 
     fn dump_element(elem: &Element, indent: usize) -> String {
         let prefix = "  ".repeat(indent);
@@ -629,6 +724,9 @@ pub fn dump_rust_parsed(html: &str) -> Result<String, JsValue> {
                 format!("{}Text({:?})\n", prefix, escaped)
             }
             Content::Element(elem) => dump_element(elem, indent),
+            Content::Comment(c) => {
+                format!("{}Comment({:?})\n", prefix, c)
+            }
         }
     }
 

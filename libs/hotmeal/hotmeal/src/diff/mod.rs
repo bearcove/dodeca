@@ -6,24 +6,27 @@
 //! # Example
 //!
 //! ```rust
-//! use hotmeal::{parse_body, diff::{diff, apply_patches}};
+//! use hotmeal::arena_dom;
+//! use hotmeal::diff::diff_arena_documents;
 //!
-//! let mut old = parse_body("<div><p>Hello</p></div>");
-//! let new = parse_body("<div><p>World</p></div>");
+//! let mut old = arena_dom::parse("<div><p>Hello</p></div>");
+//! let new = arena_dom::parse("<div><p>World</p></div>");
 //!
 //! // Get the patches needed to transform old into new
-//! let patches = hotmeal::diff::diff(&old, &new).expect("diffing should succeed");
+//! let patches = diff_arena_documents(&old, &new).expect("diffing should succeed");
 //!
-//! // Apply patches to the old document (need to convert to diff types)
-//! let mut old_diff: hotmeal::diff::Element = (&old).into();
-//! hotmeal::diff::apply_patches(&mut old_diff, &patches).expect("patches should apply");
+//! // Apply patches to the old document
+//! old.apply_patches(&patches).expect("patches should apply");
+//!
+//! // Verify the result
+//! assert!(old.to_html().contains("World"));
 //! ```
 
 mod apply;
 mod tree;
 
 pub use apply::{Content, Element, apply_patches, parse_html};
-pub use tree::diff_elements;
+pub use tree::{diff_arena_documents, diff_elements};
 
 // Re-export patch types
 pub use apply::Content as ApplyContent;
@@ -67,14 +70,18 @@ pub enum InsertContent {
     },
     /// A text node
     Text(String),
+    /// A comment node
+    Comment(String),
 }
 
-/// A single property change within an UpdateProps operation.
+/// A property in the final state within an UpdateProps operation.
+/// The vec position determines the final ordering.
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct PropChange {
     /// The property name (field name)
     pub name: String,
-    /// The new value (None if property is being removed)
+    /// The value: None means "keep existing value", Some means "update to this value".
+    /// Properties not in the list are implicitly removed.
     pub value: Option<String>,
 }
 
@@ -97,6 +104,14 @@ pub enum Patch {
     /// Insert a text node at a position.
     /// The `at` NodeRef includes the position as the last path segment.
     InsertText {
+        at: NodeRef,
+        text: String,
+        detach_to_slot: Option<u32>,
+    },
+
+    /// Insert a comment node at a position.
+    /// The `at` NodeRef includes the position as the last path segment.
+    InsertComment {
         at: NodeRef,
         text: String,
         detach_to_slot: Option<u32>,
@@ -132,17 +147,29 @@ pub enum Patch {
     },
 }
 
-/// Diff two HTML documents and return DOM patches.
-pub fn diff_html(old_html: &str, new_html: &str) -> Result<Vec<Patch>, String> {
-    // parse_untyped returns diff::Element directly
-    let old_elem = crate::parse_untyped(old_html);
-    let new_elem = crate::parse_untyped(new_html);
-
-    diff_elements(&old_elem, &new_elem)
+/// Diff two arena documents and return DOM patches.
+///
+/// This is the primary diffing API for arena_dom documents.
+pub fn diff(
+    old: &crate::arena_dom::Document,
+    new: &crate::arena_dom::Document,
+) -> Result<Vec<Patch>, String> {
+    diff_arena_documents(old, new)
 }
 
-/// Diff two Element trees and return DOM patches.
-pub fn diff(
+/// Diff two HTML strings and return DOM patches.
+///
+/// Parses both HTML strings and diffs them.
+pub fn diff_html(old_html: &str, new_html: &str) -> Result<Vec<Patch>, String> {
+    let old_doc = crate::arena_dom::parse(old_html);
+    let new_doc = crate::arena_dom::parse(new_html);
+    diff_arena_documents(&old_doc, &new_doc)
+}
+
+/// Legacy: Diff two untyped_dom Element trees and return DOM patches.
+///
+/// For backwards compatibility. New code should use `diff()` with arena_dom.
+pub fn diff_untyped(
     old: &crate::untyped_dom::Element,
     new: &crate::untyped_dom::Element,
 ) -> Result<Vec<Patch>, String> {

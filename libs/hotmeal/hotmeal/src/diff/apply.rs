@@ -4,6 +4,7 @@
 
 use super::{InsertContent, NodePath, NodeRef, Patch, PropChange};
 use crate::debug;
+use indexmap::IndexMap;
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -13,15 +14,15 @@ pub struct Element {
     /// Tag name
     #[facet(tag)]
     pub tag: String,
-    /// Attributes as key-value pairs
+    /// Attributes as key-value pairs (preserves insertion order)
     #[facet(flatten)]
-    pub attrs: HashMap<String, String>,
+    pub attrs: IndexMap<String, String>,
     /// Child nodes
     #[facet(flatten)]
     pub children: Vec<Content>,
 }
 
-/// DOM content - either an element or text.
+/// DOM content - either an element, text, or comment.
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 #[repr(u8)]
 pub enum Content {
@@ -30,6 +31,8 @@ pub enum Content {
     /// A text node
     #[facet(text)]
     Text(String),
+    /// A comment node
+    Comment(String),
 }
 
 impl Element {
@@ -44,13 +47,16 @@ impl Element {
             current = match child {
                 Content::Element(e) => e,
                 Content::Text(_) => return Err("cannot navigate through text node".to_string()),
+                Content::Comment(_) => {
+                    return Err("cannot navigate through comment node".to_string());
+                }
             };
         }
         Ok(&mut current.children)
     }
 
     /// Get mutable reference to attrs at a path.
-    pub fn attrs_mut(&mut self, path: &[usize]) -> Result<&mut HashMap<String, String>, String> {
+    pub fn attrs_mut(&mut self, path: &[usize]) -> Result<&mut IndexMap<String, String>, String> {
         let mut current = self;
         for &idx in path {
             let child = current
@@ -60,6 +66,9 @@ impl Element {
             current = match child {
                 Content::Element(e) => e,
                 Content::Text(_) => return Err("cannot navigate through text node".to_string()),
+                Content::Comment(_) => {
+                    return Err("cannot navigate through comment node".to_string());
+                }
             };
         }
         Ok(&mut current.attrs)
@@ -118,6 +127,7 @@ impl Element {
             match child {
                 Content::Text(t) => out.push_str(t),
                 Content::Element(e) => e.collect_text(out),
+                Content::Comment(_) => {} // Comments don't contribute to text content
             }
         }
     }
@@ -128,6 +138,11 @@ impl Content {
         match self {
             Content::Text(t) => out.push_str(&escape_text(t)),
             Content::Element(e) => e.write_html(out),
+            Content::Comment(c) => {
+                out.push_str("<!--");
+                out.push_str(c);
+                out.push_str("-->");
+            }
         }
     }
 }
@@ -163,7 +178,7 @@ fn escape_attr(s: &str) -> String {
 
 /// Parse an HTML string into an Element tree, returning the body.
 pub fn parse_html(html: &str) -> Result<Element, String> {
-    Ok(crate::parse_untyped(html))
+    Ok(crate::parser::parse_untyped(html))
 }
 
 // =============================================================================
@@ -205,7 +220,7 @@ impl TryFrom<&crate::untyped_dom::Node> for Content {
         match n {
             crate::untyped_dom::Node::Element(e) => Ok(Content::Element(Element::from(e))),
             crate::untyped_dom::Node::Text(t) => Ok(Content::Text(t.clone())),
-            crate::untyped_dom::Node::Comment(_) => Err(()), // Skip comments
+            crate::untyped_dom::Node::Comment(c) => Ok(Content::Comment(c.clone())),
         }
     }
 }
@@ -217,7 +232,7 @@ impl TryFrom<crate::untyped_dom::Node> for Content {
         match n {
             crate::untyped_dom::Node::Element(e) => Ok(Content::Element(Element::from(e))),
             crate::untyped_dom::Node::Text(t) => Ok(Content::Text(t)),
-            crate::untyped_dom::Node::Comment(_) => Err(()), // Skip comments
+            crate::untyped_dom::Node::Comment(c) => Ok(Content::Comment(c)),
         }
     }
 }
@@ -244,6 +259,7 @@ impl From<&Content> for crate::untyped_dom::Node {
                 crate::untyped_dom::Node::Element(crate::untyped_dom::Element::from(e))
             }
             Content::Text(t) => crate::untyped_dom::Node::Text(t.clone()),
+            Content::Comment(c) => crate::untyped_dom::Node::Comment(c.clone()),
         }
     }
 }
@@ -267,6 +283,9 @@ fn navigate_to_children_in_slot<'a>(
                 Content::Element(e) => e,
                 Content::Text(_) => {
                     return Err("cannot navigate through text node".to_string());
+                }
+                Content::Comment(_) => {
+                    return Err("cannot navigate through comment node".to_string());
                 }
             };
         }
@@ -323,6 +342,16 @@ fn apply_patch(
             let new_content = Content::Text(text.clone());
             insert_at_node_ref(root, slots, at, new_content, *detach_to_slot)?;
         }
+        Patch::InsertComment {
+            at,
+            text,
+            detach_to_slot,
+        } => {
+            debug!(?at, text, "InsertComment: about to insert");
+
+            let new_content = Content::Comment(text.clone());
+            insert_at_node_ref(root, slots, at, new_content, *detach_to_slot)?;
+        }
         Patch::Remove { node } => {
             match node {
                 NodeRef::Path(path) => {
@@ -376,7 +405,7 @@ fn apply_patch(
             let attrs = root
                 .attrs_mut(&path.0)
                 .map_err(|e| format!("RemoveAttribute: {e}"))?;
-            attrs.remove(name);
+            attrs.shift_remove(name);
         }
         Patch::Move {
             from,
@@ -390,7 +419,9 @@ fn apply_patch(
             );
 
             // Debug: show what's in each slot
+            #[allow(unused_variables)]
             for (slot_id, content) in slots.iter() {
+                #[allow(unused_variables)]
                 let desc = match content {
                     Content::Element(e) => {
                         let children_desc: Vec<_> = e
@@ -402,6 +433,9 @@ fn apply_patch(
                                 Content::Text(t) => {
                                     format!("Text({:?})", t.chars().take(10).collect::<String>())
                                 }
+                                Content::Comment(c) => {
+                                    format!("Comment({:?})", c.chars().take(10).collect::<String>())
+                                }
                             })
                             .collect();
                         format!(
@@ -412,6 +446,9 @@ fn apply_patch(
                     }
                     Content::Text(t) => {
                         format!("Text({:?})", t.chars().take(30).collect::<String>())
+                    }
+                    Content::Comment(c) => {
+                        format!("Comment({:?})", c.chars().take(30).collect::<String>())
                     }
                 };
                 debug!(slot = slot_id, content = %desc, "Slot contents");
@@ -479,6 +516,12 @@ fn apply_patch(
                                 return Err(format!(
                                     "Move: slot {} contains text ({:?}), cannot navigate to child with path {:?}",
                                     slot, text, rel_path
+                                ));
+                            }
+                            Content::Comment(comment) => {
+                                return Err(format!(
+                                    "Move: slot {} contains comment ({:?}), cannot navigate to child with path {:?}",
+                                    slot, comment, rel_path
                                 ));
                             }
                         }
@@ -560,6 +603,11 @@ fn apply_patch(
                                     "Move: target slot contains text, not element".to_string()
                                 );
                             }
+                            Content::Comment(_) => {
+                                return Err(
+                                    "Move: target slot contains comment, not element".to_string()
+                                );
+                            }
                         };
 
                         if to_idx < target_children.len() {
@@ -588,6 +636,11 @@ fn apply_patch(
                         Content::Text(_) => {
                             return Err("Move: target slot contains text, not element".to_string());
                         }
+                        Content::Comment(_) => {
+                            return Err(
+                                "Move: target slot contains comment, not element".to_string()
+                            );
+                        }
                     };
 
                     // Grow and place
@@ -606,68 +659,91 @@ fn apply_patch(
 }
 
 /// Apply property updates, handling `_text` specially.
+/// The changes vec represents the ENTIRE final property state in order.
 fn apply_update_props(
     root: &mut Element,
     path: &NodePath,
     changes: &[PropChange],
 ) -> Result<(), String> {
+    debug!(
+        "apply_update_props: START path={:?} changes_len={}",
+        path.0,
+        changes.len()
+    );
+
     // Get the content at path
     let content = root
         .get_content_mut(&path.0)
         .map_err(|e| format!("UpdateProps: {e}"))?;
 
-    for change in changes {
-        if change.name == "_text" {
-            // Special handling for _text: update the text content directly
-            match content {
-                Content::Text(t) => {
-                    if let Some(text) = &change.value {
-                        *t = text.clone();
-                    } else {
-                        *t = String::new();
-                    }
+    debug!("apply_update_props: got content, checking type");
+
+    // Handle text node updates
+    if let Some(text_change) = changes.iter().find(|c| c.name == "_text") {
+        match content {
+            Content::Text(t) => {
+                if let Some(text) = &text_change.value {
+                    *t = text.clone();
                 }
-                Content::Element(elem) => {
-                    // Update text child of element
-                    if let Some(text) = &change.value {
-                        if elem.children.is_empty() {
-                            elem.children.push(Content::Text(text.clone()));
-                        } else {
-                            let mut found_text = false;
-                            for child in &mut elem.children {
-                                if let Content::Text(t) = child {
-                                    *t = text.clone();
-                                    found_text = true;
-                                    break;
-                                }
-                            }
-                            if !found_text {
-                                elem.children[0] = Content::Text(text.clone());
+                // None means keep existing, but Text nodes always get value in changes
+            }
+            Content::Comment(c) => {
+                if let Some(text) = &text_change.value {
+                    *c = text.clone();
+                }
+            }
+            Content::Element(elem) => {
+                // Update text child of element
+                if let Some(text) = &text_change.value {
+                    if elem.children.is_empty() {
+                        elem.children.push(Content::Text(text.clone()));
+                    } else {
+                        let mut found_text = false;
+                        for child in &mut elem.children {
+                            if let Content::Text(t) = child {
+                                *t = text.clone();
+                                found_text = true;
+                                break;
                             }
                         }
-                    } else {
-                        elem.children.retain(|c| !matches!(c, Content::Text(_)));
+                        if !found_text {
+                            elem.children[0] = Content::Text(text.clone());
+                        }
                     }
                 }
-            }
-        } else {
-            // Regular attribute - only valid on elements
-            match content {
-                Content::Element(elem) => {
-                    if let Some(value) = &change.value {
-                        elem.attrs.insert(change.name.clone(), value.clone());
-                    } else {
-                        elem.attrs.remove(&change.name);
-                    }
-                }
-                Content::Text(_) => {
-                    return Err(format!(
-                        "UpdateProps: cannot set attribute '{}' on text node",
-                        change.name
-                    ));
-                }
+                // None means keep existing text
             }
         }
+    }
+
+    // Handle element attributes
+    // The changes vec represents the ENTIRE final attribute state in order
+    if let Content::Element(elem) = content {
+        let old_attrs = std::mem::take(&mut elem.attrs);
+        debug!(
+            "apply_update_props: rebuilding attrs old_count={} changes_count={}",
+            old_attrs.len(),
+            changes.len()
+        );
+
+        for change in changes {
+            if change.name != "_text" {
+                debug!(
+                    "apply_update_props: processing attr {} value={:?}",
+                    change.name, change.value
+                );
+                let value = if let Some(new_value) = &change.value {
+                    // Different value - use the new one
+                    new_value.clone()
+                } else {
+                    // Same value - copy from old attrs
+                    old_attrs.get(&change.name).cloned().unwrap_or_default()
+                };
+                elem.attrs.insert(change.name.clone(), value);
+            }
+        }
+        debug!("apply_update_props: final attrs_count={}", elem.attrs.len());
+        // Attributes not in changes are implicitly removed
     }
 
     Ok(())
@@ -730,6 +806,11 @@ fn insert_at_node_ref(
                 Some(Content::Text(_)) => {
                     return Err(format!(
                         "Insert: slot {parent_slot} contains text, not an element"
+                    ));
+                }
+                Some(Content::Comment(_)) => {
+                    return Err(format!(
+                        "Insert: slot {parent_slot} contains comment, not an element"
                     ));
                 }
                 None => return Err(format!("Insert: slot {parent_slot} not found")),
@@ -805,6 +886,11 @@ fn insert_at_position(
                         "Insert: slot {parent_slot} contains text, not an element"
                     ));
                 }
+                Some(Content::Comment(_)) => {
+                    return Err(format!(
+                        "Insert: slot {parent_slot} contains comment, not an element"
+                    ));
+                }
                 None => return Err(format!("Insert: slot {parent_slot} not found")),
             };
 
@@ -848,5 +934,6 @@ fn insert_content_to_content(ic: &InsertContent) -> Content {
             children: children.iter().map(insert_content_to_content).collect(),
         }),
         InsertContent::Text(s) => Content::Text(s.clone()),
+        InsertContent::Comment(s) => Content::Comment(s.clone()),
     }
 }

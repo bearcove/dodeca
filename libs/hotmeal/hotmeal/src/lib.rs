@@ -1,7 +1,7 @@
-//! HTML toolkit based on facet, html5ever, and cinereus.
+//! HTML toolkit based on html5ever and cinereus.
 //!
 //! hotmeal provides:
-//! - **Untyped DOM**: Simple Element/Node tree for flexible parsing
+//! - **Arena-based DOM**: Efficient arena-allocated tree with zero-copy parsing
 //! - **Parsing**: Browser-compatible HTML5 parsing via html5ever with full error recovery
 //! - **Serialization**: HTML5-correct serialization with proper escaping
 //! - **Diffing**: DOM patch generation for live-reloading
@@ -9,16 +9,16 @@
 //! # Example
 //!
 //! ```rust
-//! use hotmeal::{parse_document, parse_body};
-//! use hotmeal::untyped_dom::{Element, Node};
+//! use hotmeal::arena_dom;
 //!
-//! // Parse a full document
-//! let doc = parse_document("<!DOCTYPE html><html><body><p>Hello!</p></body></html>");
-//! assert_eq!(doc.doctype, Some("html".to_string()));
+//! // Parse a full document - uses zero-copy via StrTendril
+//! let doc = arena_dom::parse("<!DOCTYPE html><html><body><p>Hello!</p></body></html>");
+//! assert_eq!(doc.doctype.as_ref().map(|s| s.as_ref()), Some("html"));
 //!
-//! if let Some(body) = doc.body() {
-//!     for child in &body.children {
-//!         if let Node::Element(elem) = child {
+//! if let Some(body_id) = doc.body() {
+//!     for child_id in body_id.children(&doc.arena) {
+//!         let node = doc.get(child_id);
+//!         if let arena_dom::NodeKind::Element(elem) = &node.kind {
 //!             println!("Found {} element", elem.tag);
 //!         }
 //!     }
@@ -26,24 +26,21 @@
 //!
 //! // Serialize back to HTML
 //! let html = doc.to_html();
-//!
-//! // Or parse just a body fragment
-//! let body = parse_body("<p>Hello!</p><p>World!</p>");
-//! assert_eq!(body.tag, "body");
 //! ```
 
 mod tracing_macros;
 
+pub mod arena_dom;
 pub mod diff;
-mod parser;
+pub mod parser;
 pub mod serialize;
 pub mod untyped_dom;
 
-// Re-export parsing functions
-pub use parser::{parse_body, parse_document, parse_untyped};
+// Re-export arena_dom types and functions as the primary API
+pub use arena_dom::{Document, ElementData, Namespace, NodeData, NodeKind, parse};
 
-// Re-export serialization
+// Legacy: keep untyped_dom for backwards compatibility but don't promote it
+// Users can still access via hotmeal::untyped_dom::* if needed
+
+// Re-export serialization (will be updated to work with arena_dom)
 pub use serialize::{SerializeOptions, serialize_document, serialize_element, serialize_fragment};
-
-// Re-export untyped DOM types at crate root for convenience
-pub use untyped_dom::{Document, Element, Namespace, Node};

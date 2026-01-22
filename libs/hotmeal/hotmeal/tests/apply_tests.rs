@@ -1,5 +1,6 @@
 //! Tests for patch application.
 
+use facet_testhelpers::test;
 use hotmeal::diff::{Content, InsertContent, NodePath, NodeRef, Patch, apply_patches, parse_html};
 
 #[test]

@@ -129,6 +129,7 @@ dependencies = [
  "const-fnv1a-hash",
  "iddqd",
  "impls",
+ "indexmap",
 ]
 
 [[package]]
@@ -170,14 +171,6 @@ dependencies = [
  "quote",
  "strsim",
  "unsynn",
-]
-
-[[package]]
-name = "facet-reflect"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#64f0d30bfc00487edcd0112bbe8c005fce09a17e"
-dependencies = [
- "facet-core",
 ]
 
 [[package]]
@@ -235,9 +228,8 @@ version = "0.1.0"
 dependencies = [
  "cinereus",
  "facet",
- "facet-core",
- "facet-reflect",
  "html5ever",
+ "indexmap",
  "rapidhash",
  "tendril",
 ]
@@ -281,6 +273,16 @@ name = "impls"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a46645bbd70538861a90d0f26c31537cdf1e44aae99a794fb75a664b70951bc"
+
+[[package]]
+name = "indexmap"
+version = "2.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7714e70437a7dc3ac8eb7e6f8df75fd8eb422675fc7678aff7364301092b1017"
+dependencies = [
+ "equivalent",
+ "hashbrown",
+]
 
 [[package]]
 name = "indextree"

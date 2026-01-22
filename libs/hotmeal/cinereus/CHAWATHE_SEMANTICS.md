@@ -55,10 +55,15 @@ INSERT node at parent[position], detach_to_slot: Option<slot_id>
 ```
 
 1. Navigate to `parent`
-2. If there's a child at `position`:
+2. **Gap filling**: If `position > parent.children.len()`, fill the gap with empty text nodes
+   - Example: Inserting at position 3 when parent has 0 children
+   - First append empty text nodes at positions 0, 1, 2
+   - Then insert at position 3
+   - This ensures positions are preserved exactly as specified
+3. If there's a child at `position`:
    - If `detach_to_slot` is Some, store the existing child in that slot
    - Use `replaceChild(new_node, existing_child)` for atomic replacement
-3. Otherwise, insert at that position (or append if beyond current children)
+4. Otherwise, insert at that exact position
 
 ### MOVE
 
@@ -67,10 +72,12 @@ MOVE from source to parent[position], detach_to_slot: Option<slot_id>
 ```
 
 1. Retrieve the node from `source` (either a tree path or a slot number)
-2. If there's a node at `parent[position]`:
+2. **Gap filling**: If `position > parent.children.len()`, fill the gap with empty text nodes
+   - Same semantics as INSERT - positions must be exact
+3. If there's a node at `parent[position]`:
    - If `detach_to_slot` is Some, store it in that slot
    - Use `replaceChild(moving_node, existing_child)` for atomic replacement
-3. Otherwise, insert at that position
+4. Otherwise, insert at that exact position
 
 ### DELETE
 
@@ -89,6 +96,55 @@ UPDATE node, old_value → new_value
 
 1. Locate the matched node
 2. Update its label/value in place
+
+## Gap Filling with Empty Text Nodes
+
+**CRITICAL**: Position indices in Chawathe edit scripts are absolute. If you insert at position N
+and the parent has fewer than N children, you MUST fill positions 0 through N-1 with empty text nodes first.
+
+### Example: Gap Filling
+
+```
+Parent has children: []
+INSERT "X" at position 3
+```
+
+**Correct implementation**:
+```
+1. Parent has 0 children, inserting at position 3
+2. Fill gap: append empty text "" at position 0
+3. Fill gap: append empty text "" at position 1
+4. Fill gap: append empty text "" at position 2
+5. Insert "X" at position 3
+Result: ["", "", "", "X"]
+```
+
+**WRONG implementation** (blindly appending):
+```
+1. Parent has 0 children, inserting at position 3
+2. Position 3 > len=0, so just append
+Result: ["X"]  ← WRONG! Position is not preserved!
+```
+
+### Why Gap Filling Matters
+
+The diff algorithm generates positions based on the target tree structure. If you don't preserve
+exact positions, subsequent operations in the edit script will fail because they reference positions
+that don't exist or contain the wrong nodes.
+
+**Example failure case**:
+```
+1. INSERT "A" at position 0    → ["A"]
+2. INSERT "B" at position 3    → Without gap filling: ["A", "B"]
+3. UPDATE position 2, text     → ERROR: position 2 doesn't exist!
+```
+
+With correct gap filling:
+```
+1. INSERT "A" at position 0    → ["A"]
+2. INSERT "B" at position 3    → ["A", "", "", "B"]  (filled positions 1, 2)
+3. UPDATE position 2, text     → ["A", "", "updated", "B"]  ✓
+```
 
 ## Implementation Notes
 

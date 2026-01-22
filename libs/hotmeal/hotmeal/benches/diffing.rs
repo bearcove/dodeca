@@ -24,9 +24,9 @@ fn modify_html(html: &str) -> String {
 fn diff_small(bencher: Bencher) {
     let modified = modify_html(SMALL_HTML);
     bencher.bench_local(|| {
-        let old = hotmeal::parse_untyped(black_box(SMALL_HTML));
-        let new = hotmeal::parse_untyped(black_box(&modified));
-        let patches = hotmeal::diff::diff_elements(&old, &new).unwrap();
+        let old = hotmeal::arena_dom::parse(black_box(SMALL_HTML));
+        let new = hotmeal::arena_dom::parse(black_box(&modified));
+        let patches = hotmeal::diff::diff(&old, &new).unwrap();
         black_box(patches);
     });
 }
@@ -35,9 +35,9 @@ fn diff_small(bencher: Bencher) {
 fn diff_medium(bencher: Bencher) {
     let modified = modify_html(MEDIUM_HTML);
     bencher.bench_local(|| {
-        let old = hotmeal::parse_untyped(black_box(MEDIUM_HTML));
-        let new = hotmeal::parse_untyped(black_box(&modified));
-        let patches = hotmeal::diff::diff_elements(&old, &new).unwrap();
+        let old = hotmeal::arena_dom::parse(black_box(MEDIUM_HTML));
+        let new = hotmeal::arena_dom::parse(black_box(&modified));
+        let patches = hotmeal::diff::diff(&old, &new).unwrap();
         black_box(patches);
     });
 }
@@ -46,9 +46,9 @@ fn diff_medium(bencher: Bencher) {
 fn diff_large(bencher: Bencher) {
     let modified = modify_html(LARGE_HTML);
     bencher.bench_local(|| {
-        let old = hotmeal::parse_untyped(black_box(LARGE_HTML));
-        let new = hotmeal::parse_untyped(black_box(&modified));
-        let patches = hotmeal::diff::diff_elements(&old, &new).unwrap();
+        let old = hotmeal::arena_dom::parse(black_box(LARGE_HTML));
+        let new = hotmeal::arena_dom::parse(black_box(&modified));
+        let patches = hotmeal::diff::diff(&old, &new).unwrap();
         black_box(patches);
     });
 }
@@ -57,9 +57,9 @@ fn diff_large(bencher: Bencher) {
 fn diff_xlarge(bencher: Bencher) {
     let modified = modify_html(XLARGE_HTML);
     bencher.bench_local(|| {
-        let old = hotmeal::parse_untyped(black_box(XLARGE_HTML));
-        let new = hotmeal::parse_untyped(black_box(&modified));
-        let patches = hotmeal::diff::diff_elements(&old, &new).unwrap();
+        let old = hotmeal::arena_dom::parse(black_box(XLARGE_HTML));
+        let new = hotmeal::arena_dom::parse(black_box(&modified));
+        let patches = hotmeal::diff::diff(&old, &new).unwrap();
         black_box(patches);
     });
 }
@@ -68,11 +68,11 @@ fn diff_xlarge(bencher: Bencher) {
 #[divan::bench]
 fn diff_only_small(bencher: Bencher) {
     let modified = modify_html(SMALL_HTML);
-    let old = hotmeal::parse_untyped(SMALL_HTML);
-    let new = hotmeal::parse_untyped(&modified);
+    let old = hotmeal::arena_dom::parse(SMALL_HTML);
+    let new = hotmeal::arena_dom::parse(&modified);
 
     bencher.bench_local(|| {
-        let patches = hotmeal::diff::diff_elements(black_box(&old), black_box(&new)).unwrap();
+        let patches = hotmeal::diff::diff(black_box(&old), black_box(&new)).unwrap();
         black_box(patches);
     });
 }
@@ -80,11 +80,11 @@ fn diff_only_small(bencher: Bencher) {
 #[divan::bench]
 fn diff_only_medium(bencher: Bencher) {
     let modified = modify_html(MEDIUM_HTML);
-    let old = hotmeal::parse_untyped(MEDIUM_HTML);
-    let new = hotmeal::parse_untyped(&modified);
+    let old = hotmeal::arena_dom::parse(MEDIUM_HTML);
+    let new = hotmeal::arena_dom::parse(&modified);
 
     bencher.bench_local(|| {
-        let patches = hotmeal::diff::diff_elements(black_box(&old), black_box(&new)).unwrap();
+        let patches = hotmeal::diff::diff(black_box(&old), black_box(&new)).unwrap();
         black_box(patches);
     });
 }
@@ -92,11 +92,11 @@ fn diff_only_medium(bencher: Bencher) {
 #[divan::bench]
 fn diff_only_large(bencher: Bencher) {
     let modified = modify_html(LARGE_HTML);
-    let old = hotmeal::parse_untyped(LARGE_HTML);
-    let new = hotmeal::parse_untyped(&modified);
+    let old = hotmeal::arena_dom::parse(LARGE_HTML);
+    let new = hotmeal::arena_dom::parse(&modified);
 
     bencher.bench_local(|| {
-        let patches = hotmeal::diff::diff_elements(black_box(&old), black_box(&new)).unwrap();
+        let patches = hotmeal::diff::diff(black_box(&old), black_box(&new)).unwrap();
         black_box(patches);
     });
 }
@@ -104,11 +104,11 @@ fn diff_only_large(bencher: Bencher) {
 #[divan::bench]
 fn diff_only_xlarge(bencher: Bencher) {
     let modified = modify_html(XLARGE_HTML);
-    let old = hotmeal::parse_untyped(XLARGE_HTML);
-    let new = hotmeal::parse_untyped(&modified);
+    let old = hotmeal::arena_dom::parse(XLARGE_HTML);
+    let new = hotmeal::arena_dom::parse(&modified);
 
     bencher.bench_local(|| {
-        let patches = hotmeal::diff::diff_elements(black_box(&old), black_box(&new)).unwrap();
+        let patches = hotmeal::diff::diff(black_box(&old), black_box(&new)).unwrap();
         black_box(patches);
     });
 }
