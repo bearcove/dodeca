@@ -6,12 +6,34 @@
 use crate::diff::{Content, Element as DiffElement};
 use crate::untyped_dom::{Document, Element, Namespace, Node};
 use html5ever::tendril::TendrilSink;
-use html5ever::tree_builder::{ElementFlags, NodeOrText, QuirksMode, TreeSink};
-use html5ever::{Attribute, QualName, namespace_url, ns};
+use html5ever::tree_builder::{ElemName, ElementFlags, NodeOrText, QuirksMode, TreeSink};
+use html5ever::{Attribute, LocalName, QualName, namespace_url, ns};
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::fmt;
 use tendril::StrTendril;
+
+/// Owned wrapper around QualName that implements ElemName trait.
+/// This allows us to return owned values from elem_name() without unsafe code.
+#[derive(Clone)]
+struct OwnedElemName(QualName);
+
+impl fmt::Debug for OwnedElemName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl ElemName for OwnedElemName {
+    fn ns(&self) -> &html5ever::Namespace {
+        &self.0.ns
+    }
+
+    fn local_name(&self) -> &LocalName {
+        &self.0.local
+    }
+}
 
 /// Parse an HTML string into an untyped Element tree (body content only).
 ///
@@ -165,9 +187,14 @@ impl HtmlSink {
             children,
         }) = nodes.get(&handle)
         {
+            // Use first-wins semantics for duplicate attributes (HTML parsing behavior)
+            let mut attr_map = HashMap::new();
+            for (k, v) in attrs {
+                attr_map.entry(k.clone()).or_insert_with(|| v.clone());
+            }
             DiffElement {
                 tag: name.local.to_string(),
-                attrs: attrs.iter().cloned().collect(),
+                attrs: attr_map,
                 children: children
                     .iter()
                     .filter_map(|&child| Self::build_diff_content(nodes, child))
@@ -258,10 +285,16 @@ impl HtmlSink {
             let ns = Self::map_namespace(&name.ns);
             let tag = name.local.to_string();
 
+            // Use first-wins semantics for duplicate attributes (HTML parsing behavior)
+            let mut attr_map = HashMap::new();
+            for (k, v) in attrs {
+                attr_map.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+
             Element {
                 tag,
                 ns,
-                attrs: attrs.iter().cloned().collect(),
+                attrs: attr_map,
                 children: children
                     .iter()
                     .filter_map(|&child| Self::build_node(nodes, child))
@@ -299,7 +332,7 @@ impl HtmlSink {
 impl TreeSink for HtmlSink {
     type Handle = NodeHandle;
     type Output = Self;
-    type ElemName<'a> = &'a QualName;
+    type ElemName<'a> = OwnedElemName;
 
     fn finish(self) -> Self::Output {
         self
@@ -324,9 +357,7 @@ impl TreeSink for HtmlSink {
     fn elem_name<'a>(&'a self, target: &'a Self::Handle) -> Self::ElemName<'a> {
         let nodes = self.nodes.borrow();
         if let Some(ParseNode::Element { name, .. }) = nodes.get(target) {
-            // SAFETY: The name is stored in the HashMap and won't be moved
-            // while we hold a reference to it through the borrow.
-            unsafe { &*(name as *const QualName) }
+            OwnedElemName(name.clone())
         } else {
             panic!("elem_name called on non-element")
         }

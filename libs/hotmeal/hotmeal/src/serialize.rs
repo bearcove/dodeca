@@ -20,7 +20,9 @@ pub struct SerializeOptions {
     pub pretty: bool,
     /// Indentation string for pretty-printing (default: "  ")
     pub indent: String,
-    /// Whether to sort attributes alphabetically (default: false, preserves order)
+    /// Whether to sort attributes alphabetically (default: false).
+    /// When false, attribute order is nondeterministic (HashMap iteration order).
+    /// Enable this for deterministic output (e.g., for snapshots, caching, reproducible diffs).
     pub sort_attributes: bool,
     /// Whether to escape `</script` sequences in script content (default: true for safety)
     pub escape_script_end_tags: bool,
@@ -192,12 +194,20 @@ impl<'a, W: Write> Serializer<'a, W> {
     fn write_raw_text(&mut self, text: &str, tag: &str) {
         if self.options.escape_script_end_tags && tag.eq_ignore_ascii_case("script") {
             // Escape </script to prevent premature closing
-            let lower = text.to_lowercase();
+            // Use ASCII case-insensitive matching on original bytes to avoid
+            // index misalignment from Unicode lowercasing
+            const PATTERN: &[u8] = b"</script";
+            let bytes = text.as_bytes();
             let mut last_end = 0;
-            for (i, _) in lower.match_indices("</script") {
-                let _ = write!(self.out, "{}", &text[last_end..i]);
-                let _ = write!(self.out, "<\\/script");
-                last_end = i + "</script".len();
+
+            for i in 0..bytes.len().saturating_sub(PATTERN.len() - 1) {
+                if bytes[i..].len() >= PATTERN.len()
+                    && bytes[i..i + PATTERN.len()].eq_ignore_ascii_case(PATTERN)
+                {
+                    let _ = write!(self.out, "{}", &text[last_end..i]);
+                    let _ = write!(self.out, "<\\/script");
+                    last_end = i + PATTERN.len();
+                }
             }
             let _ = write!(self.out, "{}", &text[last_end..]);
         } else {
@@ -345,10 +355,9 @@ impl<'a, W: Write> Serializer<'a, W> {
                 self.write_element(elem);
             }
             Node::Text(text) => {
-                if self.options.pretty && text.trim().is_empty() {
-                    // Skip pure whitespace in pretty mode
-                    return;
-                }
+                // Preserve all text nodes including whitespace-only ones
+                // to avoid lossy serialization (whitespace can be significant
+                // between inline elements, in <pre>, etc.)
                 self.write_indent();
                 self.write_text_escaped(text);
                 if self.options.pretty && !text.is_empty() {
