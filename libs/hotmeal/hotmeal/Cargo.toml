@@ -17,8 +17,11 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 [dependencies]
 facet = { workspace = true }
 facet-core = { workspace = true }
-facet-diff = { workspace = true }
 facet-reflect = { workspace = true }
+
+# Tree diffing - GumTree/Chawathe algorithm
+cinereus = { workspace = true }
+rapidhash = "1"
 
 # HTML parsing - full HTML5 tree construction with error recovery
 html5ever = { workspace = true }

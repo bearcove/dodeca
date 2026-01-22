@@ -2,7 +2,7 @@
 //!
 //! For property testing: apply(A, diff(A, B)) == B
 
-use super::translate::{InsertContent, NodePath, NodeRef, Patch, PropChange};
+use super::{InsertContent, NodePath, NodeRef, Patch, PropChange};
 use std::collections::HashMap;
 use std::fmt::Write;
 

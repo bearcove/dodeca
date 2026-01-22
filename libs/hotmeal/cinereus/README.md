@@ -4,11 +4,15 @@
 [![documentation](https://docs.rs/cinereus/badge.svg)](https://docs.rs/cinereus)
 [![MIT licensed](https://img.shields.io/crates/l/cinereus.svg)](./LICENSE)
 
-hotmeal is an HTML toolkit based on facet, html5ever, and cinereus (for diff-patching).
+GumTree-style tree diffing with Chawathe edit script generation.
 
-It allows patching HTML documents into a DOM the way browsers would do, manipulating the DOM,
-re-serializing the DOM, but also generating patches you can apply in an actual browser, for
-live-reloading.
+This crate provides a generic tree diffing algorithm based on the GumTree approach:
+
+1. **Top-down matching**: Finds identical subtrees by hash
+2. **Bottom-up matching**: Matches remaining nodes by structural similarity
+3. **Chawathe edit script**: Generates minimal INSERT, DELETE, UPDATE, and MOVE operations
+
+Used by [hotmeal](https://github.com/bearcove/hotmeal) for HTML diffing.
 
 ## Sponsors
 

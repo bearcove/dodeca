@@ -2,6 +2,7 @@
 //
 // These compile to nothing - can be extended later for debugging.
 
+#[allow(unused_macros)]
 macro_rules! trace {
     ($($arg:tt)*) => {};
 }

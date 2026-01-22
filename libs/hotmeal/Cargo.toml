@@ -1,8 +1,8 @@
 [workspace]
 members = [
+    "cinereus",
     "hotmeal",
     "hotmeal-wasm",
-    # "hotmeal-diff",  # TODO: extract from facet
 ]
 exclude = [
     "hotmeal/fuzz",
@@ -20,13 +20,16 @@ repository = "https://github.com/bearcove/hotmeal"
 # Facet dependencies
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-testhelpers = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
 # Local crates
+cinereus = { path = "cinereus" }
 hotmeal = { path = "hotmeal" }
+
+# Data structures
+indextree = "4.7"
 
 # HTML parsing
 html5ever = "0.29"

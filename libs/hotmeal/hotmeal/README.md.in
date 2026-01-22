@@ -1,0 +1,27 @@
+# hotmeal
+
+HTML toolkit with typed DOM, html5ever parsing, tree diffing, and serialization.
+
+## Features
+
+- **HTML5 Parsing**: Full HTML5 tree construction via html5ever with error recovery
+- **Typed DOM**: Type-safe DOM manipulation with facet integration
+- **Tree Diffing**: GumTree/Chawathe algorithm via cinereus for efficient DOM patches
+- **Serialization**: HTML output with proper escaping and formatting
+
+## Usage
+
+```rust
+use hotmeal::{parse_body, diff::{diff, apply_patches}};
+
+// Parse HTML
+let old = parse_body("<div><p>Hello</p></div>");
+let new = parse_body("<div><p>World</p></div>");
+
+// Compute patches
+let patches = hotmeal::diff::diff(&old, &new).expect("diffing should succeed");
+
+// Apply patches to transform old into new
+let mut old_diff: hotmeal::diff::Element = (&old).into();
+hotmeal::diff::apply_patches(&mut old_diff, &patches).expect("patches should apply");
+```
