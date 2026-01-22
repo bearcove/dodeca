@@ -19,9 +19,6 @@
 //! hotmeal::diff::apply_patches(&mut old_diff, &patches).expect("patches should apply");
 //! ```
 
-#[macro_use]
-mod tracing_macros;
-
 mod apply;
 mod tree;
 
@@ -85,20 +82,22 @@ pub struct PropChange {
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 #[repr(u8)]
 pub enum Patch {
-    /// Insert an element at position within parent.
+    /// Insert an element at a position.
+    /// The `at` NodeRef includes the position as the last path segment.
+    /// For Path(NodePath(\[a, b, c\])), insert at position c within parent at path \[a, b\].
+    /// For Slot(n, Some(NodePath(\[a, b\]))), insert at position b within element at path \[a\] in slot n.
     InsertElement {
-        parent: NodeRef,
-        position: usize,
+        at: NodeRef,
         tag: String,
         attrs: Vec<(String, String)>,
         children: Vec<InsertContent>,
         detach_to_slot: Option<u32>,
     },
 
-    /// Insert a text node at position within parent.
+    /// Insert a text node at a position.
+    /// The `at` NodeRef includes the position as the last path segment.
     InsertText {
-        parent: NodeRef,
-        position: usize,
+        at: NodeRef,
         text: String,
         detach_to_slot: Option<u32>,
     },

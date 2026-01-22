@@ -1,0 +1,169 @@
+warning: unused `Result` that must be used
+  --> hotmeal/benches/diffing.rs:27:9
+   |
+27 |         black_box(patches);
+   |         ^^^^^^^^^^^^^^^^^^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+   = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+   |
+27 |         let _ = black_box(patches);
+   |         +++++++
+
+warning: unused `Result` that must be used
+  --> hotmeal/benches/diffing.rs:38:9
+   |
+38 |         black_box(patches);
+   |         ^^^^^^^^^^^^^^^^^^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+   |
+38 |         let _ = black_box(patches);
+   |         +++++++
+
+warning: unused `Result` that must be used
+  --> hotmeal/benches/diffing.rs:49:9
+   |
+49 |         black_box(patches);
+   |         ^^^^^^^^^^^^^^^^^^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+   |
+49 |         let _ = black_box(patches);
+   |         +++++++
+
+warning: unused `Result` that must be used
+  --> hotmeal/benches/diffing.rs:60:9
+   |
+60 |         black_box(patches);
+   |         ^^^^^^^^^^^^^^^^^^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+   |
+60 |         let _ = black_box(patches);
+   |         +++++++
+
+warning: unused `Result` that must be used
+  --> hotmeal/benches/diffing.rs:73:9
+   |
+73 |         black_box(patches);
+   |         ^^^^^^^^^^^^^^^^^^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+   |
+73 |         let _ = black_box(patches);
+   |         +++++++
+
+warning: unused `Result` that must be used
+  --> hotmeal/benches/diffing.rs:85:9
+   |
+85 |         black_box(patches);
+   |         ^^^^^^^^^^^^^^^^^^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+   |
+85 |         let _ = black_box(patches);
+   |         +++++++
+
+warning: unused `Result` that must be used
+  --> hotmeal/benches/diffing.rs:97:9
+   |
+97 |         black_box(patches);
+   |         ^^^^^^^^^^^^^^^^^^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+   |
+97 |         let _ = black_box(patches);
+   |         +++++++
+
+warning: unused `Result` that must be used
+   --> hotmeal/benches/diffing.rs:109:9
+    |
+109 |         black_box(patches);
+    |         ^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+109 |         let _ = black_box(patches);
+    |         +++++++
+
+   Compiling hotmeal v0.1.0 (/Users/amos/bearcove/hotmeal/hotmeal)
+warning: `hotmeal` (bench "diffing") generated 8 warnings
+    Finished `bench` profile [optimized] target(s) in 0.48s
+     Running unittests src/lib.rs (/Users/amos/bearcove/hotmeal/target/release/deps/hotmeal-369839ad9ed2b979)
+
+running 27 tests
+test diff::tree::tests::test_build_tree_simple ... ignored
+test diff::tree::tests::test_diff_attr_change ... ignored
+test diff::tree::tests::test_diff_remove_all_children ... ignored
+test diff::tree::tests::test_diff_text_change ... ignored
+test parser::tests::test_error_recovery ... ignored
+test parser::tests::test_parse_body ... ignored
+test parser::tests::test_parse_body_with_attrs ... ignored
+test parser::tests::test_parse_document ... ignored
+test parser::tests::test_parse_with_comments ... ignored
+test serialize::tests::test_attribute_escaping ... ignored
+test serialize::tests::test_comment_serialization ... ignored
+test serialize::tests::test_comment_with_dashes ... ignored
+test serialize::tests::test_document_serialization ... ignored
+test serialize::tests::test_foreign_content_self_closing ... ignored
+test serialize::tests::test_pretty_print ... ignored
+test serialize::tests::test_raw_text_elements ... ignored
+test serialize::tests::test_rcdata_elements ... ignored
+test serialize::tests::test_script_end_tag_escaping ... ignored
+test serialize::tests::test_sorted_attributes ... ignored
+test serialize::tests::test_text_escaping ... ignored
+test serialize::tests::test_void_elements ... ignored
+test untyped_dom::tests::test_attributes_first_wins ... ignored
+test untyped_dom::tests::test_attributes_remove ... ignored
+test untyped_dom::tests::test_attributes_set_updates ... ignored
+test untyped_dom::tests::test_document_structure ... ignored
+test untyped_dom::tests::test_element_text_content ... ignored
+test untyped_dom::tests::test_namespace ... ignored
+
+test result: ok. 0 passed; 0 failed; 27 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running benches/diffing.rs (/Users/amos/bearcove/hotmeal/target/release/deps/diffing-2b261532e05723e1)
+Timer precision: 41 ns
+diffing              fastest       │ slowest       │ median        │ mean          │ samples │ iters
+├─ diff_large        7.569 ms      │ 14.13 ms      │ 8.008 ms      │ 8.229 ms      │ 100     │ 100
+├─ diff_medium       5.819 ms      │ 7.508 ms      │ 6.232 ms      │ 6.286 ms      │ 100     │ 100
+├─ diff_only_large   2.429 ms      │ 2.924 ms      │ 2.644 ms      │ 2.648 ms      │ 100     │ 100
+├─ diff_only_medium  2.439 ms      │ 3.009 ms      │ 2.653 ms      │ 2.667 ms      │ 100     │ 100
+├─ diff_only_small   33.54 µs      │ 235.6 µs      │ 52.74 µs      │ 66.22 µs      │ 100     │ 100
+├─ diff_only_xlarge  4.383 ms      │ 9.618 ms      │ 4.71 ms       │ 4.844 ms      │ 100     │ 100
+├─ diff_small        65.2 µs       │ 587.4 µs      │ 125.9 µs      │ 136.7 µs      │ 100     │ 100
+╰─ diff_xlarge       14.71 ms      │ 16.99 ms      │ 15.53 ms      │ 15.57 ms      │ 100     │ 100
+
+     Running benches/full_cycle.rs (/Users/amos/bearcove/hotmeal/target/release/deps/full_cycle-7adb9fbff0c27db9)
+Timer precision: 41 ns
+full_cycle            fastest       │ slowest       │ median        │ mean          │ samples │ iters
+├─ hot_reload_large   7.659 ms      │ 10.54 ms      │ 8.088 ms      │ 8.18 ms       │ 100     │ 100
+├─ hot_reload_medium  5.891 ms      │ 6.653 ms      │ 6.21 ms       │ 6.232 ms      │ 100     │ 100
+├─ hot_reload_small   76.83 µs      │ 349.6 µs      │ 142.4 µs      │ 149 µs        │ 100     │ 100
+╰─ hot_reload_xlarge  14.89 ms      │ 17.76 ms      │ 15.67 ms      │ 15.76 ms      │ 100     │ 100
+
+     Running benches/parsing.rs (/Users/amos/bearcove/hotmeal/target/release/deps/parsing-dca47c0606ed88c8)
+Timer precision: 41 ns
+parsing          fastest       │ slowest       │ median        │ mean          │ samples │ iters
+├─ parse_large   2.46 ms       │ 3.907 ms      │ 2.618 ms      │ 2.643 ms      │ 100     │ 100
+├─ parse_medium  1.613 ms      │ 2.107 ms      │ 1.692 ms      │ 1.712 ms      │ 100     │ 100
+├─ parse_small   16.54 µs      │ 47.16 µs      │ 18.79 µs      │ 20.14 µs      │ 100     │ 100
+╰─ parse_xlarge  4.903 ms      │ 6.061 ms      │ 5.251 ms      │ 5.279 ms      │ 100     │ 100
+
+     Running benches/serialization.rs (/Users/amos/bearcove/hotmeal/target/release/deps/serialization-9d5b45221a86017f)
+Timer precision: 41 ns
+serialization        fastest       │ slowest       │ median        │ mean          │ samples │ iters
+├─ serialize_large   438.7 µs      │ 609.2 µs      │ 471.8 µs      │ 477.8 µs      │ 100     │ 100
+├─ serialize_medium  279.3 µs      │ 321.5 µs      │ 286.1 µs      │ 288.7 µs      │ 100     │ 100
+├─ serialize_small   5.291 µs      │ 8.458 µs      │ 5.374 µs      │ 5.459 µs      │ 100     │ 100
+╰─ serialize_xlarge  1.224 ms      │ 1.412 ms      │ 1.271 ms      │ 1.283 ms      │ 100     │ 100
+

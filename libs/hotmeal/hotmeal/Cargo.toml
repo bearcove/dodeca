@@ -16,8 +16,6 @@ rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
 facet = { workspace = true }
-facet-core = { workspace = true }
-facet-reflect = { workspace = true }
 
 # Tree diffing - GumTree/Chawathe algorithm
 cinereus = { workspace = true }
@@ -27,12 +25,37 @@ rapidhash = "1"
 html5ever = { workspace = true }
 tendril = { workspace = true }
 
+# Optional tracing support
+tracing = { version = "0.1", optional = true }
+
+[features]
+tracing = ["dep:tracing"]
+
 [dev-dependencies]
+cinereus = { workspace = true, features = ["tracing"] }
+tracing = { version = "0.1" }
 facet-testhelpers = { workspace = true }
 datatest-stable = { workspace = true }
+divan = "0.1"
 
 [[test]]
 name = "roundtrip"
+harness = false
+
+[[bench]]
+name = "parsing"
+harness = false
+
+[[bench]]
+name = "diffing"
+harness = false
+
+[[bench]]
+name = "serialization"
+harness = false
+
+[[bench]]
+name = "full_cycle"
 harness = false
 
 [lints]

@@ -15,7 +15,6 @@
 //! 1. **Top-down matching**: Match identical subtrees by hash (Merkle-tree style)
 //! 2. **Bottom-up matching**: Match remaining nodes by structural similarity (Dice coefficient)
 //! 3. **Edit script generation**: Produce INSERT, DELETE, UPDATE, MOVE operations
-//! 4. **Simplification**: Consolidate redundant operations (e.g., subtree moves)
 //!
 //! ## Usage
 //!
@@ -44,21 +43,18 @@ mod tracing_macros;
 mod chawathe;
 /// GumTree matching algorithm
 pub mod matching;
-mod simplify;
 /// Tree representation with properties support
 pub mod tree;
 
 pub use chawathe::*;
 pub use matching::*;
-pub use simplify::*;
 pub use tree::*;
 
-/// Compute a simplified diff between two trees.
+/// Compute a diff between two trees.
 ///
 /// This is the main entry point for tree diffing. It:
 /// 1. Computes a matching between nodes using GumTree's two-phase algorithm
 /// 2. Generates an edit script using Chawathe's algorithm
-/// 3. Simplifies the script to remove redundant operations
 ///
 /// # Example
 ///
@@ -97,6 +93,5 @@ pub fn diff_trees_with_matching<T: TreeTypes>(
 ) -> (Vec<EditOp<T>>, Matching) {
     let matching = compute_matching(tree_a, tree_b, config);
     let ops = generate_edit_script(tree_a, tree_b, &matching);
-    let ops = simplify_edit_script(ops, tree_a, tree_b);
     (ops, matching)
 }

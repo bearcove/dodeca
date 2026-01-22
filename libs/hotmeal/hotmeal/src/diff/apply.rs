@@ -3,6 +3,7 @@
 //! For property testing: apply(A, diff(A, B)) == B
 
 use super::{InsertContent, NodePath, NodeRef, Patch, PropChange};
+use crate::debug;
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -255,13 +256,9 @@ fn navigate_to_children_in_slot<'a>(
 ) -> Result<&'a mut Vec<Content>, String> {
     let mut current = slot_node;
     if let Some(path) = rel_path {
-        // Navigate all but the last segment (the last is the target index)
-        let nav_path = if path.0.len() > 1 {
-            &path.0[..path.0.len() - 1]
-        } else {
-            &[]
-        };
-        for &idx in nav_path {
+        // Navigate through the path to reach the target element
+        // The caller should pass the path to the parent (without the final index)
+        for &idx in &path.0 {
             let child = current
                 .children
                 .get_mut(idx)
@@ -293,15 +290,19 @@ fn apply_patch(
     patch: &Patch,
     slots: &mut HashMap<u32, Content>,
 ) -> Result<(), String> {
+    debug!(?patch, "apply_patch: starting");
+    debug!(slot_count = slots.len(), "apply_patch: slot state");
+
     match patch {
         Patch::InsertElement {
-            parent,
-            position,
+            at,
             tag,
             attrs,
             children,
             detach_to_slot,
         } => {
+            debug!(?at, tag, "InsertElement: about to insert");
+
             // Create element with its attrs and children
             let new_element = Element {
                 tag: tag.clone(),
@@ -310,16 +311,17 @@ fn apply_patch(
             };
             let new_content = Content::Element(new_element);
 
-            insert_at_position(root, slots, parent, *position, new_content, *detach_to_slot)?;
+            insert_at_node_ref(root, slots, at, new_content, *detach_to_slot)?;
         }
         Patch::InsertText {
-            parent,
-            position,
+            at,
             text,
             detach_to_slot,
         } => {
+            debug!(?at, text, "InsertText: about to insert");
+
             let new_content = Content::Text(text.clone());
-            insert_at_position(root, slots, parent, *position, new_content, *detach_to_slot)?;
+            insert_at_node_ref(root, slots, at, new_content, *detach_to_slot)?;
         }
         Patch::Remove { node } => {
             match node {
@@ -387,6 +389,34 @@ fn apply_patch(
                 "apply Move slots state"
             );
 
+            // Debug: show what's in each slot
+            for (slot_id, content) in slots.iter() {
+                let desc = match content {
+                    Content::Element(e) => {
+                        let children_desc: Vec<_> = e
+                            .children
+                            .iter()
+                            .take(5)
+                            .map(|c| match c {
+                                Content::Element(ce) => format!("<{}>", ce.tag),
+                                Content::Text(t) => {
+                                    format!("Text({:?})", t.chars().take(10).collect::<String>())
+                                }
+                            })
+                            .collect();
+                        format!(
+                            "Element({}, children=[{}])",
+                            e.tag,
+                            children_desc.join(", ")
+                        )
+                    }
+                    Content::Text(t) => {
+                        format!("Text({:?})", t.chars().take(30).collect::<String>())
+                    }
+                };
+                debug!(slot = slot_id, content = %desc, "Slot contents");
+            }
+
             // Get the content to move (either from a path or from a slot)
             let content = match from {
                 NodeRef::Path(from_path) => {
@@ -404,9 +434,61 @@ fn apply_patch(
                     // Swap with placeholder instead of remove (no shifting!)
                     std::mem::replace(&mut from_children[from_idx], Content::Text(String::new()))
                 }
-                NodeRef::Slot(slot, _relative_path) => slots
-                    .remove(slot)
-                    .ok_or_else(|| format!("Move: slot {slot} not found"))?,
+                NodeRef::Slot(slot, relative_path) => {
+                    if let Some(rel_path) = relative_path {
+                        // Moving a child from within the slotted content
+                        if rel_path.0.is_empty() {
+                            return Err("Move: relative path cannot be empty".to_string());
+                        }
+
+                        let slot_content = slots
+                            .get_mut(slot)
+                            .ok_or_else(|| format!("Move: slot {slot} not found"))?;
+
+                        debug!(
+                            slot,
+                            ?rel_path,
+                            ?slot_content,
+                            "Move from slot with relative path"
+                        );
+
+                        match slot_content {
+                            Content::Element(e) => {
+                                // Extract parent path (all but last) and the extraction index (last)
+                                let parent_path = if rel_path.0.len() > 1 {
+                                    Some(NodePath(rel_path.0[..rel_path.0.len() - 1].to_vec()))
+                                } else {
+                                    None
+                                };
+                                let from_idx = rel_path.0[rel_path.0.len() - 1];
+
+                                let children =
+                                    navigate_to_children_in_slot(e, parent_path.as_ref())?;
+                                if from_idx >= children.len() {
+                                    return Err(format!(
+                                        "Move: slot child index {from_idx} out of bounds"
+                                    ));
+                                }
+                                // Extract the child (replace with placeholder)
+                                std::mem::replace(
+                                    &mut children[from_idx],
+                                    Content::Text(String::new()),
+                                )
+                            }
+                            Content::Text(text) => {
+                                return Err(format!(
+                                    "Move: slot {} contains text ({:?}), cannot navigate to child with path {:?}",
+                                    slot, text, rel_path
+                                ));
+                            }
+                        }
+                    } else {
+                        // Moving the entire slot content
+                        slots
+                            .remove(slot)
+                            .ok_or_else(|| format!("Move: slot {slot} not found"))?
+                    }
+                }
             };
 
             // Place the content at the target location (either in tree or in a slot)
@@ -450,7 +532,14 @@ fn apply_patch(
                 }
                 NodeRef::Slot(target_slot, rel_path) => {
                     // Move into a slot (detached subtree)
-                    // Get the target index from the relative path
+                    // Extract parent path (all but last) and the target index (last)
+                    let parent_path = rel_path.as_ref().and_then(|p| {
+                        if p.0.len() > 1 {
+                            Some(NodePath(p.0[..p.0.len() - 1].to_vec()))
+                        } else {
+                            None
+                        }
+                    });
                     let to_idx = rel_path
                         .as_ref()
                         .and_then(|p| p.0.last().copied())
@@ -464,7 +553,7 @@ fn apply_patch(
 
                         let target_children = match slot_content {
                             Content::Element(e) => {
-                                navigate_to_children_in_slot(e, rel_path.as_ref())?
+                                navigate_to_children_in_slot(e, parent_path.as_ref())?
                             }
                             Content::Text(_) => {
                                 return Err(
@@ -478,6 +567,11 @@ fn apply_patch(
                                 &mut target_children[to_idx],
                                 Content::Text(String::new()),
                             );
+                            debug!(
+                                detach_slot = slot,
+                                ?occupant,
+                                "Move: displacing occupant to slot"
+                            );
                             slots.insert(*slot, occupant);
                         }
                     }
@@ -488,7 +582,9 @@ fn apply_patch(
                         .ok_or_else(|| format!("Move: target slot {target_slot} not found"))?;
 
                     let target_children = match slot_content {
-                        Content::Element(e) => navigate_to_children_in_slot(e, rel_path.as_ref())?,
+                        Content::Element(e) => {
+                            navigate_to_children_in_slot(e, parent_path.as_ref())?
+                        }
                         Content::Text(_) => {
                             return Err("Move: target slot contains text, not element".to_string());
                         }
@@ -577,7 +673,99 @@ fn apply_update_props(
     Ok(())
 }
 
-/// Helper to insert content at a position, handling displacement to slots.
+/// Helper to insert content at a NodeRef (position included in path), handling displacement to slots.
+/// Uses the same semantics as Move: the last path segment is the target position.
+fn insert_at_node_ref(
+    root: &mut Element,
+    slots: &mut HashMap<u32, Content>,
+    at: &NodeRef,
+    new_content: Content,
+    detach_to_slot: Option<u32>,
+) -> Result<(), String> {
+    match at {
+        NodeRef::Path(path) => {
+            if path.0.is_empty() {
+                return Err("Insert: path cannot be empty".to_string());
+            }
+
+            let parent_path = &path.0[..path.0.len() - 1];
+            let position = path.0[path.0.len() - 1];
+
+            let children = root
+                .children_mut(parent_path)
+                .map_err(|e| format!("Insert: {e}"))?;
+
+            // In Chawathe semantics, Insert does NOT shift - it places at position
+            // and whatever was there gets displaced (detached to a slot).
+            if let Some(slot) = detach_to_slot
+                && position < children.len()
+            {
+                let occupant =
+                    std::mem::replace(&mut children[position], Content::Text(String::new()));
+                slots.insert(slot, occupant);
+            }
+
+            // Grow the array with empty text placeholders if needed
+            while children.len() <= position {
+                children.push(Content::Text(String::new()));
+            }
+            children[position] = new_content;
+        }
+        NodeRef::Slot(parent_slot, relative_path) => {
+            // Parent is in a slot - inserting into a detached subtree
+            if relative_path.is_none() || relative_path.as_ref().unwrap().0.is_empty() {
+                return Err("Insert: slot reference must include position in path".to_string());
+            }
+
+            let rel_path = relative_path.as_ref().unwrap();
+            let parent_path_in_slot = if rel_path.0.len() > 1 {
+                Some(NodePath(rel_path.0[..rel_path.0.len() - 1].to_vec()))
+            } else {
+                None
+            };
+            let position = rel_path.0[rel_path.0.len() - 1];
+
+            let slot_elem = match slots.get_mut(parent_slot) {
+                Some(Content::Element(e)) => e,
+                Some(Content::Text(_)) => {
+                    return Err(format!(
+                        "Insert: slot {parent_slot} contains text, not an element"
+                    ));
+                }
+                None => return Err(format!("Insert: slot {parent_slot} not found")),
+            };
+
+            // First handle displacement if needed
+            if let Some(slot) = detach_to_slot {
+                let children =
+                    navigate_to_children_in_slot(slot_elem, parent_path_in_slot.as_ref())?;
+                if position < children.len() {
+                    let occupant =
+                        std::mem::replace(&mut children[position], Content::Text(String::new()));
+                    slots.insert(slot, occupant);
+                }
+            }
+
+            // Re-get the slot element (borrow was released)
+            let slot_elem = match slots.get_mut(parent_slot) {
+                Some(Content::Element(e)) => e,
+                _ => return Err(format!("Insert: slot {parent_slot} not found")),
+            };
+            let children = navigate_to_children_in_slot(slot_elem, parent_path_in_slot.as_ref())?;
+
+            // Grow the array with empty text placeholders if needed
+            while children.len() <= position {
+                children.push(Content::Text(String::new()));
+            }
+            children[position] = new_content;
+        }
+    }
+    Ok(())
+}
+
+/// DEPRECATED: Helper to insert content at a position, handling displacement to slots.
+/// This function is kept for compatibility but should be removed once all call sites use insert_at_node_ref.
+#[allow(dead_code)]
 fn insert_at_position(
     root: &mut Element,
     slots: &mut HashMap<u32, Content>,

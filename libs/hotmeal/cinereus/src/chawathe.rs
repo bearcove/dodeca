@@ -202,24 +202,32 @@ pub fn generate_edit_script<T: TreeTypes>(
     }
 
     // Phase 4: MOVE - matched nodes where parent or position changed
+    debug!("Phase 4: MOVE - checking {} matched pairs", matching.len());
     for (a_id, b_id) in matching.pairs() {
+        debug!(
+            a = usize::from(a_id),
+            b = usize::from(b_id),
+            "checking matched pair for move"
+        );
         // Skip root
         let Some(parent_a) = tree_a.parent(a_id) else {
+            debug!(
+                a = usize::from(a_id),
+                "skipping: no parent in tree_a (root)"
+            );
             continue;
         };
         let Some(parent_b) = tree_b.parent(b_id) else {
+            debug!(
+                b = usize::from(b_id),
+                "skipping: no parent in tree_b (root)"
+            );
             continue;
         };
 
-        // Skip if the target parent is not matched (i.e., it's an inserted node or inside an inserted subtree).
-        // In this case, the node is "moving" into a newly inserted subtree, which means the matching
-        // was incorrect - the node should have been matched with a node under a matched parent.
-        // Rather than emit a broken Move, skip it. The content will appear via the Insert.
-        if !matching.contains_b(parent_b) {
-            continue;
-        }
-
-        // Check if parent changed
+        // Check if parent changed (even if target parent is unmatched/inserted).
+        // When a matched node moves to an unmatched parent, we still need to emit the Move
+        // so the node can be relocated. The Insert of the parent won't include matched children.
         let parent_match = matching.get_b(parent_a);
         let parent_changed = parent_match != Some(parent_b);
 
@@ -228,6 +236,19 @@ pub fn generate_edit_script<T: TreeTypes>(
         let pos_b = tree_b.position(b_id);
         let position_changed = pos_a != pos_b;
 
+        trace!(
+            a = usize::from(a_id),
+            b = usize::from(b_id),
+            parent_a = usize::from(parent_a),
+            parent_b = usize::from(parent_b),
+            ?parent_match,
+            parent_changed,
+            pos_a,
+            pos_b,
+            position_changed,
+            "move phase: checking node"
+        );
+
         if parent_changed || position_changed {
             ops.push(EditOp::Move {
                 node_a: a_id,
@@ -235,6 +256,11 @@ pub fn generate_edit_script<T: TreeTypes>(
                 new_parent_b: parent_b,
                 new_position: pos_b,
             });
+            trace!(
+                a = usize::from(a_id),
+                b = usize::from(b_id),
+                "emitting move operation"
+            );
         }
     }
 
@@ -789,5 +815,79 @@ mod tests {
             assert_eq!(changes.len(), 1, "Should have 1 property change (id only)");
             assert_eq!(changes[0].key, "id", "The change should be for 'id'");
         }
+    }
+
+    #[test]
+    #[ignore] // TODO: Need to create proper test with Properties that differentiate text content
+    fn test_move_from_deleted_parent() {
+        // Test case: child node matched, but its parent is unmatched (will be deleted).
+        // The child should be MOVEd to its new location.
+        //
+        // This matches the HTML fuzzer scenario:
+        // Old: strong#1(text "old"), strong#2(text "foo")
+        // New: strong(text "foo")
+        // Where strong#1 matches new strong, and text "foo" from strong#2 should move to it.
+        //
+        // Old tree:
+        // root
+        //   ├─ elem1 (matched)
+        //   │   └─ text "old"
+        //   └─ elem2 (unmatched - will be deleted)
+        //       └─ text "foo" (matched - should move to elem1)
+        //
+        // New tree:
+        // root
+        //   └─ elem1 (matched)
+        //       └─ text "foo" (matched)
+
+        let mut tree_a: Tree<TestTypes> = Tree::new(NodeData::simple_u64(1, "root"));
+        let elem1 = tree_a.add_child(tree_a.root, NodeData::simple_u64(2, "elem"));
+        let _text_old = tree_a.add_child(
+            elem1,
+            NodeData::simple_leaf_u64(3, "text", "old".to_string()),
+        );
+        let elem2 = tree_a.add_child(tree_a.root, NodeData::simple_u64(4, "elem"));
+        let text_foo = tree_a.add_child(
+            elem2,
+            NodeData::simple_leaf_u64(5, "text", "foo".to_string()),
+        );
+
+        let mut tree_b: Tree<TestTypes> = Tree::new(NodeData::simple_u64(10, "root"));
+        let elem1_b = tree_b.add_child(tree_b.root, NodeData::simple_u64(20, "elem"));
+        let _text_foo_b = tree_b.add_child(
+            elem1_b,
+            NodeData::simple_leaf_u64(30, "text", "foo".to_string()),
+        );
+
+        let config = MatchingConfig {
+            min_height: 0, // Include leaves in matching
+            ..MatchingConfig::default()
+        };
+        let matching = compute_matching(&tree_a, &tree_b, &config);
+        let ops = generate_edit_script(&tree_a, &tree_b, &matching);
+
+        debug!(?ops, "Generated operations");
+
+        // Check if there's a Move operation for text_foo
+        let move_ops: Vec<_> = ops
+            .iter()
+            .filter_map(|op| {
+                if let EditOp::Move { node_a, .. } = op {
+                    Some(node_a)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        debug!(?move_ops, text_foo_id = ?text_foo, "Move operations");
+
+        let has_move = move_ops.iter().any(|&&node_a| node_a == text_foo);
+
+        assert!(
+            has_move,
+            "Expected Move operation for text node moving from deleted parent.\nOps: {:#?}",
+            ops
+        );
     }
 }

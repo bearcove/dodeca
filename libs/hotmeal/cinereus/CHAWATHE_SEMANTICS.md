@@ -158,5 +158,3 @@ The Chawathe model has several advantages:
   SIGMOD 1996
 - GumTree (uses Chawathe for edit script): Falleri et al. "Fine-grained and accurate
   source code differencing" ASE 2014
-- facet-html-diff: Our DOM implementation of Chawathe semantics
-- facet-html-diff-wasm: Browser-based validation using real DOM operations

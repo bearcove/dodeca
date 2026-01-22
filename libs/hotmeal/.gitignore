@@ -1,3 +1,4 @@
 /target
 hotmeal/fuzz/target
-hotmeal/fuzz/corpus
+hotmeal/fuzz/artifacts
+.tracey/

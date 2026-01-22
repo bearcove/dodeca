@@ -32,6 +32,8 @@
 //! assert_eq!(body.tag, "body");
 //! ```
 
+mod tracing_macros;
+
 pub mod diff;
 mod parser;
 pub mod serialize;

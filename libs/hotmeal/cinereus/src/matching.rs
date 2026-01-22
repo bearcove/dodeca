@@ -580,12 +580,55 @@ fn bottom_up_phase<T: TreeTypes>(
                     a = usize::from(a_id),
                     a_kind = %a_data.kind,
                     b = usize::from(b_id),
-                    "bottom_up pass2: leaf match"
+                    "bottom_up pass2: leaf match (parent matched)"
+                );
+                matching.add(a_id, b_id);
+            }
+        } else {
+            // Parent is unmatched (will be deleted) - do global search
+            // This allows nodes from deleted subtrees to move elsewhere
+            let candidates = b_by_kind.get(&a_data.kind).cloned().unwrap_or_default();
+
+            let mut best: Option<NodeId> = None;
+            for b_id in candidates {
+                if matching.contains_b(b_id) {
+                    continue;
+                }
+
+                // Only match leaves
+                if tree_b.child_count(b_id) != 0 {
+                    continue;
+                }
+
+                // Check ancestry constraint - ensures we don't match across incompatible locations
+                if !ancestry_compatible(a_id, b_id, tree_a, tree_b, matching) {
+                    continue;
+                }
+
+                let b_data = tree_b.get(b_id);
+
+                // Prefer hash match, then property match
+                if b_data.hash == a_data.hash {
+                    best = Some(b_id);
+                    break;
+                } else if best.is_none()
+                    && a_data.properties.similarity(&b_data.properties)
+                        >= config.similarity_threshold
+                {
+                    best = Some(b_id);
+                }
+            }
+
+            if let Some(b_id) = best {
+                trace!(
+                    a = usize::from(a_id),
+                    a_kind = %a_data.kind,
+                    b = usize::from(b_id),
+                    "bottom_up pass2: leaf match (parent unmatched, global search)"
                 );
                 matching.add(a_id, b_id);
             }
         }
-        // If parent isn't matched, don't try global search - this prevents cross-level matching
     }
 }
 

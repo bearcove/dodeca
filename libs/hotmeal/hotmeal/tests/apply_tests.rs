@@ -61,8 +61,7 @@ fn test_apply_insert_element() {
     apply_patches(
         &mut node,
         &[Patch::InsertElement {
-            parent: NodeRef::Path(NodePath(vec![])),
-            position: 0,
+            at: NodeRef::Path(NodePath(vec![0])),
             tag: "p".to_string(),
             attrs: vec![],
             children: vec![],
@@ -81,8 +80,7 @@ fn test_apply_insert_element_no_displacement() {
     apply_patches(
         &mut node,
         &[Patch::InsertElement {
-            parent: NodeRef::Path(NodePath(vec![])),
-            position: 1, // Insert at index 1 (past last element)
+            at: NodeRef::Path(NodePath(vec![1])),
             tag: "p".to_string(),
             attrs: vec![],
             children: vec![],
@@ -100,8 +98,7 @@ fn test_apply_insert_element_with_children() {
     apply_patches(
         &mut node,
         &[Patch::InsertElement {
-            parent: NodeRef::Path(NodePath(vec![])),
-            position: 1,
+            at: NodeRef::Path(NodePath(vec![1])),
             tag: "p".to_string(),
             attrs: vec![],
             children: vec![InsertContent::Text("Second".to_string())],
@@ -119,8 +116,7 @@ fn test_apply_insert_element_with_attrs() {
     apply_patches(
         &mut node,
         &[Patch::InsertElement {
-            parent: NodeRef::Path(NodePath(vec![])),
-            position: 1,
+            at: NodeRef::Path(NodePath(vec![1])),
             tag: "p".to_string(),
             attrs: vec![("class".to_string(), "highlight".to_string())],
             children: vec![InsertContent::Text("Second".to_string())],
@@ -140,8 +136,7 @@ fn test_apply_insert_text() {
     apply_patches(
         &mut node,
         &[Patch::InsertText {
-            parent: NodeRef::Path(NodePath(vec![])),
-            position: 1,
+            at: NodeRef::Path(NodePath(vec![1])),
             text: "Hello".to_string(),
             detach_to_slot: None,
         }],
