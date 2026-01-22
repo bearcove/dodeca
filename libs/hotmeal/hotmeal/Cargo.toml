@@ -1,0 +1,24 @@
+[package]
+name = "hotmeal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "HTML toolkit with typed DOM, html5ever parsing, and serialization"
+keywords = ["html", "dom", "html5ever", "parsing", "facet"]
+categories = ["encoding", "parsing", "web-programming"]
+
+[dependencies]
+facet = { workspace = true }
+
+# HTML parsing - full HTML5 tree construction with error recovery
+html5ever = { workspace = true }
+markup5ever = { workspace = true }
+tendril = { workspace = true }
+
+[dev-dependencies]
+facet-testhelpers = { workspace = true }
+
+[lints]
+workspace = true

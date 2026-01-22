@@ -1,0 +1,43 @@
+[workspace]
+members = [
+    "hotmeal",
+    # "hotmeal-diff",  # TODO: extract from facet
+]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/bearcove/hotmeal"
+
+[workspace.dependencies]
+# Facet dependencies (path to local checkout)
+facet = { path = "../facet/facet" }
+facet-core = { path = "../facet/facet-core" }
+facet-diff = { path = "../facet/facet-diff" }
+facet-dom = { path = "../facet/facet-dom" }
+facet-reflect = { path = "../facet/facet-reflect" }
+facet-xml-node = { path = "../facet/facet-xml-node" }
+facet-json = { path = "../facet/facet-json" }
+facet-testhelpers = { path = "../facet/facet-testhelpers" }
+
+# Local crates
+hotmeal = { path = "hotmeal" }
+hotmeal-diff = { path = "hotmeal-diff" }
+
+# HTML parsing
+html5ever = "0.29"
+markup5ever = "0.14"
+tendril = "0.4"
+
+# Other
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+wasm-bindgen = "=0.2.106"
+wasm-tracing = "2.1"
+web-sys = "0.3"
+datatest-stable = "0.3"
+
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(facet_no_doc)"] }
