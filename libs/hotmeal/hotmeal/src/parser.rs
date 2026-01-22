@@ -3,6 +3,7 @@
 //! This implements TreeSink to build hotmeal DOM types (Html, Body, Ul, Li, etc.)
 //! using html5ever's tree construction algorithm, which includes browser-compatible error recovery.
 
+use crate::diff::{Content, Element};
 use crate::dom::*;
 use html5ever::tendril::TendrilSink;
 use html5ever::tree_builder::{ElementFlags, NodeOrText, QuirksMode, TreeSink};
@@ -35,6 +36,21 @@ pub fn parse(html: &str) -> Html {
         .read_from(&mut html.as_bytes())
         .unwrap();
     sink.into_html()
+}
+
+/// Parse an HTML string into an untyped Element tree (body content only).
+///
+/// This is more permissive than `parse()` - it accepts any HTML that browsers accept,
+/// without enforcing HTML content model rules. Useful for diffing and patching.
+///
+/// Returns the body element with all its children.
+pub fn parse_untyped(html: &str) -> Element {
+    let sink = HtmlSink::default();
+    let sink = parse_document(sink, Default::default())
+        .from_utf8()
+        .read_from(&mut html.as_bytes())
+        .unwrap();
+    sink.into_untyped()
 }
 
 /// A node handle for our TreeSink - can be document, element, or text
@@ -98,6 +114,78 @@ impl HtmlSink {
         }
 
         Html::default()
+    }
+
+    /// Convert the parsed tree to an untyped Element tree (body only).
+    fn into_untyped(self) -> Element {
+        let nodes = self.nodes.into_inner();
+        let doc_handle = self.document_handle.get().unwrap();
+
+        // Find html > body element
+        if let Some(ParseNode::Document { children }) = nodes.get(&doc_handle) {
+            for &child in children {
+                if let Some(ParseNode::Element { name, children, .. }) = nodes.get(&child)
+                    && name.local.as_ref() == "html"
+                {
+                    for &html_child in children {
+                        if let Some(ParseNode::Element { name, .. }) = nodes.get(&html_child)
+                            && name.local.as_ref() == "body"
+                        {
+                            return Self::build_untyped_element(&nodes, html_child);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: empty body
+        Element {
+            tag: "body".to_string(),
+            attrs: HashMap::new(),
+            children: vec![],
+        }
+    }
+
+    /// Recursively build an untyped Element from a ParseNode.
+    fn build_untyped_element(
+        nodes: &HashMap<NodeHandle, ParseNode>,
+        handle: NodeHandle,
+    ) -> Element {
+        if let Some(ParseNode::Element {
+            name,
+            attrs,
+            children,
+        }) = nodes.get(&handle)
+        {
+            Element {
+                tag: name.local.to_string(),
+                attrs: attrs.iter().cloned().collect(),
+                children: children
+                    .iter()
+                    .filter_map(|&child| Self::build_untyped_content(nodes, child))
+                    .collect(),
+            }
+        } else {
+            Element {
+                tag: "".to_string(),
+                attrs: HashMap::new(),
+                children: vec![],
+            }
+        }
+    }
+
+    /// Build untyped Content from a ParseNode.
+    fn build_untyped_content(
+        nodes: &HashMap<NodeHandle, ParseNode>,
+        handle: NodeHandle,
+    ) -> Option<Content> {
+        match nodes.get(&handle)? {
+            ParseNode::Text(t) => Some(Content::Text(t.clone())),
+            ParseNode::Element { .. } => {
+                Some(Content::Element(Self::build_untyped_element(nodes, handle)))
+            }
+            ParseNode::Document { .. } => None,
+        }
     }
 
     fn build_html(nodes: &HashMap<NodeHandle, ParseNode>, handle: NodeHandle) -> Html {

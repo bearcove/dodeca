@@ -27,11 +27,9 @@ facet-testhelpers = { path = "../facet/facet-testhelpers" }
 
 # Local crates
 hotmeal = { path = "hotmeal" }
-hotmeal-diff = { path = "hotmeal-diff" }
 
 # HTML parsing
 html5ever = "0.29"
-markup5ever = "0.14"
 tendril = "0.4"
 
 # Other

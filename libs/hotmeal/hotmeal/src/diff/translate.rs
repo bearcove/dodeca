@@ -3,7 +3,7 @@
 //! This module translates facet-diff EditOps (from GumTree/Chawathe) into DOM Patches
 //! that can be applied to update an HTML document incrementally.
 
-use crate::Html;
+use super::apply::Element;
 use facet_core::{Def, Field, Type, UserType};
 use facet_diff::{EditOp, PathSegment, tree_diff};
 use facet_reflect::{HasFields, Peek, PeekStruct};
@@ -138,8 +138,8 @@ pub enum Patch {
 
 /// Diff two HTML documents and return DOM patches.
 pub fn diff_html(old_html: &str, new_html: &str) -> Result<Vec<Patch>, String> {
-    let old_doc: Html = crate::parse(old_html);
-    let new_doc: Html = crate::parse(new_html);
+    let old_doc = crate::parse_untyped(old_html);
+    let new_doc = crate::parse_untyped(new_html);
 
     let edit_ops = tree_diff(&old_doc, &new_doc);
 
@@ -164,7 +164,7 @@ pub fn diff_html(old_html: &str, new_html: &str) -> Result<Vec<Patch>, String> {
 /// Returns an error if any operation fails to translate.
 pub fn translate_to_patches(
     edit_ops: &[EditOp],
-    new_doc: &Html,
+    new_doc: &Element,
 ) -> Result<Vec<Patch>, TranslateError> {
     let mut patches = Vec::new();
     for op in edit_ops {
@@ -520,7 +520,7 @@ impl std::fmt::Display for TranslateError {
 impl std::error::Error for TranslateError {}
 
 /// Translate a single EditOp to DOM Patches.
-fn translate_op(op: &EditOp, new_doc: &Html) -> Result<Vec<Patch>, TranslateError> {
+fn translate_op(op: &EditOp, new_doc: &Element) -> Result<Vec<Patch>, TranslateError> {
     trace!("translate_op: op={op:?}");
     match op {
         EditOp::Insert {
@@ -615,12 +615,12 @@ fn translate_insert(
     path_segments: &[PathSegment],
     value: Option<&str>,
     detach_to_slot: Option<u32>,
-    new_doc: &Html,
+    new_doc: &Element,
 ) -> Result<Patch, TranslateError> {
-    let html_shape = <Html as facet_core::Facet>::SHAPE;
+    let element_shape = <Element as facet_core::Facet>::SHAPE;
 
     // Use path_segments for type navigation (has Variant info)
-    let nav = navigate_path(path_segments, html_shape);
+    let nav = navigate_path(path_segments, element_shape);
 
     debug!(
         "translate_insert: parent={parent:?}, position={position}, path_segments={path_segments:?}, target={:?}, value={value:?}",
@@ -786,7 +786,7 @@ fn translate_insert(
 fn sync_attrs_from_new_doc(
     dom_path: &[usize],
     attrs_path: &[PathSegment],
-    new_doc: &Html,
+    new_doc: &Element,
 ) -> Vec<Patch> {
     let mut patches = Vec::new();
 
@@ -1004,7 +1004,7 @@ fn get_element_tag(peek: Peek<'_, '_>) -> String {
 fn get_tag_from_struct(peek: Peek<'_, '_>) -> Option<String> {
     if let Ok(s) = peek.into_struct() {
         for (field, field_peek) in s.fields() {
-            if field.is_dom_tag() {
+            if field.is_tag() {
                 return field_peek.as_str().map(|s| s.to_string());
             }
         }
@@ -1069,6 +1069,15 @@ fn extract_attrs_and_children_from_struct(
             if let Ok(inner_struct) = field_peek.into_struct() {
                 // Flattened struct - only extract attrs, no children
                 extract_attrs_only(inner_struct, attrs);
+            } else if let Ok(map) = field_peek.into_map() {
+                // Flattened map (like attrs: HashMap<String, String>) - extract as attrs
+                for (k, v) in map.iter() {
+                    if let Some(key) = k.as_str()
+                        && let Some(val) = v.as_str()
+                    {
+                        attrs.push((key.to_string(), val.to_string()));
+                    }
+                }
             } else if let Ok(list) = field_peek.into_list_like() {
                 // Flattened list (like children: Vec<FlowContent>) - extract children
                 for elem in list.iter() {
@@ -1186,6 +1195,49 @@ mod tests {
         assert!(
             has_insert_text,
             "Should have InsertText patch, got: {patches:?}"
+        );
+    }
+
+    /// Test that mimics the fuzz failure: nested elements with whitespace
+    #[test]
+    fn test_fuzz_case_nested_with_whitespace() {
+        // Simplified version of Template 2 failure
+        let old = r#"<html><body><div class="card">
+    <div class="card-header">
+      <h2>Card Title</h2>
+    </div>
+    <div class="card-body">
+      <p>Card content goes here.</p>
+    </div>
+  </div></body></html>"#;
+
+        let new = r#"<html><body><div class="card">
+    <div class="card-header">
+      <h2>node</h2>
+    </div>
+    <div class="card-body">
+      <p>content</p>
+    </div>
+  </div></body></html>"#;
+
+        let patches = diff_html(old, new).unwrap();
+        eprintln!("Patches for fuzz case:");
+        for (i, patch) in patches.iter().enumerate() {
+            eprintln!("  {i}: {patch:?}");
+        }
+
+        // Apply the patches to old and verify we get new
+        let old_doc = crate::parse_untyped(old);
+        let mut result = old_doc;
+        crate::diff::apply_patches(&mut result, &patches).expect("patches should apply");
+
+        let expected = crate::parse_untyped(new);
+
+        // Compare text content at least
+        assert_eq!(
+            result.text_content(),
+            expected.text_content(),
+            "Text content should match after applying patches"
         );
     }
 }

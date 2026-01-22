@@ -526,110 +526,33 @@ pub fn dump_browser_dom() -> Result<String, JsValue> {
 }
 
 /// Dump the Rust-parsed HTML structure as a string (for debugging).
+/// Uses the untyped parser (Element/Content) which is what diff_html uses.
 #[wasm_bindgen]
 pub fn dump_rust_parsed(html: &str) -> Result<String, JsValue> {
-    use hotmeal::*;
+    use hotmeal::diff::{Content, Element};
 
     let full_html = format!("<html><body>{}</body></html>", html);
-    let parsed: Html = hotmeal::parse(&full_html);
+    let parsed: Element = hotmeal::parse_untyped(&full_html);
 
-    fn dump_flow_content(content: &FlowContent, indent: usize) -> String {
+    fn dump_element(elem: &Element, indent: usize) -> String {
+        let prefix = "  ".repeat(indent);
+        let mut result = format!("{}Element({})\n", prefix, elem.tag.to_uppercase());
+        for child in &elem.children {
+            result.push_str(&dump_content(child, indent + 1));
+        }
+        result
+    }
+
+    fn dump_content(content: &Content, indent: usize) -> String {
         let prefix = "  ".repeat(indent);
         match content {
-            FlowContent::Text(t) => {
+            Content::Text(t) => {
                 let escaped = t.replace('\n', "\\n").replace(' ', "·");
                 format!("{}Text({:?})\n", prefix, escaped)
             }
-            FlowContent::Ul(ul) => {
-                let mut result = format!("{}Element(UL)\n", prefix);
-                for child in &ul.children {
-                    result.push_str(&dump_ul_content(child, indent + 1));
-                }
-                result
-            }
-            FlowContent::Ol(ol) => {
-                let mut result = format!("{}Element(OL)\n", prefix);
-                for child in &ol.children {
-                    result.push_str(&dump_ol_content(child, indent + 1));
-                }
-                result
-            }
-            FlowContent::Div(div) => {
-                let mut result = format!("{}Element(DIV)\n", prefix);
-                for child in &div.children {
-                    result.push_str(&dump_flow_content(child, indent + 1));
-                }
-                result
-            }
-            FlowContent::P(p) => {
-                let mut result = format!("{}Element(P)\n", prefix);
-                for child in &p.children {
-                    result.push_str(&dump_phrasing_content(child, indent + 1));
-                }
-                result
-            }
-            _ => format!("{}Element(other)\n", prefix),
+            Content::Element(elem) => dump_element(elem, indent),
         }
     }
 
-    fn dump_ul_content(content: &UlContent, indent: usize) -> String {
-        let prefix = "  ".repeat(indent);
-        match content {
-            UlContent::Text(t) => {
-                let escaped = t.replace('\n', "\\n").replace(' ', "·");
-                format!("{}Text({:?})\n", prefix, escaped)
-            }
-            UlContent::Li(li) => {
-                let mut result = format!("{}Element(LI)\n", prefix);
-                for child in &li.children {
-                    result.push_str(&dump_flow_content(child, indent + 1));
-                }
-                result
-            }
-        }
-    }
-
-    fn dump_ol_content(content: &OlContent, indent: usize) -> String {
-        let prefix = "  ".repeat(indent);
-        match content {
-            OlContent::Text(t) => {
-                let escaped = t.replace('\n', "\\n").replace(' ', "·");
-                format!("{}Text({:?})\n", prefix, escaped)
-            }
-            OlContent::Li(li) => {
-                let mut result = format!("{}Element(LI)\n", prefix);
-                for child in &li.children {
-                    result.push_str(&dump_flow_content(child, indent + 1));
-                }
-                result
-            }
-        }
-    }
-
-    fn dump_phrasing_content(content: &PhrasingContent, indent: usize) -> String {
-        let prefix = "  ".repeat(indent);
-        match content {
-            PhrasingContent::Text(t) => {
-                let escaped = t.replace('\n', "\\n").replace(' ', "·");
-                format!("{}Text({:?})\n", prefix, escaped)
-            }
-            PhrasingContent::Em(em) => {
-                let mut result = format!("{}Element(EM)\n", prefix);
-                for child in &em.children {
-                    result.push_str(&dump_phrasing_content(child, indent + 1));
-                }
-                result
-            }
-            _ => format!("{}Element(phrasing)\n", prefix),
-        }
-    }
-
-    let mut result = String::from("Element(BODY)\n");
-    if let Some(body) = &parsed.body {
-        for child in &body.children {
-            result.push_str(&dump_flow_content(child, 1));
-        }
-    }
-
-    Ok(result)
+    Ok(dump_element(&parsed, 0))
 }

@@ -4,9 +4,9 @@
   "description": "Browser tests for hotmeal WASM patch application",
   "type": "module",
   "scripts": {
-    "build:wasm": "cargo build -p hotmeal-wasm --target wasm32-unknown-unknown --release && wasm-bindgen --target web --out-dir pkg ../target/wasm32-unknown-unknown/release/hotmeal_wasm.wasm",
-    "test": "playwright test",
-    "test:headed": "playwright test --headed"
+    "build:wasm": "wasm-pack build --target web --dev",
+    "test": "pnpm build:wasm && playwright test",
+    "test:headed": "pnpm build:wasm && playwright test --headed"
   },
   "keywords": [],
   "author": "",
