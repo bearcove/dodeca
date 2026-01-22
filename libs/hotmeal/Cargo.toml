@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "hotmeal",
+    "hotmeal-wasm",
     # "hotmeal-diff",  # TODO: extract from facet
 ]
 exclude = [
@@ -20,9 +21,7 @@ repository = "https://github.com/bearcove/hotmeal"
 facet = { path = "../facet/facet" }
 facet-core = { path = "../facet/facet-core" }
 facet-diff = { path = "../facet/facet-diff" }
-facet-dom = { path = "../facet/facet-dom" }
 facet-reflect = { path = "../facet/facet-reflect" }
-facet-xml-node = { path = "../facet/facet-xml-node" }
 facet-json = { path = "../facet/facet-json" }
 facet-testhelpers = { path = "../facet/facet-testhelpers" }
 

@@ -284,11 +284,203 @@ fn typed_to_untyped_body(html: &Html) -> Element {
                 attrs: global_attrs_to_map(&custom.attrs),
                 children: custom.children.iter().map(convert_flow_content).collect(),
             }),
-            // Handle remaining variants with a generic approach
-            _ => Content::Element(Element {
-                tag: "div".to_string(),
-                attrs: HashMap::new(),
+            // Section elements (all contain FlowContent children)
+            FlowContent::Article(el) => Content::Element(Element {
+                tag: "article".to_string(),
+                attrs: global_attrs_to_map(&el.attrs),
+                children: el.children.iter().map(convert_flow_content).collect(),
+            }),
+            FlowContent::Section(el) => Content::Element(Element {
+                tag: "section".to_string(),
+                attrs: global_attrs_to_map(&el.attrs),
+                children: el.children.iter().map(convert_flow_content).collect(),
+            }),
+            FlowContent::Nav(el) => Content::Element(Element {
+                tag: "nav".to_string(),
+                attrs: global_attrs_to_map(&el.attrs),
+                children: el.children.iter().map(convert_flow_content).collect(),
+            }),
+            FlowContent::Aside(el) => Content::Element(Element {
+                tag: "aside".to_string(),
+                attrs: global_attrs_to_map(&el.attrs),
+                children: el.children.iter().map(convert_flow_content).collect(),
+            }),
+            FlowContent::Header(el) => Content::Element(Element {
+                tag: "header".to_string(),
+                attrs: global_attrs_to_map(&el.attrs),
+                children: el.children.iter().map(convert_flow_content).collect(),
+            }),
+            FlowContent::Footer(el) => Content::Element(Element {
+                tag: "footer".to_string(),
+                attrs: global_attrs_to_map(&el.attrs),
+                children: el.children.iter().map(convert_flow_content).collect(),
+            }),
+            FlowContent::Main(el) => Content::Element(Element {
+                tag: "main".to_string(),
+                attrs: global_attrs_to_map(&el.attrs),
+                children: el.children.iter().map(convert_flow_content).collect(),
+            }),
+            FlowContent::Address(el) => Content::Element(Element {
+                tag: "address".to_string(),
+                attrs: global_attrs_to_map(&el.attrs),
+                children: el.children.iter().map(convert_flow_content).collect(),
+            }),
+            // Form elements
+            FlowContent::Form(el) => Content::Element(Element {
+                tag: "form".to_string(),
+                attrs: form_attrs_to_map(el),
+                children: el.children.iter().map(convert_flow_content).collect(),
+            }),
+            FlowContent::Fieldset(el) => {
+                // Fieldset has optional legend + children: Vec<FlowContent>
+                let mut children: Vec<Content> = Vec::new();
+                if let Some(legend) = &el.legend {
+                    children.push(Content::Element(Element {
+                        tag: "legend".to_string(),
+                        attrs: global_attrs_to_map(&legend.attrs),
+                        children: legend
+                            .children
+                            .iter()
+                            .map(convert_phrasing_content)
+                            .collect(),
+                    }));
+                }
+                children.extend(el.children.iter().map(convert_flow_content));
+                Content::Element(Element {
+                    tag: "fieldset".to_string(),
+                    attrs: fieldset_attrs_to_map(el),
+                    children,
+                })
+            }
+            FlowContent::Label(el) => Content::Element(Element {
+                tag: "label".to_string(),
+                attrs: label_attrs_to_map(el),
+                children: el.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::Input(el) => Content::Element(Element {
+                tag: "input".to_string(),
+                attrs: input_attrs_to_map(el),
                 children: vec![],
+            }),
+            FlowContent::Button(el) => Content::Element(Element {
+                tag: "button".to_string(),
+                attrs: button_attrs_to_map(el),
+                children: el.children.iter().map(convert_phrasing_content).collect(),
+            }),
+            FlowContent::Select(el) => Content::Element(Element {
+                tag: "select".to_string(),
+                attrs: select_attrs_to_map(el),
+                children: el.children.iter().map(convert_select_content).collect(),
+            }),
+            FlowContent::Textarea(el) => Content::Element(Element {
+                tag: "textarea".to_string(),
+                attrs: textarea_attrs_to_map(el),
+                children: if el.text.is_empty() {
+                    vec![]
+                } else {
+                    vec![Content::Text(el.text.clone())]
+                },
+            }),
+            // Other grouping elements
+            FlowContent::Figure(el) => {
+                // Figure has optional figcaption + children: Vec<FlowContent>
+                let mut children: Vec<Content> =
+                    el.children.iter().map(convert_flow_content).collect();
+                if let Some(fc) = &el.figcaption {
+                    children.push(Content::Element(Element {
+                        tag: "figcaption".to_string(),
+                        attrs: global_attrs_to_map(&fc.attrs),
+                        children: fc.children.iter().map(convert_flow_content).collect(),
+                    }));
+                }
+                Content::Element(Element {
+                    tag: "figure".to_string(),
+                    attrs: global_attrs_to_map(&el.attrs),
+                    children,
+                })
+            }
+            FlowContent::Dl(el) => Content::Element(Element {
+                tag: "dl".to_string(),
+                attrs: global_attrs_to_map(&el.attrs),
+                children: el.children.iter().map(convert_dl_content).collect(),
+            }),
+            // Interactive elements
+            FlowContent::Details(el) => {
+                // Details has optional summary + children: Vec<FlowContent>
+                let mut children: Vec<Content> = Vec::new();
+                if let Some(summary) = &el.summary {
+                    children.push(Content::Element(Element {
+                        tag: "summary".to_string(),
+                        attrs: global_attrs_to_map(&summary.attrs),
+                        children: summary
+                            .children
+                            .iter()
+                            .map(convert_phrasing_content)
+                            .collect(),
+                    }));
+                }
+                children.extend(el.children.iter().map(convert_flow_content));
+                Content::Element(Element {
+                    tag: "details".to_string(),
+                    attrs: details_attrs_to_map(el),
+                    children,
+                })
+            }
+            FlowContent::Dialog(el) => Content::Element(Element {
+                tag: "dialog".to_string(),
+                attrs: dialog_attrs_to_map(el),
+                children: el.children.iter().map(convert_flow_content).collect(),
+            }),
+            // Embedded content
+            FlowContent::Iframe(el) => Content::Element(Element {
+                tag: "iframe".to_string(),
+                attrs: iframe_attrs_to_map(el),
+                children: vec![],
+            }),
+            FlowContent::Video(el) => Content::Element(Element {
+                tag: "video".to_string(),
+                attrs: video_attrs_to_map(el),
+                children: el.children.iter().map(convert_video_content).collect(),
+            }),
+            FlowContent::Audio(el) => Content::Element(Element {
+                tag: "audio".to_string(),
+                attrs: audio_attrs_to_map(el),
+                children: el.children.iter().map(convert_audio_content).collect(),
+            }),
+            FlowContent::Picture(el) => Content::Element(Element {
+                tag: "picture".to_string(),
+                attrs: global_attrs_to_map(&el.attrs),
+                children: el.children.iter().map(convert_picture_content).collect(),
+            }),
+            FlowContent::Canvas(el) => Content::Element(Element {
+                tag: "canvas".to_string(),
+                attrs: canvas_attrs_to_map(el),
+                children: el.children.iter().map(convert_flow_content).collect(),
+            }),
+            FlowContent::Svg(el) => Content::Element(Element {
+                tag: "svg".to_string(),
+                attrs: svg_attrs_to_map(el),
+                children: vec![], // SVG content is complex, skip for now
+            }),
+            // Script/template elements
+            FlowContent::Script(el) => Content::Element(Element {
+                tag: "script".to_string(),
+                attrs: script_attrs_to_map(el),
+                children: if el.text.is_empty() {
+                    vec![]
+                } else {
+                    vec![Content::Text(el.text.clone())]
+                },
+            }),
+            FlowContent::Noscript(el) => Content::Element(Element {
+                tag: "noscript".to_string(),
+                attrs: global_attrs_to_map(&el.attrs),
+                children: el.children.iter().map(convert_flow_content).collect(),
+            }),
+            FlowContent::Template(el) => Content::Element(Element {
+                tag: "template".to_string(),
+                attrs: global_attrs_to_map(&el.attrs),
+                children: el.children.iter().map(convert_flow_content).collect(),
             }),
         }
     }
@@ -470,6 +662,297 @@ fn typed_to_untyped_body(html: &Html) -> Element {
             map.insert("alt".to_string(), alt.clone());
         }
         map
+    }
+
+    fn form_attrs_to_map(form: &Form) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&form.attrs);
+        if let Some(action) = &form.action {
+            map.insert("action".to_string(), action.clone());
+        }
+        if let Some(method) = &form.method {
+            map.insert("method".to_string(), method.clone());
+        }
+        map
+    }
+
+    fn label_attrs_to_map(label: &Label) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&label.attrs);
+        if let Some(for_attr) = &label.for_ {
+            map.insert("for".to_string(), for_attr.clone());
+        }
+        map
+    }
+
+    fn input_attrs_to_map(input: &Input) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&input.attrs);
+        if let Some(t) = &input.type_ {
+            map.insert("type".to_string(), t.clone());
+        }
+        if let Some(name) = &input.name {
+            map.insert("name".to_string(), name.clone());
+        }
+        if let Some(value) = &input.value {
+            map.insert("value".to_string(), value.clone());
+        }
+        if let Some(placeholder) = &input.placeholder {
+            map.insert("placeholder".to_string(), placeholder.clone());
+        }
+        map
+    }
+
+    fn button_attrs_to_map(button: &Button) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&button.attrs);
+        if let Some(t) = &button.type_ {
+            map.insert("type".to_string(), t.clone());
+        }
+        map
+    }
+
+    fn select_attrs_to_map(select: &Select) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&select.attrs);
+        if let Some(name) = &select.name {
+            map.insert("name".to_string(), name.clone());
+        }
+        map
+    }
+
+    fn textarea_attrs_to_map(textarea: &Textarea) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&textarea.attrs);
+        if let Some(name) = &textarea.name {
+            map.insert("name".to_string(), name.clone());
+        }
+        if let Some(placeholder) = &textarea.placeholder {
+            map.insert("placeholder".to_string(), placeholder.clone());
+        }
+        map
+    }
+
+    fn details_attrs_to_map(details: &Details) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&details.attrs);
+        if let Some(open) = &details.open {
+            map.insert("open".to_string(), open.clone());
+        }
+        map
+    }
+
+    fn dialog_attrs_to_map(dialog: &Dialog) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&dialog.attrs);
+        if let Some(open) = &dialog.open {
+            map.insert("open".to_string(), open.clone());
+        }
+        map
+    }
+
+    fn iframe_attrs_to_map(iframe: &Iframe) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&iframe.attrs);
+        if let Some(src) = &iframe.src {
+            map.insert("src".to_string(), src.clone());
+        }
+        map
+    }
+
+    fn video_attrs_to_map(video: &Video) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&video.attrs);
+        if let Some(src) = &video.src {
+            map.insert("src".to_string(), src.clone());
+        }
+        map
+    }
+
+    fn audio_attrs_to_map(audio: &Audio) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&audio.attrs);
+        if let Some(src) = &audio.src {
+            map.insert("src".to_string(), src.clone());
+        }
+        map
+    }
+
+    fn canvas_attrs_to_map(canvas: &Canvas) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&canvas.attrs);
+        if let Some(w) = &canvas.width {
+            map.insert("width".to_string(), w.clone());
+        }
+        if let Some(h) = &canvas.height {
+            map.insert("height".to_string(), h.clone());
+        }
+        map
+    }
+
+    fn svg_attrs_to_map(svg: &Svg) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&svg.attrs);
+        if let Some(w) = &svg.width {
+            map.insert("width".to_string(), w.clone());
+        }
+        if let Some(h) = &svg.height {
+            map.insert("height".to_string(), h.clone());
+        }
+        if let Some(vb) = &svg.view_box {
+            map.insert("viewBox".to_string(), vb.clone());
+        }
+        map
+    }
+
+    fn script_attrs_to_map(script: &Script) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&script.attrs);
+        if let Some(src) = &script.src {
+            map.insert("src".to_string(), src.clone());
+        }
+        map
+    }
+
+    fn fieldset_attrs_to_map(fieldset: &Fieldset) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&fieldset.attrs);
+        if let Some(name) = &fieldset.name {
+            map.insert("name".to_string(), name.clone());
+        }
+        if let Some(disabled) = &fieldset.disabled {
+            map.insert("disabled".to_string(), disabled.clone());
+        }
+        if let Some(form) = &fieldset.form {
+            map.insert("form".to_string(), form.clone());
+        }
+        map
+    }
+
+    fn convert_select_content(content: &SelectContent) -> Content {
+        match content {
+            SelectContent::Text(t) => Content::Text(t.clone()),
+            SelectContent::Option(opt) => Content::Element(Element {
+                tag: "option".to_string(),
+                attrs: option_attrs_to_map(opt),
+                children: if opt.text.is_empty() {
+                    vec![]
+                } else {
+                    vec![Content::Text(opt.text.clone())]
+                },
+            }),
+            SelectContent::Optgroup(og) => Content::Element(Element {
+                tag: "optgroup".to_string(),
+                attrs: optgroup_attrs_to_map(og),
+                children: og.children.iter().map(convert_optgroup_content).collect(),
+            }),
+        }
+    }
+
+    fn option_attrs_to_map(opt: &OptionElement) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&opt.attrs);
+        if let Some(value) = &opt.value {
+            map.insert("value".to_string(), value.clone());
+        }
+        if let Some(selected) = &opt.selected {
+            map.insert("selected".to_string(), selected.clone());
+        }
+        map
+    }
+
+    fn optgroup_attrs_to_map(og: &Optgroup) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&og.attrs);
+        if let Some(label) = &og.label {
+            map.insert("label".to_string(), label.clone());
+        }
+        map
+    }
+
+    fn convert_optgroup_content(content: &OptgroupContent) -> Content {
+        match content {
+            OptgroupContent::Text(t) => Content::Text(t.clone()),
+            OptgroupContent::Option(opt) => Content::Element(Element {
+                tag: "option".to_string(),
+                attrs: option_attrs_to_map(opt),
+                children: if opt.text.is_empty() {
+                    vec![]
+                } else {
+                    vec![Content::Text(opt.text.clone())]
+                },
+            }),
+        }
+    }
+
+    fn convert_dl_content(content: &DlContent) -> Content {
+        match content {
+            DlContent::Text(t) => Content::Text(t.clone()),
+            DlContent::Dt(dt) => Content::Element(Element {
+                tag: "dt".to_string(),
+                attrs: global_attrs_to_map(&dt.attrs),
+                children: dt.children.iter().map(convert_flow_content).collect(),
+            }),
+            DlContent::Dd(dd) => Content::Element(Element {
+                tag: "dd".to_string(),
+                attrs: global_attrs_to_map(&dd.attrs),
+                children: dd.children.iter().map(convert_flow_content).collect(),
+            }),
+        }
+    }
+
+    fn convert_video_content(content: &VideoContent) -> Content {
+        match content {
+            VideoContent::Text(t) => Content::Text(t.clone()),
+            VideoContent::Source(source) => Content::Element(Element {
+                tag: "source".to_string(),
+                attrs: source_attrs_to_map(source),
+                children: vec![],
+            }),
+            VideoContent::Track(track) => Content::Element(Element {
+                tag: "track".to_string(),
+                attrs: track_attrs_to_map(track),
+                children: vec![],
+            }),
+        }
+    }
+
+    fn convert_audio_content(content: &AudioContent) -> Content {
+        match content {
+            AudioContent::Text(t) => Content::Text(t.clone()),
+            AudioContent::Source(source) => Content::Element(Element {
+                tag: "source".to_string(),
+                attrs: source_attrs_to_map(source),
+                children: vec![],
+            }),
+        }
+    }
+
+    fn source_attrs_to_map(source: &Source) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&source.attrs);
+        if let Some(src) = &source.src {
+            map.insert("src".to_string(), src.clone());
+        }
+        if let Some(t) = &source.type_ {
+            map.insert("type".to_string(), t.clone());
+        }
+        if let Some(srcset) = &source.srcset {
+            map.insert("srcset".to_string(), srcset.clone());
+        }
+        if let Some(media) = &source.media {
+            map.insert("media".to_string(), media.clone());
+        }
+        map
+    }
+
+    fn track_attrs_to_map(track: &Track) -> HashMap<String, String> {
+        let mut map = global_attrs_to_map(&track.attrs);
+        if let Some(src) = &track.src {
+            map.insert("src".to_string(), src.clone());
+        }
+        if let Some(kind) = &track.kind {
+            map.insert("kind".to_string(), kind.clone());
+        }
+        map
+    }
+
+    fn convert_picture_content(content: &PictureContent) -> Content {
+        match content {
+            PictureContent::Text(t) => Content::Text(t.clone()),
+            PictureContent::Source(source) => Content::Element(Element {
+                tag: "source".to_string(),
+                attrs: source_attrs_to_map(source),
+                children: vec![],
+            }),
+            PictureContent::Img(img) => Content::Element(Element {
+                tag: "img".to_string(),
+                attrs: img_attrs_to_map(img),
+                children: vec![],
+            }),
+        }
     }
 
     // Build body element
@@ -888,7 +1371,7 @@ fn insert_at_position(
     Ok(())
 }
 
-/// Convert InsertContent to Content (facet_xml_node).
+/// Convert InsertContent to Content.
 fn insert_content_to_content(ic: &InsertContent) -> Content {
     match ic {
         InsertContent::Element {

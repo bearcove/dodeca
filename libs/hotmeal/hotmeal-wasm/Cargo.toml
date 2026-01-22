@@ -1,0 +1,37 @@
+[package]
+name = "hotmeal-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "WASM client for hotmeal - applies DOM patches in the browser"
+keywords = ["html", "diff", "wasm", "dom", "patches"]
+categories = ["wasm", "web-programming"]
+publish = false
+
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hotmeal = { workspace = true }
+facet-json = { workspace = true }
+tracing = { workspace = true }
+wasm-bindgen = { workspace = true }
+wasm-tracing = { workspace = true }
+web-sys = { workspace = true, features = [
+    "console",
+    "Document",
+    "DocumentFragment",
+    "Element",
+    "HtmlElement",
+    "HtmlTemplateElement",
+    "Node",
+    "NodeList",
+    "Text",
+    "Window",
+] }
