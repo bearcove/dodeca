@@ -3,6 +3,9 @@ members = [
     "hotmeal",
     # "hotmeal-diff",  # TODO: extract from facet
 ]
+exclude = [
+    "hotmeal/fuzz",
+]
 resolver = "3"
 
 [workspace.package]
