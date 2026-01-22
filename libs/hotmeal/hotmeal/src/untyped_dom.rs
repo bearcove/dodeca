@@ -61,7 +61,7 @@ impl Attributes {
 
     /// Create from an iterator of (name, value) pairs.
     /// Enforces first-wins: if a name appears multiple times, only the first is kept.
-    pub fn from_iter<I>(iter: I) -> Self
+    pub fn collect_from<I>(iter: I) -> Self
     where
         I: IntoIterator<Item = (String, String)>,
     {
@@ -372,10 +372,10 @@ impl Document {
     /// Get the head element if present.
     pub fn head(&self) -> Option<&Element> {
         self.root.children.iter().find_map(|child| {
-            if let Node::Element(e) = child {
-                if e.tag == "head" {
-                    return Some(e);
-                }
+            if let Node::Element(e) = child
+                && e.tag == "head"
+            {
+                return Some(e);
             }
             None
         })
@@ -384,10 +384,10 @@ impl Document {
     /// Get the body element if present.
     pub fn body(&self) -> Option<&Element> {
         self.root.children.iter().find_map(|child| {
-            if let Node::Element(e) = child {
-                if e.tag == "body" {
-                    return Some(e);
-                }
+            if let Node::Element(e) = child
+                && e.tag == "body"
+            {
+                return Some(e);
             }
             None
         })
@@ -396,10 +396,10 @@ impl Document {
     /// Get mutable reference to the body element.
     pub fn body_mut(&mut self) -> Option<&mut Element> {
         self.root.children.iter_mut().find_map(|child| {
-            if let Node::Element(e) = child {
-                if e.tag == "body" {
-                    return Some(e);
-                }
+            if let Node::Element(e) = child
+                && e.tag == "body"
+            {
+                return Some(e);
             }
             None
         })
@@ -422,7 +422,7 @@ mod tests {
 
     #[test]
     fn test_attributes_first_wins() {
-        let attrs = Attributes::from_iter([
+        let attrs = Attributes::collect_from([
             ("class".to_string(), "first".to_string()),
             ("class".to_string(), "second".to_string()),
             ("id".to_string(), "myid".to_string()),
@@ -446,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_attributes_remove() {
-        let mut attrs = Attributes::from_iter([
+        let mut attrs = Attributes::collect_from([
             ("class".to_string(), "myclass".to_string()),
             ("id".to_string(), "myid".to_string()),
         ]);
