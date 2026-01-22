@@ -26,6 +26,8 @@
 pub mod diff;
 mod dom;
 mod parser;
+mod serializer;
 
 pub use dom::*;
 pub use parser::parse;
+pub use serializer::{SerializeOptions, to_string, to_string_pretty, to_string_with_options};
