@@ -687,6 +687,7 @@ pub struct Ol {
 /// Includes text nodes to preserve whitespace between list items.
 #[derive(Debug, Facet)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)] // DOM structures naturally have large variants
 pub enum OlContent {
     /// Text node (for whitespace between list items).
     #[facet(text)]
@@ -713,6 +714,7 @@ pub struct Ul {
 /// Includes text nodes to preserve whitespace between list items.
 #[derive(Debug, Facet)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)] // DOM structures naturally have large variants
 pub enum UlContent {
     /// Text node (for whitespace between list items).
     #[facet(text)]
@@ -1410,6 +1412,7 @@ pub struct Audio {
 /// Content types that can appear inside an audio element.
 #[derive(Debug, Facet)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)] // DOM structures naturally have large variants
 pub enum AudioContent {
     /// Text node (for whitespace).
     #[facet(text)]
@@ -1652,6 +1655,7 @@ pub struct Colgroup {
 /// Content types that can appear inside a colgroup.
 #[derive(Debug, Facet)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)] // DOM structures naturally have large variants
 pub enum ColgroupContent {
     /// Text node (for whitespace).
     #[facet(text)]
@@ -1712,6 +1716,7 @@ pub struct Tfoot {
 /// Content types that can appear inside thead, tbody, or tfoot.
 #[derive(Debug, Facet)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)] // DOM structures naturally have large variants
 pub enum TableSectionContent {
     /// Text node (for whitespace).
     #[facet(text)]
@@ -2080,6 +2085,7 @@ pub struct Optgroup {
 /// Content types that can appear inside an optgroup.
 #[derive(Debug, Facet)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)] // DOM structures naturally have large variants
 pub enum OptgroupContent {
     /// Text node (for whitespace).
     #[facet(text)]
@@ -2209,6 +2215,7 @@ pub struct Datalist {
 /// Content types that can appear inside a datalist.
 #[derive(Debug, Facet)]
 #[repr(u8)]
+#[allow(clippy::large_enum_variant)] // DOM structures naturally have large variants
 pub enum DatalistContent {
     /// Text node (for whitespace).
     #[facet(text)]

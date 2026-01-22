@@ -1,0 +1,7 @@
+# hotmeal
+
+hotmeal is an HTML toolkit based on facet, html5ever, and cinereus (for diff-patching).
+
+It allows patching HTML documents into a DOM the way browsers would do, manipulating the DOM,
+re-serializing the DOM, but also generating patches you can apply in an actual browser, for
+live-reloading.

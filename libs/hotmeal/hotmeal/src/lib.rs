@@ -23,6 +23,7 @@
 //! }
 //! ```
 
+pub mod diff;
 mod dom;
 mod parser;
 

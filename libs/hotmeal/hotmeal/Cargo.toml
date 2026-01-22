@@ -9,12 +9,19 @@ description = "HTML toolkit with typed DOM, html5ever parsing, and serialization
 keywords = ["html", "dom", "html5ever", "parsing", "facet"]
 categories = ["encoding", "parsing", "web-programming"]
 
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
 [dependencies]
 facet = { workspace = true }
+facet-core = { workspace = true }
+facet-diff = { workspace = true }
+facet-reflect = { workspace = true }
 
 # HTML parsing - full HTML5 tree construction with error recovery
 html5ever = { workspace = true }
-markup5ever = { workspace = true }
 tendril = { workspace = true }
 
 [dev-dependencies]

@@ -6,7 +6,7 @@
 use crate::dom::*;
 use html5ever::tendril::TendrilSink;
 use html5ever::tree_builder::{ElementFlags, NodeOrText, QuirksMode, TreeSink};
-use html5ever::{parse_document, Attribute, QualName};
+use html5ever::{Attribute, QualName, parse_document};
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -89,10 +89,10 @@ impl HtmlSink {
         // Find html element
         if let Some(ParseNode::Document { children }) = nodes.get(&doc_handle) {
             for &child in children {
-                if let Some(ParseNode::Element { name, .. }) = nodes.get(&child) {
-                    if name.local.as_ref() == "html" {
-                        return Self::build_html(&nodes, child);
-                    }
+                if let Some(ParseNode::Element { name, .. }) = nodes.get(&child)
+                    && name.local.as_ref() == "html"
+                {
+                    return Self::build_html(&nodes, child);
                 }
             }
         }
@@ -309,8 +309,10 @@ impl HtmlSink {
                     "li" => {
                         // li at flow level - browser puts orphan li's here
                         // We'll wrap it in a custom element since Li isn't a FlowContent variant
-                        let mut custom = CustomElement::default();
-                        custom.tag = "li".to_string();
+                        let mut custom = CustomElement {
+                            tag: "li".to_string(),
+                            ..Default::default()
+                        };
                         Self::set_global_attrs(&mut custom.attrs, attrs);
                         for &child in children {
                             if let Some(c) = Self::build_flow_content(nodes, child) {
@@ -321,8 +323,10 @@ impl HtmlSink {
                     }
                     _ => {
                         // Unknown element - use CustomElement
-                        let mut custom = CustomElement::default();
-                        custom.tag = tag.to_string();
+                        let mut custom = CustomElement {
+                            tag: tag.to_string(),
+                            ..Default::default()
+                        };
                         Self::set_global_attrs(&mut custom.attrs, attrs);
                         for &child in children {
                             if let Some(c) = Self::build_flow_content(nodes, child) {
@@ -406,8 +410,10 @@ impl HtmlSink {
                         Some(PhrasingContent::Code(code))
                     }
                     _ => {
-                        let mut custom = CustomPhrasingElement::default();
-                        custom.tag = tag.to_string();
+                        let mut custom = CustomPhrasingElement {
+                            tag: tag.to_string(),
+                            ..Default::default()
+                        };
                         Self::set_global_attrs(&mut custom.attrs, attrs);
                         for &child in children {
                             if let Some(c) = Self::build_phrasing_content(nodes, child) {
@@ -705,11 +711,11 @@ impl TreeSink for HtmlSink {
                     _ => None,
                 };
 
-                if let Some(last_id) = last_child_id {
-                    if let Some(ParseNode::Text(existing)) = nodes.get_mut(&last_id) {
-                        existing.push_str(&text);
-                        return;
-                    }
+                if let Some(last_id) = last_child_id
+                    && let Some(ParseNode::Text(existing)) = nodes.get_mut(&last_id)
+                {
+                    existing.push_str(&text);
+                    return;
                 }
                 drop(nodes);
                 let text_id = self.alloc(ParseNode::Text(text.to_string()));
