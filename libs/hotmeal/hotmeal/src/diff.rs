@@ -53,7 +53,8 @@ impl From<QualNameProxy> for QualName {
     fn from(proxy: QualNameProxy) -> Self {
         use html5ever::{Namespace, Prefix};
         QualName {
-            prefix: proxy.prefix.map(Prefix::from),
+            // Filter out empty prefix strings - they should be None
+            prefix: proxy.prefix.filter(|s| !s.is_empty()).map(Prefix::from),
             ns: Namespace::from(proxy.ns),
             local: LocalName::from(proxy.local),
         }
@@ -63,7 +64,12 @@ impl From<QualNameProxy> for QualName {
 impl From<&QualName> for QualNameProxy {
     fn from(qual: &QualName) -> Self {
         QualNameProxy {
-            prefix: qual.prefix.as_ref().map(|p| p.to_string()),
+            // Filter out empty prefix - serialize as None instead of Some("")
+            prefix: qual
+                .prefix
+                .as_ref()
+                .filter(|p| !p.is_empty())
+                .map(|p| p.to_string()),
             ns: qual.ns.to_string(),
             local: qual.local.to_string(),
         }

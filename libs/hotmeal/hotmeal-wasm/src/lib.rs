@@ -123,10 +123,10 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
         Patch::SetAttribute { path, name, value } => {
             let el = find_element(doc, path, slots)?;
             // Convert QualName to attribute name string
-            let attr_name = if let Some(ref prefix) = name.prefix {
-                format!("{}:{}", prefix, name.local)
-            } else {
-                name.local.to_string()
+            // Filter out empty prefixes - they should not produce ":local"
+            let attr_name = match name.prefix.as_ref().filter(|p| !p.is_empty()) {
+                Some(prefix) => format!("{}:{}", prefix, name.local),
+                None => name.local.to_string(),
             };
             el.set_attribute(&attr_name, value)?;
         }
@@ -134,10 +134,10 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
         Patch::RemoveAttribute { path, name } => {
             let el = find_element(doc, path, slots)?;
             // Convert QualName to attribute name string
-            let attr_name = if let Some(ref prefix) = name.prefix {
-                format!("{}:{}", prefix, name.local)
-            } else {
-                name.local.to_string()
+            // Filter out empty prefixes - they should not produce ":local"
+            let attr_name = match name.prefix.as_ref().filter(|p| !p.is_empty()) {
+                Some(prefix) => format!("{}:{}", prefix, name.local),
+                None => name.local.to_string(),
             };
             el.remove_attribute(&attr_name)?;
         }
@@ -225,10 +225,10 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
             // Set attributes
             for attr in attrs {
                 // Convert QualName to attribute name string
-                let attr_name = if let Some(ref prefix) = attr.name.prefix {
-                    format!("{}:{}", prefix, attr.name.local)
-                } else {
-                    attr.name.local.to_string()
+                // Filter out empty prefixes - they should not produce ":local"
+                let attr_name = match attr.name.prefix.as_ref().filter(|p| !p.is_empty()) {
+                    Some(prefix) => format!("{}:{}", prefix, attr.name.local),
+                    None => attr.name.local.to_string(),
                 };
                 new_el.set_attribute(&attr_name, &attr.value)?;
             }
