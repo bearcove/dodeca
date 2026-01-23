@@ -1850,7 +1850,7 @@ dependencies = [
 [[package]]
 name = "cinereus"
 version = "0.42.0"
-source = "git+https://github.com/bearcove/hotmeal?branch=main#84f52073a5e4f3f73eee6c848d931ffc01804e9d"
+source = "git+https://github.com/bearcove/hotmeal?branch=main#c5e8a305046b4f2e6e0b9d4570d104bb017fb713"
 dependencies = [
  "indextree",
  "rapidhash 1.4.0",
@@ -3782,7 +3782,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hotmeal"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/hotmeal?branch=main#84f52073a5e4f3f73eee6c848d931ffc01804e9d"
+source = "git+https://github.com/bearcove/hotmeal?branch=main#c5e8a305046b4f2e6e0b9d4570d104bb017fb713"
 dependencies = [
  "cinereus",
  "compact_str",
@@ -3797,7 +3797,7 @@ dependencies = [
 [[package]]
 name = "hotmeal-wasm"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/hotmeal?branch=main#84f52073a5e4f3f73eee6c848d931ffc01804e9d"
+source = "git+https://github.com/bearcove/hotmeal?branch=main#c5e8a305046b4f2e6e0b9d4570d104bb017fb713"
 dependencies = [
  "facet-json",
  "hotmeal",
@@ -5001,7 +5001,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
