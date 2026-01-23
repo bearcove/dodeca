@@ -669,15 +669,40 @@ impl<'a> Document<'a> {
 
         out.push('>');
 
-        // Children
+        // Children - raw text elements (script, style) should not have their content escaped
+        let is_raw_text = is_raw_text_element(tag);
         for child_id in node_id.children(&self.arena) {
-            self.serialize_node(out, child_id);
+            if is_raw_text {
+                self.serialize_node_raw(out, child_id);
+            } else {
+                self.serialize_node(out, child_id);
+            }
         }
 
         // Closing tag
         out.push_str("</");
         out.push_str(tag);
         out.push('>');
+    }
+
+    /// Serialize a node without escaping text content (for raw text elements like script/style)
+    fn serialize_node_raw(&self, out: &mut String, node_id: NodeId) {
+        let node = self.get(node_id);
+        match &node.kind {
+            NodeKind::Document => {}
+            NodeKind::Element(elem) => {
+                self.serialize_element(out, node_id, elem);
+            }
+            NodeKind::Text(text) => {
+                // Raw text - no escaping
+                out.push_str(text.as_ref());
+            }
+            NodeKind::Comment(text) => {
+                out.push_str("<!--");
+                out.push_str(text.as_ref());
+                out.push_str("-->");
+            }
+        }
     }
 }
 
@@ -700,6 +725,12 @@ fn is_void_element(tag: &str) -> bool {
             | "track"
             | "wbr"
     )
+}
+
+/// HTML5 raw text elements whose content should not be escaped
+/// See: https://html.spec.whatwg.org/multipage/syntax.html#raw-text-elements
+fn is_raw_text_element(tag: &str) -> bool {
+    matches!(tag, "script" | "style")
 }
 
 /// What goes in each arena slot
@@ -1329,5 +1360,79 @@ mod tests {
         mut_old_doc.apply_patches(patches).expect("apply failed");
 
         assert_eq!(mut_old_doc.to_html(), new_doc.to_html());
+    }
+
+    #[test]
+    fn test_script_content_not_escaped() {
+        // Script content should NOT be HTML-escaped (it's a raw text element)
+        // Build DOM directly to test serialization, not parsing
+        let html = t("<html><head></head><body></body></html>");
+        let mut doc = parse(&html);
+
+        let head = doc.head().expect("should have head");
+        let script = doc.create_element("script");
+        let script_text = doc.create_text("const x = () => { return 1 < 2; };");
+        doc.append_child(script, script_text);
+        doc.append_child(head, script);
+
+        let output = doc.to_html();
+
+        // The arrow function => should NOT become =&gt;
+        assert!(
+            output.contains("() => {"),
+            "Arrow function should not be escaped. Got: {}",
+            output
+        );
+        // The < comparison should NOT become &lt;
+        assert!(
+            output.contains("1 < 2"),
+            "Less-than in script should not be escaped. Got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_style_content_not_escaped() {
+        // Style content should NOT be HTML-escaped (it's a raw text element)
+        // Build DOM directly to test serialization, not parsing
+        let html = t("<html><head></head><body></body></html>");
+        let mut doc = parse(&html);
+
+        let head = doc.head().expect("should have head");
+        let style = doc.create_element("style");
+        let style_text = doc.create_text(".foo > .bar { color: red; }");
+        doc.append_child(style, style_text);
+        doc.append_child(head, style);
+
+        let output = doc.to_html();
+
+        // The > selector should NOT become &gt;
+        assert!(
+            output.contains(".foo > .bar"),
+            "CSS selector should not be escaped. Got: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_normal_text_still_escaped() {
+        // Regular text content SHOULD still be escaped
+        // Build DOM directly to test serialization, not parsing
+        let html = t("<html><head></head><body></body></html>");
+        let mut doc = parse(&html);
+
+        let body = doc.body().expect("should have body");
+        let p = doc.create_element("p");
+        let p_text = doc.create_text("1 < 2 & 3 > 1");
+        doc.append_child(p, p_text);
+        doc.append_child(body, p);
+
+        let output = doc.to_html();
+
+        assert!(
+            output.contains("1 &lt; 2 &amp; 3 &gt; 1"),
+            "Normal text should be escaped. Got: {}",
+            output
+        );
     }
 }
