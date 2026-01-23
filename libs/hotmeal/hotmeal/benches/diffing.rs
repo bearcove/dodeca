@@ -1,4 +1,5 @@
 use divan::{Bencher, black_box};
+use hotmeal::StrTendril;
 
 fn main() {
     divan::main();
@@ -23,9 +24,11 @@ fn modify_html(html: &str) -> String {
 #[divan::bench]
 fn diff_small(bencher: Bencher) {
     let modified = modify_html(SMALL_HTML);
+    let old_tendril = StrTendril::from(SMALL_HTML);
+    let new_tendril = StrTendril::from(modified.as_str());
     bencher.bench_local(|| {
-        let old = hotmeal::parse(black_box(SMALL_HTML));
-        let new = hotmeal::parse(black_box(&modified));
+        let old = hotmeal::parse(black_box(&old_tendril));
+        let new = hotmeal::parse(black_box(&new_tendril));
         let patches = hotmeal::diff(&old, &new).unwrap();
         black_box(patches);
     });
@@ -34,9 +37,11 @@ fn diff_small(bencher: Bencher) {
 #[divan::bench]
 fn diff_medium(bencher: Bencher) {
     let modified = modify_html(MEDIUM_HTML);
+    let old_tendril = StrTendril::from(MEDIUM_HTML);
+    let new_tendril = StrTendril::from(modified.as_str());
     bencher.bench_local(|| {
-        let old = hotmeal::parse(black_box(MEDIUM_HTML));
-        let new = hotmeal::parse(black_box(&modified));
+        let old = hotmeal::parse(black_box(&old_tendril));
+        let new = hotmeal::parse(black_box(&new_tendril));
         let patches = hotmeal::diff(&old, &new).unwrap();
         black_box(patches);
     });
@@ -45,9 +50,11 @@ fn diff_medium(bencher: Bencher) {
 #[divan::bench]
 fn diff_large(bencher: Bencher) {
     let modified = modify_html(LARGE_HTML);
+    let old_tendril = StrTendril::from(LARGE_HTML);
+    let new_tendril = StrTendril::from(modified.as_str());
     bencher.bench_local(|| {
-        let old = hotmeal::parse(black_box(LARGE_HTML));
-        let new = hotmeal::parse(black_box(&modified));
+        let old = hotmeal::parse(black_box(&old_tendril));
+        let new = hotmeal::parse(black_box(&new_tendril));
         let patches = hotmeal::diff(&old, &new).unwrap();
         black_box(patches);
     });
@@ -56,9 +63,11 @@ fn diff_large(bencher: Bencher) {
 #[divan::bench]
 fn diff_xlarge(bencher: Bencher) {
     let modified = modify_html(XLARGE_HTML);
+    let old_tendril = StrTendril::from(XLARGE_HTML);
+    let new_tendril = StrTendril::from(modified.as_str());
     bencher.bench_local(|| {
-        let old = hotmeal::parse(black_box(XLARGE_HTML));
-        let new = hotmeal::parse(black_box(&modified));
+        let old = hotmeal::parse(black_box(&old_tendril));
+        let new = hotmeal::parse(black_box(&new_tendril));
         let patches = hotmeal::diff(&old, &new).unwrap();
         black_box(patches);
     });
@@ -68,8 +77,10 @@ fn diff_xlarge(bencher: Bencher) {
 #[divan::bench]
 fn diff_only_small(bencher: Bencher) {
     let modified = modify_html(SMALL_HTML);
-    let old = hotmeal::parse(SMALL_HTML);
-    let new = hotmeal::parse(&modified);
+    let old_tendril = StrTendril::from(SMALL_HTML);
+    let new_tendril = StrTendril::from(modified.as_str());
+    let old = hotmeal::parse(&old_tendril);
+    let new = hotmeal::parse(&new_tendril);
 
     bencher.bench_local(|| {
         let patches = hotmeal::diff(black_box(&old), black_box(&new)).unwrap();
@@ -80,8 +91,10 @@ fn diff_only_small(bencher: Bencher) {
 #[divan::bench]
 fn diff_only_medium(bencher: Bencher) {
     let modified = modify_html(MEDIUM_HTML);
-    let old = hotmeal::parse(MEDIUM_HTML);
-    let new = hotmeal::parse(&modified);
+    let old_tendril = StrTendril::from(MEDIUM_HTML);
+    let new_tendril = StrTendril::from(modified.as_str());
+    let old = hotmeal::parse(&old_tendril);
+    let new = hotmeal::parse(&new_tendril);
 
     bencher.bench_local(|| {
         let patches = hotmeal::diff(black_box(&old), black_box(&new)).unwrap();
@@ -92,8 +105,10 @@ fn diff_only_medium(bencher: Bencher) {
 #[divan::bench]
 fn diff_only_large(bencher: Bencher) {
     let modified = modify_html(LARGE_HTML);
-    let old = hotmeal::parse(LARGE_HTML);
-    let new = hotmeal::parse(&modified);
+    let old_tendril = StrTendril::from(LARGE_HTML);
+    let new_tendril = StrTendril::from(modified.as_str());
+    let old = hotmeal::parse(&old_tendril);
+    let new = hotmeal::parse(&new_tendril);
 
     bencher.bench_local(|| {
         let patches = hotmeal::diff(black_box(&old), black_box(&new)).unwrap();
@@ -104,8 +119,10 @@ fn diff_only_large(bencher: Bencher) {
 #[divan::bench]
 fn diff_only_xlarge(bencher: Bencher) {
     let modified = modify_html(XLARGE_HTML);
-    let old = hotmeal::parse(XLARGE_HTML);
-    let new = hotmeal::parse(&modified);
+    let old_tendril = StrTendril::from(XLARGE_HTML);
+    let new_tendril = StrTendril::from(modified.as_str());
+    let old = hotmeal::parse(&old_tendril);
+    let new = hotmeal::parse(&new_tendril);
 
     bencher.bench_local(|| {
         let patches = hotmeal::diff(black_box(&old), black_box(&new)).unwrap();

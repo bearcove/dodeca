@@ -13,25 +13,25 @@ use html5ever::{local_name, ns};
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use tendril::{StrTendril, TendrilSink};
+use tendril::StrTendril;
 
 use crate::diff::{DiffError, InsertContent, NodeRef, Patch, PropKey};
 use crate::{Stem, debug};
 
-/// Document = Arena (strings are StrTendrils with refcounted sharing)
+/// Arena-based DOM document.
 #[derive(Debug, Clone)]
-pub struct Document {
-    /// THE tree - all nodes live here
-    pub arena: Arena<NodeData>,
+pub struct Document<'a> {
+    /// The tree - all nodes live here
+    pub arena: Arena<NodeData<'a>>,
 
     /// Root node (usually `<html>` element)
     pub root: NodeId,
 
     /// DOCTYPE if present (usually "html")
-    pub doctype: Option<Stem>,
+    pub doctype: Option<Stem<'a>>,
 }
 
-impl Document {
+impl<'a> Document<'a> {
     /// Create an empty document with just `<html><head></head><body></body></html>`
     pub fn new() -> Self {
         let mut arena = Arena::new();
@@ -73,12 +73,12 @@ impl Document {
     }
 
     /// Get immutable reference to node data
-    pub fn get(&self, id: NodeId) -> &NodeData {
+    pub fn get(&self, id: NodeId) -> &NodeData<'a> {
         self.arena[id].get()
     }
 
     /// Get mutable reference to node data
-    pub fn get_mut(&mut self, id: NodeId) -> &mut NodeData {
+    pub fn get_mut(&mut self, id: NodeId) -> &mut NodeData<'a> {
         self.arena[id].get_mut()
     }
 
@@ -123,7 +123,7 @@ impl Document {
     }
 
     /// Create a text node (not yet attached to the tree)
-    pub fn create_text(&mut self, text: impl Into<Stem>) -> NodeId {
+    pub fn create_text(&mut self, text: impl Into<Stem<'a>>) -> NodeId {
         self.arena.new_node(NodeData {
             kind: NodeKind::Text(text.into()),
             ns: Namespace::Html,
@@ -131,7 +131,7 @@ impl Document {
     }
 
     /// Create a comment node (not yet attached to the tree)
-    pub fn create_comment(&mut self, text: impl Into<Stem>) -> NodeId {
+    pub fn create_comment(&mut self, text: impl Into<Stem<'a>>) -> NodeId {
         self.arena.new_node(NodeData {
             kind: NodeKind::Comment(text.into()),
             ns: Namespace::Html,
@@ -159,7 +159,7 @@ impl Document {
     }
 
     /// Set an attribute on an element
-    pub fn set_attr(&mut self, element: NodeId, name: QualName, value: impl Into<Stem>) {
+    pub fn set_attr(&mut self, element: NodeId, name: QualName, value: impl Into<Stem<'a>>) {
         if let NodeKind::Element(elem) = &mut self.arena[element].get_mut().kind {
             let value = value.into();
             // Find existing attribute and update, or append new one
@@ -179,7 +179,7 @@ impl Document {
     }
 
     /// Set the text content of a text node
-    pub fn set_text(&mut self, node: NodeId, text: impl Into<Stem>) {
+    pub fn set_text(&mut self, node: NodeId, text: impl Into<Stem<'a>>) {
         if let NodeKind::Text(t) = &mut self.arena[node].get_mut().kind {
             *t = text.into();
         }
@@ -216,13 +216,13 @@ impl Document {
     }
 }
 
-impl Default for Document {
+impl Default for Document<'_> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Document {
+impl<'a> Document<'a> {
     /// Serialize to full HTML string including doctype
     pub fn to_html(&self) -> String {
         let mut output = String::new();
@@ -289,7 +289,7 @@ impl Document {
     }
 
     /// Apply patches to this document (modifying it in place).
-    pub fn apply_patches(&mut self, patches: Vec<Patch>) -> Result<(), DiffError> {
+    pub fn apply_patches(&mut self, patches: Vec<Patch<'a>>) -> Result<(), DiffError> {
         // Slots hold NodeIds - slot 0 is always the body (main tree)
         let mut slots: HashMap<u32, NodeId> = HashMap::new();
         let body_id = self.body().ok_or(DiffError::NoBody)?;
@@ -305,7 +305,7 @@ impl Document {
     #[allow(clippy::too_many_lines)]
     fn apply_patch(
         &mut self,
-        patch: Patch,
+        patch: Patch<'a>,
         slots: &mut HashMap<u32, NodeId>,
     ) -> Result<(), DiffError> {
         debug!("Applying patch: {:#?}", patch);
@@ -563,7 +563,7 @@ impl Document {
         Ok(())
     }
 
-    fn create_insert_content(&mut self, content: InsertContent) -> Result<NodeId, DiffError> {
+    fn create_insert_content(&mut self, content: InsertContent<'a>) -> Result<NodeId, DiffError> {
         match content {
             InsertContent::Element {
                 tag,
@@ -704,33 +704,32 @@ fn is_void_element(tag: &str) -> bool {
 
 /// What goes in each arena slot
 #[derive(Debug, Clone)]
-pub struct NodeData {
-    pub kind: NodeKind,
+pub struct NodeData<'a> {
+    pub kind: NodeKind<'a>,
     pub ns: Namespace,
 }
 
 /// Node types
 #[derive(Debug, Clone)]
-pub enum NodeKind {
+pub enum NodeKind<'a> {
     /// Document root (invisible, parent of `<html>`)
     Document,
     /// Element with tag and attributes
-    Element(ElementData),
-    /// Text content (Stem is refcounted - cheap to clone)
-    Text(Stem),
+    Element(ElementData<'a>),
+    /// Text content
+    Text(Stem<'a>),
     /// HTML comment
-    Comment(Stem),
+    Comment(Stem<'a>),
 }
 
 /// Element data (tag + attributes)
 #[derive(Debug, Clone)]
-pub struct ElementData {
+pub struct ElementData<'a> {
     /// Tag name (LocalName is interned via string_cache)
     pub tag: LocalName,
 
     /// Attributes - Vec preserves insertion order for consistent serialization
-    /// Keys are QualName (preserves namespace for xlink:href, xml:lang, etc.), values are Tendril
-    pub attrs: Vec<(QualName, Stem)>,
+    pub attrs: Vec<(QualName, Stem<'a>)>,
 }
 
 /// XML namespace
@@ -760,13 +759,24 @@ impl Namespace {
     }
 }
 
-/// Parse HTML into arena-based Document
-pub fn parse(html: &str) -> Document {
-    let sink = ArenaSink::new();
-    // Create a Tendril from our source string
-    // html5ever will create subtendrils that share this buffer via refcounting
-    let tendril = Stem::from(html);
-    parse_document(sink, Default::default()).one(tendril)
+/// Parse HTML from a StrTendril with zero-copy borrowing.
+///
+/// The returned Document borrows from the tendril's buffer, so substrings
+/// that don't need transformation will be borrowed rather than copied.
+///
+/// ```
+/// use hotmeal::{parse, StrTendril};
+///
+/// let input = StrTendril::from("<html><body>Hello</body></html>");
+/// let doc = parse(&input);
+/// // doc borrows from input - zero-copy for unchanged content
+/// ```
+pub fn parse(tendril: &StrTendril) -> Document<'_> {
+    use tendril::TendrilSink;
+
+    let input_ref: &str = tendril.as_ref();
+    let sink = ArenaSink::new(input_ref);
+    parse_document(sink, Default::default()).one(tendril.clone())
 }
 
 /// Owned element name wrapper
@@ -784,42 +794,69 @@ impl ElemName for OwnedElemName {
 }
 
 /// TreeSink implementation for building arena-based DOM
-struct ArenaSink {
-    /// Our arena (same type as everywhere else!) - wrapped in RefCell for interior mutability
-    arena: RefCell<Arena<NodeData>>,
+struct ArenaSink<'a> {
+    /// Original input - used to borrow strings when possible
+    input: &'a str,
+
+    /// Our arena - wrapped in RefCell for interior mutability
+    arena: RefCell<Arena<NodeData<'a>>>,
 
     /// Document node (parent of `<html>`)
     document: NodeId,
 
-    /// DOCTYPE encountered during parse - wrapped in RefCell
-    doctype: RefCell<Option<Stem>>,
+    /// DOCTYPE encountered during parse
+    doctype: RefCell<Option<Stem<'a>>>,
 }
 
-impl ArenaSink {
-    fn new() -> Self {
+/// Convert a StrTendril to Stem, borrowing from input if possible.
+/// This is a free function so it can be used when self is partially borrowed.
+fn tendril_to_stem_with_input<'a>(input: &'a str, t: StrTendril) -> Stem<'a> {
+    let t_bytes = t.as_bytes();
+    let input_bytes = input.as_bytes();
+
+    let t_start = t_bytes.as_ptr() as usize;
+    let t_end = t_start + t_bytes.len();
+    let input_start = input_bytes.as_ptr() as usize;
+    let input_end = input_start + input_bytes.len();
+
+    if t_start >= input_start && t_end <= input_end {
+        let offset = t_start - input_start;
+        Stem::Borrowed(&input[offset..offset + t.len()])
+    } else {
+        Stem::from(t)
+    }
+}
+
+impl<'a> ArenaSink<'a> {
+    fn new(input: &'a str) -> Self {
         let mut arena = Arena::new();
 
-        // Create document root node
         let document = arena.new_node(NodeData {
             kind: NodeKind::Document,
             ns: Namespace::Html,
         });
 
         ArenaSink {
+            input,
             arena: RefCell::new(arena),
             document,
             doctype: RefCell::new(None),
         }
     }
+
+    /// Convert a StrTendril to Stem, borrowing from input if possible
+    fn tendril_to_stem(&self, t: StrTendril) -> Stem<'a> {
+        tendril_to_stem_with_input(self.input, t)
+    }
 }
 
-impl TreeSink for ArenaSink {
+impl<'a> TreeSink for ArenaSink<'a> {
     type Handle = NodeId;
-    type Output = Document;
-    type ElemName<'a>
+    type Output = Document<'a>;
+    type ElemName<'b>
         = OwnedElemName
     where
-        Self: 'a;
+        Self: 'b;
 
     fn finish(self) -> Self::Output {
         let arena = self.arena.into_inner();
@@ -854,7 +891,7 @@ impl TreeSink for ArenaSink {
         a == b
     }
 
-    fn elem_name<'a>(&'a self, target: &'a Self::Handle) -> OwnedElemName {
+    fn elem_name<'b>(&'b self, target: &'b Self::Handle) -> OwnedElemName {
         let arena = self.arena.borrow();
         let node = &arena[*target].get();
 
@@ -893,7 +930,7 @@ impl TreeSink for ArenaSink {
 
         let attrs: Vec<_> = attrs
             .into_iter()
-            .map(|attr| (attr.name, attr.value))
+            .map(|attr| (attr.name, self.tendril_to_stem(attr.value)))
             .collect();
 
         // Create node in arena
@@ -905,7 +942,7 @@ impl TreeSink for ArenaSink {
 
     fn create_comment(&self, text: StrTendril) -> Self::Handle {
         self.arena.borrow_mut().new_node(NodeData {
-            kind: NodeKind::Comment(text),
+            kind: NodeKind::Comment(self.tendril_to_stem(text)),
             ns: Namespace::Html,
         })
     }
@@ -926,20 +963,20 @@ impl TreeSink for ArenaSink {
             }
             NodeOrText::AppendText(text) => {
                 // Try to merge with previous text node (html5ever behavior)
-                // First get the last child ID (if any) without holding a borrow
                 let last_child_id = parent.children(&arena).next_back();
 
-                if let Some(last_child) = last_child_id {
-                    // Now we can safely get mutable access
-                    if let NodeKind::Text(existing) = &mut arena[last_child].get_mut().kind {
-                        // Merge text - push_tendril shares buffers when possible
-                        existing.push_tendril(&text);
-                        return;
-                    }
+                if let Some(last_child) = last_child_id
+                    && let NodeKind::Text(existing) = &mut arena[last_child].get_mut().kind
+                {
+                    existing.push_tendril(&text);
+                    return;
                 }
 
+                // Can't use self.tendril_to_stem here because we have arena borrowed
+                // Need to do the check manually
+                let stem = tendril_to_stem_with_input(self.input, text);
                 let text_node = arena.new_node(NodeData {
-                    kind: NodeKind::Text(text),
+                    kind: NodeKind::Text(stem),
                     ns: Namespace::Html,
                 });
                 parent.append(text_node, &mut arena);
@@ -955,7 +992,6 @@ impl TreeSink for ArenaSink {
             }
             NodeOrText::AppendText(text) => {
                 // Try to merge with the previous sibling if it's a text node
-                // (matching RcDom behavior for proper adoption agency algorithm support)
                 if let Some(prev_sibling) = sibling.preceding_siblings(&*arena).next()
                     && let NodeKind::Text(existing) = &mut arena[prev_sibling].get_mut().kind
                 {
@@ -963,8 +999,9 @@ impl TreeSink for ArenaSink {
                     return;
                 }
 
+                let stem = tendril_to_stem_with_input(self.input, text);
                 let text_node = arena.new_node(NodeData {
-                    kind: NodeKind::Text(text),
+                    kind: NodeKind::Text(stem),
                     ns: Namespace::Html,
                 });
                 sibling.insert_before(text_node, &mut *arena);
@@ -998,7 +1035,7 @@ impl TreeSink for ArenaSink {
         _public_id: StrTendril,
         _system_id: StrTendril,
     ) {
-        *self.doctype.borrow_mut() = Some(name);
+        *self.doctype.borrow_mut() = Some(self.tendril_to_stem(name));
     }
 
     fn get_template_contents(&self, target: &Self::Handle) -> Self::Handle {
@@ -1008,13 +1045,19 @@ impl TreeSink for ArenaSink {
     }
 
     fn add_attrs_if_missing(&self, target: &Self::Handle, attrs: Vec<Attribute>) {
+        // Convert tendrils to stems before borrowing arena
+        let converted_attrs: Vec<_> = attrs
+            .into_iter()
+            .map(|attr| (attr.name, self.tendril_to_stem(attr.value)))
+            .collect();
+
         let mut arena = self.arena.borrow_mut();
         let node = &mut arena[*target].get_mut();
         if let NodeKind::Element(elem) = &mut node.kind {
-            for attr in attrs {
+            for (name, value) in converted_attrs {
                 // Only add if not already present
-                if !elem.attrs.iter().any(|(k, _)| k == &attr.name) {
-                    elem.attrs.push((attr.name, attr.value));
+                if !elem.attrs.iter().any(|(k, _)| k == &name) {
+                    elem.attrs.push((name, value));
                 }
             }
         }
@@ -1038,10 +1081,15 @@ impl TreeSink for ArenaSink {
 mod tests {
     use super::*;
 
+    /// Helper to create a StrTendril from a string
+    fn t(s: &str) -> StrTendril {
+        StrTendril::from(s)
+    }
+
     #[test]
     fn test_parse_simple_html() {
-        let html = "<html><body><p>Hello</p></body></html>";
-        let doc = parse(html);
+        let html = t("<html><body><p>Hello</p></body></html>");
+        let doc = parse(&html);
 
         // Check root is <html>
         let root_data = doc.get(doc.root);
@@ -1078,7 +1126,7 @@ mod tests {
     #[test]
     fn test_parse_with_attributes() {
         let html = r#"<div class="container" id="main">Content</div>"#;
-        let full_html = format!("<html><body>{}</body></html>", html);
+        let full_html = t(&format!("<html><body>{}</body></html>", html));
         let doc = parse(&full_html);
 
         let body = doc.body().expect("should have body");
@@ -1113,24 +1161,24 @@ mod tests {
 
     #[test]
     fn test_parse_doctype() {
-        let html = "<!DOCTYPE html><html><body></body></html>";
-        let doc = parse(html);
+        let html = t("<!DOCTYPE html><html><body></body></html>");
+        let doc = parse(&html);
 
         assert!(doc.doctype.is_some());
         assert_eq!(doc.doctype.as_ref().map(|d| d.as_ref()), Some("html"));
     }
 
     #[test]
-    fn test_tendril_buffer_sharing() {
-        // Verify that parsed strings actually share buffers via Tendril refcounting
-        let html = "<html><body><p>Hello World</p></body></html>";
+    fn test_zero_copy_parsing() {
+        // Verify that parsed strings borrow from the original input when possible
+        let html = t("<html><body><p>Hello World</p></body></html>");
+        let html_start = html.as_ref().as_ptr() as usize;
+        let html_end = html_start + html.len();
+        println!("Input range: {:#x}..{:#x}", html_start, html_end);
 
-        // Create the source tendril explicitly so we can check sharing
-        let source_tendril = StrTendril::from(html);
-        let sink = ArenaSink::new();
-        let doc = parse_document(sink, Default::default()).one(source_tendril.clone());
+        let doc = parse(&html);
 
-        // Check that text nodes share the buffer with source
+        // Check that text nodes borrow from source
         let body = doc.body().expect("should have body");
         let p = body
             .children(&doc.arena)
@@ -1138,36 +1186,28 @@ mod tests {
             .expect("body should have p");
         let text_node = p.children(&doc.arena).next().expect("p should have text");
 
-        if let NodeKind::Text(text_tendril) = &doc.get(text_node).kind {
-            // Verify buffer sharing with is_shared_with()
-            assert!(
-                text_tendril.is_shared_with(&source_tendril),
-                "Text tendril should share buffer with source tendril (zero-copy)"
-            );
+        if let NodeKind::Text(stem) = &doc.get(text_node).kind {
+            let stem_str = stem.as_str();
+            let stem_start = stem_str.as_ptr() as usize;
+            let stem_end = stem_start + stem_str.len();
+            println!("Stem range: {:#x}..{:#x}", stem_start, stem_end);
+            println!("Stem variant: {:?}", matches!(stem, Stem::Borrowed(_)));
 
-            // Also check is_shared() - should be true since there are multiple refs
+            // The text content should be the Borrowed variant
             assert!(
-                text_tendril.is_shared(),
-                "Text tendril should be marked as shared"
+                matches!(stem, Stem::Borrowed(_)),
+                "Text should be borrowed from input (zero-copy), but got owned"
             );
+            assert_eq!(stem.as_ref(), "Hello World");
         } else {
             panic!("Expected text node");
-        }
-
-        // Check that doctype shares buffer
-        if let Some(doctype) = &doc.doctype {
-            // DOCTYPE is "html" which should be a subtendril of source
-            assert!(
-                doctype.is_shared_with(&source_tendril),
-                "DOCTYPE should share buffer with source tendril (zero-copy)"
-            );
         }
     }
 
     #[test]
     fn test_parse_nested_elements() {
-        let html = "<html><body><div><span>Text</span></div></body></html>";
-        let doc = parse(html);
+        let html = t("<html><body><div><span>Text</span></div></body></html>");
+        let doc = parse(&html);
 
         let body = doc.body().expect("should have body");
         let div = body
@@ -1192,8 +1232,8 @@ mod tests {
 
     #[test]
     fn test_parse_comment() {
-        let html = "<html><body><!-- This is a comment --></body></html>";
-        let doc = parse(html);
+        let html = t("<html><body><!-- This is a comment --></body></html>");
+        let doc = parse(&html);
 
         let body = doc.body().expect("should have body");
         let comment = body
@@ -1209,8 +1249,8 @@ mod tests {
 
     #[test]
     fn test_to_html() {
-        let html = "<html><body><div>Hello</div></body></html>";
-        let doc = parse(html);
+        let html = t("<html><body><div>Hello</div></body></html>");
+        let doc = parse(&html);
         assert_eq!(
             doc.to_html(),
             "<html><head></head><body><div>Hello</div></body></html>"
@@ -1219,8 +1259,8 @@ mod tests {
 
     #[test]
     fn test_to_html_with_attributes() {
-        let html = r#"<html><body><div class="container" id="main">Content</div></body></html>"#;
-        let doc = parse(html);
+        let html = t(r#"<html><body><div class="container" id="main">Content</div></body></html>"#);
+        let doc = parse(&html);
         let output = doc.to_html();
         assert!(output.contains("<html>"));
         assert!(output.contains("<body>"));
@@ -1232,8 +1272,8 @@ mod tests {
 
     #[test]
     fn test_to_html_escaping() {
-        let html = "<html><body><div>&lt;script&gt; &amp; \"quotes\"</div></body></html>";
-        let doc = parse(html);
+        let html = t("<html><body><div>&lt;script&gt; &amp; \"quotes\"</div></body></html>");
+        let doc = parse(&html);
         assert_eq!(
             doc.to_html(),
             "<html><head></head><body><div>&lt;script&gt; &amp; \"quotes\"</div></body></html>"
@@ -1242,8 +1282,8 @@ mod tests {
 
     #[test]
     fn test_to_html_void_elements() {
-        let html = "<html><body><br><img src=\"test.png\"></body></html>";
-        let doc = parse(html);
+        let html = t("<html><body><br><img src=\"test.png\"></body></html>");
+        let doc = parse(&html);
         let output = doc.to_html();
         assert!(output.contains("<html>"));
         assert!(output.contains("<br>"));
@@ -1256,17 +1296,17 @@ mod tests {
     #[test]
     fn test_apply_patches_roundtrip() {
         // Test that we can diff two arena_dom documents and apply patches
-        let old_html = "<html><body><div>Old content</div></body></html>";
-        let new_html = "<html><body><div>New content</div></body></html>";
+        let old_html = t("<html><body><div>Old content</div></body></html>");
+        let new_html = t("<html><body><div>New content</div></body></html>");
 
-        let old_doc = parse(old_html);
-        let new_doc = parse(new_html);
+        let old_doc = parse(&old_html);
+        let new_doc = parse(&new_html);
 
         // Generate patches
         let patches = crate::diff::diff(&old_doc, &new_doc).expect("diff should succeed");
 
         // Apply patches to a fresh copy of old
-        let mut mut_old_doc = parse(old_html);
+        let mut mut_old_doc = parse(&old_html);
         mut_old_doc
             .apply_patches(patches)
             .expect("patches should apply");
@@ -1277,15 +1317,15 @@ mod tests {
 
     #[test]
     fn test_apply_patches_insert_element() {
-        let old_html = "<html><body><div>First</div></body></html>";
-        let new_html = "<html><body><div>First</div><p>Second</p></body></html>";
+        let old_html = t("<html><body><div>First</div></body></html>");
+        let new_html = t("<html><body><div>First</div><p>Second</p></body></html>");
 
-        let old_doc = parse(old_html);
-        let new_doc = parse(new_html);
+        let old_doc = parse(&old_html);
+        let new_doc = parse(&new_html);
 
         let patches = crate::diff::diff(&old_doc, &new_doc).expect("diff failed");
 
-        let mut mut_old_doc = parse(old_html);
+        let mut mut_old_doc = parse(&old_html);
         mut_old_doc.apply_patches(patches).expect("apply failed");
 
         assert_eq!(mut_old_doc.to_html(), new_doc.to_html());

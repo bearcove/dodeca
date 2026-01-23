@@ -1,14 +1,20 @@
 //! Debug the specific fuzzer bug
 
 use facet_testhelpers::test;
-use hotmeal::{NodePath, NodeRef, Patch};
+use hotmeal::{NodePath, NodeRef, Patch, StrTendril};
 use html5ever::LocalName;
 use smallvec::smallvec;
+
+/// Helper to create a StrTendril from a string
+fn t(s: &str) -> StrTendril {
+    StrTendril::from(s)
+}
 
 #[test]
 fn test_minimal_repro() {
     // Start with simple structure
-    let mut doc = hotmeal::parse("<html><body><div></div></body></html>");
+    let html = t("<html><body><div></div></body></html>");
+    let mut doc = hotmeal::parse(&html);
 
     // Try to insert at position 1 when there's only 1 child
     // Path: [slot=0, position=1] - insert at second position in body
@@ -28,7 +34,8 @@ fn test_minimal_repro() {
 #[test]
 fn test_move_within_same_parent() {
     // Test moving within same parent
-    let mut doc = hotmeal::parse("<html><body><div>1</div><div>2</div></body></html>");
+    let html = t("<html><body><div>1</div><div>2</div></body></html>");
+    let mut doc = hotmeal::parse(&html);
 
     // Move first child to position 1 (swap them)
     // Paths: [slot=0, position=X] - within body
@@ -50,11 +57,11 @@ fn test_img_alt_attribute_preservation() {
     // Old has: <img> (no attrs), <img src="" alt="">, <img src=""> (no alt)
     // New has: <img src="" alt="">, <img src=""> (no alt)
     // The second img should NOT get alt=""
-    let old_html = r#"<html><body><img><img src="" alt=""><img src=""></body></html>"#;
-    let new_html = r#"<html><body><img src="" alt=""><img src=""></body></html>"#;
+    let old_html = t(r#"<html><body><img><img src="" alt=""><img src=""></body></html>"#);
+    let new_html = t(r#"<html><body><img src="" alt=""><img src=""></body></html>"#);
 
-    let mut old = hotmeal::parse(old_html);
-    let new = hotmeal::parse(new_html);
+    let mut old = hotmeal::parse(&old_html);
+    let new = hotmeal::parse(&new_html);
 
     let patches = hotmeal::diff(&old, &new).expect("diff failed");
     println!("Patches: {:#?}", patches);

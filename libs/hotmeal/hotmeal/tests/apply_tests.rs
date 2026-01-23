@@ -1,13 +1,21 @@
 //! Tests for patch application.
 
 use facet_testhelpers::test;
-use hotmeal::{AttrPair, InsertContent, NodeKind, NodePath, NodeRef, Patch, Stem, parse};
+use hotmeal::{
+    AttrPair, InsertContent, NodeKind, NodePath, NodeRef, Patch, Stem, StrTendril, parse,
+};
 use html5ever::{LocalName, QualName, local_name, ns};
 use smallvec::smallvec;
 
+/// Helper to create a StrTendril from a string
+fn t(s: &str) -> StrTendril {
+    StrTendril::from(s)
+}
+
 #[test]
 fn test_parse_and_serialize_roundtrip() {
-    let node = parse("<html><body><p>Hello</p></body></html>");
+    let html = t("<html><body><p>Hello</p></body></html>");
+    let node = parse(&html);
     assert_eq!(
         node.to_html(),
         "<html><head></head><body><p>Hello</p></body></html>"
@@ -16,7 +24,8 @@ fn test_parse_and_serialize_roundtrip() {
 
 #[test]
 fn test_apply_set_text() {
-    let mut node = parse("<html><body><p>Hello</p></body></html>");
+    let html = t("<html><body><p>Hello</p></body></html>");
+    let mut node = parse(&html);
     // Path: [slot=0, p=0, text=0] - first child of body is p, first child of p is text
     node.apply_patches(vec![Patch::SetText {
         path: NodePath(smallvec![0, 0, 0]),
@@ -31,7 +40,8 @@ fn test_apply_set_text() {
 
 #[test]
 fn test_apply_set_attribute() {
-    let mut node = parse("<html><body><div>Content</div></body></html>");
+    let html = t("<html><body><div>Content</div></body></html>");
+    let mut node = parse(&html);
     // Path: [slot=0, div=0] - first child of body is the div
     node.apply_patches(vec![Patch::SetAttribute {
         path: NodePath(smallvec![0, 0]),
@@ -47,7 +57,8 @@ fn test_apply_set_attribute() {
 
 #[test]
 fn test_apply_remove() {
-    let mut node = parse("<html><body><p>First</p><p>Second</p></body></html>");
+    let html = t("<html><body><p>First</p><p>Second</p></body></html>");
+    let mut node = parse(&html);
     // Path: [slot=0, position=1] - remove second child of body
     node.apply_patches(vec![Patch::Remove {
         node: NodeRef(NodePath(smallvec![0, 1])),
@@ -61,7 +72,8 @@ fn test_apply_remove() {
 
 #[test]
 fn test_apply_insert_element() {
-    let mut node = parse("<html><body><p>First</p></body></html>");
+    let html = t("<html><body><p>First</p></body></html>");
+    let mut node = parse(&html);
     // Path: [slot=0, position=0] - insert at first position in body, displacing to slot 1
     node.apply_patches(vec![Patch::InsertElement {
         at: NodeRef(NodePath(smallvec![0, 0])),
@@ -79,7 +91,8 @@ fn test_apply_insert_element() {
 
 #[test]
 fn test_apply_insert_element_no_displacement() {
-    let mut node = parse("<html><body><p>First</p></body></html>");
+    let html = t("<html><body><p>First</p></body></html>");
+    let mut node = parse(&html);
     // Path: [slot=0, position=1] - insert at second position (no displacement)
     node.apply_patches(vec![Patch::InsertElement {
         at: NodeRef(NodePath(smallvec![0, 1])),
@@ -97,7 +110,8 @@ fn test_apply_insert_element_no_displacement() {
 
 #[test]
 fn test_apply_insert_element_with_children() {
-    let mut node = parse("<html><body><p>First</p></body></html>");
+    let html = t("<html><body><p>First</p></body></html>");
+    let mut node = parse(&html);
     // Path: [slot=0, position=1] - insert at second position
     node.apply_patches(vec![Patch::InsertElement {
         at: NodeRef(NodePath(smallvec![0, 1])),
@@ -115,7 +129,8 @@ fn test_apply_insert_element_with_children() {
 
 #[test]
 fn test_apply_insert_element_with_attrs() {
-    let mut node = parse("<html><body><p>First</p></body></html>");
+    let html = t("<html><body><p>First</p></body></html>");
+    let mut node = parse(&html);
     // Path: [slot=0, position=1] - insert at second position
     node.apply_patches(vec![Patch::InsertElement {
         at: NodeRef(NodePath(smallvec![0, 1])),
@@ -136,7 +151,8 @@ fn test_apply_insert_element_with_attrs() {
 
 #[test]
 fn test_apply_insert_text() {
-    let mut node = parse("<html><body><p>First</p></body></html>");
+    let html = t("<html><body><p>First</p></body></html>");
+    let mut node = parse(&html);
     // Path: [slot=0, position=1] - insert text at second position
     node.apply_patches(vec![Patch::InsertText {
         at: NodeRef(NodePath(smallvec![0, 1])),
@@ -152,8 +168,8 @@ fn test_apply_insert_text() {
 
 #[test]
 fn test_parse_invalid_html_nesting() {
-    let html = r#"<html><body><strong><div>nested div</div></strong></body></html>"#;
-    let doc = parse(html);
+    let html = t(r#"<html><body><strong><div>nested div</div></strong></body></html>"#);
+    let doc = parse(&html);
 
     let body = doc.body().expect("should have body");
     let strong = doc.first_child(body).expect("body should have children");

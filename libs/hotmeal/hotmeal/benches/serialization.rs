@@ -1,4 +1,5 @@
 use divan::{Bencher, black_box};
+use hotmeal::StrTendril;
 
 fn main() {
     divan::main();
@@ -15,7 +16,8 @@ const XLARGE_HTML: &str = include_str!("../tests/fixtures/https_fasterthanli.me.
 
 #[divan::bench]
 fn serialize_small(bencher: Bencher) {
-    let doc = hotmeal::parse(SMALL_HTML);
+    let tendril = StrTendril::from(SMALL_HTML);
+    let doc = hotmeal::parse(&tendril);
     bencher.bench_local(|| {
         let html = black_box(&doc).to_html();
         black_box(html);
@@ -24,7 +26,8 @@ fn serialize_small(bencher: Bencher) {
 
 #[divan::bench]
 fn serialize_medium(bencher: Bencher) {
-    let doc = hotmeal::parse(MEDIUM_HTML);
+    let tendril = StrTendril::from(MEDIUM_HTML);
+    let doc = hotmeal::parse(&tendril);
     bencher.bench_local(|| {
         let html = black_box(&doc).to_html();
         black_box(html);
@@ -33,7 +36,8 @@ fn serialize_medium(bencher: Bencher) {
 
 #[divan::bench]
 fn serialize_large(bencher: Bencher) {
-    let doc = hotmeal::parse(LARGE_HTML);
+    let tendril = StrTendril::from(LARGE_HTML);
+    let doc = hotmeal::parse(&tendril);
     bencher.bench_local(|| {
         let html = black_box(&doc).to_html();
         black_box(html);
@@ -42,7 +46,8 @@ fn serialize_large(bencher: Bencher) {
 
 #[divan::bench]
 fn serialize_xlarge(bencher: Bencher) {
-    let doc = hotmeal::parse(XLARGE_HTML);
+    let tendril = StrTendril::from(XLARGE_HTML);
+    let doc = hotmeal::parse(&tendril);
     bencher.bench_local(|| {
         let html = black_box(&doc).to_html();
         black_box(html);

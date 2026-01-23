@@ -11,7 +11,7 @@
 //! target position into a numbered slot. The DOM's `replaceChild` method
 //! provides atomic displacement, returning the removed node for storage.
 
-use hotmeal::{InsertContent, NodeId, PropKey, parse};
+use hotmeal::{InsertContent, NodeId, PropKey, StrTendril, parse};
 use smallvec::SmallVec;
 use tracing::{debug, trace};
 use wasm_bindgen::prelude::*;
@@ -33,7 +33,9 @@ pub use hotmeal::{NodePath, NodeRef, Patch, PropChange};
 /// This allows computing diffs in the browser for fuzzing tests.
 #[wasm_bindgen]
 pub fn diff_html(old_html: &str, new_html: &str) -> Result<String, JsValue> {
-    let patches = hotmeal::diff_html(old_html, new_html)
+    let old_tendril = StrTendril::from(old_html);
+    let new_tendril = StrTendril::from(new_html);
+    let patches = hotmeal::diff_html(&old_tendril, &new_tendril)
         .map_err(|e| JsValue::from_str(&format!("diff failed: {e}")))?;
 
     let json = facet_json::to_string(&patches)
@@ -680,7 +682,7 @@ pub fn dump_browser_dom() -> Result<String, JsValue> {
 pub fn dump_rust_parsed(html: &str) -> Result<String, JsValue> {
     use hotmeal::{self, NodeKind};
 
-    let full_html = format!("<html><body>{}</body></html>", html);
+    let full_html = StrTendril::from(format!("<html><body>{}</body></html>", html));
     let doc = parse(&full_html);
 
     fn dump_node(doc: &hotmeal::Document, node_id: NodeId, indent: usize) -> String {

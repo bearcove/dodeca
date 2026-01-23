@@ -15,7 +15,7 @@ categories = ["encoding", "parsing", "web-programming"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-facet = { workspace = true, features = ["indexmap", "tendril", "smallvec"] }
+facet = { workspace = true, features = ["indexmap", "tendril", "smallvec", "compact_str"] }
 facet-error = { workspace = true }
 
 # Tree diffing - GumTree/Chawathe algorithm
@@ -26,6 +26,7 @@ smallvec = { workspace = true }
 # HTML parsing - full HTML5 tree construction with error recovery
 html5ever = { workspace = true }
 tendril = { workspace = true }
+compact_str = "0.9"
 
 # Optional tracing support
 tracing = { version = "0.1", optional = true }

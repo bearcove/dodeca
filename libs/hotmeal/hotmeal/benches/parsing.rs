@@ -1,4 +1,5 @@
 use divan::{Bencher, black_box};
+use hotmeal::StrTendril;
 
 fn main() {
     divan::main();
@@ -15,32 +16,36 @@ const XLARGE_HTML: &str = include_str!("../tests/fixtures/https_fasterthanli.me.
 
 #[divan::bench]
 fn parse_small(bencher: Bencher) {
+    let tendril = StrTendril::from(SMALL_HTML);
     bencher.bench_local(|| {
-        let doc = hotmeal::parse(black_box(SMALL_HTML));
+        let doc = hotmeal::parse(black_box(&tendril));
         black_box(doc);
     });
 }
 
 #[divan::bench]
 fn parse_medium(bencher: Bencher) {
+    let tendril = StrTendril::from(MEDIUM_HTML);
     bencher.bench_local(|| {
-        let doc = hotmeal::parse(black_box(MEDIUM_HTML));
+        let doc = hotmeal::parse(black_box(&tendril));
         black_box(doc);
     });
 }
 
 #[divan::bench]
 fn parse_large(bencher: Bencher) {
+    let tendril = StrTendril::from(LARGE_HTML);
     bencher.bench_local(|| {
-        let doc = hotmeal::parse(black_box(LARGE_HTML));
+        let doc = hotmeal::parse(black_box(&tendril));
         black_box(doc);
     });
 }
 
 #[divan::bench]
 fn parse_xlarge(bencher: Bencher) {
+    let tendril = StrTendril::from(XLARGE_HTML);
     bencher.bench_local(|| {
-        let doc = hotmeal::parse(black_box(XLARGE_HTML));
+        let doc = hotmeal::parse(black_box(&tendril));
         black_box(doc);
     });
 }

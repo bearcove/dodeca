@@ -4,7 +4,7 @@
 //! them into DOM patches that can be applied to update an HTML document incrementally.
 
 use crate::{
-    Stem, debug,
+    Stem, StrTendril, debug,
     dom::{self, Document, Namespace, NodeKind},
 };
 use cinereus::{
@@ -78,20 +78,20 @@ impl From<&QualName> for QualNameProxy {
 
 /// An attribute name-value pair
 #[derive(Debug, Clone, PartialEq, Eq, Facet)]
-pub struct AttrPair {
+pub struct AttrPair<'a> {
     #[facet(opaque, proxy = QualNameProxy)]
     pub name: QualName,
-    pub value: Stem,
+    pub value: Stem<'a>,
 }
 
-impl From<(QualName, Stem)> for AttrPair {
-    fn from((name, value): (QualName, Stem)) -> Self {
+impl<'a> From<(QualName, Stem<'a>)> for AttrPair<'a> {
+    fn from((name, value): (QualName, Stem<'a>)) -> Self {
         AttrPair { name, value }
     }
 }
 
-impl From<AttrPair> for (QualName, Stem) {
-    fn from(pair: AttrPair) -> Self {
+impl<'a> From<AttrPair<'a>> for (QualName, Stem<'a>) {
+    fn from(pair: AttrPair<'a>) -> Self {
         (pair.name, pair.value)
     }
 }
@@ -186,35 +186,35 @@ pub struct NodeRef(pub NodePath);
 /// Content that can be inserted as part of a new subtree.
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 #[repr(u8)]
-pub enum InsertContent {
+pub enum InsertContent<'a> {
     /// An element with its tag, attributes, and nested children
     Element {
         #[facet(opaque, proxy = LocalNameProxy)]
         tag: LocalName,
-        attrs: Vec<AttrPair>,
-        children: Vec<InsertContent>,
+        attrs: Vec<AttrPair<'a>>,
+        children: Vec<InsertContent<'a>>,
     },
     /// A text node
-    Text(Stem),
+    Text(Stem<'a>),
     /// A comment node
-    Comment(Stem),
+    Comment(Stem<'a>),
 }
 
 /// A property in the final state within an UpdateProps operation.
 /// The vec position determines the final ordering.
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
-pub struct PropChange {
+pub struct PropChange<'a> {
     /// The property key (attribute name)
     pub name: PropKey,
     /// The value: None means "keep existing value", Some means "update to this value".
     /// Properties not in the list are implicitly removed.
-    pub value: Option<Stem>,
+    pub value: Option<Stem<'a>>,
 }
 
 /// Operations to transform the DOM.
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 #[repr(u8)]
-pub enum Patch {
+pub enum Patch<'a> {
     /// Insert an element at a position.
     /// The `at` NodeRef path includes the position as the last segment.
     /// Path `[slot, a, b, c]` means: in slot, navigate to a, then b, then insert at position c.
@@ -222,22 +222,22 @@ pub enum Patch {
         at: NodeRef,
         #[facet(opaque, proxy = LocalNameProxy)]
         tag: LocalName,
-        attrs: Vec<AttrPair>,
-        children: Vec<InsertContent>,
+        attrs: Vec<AttrPair<'a>>,
+        children: Vec<InsertContent<'a>>,
         detach_to_slot: Option<u32>,
     },
 
     /// Insert a text node at a position.
     InsertText {
         at: NodeRef,
-        text: Stem,
+        text: Stem<'a>,
         detach_to_slot: Option<u32>,
     },
 
     /// Insert a comment node at a position.
     InsertComment {
         at: NodeRef,
-        text: Stem,
+        text: Stem<'a>,
         detach_to_slot: Option<u32>,
     },
 
@@ -245,14 +245,14 @@ pub enum Patch {
     Remove { node: NodeRef },
 
     /// Update text content of a text node at path.
-    SetText { path: NodePath, text: Stem },
+    SetText { path: NodePath, text: Stem<'a> },
 
     /// Set attribute on element at path
     SetAttribute {
         path: NodePath,
         #[facet(opaque, proxy = QualNameProxy)]
         name: QualName,
-        value: Stem,
+        value: Stem<'a>,
     },
 
     /// Remove attribute from element at path
@@ -272,7 +272,7 @@ pub enum Patch {
     /// Update multiple properties on an element.
     UpdateProps {
         path: NodePath,
-        changes: Vec<PropChange>,
+        changes: Vec<PropChange<'a>>,
     },
 }
 
@@ -305,15 +305,15 @@ impl std::fmt::Display for HtmlNodeKind {
 /// HTML element properties (attributes only).
 /// Text content is stored separately in NodeData::text.
 #[derive(Debug, Clone, Default)]
-pub struct HtmlProps {
+pub struct HtmlProps<'a> {
     /// Attributes - Vec preserves insertion order for consistent serialization
     /// Keys are QualName (preserves namespace for xlink:href, xml:lang, etc.)
-    pub attrs: Vec<(QualName, Stem)>,
+    pub attrs: Vec<(QualName, Stem<'a>)>,
 }
 
-impl Properties for HtmlProps {
+impl<'a> Properties for HtmlProps<'a> {
     type Key = PropKey;
-    type Value = Stem;
+    type Value = Stem<'a>;
 
     #[allow(clippy::mutable_key_type)]
     fn similarity(&self, other: &Self) -> f64 {
@@ -364,21 +364,21 @@ impl Properties for HtmlProps {
 }
 
 /// Tree types marker for HTML DOM.
-pub struct HtmlTreeTypes;
+pub struct HtmlTreeTypes<'a>(std::marker::PhantomData<&'a ()>);
 
-impl TreeTypes for HtmlTreeTypes {
+impl<'a> TreeTypes for HtmlTreeTypes<'a> {
     type Kind = HtmlNodeKind;
-    type Props = HtmlProps;
-    type Text = Stem;
+    type Props = HtmlProps<'a>;
+    type Text = Stem<'a>;
 }
 
 /// Pre-computed diff data for a node.
-struct DiffNodeData {
+struct DiffNodeData<'a> {
     hash: NodeHash,
     kind: HtmlNodeKind,
-    props: HtmlProps,
+    props: HtmlProps<'a>,
     /// Text content for text/comment nodes
-    text: Option<Stem>,
+    text: Option<Stem<'a>>,
     height: usize,
     /// Cached position among siblings (0-indexed), computed on-demand
     position: Cell<Option<u32>>,
@@ -388,19 +388,23 @@ struct DiffNodeData {
 ///
 /// This allows diffing Documents directly without building a separate cinereus Tree.
 /// The wrapper pre-computes hashes and caches kind/props for each node.
-pub struct DiffableDocument<'a> {
-    doc: &'a Document,
+///
+/// Two lifetime parameters:
+/// - `'b` - how long we borrow the Document
+/// - `'a` - the lifetime of data inside the Document (Stem<'a> values from original input)
+pub struct DiffableDocument<'b, 'a> {
+    doc: &'b Document<'a>,
     /// The root for diffing (body element)
     body_id: NodeId,
     /// Pre-computed diff data indexed by NodeId
-    nodes: HashMap<NodeId, DiffNodeData>,
+    nodes: HashMap<NodeId, DiffNodeData<'a>>,
 }
 
-impl<'a> DiffableDocument<'a> {
+impl<'b, 'a> DiffableDocument<'b, 'a> {
     /// Create a new DiffableDocument from a Document.
     ///
     /// Pre-computes hashes and caches kind/props for all body descendants.
-    pub fn new(doc: &'a Document) -> Self {
+    pub fn new(doc: &'b Document<'a>) -> Self {
         let body_id = doc.body().expect("document must have body");
         // Pre-allocate based on arena size (upper bound for descendants)
         let mut nodes = HashMap::with_capacity(doc.arena.count());
@@ -497,8 +501,8 @@ impl<'a> DiffableDocument<'a> {
     }
 }
 
-impl DiffTree for DiffableDocument<'_> {
-    type Types = HtmlTreeTypes;
+impl<'b, 'a> DiffTree for DiffableDocument<'b, 'a> {
+    type Types = HtmlTreeTypes<'a>;
 
     fn root(&self) -> NodeId {
         self.body_id
@@ -519,14 +523,14 @@ impl DiffTree for DiffableDocument<'_> {
             .expect("node must exist")
     }
 
-    fn properties(&self, id: NodeId) -> &HtmlProps {
+    fn properties(&self, id: NodeId) -> &HtmlProps<'a> {
         self.nodes
             .get(&id)
             .map(|d| &d.props)
             .expect("node must exist")
     }
 
-    fn text(&self, id: NodeId) -> Option<&Stem> {
+    fn text(&self, id: NodeId) -> Option<&Stem<'a>> {
         self.nodes.get(&id).and_then(|d| d.text.as_ref())
     }
 
@@ -582,13 +586,13 @@ impl DiffTree for DiffableDocument<'_> {
 }
 
 /// Post-order iterator over tree nodes.
-struct PostOrderIterator<'a> {
-    arena: &'a indextree::Arena<dom::NodeData>,
+struct PostOrderIterator<'a, 'b> {
+    arena: &'a indextree::Arena<dom::NodeData<'b>>,
     stack: Vec<(NodeId, bool)>,
 }
 
-impl<'a> PostOrderIterator<'a> {
-    fn new(root: NodeId, arena: &'a indextree::Arena<dom::NodeData>) -> Self {
+impl<'a, 'b> PostOrderIterator<'a, 'b> {
+    fn new(root: NodeId, arena: &'a indextree::Arena<dom::NodeData<'b>>) -> Self {
         Self {
             arena,
             stack: vec![(root, false)],
@@ -596,7 +600,7 @@ impl<'a> PostOrderIterator<'a> {
     }
 }
 
-impl Iterator for PostOrderIterator<'_> {
+impl Iterator for PostOrderIterator<'_, '_> {
     type Item = NodeId;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -615,7 +619,7 @@ impl Iterator for PostOrderIterator<'_> {
 }
 
 /// Build a cinereus tree from an arena_dom::Document (body content only).
-pub fn build_tree_from_arena(doc: &Document) -> Tree<HtmlTreeTypes> {
+pub fn build_tree_from_arena<'a>(doc: &Document<'a>) -> Tree<HtmlTreeTypes<'a>> {
     // Find body element
     let body_id = doc.body().expect("document must have body");
     let body_node = doc.get(body_id);
@@ -646,10 +650,10 @@ pub fn build_tree_from_arena(doc: &Document) -> Tree<HtmlTreeTypes> {
     tree
 }
 
-fn add_arena_children(
-    tree: &mut Tree<HtmlTreeTypes>,
+fn add_arena_children<'a>(
+    tree: &mut Tree<HtmlTreeTypes<'a>>,
     parent: indextree::NodeId,
-    doc: &Document,
+    doc: &Document<'a>,
     arena_parent: indextree::NodeId,
 ) {
     let children: Vec<_> = arena_parent.children(&doc.arena).collect();
@@ -709,7 +713,7 @@ fn add_arena_children(
 /// The hash captures: node kind + text content + children structure (Merkle-tree style).
 /// Attributes are NOT included - they're compared via the Properties trait after matching,
 /// using similarity scores to decide whether nodes should match.
-fn recompute_hashes(tree: &mut Tree<HtmlTreeTypes>) {
+fn recompute_hashes(tree: &mut Tree<HtmlTreeTypes<'_>>) {
     // Process in post-order (children before parents)
     let nodes: Vec<NodeId> = tree.post_order().collect();
 
@@ -740,10 +744,14 @@ fn recompute_hashes(tree: &mut Tree<HtmlTreeTypes>) {
     }
 }
 
-/// Diff two HTML strings and return DOM patches.
+/// Diff two HTML tendrils and return DOM patches.
 ///
-/// Parses both HTML strings and diffs them.
-pub fn diff_html(old_html: &str, new_html: &str) -> Result<Vec<Patch>, DiffError> {
+/// Parses both HTML inputs and diffs them.
+/// Patches borrow from the tendrils' buffers (zero-copy).
+pub fn diff_html<'a>(
+    old_html: &'a StrTendril,
+    new_html: &'a StrTendril,
+) -> Result<Vec<Patch<'a>>, DiffError> {
     let old_doc = dom::parse(old_html);
     let new_doc = dom::parse(new_html);
     diff(&old_doc, &new_doc)
@@ -752,7 +760,7 @@ pub fn diff_html(old_html: &str, new_html: &str) -> Result<Vec<Patch>, DiffError
 /// Diff two arena documents and return DOM patches.
 ///
 /// This is the primary diffing API for arena_dom documents.
-pub fn diff(old: &Document, new: &Document) -> Result<Vec<Patch>, DiffError> {
+pub fn diff<'a>(old: &Document<'a>, new: &Document<'a>) -> Result<Vec<Patch<'a>>, DiffError> {
     // Build cinereus Tree for old (needed for shadow tree mutation)
     let tree_a = build_tree_from_arena(old);
     // Use DiffableDocument for new (avoids second tree allocation)
@@ -814,16 +822,19 @@ pub fn diff(old: &Document, new: &Document) -> Result<Vec<Patch>, DiffError> {
 ///
 /// All paths start with the slot number: [0, 1, 2] means slot 0, child 1, child 2.
 /// This eliminates the need for separate tracking of detached nodes.
-struct ShadowTree {
-    arena: indextree::Arena<NodeData<HtmlTreeTypes>>,
+struct ShadowTree<'a> {
+    arena: indextree::Arena<NodeData<HtmlTreeTypes<'a>>>,
     /// The super root - its children are slot nodes
     super_root: NodeId,
     /// Number of slots (slot 0 always exists, created in new())
     next_slot: u32,
 }
 
-impl ShadowTree {
-    fn new(mut arena: indextree::Arena<NodeData<HtmlTreeTypes>>, original_root: NodeId) -> Self {
+impl<'a> ShadowTree<'a> {
+    fn new(
+        mut arena: indextree::Arena<NodeData<HtmlTreeTypes<'a>>>,
+        original_root: NodeId,
+    ) -> Self {
         // Create the super root (a meta node, not a real DOM node)
         let super_root = arena.new_node(NodeData {
             hash: NodeHash(0),
@@ -1127,12 +1138,12 @@ impl ShadowTree {
 ///
 /// Key insight from Chawathe semantics: INSERT and MOVE do NOT shift siblings.
 /// They DISPLACE whatever is at the target position into a slot for later use.
-fn convert_ops_with_shadow<T: DiffTree<Types = HtmlTreeTypes>>(
-    ops: Vec<EditOp<HtmlTreeTypes>>,
-    tree_a: &Tree<HtmlTreeTypes>,
+fn convert_ops_with_shadow<'a, T: DiffTree<Types = HtmlTreeTypes<'a>>>(
+    ops: Vec<EditOp<HtmlTreeTypes<'a>>>,
+    tree_a: &Tree<HtmlTreeTypes<'a>>,
     tree_b: &T,
     matching: &Matching,
-) -> Result<Vec<Patch>, DiffError> {
+) -> Result<Vec<Patch<'a>>, DiffError> {
     // Create shadow tree with encapsulated state
     let mut shadow = ShadowTree::new(tree_a.arena.clone(), tree_a.root);
 
@@ -1380,12 +1391,12 @@ fn convert_ops_with_shadow<T: DiffTree<Types = HtmlTreeTypes>>(
 }
 
 /// Extract attributes and children from a node in tree_b.
-fn extract_content_from_tree_b<T: DiffTree<Types = HtmlTreeTypes>>(
+fn extract_content_from_tree_b<'a, T: DiffTree<Types = HtmlTreeTypes<'a>>>(
     node_b: NodeId,
     tree_b: &T,
     b_to_shadow: &HashMap<NodeId, NodeId>,
     nodes_with_insert_ops: &HashSet<NodeId>,
-) -> (Vec<AttrPair>, Vec<InsertContent>) {
+) -> (Vec<AttrPair<'a>>, Vec<InsertContent<'a>>) {
     let props = tree_b.properties(node_b);
     let attrs: Vec<_> = props
         .attrs
@@ -1441,9 +1452,15 @@ mod tests {
     use crate::dom;
     use facet_testhelpers::test;
 
+    /// Helper to create a StrTendril from a string
+    fn t(s: &str) -> StrTendril {
+        StrTendril::from(s)
+    }
+
     #[test]
     fn test_build_tree_simple() {
-        let doc = dom::parse("<html><body><div>hello</div></body></html>");
+        let html = t("<html><body><div>hello</div></body></html>");
+        let doc = dom::parse(&html);
         let tree = build_tree_from_arena(&doc);
 
         // Root is body element (build_tree_from_arena uses body as root)
@@ -1456,11 +1473,11 @@ mod tests {
 
     #[test]
     fn test_diff_text_change() {
-        let old_html = "<html><body><div>old</div></body></html>";
-        let new_html = "<html><body><div>new</div></body></html>";
+        let old_html = t("<html><body><div>old</div></body></html>");
+        let new_html = t("<html><body><div>new</div></body></html>");
 
-        let old = dom::parse(old_html);
-        let new = dom::parse(new_html);
+        let old = dom::parse(&old_html);
+        let new = dom::parse(&new_html);
         let patches = diff(&old, &new).unwrap();
 
         // Should have a SetText patch for the text change
@@ -1474,11 +1491,11 @@ mod tests {
 
     #[test]
     fn test_diff_attr_change() {
-        let old_html = r#"<html><body><div class="foo"></div></body></html>"#;
-        let new_html = r#"<html><body><div class="bar"></div></body></html>"#;
+        let old_html = t(r#"<html><body><div class="foo"></div></body></html>"#);
+        let new_html = t(r#"<html><body><div class="bar"></div></body></html>"#);
 
-        let old = dom::parse(old_html);
-        let new = dom::parse(new_html);
+        let old = dom::parse(&old_html);
+        let new = dom::parse(&new_html);
         let patches = diff(&old, &new).unwrap();
 
         let has_attr_update = patches.iter().any(|p| {
@@ -1495,39 +1512,39 @@ mod tests {
     #[test]
     fn test_diff_remove_all_children() {
         // Reproduce fuzzer failure: body with child -> body with no children
-        let old_html = "<html><body><span></span></body></html>";
-        let new_html = "<html><body></body></html>";
+        let old_html = t("<html><body><span></span></body></html>");
+        let new_html = t("<html><body></body></html>");
 
-        let old = dom::parse(old_html);
-        let new = dom::parse(new_html);
+        let old = dom::parse(&old_html);
+        let new = dom::parse(&new_html);
         let patches = diff(&old, &new).unwrap();
         debug!("Patches: {:#?}", patches);
 
         // Should be able to apply the patches
-        let mut doc = dom::parse(old_html);
+        let mut doc = dom::parse(&old_html);
         doc.apply_patches(patches).expect("apply should succeed");
 
         let result = doc.to_html();
-        let expected = dom::parse(new_html).to_html();
+        let expected = dom::parse(&new_html).to_html();
         assert_eq!(result, expected, "HTML output should match");
     }
 
     #[test]
     fn test_diff_complex_fuzzer_case() {
         // Fuzzer found: <body><strong>old_text</strong></body> -> <body>new_text<strong>updated</strong></body>
-        let old_html = "<html><body><strong>old</strong></body></html>";
-        let new_html = "<html><body>new_text<strong>updated</strong></body></html>";
+        let old_html = t("<html><body><strong>old</strong></body></html>");
+        let new_html = t("<html><body>new_text<strong>updated</strong></body></html>");
 
-        let old = dom::parse(old_html);
-        let new = dom::parse(new_html);
+        let old = dom::parse(&old_html);
+        let new = dom::parse(&new_html);
         let patches = diff(&old, &new).unwrap();
         debug!("Patches: {:#?}", patches);
 
-        let mut doc = dom::parse(old_html);
+        let mut doc = dom::parse(&old_html);
         doc.apply_patches(patches).expect("apply should succeed");
 
         let result = doc.to_html();
-        let expected = dom::parse(new_html).to_html();
+        let expected = dom::parse(&new_html).to_html();
         debug!("Result: {}", result);
         debug!("Expected: {}", expected);
         assert_eq!(result, expected, "HTML output should match");
@@ -1539,19 +1556,19 @@ mod tests {
         // Old: <strong>text1</strong><strong>text2</strong><img>
         // New: text3<strong>text4</strong>
         let old_html =
-            "<html><body><strong>text1</strong><strong>text2</strong><img></body></html>";
-        let new_html = "<html><body>text3<strong>text4</strong></body></html>";
+            t("<html><body><strong>text1</strong><strong>text2</strong><img></body></html>");
+        let new_html = t("<html><body>text3<strong>text4</strong></body></html>");
 
-        let old = dom::parse(old_html);
-        let new = dom::parse(new_html);
+        let old = dom::parse(&old_html);
+        let new = dom::parse(&new_html);
         let patches = diff(&old, &new).unwrap();
         debug!("Patches: {:#?}", patches);
 
-        let mut doc = dom::parse(old_html);
+        let mut doc = dom::parse(&old_html);
         doc.apply_patches(patches).expect("apply should succeed");
 
         let result = doc.to_html();
-        let expected = dom::parse(new_html).to_html();
+        let expected = dom::parse(&new_html).to_html();
         debug!("Result: {}", result);
         debug!("Expected: {}", expected);
         assert_eq!(result, expected, "HTML output should match");
@@ -1565,19 +1582,21 @@ mod tests {
         // html5ever parses "<jva       xx a >" as an element, creating nested structure
         // The bug: UpdateProps at [1,0] followed by Remove at [1,0] - we update text then delete it!
         // This appears to be a path tracking bug when handling complex displacement scenarios.
-        let old_html = r#"<html><body><strong>n<&nhnnz"""" v</strong><strong>< bit<jva       xx a ></strong><img src="n" alt="v"></body></html>"#;
-        let new_html = r#"<html><body>n<strong>aaa</strong></body></html>"#;
+        let old_html = t(
+            r#"<html><body><strong>n<&nhnnz"""" v</strong><strong>< bit<jva       xx a ></strong><img src="n" alt="v"></body></html>"#,
+        );
+        let new_html = t(r#"<html><body>n<strong>aaa</strong></body></html>"#);
 
-        let patches = super::diff_html(old_html, new_html).expect("diff failed");
+        let patches = super::diff_html(&old_html, &new_html).expect("diff failed");
         debug!("Patches: {:#?}", patches);
 
-        let mut doc = dom::parse(old_html);
+        let mut doc = dom::parse(&old_html);
         trace!("Old tree: {:#?}", doc);
 
         doc.apply_patches(patches).expect("apply failed");
 
         let result = doc.to_html();
-        let expected = dom::parse(new_html).to_html();
+        let expected = dom::parse(&new_html).to_html();
 
         debug!("Result: {}", result);
         debug!("Expected: {}", expected);
@@ -1587,17 +1606,21 @@ mod tests {
     #[test]
     fn test_fuzzer_img_li_roundtrip() {
         // Fuzzer found roundtrip failure with img and li elements
-        let old_html = r#"<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"><html><body><p>Unclosed paragraph<span class=""></span><div>Inside P which browsers will auto-close</div><span>Unclosed span<div>Block in span</div></body></html>"#;
-        let new_html = r#"<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"><html><body><img src="vvv" alt="ttt">d <li>d<<<&<<a"d <<<</li></body></html>"#;
+        let old_html = t(
+            r#"<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"><html><body><p>Unclosed paragraph<span class=""></span><div>Inside P which browsers will auto-close</div><span>Unclosed span<div>Block in span</div></body></html>"#,
+        );
+        let new_html = t(
+            r#"<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd"><html><body><img src="vvv" alt="ttt">d <li>d<<<&<<a"d <<<</li></body></html>"#,
+        );
 
-        let patches = super::diff_html(old_html, new_html).expect("diff failed");
+        let patches = super::diff_html(&old_html, &new_html).expect("diff failed");
         debug!("Patches: {:#?}", patches);
 
-        let mut doc = dom::parse(old_html);
+        let mut doc = dom::parse(&old_html);
         doc.apply_patches(patches).expect("apply failed");
 
         let result = doc.to_html();
-        let expected_doc = dom::parse(new_html);
+        let expected_doc = dom::parse(&new_html);
         let expected = expected_doc.to_html();
 
         debug!("Result: {}", result);
@@ -1608,17 +1631,21 @@ mod tests {
     #[test]
     fn test_fuzzer_nested_ul_remove() {
         // Fuzzer found issue with nested ul elements - img not being removed correctly
-        let old_html = r#"<!DOCTYPE html><html><body><ul class="h"><ul class="z"><img src="vvv" alt="wvv"><ul class="h"><img src="vvv"></ul></ul></ul></body></html>"#;
-        let new_html = r#"<!DOCTYPE html><html><body><ul class="h"><ul class="h"></ul><ul class="q"><img src="aaa"></ul></ul></body></html>"#;
+        let old_html = t(
+            r#"<!DOCTYPE html><html><body><ul class="h"><ul class="z"><img src="vvv" alt="wvv"><ul class="h"><img src="vvv"></ul></ul></ul></body></html>"#,
+        );
+        let new_html = t(
+            r#"<!DOCTYPE html><html><body><ul class="h"><ul class="h"></ul><ul class="q"><img src="aaa"></ul></ul></body></html>"#,
+        );
 
-        let patches = super::diff_html(old_html, new_html).expect("diff failed");
+        let patches = super::diff_html(&old_html, &new_html).expect("diff failed");
         debug!("Patches: {:#?}", patches);
 
-        let mut doc = dom::parse(old_html);
+        let mut doc = dom::parse(&old_html);
         doc.apply_patches(patches).expect("apply failed");
 
         let result = doc.to_html();
-        let expected_doc = dom::parse(new_html);
+        let expected_doc = dom::parse(&new_html);
         let expected = expected_doc.to_html();
 
         debug!("Result: {}", result);
@@ -1630,23 +1657,23 @@ mod tests {
     fn test_fuzzer_em_li_navigate_text() {
         // Fuzzer found "Insert: cannot navigate through text node" error
         // The fuzzer generates unescaped HTML which html5ever parses as actual elements
-        let old_html = r#"<!DOCTYPE html><html><body><em> <v<      << v</em></body></html>"#;
+        let old_html = t(r#"<!DOCTYPE html><html><body><em> <v<      << v</em></body></html>"#);
         let new_html =
-            r#"<!DOCTYPE html><html><body><li>a< <v<      <<</li><img src=""></body></html>"#;
+            t(r#"<!DOCTYPE html><html><body><li>a< <v<      <<</li><img src=""></body></html>"#);
 
-        let old_doc = dom::parse(old_html);
-        let new_doc = dom::parse(new_html);
+        let old_doc = dom::parse(&old_html);
+        let new_doc = dom::parse(&new_html);
         debug!("Old HTML parsed: {:#?}", old_doc);
         debug!("New HTML parsed: {:#?}", new_doc);
 
-        let patches = super::diff_html(old_html, new_html).expect("diff failed");
+        let patches = super::diff_html(&old_html, &new_html).expect("diff failed");
         debug!("Patches: {:#?}", patches);
 
-        let mut doc = dom::parse(old_html);
+        let mut doc = dom::parse(&old_html);
         doc.apply_patches(patches).expect("apply failed");
 
         let result = doc.to_html();
-        let expected = dom::parse(new_html).to_html();
+        let expected = dom::parse(&new_html).to_html();
 
         debug!("Result: {}", result);
         debug!("Expected: {}", expected);
@@ -1656,17 +1683,19 @@ mod tests {
     #[test]
     fn test_fuzzer_nested_ol_patch_order() {
         // Fuzzer found "patch at index 4 is out of order" error
-        let old_html = r#"<!DOCTYPE html><html><body><ol start="0"></ol></body></html>"#;
-        let new_html = r#"<!DOCTYPE html><html><body><ol start="255"></ol><ol start="93"></ol><ol start="91"><ol start="1"><a href="vaaaaaaaaaaaaa"></a></ol></ol></body></html>"#;
+        let old_html = t(r#"<!DOCTYPE html><html><body><ol start="0"></ol></body></html>"#);
+        let new_html = t(
+            r#"<!DOCTYPE html><html><body><ol start="255"></ol><ol start="93"></ol><ol start="91"><ol start="1"><a href="vaaaaaaaaaaaaa"></a></ol></ol></body></html>"#,
+        );
 
-        let patches = super::diff_html(old_html, new_html).expect("diff failed");
+        let patches = super::diff_html(&old_html, &new_html).expect("diff failed");
         debug!("Patches: {:#?}", patches);
 
-        let mut doc = dom::parse(old_html);
+        let mut doc = dom::parse(&old_html);
         doc.apply_patches(patches).expect("apply failed");
 
         let result = doc.to_html();
-        let expected_doc = dom::parse(new_html);
+        let expected_doc = dom::parse(&new_html);
         let expected = expected_doc.to_html();
 
         debug!("Result: {}", result);
@@ -1677,17 +1706,21 @@ mod tests {
     #[test]
     fn test_fuzzer_slot_contains_text() {
         // Fuzzer found "Move: slot contains text, cannot navigate to child" error
-        let old_html = r#"<!DOCTYPE html><html><body><article><code><</code><code><</code><code><</code><code><</code></article></body></html>"#;
-        let new_html = r#"<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd"><html><body><code><</code><code><</code><code><</code><code><</code><article><code><</code><code><</code><h2><<<<<<<<<<<<<</h2></article></body></html>"#;
+        let old_html = t(
+            r#"<!DOCTYPE html><html><body><article><code><</code><code><</code><code><</code><code><</code></article></body></html>"#,
+        );
+        let new_html = t(
+            r#"<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd"><html><body><code><</code><code><</code><code><</code><code><</code><article><code><</code><code><</code><h2><<<<<<<<<<<<<</h2></article></body></html>"#,
+        );
 
-        let patches = super::diff_html(old_html, new_html).expect("diff failed");
+        let patches = super::diff_html(&old_html, &new_html).expect("diff failed");
         debug!("Patches: {:#?}", patches);
 
-        let mut doc = dom::parse(old_html);
+        let mut doc = dom::parse(&old_html);
         doc.apply_patches(patches).expect("apply failed");
 
         let result = doc.to_html();
-        let expected = dom::parse(new_html).to_html();
+        let expected = dom::parse(&new_html).to_html();
 
         debug!("Result: {}", result);
         debug!("Expected: {}", expected);
@@ -1698,17 +1731,21 @@ mod tests {
     fn test_fuzzer_article_code_move() {
         // Fuzzer found "Move: slot contains text, cannot navigate to child"
         // Fuzzer generates unescaped HTML
-        let old_html = r#"<!DOCTYPE html><html><body><article><code><</code><code><</code><code><</code><code><</code><article><article><code><</code></article></article></article></body></html>"#;
-        let new_html = r#"<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd"><html><body><code><</code><code><</code><code><</code><code><</code><article><code><</code><code><</code><h2><<<<<<<<<<<<<</h2></article></body></html>"#;
+        let old_html = t(
+            r#"<!DOCTYPE html><html><body><article><code><</code><code><</code><code><</code><code><</code><article><article><code><</code></article></article></article></body></html>"#,
+        );
+        let new_html = t(
+            r#"<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd"><html><body><code><</code><code><</code><code><</code><code><</code><article><code><</code><code><</code><h2><<<<<<<<<<<<<</h2></article></body></html>"#,
+        );
 
-        let patches = super::diff_html(old_html, new_html).expect("diff failed");
+        let patches = super::diff_html(&old_html, &new_html).expect("diff failed");
         debug!("Patches: {:#?}", patches);
 
-        let mut doc = dom::parse(old_html);
+        let mut doc = dom::parse(&old_html);
         doc.apply_patches(patches).expect("apply failed");
 
         let result = doc.to_html();
-        let expected = dom::parse(new_html).to_html();
+        let expected = dom::parse(&new_html).to_html();
 
         debug!("Result: {}", result);
         debug!("Expected: {}", expected);
@@ -1718,30 +1755,30 @@ mod tests {
     #[test]
     fn test_arena_dom_diff() {
         // Test diffing with arena_dom documents
-        let old_html = "<html><body><div>Old content</div></body></html>";
-        let new_html = "<html><body><div>New content</div></body></html>";
+        let old_html = t("<html><body><div>Old content</div></body></html>");
+        let new_html = t("<html><body><div>New content</div></body></html>");
 
-        let old_doc = dom::parse(old_html);
-        let new_doc = dom::parse(new_html);
+        let old_doc = dom::parse(&old_html);
+        let new_doc = dom::parse(&new_html);
 
         let patches = diff(&old_doc, &new_doc).expect("diff failed");
         debug!("Patches: {:#?}", patches);
 
         // Verify correctness by applying patches and comparing result
-        let mut doc = dom::parse(old_html);
+        let mut doc = dom::parse(&old_html);
         doc.apply_patches(patches).expect("apply failed");
         let result = doc.to_html();
-        let expected = dom::parse(new_html).to_html();
+        let expected = dom::parse(&new_html).to_html();
         assert_eq!(result, expected, "HTML output should match");
     }
 
     #[test]
     fn test_arena_dom_diff_add_element() {
-        let old_html = "<html><body><div>Content</div></body></html>";
-        let new_html = "<html><body><div>Content</div><p>New paragraph</p></body></html>";
+        let old_html = t("<html><body><div>Content</div></body></html>");
+        let new_html = t("<html><body><div>Content</div><p>New paragraph</p></body></html>");
 
-        let old_doc = dom::parse(old_html);
-        let new_doc = dom::parse(new_html);
+        let old_doc = dom::parse(&old_html);
+        let new_doc = dom::parse(&new_html);
 
         let patches = diff(&old_doc, &new_doc).expect("diff failed");
         debug!("Patches: {:#?}", patches);
@@ -1758,10 +1795,10 @@ mod tests {
     fn test_patch_serialization() {
         use crate::diff_html;
 
-        let old_html = r#"<html><body><div>Content</div></body></html>"#;
-        let new_html = r#"<html><body><div class="highlight">Content</div></body></html>"#;
+        let old_html = t(r#"<html><body><div>Content</div></body></html>"#);
+        let new_html = t(r#"<html><body><div class="highlight">Content</div></body></html>"#);
 
-        let patches = diff_html(old_html, new_html).expect("diff should work");
+        let patches = diff_html(&old_html, &new_html).expect("diff should work");
 
         let json = facet_json::to_string(&patches).expect("serialization should work");
         let roundtrip: Vec<Patch> =
@@ -1773,19 +1810,19 @@ mod tests {
     fn test_fuzz_seed_0_template_0() {
         use crate::diff_html;
 
-        let old_html = r##"<article>
+        let old_html = t(r##"<article>
     <h1>Article Title</h1>
     <p>First paragraph with <strong>bold</strong> and <em>italic</em> text.</p>
     <p>Second paragraph with a <a href="#">link</a>.</p>
-  </article>"##;
+  </article>"##);
 
-        let new_html = r##"<article>
+        let new_html = t(r##"<article>
 
     <p>First paragraph with <strong>bold</strong> and content</p>
     <p data-test="hidden">Second paragraph with a .</p>
-  </article>"##;
+  </article>"##);
 
-        let patches = diff_html(old_html, new_html).expect("diff should work");
+        let patches = diff_html(&old_html, &new_html).expect("diff should work");
         debug!("Patches: {:#?}", patches);
 
         // Check for slot references (first path element > 0 means it's in a non-main slot)
@@ -1831,7 +1868,9 @@ mod tests {
     </ul>
   </div>"##;
 
-        let patches = diff_html(old_html, new_html).expect("diff should work");
+        let old_tendril = t(old_html);
+        let new_tendril = t(new_html);
+        let patches = diff_html(&old_tendril, &new_tendril).expect("diff should work");
         debug!("Patches: {:#?}", patches);
 
         for (i, patch) in patches.iter().enumerate() {
@@ -1839,7 +1878,8 @@ mod tests {
         }
 
         // Apply all patches at once
-        let mut doc = dom::parse(&format!("<html><body>{}</body></html>", old_html));
+        let full_html = t(&format!("<html><body>{}</body></html>", old_html));
+        let mut doc = dom::parse(&full_html);
         if let Err(e) = doc.apply_patches(patches.clone()) {
             panic!("Patches failed: {:?}", e);
         }
@@ -1856,8 +1896,10 @@ mod tests {
         reset_position_counters();
 
         // Do the diff
-        let old = dom::parse(xxl_html);
-        let new = dom::parse(&modified);
+        let old_tendril = t(xxl_html);
+        let new_tendril = t(&modified);
+        let old = dom::parse(&old_tendril);
+        let new = dom::parse(&new_tendril);
         let _patches = diff(&old, &new).expect("diff failed");
 
         // Get stats
@@ -1926,7 +1968,8 @@ mod tests {
 
         // Invalid HTML: <span> directly inside <table> triggers foster parenting
         let html = "<table><span>hello</span><tr><td>cell</td></tr></table>";
-        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let full_html = t(&format!("<html><body>{}</body></html>", html));
+        let doc = dom::parse(&full_html);
         let result = doc.to_html();
 
         // The span should be foster-parented BEFORE the table
@@ -1944,7 +1987,8 @@ mod tests {
 
         // Text directly in table gets foster parented
         let html = "<table>orphan text<tr><td>cell</td></tr></table>";
-        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let full_html = t(&format!("<html><body>{}</body></html>", html));
+        let doc = dom::parse(&full_html);
         let result = doc.to_html();
 
         // The text should appear before the table
@@ -1962,7 +2006,8 @@ mod tests {
 
         // Multiple items that need foster parenting
         let html = "<table><b>bold</b><i>italic</i><tr><td>cell</td></tr></table>";
-        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let full_html = t(&format!("<html><body>{}</body></html>", html));
+        let doc = dom::parse(&full_html);
         let result = doc.to_html();
 
         // Both elements should be before the table, in order
@@ -1981,7 +2026,8 @@ mod tests {
 
         // This is the exact example from the HTML5 spec
         let html = "<table><b><tr><td>aaa</td></tr>bbb</table>ccc";
-        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let full_html = t(&format!("<html><body>{}</body></html>", html));
+        let doc = dom::parse(&full_html);
         let result = doc.to_html();
 
         // Per the spec, this should produce:
@@ -2018,7 +2064,8 @@ mod tests {
         // Inner table content should only affect the innermost table
         let html =
             "<table><tr><td><table><span>inner</span><tr><td>x</td></tr></table></td></tr></table>";
-        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let full_html = t(&format!("<html><body>{}</body></html>", html));
+        let doc = dom::parse(&full_html);
         let result = doc.to_html();
 
         // The span should be foster parented before the inner table, not the outer
@@ -2042,7 +2089,8 @@ mod tests {
 
         // Content directly in tbody (outside tr) also triggers foster parenting
         let html = "<table><tbody><span>orphan</span><tr><td>cell</td></tr></tbody></table>";
-        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let full_html = t(&format!("<html><body>{}</body></html>", html));
+        let doc = dom::parse(&full_html);
         let result = doc.to_html();
 
         // The span should be foster parented before the table
@@ -2060,7 +2108,8 @@ mod tests {
 
         // Content directly in tr (outside td/th) triggers foster parenting
         let html = "<table><tr><span>orphan</span><td>cell</td></tr></table>";
-        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let full_html = t(&format!("<html><body>{}</body></html>", html));
+        let doc = dom::parse(&full_html);
         let result = doc.to_html();
 
         // The span should be foster parented before the table
@@ -2077,7 +2126,8 @@ mod tests {
         use crate::dom;
 
         let html = "<table><a>1</a><b>2</b><c>3</c><tr><td>x</td></tr></table>";
-        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let full_html = t(&format!("<html><body>{}</body></html>", html));
+        let doc = dom::parse(&full_html);
         let result = doc.to_html();
 
         // Elements should appear in the same order they were in the source
@@ -2101,7 +2151,8 @@ mod tests {
         // Whitespace-only text nodes in certain positions are handled specially
         // but significant text gets foster parented
         let html = "<table>  significant  <tr><td>cell</td></tr></table>";
-        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let full_html = t(&format!("<html><body>{}</body></html>", html));
+        let doc = dom::parse(&full_html);
         let result = doc.to_html();
 
         // The text should be before the table
@@ -2119,21 +2170,29 @@ mod tests {
         use crate::diff_html;
         use crate::dom;
 
-        let old_html = "<my-header>\n      <h1>Title</h1>\n    </my-header>";
-        let new_html = "<my-header>\n      中文App Title\n    </my-header>";
+        let old_html = t("<my-header>\n      <h1>Title</h1>\n    </my-header>");
+        let new_html = t("<my-header>\n      中文App Title\n    </my-header>");
 
-        let patches = diff_html(old_html, new_html).expect("diff should work");
+        let patches = diff_html(&old_html, &new_html).expect("diff should work");
         let json = facet_json::to_string(&patches).expect("serialization should work");
         let roundtrip: Vec<Patch> =
             facet_json::from_str(&json).expect("deserialization should work");
 
         assert_eq!(patches, roundtrip, "Patches should roundtrip through JSON");
 
-        let mut doc = dom::parse(&format!("<html><body>{}</body></html>", old_html));
+        let old_full = t(&format!(
+            "<html><body>{}</body></html>",
+            old_html.as_ref() as &str
+        ));
+        let mut doc = dom::parse(&old_full);
         doc.apply_patches(roundtrip).expect("apply should succeed");
 
         let result = doc.to_html();
-        let expected = dom::parse(&format!("<html><body>{}</body></html>", new_html)).to_html();
+        let new_full = t(&format!(
+            "<html><body>{}</body></html>",
+            new_html.as_ref() as &str
+        ));
+        let expected = dom::parse(&new_full).to_html();
         assert_eq!(result, expected, "HTML output should match");
     }
 
@@ -2152,26 +2211,24 @@ mod tests {
         println!("\n=== New HTML ===");
         println!("{}", new_html);
 
-        let old_parsed = dom::parse(&format!("<html><body>{}</body></html>", old_html));
-        let new_parsed = dom::parse(&format!("<html><body>{}</body></html>", new_html));
+        let old_full = t(&format!("<html><body>{}</body></html>", old_html));
+        let new_full = t(&format!("<html><body>{}</body></html>", new_html));
+        let old_parsed = dom::parse(&old_full);
+        let new_parsed = dom::parse(&new_full);
 
         println!("\n=== Old parsed ===");
         println!("{}", old_parsed.to_html());
         println!("\n=== New parsed ===");
         println!("{}", new_parsed.to_html());
 
-        let patches = diff_html(
-            &format!("<html><body>{}</body></html>", old_html),
-            &format!("<html><body>{}</body></html>", new_html),
-        )
-        .expect("diff should work");
+        let patches = diff_html(&old_full, &new_full).expect("diff should work");
 
         println!("\n=== Patches ===");
         for (i, patch) in patches.iter().enumerate() {
             println!("{}: {:?}", i, patch);
         }
 
-        let mut doc = dom::parse(&format!("<html><body>{}</body></html>", old_html));
+        let mut doc = dom::parse(&old_full);
         doc.apply_patches(patches).expect("apply should succeed");
 
         let result = doc.to_html();
@@ -2204,7 +2261,8 @@ mod tests {
         // This tests HTML5 adoption agency algorithm behavior
         let html = r#"<p>First with <strong>text<section>break</section><svg width="29"><circle></circle></svg></strong> end.</p>"#;
 
-        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let full_html = t(&format!("<html><body>{}</body></html>", html));
+        let doc = dom::parse(&full_html);
         let result = doc.to_html();
 
         // The <section> should have been moved outside <p> due to HTML5 parsing rules

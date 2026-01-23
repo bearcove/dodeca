@@ -9,6 +9,7 @@
 //!
 //! The test verifies: apply(old, diff(old, new)) == new
 
+use hotmeal::StrTendril;
 use hotmeal::diff;
 use hotmeal::parse;
 use std::path::Path;
@@ -30,12 +31,15 @@ fn run_roundtrip_test(path: &Path) -> datatest_stable::Result<()> {
     let old = parts[0].trim();
     let new = parts[1].trim();
 
-    let old_doc = parse(old);
-    let new_doc = parse(new);
+    let old_tendril = StrTendril::from(old);
+    let new_tendril = StrTendril::from(new);
+
+    let old_doc = parse(&old_tendril);
+    let new_doc = parse(&new_tendril);
 
     let patches = diff(&old_doc, &new_doc).map_err(|e| format!("diff failed: {e:?}"))?;
 
-    let mut tree = parse(old);
+    let mut tree = parse(&old_tendril);
     tree.apply_patches(patches)
         .map_err(|e| format!("apply failed: {e:?}"))?;
     let result = tree.to_html();
