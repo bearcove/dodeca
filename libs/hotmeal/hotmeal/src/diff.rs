@@ -1446,6 +1446,112 @@ fn extract_content_from_tree_b<'a, T: DiffTree<Types = HtmlTreeTypes<'a>>>(
     (attrs, children)
 }
 
+// ============================================================================
+// into_owned implementations for serialization across lifetime boundaries
+// ============================================================================
+
+impl<'a> AttrPair<'a> {
+    /// Convert to an owned version with 'static lifetime.
+    pub fn into_owned(self) -> AttrPair<'static> {
+        AttrPair {
+            name: self.name,
+            value: self.value.into_owned(),
+        }
+    }
+}
+
+impl<'a> InsertContent<'a> {
+    /// Convert to an owned version with 'static lifetime.
+    pub fn into_owned(self) -> InsertContent<'static> {
+        match self {
+            InsertContent::Element {
+                tag,
+                attrs,
+                children,
+            } => InsertContent::Element {
+                tag,
+                attrs: attrs.into_iter().map(|a| a.into_owned()).collect(),
+                children: children.into_iter().map(|c| c.into_owned()).collect(),
+            },
+            InsertContent::Text(s) => InsertContent::Text(s.into_owned()),
+            InsertContent::Comment(s) => InsertContent::Comment(s.into_owned()),
+        }
+    }
+}
+
+impl<'a> PropChange<'a> {
+    /// Convert to an owned version with 'static lifetime.
+    pub fn into_owned(self) -> PropChange<'static> {
+        PropChange {
+            name: self.name,
+            value: self.value.map(|s| s.into_owned()),
+        }
+    }
+}
+
+impl<'a> Patch<'a> {
+    /// Convert to an owned version with 'static lifetime.
+    pub fn into_owned(self) -> Patch<'static> {
+        match self {
+            Patch::InsertElement {
+                at,
+                tag,
+                attrs,
+                children,
+                detach_to_slot,
+            } => Patch::InsertElement {
+                at,
+                tag,
+                attrs: attrs.into_iter().map(|a| a.into_owned()).collect(),
+                children: children.into_iter().map(|c| c.into_owned()).collect(),
+                detach_to_slot,
+            },
+            Patch::InsertText {
+                at,
+                text,
+                detach_to_slot,
+            } => Patch::InsertText {
+                at,
+                text: text.into_owned(),
+                detach_to_slot,
+            },
+            Patch::InsertComment {
+                at,
+                text,
+                detach_to_slot,
+            } => Patch::InsertComment {
+                at,
+                text: text.into_owned(),
+                detach_to_slot,
+            },
+            Patch::Remove { node } => Patch::Remove { node },
+            Patch::SetText { path, text } => Patch::SetText {
+                path,
+                text: text.into_owned(),
+            },
+            Patch::SetAttribute { path, name, value } => Patch::SetAttribute {
+                path,
+                name,
+                value: value.into_owned(),
+            },
+            Patch::RemoveAttribute { path, name } => Patch::RemoveAttribute { path, name },
+            Patch::Move {
+                from,
+                to,
+                detach_to_slot,
+            } => Patch::Move {
+                from,
+                to,
+                detach_to_slot,
+            },
+            Patch::UpdateProps { path, changes } => Patch::UpdateProps {
+                path,
+                changes: changes.into_iter().map(|c| c.into_owned()).collect(),
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
