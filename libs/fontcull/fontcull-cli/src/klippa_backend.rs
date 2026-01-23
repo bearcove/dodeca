@@ -3,9 +3,10 @@ use std::path::PathBuf;
 use color_eyre::eyre::{Context, Result};
 
 /// Subset a font using klippa (pure Rust, no external dependencies)
-pub fn subset_with_klippa(
+pub fn subset_with_klippa<'a>(
     font_path: &str,
     unicodes: &[u32],
+    opentype_features: &[[u8; 4]],
     output_dir: Option<&PathBuf>,
 ) -> Result<PathBuf> {
     let path = PathBuf::from(font_path);
@@ -25,8 +26,9 @@ pub fn subset_with_klippa(
         fontcull::decompress_font(&font_data).map_err(|e| color_eyre::eyre::eyre!("{}", e))?;
 
     // Subset and compress to WOFF2
-    let woff2_data = fontcull::subset_font_to_woff2_unicode(&decompressed, unicodes)
-        .map_err(|e| color_eyre::eyre::eyre!("{}", e))?;
+    let woff2_data =
+        fontcull::subset_font_to_woff2_unicode(&decompressed, unicodes, opentype_features)
+            .map_err(|e| color_eyre::eyre::eyre!("{}", e))?;
 
     // Write the woff2 file
     std::fs::write(&output_path, &woff2_data)

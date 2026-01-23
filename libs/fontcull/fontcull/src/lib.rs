@@ -2,6 +2,9 @@
 
 use std::collections::HashSet;
 
+use fontcull_read_fonts::collections::IntSet;
+use fontcull_skrifa::Tag;
+
 #[cfg(feature = "static-analysis")]
 mod static_analysis;
 
@@ -20,6 +23,8 @@ pub enum SubsetError {
     /// Failed to decompress WOFF font
     WoffDecompress(String),
 }
+
+pub type OpenTypeFeatureTag = [u8; 4];
 
 impl std::fmt::Display for SubsetError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -118,14 +123,30 @@ pub fn compress_to_woff2(font_data: &[u8]) -> Result<Vec<u8>, SubsetError> {
         .ok_or_else(|| SubsetError::Woff2("WOFF2 compression failed".to_string()))
 }
 
+fn layout_features(extra_features: &[OpenTypeFeatureTag]) -> IntSet<Tag> {
+    use fontcull_klippa::DEFAULT_LAYOUT_FEATURES;
+
+    let extra_feature_tags = extra_features.iter().map(|ft| Tag::new(ft));
+
+    IntSet::from_iter(
+        DEFAULT_LAYOUT_FEATURES
+            .iter()
+            .copied()
+            .chain(extra_feature_tags),
+    )
+}
+
 /// Subset a font to only include the specified characters
 ///
 /// Takes raw font data (TTF/OTF/WOFF/WOFF2) and a set of characters,
 /// returns the subsetted font as TTF bytes.
-pub fn subset_font_data(font_data: &[u8], chars: &HashSet<char>) -> Result<Vec<u8>, SubsetError> {
+pub fn subset_font_data(
+    font_data: &[u8],
+    chars: &HashSet<char>,
+    opentype_features: &[OpenTypeFeatureTag],
+) -> Result<Vec<u8>, SubsetError> {
     use fontcull_klippa::{Plan, SubsetFlags, subset_font};
-    use fontcull_read_fonts::collections::IntSet;
-    use fontcull_skrifa::{FontRef, GlyphId, Tag};
+    use fontcull_skrifa::{FontRef, GlyphId};
     use fontcull_write_fonts::types::NameId;
 
     // Parse the font
@@ -143,17 +164,20 @@ pub fn subset_font_data(font_data: &[u8], chars: &HashSet<char>) -> Result<Vec<u
     let empty_name_ids: IntSet<NameId> = IntSet::empty();
     let empty_langs: IntSet<u16> = IntSet::empty();
 
+    let layout_scripts: IntSet<Tag> = IntSet::all();
+    let layout_features: IntSet<Tag> = layout_features(opentype_features);
+
     // Create subsetting plan
     let plan = Plan::new(
         &empty_gids, // glyph IDs - not needed when using unicodes
         &unicodes,   // unicode codepoints to keep
         &font,
         SubsetFlags::default(),
-        &empty_tags,     // tables to drop
-        &empty_tags,     // layout scripts
-        &empty_tags,     // layout features
-        &empty_name_ids, // name IDs
-        &empty_langs,    // name languages
+        &empty_tags,      // tables to drop
+        &layout_scripts,  // layout scripts
+        &layout_features, // layout features
+        &empty_name_ids,  // name IDs
+        &empty_langs,     // name languages
     );
 
     // Perform subsetting
@@ -173,8 +197,9 @@ pub fn subset_font_data(font_data: &[u8], chars: &HashSet<char>) -> Result<Vec<u
 pub fn subset_font_to_woff2(
     font_data: &[u8],
     chars: &HashSet<char>,
+    opentype_features: &[OpenTypeFeatureTag],
 ) -> Result<Vec<u8>, SubsetError> {
-    let subsetted = subset_font_data(font_data, chars)?;
+    let subsetted = subset_font_data(font_data, chars, opentype_features)?;
 
     // Compress to WOFF2
     let woff2 = woofwoof::compress(&subsetted, "", 11, true)
@@ -189,6 +214,7 @@ pub fn subset_font_to_woff2(
 pub fn subset_font_data_unicode(
     font_data: &[u8],
     unicodes: &[u32],
+    opentype_features: &[OpenTypeFeatureTag],
 ) -> Result<Vec<u8>, SubsetError> {
     use fontcull_klippa::{Plan, SubsetFlags, subset_font};
     use fontcull_read_fonts::collections::IntSet;
@@ -207,14 +233,17 @@ pub fn subset_font_data_unicode(
     let empty_name_ids: IntSet<NameId> = IntSet::empty();
     let empty_langs: IntSet<u16> = IntSet::empty();
 
+    let layout_scripts: IntSet<Tag> = IntSet::all();
+    let layout_features: IntSet<Tag> = layout_features(opentype_features);
+
     let plan = Plan::new(
         &empty_gids,
         &unicode_set,
         &font,
         SubsetFlags::default(),
         &empty_tags,
-        &empty_tags,
-        &empty_tags,
+        &layout_scripts,
+        &layout_features,
         &empty_name_ids,
         &empty_langs,
     );
@@ -231,8 +260,9 @@ pub fn subset_font_data_unicode(
 pub fn subset_font_to_woff2_unicode(
     font_data: &[u8],
     unicodes: &[u32],
+    opentype_features: &[OpenTypeFeatureTag],
 ) -> Result<Vec<u8>, SubsetError> {
-    let subsetted = subset_font_data_unicode(font_data, unicodes)?;
+    let subsetted = subset_font_data_unicode(font_data, unicodes, opentype_features)?;
 
     let woff2 = woofwoof::compress(&subsetted, "", 11, true)
         .ok_or_else(|| SubsetError::Woff2("WOFF2 compression failed".to_string()))?;
@@ -318,7 +348,7 @@ mod tests {
 
         // And we should be able to subset it
         let chars: HashSet<char> = ['a', 'b', 'c'].into_iter().collect();
-        let _subsetted = subset_font_data(&decompressed, &chars).expect("failed to subset");
+        let _subsetted = subset_font_data(&decompressed, &chars, &[]).expect("failed to subset");
     }
 
     #[test]
@@ -346,7 +376,7 @@ mod tests {
         // Decompress, subset, and recompress - the full pipeline
         let decompressed = decompress_font(&woff2_input).expect("failed to decompress");
         let chars: HashSet<char> = ['a', 'b', 'c'].into_iter().collect();
-        let subsetted = subset_font_data(&decompressed, &chars).expect("failed to subset");
+        let subsetted = subset_font_data(&decompressed, &chars, &[]).expect("failed to subset");
         let woff2_output = compress_to_woff2(&subsetted).expect("failed to compress output");
 
         // Verify output is WOFF2

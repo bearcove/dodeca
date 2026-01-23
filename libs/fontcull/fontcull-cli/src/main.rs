@@ -3,8 +3,9 @@
 use std::{collections::HashMap, path::PathBuf};
 
 use chromiumoxide::{Page, browser::Browser};
-use clap::Parser;
+use clap::{Parser, builder::NonEmptyStringValueParser};
 use color_eyre::eyre::{Context, Result};
+use fontcull::OpenTypeFeatureTag;
 use futures::StreamExt;
 
 mod glyph_script;
@@ -34,9 +35,63 @@ struct Args {
     #[arg(long, short = 'w')]
     whitelist: Option<String>,
 
+    /// OpenType features to include in the subset (comma-separated)
+    #[arg(long, value_delimiter = ',', value_parser = OpenTypeFeatureParser::new())]
+    opentype_features: Vec<OpenTypeFeatureTag>,
+
     /// Output directory for subset fonts
     #[arg(long, short = 'o')]
     output: Option<PathBuf>,
+}
+
+/// Parse OpenType feature tags.
+///
+/// OpenType feature tags are 4-character long ASCII alphanumeric strings.
+/// Examples include `calt` (Contextual Alternates), `c2sc` (Small Capitals from Capitals)
+/// and `ss01` (Stylistic Set 1).
+#[derive(Copy, Clone, Debug)]
+struct OpenTypeFeatureParser {
+    base_parser: NonEmptyStringValueParser,
+}
+
+impl OpenTypeFeatureParser {
+    /// Parse 4-character opentype features
+    pub fn new() -> Self {
+        Self {
+            base_parser: NonEmptyStringValueParser::new(),
+        }
+    }
+}
+
+impl clap::builder::TypedValueParser for OpenTypeFeatureParser {
+    type Value = OpenTypeFeatureTag;
+
+    fn parse_ref(
+        &self,
+        cmd: &clap::Command,
+        arg: Option<&clap::Arg>,
+        value: &std::ffi::OsStr,
+    ) -> std::result::Result<OpenTypeFeatureTag, clap::Error> {
+        use clap::error::{Error, ErrorKind};
+
+        let base_result = self.base_parser.parse_ref(cmd, arg, value)?;
+
+        if base_result.len() != 4 {
+            return Err(Error::raw(
+                ErrorKind::ValueValidation,
+                format!("OpenType feature '{base_result}' must be a 4 character string"),
+            ));
+        }
+
+        if !base_result.chars().all(|c| c.is_ascii_alphanumeric()) {
+            return Err(Error::raw(
+                ErrorKind::ValueValidation,
+                format!("OpenType feature '{base_result}' must be an ASCII alphanumeric string"),
+            ));
+        }
+
+        Ok(base_result.as_bytes().try_into().unwrap())
+    }
 }
 
 /// Character set per font-family, plus a universal "*" set
@@ -336,8 +391,12 @@ async fn main() -> Result<()> {
         for font_file in font_files {
             tracing::info!("Subsetting font: {}", font_file);
 
-            let output =
-                klippa_backend::subset_with_klippa(&font_file, &chars, args.output.as_ref())?;
+            let output = klippa_backend::subset_with_klippa(
+                &font_file,
+                &chars,
+                &args.opentype_features,
+                args.output.as_ref(),
+            )?;
 
             tracing::info!("Created: {}", output.display());
         }
