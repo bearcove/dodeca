@@ -2136,4 +2136,89 @@ mod tests {
         let expected = dom::parse(&format!("<html><body>{}</body></html>", new_html)).to_html();
         assert_eq!(result, expected, "HTML output should match");
     }
+
+    /// Test SVG inside strong - reproduction of fuzz seed 1 failure
+    #[test]
+    fn test_svg_inside_strong() {
+        use crate::diff_html;
+        use crate::dom;
+
+        // Simplified version of the failing case
+        let old_html = r#"<p>Text with <strong>bold</strong> word.</p>"#;
+        let new_html = r#"<p>Text with <strong><svg width="29" height="21"><circle></circle></svg></strong> word.</p>"#;
+
+        println!("=== Old HTML ===");
+        println!("{}", old_html);
+        println!("\n=== New HTML ===");
+        println!("{}", new_html);
+
+        let old_parsed = dom::parse(&format!("<html><body>{}</body></html>", old_html));
+        let new_parsed = dom::parse(&format!("<html><body>{}</body></html>", new_html));
+
+        println!("\n=== Old parsed ===");
+        println!("{}", old_parsed.to_html());
+        println!("\n=== New parsed ===");
+        println!("{}", new_parsed.to_html());
+
+        let patches = diff_html(
+            &format!("<html><body>{}</body></html>", old_html),
+            &format!("<html><body>{}</body></html>", new_html),
+        )
+        .expect("diff should work");
+
+        println!("\n=== Patches ===");
+        for (i, patch) in patches.iter().enumerate() {
+            println!("{}: {:?}", i, patch);
+        }
+
+        let mut doc = dom::parse(&format!("<html><body>{}</body></html>", old_html));
+        doc.apply_patches(patches).expect("apply should succeed");
+
+        let result = doc.to_html();
+        let expected = new_parsed.to_html();
+
+        println!("\n=== After patches ===");
+        println!("{}", result);
+        println!("\n=== Expected ===");
+        println!("{}", expected);
+
+        assert_eq!(result, expected, "HTML output should match");
+    }
+
+    /// Test: adoption agency algorithm difference with block elements
+    ///
+    /// When you put a block element (like `<section>`) inside a formatting element
+    /// (like `<strong>`) inside `<p>`, HTML5 requires complex "adoption agency"
+    /// handling. Unfortunately, html5ever and browsers produce slightly different
+    /// results for subsequent content after the block element.
+    ///
+    /// Browser: maintains `<strong>` context after `</section>`, wrapping subsequent SVG
+    /// html5ever: drops `<strong>` context after `</section>`
+    ///
+    /// This is a known limitation for invalid HTML containing this pattern.
+    #[test]
+    fn test_adoption_agency_block_in_formatting() {
+        use crate::dom;
+
+        // When you put <section> inside <p>, the browser closes the <p> first
+        let html = r#"<p>First with <strong>text<section>break</section><svg width="29"><circle></circle></svg></strong> end.</p>"#;
+
+        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let result = doc.to_html();
+
+        // The <section> should have been moved outside <p> due to HTML5 parsing rules
+        assert!(
+            !result.contains("<p><strong>text<section>"),
+            "Section should not remain inside p>strong (invalid nesting), got: {}",
+            result
+        );
+
+        // Note: html5ever does NOT wrap the SVG in <strong>, but browsers do.
+        // This is a known parsing difference. The test documents the current behavior.
+        assert!(
+            !result.contains("<strong><svg"),
+            "html5ever does not wrap SVG in strong (differs from browser), got: {}",
+            result
+        );
+    }
 }
