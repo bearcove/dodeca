@@ -859,8 +859,8 @@ impl TreeSink for ArenaSink {
         let node = &arena[*target].get();
 
         if let NodeKind::Element(elem) = &node.kind {
-            let tag = elem.tag.as_ref();
-            let local_name = LocalName::from(tag);
+            // Clone is just an atomic refcount bump since LocalName is interned
+            let local_name = elem.tag.clone();
             let ns = match node.ns {
                 Namespace::Html => ns!(html),
                 Namespace::Svg => ns!(svg),

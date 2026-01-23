@@ -174,10 +174,14 @@ where
         let b_props = tree_b.properties(b_id);
 
         let changes: Vec<_> = a_props.diff(b_props);
-        // Generate UpdateProperties if:
-        // 1. There are changes in the final state, OR
-        // 2. The old node had properties but now has none (removal case)
-        if !changes.is_empty() || !a_props.is_empty() {
+        // Generate UpdateProperties only if:
+        // 1. At least one property value changed (Different), or
+        // 2. Old had properties but new has none (full removal - changes is empty)
+        let has_real_change = changes
+            .iter()
+            .any(|c| matches!(c.value, crate::tree::PropValue::Different(_)));
+        let is_full_removal = !a_props.is_empty() && changes.is_empty();
+        if has_real_change || is_full_removal {
             ops.push(EditOp::UpdateProperties {
                 node_a: a_id,
                 node_b: b_id,

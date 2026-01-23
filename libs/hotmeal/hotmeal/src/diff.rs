@@ -16,6 +16,7 @@ use facet::Facet;
 use html5ever::{LocalName, QualName};
 use rapidhash::RapidHasher;
 use smallvec::SmallVec;
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
@@ -385,6 +386,8 @@ struct DiffNodeData {
     kind: HtmlNodeKind,
     props: HtmlProps,
     height: usize,
+    /// Cached position among siblings (0-indexed), computed on-demand
+    position: Cell<Option<u32>>,
 }
 
 /// A wrapper around Document that implements DiffTree.
@@ -405,7 +408,8 @@ impl<'a> DiffableDocument<'a> {
     /// Pre-computes hashes and caches kind/props for all body descendants.
     pub fn new(doc: &'a Document) -> Self {
         let body_id = doc.body().expect("document must have body");
-        let mut nodes = HashMap::new();
+        // Pre-allocate based on arena size (upper bound for descendants)
+        let mut nodes = HashMap::with_capacity(doc.arena.count());
 
         // First pass: compute kind, props for all nodes
         for node_id in body_id.descendants(&doc.arena) {
@@ -427,7 +431,7 @@ impl<'a> DiffableDocument<'a> {
                     let kind = HtmlNodeKind::Text;
                     let props = HtmlProps {
                         attrs: Vec::new(),
-                        text: Some(text.clone().into_send().into()),
+                        text: Some(text.clone()),
                     };
                     (kind, props)
                 }
@@ -435,7 +439,7 @@ impl<'a> DiffableDocument<'a> {
                     let kind = HtmlNodeKind::Comment;
                     let props = HtmlProps {
                         attrs: Vec::new(),
-                        text: Some(text.clone().into_send().into()),
+                        text: Some(text.clone()),
                     };
                     (kind, props)
                 }
@@ -448,7 +452,8 @@ impl<'a> DiffableDocument<'a> {
                     hash: NodeHash(0), // Will be computed in second pass
                     kind,
                     props,
-                    height: 0, // Will be computed in second pass
+                    height: 0,                 // Will be computed in second pass
+                    position: Cell::new(None), // Computed on-demand
                 },
             );
         }
@@ -542,11 +547,22 @@ impl DiffTree for DiffableDocument<'_> {
     }
 
     fn position(&self, id: NodeId) -> usize {
-        if let Some(parent) = self.parent(id) {
-            parent
-                .children(&self.doc.arena)
-                .position(|c| c == id)
-                .unwrap_or(0)
+        if let Some(data) = self.nodes.get(&id) {
+            // Check cache first
+            if let Some(pos) = data.position.get() {
+                return pos as usize;
+            }
+            // Compute and cache
+            let pos = if let Some(parent) = self.parent(id) {
+                parent
+                    .children(&self.doc.arena)
+                    .position(|c| c == id)
+                    .unwrap_or(0) as u32
+            } else {
+                0
+            };
+            data.position.set(Some(pos));
+            pos as usize
         } else {
             0
         }
@@ -669,7 +685,7 @@ fn add_arena_children(
                 let kind = HtmlNodeKind::Text;
                 let props = HtmlProps {
                     attrs: Vec::new(),
-                    text: Some(text.clone().into_send().into()),
+                    text: Some(text.clone()),
                 };
                 let data = NodeData {
                     hash: NodeHash(0),
@@ -682,7 +698,7 @@ fn add_arena_children(
                 let kind = HtmlNodeKind::Comment;
                 let props = HtmlProps {
                     attrs: Vec::new(),
-                    text: Some(text.clone().into_send().into()),
+                    text: Some(text.clone()),
                 };
                 let data = NodeData {
                     hash: NodeHash(0),
@@ -1163,6 +1179,7 @@ fn convert_ops_with_shadow<T: DiffTree<Types = HtmlTreeTypes>>(
                 let path = shadow.compute_path(node_a);
 
                 // Convert cinereus PropertyInFinalState to our PropChange
+                // The changes vec represents the complete final attribute state
                 let prop_changes: Vec<PropChange> = changes
                     .into_iter()
                     .map(|c| PropChange {
@@ -1174,9 +1191,7 @@ fn convert_ops_with_shadow<T: DiffTree<Types = HtmlTreeTypes>>(
                     })
                     .collect();
 
-                // Always generate UpdateProps - the changes vec represents the complete final
-                // state. An empty vec (or vec with only _text) means the element has no
-                // attributes in the final state.
+                // cinereus only emits UpdateProperties when there's a real change or full removal
                 result.push(Patch::UpdateProps {
                     path: NodePath(path),
                     changes: prop_changes,
@@ -1829,5 +1844,35 @@ mod tests {
         if let Err(e) = doc.apply_patches(patches.clone()) {
             panic!("Patches failed: {:?}", e);
         }
+    }
+
+    #[test]
+    fn measure_position_calls_xxl() {
+        use cinereus::{get_position_stats, reset_position_counters};
+
+        let xxl_html = include_str!("../tests/fixtures/xxl.html");
+        let modified = xxl_html.replacen("<div", "<div class=\"modified\"", 1);
+
+        // Reset counters
+        reset_position_counters();
+
+        // Do the diff
+        let old = dom::parse(xxl_html);
+        let new = dom::parse(&modified);
+        let _patches = diff(&old, &new).expect("diff failed");
+
+        // Get stats
+        let (calls, scanned) = get_position_stats();
+
+        println!("\n=== XXL document diff position() stats ===");
+        println!("  position() calls: {}", calls);
+        println!("  siblings scanned: {}", scanned);
+        if calls > 0 {
+            println!(
+                "  avg siblings per call: {:.2}",
+                scanned as f64 / calls as f64
+            );
+        }
+        println!("===========================================\n");
     }
 }

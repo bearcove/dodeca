@@ -52,6 +52,7 @@ pub use tree::{
     DiffTree, NoKey, NoProps, NoVal, NodeData, NodeHash, PropValue, Properties,
     PropertyInFinalState, SimpleTypes, Tree, TreeTypes,
 };
+pub use tree::{get_position_stats, reset_position_counters};
 
 /// Compute a diff between two trees.
 ///

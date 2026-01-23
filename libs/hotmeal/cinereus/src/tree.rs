@@ -2,9 +2,31 @@
 //!
 //! Uses `indextree` as the arena backend for efficient tree storage.
 
+use core::cell::Cell;
 use core::fmt::{self, Display};
 use core::hash::Hash;
 use indextree::{Arena, NodeId};
+
+thread_local! {
+    /// Counter for position() calls - for profiling
+    pub static POSITION_CALLS: Cell<u64> = const { Cell::new(0) };
+    /// Counter for total siblings scanned - for profiling
+    pub static SIBLINGS_SCANNED: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Reset position profiling counters
+pub fn reset_position_counters() {
+    POSITION_CALLS.with(|c| c.set(0));
+    SIBLINGS_SCANNED.with(|c| c.set(0));
+}
+
+/// Get position profiling stats: (calls, siblings_scanned)
+pub fn get_position_stats() -> (u64, u64) {
+    (
+        POSITION_CALLS.with(|c| c.get()),
+        SIBLINGS_SCANNED.with(|c| c.get()),
+    )
+}
 
 /// Trait that bundles all the type parameters for a tree.
 ///
@@ -70,8 +92,15 @@ pub trait DiffTree {
 
     /// Get the position of a node among its siblings (0-indexed).
     fn position(&self, id: NodeId) -> usize {
+        POSITION_CALLS.with(|c| c.set(c.get() + 1));
         if let Some(parent) = self.parent(id) {
-            self.children(parent).position(|c| c == id).unwrap_or(0)
+            for (pos, c) in self.children(parent).enumerate() {
+                SIBLINGS_SCANNED.with(|s| s.set(s.get() + 1));
+                if c == id {
+                    return pos;
+                }
+            }
+            0
         } else {
             0
         }
