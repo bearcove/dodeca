@@ -1850,6 +1850,7 @@ dependencies = [
 [[package]]
 name = "cinereus"
 version = "0.42.0"
+source = "git+https://github.com/bearcove/hotmeal?branch=main#611ce89196b4636bea1511f75ec590bbf483c77c"
 dependencies = [
  "indextree",
  "rapidhash 1.4.0",
@@ -3781,6 +3782,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 [[package]]
 name = "hotmeal"
 version = "0.1.0"
+source = "git+https://github.com/bearcove/hotmeal?branch=main#611ce89196b4636bea1511f75ec590bbf483c77c"
 dependencies = [
  "cinereus",
  "compact_str",
@@ -3795,6 +3797,7 @@ dependencies = [
 [[package]]
 name = "hotmeal-wasm"
 version = "0.1.0"
+source = "git+https://github.com/bearcove/hotmeal?branch=main#611ce89196b4636bea1511f75ec590bbf483c77c"
 dependencies = [
  "facet-json",
  "hotmeal",
