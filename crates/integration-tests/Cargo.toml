@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 facet-json.workspace = true
 facet-value.workspace = true
+hotmeal.workspace = true
 fs-err.workspace = true
 owo-colors.workspace = true
 regex.workspace = true

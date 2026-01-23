@@ -714,7 +714,7 @@ impl SiteServer {
                         Ok(cell_html_diff_proto::HtmlDiffResult::Success {
                             result: diff_result,
                         }) => {
-                            if diff_result.patches.is_empty() {
+                            if diff_result.patches_blob.is_empty() {
                                 // DOM structure identical but HTML differs (whitespace/comments?)
                                 // This is a no-op - no need to reload for invisible changes
                                 tracing::debug!(
@@ -723,8 +723,8 @@ impl SiteServer {
                                 );
                             } else {
                                 // Summarize patch operations
-                                let summary = summarize_patches(&diff_result.patches);
-                                let patch_count = diff_result.patches.len();
+                                let summary = summarize_patches(&diff_result.patches_blob);
+                                let patch_count = diff_result.patches_blob.len();
 
                                 tracing::debug!(
                                     "{} - patching: {} ({} patches)",
@@ -733,7 +733,7 @@ impl SiteServer {
                                     patch_count
                                 );
                                 let receiver_count_before = self.livereload_tx.receiver_count();
-                                let patches = diff_result.patches;
+                                let patches = diff_result.patches_blob;
                                 let send_result = self.livereload_tx.send(LiveReloadMsg::Patches {
                                     route: route.clone(),
                                     patches: patches.clone(),

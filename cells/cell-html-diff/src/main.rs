@@ -5,10 +5,9 @@
 
 use dodeca_cell_runtime::run_cell;
 
-use cell_html_diff_proto::{
-    DiffInput, DiffResult, HtmlDiffResult, HtmlDiffer, HtmlDifferDispatcher,
-};
+use cell_html_diff_proto::{DiffError, DiffInput, DiffOutcome, HtmlDiffer, HtmlDifferDispatcher};
 
+use dodeca_protocol::facet_postcard;
 // Re-export protocol types
 pub use dodeca_protocol::{NodePath, Patch};
 
@@ -25,34 +24,27 @@ impl HtmlDiffer for HtmlDifferImpl {
         &self,
         _cx: &dodeca_cell_runtime::Context,
         input: DiffInput,
-    ) -> HtmlDiffResult {
+    ) -> Result<DiffOutcome, DiffError> {
         tracing::debug!(
             old_len = input.old_html.len(),
             new_len = input.new_html.len(),
             "diffing HTML"
         );
 
-        match facet_html_diff::diff_html(&input.old_html, &input.new_html) {
-            Ok(patches) => {
-                tracing::debug!(count = patches.len(), "generated patches");
-                for (i, patch) in patches.iter().enumerate() {
-                    tracing::debug!(index = i, ?patch, "patch");
-                }
+        let patches = hotmeal::diff_html(&input.old_html, &input.new_html)
+            .map_err(|e| DiffError::Generic(e.to_string()))?;
 
-                let nodes_compared = patches.len();
-                HtmlDiffResult::Success {
-                    result: DiffResult {
-                        patches,
-                        nodes_compared,
-                        nodes_skipped: 0,
-                    },
-                }
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "diff failed");
-                HtmlDiffResult::Error { message: e }
-            }
+        tracing::debug!(count = patches.len(), "generated patches");
+        for (i, patch) in patches.iter().enumerate() {
+            tracing::debug!(index = i, ?patch, "patch");
         }
+
+        let patches =
+            facet_postcard::to_vec(&patches).map_err(|e| DiffError::Generic(e.to_string()))?;
+
+        Ok(DiffOutcome {
+            patches_blob: patches,
+        })
     }
 }
 
