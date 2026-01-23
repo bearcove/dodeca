@@ -40,8 +40,8 @@ pub fn get_position_stats() -> (u64, u64) {
 ///
 /// impl TreeTypes for MyTreeTypes {
 ///     type Kind = NodeKind;
-///     type Label = NodeLabel;
 ///     type Props = HtmlProperties;
+///     type Text = String;
 /// }
 ///
 /// // Now use Tree<MyTreeTypes> instead of Tree<NodeKind, NodeLabel, HtmlProperties>
@@ -51,8 +51,12 @@ pub trait TreeTypes {
     /// Used during matching: only nodes of the same kind can match.
     type Kind: Clone + Eq + Hash + Display;
 
-    /// The properties type for key-value pairs attached to nodes.
+    /// The properties type for key-value pairs attached to nodes (e.g., attributes).
     type Props: Properties;
+
+    /// The text content type for text/comment nodes.
+    /// Use `()` if your tree doesn't have text nodes.
+    type Text: Clone + Eq + Display;
 }
 
 /// Trait for types that can be diffed as trees.
@@ -78,6 +82,10 @@ pub trait DiffTree {
 
     /// Get the properties of a node.
     fn properties(&self, id: NodeId) -> &<Self::Types as TreeTypes>::Props;
+
+    /// Get the text content of a node (for text/comment nodes).
+    /// Returns None for element nodes.
+    fn text(&self, id: NodeId) -> Option<&<Self::Types as TreeTypes>::Text>;
 
     /// Get the parent of a node.
     fn parent(&self, id: NodeId) -> Option<NodeId>;
@@ -219,6 +227,16 @@ impl Display for NoVal {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct NoProps;
 
+/// Default "no text" type for trees without text content.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NoText;
+
+impl Display for NoText {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(no text)")
+    }
+}
+
 impl Properties for NoProps {
     type Key = NoKey;
     type Value = NoVal;
@@ -240,20 +258,21 @@ impl Properties for NoProps {
     }
 }
 
-/// A simple tree types marker for trees with specific K, P types.
+/// A simple tree types marker for trees with specific K, P, T types.
 ///
-/// This allows using `Tree<SimpleTypes<K, P>>` which is equivalent to
-/// the old `Tree<K, P>` signature.
+/// This allows using `Tree<SimpleTypes<K, P, T>>` which bundles all type parameters.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct SimpleTypes<K, P = NoProps>(core::marker::PhantomData<(K, P)>);
+pub struct SimpleTypes<K, P = NoProps, T = NoText>(core::marker::PhantomData<(K, P, T)>);
 
-impl<K, P> TreeTypes for SimpleTypes<K, P>
+impl<K, P, T> TreeTypes for SimpleTypes<K, P, T>
 where
     K: Clone + Eq + Hash + Display + Send + Sync,
     P: Properties + Send + Sync,
+    T: Clone + Eq + Display + Send + Sync,
 {
     type Kind = K;
     type Props = P;
+    type Text = T;
 }
 
 /// Data stored in each tree node.
@@ -262,6 +281,7 @@ where
 /// - A structural hash for fast equality checking
 /// - A "kind" for type-based matching (nodes of different kinds don't match)
 /// - Properties: key-value pairs that are NOT tree children
+/// - Text: optional text content for text/comment nodes
 #[derive(Debug)]
 pub struct NodeData<T: TreeTypes> {
     /// Structural hash of this node and all its descendants (Merkle-tree style).
@@ -275,6 +295,9 @@ pub struct NodeData<T: TreeTypes> {
     /// Properties: key-value pairs attached to this node.
     /// Unlike children, properties are diffed field-by-field when nodes match.
     pub properties: T::Props,
+
+    /// Text content for text/comment nodes. None for element nodes.
+    pub text: Option<T::Text>,
 }
 
 impl<T: TreeTypes> Clone for NodeData<T> {
@@ -283,50 +306,68 @@ impl<T: TreeTypes> Clone for NodeData<T> {
             hash: self.hash,
             kind: self.kind.clone(),
             properties: self.properties.clone(),
+            text: self.text.clone(),
         }
     }
 }
 
 impl<T: TreeTypes> NodeData<T> {
-    /// Create a new node with the given hash and kind.
-    pub fn new(hash: NodeHash, kind: T::Kind, properties: T::Props) -> Self {
+    /// Create a new node with the given hash, kind, properties, and optional text.
+    pub fn new(hash: NodeHash, kind: T::Kind, properties: T::Props, text: Option<T::Text>) -> Self {
         Self {
             hash,
             kind,
             properties,
+            text,
         }
     }
 
-    /// Create a new node with the given hash (as u64) and kind.
-    pub fn new_u64(hash: u64, kind: T::Kind, properties: T::Props) -> Self {
+    /// Create a new element node (no text content).
+    pub fn element(hash: NodeHash, kind: T::Kind, properties: T::Props) -> Self {
         Self {
-            hash: NodeHash(hash),
+            hash,
             kind,
             properties,
+            text: None,
+        }
+    }
+
+    /// Create a new text node with content.
+    pub fn text_node(hash: NodeHash, kind: T::Kind, text: T::Text) -> Self
+    where
+        T::Props: Default,
+    {
+        Self {
+            hash,
+            kind,
+            properties: T::Props::default(),
+            text: Some(text),
         }
     }
 }
 
-/// Convenience constructors for trees without properties.
+/// Convenience constructors for trees without properties or text.
 impl<K> NodeData<SimpleTypes<K>>
 where
     K: Clone + Eq + Hash + Display + Send + Sync,
 {
-    /// Create a new node with no properties.
+    /// Create a new node with no properties or text.
     pub fn simple(hash: NodeHash, kind: K) -> Self {
         Self {
             hash,
             kind,
             properties: NoProps,
+            text: None,
         }
     }
 
-    /// Create a new node with no properties, hash as u64.
+    /// Create a new node with no properties or text, hash as u64.
     pub fn simple_u64(hash: u64, kind: K) -> Self {
         Self {
             hash: NodeHash(hash),
             kind,
             properties: NoProps,
+            text: None,
         }
     }
 }
@@ -445,6 +486,10 @@ impl<T: TreeTypes> DiffTree for Tree<T> {
 
     fn properties(&self, id: NodeId) -> &T::Props {
         &self.get(id).properties
+    }
+
+    fn text(&self, id: NodeId) -> Option<&T::Text> {
+        self.get(id).text.as_ref()
     }
 
     fn parent(&self, id: NodeId) -> Option<NodeId> {

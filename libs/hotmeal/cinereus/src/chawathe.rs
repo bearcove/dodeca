@@ -66,6 +66,16 @@ pub enum EditOp<T: TreeTypes> {
         /// New position among siblings
         new_position: usize,
     },
+
+    /// Update text content on a text/comment node.
+    SetText {
+        /// The node in tree A
+        node_a: NodeId,
+        /// The corresponding node in tree B
+        node_b: NodeId,
+        /// The new text content
+        text: T::Text,
+    },
 }
 
 impl<T: TreeTypes> fmt::Display for EditOp<T> {
@@ -118,6 +128,19 @@ impl<T: TreeTypes> fmt::Display for EditOp<T> {
                     usize::from(*new_parent_b)
                 )
             }
+            EditOp::SetText {
+                node_a,
+                node_b,
+                text,
+            } => {
+                write!(
+                    f,
+                    "SetText(a:{} → b:{} text={})",
+                    usize::from(*node_a),
+                    usize::from(*node_b),
+                    text
+                )
+            }
         }
     }
 }
@@ -168,8 +191,27 @@ where
     trace!(matched_pairs = matching.len(), "generate_edit_script start");
     let mut ops = Ops::new();
 
-    // Phase 1: Property changes - diff properties for matched nodes
+    // Phase 1: Text and property changes for matched nodes
     for (a_id, b_id) in matching.pairs() {
+        // Handle text changes (for text/comment nodes)
+        let a_text = tree_a.text(a_id);
+        let b_text = tree_b.text(b_id);
+        // Emit SetText if text changed and there's new text content
+        // Note: if b_text is None but a_text is Some, the text is being removed.
+        // This shouldn't happen for text nodes (they always have text),
+        // but could happen if text is optional. We skip emitting SetText
+        // for removal since the node type change should handle it.
+        if a_text != b_text
+            && let Some(new_text) = b_text
+        {
+            ops.push(EditOp::SetText {
+                node_a: a_id,
+                node_b: b_id,
+                text: new_text.clone(),
+            });
+        }
+
+        // Handle property changes (for element nodes)
         let a_props = tree_a.properties(a_id);
         let b_props = tree_b.properties(b_id);
 
@@ -694,19 +736,19 @@ mod tests {
     fn test_properties_emit_update_property_ops() {
         // Tree A: root -> div (id="foo", class=None)
         let mut tree_a: Tree<HtmlTypes> =
-            Tree::new(NodeData::new(0.into(), "root", HtmlAttrs::new()));
+            Tree::new(NodeData::element(0.into(), "root", HtmlAttrs::new()));
         let div_a = tree_a.add_child(
             tree_a.root,
-            NodeData::new(1.into(), "div", HtmlAttrs::new().with_id("foo")),
+            NodeData::element(1.into(), "div", HtmlAttrs::new().with_id("foo")),
         );
 
         // Tree B: root -> div (id="bar", class="container")
         // Same structure, different properties
         let mut tree_b: Tree<HtmlTypes> =
-            Tree::new(NodeData::new(0.into(), "root", HtmlAttrs::new()));
+            Tree::new(NodeData::element(0.into(), "root", HtmlAttrs::new()));
         let div_b = tree_b.add_child(
             tree_b.root,
-            NodeData::new(
+            NodeData::element(
                 2.into(), // Different hash (properties differ)
                 "div",
                 HtmlAttrs::new().with_id("bar").with_class("container"),
@@ -798,18 +840,18 @@ mod tests {
 
         // Tree A: root -> div (id=None, class=None)
         let mut tree_a: Tree<HtmlTypes> =
-            Tree::new(NodeData::new(0.into(), "root", HtmlAttrs::new()));
+            Tree::new(NodeData::element(0.into(), "root", HtmlAttrs::new()));
         let _div_a = tree_a.add_child(
             tree_a.root,
-            NodeData::new(1.into(), "div", HtmlAttrs::new()), // Both None
+            NodeData::element(1.into(), "div", HtmlAttrs::new()), // Both None
         );
 
         // Tree B: root -> div (id="myid", class=None)
         let mut tree_b: Tree<HtmlTypes> =
-            Tree::new(NodeData::new(0.into(), "root", HtmlAttrs::new()));
+            Tree::new(NodeData::element(0.into(), "root", HtmlAttrs::new()));
         let _div_b = tree_b.add_child(
             tree_b.root,
-            NodeData::new(2.into(), "div", HtmlAttrs::new().with_id("myid")),
+            NodeData::element(2.into(), "div", HtmlAttrs::new().with_id("myid")),
         );
 
         let matching = compute_matching(&tree_a, &tree_b, &MatchingConfig::default());

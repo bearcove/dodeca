@@ -198,7 +198,7 @@ pub enum InsertContent {
 /// The vec position determines the final ordering.
 #[derive(Debug, Clone, PartialEq, Eq, facet::Facet)]
 pub struct PropChange {
-    /// The property key (Text or Attr(QualName))
+    /// The property key (attribute name)
     pub name: PropKey,
     /// The value: None means "keep existing value", Some means "update to this value".
     /// Properties not in the list are implicitly removed.
@@ -296,15 +296,13 @@ impl std::fmt::Display for HtmlNodeKind {
     }
 }
 
-/// HTML element properties (attributes + text content).
+/// HTML element properties (attributes only).
+/// Text content is stored separately in NodeData::text.
 #[derive(Debug, Clone, Default)]
 pub struct HtmlProps {
     /// Attributes - Vec preserves insertion order for consistent serialization
     /// Keys are QualName (preserves namespace for xlink:href, xml:lang, etc.)
     pub attrs: Vec<(QualName, Stem)>,
-
-    /// Text content (atomic Tendril is refcounted + Sync - cheap to clone)
-    pub text: Option<Stem>,
 }
 
 impl Properties for HtmlProps {
@@ -313,12 +311,7 @@ impl Properties for HtmlProps {
 
     #[allow(clippy::mutable_key_type)]
     fn similarity(&self, other: &Self) -> f64 {
-        // Text nodes: compare text content
-        if let (Some(t1), Some(t2)) = (&self.text, &other.text) {
-            return if t1 == t2 { 1.0 } else { 0.0 };
-        }
-
-        // Element nodes: compare attributes using Dice coefficient
+        // Compare attributes using Dice coefficient
         if self.attrs.is_empty() && other.attrs.is_empty() {
             return 1.0;
         }
@@ -339,18 +332,6 @@ impl Properties for HtmlProps {
     fn diff(&self, other: &Self) -> Vec<PropertyInFinalState<Self::Key, Self::Value>> {
         let mut result = Vec::new();
 
-        // Diff text content - always include if present in final state
-        if let Some(text) = &other.text {
-            result.push(PropertyInFinalState {
-                key: PropKey::Text,
-                value: if self.text.as_ref() == Some(text) {
-                    PropValue::Same
-                } else {
-                    PropValue::Different(text.clone())
-                },
-            });
-        }
-
         // Include all attributes from the final state in order
         for (key, new_val) in &other.attrs {
             let old_val = self.attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v);
@@ -368,7 +349,7 @@ impl Properties for HtmlProps {
     }
 
     fn is_empty(&self) -> bool {
-        self.attrs.is_empty() && self.text.is_none()
+        self.attrs.is_empty()
     }
 
     fn len(&self) -> usize {
@@ -382,6 +363,7 @@ pub struct HtmlTreeTypes;
 impl TreeTypes for HtmlTreeTypes {
     type Kind = HtmlNodeKind;
     type Props = HtmlProps;
+    type Text = Stem;
 }
 
 /// Pre-computed diff data for a node.
@@ -389,6 +371,8 @@ struct DiffNodeData {
     hash: NodeHash,
     kind: HtmlNodeKind,
     props: HtmlProps,
+    /// Text content for text/comment nodes
+    text: Option<Stem>,
     height: usize,
     /// Cached position among siblings (0-indexed), computed on-demand
     position: Cell<Option<u32>>,
@@ -415,10 +399,10 @@ impl<'a> DiffableDocument<'a> {
         // Pre-allocate based on arena size (upper bound for descendants)
         let mut nodes = HashMap::with_capacity(doc.arena.count());
 
-        // First pass: compute kind, props for all nodes
+        // First pass: compute kind, props, and text for all nodes
         for node_id in body_id.descendants(&doc.arena) {
             let node = doc.get(node_id);
-            let (kind, props) = match &node.kind {
+            let (kind, props, text) = match &node.kind {
                 NodeKind::Element(elem) => {
                     let kind = HtmlNodeKind::Element(elem.tag.clone(), node.ns);
                     let props = HtmlProps {
@@ -427,25 +411,18 @@ impl<'a> DiffableDocument<'a> {
                             .iter()
                             .map(|(k, v)| (k.clone(), v.clone()))
                             .collect(),
-                        text: None,
                     };
-                    (kind, props)
+                    (kind, props, None)
                 }
                 NodeKind::Text(text) => {
                     let kind = HtmlNodeKind::Text;
-                    let props = HtmlProps {
-                        attrs: Vec::new(),
-                        text: Some(text.clone()),
-                    };
-                    (kind, props)
+                    let props = HtmlProps { attrs: Vec::new() };
+                    (kind, props, Some(text.clone()))
                 }
                 NodeKind::Comment(text) => {
                     let kind = HtmlNodeKind::Comment;
-                    let props = HtmlProps {
-                        attrs: Vec::new(),
-                        text: Some(text.clone()),
-                    };
-                    (kind, props)
+                    let props = HtmlProps { attrs: Vec::new() };
+                    (kind, props, Some(text.clone()))
                 }
                 NodeKind::Document => continue, // Skip document nodes
             };
@@ -456,6 +433,7 @@ impl<'a> DiffableDocument<'a> {
                     hash: NodeHash(0), // Will be computed in second pass
                     kind,
                     props,
+                    text,
                     height: 0,                 // Will be computed in second pass
                     position: Cell::new(None), // Computed on-demand
                 },
@@ -536,6 +514,10 @@ impl DiffTree for DiffableDocument<'_> {
             .get(&id)
             .map(|d| &d.props)
             .expect("node must exist")
+    }
+
+    fn text(&self, id: NodeId) -> Option<&Stem> {
+        self.nodes.get(&id).and_then(|d| d.text.as_ref())
     }
 
     fn parent(&self, id: NodeId) -> Option<NodeId> {
@@ -638,10 +620,8 @@ pub fn build_tree_from_arena(doc: &Document) -> Tree<HtmlTreeTypes> {
     let root_data = NodeData {
         hash: NodeHash(0),
         kind: HtmlNodeKind::Element(body_tag, body_ns),
-        properties: HtmlProps {
-            attrs: Vec::new(),
-            text: None,
-        },
+        properties: HtmlProps { attrs: Vec::new() },
+        text: None,
     };
 
     let mut tree = Tree::new(root_data);
@@ -675,39 +655,35 @@ fn add_arena_children(
                         .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect(),
-                    text: None,
                 };
                 let data = NodeData {
                     hash: NodeHash(0),
                     kind,
                     properties: props,
+                    text: None,
                 };
                 let node_id = tree.add_child(parent, data);
                 add_arena_children(tree, node_id, doc, child_id);
             }
             NodeKind::Text(text) => {
                 let kind = HtmlNodeKind::Text;
-                let props = HtmlProps {
-                    attrs: Vec::new(),
-                    text: Some(text.clone()),
-                };
+                let props = HtmlProps { attrs: Vec::new() };
                 let data = NodeData {
                     hash: NodeHash(0),
                     kind,
                     properties: props,
+                    text: Some(text.clone()),
                 };
                 tree.add_child(parent, data);
             }
             NodeKind::Comment(text) => {
                 let kind = HtmlNodeKind::Comment;
-                let props = HtmlProps {
-                    attrs: Vec::new(),
-                    text: Some(text.clone()),
-                };
+                let props = HtmlProps { attrs: Vec::new() };
                 let data = NodeData {
                     hash: NodeHash(0),
                     kind,
                     properties: props,
+                    text: Some(text.clone()),
                 };
                 tree.add_child(parent, data);
             }
@@ -840,6 +816,7 @@ impl ShadowTree {
             hash: NodeHash(0),
             kind: HtmlNodeKind::Comment, // Just a marker, not used
             properties: HtmlProps::default(),
+            text: None,
         });
 
         // Create slot 0 and reparent the original tree under it
@@ -847,6 +824,7 @@ impl ShadowTree {
             hash: NodeHash(0),
             kind: HtmlNodeKind::Comment, // Slot marker
             properties: HtmlProps::default(),
+            text: None,
         });
         super_root.append(slot0, &mut arena);
 
@@ -938,6 +916,7 @@ impl ShadowTree {
             hash: NodeHash(0),
             kind: HtmlNodeKind::Comment, // Slot marker
             properties: HtmlProps::default(),
+            text: None,
         });
         self.super_root.append(slot_node, &mut self.arena);
 
@@ -963,6 +942,7 @@ impl ShadowTree {
             hash: NodeHash(0),
             kind: HtmlNodeKind::Text,
             properties: HtmlProps::default(),
+            text: None,
         });
         node.insert_before(placeholder, &mut self.arena);
         node.detach(&mut self.arena);
@@ -987,11 +967,11 @@ impl ShadowTree {
         let _kind_str = match &data.kind {
             HtmlNodeKind::Element(tag, _ns) => format!("<{}>", tag),
             HtmlNodeKind::Text => {
-                let text = data.properties.text.as_deref().unwrap_or("");
+                let text = data.text.as_deref().unwrap_or("");
                 format!("#text({:?})", text.chars().take(20).collect::<String>())
             }
             HtmlNodeKind::Comment => {
-                let text = data.properties.text.as_deref().unwrap_or("");
+                let text = data.text.as_deref().unwrap_or("");
                 format!("#comment({:?})", text.chars().take(20).collect::<String>())
             }
         };
@@ -1023,10 +1003,8 @@ impl ShadowTree {
                 let placeholder = self.arena.new_node(NodeData {
                     hash: NodeHash(0),
                     kind: HtmlNodeKind::Text,
-                    properties: HtmlProps {
-                        text: Some(Stem::new()),
-                        attrs: Vec::new(),
-                    },
+                    properties: HtmlProps { attrs: Vec::new() },
+                    text: Some(Stem::new()),
                 });
                 parent.append(placeholder, &mut self.arena);
             }
@@ -1101,10 +1079,8 @@ impl ShadowTree {
                 let placeholder = self.arena.new_node(NodeData {
                     hash: NodeHash(0),
                     kind: HtmlNodeKind::Text,
-                    properties: HtmlProps {
-                        text: Some(Stem::new()),
-                        attrs: Vec::new(),
-                    },
+                    properties: HtmlProps { attrs: Vec::new() },
+                    text: Some(Stem::new()),
                 });
                 new_parent.append(placeholder, &mut self.arena);
             }
@@ -1221,6 +1197,7 @@ fn convert_ops_with_shadow<T: DiffTree<Types = HtmlTreeTypes>>(
                     hash: NodeHash(0),
                     kind: kind.clone(),
                     properties: tree_b.properties(node_b).clone(),
+                    text: tree_b.text(node_b).cloned(),
                 };
                 let new_node = shadow.arena.new_node(new_data);
 
@@ -1250,7 +1227,7 @@ fn convert_ops_with_shadow<T: DiffTree<Types = HtmlTreeTypes>>(
                         });
                     }
                     HtmlNodeKind::Text => {
-                        let text = tree_b.properties(node_b).text.clone().unwrap_or_default();
+                        let text = tree_b.text(node_b).cloned().unwrap_or_default();
                         result.push(Patch::InsertText {
                             at,
                             text,
@@ -1258,7 +1235,7 @@ fn convert_ops_with_shadow<T: DiffTree<Types = HtmlTreeTypes>>(
                         });
                     }
                     HtmlNodeKind::Comment => {
-                        let text = tree_b.properties(node_b).text.clone().unwrap_or_default();
+                        let text = tree_b.text(node_b).cloned().unwrap_or_default();
                         result.push(Patch::InsertComment {
                             at,
                             text,
@@ -1368,6 +1345,21 @@ fn convert_ops_with_shadow<T: DiffTree<Types = HtmlTreeTypes>>(
                 #[cfg(test)]
                 shadow.debug_print_tree("After Move");
             }
+
+            EditOp::SetText {
+                node_a,
+                node_b: _,
+                text,
+            } => {
+                // Path to the text/comment node
+                let path = shadow.compute_path(node_a);
+
+                result.push(Patch::SetText {
+                    path: NodePath(path),
+                    text,
+                });
+                // No structural change for SetText
+            }
         }
     }
 
@@ -1402,7 +1394,6 @@ fn extract_content_from_tree_b<T: DiffTree<Types = HtmlTreeTypes>>(
         }
 
         let child_kind = tree_b.kind(child_id);
-        let child_props = tree_b.properties(child_id);
         match child_kind {
             HtmlNodeKind::Element(tag, _ns) => {
                 let (child_attrs, child_children) = extract_content_from_tree_b(
@@ -1418,11 +1409,11 @@ fn extract_content_from_tree_b<T: DiffTree<Types = HtmlTreeTypes>>(
                 });
             }
             HtmlNodeKind::Text => {
-                let text = child_props.text.clone().unwrap_or_default();
+                let text = tree_b.text(child_id).cloned().unwrap_or_default();
                 children.push(InsertContent::Text(text));
             }
             HtmlNodeKind::Comment => {
-                let text = child_props.text.clone().unwrap_or_default();
+                let text = tree_b.text(child_id).cloned().unwrap_or_default();
                 children.push(InsertContent::Comment(text));
             }
         }
@@ -1459,14 +1450,11 @@ mod tests {
         let new = dom::parse(new_html);
         let patches = diff(&old, &new).unwrap();
 
-        // Should have an UpdateProps patch for the text change
-        let has_text_update = patches.iter().any(|p| {
-            matches!(p, Patch::UpdateProps { changes, .. }
-                if changes.iter().any(|c| matches!(c.name, PropKey::Text)))
-        });
+        // Should have a SetText patch for the text change
+        let has_text_update = patches.iter().any(|p| matches!(p, Patch::SetText { .. }));
         assert!(
             has_text_update,
-            "Expected text update patch, got: {:?}",
+            "Expected SetText patch, got: {:?}",
             patches
         );
     }
@@ -1726,17 +1714,15 @@ mod tests {
         let patches = diff(&old_doc, &new_doc).expect("diff failed");
         debug!("Patches: {:#?}", patches);
 
-        // Should have an UpdateProps patch with _text change
+        // Should have a SetText patch for the text change
         assert_eq!(patches.len(), 1);
         match &patches[0] {
-            Patch::UpdateProps { path, changes } => {
+            Patch::SetText { path, text } => {
                 // Path: [slot=0, div=0, text=0] - slot 0, first child of body (div), first child of div (text)
                 assert_eq!(path.0.as_slice(), &[0, 0, 0]);
-                assert_eq!(changes.len(), 1);
-                assert!(matches!(changes[0].name, PropKey::Text));
-                assert_eq!(changes[0].value, Some(Stem::from("New content")));
+                assert_eq!(text, &Stem::from("New content"));
             }
-            _ => panic!("Expected UpdateProps patch, got {:?}", patches[0]),
+            _ => panic!("Expected SetText patch, got {:?}", patches[0]),
         }
     }
 

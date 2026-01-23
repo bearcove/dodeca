@@ -374,10 +374,10 @@ impl Document {
             Patch::SetText { path, text } => {
                 let node_id = self.navigate_slot_path(&path.0, slots)?;
                 let node_data = self.arena[node_id].get_mut();
-                if let NodeKind::Text(t) = &mut node_data.kind {
-                    *t = text;
-                } else {
-                    return Err(DiffError::NotATextNode);
+                match &mut node_data.kind {
+                    NodeKind::Text(t) => *t = text,
+                    NodeKind::Comment(t) => *t = text,
+                    _ => return Err(DiffError::NotATextNode),
                 }
             }
             Patch::SetAttribute { path, name, value } => {
