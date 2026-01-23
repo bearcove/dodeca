@@ -173,6 +173,11 @@ where
         let a_props = tree_a.properties(a_id);
         let b_props = tree_b.properties(b_id);
 
+        // Short-circuit: if both have no properties, nothing to do
+        if a_props.is_empty() && b_props.is_empty() {
+            continue;
+        }
+
         let changes: Vec<_> = a_props.diff(b_props);
         // Generate UpdateProperties only if there's a real change:
         // 1. At least one property value changed (Different), or
@@ -239,7 +244,27 @@ where
         let parent_match = matching.get_b(parent_a);
         let parent_changed = parent_match != Some(parent_b);
 
-        // Check if position among siblings changed
+        // Short-circuit: if parent changed, we'll emit Move anyway - skip position check
+        // We always need pos_b for the Move operation, but only need pos_a if parent unchanged
+        if parent_changed {
+            let pos_b = tree_b.position(b_id);
+            trace!(
+                a = usize::from(a_id),
+                b = usize::from(b_id),
+                parent_changed = true,
+                pos_b,
+                "move phase: parent changed, emitting move"
+            );
+            ops.push(EditOp::Move {
+                node_a: a_id,
+                node_b: b_id,
+                new_parent_b: parent_b,
+                new_position: pos_b,
+            });
+            continue;
+        }
+
+        // Parent unchanged - check if position among siblings changed
         let pos_a = tree_a.position(a_id);
         let pos_b = tree_b.position(b_id);
         let position_changed = pos_a != pos_b;
@@ -250,25 +275,19 @@ where
             parent_a = usize::from(parent_a),
             parent_b = usize::from(parent_b),
             ?parent_match,
-            parent_changed,
             pos_a,
             pos_b,
             position_changed,
-            "move phase: checking node"
+            "move phase: checking position"
         );
 
-        if parent_changed || position_changed {
+        if position_changed {
             ops.push(EditOp::Move {
                 node_a: a_id,
                 node_b: b_id,
                 new_parent_b: parent_b,
                 new_position: pos_b,
             });
-            trace!(
-                a = usize::from(a_id),
-                b = usize::from(b_id),
-                "emitting move operation"
-            );
         }
     }
 
