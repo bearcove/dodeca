@@ -16,7 +16,7 @@ const XLARGE_HTML: &str = include_str!("../tests/fixtures/https_fasterthanli.me.
 #[divan::bench]
 fn parse_small(bencher: Bencher) {
     bencher.bench_local(|| {
-        let doc = hotmeal::arena_dom::parse(black_box(SMALL_HTML));
+        let doc = hotmeal::parse(black_box(SMALL_HTML));
         black_box(doc);
     });
 }
@@ -24,7 +24,7 @@ fn parse_small(bencher: Bencher) {
 #[divan::bench]
 fn parse_medium(bencher: Bencher) {
     bencher.bench_local(|| {
-        let doc = hotmeal::arena_dom::parse(black_box(MEDIUM_HTML));
+        let doc = hotmeal::parse(black_box(MEDIUM_HTML));
         black_box(doc);
     });
 }
@@ -32,7 +32,7 @@ fn parse_medium(bencher: Bencher) {
 #[divan::bench]
 fn parse_large(bencher: Bencher) {
     bencher.bench_local(|| {
-        let doc = hotmeal::arena_dom::parse(black_box(LARGE_HTML));
+        let doc = hotmeal::parse(black_box(LARGE_HTML));
         black_box(doc);
     });
 }
@@ -40,7 +40,7 @@ fn parse_large(bencher: Bencher) {
 #[divan::bench]
 fn parse_xlarge(bencher: Bencher) {
     bencher.bench_local(|| {
-        let doc = hotmeal::arena_dom::parse(black_box(XLARGE_HTML));
+        let doc = hotmeal::parse(black_box(XLARGE_HTML));
         black_box(doc);
     });
 }

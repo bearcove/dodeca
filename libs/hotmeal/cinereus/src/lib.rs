@@ -61,13 +61,13 @@ pub use tree::*;
 /// ```
 /// use cinereus::{Tree, NodeData, diff_trees, MatchingConfig, SimpleTypes};
 ///
-/// type TestTypes = SimpleTypes<&'static str, String>;
+/// type TestTypes = SimpleTypes<&'static str>;
 ///
 /// let mut tree_a: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
-/// tree_a.add_child(tree_a.root, NodeData::simple_leaf_u64(1, "leaf", "hello".to_string()));
+/// tree_a.add_child(tree_a.root, NodeData::simple_u64(1, "leaf"));
 ///
 /// let mut tree_b: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
-/// tree_b.add_child(tree_b.root, NodeData::simple_leaf_u64(2, "leaf", "world".to_string()));
+/// tree_b.add_child(tree_b.root, NodeData::simple_u64(2, "leaf"));
 ///
 /// let ops = diff_trees(&tree_a, &tree_b, &MatchingConfig::default());
 /// // ops contains the edit operations to transform tree_a into tree_b

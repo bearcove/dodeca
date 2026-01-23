@@ -27,13 +27,10 @@ use indextree::{Arena, NodeId};
 pub trait TreeTypes {
     /// The kind/type of nodes (e.g., "div", "span" for HTML).
     /// Used during matching: only nodes of the same kind can match.
-    type Kind: Clone + Eq + Hash + Display + Send + Sync;
-
-    /// The label type for leaf nodes (the actual value).
-    type Label: Clone + Eq + Display + Send + Sync;
+    type Kind: Clone + Eq + Hash + Display;
 
     /// The properties type for key-value pairs attached to nodes.
-    type Props: Properties + Send + Sync;
+    type Props: Properties;
 }
 
 /// A structural hash of a node and all its descendants (Merkle-tree style).
@@ -150,21 +147,19 @@ impl Properties for NoProps {
     }
 }
 
-/// A simple tree types marker for trees with specific K, L, P types.
+/// A simple tree types marker for trees with specific K, P types.
 ///
-/// This allows using `Tree<SimpleTypes<K, L, P>>` which is equivalent to
-/// the old `Tree<K, L, P>` signature.
+/// This allows using `Tree<SimpleTypes<K, P>>` which is equivalent to
+/// the old `Tree<K, P>` signature.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct SimpleTypes<K, L, P = NoProps>(core::marker::PhantomData<(K, L, P)>);
+pub struct SimpleTypes<K, P = NoProps>(core::marker::PhantomData<(K, P)>);
 
-impl<K, L, P> TreeTypes for SimpleTypes<K, L, P>
+impl<K, P> TreeTypes for SimpleTypes<K, P>
 where
     K: Clone + Eq + Hash + Display + Send + Sync,
-    L: Clone + Eq + Display + Send + Sync,
     P: Properties + Send + Sync,
 {
     type Kind = K;
-    type Label = L;
     type Props = P;
 }
 
@@ -173,7 +168,6 @@ where
 /// This is the minimal information needed for the GumTree/Chawathe algorithms:
 /// - A structural hash for fast equality checking
 /// - A "kind" for type-based matching (nodes of different kinds don't match)
-/// - An optional label for leaf nodes (the actual value)
 /// - Properties: key-value pairs that are NOT tree children
 #[derive(Debug)]
 pub struct NodeData<T: TreeTypes> {
@@ -185,11 +179,6 @@ pub struct NodeData<T: TreeTypes> {
     /// Used during matching: only nodes of the same kind can match.
     pub kind: T::Kind,
 
-    /// Optional label for leaf nodes.
-    /// For internal nodes, this might be None or a type name.
-    /// For leaf nodes, this is the actual value (as a string or comparable form).
-    pub label: Option<T::Label>,
-
     /// Properties: key-value pairs attached to this node.
     /// Unlike children, properties are diffed field-by-field when nodes match.
     pub properties: T::Props,
@@ -200,7 +189,6 @@ impl<T: TreeTypes> Clone for NodeData<T> {
         Self {
             hash: self.hash,
             kind: self.kind.clone(),
-            label: self.label.clone(),
             properties: self.properties.clone(),
         }
     }
@@ -212,7 +200,6 @@ impl<T: TreeTypes> NodeData<T> {
         Self {
             hash,
             kind,
-            label: None,
             properties,
         }
     }
@@ -222,44 +209,21 @@ impl<T: TreeTypes> NodeData<T> {
         Self {
             hash: NodeHash(hash),
             kind,
-            label: None,
-            properties,
-        }
-    }
-
-    /// Create a new leaf node with a label.
-    pub fn leaf(hash: NodeHash, kind: T::Kind, label: T::Label, properties: T::Props) -> Self {
-        Self {
-            hash,
-            kind,
-            label: Some(label),
-            properties,
-        }
-    }
-
-    /// Create a new leaf node with a label, hash as u64.
-    pub fn leaf_u64(hash: u64, kind: T::Kind, label: T::Label, properties: T::Props) -> Self {
-        Self {
-            hash: NodeHash(hash),
-            kind,
-            label: Some(label),
             properties,
         }
     }
 }
 
 /// Convenience constructors for trees without properties.
-impl<K, L> NodeData<SimpleTypes<K, L>>
+impl<K> NodeData<SimpleTypes<K>>
 where
     K: Clone + Eq + Hash + Display + Send + Sync,
-    L: Clone + Eq + Display + Send + Sync,
 {
     /// Create a new node with no properties.
     pub fn simple(hash: NodeHash, kind: K) -> Self {
         Self {
             hash,
             kind,
-            label: None,
             properties: NoProps,
         }
     }
@@ -269,27 +233,6 @@ where
         Self {
             hash: NodeHash(hash),
             kind,
-            label: None,
-            properties: NoProps,
-        }
-    }
-
-    /// Create a new leaf node with no properties.
-    pub fn simple_leaf(hash: NodeHash, kind: K, label: L) -> Self {
-        Self {
-            hash,
-            kind,
-            label: Some(label),
-            properties: NoProps,
-        }
-    }
-
-    /// Create a new leaf node with no properties, hash as u64.
-    pub fn simple_leaf_u64(hash: u64, kind: K, label: L) -> Self {
-        Self {
-            hash: NodeHash(hash),
-            kind,
-            label: Some(label),
             properties: NoProps,
         }
     }
@@ -427,20 +370,14 @@ impl<T: TreeTypes> Iterator for PostOrderIter<'_, T> {
 mod tests {
     use super::*;
 
-    type TestTypes = SimpleTypes<&'static str, String>;
+    type TestTypes = SimpleTypes<&'static str>;
 
     #[test]
     fn test_tree_basics() {
         let mut tree: Tree<TestTypes> = Tree::new(NodeData::simple_u64(0, "root"));
 
-        let child1 = tree.add_child(
-            tree.root,
-            NodeData::simple_leaf_u64(1, "leaf", "a".to_string()),
-        );
-        let child2 = tree.add_child(
-            tree.root,
-            NodeData::simple_leaf_u64(2, "leaf", "b".to_string()),
-        );
+        let child1 = tree.add_child(tree.root, NodeData::simple_u64(1, "leaf"));
+        let child2 = tree.add_child(tree.root, NodeData::simple_u64(2, "leaf"));
 
         assert_eq!(tree.child_count(tree.root), 2);
         assert_eq!(tree.position(child1), 0);
@@ -454,18 +391,9 @@ mod tests {
         let mut tree: Tree<TestTypes> = Tree::new(NodeData::simple_u64(0, "root"));
 
         let child1 = tree.add_child(tree.root, NodeData::simple_u64(1, "node"));
-        let _leaf1 = tree.add_child(
-            child1,
-            NodeData::simple_leaf_u64(2, "leaf", "a".to_string()),
-        );
-        let _leaf2 = tree.add_child(
-            child1,
-            NodeData::simple_leaf_u64(3, "leaf", "b".to_string()),
-        );
-        let _child2 = tree.add_child(
-            tree.root,
-            NodeData::simple_leaf_u64(4, "leaf", "c".to_string()),
-        );
+        let _leaf1 = tree.add_child(child1, NodeData::simple_u64(2, "leaf"));
+        let _leaf2 = tree.add_child(child1, NodeData::simple_u64(3, "leaf"));
+        let _child2 = tree.add_child(tree.root, NodeData::simple_u64(4, "leaf"));
 
         let order: Vec<_> = tree.post_order().collect();
         // Post-order: leaves first, then parents

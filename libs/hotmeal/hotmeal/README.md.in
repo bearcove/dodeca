@@ -1,11 +1,11 @@
 # hotmeal
 
-HTML toolkit with typed DOM, html5ever parsing, tree diffing, and serialization.
+HTML toolkit with arena-based DOM, html5ever parsing, tree diffing, and serialization.
 
 ## Features
 
 - **HTML5 Parsing**: Full HTML5 tree construction via html5ever with error recovery
-- **Typed DOM**: Type-safe DOM manipulation with facet integration
+- **Arena-based DOM**: Efficient arena-allocated tree with zero-copy parsing
 - **Tree Diffing**: GumTree/Chawathe algorithm via cinereus for efficient DOM patches
 - **Serialization**: HTML output with proper escaping and formatting
 

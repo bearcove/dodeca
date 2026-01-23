@@ -7,12 +7,9 @@
 use crate::{debug, trace};
 
 use crate::tree::{Properties, Tree, TreeTypes};
+use core::cell::RefCell;
 use indextree::NodeId;
 use rapidhash::{RapidHashMap as HashMap, RapidHashSet as HashSet};
-use rayon::prelude::*;
-
-#[cfg(feature = "matching-stats")]
-use core::cell::RefCell;
 
 #[cfg(feature = "matching-stats")]
 thread_local! {
@@ -274,45 +271,33 @@ fn match_subtrees<T: TreeTypes>(
     }
 }
 
-/// Precomputed descendant sets for all nodes in a tree.
-/// Uses Vec indexed by node arena index for O(1) access with no hashing.
-struct DescendantMap {
-    /// Descendant sets indexed by arena index. None for indices that don't exist.
-    data: Vec<Option<HashSet<NodeId>>>,
+/// Lazily computed descendant sets for nodes in a tree.
+/// Only computes descendants for nodes that are actually queried.
+struct LazyDescendantMap<'a, T: TreeTypes> {
+    tree: &'a Tree<T>,
+    cache: RefCell<HashMap<NodeId, HashSet<NodeId>>>,
 }
 
-impl DescendantMap {
-    #[inline(always)]
-    fn get(&self, node_id: NodeId) -> Option<&HashSet<NodeId>> {
-        let idx = usize::from(node_id);
-        self.data.get(idx).and_then(|opt| opt.as_ref())
-    }
-}
-
-/// Precompute all descendant sets in parallel.
-fn precompute_descendants<T: TreeTypes>(tree: &Tree<T>) -> DescendantMap {
-    let nodes: Vec<NodeId> = tree.iter().collect();
-
-    // Find max index to size the vec
-    let max_idx = nodes.iter().map(|&id| usize::from(id)).max().unwrap_or(0);
-
-    // Compute descendants in parallel
-    let computed: Vec<(usize, HashSet<NodeId>)> = nodes
-        .into_par_iter()
-        .map(|node_id| {
-            let idx = usize::from(node_id);
-            let descendants: HashSet<NodeId> = tree.descendants(node_id).collect();
-            (idx, descendants)
-        })
-        .collect();
-
-    // Build the vec
-    let mut data = vec![None; max_idx + 1];
-    for (idx, descendants) in computed {
-        data[idx] = Some(descendants);
+impl<'a, T: TreeTypes> LazyDescendantMap<'a, T> {
+    fn new(tree: &'a Tree<T>) -> Self {
+        Self {
+            tree,
+            cache: RefCell::new(HashMap::default()),
+        }
     }
 
-    DescendantMap { data }
+    /// Get the descendant set for a node, computing it lazily if needed.
+    fn get_or_compute(
+        &self,
+        node_id: NodeId,
+    ) -> impl core::ops::Deref<Target = HashSet<NodeId>> + '_ {
+        // Check if already computed, if not compute and insert
+        if !self.cache.borrow().contains_key(&node_id) {
+            let descendants: HashSet<NodeId> = self.tree.descendants(node_id).collect();
+            self.cache.borrow_mut().insert(node_id, descendants);
+        }
+        core::cell::Ref::map(self.cache.borrow(), |m| m.get(&node_id).unwrap())
+    }
 }
 
 /// Check if B is a valid match for A based on ancestry constraints.
@@ -393,9 +378,9 @@ fn bottom_up_phase<T: TreeTypes>(
         }
     }
 
-    // Precompute all descendant sets in parallel
-    let desc_a = precompute_descendants(tree_a);
-    let desc_b = precompute_descendants(tree_b);
+    // Lazy descendant maps - only compute descendants for nodes we actually compare
+    let desc_a = LazyDescendantMap::new(tree_a);
+    let desc_b = LazyDescendantMap::new(tree_b);
 
     // PASS 1: Match internal nodes (non-leaves)
     // Use BFS order so parents are matched before children, enabling position-based matching
@@ -635,12 +620,12 @@ fn bottom_up_phase<T: TreeTypes>(
 /// Compute the Dice coefficient between two nodes based on matched descendants.
 ///
 /// dice(A, B) = 2 × |matched_descendants| / (|descendants_A| + |descendants_B|)
-fn dice_coefficient(
+fn dice_coefficient<T: TreeTypes>(
     a_id: NodeId,
     b_id: NodeId,
     matching: &Matching,
-    desc_a_map: &DescendantMap,
-    desc_b_map: &DescendantMap,
+    desc_a_map: &LazyDescendantMap<T>,
+    desc_b_map: &LazyDescendantMap<T>,
 ) -> f64 {
     #[cfg(feature = "matching-stats")]
     {
@@ -653,9 +638,8 @@ fn dice_coefficient(
         });
     }
 
-    let empty = HashSet::default();
-    let desc_a = desc_a_map.get(a_id).unwrap_or(&empty);
-    let desc_b = desc_b_map.get(b_id).unwrap_or(&empty);
+    let desc_a = desc_a_map.get_or_compute(a_id);
+    let desc_b = desc_b_map.get_or_compute(b_id);
 
     let common = desc_a
         .iter()
@@ -679,29 +663,17 @@ mod tests {
     use super::*;
     use crate::tree::{NodeData, SimpleTypes};
 
-    type TestTypes = SimpleTypes<&'static str, String>;
+    type TestTypes = SimpleTypes<&'static str>;
 
     #[test]
     fn test_identical_trees() {
         let mut tree_a: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
-        tree_a.add_child(
-            tree_a.root,
-            NodeData::simple_leaf_u64(1, "leaf", "a".to_string()),
-        );
-        tree_a.add_child(
-            tree_a.root,
-            NodeData::simple_leaf_u64(2, "leaf", "b".to_string()),
-        );
+        tree_a.add_child(tree_a.root, NodeData::simple_u64(1, "leaf"));
+        tree_a.add_child(tree_a.root, NodeData::simple_u64(2, "leaf"));
 
         let mut tree_b: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
-        tree_b.add_child(
-            tree_b.root,
-            NodeData::simple_leaf_u64(1, "leaf", "a".to_string()),
-        );
-        tree_b.add_child(
-            tree_b.root,
-            NodeData::simple_leaf_u64(2, "leaf", "b".to_string()),
-        );
+        tree_b.add_child(tree_b.root, NodeData::simple_u64(1, "leaf"));
+        tree_b.add_child(tree_b.root, NodeData::simple_u64(2, "leaf"));
 
         let matching = compute_matching(&tree_a, &tree_b, &MatchingConfig::default());
 
@@ -713,24 +685,12 @@ mod tests {
     fn test_partial_match() {
         // Trees with same structure but one leaf differs
         let mut tree_a: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
-        let child1_a = tree_a.add_child(
-            tree_a.root,
-            NodeData::simple_leaf_u64(1, "leaf", "same".to_string()),
-        );
-        let _child2_a = tree_a.add_child(
-            tree_a.root,
-            NodeData::simple_leaf_u64(2, "leaf", "diff_a".to_string()),
-        );
+        let child1_a = tree_a.add_child(tree_a.root, NodeData::simple_u64(1, "leaf"));
+        let _child2_a = tree_a.add_child(tree_a.root, NodeData::simple_u64(2, "leaf"));
 
         let mut tree_b: Tree<TestTypes> = Tree::new(NodeData::simple_u64(100, "root"));
-        let child1_b = tree_b.add_child(
-            tree_b.root,
-            NodeData::simple_leaf_u64(1, "leaf", "same".to_string()),
-        );
-        let _child2_b = tree_b.add_child(
-            tree_b.root,
-            NodeData::simple_leaf_u64(3, "leaf", "diff_b".to_string()),
-        );
+        let child1_b = tree_b.add_child(tree_b.root, NodeData::simple_u64(1, "leaf"));
+        let _child2_b = tree_b.add_child(tree_b.root, NodeData::simple_u64(3, "leaf"));
 
         let matching = compute_matching(&tree_a, &tree_b, &MatchingConfig::default());
 

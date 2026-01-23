@@ -15,7 +15,7 @@ const XLARGE_HTML: &str = include_str!("../tests/fixtures/https_fasterthanli.me.
 
 #[divan::bench]
 fn serialize_small(bencher: Bencher) {
-    let doc = hotmeal::arena_dom::parse(SMALL_HTML);
+    let doc = hotmeal::parse(SMALL_HTML);
     bencher.bench_local(|| {
         let html = black_box(&doc).to_html();
         black_box(html);
@@ -24,7 +24,7 @@ fn serialize_small(bencher: Bencher) {
 
 #[divan::bench]
 fn serialize_medium(bencher: Bencher) {
-    let doc = hotmeal::arena_dom::parse(MEDIUM_HTML);
+    let doc = hotmeal::parse(MEDIUM_HTML);
     bencher.bench_local(|| {
         let html = black_box(&doc).to_html();
         black_box(html);
@@ -33,7 +33,7 @@ fn serialize_medium(bencher: Bencher) {
 
 #[divan::bench]
 fn serialize_large(bencher: Bencher) {
-    let doc = hotmeal::arena_dom::parse(LARGE_HTML);
+    let doc = hotmeal::parse(LARGE_HTML);
     bencher.bench_local(|| {
         let html = black_box(&doc).to_html();
         black_box(html);
@@ -42,7 +42,7 @@ fn serialize_large(bencher: Bencher) {
 
 #[divan::bench]
 fn serialize_xlarge(bencher: Bencher) {
-    let doc = hotmeal::arena_dom::parse(XLARGE_HTML);
+    let doc = hotmeal::parse(XLARGE_HTML);
     bencher.bench_local(|| {
         let html = black_box(&doc).to_html();
         black_box(html);

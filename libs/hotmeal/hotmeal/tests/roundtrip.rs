@@ -9,7 +9,8 @@
 //!
 //! The test verifies: apply(old, diff(old, new)) == new
 
-use hotmeal::diff::{apply_patches, diff_html, parse_html};
+use hotmeal::diff;
+use hotmeal::parse;
 use std::path::Path;
 
 fn run_roundtrip_test(path: &Path) -> datatest_stable::Result<()> {
@@ -29,18 +30,21 @@ fn run_roundtrip_test(path: &Path) -> datatest_stable::Result<()> {
     let old = parts[0].trim();
     let new = parts[1].trim();
 
-    let patches = diff_html(old, new).map_err(|e| format!("diff failed: {e}"))?;
+    let old_doc = parse(old);
+    let new_doc = parse(new);
 
-    let mut tree = parse_html(old).map_err(|e| format!("parse old failed: {e}"))?;
-    apply_patches(&mut tree, &patches).map_err(|e| format!("apply failed: {e}"))?;
+    let patches = diff(&old_doc, &new_doc).map_err(|e| format!("diff failed: {e:?}"))?;
+
+    let mut tree = parse(old);
+    tree.apply_patches(patches)
+        .map_err(|e| format!("apply failed: {e:?}"))?;
     let result = tree.to_html();
 
-    let expected_tree = parse_html(new).map_err(|e| format!("parse new failed: {e}"))?;
-    let expected = expected_tree.to_html();
+    let expected = new_doc.to_html();
 
     if result != expected {
         return Err(format!(
-            "Roundtrip failed!\nOld: {old}\nNew: {new}\nPatches: {patches:?}\nResult: {result}\nExpected: {expected}"
+            "Roundtrip failed!\nOld: {old}\nNew: {new}\nResult: {result}\nExpected: {expected}"
         )
         .into());
     }

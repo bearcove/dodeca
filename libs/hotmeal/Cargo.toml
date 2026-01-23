@@ -12,13 +12,14 @@ resolver = "3"
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.89"
+rust-version = "1.90"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/bearcove/hotmeal"
 
 [workspace.dependencies]
 # Facet dependencies
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
+facet-error = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-testhelpers = { git = "https://github.com/facet-rs/facet", branch = "main" }
 
@@ -30,8 +31,8 @@ hotmeal = { path = "hotmeal", version = "0.1.0" }
 indextree = "4.7"
 
 # HTML parsing
-html5ever = "0.29"
-tendril = "0.4"
+html5ever = "0.38"
+tendril = "0.5"
 
 # Other
 tracing = { version = "0.1", default-features = false, features = ["std"] }
@@ -42,3 +43,6 @@ datatest-stable = "0.3"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(facet_no_doc)"] }
+
+[workspace.metadata.cargo-shear]
+ignored = ["facet-error"]

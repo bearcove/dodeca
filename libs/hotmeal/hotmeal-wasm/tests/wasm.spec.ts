@@ -213,10 +213,8 @@ test.describe("hotmeal fuzzing", () => {
   });
 
   // Run fuzzing with different seeds for reproducibility
-  // Note: Complex mutations may expose edge cases in the diff algorithm
-  // For now, we use simpler mutations (text changes only) that are well-supported
-  const NUM_SEEDS = 5;
-  const MUTATIONS_PER_TEST = 2;
+  const NUM_SEEDS = 50;
+  const MUTATIONS_PER_TEST = 10;
 
   for (let seed = 0; seed < NUM_SEEDS; seed++) {
     test(`fuzz seed ${seed}`, async ({ page }) => {
@@ -264,20 +262,23 @@ test.describe("hotmeal fuzzing", () => {
 
             let mutationsApplied = 0;
             let attempts = 0;
-            while (mutationsApplied < mutations && attempts < mutations * 3) {
+            while (mutationsApplied < mutations && attempts < mutations * 10) {
               attempts++;
 
               const allElements = Array.from(newContainer.querySelectorAll("*"));
               if (allElements.length === 0) break;
 
-              // Use only text changes - attribute mutations can hit edge cases
-              // in the diff algorithm where paths don't align with DOM structure
               const mutationType = rng.pick([
                 "change_text",
-                "change_text", // weighted toward text changes
+                "add_attribute",
+                "remove_attribute",
+                "change_attribute",
+                "insert_element",
+                "remove_element",
+                "move_element",
+                "insert_text_node",
               ]);
 
-              const targetEl = rng.pick(allElements);
               let success = false;
 
               try {
@@ -287,7 +288,6 @@ test.describe("hotmeal fuzzing", () => {
                     const walker = document.createTreeWalker(newContainer, NodeFilter.SHOW_TEXT);
                     let node;
                     while ((node = walker.nextNode())) {
-                      // Only modify non-whitespace text nodes
                       if ((node as Text).textContent?.trim()) {
                         textNodes.push(node as Text);
                       }
@@ -299,9 +299,113 @@ test.describe("hotmeal fuzzing", () => {
                     }
                     break;
                   }
+
+                  case "add_attribute": {
+                    if (allElements.length > 0) {
+                      const targetEl = rng.pick(allElements);
+                      const attrName = rng.pick(["class", "id", "data-test", "title"]);
+                      const attrValue = rng.pick(classes);
+                      targetEl.setAttribute(attrName, attrValue);
+                      success = true;
+                    }
+                    break;
+                  }
+
+                  case "remove_attribute": {
+                    const elemsWithAttrs = allElements.filter((el) => el.attributes.length > 0);
+                    if (elemsWithAttrs.length > 0) {
+                      const targetEl = rng.pick(elemsWithAttrs);
+                      const attrs = Array.from(targetEl.attributes);
+                      if (attrs.length > 0) {
+                        const attr = rng.pick(attrs);
+                        targetEl.removeAttribute(attr.name);
+                        success = true;
+                      }
+                    }
+                    break;
+                  }
+
+                  case "change_attribute": {
+                    const elemsWithAttrs = allElements.filter((el) => el.attributes.length > 0);
+                    if (elemsWithAttrs.length > 0) {
+                      const targetEl = rng.pick(elemsWithAttrs);
+                      const attrs = Array.from(targetEl.attributes);
+                      if (attrs.length > 0) {
+                        const attr = rng.pick(attrs);
+                        const newValue = rng.pick(classes);
+                        targetEl.setAttribute(attr.name, newValue);
+                        success = true;
+                      }
+                    }
+                    break;
+                  }
+
+                  case "insert_element": {
+                    if (allElements.length > 0) {
+                      const parent = rng.pick(allElements);
+                      const newEl = document.createElement(rng.pick(elements));
+                      newEl.textContent = rng.pick(words);
+
+                      if (parent.children.length > 0 && rng.next() > 0.5) {
+                        const beforeEl = rng.pick(Array.from(parent.children));
+                        parent.insertBefore(newEl, beforeEl);
+                      } else {
+                        parent.appendChild(newEl);
+                      }
+                      success = true;
+                    }
+                    break;
+                  }
+
+                  case "remove_element": {
+                    if (allElements.length > 1) {
+                      const targetEl = rng.pick(allElements);
+                      if (targetEl.parentElement) {
+                        targetEl.parentElement.removeChild(targetEl);
+                        success = true;
+                      }
+                    }
+                    break;
+                  }
+
+                  case "move_element": {
+                    if (allElements.length > 2) {
+                      const elemToMove = rng.pick(allElements);
+                      const newParent = rng.pick(
+                        allElements.filter((el) => el !== elemToMove && !elemToMove.contains(el))
+                      );
+
+                      if (newParent && elemToMove.parentElement) {
+                        if (newParent.children.length > 0 && rng.next() > 0.5) {
+                          const beforeEl = rng.pick(Array.from(newParent.children));
+                          newParent.insertBefore(elemToMove, beforeEl);
+                        } else {
+                          newParent.appendChild(elemToMove);
+                        }
+                        success = true;
+                      }
+                    }
+                    break;
+                  }
+
+                  case "insert_text_node": {
+                    if (allElements.length > 0) {
+                      const parent = rng.pick(allElements);
+                      const textNode = document.createTextNode(rng.pick(words));
+
+                      if (parent.childNodes.length > 0 && rng.next() > 0.5) {
+                        const beforeNode = rng.pick(Array.from(parent.childNodes));
+                        parent.insertBefore(textNode, beforeNode);
+                      } else {
+                        parent.appendChild(textNode);
+                      }
+                      success = true;
+                    }
+                    break;
+                  }
                 }
               } catch {
-                // Mutation failed
+                // Mutation failed - continue
               }
 
               if (success) mutationsApplied++;

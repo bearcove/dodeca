@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "HTML toolkit with typed DOM, html5ever parsing, and serialization"
+description = "HTML toolkit with arena-based DOM, html5ever parsing, and serialization"
 keywords = ["html", "dom", "html5ever", "parsing", "facet"]
 categories = ["encoding", "parsing", "web-programming"]
 
@@ -15,7 +15,8 @@ categories = ["encoding", "parsing", "web-programming"]
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-facet = { workspace = true, features = ["indexmap"] }
+facet = { workspace = true, features = ["indexmap", "tendril"] }
+facet-error = { workspace = true }
 
 # Tree diffing - GumTree/Chawathe algorithm
 cinereus = { workspace = true }
@@ -36,6 +37,7 @@ tracing = ["dep:tracing"]
 cinereus = { workspace = true, features = ["tracing"] }
 tracing = { version = "0.1" }
 facet-testhelpers = { workspace = true }
+facet-json = { workspace = true }
 datatest-stable = { workspace = true }
 divan = "0.1"
 

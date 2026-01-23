@@ -23,10 +23,10 @@ fn modify_html(html: &str) -> String {
 fn hot_reload_small(bencher: Bencher) {
     let modified = modify_html(SMALL_HTML);
     bencher.bench_local(|| {
-        let mut old = hotmeal::arena_dom::parse(black_box(SMALL_HTML));
-        let new = hotmeal::arena_dom::parse(black_box(&modified));
-        let patches = hotmeal::diff::diff(&old, &new).unwrap();
-        old.apply_patches(&patches).unwrap();
+        let mut old = hotmeal::parse(black_box(SMALL_HTML));
+        let new = hotmeal::parse(black_box(&modified));
+        let patches = hotmeal::diff(&old, &new).unwrap();
+        old.apply_patches(patches).unwrap();
         black_box(old);
     });
 }
@@ -35,10 +35,10 @@ fn hot_reload_small(bencher: Bencher) {
 fn hot_reload_medium(bencher: Bencher) {
     let modified = modify_html(MEDIUM_HTML);
     bencher.bench_local(|| {
-        let mut old = hotmeal::arena_dom::parse(black_box(MEDIUM_HTML));
-        let new = hotmeal::arena_dom::parse(black_box(&modified));
-        let patches = hotmeal::diff::diff(&old, &new).unwrap();
-        old.apply_patches(&patches).unwrap();
+        let mut old = hotmeal::parse(black_box(MEDIUM_HTML));
+        let new = hotmeal::parse(black_box(&modified));
+        let patches = hotmeal::diff(&old, &new).unwrap();
+        old.apply_patches(patches).unwrap();
         black_box(old);
     });
 }
@@ -47,10 +47,10 @@ fn hot_reload_medium(bencher: Bencher) {
 fn hot_reload_large(bencher: Bencher) {
     let modified = modify_html(LARGE_HTML);
     bencher.bench_local(|| {
-        let mut old = hotmeal::arena_dom::parse(black_box(LARGE_HTML));
-        let new = hotmeal::arena_dom::parse(black_box(&modified));
-        let patches = hotmeal::diff::diff(&old, &new).unwrap();
-        old.apply_patches(&patches).unwrap();
+        let mut old = hotmeal::parse(black_box(LARGE_HTML));
+        let new = hotmeal::parse(black_box(&modified));
+        let patches = hotmeal::diff(&old, &new).unwrap();
+        old.apply_patches(patches).unwrap();
         black_box(old);
     });
 }
@@ -59,10 +59,10 @@ fn hot_reload_large(bencher: Bencher) {
 fn hot_reload_xlarge(bencher: Bencher) {
     let modified = modify_html(XLARGE_HTML);
     bencher.bench_local(|| {
-        let mut old = hotmeal::arena_dom::parse(black_box(XLARGE_HTML));
-        let new = hotmeal::arena_dom::parse(black_box(&modified));
-        let patches = hotmeal::diff::diff(&old, &new).unwrap();
-        old.apply_patches(&patches).unwrap();
+        let mut old = hotmeal::parse(black_box(XLARGE_HTML));
+        let new = hotmeal::parse(black_box(&modified));
+        let patches = hotmeal::diff(&old, &new).unwrap();
+        old.apply_patches(patches).unwrap();
         black_box(old);
     });
 }
