@@ -17,6 +17,5 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 dodeca-protocol = { path = "../dodeca-protocol" }
-facet-html-diff-wasm.workspace = true
 
 [dev-dependencies]

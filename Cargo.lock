@@ -75,21 +75,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "alloc-no-stdlib"
-version = "2.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc7bb162ec39d46ab1ca8c77bf72e890535becd1751bb45f64c597edb4c8c6b3"
-
-[[package]]
-name = "alloc-stdlib"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94fb8275041c72129eb51b7d0322c29b8387a0386127718b096429201a5d6ece"
-dependencies = [
- "alloc-no-stdlib",
-]
-
-[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -159,15 +144,6 @@ name = "anyhow"
 version = "1.0.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
-
-[[package]]
-name = "approx"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cab112f0a86d568ea0e627cc1d6be74a1e9cd55214684db5561995f6dad897c6"
-dependencies = [
- "num-traits",
-]
 
 [[package]]
 name = "arbitrary"
@@ -1186,7 +1162,7 @@ dependencies = [
  "bitflags 2.10.0",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "regex",
@@ -1282,27 +1258,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "brotli"
-version = "7.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc97b8f16f944bba54f0433f07e30be199b6dc2bd25937444bbad560bcea29bd"
-dependencies = [
- "alloc-no-stdlib",
- "alloc-stdlib",
- "brotli-decompressor",
-]
-
-[[package]]
-name = "brotli-decompressor"
-version = "4.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a334ef7c9e23abf0ce748e8cd309037da93e606ad52eb372e4ce327a0dcfbdfd"
-dependencies = [
- "alloc-no-stdlib",
- "alloc-stdlib",
-]
-
-[[package]]
 name = "bstr"
 version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1326,12 +1281,6 @@ checksum = "46c5e41b57b8bba42a04676d81cb89e9ee8e859a1a66f80a5a72e1cb76b34d43"
 dependencies = [
  "allocator-api2",
 ]
-
-[[package]]
-name = "by_address"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64fa3c856b712db6612c019f14756e64e4bcea13337a6b33b696333a9eaa2d06"
 
 [[package]]
 name = "bytecheck"
@@ -1419,9 +1368,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.53"
+version = "1.2.54"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "755d2fce177175ffca841e9a06afdb2c4ab0f593d53b4dee48147dfaade85932"
+checksum = "6354c81bbfd62d9cfa9cb3c773c2b7b2a3a482d569de977fd0e961f6e7c00583"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1445,7 +1394,7 @@ dependencies = [
 name = "cell-code-execution-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "facet-default",
  "facet-yaml",
  "roam",
@@ -1464,7 +1413,7 @@ dependencies = [
 name = "cell-css-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1482,7 +1431,7 @@ dependencies = [
 name = "cell-dialoguer-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1500,7 +1449,7 @@ dependencies = [
 name = "cell-fonts-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1522,7 +1471,7 @@ dependencies = [
 name = "cell-gingembre-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "facet-value",
  "roam",
 ]
@@ -1548,9 +1497,6 @@ dependencies = [
  "color-eyre",
  "dodeca-cell-runtime",
  "dodeca-protocol",
- "facet-html",
- "facet-html-diff",
- "facet-html-dom",
  "html-escape",
  "tracing",
 ]
@@ -1562,7 +1508,6 @@ dependencies = [
  "cell-html-diff-proto",
  "dodeca-cell-runtime",
  "dodeca-protocol",
- "facet-html-diff",
  "tracing",
 ]
 
@@ -1571,7 +1516,7 @@ name = "cell-html-diff-proto"
 version = "0.6.1"
 dependencies = [
  "dodeca-protocol",
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1580,7 +1525,7 @@ name = "cell-html-proto"
 version = "0.6.1"
 dependencies = [
  "dodeca-protocol",
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1611,7 +1556,7 @@ name = "cell-http-proto"
 version = "0.6.1"
 dependencies = [
  "dodeca-protocol",
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1630,7 +1575,7 @@ dependencies = [
 name = "cell-image-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1647,7 +1592,7 @@ dependencies = [
 name = "cell-js-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1664,7 +1609,7 @@ dependencies = [
 name = "cell-jxl-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1672,7 +1617,7 @@ dependencies = [
 name = "cell-lifecycle-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1692,7 +1637,7 @@ dependencies = [
 name = "cell-linkcheck-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1709,7 +1654,7 @@ dependencies = [
 name = "cell-markdown-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "facet-postcard",
  "facet-value",
  "roam",
@@ -1727,7 +1672,7 @@ dependencies = [
 name = "cell-minify-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1744,7 +1689,7 @@ dependencies = [
 name = "cell-sass-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1761,7 +1706,7 @@ dependencies = [
 name = "cell-svgo-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1783,7 +1728,7 @@ dependencies = [
 name = "cell-term-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1805,7 +1750,7 @@ dependencies = [
 name = "cell-tui-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1822,7 +1767,7 @@ dependencies = [
 name = "cell-webp-proto"
 version = "0.6.1"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
 ]
 
@@ -1862,19 +1807,6 @@ dependencies = [
  "iana-time-zone",
  "num-traits",
  "windows-link",
-]
-
-[[package]]
-name = "cinereus"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
-dependencies = [
- "facet",
- "facet-core",
- "facet-pretty",
- "indextree",
- "rapidhash 1.4.0",
- "rayon",
 ]
 
 [[package]]
@@ -2051,16 +1983,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
 dependencies = [
  "crossbeam-utils",
-]
-
-[[package]]
-name = "confusables"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "31e757874ffcf3b96a4868220ed03f8c2fc82b25b89e3f19592ae3275f056987"
-dependencies = [
- "phf 0.11.3",
- "phf_codegen",
 ]
 
 [[package]]
@@ -2599,7 +2521,7 @@ dependencies = [
  "dodeca-debug",
  "dodeca-protocol",
  "eyre",
- "facet",
+ "facet 0.43.1",
  "facet-args",
  "facet-json",
  "facet-postcard",
@@ -2617,7 +2539,7 @@ dependencies = [
  "open",
  "owo-colors",
  "picante",
- "rapidhash 4.2.1",
+ "rapidhash",
  "regex",
  "roam",
  "roam-fdpass",
@@ -2654,7 +2576,7 @@ name = "dodeca-config"
 version = "0.6.1"
 dependencies = [
  "cell-code-execution-proto",
- "facet",
+ "facet 0.43.1",
  "facet-styx",
 ]
 
@@ -2689,8 +2611,7 @@ dependencies = [
 name = "dodeca-protocol"
 version = "0.6.1"
 dependencies = [
- "facet",
- "facet-html-diff",
+ "facet 0.43.1",
  "facet-postcard",
  "roam",
 ]
@@ -2897,21 +2818,32 @@ dependencies = [
 [[package]]
 name = "facet"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac3244604535a5d0a7c79403f3c6a6184b49be89be99f33c4e8177aebca0167b"
 dependencies = [
  "autocfg",
- "facet-core",
- "facet-macros",
+ "facet-core 0.42.0",
+ "facet-macros 0.42.0",
+]
+
+[[package]]
+name = "facet"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
+dependencies = [
+ "autocfg",
+ "facet-core 0.43.1",
+ "facet-macros 0.43.1",
  "facet-reflect",
 ]
 
 [[package]]
 name = "facet-args"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
- "facet",
- "facet-core",
+ "facet 0.43.1",
+ "facet-core 0.43.1",
  "facet-reflect",
  "heck",
  "owo-colors",
@@ -2920,11 +2852,11 @@ dependencies = [
 
 [[package]]
 name = "facet-cargo-toml"
-version = "0.1.0"
-source = "git+https://github.com/bearcove/facet-cargo-toml?branch=main#0a119ae462ee949507aa734fec694344c5c05394"
+version = "0.43.0"
+source = "git+https://github.com/bearcove/facet-cargo-toml?branch=main#8e4b1ee2a5f3edf28f24cf692739e7fe9b0a17fa"
 dependencies = [
  "camino",
- "facet",
+ "facet 0.43.1",
  "facet-error",
  "facet-format",
  "facet-reflect",
@@ -2935,10 +2867,20 @@ dependencies = [
 [[package]]
 name = "facet-core"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6337f704e6988f9cfee38f5b2c9001e84c498eb70cb420f6dc0e14ca7c1f85eb"
 dependencies = [
  "autocfg",
  "bytes",
+ "impls",
+]
+
+[[package]]
+name = "facet-core"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
+dependencies = [
+ "autocfg",
  "camino",
  "const-fnv1a-hash",
  "iddqd",
@@ -2948,59 +2890,27 @@ dependencies = [
 
 [[package]]
 name = "facet-default"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
- "facet",
+ "facet 0.43.1",
 ]
 
 [[package]]
 name = "facet-dessert"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
- "facet-core",
+ "facet-core 0.43.1",
  "facet-reflect",
-]
-
-[[package]]
-name = "facet-diff"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
-dependencies = [
- "cinereus",
- "facet",
- "facet-core",
- "facet-diff-core",
- "facet-pretty",
- "facet-reflect",
- "log",
- "owo-colors",
-]
-
-[[package]]
-name = "facet-diff-core"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
-dependencies = [
- "confusables",
- "facet",
- "facet-core",
- "facet-pretty",
- "facet-reflect",
- "indextree",
- "owo-colors",
- "palette",
- "tracing",
- "unicode-width",
 ]
 
 [[package]]
 name = "facet-dom"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet-xml?branch=main#498dfb75a2b950e1cf3b3ed8a9732e57b756f562"
 dependencies = [
- "facet-core",
+ "facet-core 0.43.1",
  "facet-dessert",
  "facet-reflect",
  "facet-singularize",
@@ -3010,18 +2920,18 @@ dependencies = [
 
 [[package]]
 name = "facet-error"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
- "facet",
+ "facet 0.43.1",
 ]
 
 [[package]]
 name = "facet-format"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
- "facet-core",
+ "facet-core 0.43.1",
  "facet-dessert",
  "facet-path",
  "facet-reflect",
@@ -3029,58 +2939,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "facet-html"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
-dependencies = [
- "facet",
- "facet-core",
- "facet-dom",
- "facet-reflect",
- "html5gum",
-]
-
-[[package]]
-name = "facet-html-diff"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
-dependencies = [
- "facet",
- "facet-core",
- "facet-diff",
- "facet-dom",
- "facet-html",
- "facet-html-dom",
- "facet-reflect",
-]
-
-[[package]]
-name = "facet-html-diff-wasm"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
-dependencies = [
- "facet-html-diff",
- "facet-json",
- "wasm-bindgen",
- "web-sys",
-]
-
-[[package]]
-name = "facet-html-dom"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
-dependencies = [
- "facet",
- "facet-html",
-]
-
-[[package]]
 name = "facet-json"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
- "facet",
- "facet-core",
+ "facet 0.43.1",
+ "facet-core 0.43.1",
  "facet-format",
  "facet-reflect",
  "memchr",
@@ -3089,9 +2953,20 @@ dependencies = [
 [[package]]
 name = "facet-macro-parse"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65b6c80c8dd3925eb08d246ffa6c7c9ccb2f1bc2a9dbe0cccea6c33a0f62cf66"
 dependencies = [
- "facet-macro-types",
+ "facet-macro-types 0.42.0",
+ "proc-macro2",
+ "quote",
+]
+
+[[package]]
+name = "facet-macro-parse"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
+dependencies = [
+ "facet-macro-types 0.43.1",
  "proc-macro2",
  "quote",
 ]
@@ -3099,7 +2974,18 @@ dependencies = [
 [[package]]
 name = "facet-macro-types"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15c6cacc78f28f5508765bc9625859ca34551bb62e3b9f9e172d325b13490b77"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unsynn",
+]
+
+[[package]]
+name = "facet-macro-types"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3109,18 +2995,41 @@ dependencies = [
 [[package]]
 name = "facet-macros"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26a4aed1abc3de7cccbf7a162ae64b4aa3d3d1f0a5136c140f83c87b934a9775"
 dependencies = [
- "facet-macros-impl",
+ "facet-macros-impl 0.42.0",
+]
+
+[[package]]
+name = "facet-macros"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
+dependencies = [
+ "facet-macros-impl 0.43.1",
 ]
 
 [[package]]
 name = "facet-macros-impl"
 version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5e1e176fdc8615d7a023e1b1c4c05db5cb1dc5764add5ca1a5efc8f8b2ccb1d"
 dependencies = [
- "facet-macro-parse",
- "facet-macro-types",
+ "facet-macro-parse 0.42.0",
+ "facet-macro-types 0.42.0",
+ "proc-macro2",
+ "quote",
+ "strsim",
+ "unsynn",
+]
+
+[[package]]
+name = "facet-macros-impl"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
+dependencies = [
+ "facet-macro-parse 0.43.1",
+ "facet-macro-types 0.43.1",
  "proc-macro2",
  "quote",
  "strsim",
@@ -3129,19 +3038,19 @@ dependencies = [
 
 [[package]]
 name = "facet-path"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
- "facet-core",
+ "facet-core 0.43.1",
 ]
 
 [[package]]
 name = "facet-postcard"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
  "camino",
- "facet-core",
+ "facet-core 0.43.1",
  "facet-format",
  "facet-path",
  "facet-reflect",
@@ -3151,44 +3060,44 @@ dependencies = [
 
 [[package]]
 name = "facet-pretty"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
- "facet-core",
+ "facet-core 0.43.1",
  "facet-reflect",
  "owo-colors",
 ]
 
 [[package]]
 name = "facet-reflect"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
- "facet-core",
+ "facet-core 0.43.1",
 ]
 
 [[package]]
 name = "facet-singularize"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet-xml?branch=main#498dfb75a2b950e1cf3b3ed8a9732e57b756f562"
 
 [[package]]
 name = "facet-solver"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
- "facet-core",
+ "facet-core 0.43.1",
  "facet-reflect",
 ]
 
 [[package]]
 name = "facet-styx"
-version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#69696ca3d3bb24af1d367cee7a8a97aa9a7df7f0"
+version = "1.0.1"
+source = "git+https://github.com/bearcove/styx?branch=main#529b1b6e336ccb57f1d59cb13122053f4e0c3d27"
 dependencies = [
  "ariadne",
- "facet",
- "facet-core",
+ "facet 0.43.1",
+ "facet-core 0.43.1",
  "facet-format",
  "facet-reflect",
  "serde_json",
@@ -3199,19 +3108,19 @@ dependencies = [
 
 [[package]]
 name = "facet-svg"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet-xml?branch=main#498dfb75a2b950e1cf3b3ed8a9732e57b756f562"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "facet-xml",
 ]
 
 [[package]]
 name = "facet-toml"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
- "facet-core",
+ "facet-core 0.43.1",
  "facet-format",
  "facet-reflect",
  "toml_parser",
@@ -3219,10 +3128,10 @@ dependencies = [
 
 [[package]]
 name = "facet-value"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#7745369d9b936b4591d789a64fa18404d430ebb8"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
- "facet-core",
+ "facet-core 0.43.1",
  "facet-format",
  "facet-reflect",
  "indexmap",
@@ -3230,11 +3139,11 @@ dependencies = [
 
 [[package]]
 name = "facet-xml"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet-xml?branch=main#498dfb75a2b950e1cf3b3ed8a9732e57b756f562"
 dependencies = [
- "facet",
- "facet-core",
+ "facet 0.43.1",
+ "facet-core 0.43.1",
  "facet-dom",
  "facet-reflect",
  "quick-xml 0.39.0",
@@ -3242,11 +3151,11 @@ dependencies = [
 
 [[package]]
 name = "facet-yaml"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
+version = "0.43.1"
+source = "git+https://github.com/facet-rs/facet?branch=main#f4163a844e47ec1eef20f65033c87f376b8594ec"
 dependencies = [
- "facet",
- "facet-core",
+ "facet 0.43.1",
+ "facet-core 0.43.1",
  "facet-format",
  "facet-reflect",
  "log",
@@ -3262,12 +3171,6 @@ dependencies = [
  "bit-set",
  "regex",
 ]
-
-[[package]]
-name = "fast-srgb8"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd2e7510819d6fbf51a5545c8f922716ecfb14df168a3242f7d33e0239efe6a1"
 
 [[package]]
 name = "fastrand"
@@ -3363,15 +3266,14 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "fontcull"
-version = "2.0.0"
+version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da02690abe372eb1bc94a21392d58cc25e759a8b3196b50795e6298d70e8e82c"
+checksum = "7a45c509e7858288938a51b22fa51c9f812144d53cd4adb9ff1a3f419052948e"
 dependencies = [
  "fontcull-klippa",
  "fontcull-read-fonts",
  "fontcull-skrifa",
  "fontcull-write-fonts",
- "woofwoof",
 ]
 
 [[package]]
@@ -3902,15 +3804,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "html5gum"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12d29324a6ba370667998f63c6dd2b2511e2297f07e827f69026684907adc3b5"
-dependencies = [
- "jetscii",
-]
-
-[[package]]
 name = "http"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4300,30 +4193,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "indextree"
-version = "4.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb9e21e48c85fa6643a38caca564645a3bbc9211edf506fc8ed690c7e7b4d3c7"
-dependencies = [
- "indextree-macros",
-]
-
-[[package]]
-name = "indextree-macros"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f85dac6c239acc85fd61934c572292d93adfd2de459d9c032aa22b553506e915"
-dependencies = [
- "either",
- "itertools 0.14.0",
- "proc-macro2",
- "quote",
- "strum",
- "syn 2.0.114",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "indoc"
 version = "2.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4369,8 +4238,6 @@ dependencies = [
 name = "integration-tests"
 version = "0.6.1"
 dependencies = [
- "facet-html",
- "facet-html-dom",
  "facet-json",
  "facet-value",
  "fs-err",
@@ -4476,6 +4343,15 @@ dependencies = [
 
 [[package]]
 name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
+name = "itertools"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
@@ -4488,12 +4364,6 @@ name = "itoa"
 version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
-
-[[package]]
-name = "jetscii"
-version = "0.5.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47f142fe24a9c9944451e8349de0a56af5f3e7226dc46f3ed4d4ecc0b85af75e"
 
 [[package]]
 name = "jni"
@@ -4764,7 +4634,6 @@ name = "livereload-client"
 version = "0.6.1"
 dependencies = [
  "dodeca-protocol",
- "facet-html-diff-wasm",
 ]
 
 [[package]]
@@ -4841,11 +4710,11 @@ dependencies = [
 [[package]]
 name = "marq"
 version = "0.1.0"
-source = "git+https://github.com/bearcove/marq#85f3d40270b23e65faaaa3854f4754a978245c88"
+source = "git+https://github.com/bearcove/marq#71440adbb6024f5ec44f87a0450d5639727978e3"
 dependencies = [
  "aasvg",
  "arborium",
- "facet",
+ "facet 0.43.1",
  "facet-toml",
  "facet-value",
  "facet-yaml",
@@ -5718,29 +5587,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "palette"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cbf71184cc5ecc2e4e1baccdb21026c20e5fc3dcf63028a086131b3ab00b6e6"
-dependencies = [
- "approx",
- "fast-srgb8",
- "palette_derive",
-]
-
-[[package]]
-name = "palette_derive"
-version = "0.7.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5030daf005bface118c096f510ffb781fc28f9ab6a32ab224d8631be6851d30"
-dependencies = [
- "by_address",
- "proc-macro2",
- "quote",
- "syn 2.0.114",
-]
-
-[[package]]
 name = "parcel_selectors"
 version = "0.28.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5976,8 +5822,8 @@ version = "0.1.0"
 source = "git+https://github.com/bearcove/picante?branch=main#0a99f42b67e9229c333b97144d553d046c3d9c30"
 dependencies = [
  "dashmap 6.1.0",
- "facet",
- "facet-core",
+ "facet 0.43.1",
+ "facet-core 0.43.1",
  "facet-postcard",
  "facet-reflect",
  "futures-util",
@@ -6002,7 +5848,7 @@ dependencies = [
 [[package]]
 name = "pikru"
 version = "1.0.1"
-source = "git+https://github.com/bearcove/pikru?branch=main#9f029596cebd745f3d319ff16387be0d7c2af570"
+source = "git+https://github.com/bearcove/pikru?branch=main#dd41a7a4c16afea18eb97cbfc04a0f214f725a69"
 dependencies = [
  "ariadne",
  "enum_dispatch",
@@ -6122,9 +5968,9 @@ checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.105"
+version = "1.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "535d180e0ecab6268a3e718bb9fd44db66bbbc256257165fc699dadf70d16fe7"
+checksum = "8fd00f0bb2e90d81d1044c2b32617f68fcb9fa3bb7640c23e9c748e53fb30934"
 dependencies = [
  "unicode-ident",
 ]
@@ -6311,9 +6157,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.43"
+version = "1.0.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc74d9a594b72ae6656596548f56f667211f8a97b3d4c3d467150794690dc40a"
+checksum = "21b2ebcf727b7760c461f091f9f0f539b77b8e87f2fd88131e7f1b433b3cece4"
 dependencies = [
  "proc-macro2",
 ]
@@ -6397,12 +6243,6 @@ checksum = "6f97cdb2a36ed4183de61b2f824cc45c9f1037f28afe0a322e9fff4c108b5aaa"
 dependencies = [
  "rand_core 0.6.4",
 ]
-
-[[package]]
-name = "rapidhash"
-version = "1.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9813f789f95ee4fe6b4d01834404d7cccacbc3f6c029343af910b3c2835eb9f1"
 
 [[package]]
 name = "rapidhash"
@@ -6707,8 +6547,9 @@ dependencies = [
 [[package]]
 name = "roam"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "facet-postcard",
  "facet-pretty",
  "roam-hash",
@@ -6722,6 +6563,7 @@ dependencies = [
 [[package]]
 name = "roam-fdpass"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
  "libc",
  "passfd",
@@ -6732,18 +6574,20 @@ dependencies = [
 [[package]]
 name = "roam-frame"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
  "bytes",
- "facet",
+ "facet 0.43.1",
  "static_assertions",
 ]
 
 [[package]]
 name = "roam-hash"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
  "blake3",
- "facet-core",
+ "facet-core 0.43.1",
  "heck",
  "roam-schema",
 ]
@@ -6751,6 +6595,7 @@ dependencies = [
 [[package]]
 name = "roam-local"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
  "tokio",
  "tracing",
@@ -6759,6 +6604,7 @@ dependencies = [
 [[package]]
 name = "roam-macros-parse"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
  "proc-macro2",
  "unsynn",
@@ -6767,14 +6613,17 @@ dependencies = [
 [[package]]
 name = "roam-schema"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
- "facet",
- "facet-core",
+ "facet 0.43.1",
+ "facet-core 0.43.1",
+ "roam-session",
 ]
 
 [[package]]
 name = "roam-service-macros"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
  "facet-cargo-toml",
  "heck",
@@ -6786,9 +6635,10 @@ dependencies = [
 [[package]]
 name = "roam-session"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
  "async-channel",
- "facet",
+ "facet 0.43.1",
  "facet-postcard",
  "facet-pretty",
  "futures-channel",
@@ -6805,8 +6655,9 @@ dependencies = [
 [[package]]
 name = "roam-shm"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "facet-postcard",
  "futures-util",
  "libc",
@@ -6824,10 +6675,11 @@ dependencies = [
 [[package]]
 name = "roam-stream"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
  "cobs 0.5.0",
  "ctor",
- "facet",
+ "facet 0.43.1",
  "facet-postcard",
  "futures-util",
  "roam-session",
@@ -6838,6 +6690,7 @@ dependencies = [
 [[package]]
 name = "roam-task-local"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
  "pin-project-lite",
 ]
@@ -6845,8 +6698,9 @@ dependencies = [
 [[package]]
 name = "roam-tracing"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
- "facet",
+ "facet 0.43.1",
  "roam",
  "roam-session",
  "tokio",
@@ -6858,6 +6712,7 @@ dependencies = [
 [[package]]
 name = "roam-websocket"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
  "facet-postcard",
  "futures-channel",
@@ -6875,9 +6730,10 @@ dependencies = [
 [[package]]
 name = "roam-wire"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
  "cobs 0.5.0",
- "facet",
+ "facet 0.43.1",
  "facet-postcard",
 ]
 
@@ -7323,6 +7179,7 @@ checksum = "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"
 [[package]]
 name = "shm-primitives"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
  "libc",
  "loom",
@@ -7437,9 +7294,9 @@ checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
 
 [[package]]
 name = "socket2"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17129e116933cf371d018bb80ae557e889637989d8638274fb25622827b03881"
+checksum = "86f4aa3ad99f2088c990dfa82d367e19cb29268ed67c574d10d0a4bfe71f07e0"
 dependencies = [
  "libc",
  "windows-sys 0.60.2",
@@ -7484,7 +7341,7 @@ version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c386220dd8ebedd91df33ac0874450036ecda423a95681b7a2d1b2fe8e0aaca"
 dependencies = [
- "facet",
+ "facet 0.42.0",
  "strid-macros",
 ]
 
@@ -7539,8 +7396,8 @@ dependencies = [
 
 [[package]]
 name = "styx-cst"
-version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#69696ca3d3bb24af1d367cee7a8a97aa9a7df7f0"
+version = "1.0.1"
+source = "git+https://github.com/bearcove/styx?branch=main#529b1b6e336ccb57f1d59cb13122053f4e0c3d27"
 dependencies = [
  "rowan",
  "styx-parse",
@@ -7548,8 +7405,8 @@ dependencies = [
 
 [[package]]
 name = "styx-embed"
-version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#69696ca3d3bb24af1d367cee7a8a97aa9a7df7f0"
+version = "1.0.1"
+source = "git+https://github.com/bearcove/styx?branch=main#529b1b6e336ccb57f1d59cb13122053f4e0c3d27"
 dependencies = [
  "blake3",
  "goblin",
@@ -7560,8 +7417,8 @@ dependencies = [
 
 [[package]]
 name = "styx-embed-macros"
-version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#69696ca3d3bb24af1d367cee7a8a97aa9a7df7f0"
+version = "1.0.1"
+source = "git+https://github.com/bearcove/styx?branch=main#529b1b6e336ccb57f1d59cb13122053f4e0c3d27"
 dependencies = [
  "blake3",
  "lz4_flex",
@@ -7572,8 +7429,8 @@ dependencies = [
 
 [[package]]
 name = "styx-format"
-version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#69696ca3d3bb24af1d367cee7a8a97aa9a7df7f0"
+version = "1.0.1"
+source = "git+https://github.com/bearcove/styx?branch=main#529b1b6e336ccb57f1d59cb13122053f4e0c3d27"
 dependencies = [
  "rowan",
  "styx-cst",
@@ -7583,13 +7440,13 @@ dependencies = [
 
 [[package]]
 name = "styx-parse"
-version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#69696ca3d3bb24af1d367cee7a8a97aa9a7df7f0"
+version = "1.0.1"
+source = "git+https://github.com/bearcove/styx?branch=main#529b1b6e336ccb57f1d59cb13122053f4e0c3d27"
 
 [[package]]
 name = "styx-tree"
-version = "0.1.0"
-source = "git+https://github.com/bearcove/styx?branch=main#69696ca3d3bb24af1d367cee7a8a97aa9a7df7f0"
+version = "1.0.1"
+source = "git+https://github.com/bearcove/styx?branch=main#529b1b6e336ccb57f1d59cb13122053f4e0c3d27"
 dependencies = [
  "ariadne",
  "styx-parse",
@@ -8375,6 +8232,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 [[package]]
 name = "ur-taking-me-with-you"
 version = "0.6.0"
+source = "git+https://github.com/bearcove/roam?branch=main#e6e8c58fb2c9ed83e0d72b6f2e49bafb20bd08a9"
 dependencies = [
  "libc",
  "tokio",
@@ -9071,16 +8929,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
 
 [[package]]
-name = "woofwoof"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b724d1c19ed8a369027b646cedc4542cb9f6237190d400f75106c06627507a0"
-dependencies = [
- "brotli",
- "cc",
-]
-
-[[package]]
 name = "writeable"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9118,7 +8966,7 @@ version = "0.6.1"
 dependencies = [
  "camino",
  "eyre",
- "facet",
+ "facet 0.43.1",
  "facet-args",
  "facet-yaml",
  "fs-err",
@@ -9286,88 +9134,3 @@ checksum = "2959ca473aae96a14ecedf501d20b3608d2825ba280d5adb57d651721885b0c2"
 dependencies = [
  "zune-core 0.5.1",
 ]
-
-[[patch.unused]]
-name = "facet-testhelpers"
-version = "0.42.0"
-source = "git+https://github.com/facet-rs/facet?branch=main#0b559790e1932aed7fcf75bc9c60f161c8b0a0c0"
-
-[[patch.unused]]
-name = "roam"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "roam-fdpass"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "roam-frame"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "roam-hash"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "roam-local"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "roam-schema"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "roam-service-macros"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "roam-session"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "roam-shm"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "roam-stream"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "roam-task-local"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "roam-tracing"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "roam-websocket"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "roam-wire"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "shm-primitives"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"
-
-[[patch.unused]]
-name = "ur-taking-me-with-you"
-version = "0.6.0"
-source = "git+https://github.com/bearcove/roam?branch=main#d053af845a238f3ab3cbe1e7690301919700801e"

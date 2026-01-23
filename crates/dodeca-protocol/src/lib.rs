@@ -23,9 +23,6 @@ pub use ansi::ansi_to_html;
 // Re-export for consumers
 pub use facet_postcard;
 
-// Re-export HTML diff types from facet-html-diff
-pub use facet_html_diff::{NodePath, Patch};
-
 // ============================================================================
 // RPC Service Definition
 // ============================================================================
