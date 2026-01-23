@@ -1910,6 +1910,208 @@ mod tests {
         );
     }
 
+    // =========================================================================
+    // HTML5 Spec: Foster Parenting Tests
+    // https://html.spec.whatwg.org/multipage/parsing.html#foster-parent
+    //
+    // When content appears in invalid positions inside tables (e.g., text or
+    // inline elements directly inside <table>, <tbody>, <tr>, etc.), the HTML5
+    // spec requires "foster parenting" - moving that content before the table.
+    // =========================================================================
+
+    /// Basic foster parenting: element inside table
+    #[test]
+    fn test_foster_parent_element_in_table() {
+        use crate::dom;
+
+        // Invalid HTML: <span> directly inside <table> triggers foster parenting
+        let html = "<table><span>hello</span><tr><td>cell</td></tr></table>";
+        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let result = doc.to_html();
+
+        // The span should be foster-parented BEFORE the table
+        assert!(
+            result.contains("<span>hello</span><table>"),
+            "Span should appear before table, got: {}",
+            result
+        );
+    }
+
+    /// Foster parenting: text node inside table
+    #[test]
+    fn test_foster_parent_text_in_table() {
+        use crate::dom;
+
+        // Text directly in table gets foster parented
+        let html = "<table>orphan text<tr><td>cell</td></tr></table>";
+        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let result = doc.to_html();
+
+        // The text should appear before the table
+        assert!(
+            result.contains("orphan text<table>"),
+            "Text should be foster-parented before table, got: {}",
+            result
+        );
+    }
+
+    /// Foster parenting: multiple items
+    #[test]
+    fn test_foster_parent_multiple_items() {
+        use crate::dom;
+
+        // Multiple items that need foster parenting
+        let html = "<table><b>bold</b><i>italic</i><tr><td>cell</td></tr></table>";
+        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let result = doc.to_html();
+
+        // Both elements should be before the table, in order
+        assert!(
+            result.contains("<b>bold</b><i>italic</i><table>"),
+            "Both elements should be foster-parented before table, got: {}",
+            result
+        );
+    }
+
+    /// HTML5 spec example: `<table><b><tr><td>aaa</td></tr>bbb</table>ccc`
+    /// From: https://html.spec.whatwg.org/multipage/parsing.html#foster-parent
+    #[test]
+    fn test_foster_parent_spec_example() {
+        use crate::dom;
+
+        // This is the exact example from the HTML5 spec
+        let html = "<table><b><tr><td>aaa</td></tr>bbb</table>ccc";
+        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let result = doc.to_html();
+
+        // Per the spec, this should produce:
+        // <b></b><b>bbb</b><table><tbody><tr><td>aaa</td></tr></tbody></table><b>ccc</b>
+        //
+        // The <b> is opened before table (foster parented), empty because it's
+        // immediately followed by <tr>. The "bbb" text after </tr> is also foster
+        // parented (with the <b> formatting inherited). The "ccc" after </table>
+        // keeps the <b> formatting.
+
+        // Check key structural elements
+        assert!(
+            result.contains("<tbody><tr><td>aaa</td></tr></tbody>"),
+            "Table content should be properly structured, got: {}",
+            result
+        );
+        assert!(
+            result.contains("bbb"),
+            "Foster parented text 'bbb' should exist, got: {}",
+            result
+        );
+        assert!(
+            result.contains("ccc"),
+            "Text 'ccc' after table should exist, got: {}",
+            result
+        );
+    }
+
+    /// Foster parenting with nested tables
+    #[test]
+    fn test_foster_parent_nested_tables() {
+        use crate::dom;
+
+        // Inner table content should only affect the innermost table
+        let html =
+            "<table><tr><td><table><span>inner</span><tr><td>x</td></tr></table></td></tr></table>";
+        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let result = doc.to_html();
+
+        // The span should be foster parented before the inner table, not the outer
+        assert!(
+            result.contains("<span>inner</span><table>"),
+            "Span should be foster-parented before inner table, got: {}",
+            result
+        );
+        // The outer table structure should remain intact
+        assert!(
+            result.contains("<table><tbody><tr><td>"),
+            "Outer table structure should be preserved, got: {}",
+            result
+        );
+    }
+
+    /// Foster parenting: content in tbody
+    #[test]
+    fn test_foster_parent_content_in_tbody() {
+        use crate::dom;
+
+        // Content directly in tbody (outside tr) also triggers foster parenting
+        let html = "<table><tbody><span>orphan</span><tr><td>cell</td></tr></tbody></table>";
+        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let result = doc.to_html();
+
+        // The span should be foster parented before the table
+        assert!(
+            result.contains("<span>orphan</span><table>"),
+            "Span in tbody should be foster-parented before table, got: {}",
+            result
+        );
+    }
+
+    /// Foster parenting: content in tr (outside td)
+    #[test]
+    fn test_foster_parent_content_in_tr() {
+        use crate::dom;
+
+        // Content directly in tr (outside td/th) triggers foster parenting
+        let html = "<table><tr><span>orphan</span><td>cell</td></tr></table>";
+        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let result = doc.to_html();
+
+        // The span should be foster parented before the table
+        assert!(
+            result.contains("<span>orphan</span><table>"),
+            "Span in tr should be foster-parented before table, got: {}",
+            result
+        );
+    }
+
+    /// Foster parenting preserves element order
+    #[test]
+    fn test_foster_parent_preserves_order() {
+        use crate::dom;
+
+        let html = "<table><a>1</a><b>2</b><c>3</c><tr><td>x</td></tr></table>";
+        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let result = doc.to_html();
+
+        // Elements should appear in the same order they were in the source
+        let a_pos = result.find("<a>1</a>").expect("should find a");
+        let b_pos = result.find("<b>2</b>").expect("should find b");
+        let c_pos = result.find("<c>3</c>").expect("should find c");
+        let table_pos = result.find("<table>").expect("should find table");
+
+        assert!(
+            a_pos < b_pos && b_pos < c_pos && c_pos < table_pos,
+            "Elements should be in order before table, got: {}",
+            result
+        );
+    }
+
+    /// Foster parenting: whitespace handling
+    #[test]
+    fn test_foster_parent_whitespace() {
+        use crate::dom;
+
+        // Whitespace-only text nodes in certain positions are handled specially
+        // but significant text gets foster parented
+        let html = "<table>  significant  <tr><td>cell</td></tr></table>";
+        let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
+        let result = doc.to_html();
+
+        // The text should be before the table
+        assert!(
+            result.contains("significant") && result.find("significant") < result.find("<table>"),
+            "Significant text should be foster-parented before table, got: {}",
+            result
+        );
+    }
+
     /// Regression test for patch JSON roundtrip with Unicode.
     /// Fixed in https://github.com/facet-rs/facet/pull/1892
     #[test]

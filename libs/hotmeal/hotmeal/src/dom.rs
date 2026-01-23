@@ -966,11 +966,21 @@ impl TreeSink for ArenaSink {
     fn append_based_on_parent_node(
         &self,
         element: &Self::Handle,
-        _prev_element: &Self::Handle,
+        prev_element: &Self::Handle,
         child: NodeOrText<Self::Handle>,
     ) {
-        // Just append to element
-        self.append(element, child);
+        // Foster parenting: if the element (table) has a parent, insert before it.
+        // Otherwise, append to the previous element in the stack.
+        let has_parent = {
+            let arena = self.arena.borrow();
+            arena[*element].parent().is_some()
+        };
+
+        if has_parent {
+            self.append_before_sibling(element, child);
+        } else {
+            self.append(prev_element, child);
+        }
     }
 
     fn append_doctype_to_document(
