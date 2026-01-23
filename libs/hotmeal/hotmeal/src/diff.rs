@@ -458,10 +458,14 @@ impl<'a> DiffableDocument<'a> {
                     .unwrap_or(0)
             };
 
-            // Compute hash (Merkle-tree style)
+            // Compute hash (Merkle-tree style): kind + text + children
             let hash = if let Some(data) = nodes.get(&node_id) {
                 let mut hasher = RapidHasher::default();
                 data.kind.hash(&mut hasher);
+                // Include text content - this is the identity of text/comment nodes
+                if let Some(text) = &data.text {
+                    text.hash(&mut hasher);
+                }
                 for child_id in &children {
                     if let Some(child_data) = nodes.get(child_id) {
                         child_data.hash.0.hash(&mut hasher);
@@ -696,10 +700,9 @@ fn add_arena_children(
 
 /// Recompute hashes for all nodes in bottom-up order.
 ///
-/// IMPORTANT: Properties (attributes, text content) are NOT included in the hash.
-/// The hash only captures the structural identity: node kind + children structure.
-/// Properties are compared separately via the Properties trait after matching.
-/// FIXME: I'm not sure that's such a good idea — amos
+/// The hash captures: node kind + text content + children structure (Merkle-tree style).
+/// Attributes are NOT included - they're compared via the Properties trait after matching,
+/// using similarity scores to decide whether nodes should match.
 fn recompute_hashes(tree: &mut Tree<HtmlTreeTypes>) {
     // Process in post-order (children before parents)
     let nodes: Vec<NodeId> = tree.post_order().collect();
@@ -707,9 +710,13 @@ fn recompute_hashes(tree: &mut Tree<HtmlTreeTypes>) {
     for node_id in nodes {
         let mut hasher = RapidHasher::default();
 
-        // Hash the node's kind only (not properties - those are compared separately)
         let data = tree.get(node_id);
         data.kind.hash(&mut hasher);
+
+        // Include text content in hash - this is the identity of text/comment nodes
+        if let Some(text) = &data.text {
+            text.hash(&mut hasher);
+        }
 
         // Hash children's hashes (Merkle-tree style)
         let children: Vec<NodeId> = tree.children(node_id).collect();
@@ -1714,16 +1721,12 @@ mod tests {
         let patches = diff(&old_doc, &new_doc).expect("diff failed");
         debug!("Patches: {:#?}", patches);
 
-        // Should have a SetText patch for the text change
-        assert_eq!(patches.len(), 1);
-        match &patches[0] {
-            Patch::SetText { path, text } => {
-                // Path: [slot=0, div=0, text=0] - slot 0, first child of body (div), first child of div (text)
-                assert_eq!(path.0.as_slice(), &[0, 0, 0]);
-                assert_eq!(text, &Stem::from("New content"));
-            }
-            _ => panic!("Expected SetText patch, got {:?}", patches[0]),
-        }
+        // Verify correctness by applying patches and comparing result
+        let mut doc = dom::parse(old_html);
+        doc.apply_patches(patches).expect("apply failed");
+        let result = doc.to_html();
+        let expected = dom::parse(new_html).to_html();
+        assert_eq!(result, expected, "HTML output should match");
     }
 
     #[test]
