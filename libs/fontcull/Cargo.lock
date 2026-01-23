@@ -947,7 +947,7 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "fontcull"
-version = "2.0.0"
+version = "2.0.1"
 dependencies = [
  "fontcull-klippa",
  "fontcull-read-fonts",
@@ -959,7 +959,7 @@ dependencies = [
 
 [[package]]
 name = "fontcull-cli"
-version = "1.0.5"
+version = "1.0.6"
 dependencies = [
  "chromiumoxide",
  "clap 4.5.53",

@@ -1,6 +1,6 @@
 [package]
 name = "fontcull-cli"
-version = "1.0.5"
+version = "1.0.6"
 edition = "2024"
 authors = ["Amos Wenger <amos@bearcove.eu>"]
 description = "CLI tool to subset fonts based on actual glyph usage from web pages"
@@ -22,7 +22,7 @@ name = "fontcull"
 path = "src/main.rs"
 
 [dependencies]
-fontcull = { version = "2.0.0", path = "../fontcull" }
+fontcull = { version = "2.0.1", path = "../fontcull" }
 
 # CLI dependencies
 clap = { version = "4", features = ["derive"] }
