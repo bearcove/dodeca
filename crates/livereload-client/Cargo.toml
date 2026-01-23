@@ -17,5 +17,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 dodeca-protocol = { path = "../dodeca-protocol" }
+hotmeal.workspace = true
+hotmeal-wasm.workspace = true
+wasm-bindgen.workspace = true
 
 [dev-dependencies]

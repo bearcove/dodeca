@@ -474,15 +474,17 @@ fn handle_devtools_event(event: DevtoolsEvent) {
                 hot_reload_css(&path);
             }
 
-            DevtoolsEvent::Patches(patches) => match livereload_client::apply_patches(&patches) {
-                Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
-                Err(e) => {
-                    tracing::warn!(
-                        "[devtools] patch failed (manual refresh may be needed): {:?}",
-                        e
-                    );
+            DevtoolsEvent::Patches(patches) => {
+                match livereload_client::apply_patches_blob(&patches) {
+                    Ok(count) => tracing::info!("[devtools] applied {count} DOM patches"),
+                    Err(e) => {
+                        tracing::warn!(
+                            "[devtools] patch failed (manual refresh may be needed): {:?}",
+                            e
+                        );
+                    }
                 }
-            },
+            }
         }
     });
 }

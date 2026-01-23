@@ -55,12 +55,12 @@ impl roam::session::ServiceDispatcher for MaybeDevtoolsDispatcher {
 
     fn dispatch(
         &self,
-        cx: &roam::session::Context,
+        cx: roam::session::Context,
         payload: Vec<u8>,
         registry: &mut roam::session::ChannelRegistry,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>> {
         match self {
-            MaybeDevtoolsDispatcher::WithDevtools(d) => d.dispatch(cx, payload, registry),
+            MaybeDevtoolsDispatcher::WithDevtools(d) => d.dispatch(cx.clone(), payload, registry),
             MaybeDevtoolsDispatcher::WithoutDevtools(d) => d.dispatch(cx, payload, registry),
         }
     }

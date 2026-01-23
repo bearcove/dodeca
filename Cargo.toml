@@ -51,6 +51,7 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["a
 
 # Serialization - Facet ecosystem (git)
 hotmeal = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
+hotmeal-wasm = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
 cinereus = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-styx = { git = "https://github.com/bearcove/styx", branch = "main" }
@@ -131,7 +132,7 @@ backtrace = "0.3"
 libc = "0.2"
 passfd = "0.1"
 rapidhash = "4"
-strid = "7.0"
+strid = "8.0"
 # strid = { path = "../strid/crates/strid" }
 
 # Misc utilities
@@ -193,6 +194,7 @@ pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 [patch."https://github.com/bearcove/hotmeal"]
 cinereus = { path = "../hotmeal/cinereus" }
 hotmeal = { path = "../hotmeal/hotmeal" }
+hotmeal-wasm = { path = "../hotmeal/hotmeal-wasm" }
 
 # [patch."https://github.com/facet-rs/facet-xml"]
 # facet-dom = { path = "../facet-xml/facet-dom" }
