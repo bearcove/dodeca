@@ -174,14 +174,14 @@ where
         let b_props = tree_b.properties(b_id);
 
         let changes: Vec<_> = a_props.diff(b_props);
-        // Generate UpdateProperties only if:
+        // Generate UpdateProperties only if there's a real change:
         // 1. At least one property value changed (Different), or
-        // 2. Old had properties but new has none (full removal - changes is empty)
+        // 2. Properties were removed (old has more than new's final state)
         let has_real_change = changes
             .iter()
             .any(|c| matches!(c.value, crate::tree::PropValue::Different(_)));
-        let is_full_removal = !a_props.is_empty() && changes.is_empty();
-        if has_real_change || is_full_removal {
+        let has_removal = a_props.len() > changes.len();
+        if has_real_change || has_removal {
             ops.push(EditOp::UpdateProperties {
                 node_a: a_id,
                 node_b: b_id,
@@ -662,6 +662,10 @@ mod tests {
 
         fn is_empty(&self) -> bool {
             self.id.is_none() && self.class.is_none()
+        }
+
+        fn len(&self) -> usize {
+            (if self.id.is_some() { 1 } else { 0 }) + (if self.class.is_some() { 1 } else { 0 })
         }
     }
 

@@ -42,3 +42,36 @@ fn test_move_within_same_parent() {
     println!("Result: {:?}", result);
     println!("HTML: {}", doc.to_html());
 }
+
+/// Regression test for fuzzer crash-f9f4d0f90a4824d024b1aedd19e5ac64afefed5f
+/// Issue: img elements losing/gaining alt attribute incorrectly
+#[test]
+fn test_img_alt_attribute_preservation() {
+    // Old has: <img> (no attrs), <img src="" alt="">, <img src=""> (no alt)
+    // New has: <img src="" alt="">, <img src=""> (no alt)
+    // The second img should NOT get alt=""
+    let old_html = r#"<html><body><img><img src="" alt=""><img src=""></body></html>"#;
+    let new_html = r#"<html><body><img src="" alt=""><img src=""></body></html>"#;
+
+    let mut old = hotmeal::parse(old_html);
+    let new = hotmeal::parse(new_html);
+
+    let patches = hotmeal::diff(&old, &new).expect("diff failed");
+    println!("Patches: {:#?}", patches);
+
+    old.apply_patches(patches).expect("apply failed");
+    let result = old.to_html();
+    println!("Result: {}", result);
+
+    // The second img should have src="" but NOT alt=""
+    assert!(
+        !result.contains(r#"<img src="" alt=""><img src="" alt="">"#),
+        "Second img should not have alt attribute, got: {}",
+        result
+    );
+    assert!(
+        result.contains(r#"<img src="" alt=""><img src="">"#),
+        "Expected <img src=\"\" alt=\"\"><img src=\"\">, got: {}",
+        result
+    );
+}

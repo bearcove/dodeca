@@ -87,7 +87,7 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 [[package]]
 name = "facet"
 version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#7ac39b39e9070c959d813a10d6c4342b810f52d2"
+source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
 dependencies = [
  "autocfg",
  "facet-core",
@@ -97,20 +97,21 @@ dependencies = [
 [[package]]
 name = "facet-core"
 version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#7ac39b39e9070c959d813a10d6c4342b810f52d2"
+source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
 dependencies = [
  "autocfg",
  "const-fnv1a-hash",
  "iddqd",
  "impls",
  "indexmap",
+ "smallvec",
  "tendril",
 ]
 
 [[package]]
 name = "facet-error"
 version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#7ac39b39e9070c959d813a10d6c4342b810f52d2"
+source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
 dependencies = [
  "facet",
 ]
@@ -118,7 +119,7 @@ dependencies = [
 [[package]]
 name = "facet-macro-parse"
 version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#7ac39b39e9070c959d813a10d6c4342b810f52d2"
+source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
 dependencies = [
  "facet-macro-types",
  "proc-macro2",
@@ -128,7 +129,7 @@ dependencies = [
 [[package]]
 name = "facet-macro-types"
 version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#7ac39b39e9070c959d813a10d6c4342b810f52d2"
+source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -138,7 +139,7 @@ dependencies = [
 [[package]]
 name = "facet-macros"
 version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#7ac39b39e9070c959d813a10d6c4342b810f52d2"
+source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
 dependencies = [
  "facet-macros-impl",
 ]
@@ -146,7 +147,7 @@ dependencies = [
 [[package]]
 name = "facet-macros-impl"
 version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#7ac39b39e9070c959d813a10d6c4342b810f52d2"
+source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
 dependencies = [
  "facet-macro-parse",
  "facet-macro-types",
@@ -209,8 +210,8 @@ dependencies = [
  "facet",
  "facet-error",
  "html5ever",
- "indexmap",
  "rapidhash",
+ "smallvec",
  "tendril",
 ]
 

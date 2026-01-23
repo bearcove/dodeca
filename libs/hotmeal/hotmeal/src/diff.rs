@@ -370,6 +370,10 @@ impl Properties for HtmlProps {
     fn is_empty(&self) -> bool {
         self.attrs.is_empty() && self.text.is_none()
     }
+
+    fn len(&self) -> usize {
+        self.attrs.len()
+    }
 }
 
 /// Tree types marker for HTML DOM.

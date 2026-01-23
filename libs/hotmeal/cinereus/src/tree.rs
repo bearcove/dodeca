@@ -188,6 +188,9 @@ pub trait Properties: Clone {
 
     /// Check if this property set is empty (no properties defined).
     fn is_empty(&self) -> bool;
+
+    /// Return the number of properties in this set.
+    fn len(&self) -> usize;
 }
 
 /// A placeholder type for "no key" that implements Display.
@@ -230,6 +233,10 @@ impl Properties for NoProps {
 
     fn is_empty(&self) -> bool {
         true
+    }
+
+    fn len(&self) -> usize {
+        0
     }
 }
 
