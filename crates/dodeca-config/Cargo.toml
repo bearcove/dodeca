@@ -8,6 +8,11 @@ license = "MIT OR Apache-2.0"
 description = "Configuration types for dodeca static site generator"
 repository = "https://github.com/bearcove/dodeca"
 
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
 [dependencies]
 cell-code-execution-proto = { path = "../../cells/cell-code-execution-proto" }
 facet.workspace = true

@@ -3,6 +3,11 @@ name = "cell-term"
 version = "0.6.1"
 edition = "2024"
 
+[package.metadata]
+
+[package.metadata."docs.rs"]
+rustdoc-args = ["--html-in-header", "arborium-header.html"]
+
 [[bin]]
 name = "ddc-cell-term"
 path = "src/main.rs"
