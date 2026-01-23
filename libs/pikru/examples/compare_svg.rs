@@ -97,6 +97,9 @@ fn collect_element_tags(children: &[SvgNode], elements: &mut Vec<String>) {
                 elements.push("symbol".to_string());
                 collect_element_tags(&symbol.children, elements);
             }
+            SvgNode::Filter(_) => elements.push("filter".to_string()),
+            SvgNode::Marker(_) => elements.push("marker".to_string()),
+            SvgNode::LinearGradient(_) => elements.push("linear-gradient".to_string()),
         }
     }
 }

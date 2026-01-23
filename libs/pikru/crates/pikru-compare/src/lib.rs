@@ -26,9 +26,6 @@ pub const RENDER_SIZE: u32 = 800;
 /// Used when SSIM fails and we need detailed diff output.
 pub const FLOAT_TOLERANCE: f64 = 0.002;
 
-/// Similarity threshold for tree-based element matching in structural diff.
-pub const SIMILARITY_THRESHOLD: f64 = 0.5;
-
 /// Result of comparing two pikchr outputs
 #[derive(Debug, Clone)]
 pub enum CompareResult {
@@ -108,9 +105,7 @@ pub fn parse_svg(svg: &str) -> Result<Svg, String> {
 
 /// Options for SVG structural comparison with float tolerance
 pub fn svg_compare_options() -> SameOptions {
-    SameOptions::new()
-        .float_tolerance(FLOAT_TOLERANCE)
-        .similarity_threshold(SIMILARITY_THRESHOLD)
+    SameOptions::new().float_tolerance(FLOAT_TOLERANCE)
 }
 
 /// Check if output represents an error
