@@ -1,3 +1,4 @@
 # Fuzzer working directories
 corpus/
 artifacts/
+test-results/
