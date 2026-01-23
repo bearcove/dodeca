@@ -1868,4 +1868,64 @@ mod tests {
         }
         println!("===========================================\n");
     }
+
+    /// Regression test for facet-json bug: escape sequences after multi-byte UTF-8
+    /// were incorrectly deserialized. Fixed in https://github.com/facet-rs/facet/pull/1892
+    #[test]
+    fn test_facet_json_unicode_escape_bug() {
+        // When Unicode characters precede an escape sequence like \n,
+        // facet-json incorrectly deserializes it as literal backslash-n
+        let original = "中文\n".to_string();
+        debug!("Original bytes: {:?}", original.as_bytes());
+        // Original bytes: [228, 184, 173, 230, 150, 135, 10]
+
+        let json = facet_json::to_string(&original).expect("serialize");
+        debug!("JSON: {}", json);
+
+        let roundtrip: String = facet_json::from_str(&json).expect("deserialize");
+        debug!("Roundtrip bytes: {:?}", roundtrip.as_bytes());
+        // BUG: Roundtrip bytes: [228, 184, 173, 230, 150, 135, 92, 110]
+        //                                                    ^^ literal '\n'
+
+        assert_eq!(original, roundtrip, "String should roundtrip through JSON");
+    }
+
+    #[test]
+    fn test_string_ascii_only_multiple_newlines() {
+        // ASCII-only strings with escapes work correctly
+        let original = "\n  hello\n  world\n".to_string();
+
+        let json = facet_json::to_string(&original).expect("serialize");
+        let roundtrip: String = facet_json::from_str(&json).expect("deserialize");
+
+        assert_eq!(
+            original, roundtrip,
+            "ASCII string should roundtrip through JSON"
+        );
+    }
+
+    /// Regression test for patch JSON roundtrip with Unicode.
+    /// Fixed in https://github.com/facet-rs/facet/pull/1892
+    #[test]
+    fn test_patch_json_roundtrip_with_unicode() {
+        use crate::diff_html;
+        use crate::dom;
+
+        let old_html = "<my-header>\n      <h1>Title</h1>\n    </my-header>";
+        let new_html = "<my-header>\n      中文App Title\n    </my-header>";
+
+        let patches = diff_html(old_html, new_html).expect("diff should work");
+        let json = facet_json::to_string(&patches).expect("serialization should work");
+        let roundtrip: Vec<Patch> =
+            facet_json::from_str(&json).expect("deserialization should work");
+
+        assert_eq!(patches, roundtrip, "Patches should roundtrip through JSON");
+
+        let mut doc = dom::parse(&format!("<html><body>{}</body></html>", old_html));
+        doc.apply_patches(roundtrip).expect("apply should succeed");
+
+        let result = doc.to_html();
+        let expected = dom::parse(&format!("<html><body>{}</body></html>", new_html)).to_html();
+        assert_eq!(result, expected, "HTML output should match");
+    }
 }

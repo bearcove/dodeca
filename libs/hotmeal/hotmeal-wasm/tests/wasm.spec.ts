@@ -44,6 +44,219 @@ const TEST_CASES = [
     old: "<ul>\n    <li>Item A</li>\n    <li>Item B</li>\n</ul>",
     new: '<ul>\n    <li>Item A</li>\n    <li class="hidden">Item B</li>\n</ul>',
   },
+
+  // =========================================================================
+  // SVG test cases
+  // =========================================================================
+  {
+    name: "svg_simple_circle",
+    old: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>',
+    new: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="30"/></svg>',
+  },
+  {
+    name: "svg_add_element",
+    old: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>',
+    new: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/><rect x="10" y="10" width="20" height="20"/></svg>',
+  },
+  {
+    name: "svg_remove_element",
+    old: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/><rect x="10" y="10" width="20" height="20"/></svg>',
+    new: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>',
+  },
+  {
+    name: "svg_change_fill",
+    old: '<svg viewBox="0 0 100 100"><circle fill="red" cx="50" cy="50" r="40"/></svg>',
+    new: '<svg viewBox="0 0 100 100"><circle fill="blue" cx="50" cy="50" r="40"/></svg>',
+  },
+  {
+    name: "svg_add_fill",
+    old: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>',
+    new: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="green"/></svg>',
+  },
+  {
+    name: "svg_with_group",
+    old: '<svg viewBox="0 0 100 100"><g><circle cx="50" cy="50" r="40"/></g></svg>',
+    new: '<svg viewBox="0 0 100 100"><g transform="rotate(45)"><circle cx="50" cy="50" r="40"/></g></svg>',
+  },
+  {
+    name: "svg_path_change",
+    old: '<svg viewBox="0 0 100 100"><path d="M10 10 L90 90"/></svg>',
+    new: '<svg viewBox="0 0 100 100"><path d="M10 10 L50 90 L90 10"/></svg>',
+  },
+  {
+    name: "svg_text_change",
+    old: '<svg viewBox="0 0 100 100"><text x="50" y="50">Hello</text></svg>',
+    new: '<svg viewBox="0 0 100 100"><text x="50" y="50">World</text></svg>',
+  },
+  {
+    name: "svg_viewBox_change",
+    old: '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40"/></svg>',
+    new: '<svg viewBox="0 0 200 200"><circle cx="50" cy="50" r="40"/></svg>',
+  },
+  {
+    name: "svg_nested_groups",
+    old: '<svg viewBox="0 0 100 100"><g id="outer"><g id="inner"><circle cx="50" cy="50" r="10"/></g></g></svg>',
+    new: '<svg viewBox="0 0 100 100"><g id="outer"><g id="inner"><circle cx="50" cy="50" r="20"/></g></g></svg>',
+  },
+  {
+    name: "svg_defs_and_use",
+    old: '<svg viewBox="0 0 100 100"><defs><circle id="dot" r="5"/></defs><use href="#dot" x="25" y="25"/></svg>',
+    new: '<svg viewBox="0 0 100 100"><defs><circle id="dot" r="5"/></defs><use href="#dot" x="50" y="50"/></svg>',
+  },
+  {
+    name: "svg_gradient",
+    old: '<svg viewBox="0 0 100 100"><defs><linearGradient id="g1"><stop offset="0%" stop-color="red"/></linearGradient></defs><rect fill="url(#g1)" width="100" height="100"/></svg>',
+    new: '<svg viewBox="0 0 100 100"><defs><linearGradient id="g1"><stop offset="0%" stop-color="blue"/></linearGradient></defs><rect fill="url(#g1)" width="100" height="100"/></svg>',
+  },
+  {
+    name: "inline_svg_in_div",
+    old: '<div class="icon"><svg viewBox="0 0 24 24"><path d="M12 2L2 22h20z"/></svg></div>',
+    new: '<div class="icon active"><svg viewBox="0 0 24 24"><path d="M12 2L2 22h20z" fill="currentColor"/></svg></div>',
+  },
+  {
+    name: "svg_with_html_siblings",
+    old: '<div><span>Label</span><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg></div>',
+    new: '<div><span>New Label</span><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg></div>',
+  },
+  {
+    name: "svg_multiple_shapes_reorder",
+    old: '<svg viewBox="0 0 100 100"><circle cx="25" cy="25" r="20"/><rect x="50" y="50" width="40" height="40"/></svg>',
+    new: '<svg viewBox="0 0 100 100"><rect x="50" y="50" width="40" height="40"/><circle cx="25" cy="25" r="20"/></svg>',
+  },
+
+  // =========================================================================
+  // Custom elements test cases
+  // =========================================================================
+  {
+    name: "custom_element_text_change",
+    old: "<my-component>Hello</my-component>",
+    new: "<my-component>World</my-component>",
+  },
+  {
+    name: "custom_element_add_attr",
+    old: "<my-component>Content</my-component>",
+    new: '<my-component data-state="active">Content</my-component>',
+  },
+  {
+    name: "custom_element_nested",
+    old: "<app-card><app-header>Title</app-header></app-card>",
+    new: "<app-card><app-header>New Title</app-header></app-card>",
+  },
+  {
+    name: "custom_element_with_slot",
+    old: '<my-dialog><span slot="title">Old</span></my-dialog>',
+    new: '<my-dialog><span slot="title">New</span></my-dialog>',
+  },
+
+  // =========================================================================
+  // Data attributes test cases
+  // =========================================================================
+  {
+    name: "data_attr_add",
+    old: "<div>Content</div>",
+    new: '<div data-id="123">Content</div>',
+  },
+  {
+    name: "data_attr_change",
+    old: '<div data-state="inactive">Content</div>',
+    new: '<div data-state="active">Content</div>',
+  },
+  {
+    name: "data_attr_remove",
+    old: '<div data-id="123" data-type="user">Content</div>',
+    new: '<div data-id="123">Content</div>',
+  },
+  {
+    name: "multiple_data_attrs",
+    old: '<button data-action="click" data-target="#modal">Open</button>',
+    new: '<button data-action="click" data-target="#modal" data-loading="true">Open</button>',
+  },
+
+  // =========================================================================
+  // Boolean attributes test cases
+  // =========================================================================
+  {
+    name: "boolean_disabled_add",
+    old: "<button>Click</button>",
+    new: "<button disabled>Click</button>",
+  },
+  {
+    name: "boolean_disabled_remove",
+    old: "<button disabled>Click</button>",
+    new: "<button>Click</button>",
+  },
+  {
+    name: "boolean_checked",
+    old: '<input type="checkbox">',
+    new: '<input type="checkbox" checked>',
+  },
+  {
+    name: "boolean_open_details",
+    old: "<details><summary>Info</summary><p>Content</p></details>",
+    new: "<details open><summary>Info</summary><p>Content</p></details>",
+  },
+
+  // =========================================================================
+  // Unicode test cases
+  // =========================================================================
+  {
+    name: "unicode_cjk",
+    old: "<p>Hello</p>",
+    new: "<p>你好世界</p>",
+  },
+  {
+    name: "unicode_emoji",
+    old: "<span>Status: OK</span>",
+    new: "<span>Status: ✓ 🎉</span>",
+  },
+  {
+    name: "unicode_rtl",
+    old: "<p>Text</p>",
+    new: "<p>مرحبا</p>",
+  },
+  {
+    name: "unicode_mixed",
+    old: "<div>English</div>",
+    new: "<div>English • 日本語 • العربية</div>",
+  },
+
+  // =========================================================================
+  // Table test cases
+  // =========================================================================
+  {
+    name: "table_cell_change",
+    old: "<table><tr><td>A</td><td>B</td></tr></table>",
+    new: "<table><tr><td>X</td><td>Y</td></tr></table>",
+  },
+  {
+    name: "table_add_row",
+    old: "<table><tbody><tr><td>A</td></tr></tbody></table>",
+    new: "<table><tbody><tr><td>A</td></tr><tr><td>B</td></tr></tbody></table>",
+  },
+  {
+    name: "table_colspan",
+    old: "<table><tr><td>A</td><td>B</td></tr></table>",
+    new: '<table><tr><td colspan="2">Merged</td></tr></table>',
+  },
+
+  // =========================================================================
+  // Form test cases
+  // =========================================================================
+  {
+    name: "form_input_value",
+    old: '<input type="text" value="old">',
+    new: '<input type="text" value="new">',
+  },
+  {
+    name: "form_add_placeholder",
+    old: '<input type="text">',
+    new: '<input type="text" placeholder="Enter text...">',
+  },
+  {
+    name: "form_select_option",
+    old: '<select><option value="a">A</option><option value="b">B</option></select>',
+    new: '<select><option value="a">A</option><option value="b" selected>B</option></select>',
+  },
 ];
 
 test.describe("hotmeal WASM", () => {
@@ -187,6 +400,264 @@ const REALISTIC_TEMPLATES = [
       <li>Feature three</li>
     </ul>
   </div>`,
+
+  // Inline SVG - icons
+  `<div class="icon-container">
+    <svg viewBox="0 0 100 100" width="24" height="24">
+      <circle cx="50" cy="50" r="40" fill="currentColor"/>
+    </svg>
+    <span>Icon with label</span>
+  </div>`,
+
+  // Inline SVG - complex
+  `<figure>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+      <defs>
+        <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#ff0000"/>
+          <stop offset="100%" stop-color="#0000ff"/>
+        </linearGradient>
+      </defs>
+      <rect x="10" y="10" width="80" height="80" fill="url(#grad1)" rx="10"/>
+      <circle cx="150" cy="50" r="40" fill="#00ff00" stroke="#000" stroke-width="2"/>
+      <path d="M10 150 L50 110 L90 150 Z" fill="#ffcc00"/>
+      <text x="100" y="180" text-anchor="middle" fill="#333">SVG Chart</text>
+    </svg>
+    <figcaption>A complex SVG diagram</figcaption>
+  </figure>`,
+
+  // SVG with groups and transforms
+  `<div>
+    <svg viewBox="0 0 100 100">
+      <g transform="translate(50, 50)">
+        <g transform="rotate(45)">
+          <rect x="-20" y="-20" width="40" height="40" fill="red"/>
+        </g>
+        <circle r="10" fill="blue"/>
+      </g>
+    </svg>
+  </div>`,
+
+  // SVG paths
+  `<nav class="breadcrumb">
+    <svg class="chevron" viewBox="0 0 24 24" width="16" height="16">
+      <path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <a href="/">Home</a>
+    <svg class="chevron" viewBox="0 0 24 24" width="16" height="16">
+      <path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" fill="none"/>
+    </svg>
+    <span>Current</span>
+  </nav>`,
+
+  // Custom elements (Web Components style)
+  `<div class="app">
+    <my-header>
+      <h1 slot="title">App Title</h1>
+    </my-header>
+    <my-content data-loading="false">
+      <p>Main content area</p>
+    </my-content>
+    <my-footer year="2024"></my-footer>
+  </div>`,
+
+  // Data attributes heavy
+  `<div data-controller="dropdown" data-dropdown-open="false">
+    <button data-action="click->dropdown#toggle" data-dropdown-target="button">
+      Toggle Menu
+    </button>
+    <ul data-dropdown-target="menu" data-transition="fade">
+      <li data-value="1">Option 1</li>
+      <li data-value="2" data-selected="true">Option 2</li>
+      <li data-value="3">Option 3</li>
+    </ul>
+  </div>`,
+
+  // Table with complex structure
+  `<table class="data-table">
+    <thead>
+      <tr>
+        <th scope="col">Name</th>
+        <th scope="col">Value</th>
+        <th scope="col">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr data-id="1">
+        <td>Item A</td>
+        <td><code>42</code></td>
+        <td><button type="button">Edit</button></td>
+      </tr>
+      <tr data-id="2">
+        <td colspan="2">Item B spans two columns</td>
+        <td><button type="button" disabled>Edit</button></td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="3">Total: 2 items</td>
+      </tr>
+    </tfoot>
+  </table>`,
+
+  // Form with various inputs
+  `<form action="/submit" method="post">
+    <fieldset>
+      <legend>User Details</legend>
+      <label for="name">Name:</label>
+      <input type="text" id="name" name="name" required placeholder="Enter name">
+      <label for="email">Email:</label>
+      <input type="email" id="email" name="email" required>
+      <label>
+        <input type="checkbox" name="subscribe" checked> Subscribe
+      </label>
+    </fieldset>
+    <fieldset disabled>
+      <legend>Disabled Section</legend>
+      <input type="text" value="readonly content" readonly>
+    </fieldset>
+    <button type="submit">Submit</button>
+    <button type="reset">Reset</button>
+  </form>`,
+
+  // Details/Summary
+  `<details open>
+    <summary>Click to expand</summary>
+    <div class="content">
+      <p>Hidden content revealed!</p>
+      <details>
+        <summary>Nested details</summary>
+        <p>Even more hidden content.</p>
+      </details>
+    </div>
+  </details>`,
+
+  // Definition list
+  `<dl>
+    <dt>Term 1</dt>
+    <dd>Definition for term 1</dd>
+    <dt>Term 2</dt>
+    <dd>First definition for term 2</dd>
+    <dd>Second definition for term 2</dd>
+  </dl>`,
+
+  // Blockquote with citation
+  `<figure>
+    <blockquote cite="https://example.com">
+      <p>This is a <em>quoted</em> passage with <strong>emphasis</strong>.</p>
+    </blockquote>
+    <figcaption>— <cite>Famous Person</cite></figcaption>
+  </figure>`,
+
+  // Time and data elements
+  `<article>
+    <header>
+      <time datetime="2024-01-15T10:30:00Z">January 15, 2024</time>
+    </header>
+    <p>The value is <data value="42">forty-two</data>.</p>
+    <p>Price: <data value="19.99">$19.99</data></p>
+  </article>`,
+
+  // Ruby annotations (East Asian)
+  `<p>
+    <ruby>漢<rp>(</rp><rt>かん</rt><rp>)</rp></ruby>
+    <ruby>字<rp>(</rp><rt>じ</rt><rp>)</rp></ruby>
+  </p>`,
+
+  // Bidirectional text
+  `<p>
+    English text with <bdi>עברית</bdi> inline.
+    <bdo dir="rtl">Forced RTL text</bdo>
+  </p>`,
+
+  // Picture element with sources
+  `<picture>
+    <source media="(min-width: 800px)" srcset="large.jpg">
+    <source media="(min-width: 400px)" srcset="medium.jpg">
+    <img src="small.jpg" alt="Responsive image" loading="lazy">
+  </picture>`,
+
+  // Progress and meter
+  `<div>
+    <label for="progress">Loading:</label>
+    <progress id="progress" value="70" max="100">70%</progress>
+    <label for="meter">Disk usage:</label>
+    <meter id="meter" value="0.6" min="0" max="1" low="0.3" high="0.7" optimum="0.5">60%</meter>
+  </div>`,
+
+  // Output element
+  `<form oninput="result.value=parseInt(a.value)+parseInt(b.value)">
+    <input type="range" id="a" value="50"> +
+    <input type="number" id="b" value="25"> =
+    <output name="result" for="a b">75</output>
+  </form>`,
+
+  // Address element
+  `<footer>
+    <address>
+      Contact us at <a href="mailto:info@example.com">info@example.com</a><br>
+      Or visit us at: 123 Main St, City
+    </address>
+  </footer>`,
+
+  // Mark, ins, del elements
+  `<p>
+    The <del>old text</del> <ins>new text</ins> was <mark>highlighted</mark>.
+    Use <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy.
+    Variable: <var>x</var>, Sample output: <samp>Hello</samp>
+  </p>`,
+
+  // Nested inline SVG in buttons
+  `<div class="toolbar">
+    <button type="button" aria-label="Bold">
+      <svg viewBox="0 0 24 24" width="20" height="20">
+        <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/>
+        <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"/>
+      </svg>
+    </button>
+    <button type="button" aria-label="Italic">
+      <svg viewBox="0 0 24 24" width="20" height="20">
+        <line x1="19" y1="4" x2="10" y2="4"/>
+        <line x1="14" y1="20" x2="5" y2="20"/>
+        <line x1="15" y1="4" x2="9" y2="20"/>
+      </svg>
+    </button>
+  </div>`,
+
+  // Canvas fallback
+  `<canvas id="chart" width="400" height="300">
+    <p>Your browser doesn't support canvas. Here's the data:</p>
+    <ul>
+      <li>Item 1: 30%</li>
+      <li>Item 2: 50%</li>
+      <li>Item 3: 20%</li>
+    </ul>
+  </canvas>`,
+
+  // Semantic HTML5 document structure
+  `<main>
+    <article>
+      <header>
+        <h1>Article Title</h1>
+        <p>By <a rel="author" href="/author">Author Name</a></p>
+      </header>
+      <section>
+        <h2>Introduction</h2>
+        <p>First paragraph.</p>
+      </section>
+      <section>
+        <h2>Main Content</h2>
+        <p>Second paragraph.</p>
+      </section>
+      <aside>
+        <h3>Related</h3>
+        <ul><li><a href="#">Link 1</a></li></ul>
+      </aside>
+      <footer>
+        <p>Published: <time>2024-01-01</time></p>
+      </footer>
+    </article>
+  </main>`,
 ];
 
 const RANDOM_WORDS = [
@@ -200,11 +671,163 @@ const RANDOM_WORDS = [
   "value",
   "text",
   "node",
+  // Unicode content
+  "日本語",
+  "中文",
+  "한국어",
+  "العربية",
+  "עברית",
+  "Ελληνικά",
+  "Кириллица",
+  // Emoji
+  "🎉",
+  "🚀",
+  "💯",
+  "❤️",
+  "✓",
+  // Special characters (HTML-safe)
+  "foo&bar",
+  "less<than",
+  "greater>than",
+  'quote"mark',
+  // Whitespace variations
+  "  spaced  ",
+  "line\nbreak",
+  "tab\there",
 ];
 
-const RANDOM_ELEMENTS = ["div", "span", "p", "strong", "em"];
+const RANDOM_ELEMENTS = [
+  // Basic
+  "div",
+  "span",
+  "p",
+  "strong",
+  "em",
+  // Semantic
+  "article",
+  "section",
+  "aside",
+  "header",
+  "footer",
+  "nav",
+  "main",
+  // Text
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "blockquote",
+  "pre",
+  "code",
+  // Lists
+  "ul",
+  "ol",
+  "li",
+  "dl",
+  "dt",
+  "dd",
+  // Inline
+  "a",
+  "abbr",
+  "b",
+  "i",
+  "u",
+  "s",
+  "mark",
+  "small",
+  "sub",
+  "sup",
+  "cite",
+  "q",
+  "dfn",
+  "kbd",
+  "samp",
+  "var",
+  "time",
+  "data",
+  // Interactive
+  "button",
+  "details",
+  "summary",
+  // Media
+  "figure",
+  "figcaption",
+  // Ruby
+  "ruby",
+  "rt",
+  "rp",
+  // Bidirectional
+  "bdi",
+  "bdo",
+  // Address
+  "address",
+  // Custom elements (must contain hyphen)
+  "my-element",
+  "custom-component",
+  "app-widget",
+  "x-data",
+];
 
-const RANDOM_CLASSES = ["primary", "secondary", "highlight", "active", "hidden"];
+const RANDOM_CLASSES = [
+  "primary",
+  "secondary",
+  "highlight",
+  "active",
+  "hidden",
+  "visible",
+  "flex",
+  "grid",
+  "container",
+  "wrapper",
+  "btn",
+  "card",
+  "modal",
+  "tooltip",
+  "dropdown",
+];
+
+// Additional attribute names for chaos mode
+const RANDOM_ATTR_NAMES = [
+  "class",
+  "id",
+  "title",
+  "lang",
+  "dir",
+  "hidden",
+  "tabindex",
+  "contenteditable",
+  "draggable",
+  "spellcheck",
+  // Data attributes
+  "data-id",
+  "data-value",
+  "data-state",
+  "data-action",
+  "data-target",
+  "data-index",
+  "data-type",
+  "data-enabled",
+  "data-loading",
+  "data-testid",
+  // ARIA
+  "aria-label",
+  "aria-hidden",
+  "aria-expanded",
+  "aria-selected",
+  "aria-disabled",
+  "aria-live",
+  "role",
+  // Custom
+  "x-data",
+  "x-show",
+  "x-bind",
+  "v-if",
+  "v-for",
+  "ng-if",
+  "ng-repeat",
+];
 
 test.describe("hotmeal fuzzing", () => {
   test.beforeEach(async ({ page }) => {
@@ -214,12 +837,12 @@ test.describe("hotmeal fuzzing", () => {
 
   // Run fuzzing with different seeds for reproducibility
   const NUM_SEEDS = 50;
-  const MUTATIONS_PER_TEST = 10;
+  const MUTATIONS_PER_TEST = 15;
 
   for (let seed = 0; seed < NUM_SEEDS; seed++) {
     test(`fuzz seed ${seed}`, async ({ page }) => {
       const results = await page.evaluate(
-        ({ seed, templates, mutations, words, elements, classes }) => {
+        ({ seed, templates, mutations, words, elements, classes, attrNames }) => {
           // Seeded RNG
           class SeededRandom {
             private seed: number;
@@ -235,6 +858,14 @@ test.describe("hotmeal fuzzing", () => {
             }
             pick<T>(arr: T[]): T {
               return arr[this.nextInt(arr.length)];
+            }
+            shuffle<T>(arr: T[]): T[] {
+              const result = [...arr];
+              for (let i = result.length - 1; i > 0; i--) {
+                const j = this.nextInt(i + 1);
+                [result[i], result[j]] = [result[j], result[i]];
+              }
+              return result;
             }
           }
 
@@ -277,6 +908,16 @@ test.describe("hotmeal fuzzing", () => {
                 "remove_element",
                 "move_element",
                 "insert_text_node",
+                "insert_comment",
+                "wrap_element",
+                "unwrap_element",
+                "clone_element",
+                "swap_siblings",
+                "insert_svg",
+                "modify_svg_attr",
+                "toggle_boolean_attr",
+                "add_data_attr",
+                "insert_custom_element",
               ]);
 
               let success = false;
@@ -303,7 +944,7 @@ test.describe("hotmeal fuzzing", () => {
                   case "add_attribute": {
                     if (allElements.length > 0) {
                       const targetEl = rng.pick(allElements);
-                      const attrName = rng.pick(["class", "id", "data-test", "title"]);
+                      const attrName = rng.pick(attrNames);
                       const attrValue = rng.pick(classes);
                       targetEl.setAttribute(attrName, attrValue);
                       success = true;
@@ -332,7 +973,7 @@ test.describe("hotmeal fuzzing", () => {
                       const attrs = Array.from(targetEl.attributes);
                       if (attrs.length > 0) {
                         const attr = rng.pick(attrs);
-                        const newValue = rng.pick(classes);
+                        const newValue = rng.pick([...classes, ...words]);
                         targetEl.setAttribute(attr.name, newValue);
                         success = true;
                       }
@@ -371,18 +1012,20 @@ test.describe("hotmeal fuzzing", () => {
                   case "move_element": {
                     if (allElements.length > 2) {
                       const elemToMove = rng.pick(allElements);
-                      const newParent = rng.pick(
-                        allElements.filter((el) => el !== elemToMove && !elemToMove.contains(el))
+                      const validParents = allElements.filter(
+                        (el) => el !== elemToMove && !elemToMove.contains(el),
                       );
-
-                      if (newParent && elemToMove.parentElement) {
-                        if (newParent.children.length > 0 && rng.next() > 0.5) {
-                          const beforeEl = rng.pick(Array.from(newParent.children));
-                          newParent.insertBefore(elemToMove, beforeEl);
-                        } else {
-                          newParent.appendChild(elemToMove);
+                      if (validParents.length > 0) {
+                        const newParent = rng.pick(validParents);
+                        if (newParent && elemToMove.parentElement) {
+                          if (newParent.children.length > 0 && rng.next() > 0.5) {
+                            const beforeEl = rng.pick(Array.from(newParent.children));
+                            newParent.insertBefore(elemToMove, beforeEl);
+                          } else {
+                            newParent.appendChild(elemToMove);
+                          }
+                          success = true;
                         }
-                        success = true;
                       }
                     }
                     break;
@@ -399,6 +1042,274 @@ test.describe("hotmeal fuzzing", () => {
                       } else {
                         parent.appendChild(textNode);
                       }
+                      success = true;
+                    }
+                    break;
+                  }
+
+                  case "insert_comment": {
+                    if (allElements.length > 0) {
+                      const parent = rng.pick(allElements);
+                      const comment = document.createComment(rng.pick(words));
+                      if (parent.childNodes.length > 0 && rng.next() > 0.5) {
+                        const beforeNode = rng.pick(Array.from(parent.childNodes));
+                        parent.insertBefore(comment, beforeNode);
+                      } else {
+                        parent.appendChild(comment);
+                      }
+                      success = true;
+                    }
+                    break;
+                  }
+
+                  case "wrap_element": {
+                    const nonRootElements = allElements.filter(
+                      (el) => el.parentElement && el.parentElement !== newContainer,
+                    );
+                    if (nonRootElements.length > 0) {
+                      const targetEl = rng.pick(nonRootElements);
+                      const wrapper = document.createElement(rng.pick(["div", "span", "section"]));
+                      if (targetEl.parentElement) {
+                        targetEl.parentElement.insertBefore(wrapper, targetEl);
+                        wrapper.appendChild(targetEl);
+                        success = true;
+                      }
+                    }
+                    break;
+                  }
+
+                  case "unwrap_element": {
+                    const wrappedElements = allElements.filter(
+                      (el) =>
+                        el.parentElement &&
+                        el.parentElement !== newContainer &&
+                        el.childNodes.length > 0,
+                    );
+                    if (wrappedElements.length > 0) {
+                      const targetEl = rng.pick(wrappedElements);
+                      const parent = targetEl.parentElement;
+                      if (parent) {
+                        while (targetEl.firstChild) {
+                          parent.insertBefore(targetEl.firstChild, targetEl);
+                        }
+                        parent.removeChild(targetEl);
+                        success = true;
+                      }
+                    }
+                    break;
+                  }
+
+                  case "clone_element": {
+                    if (allElements.length > 0) {
+                      const targetEl = rng.pick(allElements);
+                      const clone = targetEl.cloneNode(true) as Element;
+                      if (targetEl.parentElement) {
+                        if (rng.next() > 0.5 && targetEl.nextSibling) {
+                          targetEl.parentElement.insertBefore(clone, targetEl.nextSibling);
+                        } else {
+                          targetEl.parentElement.insertBefore(clone, targetEl);
+                        }
+                        success = true;
+                      }
+                    }
+                    break;
+                  }
+
+                  case "swap_siblings": {
+                    const elemsWithSiblings = allElements.filter((el) => {
+                      const parent = el.parentElement;
+                      return parent && parent.children.length > 1;
+                    });
+                    if (elemsWithSiblings.length > 0) {
+                      const el1 = rng.pick(elemsWithSiblings);
+                      const siblings = Array.from(el1.parentElement!.children).filter(
+                        (s) => s !== el1,
+                      );
+                      if (siblings.length > 0) {
+                        const el2 = rng.pick(siblings);
+                        const parent = el1.parentElement!;
+                        const temp = document.createElement("template");
+                        parent.insertBefore(temp, el1);
+                        parent.insertBefore(el1, el2);
+                        parent.insertBefore(el2, temp);
+                        parent.removeChild(temp);
+                        success = true;
+                      }
+                    }
+                    break;
+                  }
+
+                  case "insert_svg": {
+                    if (allElements.length > 0) {
+                      const parent = rng.pick(allElements);
+                      const svgNS = "http://www.w3.org/2000/svg";
+                      const svg = document.createElementNS(svgNS, "svg");
+                      svg.setAttribute("viewBox", "0 0 100 100");
+                      svg.setAttribute("width", String(rng.nextInt(100) + 20));
+                      svg.setAttribute("height", String(rng.nextInt(100) + 20));
+
+                      const shapeType = rng.pick(["circle", "rect", "path", "line"]);
+                      const shape = document.createElementNS(svgNS, shapeType);
+
+                      switch (shapeType) {
+                        case "circle":
+                          shape.setAttribute("cx", "50");
+                          shape.setAttribute("cy", "50");
+                          shape.setAttribute("r", String(rng.nextInt(40) + 10));
+                          break;
+                        case "rect":
+                          shape.setAttribute("x", "10");
+                          shape.setAttribute("y", "10");
+                          shape.setAttribute("width", String(rng.nextInt(80) + 10));
+                          shape.setAttribute("height", String(rng.nextInt(80) + 10));
+                          break;
+                        case "path":
+                          shape.setAttribute(
+                            "d",
+                            `M10 10 L${rng.nextInt(90)} ${rng.nextInt(90)} L${rng.nextInt(90)} ${rng.nextInt(90)} Z`,
+                          );
+                          break;
+                        case "line":
+                          shape.setAttribute("x1", "10");
+                          shape.setAttribute("y1", "10");
+                          shape.setAttribute("x2", String(rng.nextInt(90)));
+                          shape.setAttribute("y2", String(rng.nextInt(90)));
+                          shape.setAttribute("stroke", "black");
+                          break;
+                      }
+
+                      const colors = ["red", "blue", "green", "#ff0", "currentColor", "none"];
+                      shape.setAttribute("fill", rng.pick(colors));
+                      svg.appendChild(shape);
+                      parent.appendChild(svg);
+                      success = true;
+                    }
+                    break;
+                  }
+
+                  case "modify_svg_attr": {
+                    const svgElements = allElements.filter(
+                      (el) => el.namespaceURI === "http://www.w3.org/2000/svg",
+                    );
+                    if (svgElements.length > 0) {
+                      const targetEl = rng.pick(svgElements);
+                      const svgAttrs = [
+                        "fill",
+                        "stroke",
+                        "stroke-width",
+                        "opacity",
+                        "transform",
+                        "x",
+                        "y",
+                        "cx",
+                        "cy",
+                        "r",
+                        "rx",
+                        "ry",
+                        "width",
+                        "height",
+                      ];
+                      const attrName = rng.pick(svgAttrs);
+                      const colors = ["red", "blue", "green", "#ff0", "currentColor", "none"];
+
+                      let value: string;
+                      if (attrName === "fill" || attrName === "stroke") {
+                        value = rng.pick(colors);
+                      } else if (attrName === "transform") {
+                        value = `rotate(${rng.nextInt(360)})`;
+                      } else if (attrName === "opacity") {
+                        value = String(rng.next().toFixed(2));
+                      } else {
+                        value = String(rng.nextInt(100));
+                      }
+
+                      targetEl.setAttribute(attrName, value);
+                      success = true;
+                    }
+                    break;
+                  }
+
+                  case "toggle_boolean_attr": {
+                    if (allElements.length > 0) {
+                      const targetEl = rng.pick(allElements);
+                      const boolAttrs = [
+                        "hidden",
+                        "disabled",
+                        "checked",
+                        "selected",
+                        "readonly",
+                        "required",
+                        "open",
+                        "controls",
+                        "autoplay",
+                        "loop",
+                        "muted",
+                      ];
+                      const attr = rng.pick(boolAttrs);
+                      if (targetEl.hasAttribute(attr)) {
+                        targetEl.removeAttribute(attr);
+                      } else {
+                        targetEl.setAttribute(attr, "");
+                      }
+                      success = true;
+                    }
+                    break;
+                  }
+
+                  case "add_data_attr": {
+                    if (allElements.length > 0) {
+                      const targetEl = rng.pick(allElements);
+                      const dataAttrSuffixes = [
+                        "id",
+                        "index",
+                        "value",
+                        "state",
+                        "type",
+                        "action",
+                        "target",
+                        "enabled",
+                        "loading",
+                        "test",
+                        "cy",
+                        "testid",
+                      ];
+                      const suffix = rng.pick(dataAttrSuffixes);
+                      const value = rng.pick([
+                        ...classes,
+                        String(rng.nextInt(1000)),
+                        "true",
+                        "false",
+                      ]);
+                      targetEl.setAttribute(`data-${suffix}`, value);
+                      success = true;
+                    }
+                    break;
+                  }
+
+                  case "insert_custom_element": {
+                    if (allElements.length > 0) {
+                      const parent = rng.pick(allElements);
+                      const customTags = [
+                        "my-element",
+                        "custom-component",
+                        "app-widget",
+                        "x-data",
+                        "ui-button",
+                        "web-card",
+                        "vue-item",
+                        "ng-container",
+                        "react-root",
+                      ];
+                      const newEl = document.createElement(rng.pick(customTags));
+                      newEl.textContent = rng.pick(words);
+                      // Add some custom attributes
+                      if (rng.next() > 0.5) {
+                        newEl.setAttribute("data-state", rng.pick(["active", "inactive", "pending"]));
+                      }
+                      if (rng.next() > 0.5) {
+                        newEl.setAttribute("slot", rng.pick(["header", "content", "footer"]));
+                      }
+                      parent.appendChild(newEl);
                       success = true;
                     }
                     break;
@@ -478,6 +1389,7 @@ test.describe("hotmeal fuzzing", () => {
           words: RANDOM_WORDS,
           elements: RANDOM_ELEMENTS,
           classes: RANDOM_CLASSES,
+          attrNames: RANDOM_ATTR_NAMES,
         },
       );
 
