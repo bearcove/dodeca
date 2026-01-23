@@ -1,9 +1,16 @@
 //! WASM client for dodeca live reload
-//!
-//! Re-exports facet-html-diff-wasm for DOM patching functionality.
 
-// Re-export everything from facet-html-diff-wasm
-pub use facet_html_diff_wasm::*;
+use wasm_bindgen::JsValue;
 
-// Re-export patch types from dodeca-protocol for convenience
-pub use dodeca_protocol::{NodePath, Patch};
+// Re-export everything from hotmeal-wasm
+pub use hotmeal_wasm::*;
+
+/// Apply patches from a postcard-serialized blob.
+/// This is the API expected by dodeca-devtools.
+pub fn apply_patches_blob(patches_blob: &[u8]) -> Result<usize, JsValue> {
+    let patches: Vec<hotmeal::Patch<'static>> =
+        dodeca_protocol::facet_postcard::from_slice(patches_blob)
+            .map_err(|e| JsValue::from_str(&format!("Failed to deserialize patches: {e}")))?;
+
+    hotmeal_wasm::apply_patches(&patches)
+}

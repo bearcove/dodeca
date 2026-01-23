@@ -40,7 +40,7 @@ impl FontProcessor for FontProcessorImpl {
         spawn_blocking(move || {
             let char_set: HashSet<char> = input.chars.into_iter().collect();
 
-            match fontcull::subset_font_data(&input.data, &char_set) {
+            match fontcull::subset_font_data(&input.data, &char_set, &[]) {
                 Ok(subsetted) => FontResult::SubsetSuccess { data: subsetted },
                 Err(e) => FontResult::Error {
                     message: format!("Failed to subset font: {e}"),

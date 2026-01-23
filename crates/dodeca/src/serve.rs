@@ -178,11 +178,8 @@ fn navigate_value(value: &facet_value::Value, path: &[String]) -> Option<facet_v
 pub enum LiveReloadMsg {
     /// Full page reload (fallback)
     Reload,
-    /// Patches for a specific route
-    Patches {
-        route: String,
-        patches: Vec<dodeca_protocol::Patch>,
-    },
+    /// Patches for a specific route (postcard-serialized blob)
+    Patches { route: String, patches: Vec<u8> },
     /// CSS update (new cache-busted path)
     CssUpdate { path: String },
     /// Template error occurred
@@ -195,62 +192,6 @@ pub enum LiveReloadMsg {
     },
     /// Error was resolved (template renders successfully now)
     ErrorResolved { route: String },
-}
-
-/// Summarize patch operations for logging
-fn summarize_patches(patches: &[dodeca_protocol::Patch]) -> String {
-    use dodeca_protocol::Patch;
-
-    let mut replace = 0;
-    let mut insert = 0;
-    let mut remove = 0;
-    let mut set_text = 0;
-    let mut set_attr = 0;
-    let mut remove_attr = 0;
-    let mut moves = 0;
-
-    for patch in patches {
-        match patch {
-            Patch::Replace { .. } => replace += 1,
-            Patch::InsertAt { .. } | Patch::InsertAfter { .. } | Patch::AppendChild { .. } => {
-                insert += 1
-            }
-            Patch::Remove { .. } => remove += 1,
-            Patch::SetText { .. } => set_text += 1,
-            Patch::SetAttribute { .. } => set_attr += 1,
-            Patch::RemoveAttribute { .. } => remove_attr += 1,
-            Patch::Move { .. } => moves += 1,
-        }
-    }
-
-    let mut parts = Vec::new();
-    if replace > 0 {
-        parts.push(format!("{} replace", replace));
-    }
-    if insert > 0 {
-        parts.push(format!("{} insert", insert));
-    }
-    if remove > 0 {
-        parts.push(format!("{} remove", remove));
-    }
-    if set_text > 0 {
-        parts.push(format!("{} text", set_text));
-    }
-    if set_attr > 0 {
-        parts.push(format!("{} attr", set_attr));
-    }
-    if remove_attr > 0 {
-        parts.push(format!("{} -attr", remove_attr));
-    }
-    if moves > 0 {
-        parts.push(format!("{} move", moves));
-    }
-
-    if parts.is_empty() {
-        "no ops".to_string()
-    } else {
-        parts.join(", ")
-    }
 }
 
 /// Shared state for the dev server
@@ -711,10 +652,8 @@ impl SiteServer {
                     })
                     .await
                     {
-                        Ok(cell_html_diff_proto::HtmlDiffResult::Success {
-                            result: diff_result,
-                        }) => {
-                            if diff_result.patches.is_empty() {
+                        Ok(diff_outcome) => {
+                            if diff_outcome.patches_blob.is_empty() {
                                 // DOM structure identical but HTML differs (whitespace/comments?)
                                 // This is a no-op - no need to reload for invisible changes
                                 tracing::debug!(
@@ -722,18 +661,11 @@ impl SiteServer {
                                     route
                                 );
                             } else {
-                                // Summarize patch operations
-                                let summary = summarize_patches(&diff_result.patches);
-                                let patch_count = diff_result.patches.len();
+                                let patch_bytes = diff_outcome.patches_blob.len();
 
-                                tracing::debug!(
-                                    "{} - patching: {} ({} patches)",
-                                    route,
-                                    summary,
-                                    patch_count
-                                );
+                                tracing::debug!("{} - patching: {} bytes", route, patch_bytes);
                                 let receiver_count_before = self.livereload_tx.receiver_count();
-                                let patches = diff_result.patches;
+                                let patches = diff_outcome.patches_blob;
                                 let send_result = self.livereload_tx.send(LiveReloadMsg::Patches {
                                     route: route.clone(),
                                     patches: patches.clone(),
@@ -750,20 +682,10 @@ impl SiteServer {
                                 ));
                             }
                         }
-                        Ok(cell_html_diff_proto::HtmlDiffResult::Error { message }) => {
-                            // Cell returned an error - fall back to full reload
-                            tracing::debug!(
-                                "{} - html_diff cell error: {}, sending full reload",
-                                route,
-                                message
-                            );
-                            let _ = self.livereload_tx.send(LiveReloadMsg::Reload);
-                            self.notify_browsers(dodeca_protocol::DevtoolsEvent::Reload);
-                        }
                         Err(e) => {
-                            // Cell not available or RPC failed - fall back to full reload
+                            // Cell not available or diff failed - fall back to full reload
                             tracing::debug!(
-                                "{} - html_diff cell not available ({}), sending full reload",
+                                "{} - html_diff failed ({}), sending full reload",
                                 route,
                                 e
                             );

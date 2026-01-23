@@ -1,22 +1,20 @@
 //! Dodeca HTML diff cell (cell-html-diff)
 //!
-//! This cell handles HTML DOM diffing for live reload using facet-format-html
-//! for parsing and facet-diff for computing structural differences.
+//! This cell handles HTML DOM diffing for live reload using hotmeal
+//! for parsing and diffing.
 
 use dodeca_cell_runtime::run_cell;
+use hotmeal::StrTendril;
 
-use cell_html_diff_proto::{
-    DiffInput, DiffResult, HtmlDiffResult, HtmlDiffer, HtmlDifferDispatcher,
-};
+use cell_html_diff_proto::{DiffError, DiffInput, DiffOutcome, HtmlDiffer, HtmlDifferDispatcher};
 
-// Re-export protocol types
-pub use dodeca_protocol::{NodePath, Patch};
+use dodeca_protocol::facet_postcard;
 
 // ============================================================================
 // HTML Differ Implementation
 // ============================================================================
 
-/// HTML differ implementation using facet-format-html and facet-diff.
+/// HTML differ implementation using hotmeal.
 #[derive(Clone)]
 pub struct HtmlDifferImpl;
 
@@ -25,34 +23,31 @@ impl HtmlDiffer for HtmlDifferImpl {
         &self,
         _cx: &dodeca_cell_runtime::Context,
         input: DiffInput,
-    ) -> HtmlDiffResult {
+    ) -> Result<DiffOutcome, DiffError> {
         tracing::debug!(
             old_len = input.old_html.len(),
             new_len = input.new_html.len(),
             "diffing HTML"
         );
 
-        match facet_html_diff::diff_html(&input.old_html, &input.new_html) {
-            Ok(patches) => {
-                tracing::debug!(count = patches.len(), "generated patches");
-                for (i, patch) in patches.iter().enumerate() {
-                    tracing::debug!(index = i, ?patch, "patch");
-                }
+        let old_tendril = StrTendril::from(input.old_html.as_str());
+        let new_tendril = StrTendril::from(input.new_html.as_str());
+        let patches = hotmeal::diff_html(&old_tendril, &new_tendril)
+            .map_err(|e| DiffError::Generic(e.to_string()))?;
 
-                let nodes_compared = patches.len();
-                HtmlDiffResult::Success {
-                    result: DiffResult {
-                        patches,
-                        nodes_compared,
-                        nodes_skipped: 0,
-                    },
-                }
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "diff failed");
-                HtmlDiffResult::Error { message: e }
-            }
+        tracing::debug!(count = patches.len(), "generated patches");
+        for (i, patch) in patches.iter().enumerate() {
+            tracing::debug!(index = i, ?patch, "patch");
         }
+
+        // Convert to owned so we can serialize after tendrils are dropped
+        let patches_owned: Vec<hotmeal::Patch<'static>> =
+            patches.into_iter().map(|p| p.into_owned()).collect();
+
+        let patches_blob = facet_postcard::to_vec(&patches_owned)
+            .map_err(|e| DiffError::Generic(e.to_string()))?;
+
+        Ok(DiffOutcome { patches_blob })
     }
 }
 

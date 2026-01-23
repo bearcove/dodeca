@@ -4,9 +4,6 @@
 
 use facet::Facet;
 
-// Re-export patch types from protocol
-pub use dodeca_protocol::{NodePath, Patch};
-
 /// Input for HTML diffing
 #[derive(Debug, Clone, Facet)]
 pub struct DiffInput {
@@ -16,22 +13,17 @@ pub struct DiffInput {
 
 /// Result of diffing two DOM trees
 #[derive(Debug, Clone, Facet)]
-pub struct DiffResult {
-    /// Patches to apply (in order)
-    pub patches: Vec<Patch>,
-    /// Stats for debugging
-    pub nodes_compared: usize,
-    pub nodes_skipped: usize,
+pub struct DiffOutcome {
+    /// Patches to apply, as an opaque postcard blob (deserialized in the browser)
+    pub patches_blob: Vec<u8>,
 }
 
-/// Result of HTML diff operations
+/// Error while diffing
 #[derive(Debug, Clone, Facet)]
 #[repr(u8)]
-pub enum HtmlDiffResult {
-    /// Successfully diffed HTML
-    Success { result: DiffResult },
-    /// Error during diffing
-    Error { message: String },
+pub enum DiffError {
+    /// A generic error occured
+    Generic(String),
 }
 
 /// HTML diff service implemented by the cell.
@@ -41,5 +33,5 @@ pub enum HtmlDiffResult {
 #[roam::service]
 pub trait HtmlDiffer {
     /// Diff two HTML documents and produce patches to transform old into new
-    async fn diff_html(&self, input: DiffInput) -> HtmlDiffResult;
+    async fn diff_html(&self, input: DiffInput) -> Result<DiffOutcome, DiffError>;
 }

@@ -16,5 +16,5 @@ path = "src/main.rs"
 cell-html-diff-proto = { path = "../cell-html-diff-proto" }
 dodeca-protocol = { path = "../../crates/dodeca-protocol" }
 dodeca-cell-runtime = { path = "../../crates/dodeca-cell-runtime" }
-facet-html-diff.workspace = true
 tracing.workspace = true
+hotmeal.workspace = true
