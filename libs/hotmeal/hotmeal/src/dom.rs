@@ -954,6 +954,15 @@ impl TreeSink for ArenaSink {
                 sibling.insert_before(node, &mut *arena);
             }
             NodeOrText::AppendText(text) => {
+                // Try to merge with the previous sibling if it's a text node
+                // (matching RcDom behavior for proper adoption agency algorithm support)
+                if let Some(prev_sibling) = sibling.preceding_siblings(&*arena).next()
+                    && let NodeKind::Text(existing) = &mut arena[prev_sibling].get_mut().kind
+                {
+                    existing.push_tendril(&text);
+                    return;
+                }
+
                 let text_node = arena.new_node(NodeData {
                     kind: NodeKind::Text(text),
                     ns: Namespace::Html,

@@ -2201,6 +2201,7 @@ mod tests {
         use crate::dom;
 
         // When you put <section> inside <p>, the browser closes the <p> first
+        // This tests HTML5 adoption agency algorithm behavior
         let html = r#"<p>First with <strong>text<section>break</section><svg width="29"><circle></circle></svg></strong> end.</p>"#;
 
         let doc = dom::parse(&format!("<html><body>{}</body></html>", html));
@@ -2213,12 +2214,15 @@ mod tests {
             result
         );
 
-        // Note: html5ever does NOT wrap the SVG in <strong>, but browsers do.
-        // This is a known parsing difference. The test documents the current behavior.
-        assert!(
-            !result.contains("<strong><svg"),
-            "html5ever does not wrap SVG in strong (differs from browser), got: {}",
-            result
+        // Verify our output matches RcDom exactly (confirming this is html5ever behavior)
+        // Note: Browsers wrap the SVG in <strong>, but html5ever (and RcDom) do not.
+        // This is a known html5ever vs browser parsing difference, not a hotmeal bug.
+        assert_eq!(
+            result,
+            "<html><head></head><body><p>First with <strong>text</strong></p>\
+             <section><strong>break</strong></section>\
+             <svg width=\"29\"><circle></circle></svg> end.<p></p></body></html>",
+            "Output should match RcDom/html5ever behavior"
         );
     }
 }

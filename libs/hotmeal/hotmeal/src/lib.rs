@@ -42,5 +42,8 @@ pub use diff::{
 };
 pub use dom::{Document, ElementData, Namespace, NodeData, NodeKind, parse};
 
+// Re-export html5ever types needed for attribute manipulation
+pub use html5ever::{LocalName, QualName, local_name, namespace_url, ns};
+
 /// Zero-copy string tendril
 pub type Stem = Tendril<UTF8, NonAtomic>;
