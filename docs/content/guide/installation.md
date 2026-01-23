@@ -47,6 +47,8 @@ ddc --help
 
 ## Updating
 
-There is no in-app updater command in `ddc`. To update:
+There is no in-app updater command in `ddc`.
+
+To update:
 - If you installed from releases: re-run the installer command for your platform.
 - If you built from source: pull changes and re-run `cargo xtask build`.
