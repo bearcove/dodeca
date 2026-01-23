@@ -4,9 +4,6 @@
 
 use facet::Facet;
 
-// Re-export patch types from hotmeal
-pub use dodeca_protocol::{NodePath, Patch};
-
 /// Input for HTML diffing
 #[derive(Debug, Clone, Facet)]
 pub struct DiffInput {
@@ -36,5 +33,5 @@ pub enum DiffError {
 #[roam::service]
 pub trait HtmlDiffer {
     /// Diff two HTML documents and produce patches to transform old into new
-    async fn diff_html(&self, input: DiffInput) -> Result<DiffOutcome>;
+    async fn diff_html(&self, input: DiffInput) -> Result<DiffOutcome, DiffError>;
 }

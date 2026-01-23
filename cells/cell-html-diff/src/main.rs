@@ -1,21 +1,20 @@
 //! Dodeca HTML diff cell (cell-html-diff)
 //!
-//! This cell handles HTML DOM diffing for live reload using facet-format-html
-//! for parsing and facet-diff for computing structural differences.
+//! This cell handles HTML DOM diffing for live reload using hotmeal
+//! for parsing and diffing.
 
 use dodeca_cell_runtime::run_cell;
+use hotmeal::StrTendril;
 
 use cell_html_diff_proto::{DiffError, DiffInput, DiffOutcome, HtmlDiffer, HtmlDifferDispatcher};
 
 use dodeca_protocol::facet_postcard;
-// Re-export protocol types
-pub use dodeca_protocol::{NodePath, Patch};
 
 // ============================================================================
 // HTML Differ Implementation
 // ============================================================================
 
-/// HTML differ implementation using facet-format-html and facet-diff.
+/// HTML differ implementation using hotmeal.
 #[derive(Clone)]
 pub struct HtmlDifferImpl;
 
@@ -31,7 +30,9 @@ impl HtmlDiffer for HtmlDifferImpl {
             "diffing HTML"
         );
 
-        let patches = hotmeal::diff_html(&input.old_html, &input.new_html)
+        let old_tendril = StrTendril::from(input.old_html.as_str());
+        let new_tendril = StrTendril::from(input.new_html.as_str());
+        let patches = hotmeal::diff_html(&old_tendril, &new_tendril)
             .map_err(|e| DiffError::Generic(e.to_string()))?;
 
         tracing::debug!(count = patches.len(), "generated patches");
@@ -39,12 +40,14 @@ impl HtmlDiffer for HtmlDifferImpl {
             tracing::debug!(index = i, ?patch, "patch");
         }
 
-        let patches =
-            facet_postcard::to_vec(&patches).map_err(|e| DiffError::Generic(e.to_string()))?;
+        // Convert to owned so we can serialize after tendrils are dropped
+        let patches_owned: Vec<hotmeal::Patch<'static>> =
+            patches.into_iter().map(|p| p.into_owned()).collect();
 
-        Ok(DiffOutcome {
-            patches_blob: patches,
-        })
+        let patches_blob = facet_postcard::to_vec(&patches_owned)
+            .map_err(|e| DiffError::Generic(e.to_string()))?;
+
+        Ok(DiffOutcome { patches_blob })
     }
 }
 

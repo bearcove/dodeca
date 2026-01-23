@@ -13,9 +13,6 @@
 use facet::Facet;
 use std::collections::{HashMap, HashSet};
 
-// Re-export patch types from protocol
-pub use dodeca_protocol::{NodePath, Patch};
-
 // ============================================================================
 // Result types
 // ============================================================================
@@ -29,26 +26,6 @@ pub enum HtmlResult {
     /// Successfully processed HTML with flag (e.g., had_dead_links, had_buttons)
     SuccessWithFlag { html: String, flag: bool },
     /// Error during processing
-    Error { message: String },
-}
-
-/// Result of diffing two DOM trees
-#[derive(Debug, Clone, Facet)]
-pub struct DiffResult {
-    /// Patches to apply (in order)
-    pub patches: Vec<Patch>,
-    /// Stats for debugging
-    pub nodes_compared: usize,
-    pub nodes_skipped: usize,
-}
-
-/// Result of HTML diff operations
-#[derive(Debug, Clone, Facet)]
-#[repr(u8)]
-pub enum HtmlDiffResult {
-    /// Successfully diffed HTML
-    Success { result: DiffResult },
-    /// Error during diffing
     Error { message: String },
 }
 
@@ -206,11 +183,6 @@ pub trait HtmlProcessor {
     /// - Inline CSS/JS minification (if minify options set, calls HtmlHost)
     /// - HTML structural minification (if minify.minify_html set)
     async fn process(&self, input: HtmlProcessInput) -> HtmlProcessResult;
-
-    /// Diff two HTML documents and produce patches to transform old into new.
-    ///
-    /// Used for live reload to send minimal DOM updates to the browser.
-    async fn diff(&self, old_html: String, new_html: String) -> HtmlDiffResult;
 
     // === Legacy methods (for backward compatibility during migration) ===
 

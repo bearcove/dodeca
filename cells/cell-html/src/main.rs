@@ -1,6 +1,6 @@
 //! Dodeca HTML processing cell (cell-html)
 //!
-//! This cell handles all HTML transformations using facet-html:
+//! This cell handles all HTML transformations using hotmeal:
 //! - Parsing and serialization
 //! - URL rewriting (href, src, srcset attributes)
 //! - Dead link marking
@@ -8,17 +8,15 @@
 //! - Script/style injection
 //! - Inline CSS/JS minification (via callbacks to host)
 //! - HTML structural minification
-//! - DOM diffing for live reload
 
 use std::collections::{HashMap, HashSet};
 
 use color_eyre::Result;
-use facet_html::{self as fhtml};
-use facet_html_dom::*;
+use hotmeal::{Document, LocalName, NodeId, NodeKind, QualName, Stem, StrTendril, ns};
 
 use cell_html_proto::{
-    CodeExecutionMetadata, DiffResult, HtmlDiffResult, HtmlHostClient, HtmlProcessInput,
-    HtmlProcessResult, HtmlProcessor, HtmlProcessorDispatcher, HtmlResult, Injection,
+    CodeExecutionMetadata, HtmlHostClient, HtmlProcessInput, HtmlProcessResult, HtmlProcessor,
+    HtmlProcessorDispatcher, HtmlResult, Injection,
 };
 use dodeca_cell_runtime::{ConnectionHandle, run_cell};
 
@@ -49,136 +47,67 @@ impl HtmlProcessor for HtmlProcessorImpl {
         _cx: &dodeca_cell_runtime::Context,
         input: HtmlProcessInput,
     ) -> HtmlProcessResult {
-        let input_has_doctype = input.html.contains("<!DOCTYPE");
-
-        // Parse HTML once
-        let mut doc: Html = match fhtml::from_str(&input.html) {
-            Ok(doc) => doc,
-            Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    html_len = input.html.len(),
-                    "facet-html parse failed"
-                );
-                return HtmlProcessResult::Error {
-                    message: format!("HTML parse error: {}", e),
-                };
-            }
-        };
-
-        // Check if parsing produced an empty document (facet-html-dom bug)
-        if input_has_doctype && doc.head.is_none() && doc.body.is_none() {
-            tracing::error!(
-                input_len = input.html.len(),
-                "facet-html-dom parsed valid HTML into empty document in process! Returning original HTML."
-            );
-            return HtmlProcessResult::Success {
-                html: input.html,
-                had_dead_links: false,
-                had_code_buttons: false,
-            };
-        }
-
         let mut had_dead_links = false;
         let mut had_code_buttons = false;
 
-        // 1. URL rewriting
-        if let Some(path_map) = &input.path_map {
-            rewrite_urls_in_doc(&mut doc, path_map);
-        }
+        // Phase 1: All sync DOM work (before any await points)
+        let html = {
+            let tendril = StrTendril::from(input.html.as_str());
+            let mut doc = hotmeal::parse(&tendril);
 
-        // 2. Dead link marking
-        if let Some(known_routes) = &input.known_routes {
-            had_dead_links = mark_dead_links_in_doc(&mut doc, known_routes);
-        }
+            // 1. URL rewriting
+            if let Some(path_map) = &input.path_map {
+                rewrite_urls_in_doc(&mut doc, path_map);
+            }
 
-        // 3. Code button injection
-        if let Some(code_metadata) = &input.code_metadata {
-            had_code_buttons = inject_code_buttons_in_doc(&mut doc, code_metadata);
-        }
+            // 2. Dead link marking
+            if let Some(known_routes) = &input.known_routes {
+                had_dead_links = mark_dead_links_in_doc(&mut doc, known_routes);
+            }
 
-        // 4. Inline CSS/JS minification (via host callbacks)
-        if let Some(ref minify_opts) = input.minify {
+            // 3. Code button injection
+            if let Some(code_metadata) = &input.code_metadata {
+                had_code_buttons = inject_code_buttons_in_doc(&mut doc, code_metadata);
+            }
+
+            // 4. Content injections (on the tree)
+            for injection in &input.injections {
+                apply_injection(&mut doc, injection);
+            }
+
+            // Serialize - this produces an owned String
+            doc.to_html()
+        };
+        // tendril and doc are dropped here, before any await
+
+        // Phase 2: Async minification (if requested)
+        let html = if let Some(ref minify_opts) = input.minify {
             let host = self.host_client();
-            if minify_opts.minify_inline_css
-                && let Err(e) = minify_inline_css(&host, &mut doc).await
-            {
-                tracing::warn!("CSS minification failed: {}", e);
-            }
-            if minify_opts.minify_inline_js
-                && let Err(e) = minify_inline_js(&host, &mut doc).await
-            {
-                tracing::warn!("JS minification failed: {}", e);
-            }
-        }
+            let mut current_html = html;
 
-        // 5. Content injections (on the tree)
-        for injection in &input.injections {
-            apply_injection(&mut doc, injection);
-        }
-
-        // 6. Serialize back to string
-        let html = if input.minify.as_ref().is_some_and(|m| m.minify_html) {
-            match fhtml::to_string(&doc) {
-                Ok(s) => s,
-                Err(e) => {
-                    return HtmlProcessResult::Error {
-                        message: format!("HTML serialize error: {}", e),
-                    };
+            if minify_opts.minify_inline_css {
+                match minify_inline_css_string(&host, &current_html).await {
+                    Ok(minified) => current_html = minified,
+                    Err(e) => tracing::warn!("CSS minification failed: {}", e),
                 }
             }
+
+            if minify_opts.minify_inline_js {
+                match minify_inline_js_string(&host, &current_html).await {
+                    Ok(minified) => current_html = minified,
+                    Err(e) => tracing::warn!("JS minification failed: {}", e),
+                }
+            }
+
+            current_html
         } else {
-            match fhtml::to_string_pretty(&doc) {
-                Ok(s) => s,
-                Err(e) => {
-                    return HtmlProcessResult::Error {
-                        message: format!("HTML serialize error: {}", e),
-                    };
-                }
-            }
+            html
         };
 
         HtmlProcessResult::Success {
             html,
             had_dead_links,
             had_code_buttons,
-        }
-    }
-
-    async fn diff(
-        &self,
-        _cx: &dodeca_cell_runtime::Context,
-        old_html: String,
-        new_html: String,
-    ) -> HtmlDiffResult {
-        tracing::debug!(
-            old_len = old_html.len(),
-            new_len = new_html.len(),
-            "diffing HTML"
-        );
-
-        // Note: This method exists for protocol compatibility but diffing
-        // is done via cell-html-diff in practice. This is a passthrough.
-        match facet_html_diff::diff_html(&old_html, &new_html) {
-            Ok(patches) => {
-                tracing::debug!(count = patches.len(), "generated patches");
-                for (i, patch) in patches.iter().enumerate() {
-                    tracing::debug!(index = i, ?patch, "patch");
-                }
-
-                let nodes_compared = patches.len();
-                HtmlDiffResult::Success {
-                    result: DiffResult {
-                        patches,
-                        nodes_compared,
-                        nodes_skipped: 0,
-                    },
-                }
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "diff failed");
-                HtmlDiffResult::Error { message: e }
-            }
         }
     }
 
@@ -190,39 +119,11 @@ impl HtmlProcessor for HtmlProcessorImpl {
         html: String,
         path_map: HashMap<String, String>,
     ) -> HtmlResult {
-        let input_has_doctype = html.contains("<!DOCTYPE");
-        let mut doc: Html = match fhtml::from_str(&html) {
-            Ok(doc) => doc,
-            Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    html_len = html.len(),
-                    "facet-html parse failed in rewrite_urls"
-                );
-                return HtmlResult::Error {
-                    message: format!("HTML parse error: {}", e),
-                };
-            }
-        };
-
-        // Check if parsing produced an empty document (facet-html-dom bug)
-        if input_has_doctype && doc.head.is_none() && doc.body.is_none() {
-            tracing::error!(
-                input_len = html.len(),
-                input_preview = %html.chars().take(200).collect::<String>(),
-                "facet-html-dom parsed valid HTML into empty document! Returning original HTML."
-            );
-            // Return the original HTML unchanged rather than corrupt output
-            return HtmlResult::Success { html };
-        }
-
+        let tendril = StrTendril::from(html.as_str());
+        let mut doc = hotmeal::parse(&tendril);
         rewrite_urls_in_doc(&mut doc, &path_map);
-
-        match fhtml::to_string_pretty(&doc) {
-            Ok(output_html) => HtmlResult::Success { html: output_html },
-            Err(e) => HtmlResult::Error {
-                message: format!("HTML serialize error: {}", e),
-            },
+        HtmlResult::Success {
+            html: doc.to_html(),
         }
     }
 
@@ -232,35 +133,12 @@ impl HtmlProcessor for HtmlProcessorImpl {
         html: String,
         known_routes: HashSet<String>,
     ) -> HtmlResult {
-        let input_has_doctype = html.contains("<!DOCTYPE");
-        let mut doc: Html = match fhtml::from_str(&html) {
-            Ok(doc) => doc,
-            Err(e) => {
-                return HtmlResult::Error {
-                    message: format!("HTML parse error: {}", e),
-                };
-            }
-        };
-
-        // Check if parsing produced an empty document (facet-html-dom bug)
-        if input_has_doctype && doc.head.is_none() && doc.body.is_none() {
-            tracing::error!(
-                input_len = html.len(),
-                "facet-html-dom parsed valid HTML into empty document in mark_dead_links! Returning original HTML."
-            );
-            return HtmlResult::SuccessWithFlag { html, flag: false };
-        }
-
+        let tendril = StrTendril::from(html.as_str());
+        let mut doc = hotmeal::parse(&tendril);
         let had_dead = mark_dead_links_in_doc(&mut doc, &known_routes);
-
-        match fhtml::to_string_pretty(&doc) {
-            Ok(html) => HtmlResult::SuccessWithFlag {
-                html,
-                flag: had_dead,
-            },
-            Err(e) => HtmlResult::Error {
-                message: format!("HTML serialize error: {}", e),
-            },
+        HtmlResult::SuccessWithFlag {
+            html: doc.to_html(),
+            flag: had_dead,
         }
     }
 
@@ -270,302 +148,311 @@ impl HtmlProcessor for HtmlProcessorImpl {
         html: String,
         code_metadata: HashMap<String, CodeExecutionMetadata>,
     ) -> HtmlResult {
-        let input_has_doctype = html.contains("<!DOCTYPE");
-        let mut doc: Html = match fhtml::from_str(&html) {
-            Ok(doc) => doc,
-            Err(e) => {
-                return HtmlResult::Error {
-                    message: format!("HTML parse error: {}", e),
-                };
-            }
-        };
-
-        // Check if parsing produced an empty document (facet-html-dom bug)
-        if input_has_doctype && doc.head.is_none() && doc.body.is_none() {
-            tracing::error!(
-                input_len = html.len(),
-                "facet-html-dom parsed valid HTML into empty document in inject_code_buttons! Returning original HTML."
-            );
-            return HtmlResult::SuccessWithFlag { html, flag: false };
-        }
-
+        let tendril = StrTendril::from(html.as_str());
+        let mut doc = hotmeal::parse(&tendril);
         let had_buttons = inject_code_buttons_in_doc(&mut doc, &code_metadata);
-
-        match fhtml::to_string_pretty(&doc) {
-            Ok(html) => HtmlResult::SuccessWithFlag {
-                html,
-                flag: had_buttons,
-            },
-            Err(e) => HtmlResult::Error {
-                message: format!("HTML serialize error: {}", e),
-            },
+        HtmlResult::SuccessWithFlag {
+            html: doc.to_html(),
+            flag: had_buttons,
         }
     }
 }
 
 // ============================================================================
-// Inline CSS/JS minification
+// Helper functions for attribute access
 // ============================================================================
 
-/// Minify inline `<style>` content via host callback
-async fn minify_inline_css(host: &HtmlHostClient, doc: &mut Html) -> Result<()> {
-    // Process <style> elements in <head>
-    if let Some(head) = &mut doc.head {
-        for child in &mut head.children {
-            if let MetadataContent::Style(style) = child
-                && !style.text.trim().is_empty()
+/// Get an attribute value from an element
+fn get_attr(doc: &Document, node_id: NodeId, attr_name: &str) -> Option<String> {
+    if let NodeKind::Element(elem) = &doc.get(node_id).kind {
+        for (name, value) in &elem.attrs {
+            if name.local.as_ref() == attr_name {
+                return Some(value.as_ref().to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Set an attribute on an element
+fn set_attr(doc: &mut Document, node_id: NodeId, attr_name: &str, value: &str) {
+    if let NodeKind::Element(elem) = &mut doc.get_mut(node_id).kind {
+        let qname = QualName::new(None, ns!(), LocalName::from(attr_name));
+        // Find existing and update, or add new
+        if let Some((_, existing)) = elem
+            .attrs
+            .iter_mut()
+            .find(|(n, _)| n.local.as_ref() == attr_name)
+        {
+            *existing = Stem::from(value.to_string());
+        } else {
+            elem.attrs.push((qname, Stem::from(value.to_string())));
+        }
+    }
+}
+
+/// Check if node is an element with the given tag name
+fn is_element(doc: &Document, node_id: NodeId, tag: &str) -> bool {
+    if let NodeKind::Element(elem) = &doc.get(node_id).kind {
+        elem.tag.as_ref() == tag
+    } else {
+        false
+    }
+}
+
+/// Get the tag name of an element (or None if not an element)
+fn tag_name<'a>(doc: &'a Document, node_id: NodeId) -> Option<&'a str> {
+    if let NodeKind::Element(elem) = &doc.get(node_id).kind {
+        Some(elem.tag.as_ref())
+    } else {
+        None
+    }
+}
+
+/// Get text content from a node (recursively)
+fn get_text_content(doc: &Document, node_id: NodeId) -> String {
+    let mut text = String::new();
+    collect_text(doc, node_id, &mut text);
+    text
+}
+
+fn collect_text(doc: &Document, node_id: NodeId, out: &mut String) {
+    match &doc.get(node_id).kind {
+        NodeKind::Text(t) => out.push_str(t.as_ref()),
+        NodeKind::Element(_) => {
+            for child_id in doc.children(node_id) {
+                collect_text(doc, child_id, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+// ============================================================================
+// Inline CSS/JS minification (string-based, for use across await points)
+// ============================================================================
+
+/// Minify inline `<style>` content via host callback (string-based)
+async fn minify_inline_css_string(host: &HtmlHostClient, html: &str) -> Result<String> {
+    // Phase 1: Extract CSS content (sync, no await)
+    let css_to_minify: Vec<(usize, String)> = {
+        let tendril = StrTendril::from(html);
+        let doc = hotmeal::parse(&tendril);
+
+        let mut results = Vec::new();
+        if let Some(head_id) = doc.head() {
+            for (idx, node_id) in doc
+                .children(head_id)
+                .filter(|&id| is_element(&doc, id, "style"))
+                .enumerate()
             {
-                match host.minify_css(style.text.clone()).await {
-                    Ok(cell_html_proto::MinifyCssResult::Success { css }) => {
-                        style.text = css;
-                    }
-                    Ok(cell_html_proto::MinifyCssResult::Error { message }) => {
-                        tracing::warn!("CSS minification error: {}", message);
-                    }
-                    Err(e) => {
-                        tracing::warn!("CSS minification RPC error: {}", e);
-                    }
+                let text = get_text_content(&doc, node_id);
+                if !text.trim().is_empty() {
+                    results.push((idx, text));
                 }
+            }
+        }
+        results
+    };
+    // tendril dropped here
+
+    if css_to_minify.is_empty() {
+        return Ok(html.to_string());
+    }
+
+    // Phase 2: Minify CSS (async)
+    let mut minified: HashMap<usize, String> = HashMap::new();
+    for (idx, css) in css_to_minify {
+        match host.minify_css(css.clone()).await {
+            Ok(cell_html_proto::MinifyCssResult::Success { css: min_css }) => {
+                minified.insert(idx, min_css);
+            }
+            Ok(cell_html_proto::MinifyCssResult::Error { message }) => {
+                tracing::warn!("CSS minification error: {}", message);
+            }
+            Err(e) => {
+                tracing::warn!("CSS minification RPC error: {}", e);
             }
         }
     }
 
-    // TODO: Process inline style elements in body if needed
-    Ok(())
+    if minified.is_empty() {
+        return Ok(html.to_string());
+    }
+
+    // Phase 3: Apply minified CSS (sync)
+    let tendril = StrTendril::from(html);
+    let mut doc = hotmeal::parse(&tendril);
+
+    if let Some(head_id) = doc.head() {
+        let style_nodes: Vec<NodeId> = doc
+            .children(head_id)
+            .filter(|&id| is_element(&doc, id, "style"))
+            .collect();
+
+        for (idx, node_id) in style_nodes.into_iter().enumerate() {
+            if let Some(min_css) = minified.get(&idx) {
+                replace_text_content(&mut doc, node_id, min_css);
+            }
+        }
+    }
+
+    Ok(doc.to_html())
 }
 
-/// Minify inline `<script>` content via host callback
-async fn minify_inline_js(host: &HtmlHostClient, doc: &mut Html) -> Result<()> {
-    // Process <script> elements in <head> (only inline scripts, not external)
-    if let Some(head) = &mut doc.head {
-        for child in &mut head.children {
-            if let MetadataContent::Script(script) = child {
-                // Only minify if it's inline (no src attribute)
-                if script.src.is_none() && !script.text.trim().is_empty() {
-                    match host.minify_js(script.text.clone()).await {
-                        Ok(cell_html_proto::MinifyJsResult::Success { js }) => {
-                            script.text = js;
-                        }
-                        Ok(cell_html_proto::MinifyJsResult::Error { message }) => {
-                            tracing::warn!("JS minification error: {}", message);
-                        }
-                        Err(e) => {
-                            tracing::warn!("JS minification RPC error: {}", e);
-                        }
-                    }
+/// Minify inline `<script>` content via host callback (string-based)
+async fn minify_inline_js_string(host: &HtmlHostClient, html: &str) -> Result<String> {
+    // Phase 1: Extract JS content (sync, no await)
+    let js_to_minify: Vec<(usize, String)> = {
+        let tendril = StrTendril::from(html);
+        let doc = hotmeal::parse(&tendril);
+
+        let mut results = Vec::new();
+        if let Some(head_id) = doc.head() {
+            for (idx, node_id) in doc
+                .children(head_id)
+                .filter(|&id| is_element(&doc, id, "script") && get_attr(&doc, id, "src").is_none())
+                .enumerate()
+            {
+                let text = get_text_content(&doc, node_id);
+                if !text.trim().is_empty() {
+                    results.push((idx, text));
                 }
+            }
+        }
+        results
+    };
+    // tendril dropped here
+
+    if js_to_minify.is_empty() {
+        return Ok(html.to_string());
+    }
+
+    // Phase 2: Minify JS (async)
+    let mut minified: HashMap<usize, String> = HashMap::new();
+    for (idx, js) in js_to_minify {
+        match host.minify_js(js.clone()).await {
+            Ok(cell_html_proto::MinifyJsResult::Success { js: min_js }) => {
+                minified.insert(idx, min_js);
+            }
+            Ok(cell_html_proto::MinifyJsResult::Error { message }) => {
+                tracing::warn!("JS minification error: {}", message);
+            }
+            Err(e) => {
+                tracing::warn!("JS minification RPC error: {}", e);
             }
         }
     }
 
-    // TODO: Process script elements in body if needed
-    Ok(())
+    if minified.is_empty() {
+        return Ok(html.to_string());
+    }
+
+    // Phase 3: Apply minified JS (sync)
+    let tendril = StrTendril::from(html);
+    let mut doc = hotmeal::parse(&tendril);
+
+    if let Some(head_id) = doc.head() {
+        let script_nodes: Vec<NodeId> = doc
+            .children(head_id)
+            .filter(|&id| is_element(&doc, id, "script") && get_attr(&doc, id, "src").is_none())
+            .collect();
+
+        for (idx, node_id) in script_nodes.into_iter().enumerate() {
+            if let Some(min_js) = minified.get(&idx) {
+                replace_text_content(&mut doc, node_id, min_js);
+            }
+        }
+    }
+
+    Ok(doc.to_html())
+}
+
+/// Replace all text content of an element with new text
+fn replace_text_content(doc: &mut Document, node_id: NodeId, new_text: &str) {
+    // Remove all existing children
+    let children: Vec<NodeId> = doc.children(node_id).collect();
+    for child in children {
+        doc.remove(child);
+    }
+    // Add new text node
+    let text_node = doc.create_text(new_text.to_string());
+    doc.append_child(node_id, text_node);
 }
 
 // ============================================================================
 // URL Rewriting
 // ============================================================================
 
-fn rewrite_urls_in_doc(doc: &mut Html, path_map: &HashMap<String, String>) {
+fn rewrite_urls_in_doc(doc: &mut Document, path_map: &HashMap<String, String>) {
     // Rewrite URLs in <head>
-    if let Some(head) = &mut doc.head {
-        for child in &mut head.children {
-            match child {
-                // Link elements
-                MetadataContent::Link(link) => {
-                    if let Some(href) = &link.href
-                        && let Some(new_url) = path_map.get(href)
-                    {
-                        link.href = Some(new_url.clone());
-                    }
-                }
-                // Script elements
-                MetadataContent::Script(script) => {
-                    if let Some(src) = &script.src
-                        && let Some(new_url) = path_map.get(src)
-                    {
-                        script.src = Some(new_url.clone());
-                    }
-                }
-                _ => {}
-            }
-        }
+    if let Some(head_id) = doc.head() {
+        rewrite_urls_in_subtree(doc, head_id, path_map);
     }
 
     // Rewrite URLs in <body>
-    if let Some(body) = &mut doc.body {
-        rewrite_urls_in_flow_content(&mut body.children, path_map);
+    if let Some(body_id) = doc.body() {
+        rewrite_urls_in_subtree(doc, body_id, path_map);
     }
 }
 
-fn rewrite_urls_in_flow_content(children: &mut [FlowContent], path_map: &HashMap<String, String>) {
-    for child in children {
-        match child {
-            FlowContent::A(a) => {
-                if let Some(href) = &a.href
-                    && let Some(new_url) = path_map.get(href)
-                {
-                    a.href = Some(new_url.clone());
-                }
-                rewrite_urls_in_phrasing_content(&mut a.children, path_map);
-            }
-            FlowContent::Img(img) => {
-                if let Some(src) = &img.src
-                    && let Some(new_url) = path_map.get(src)
-                {
-                    img.src = Some(new_url.clone());
-                }
-                // TODO: Handle srcset
-            }
-            FlowContent::Div(div) => {
-                rewrite_urls_in_flow_content(&mut div.children, path_map);
-            }
-            FlowContent::P(p) => {
-                rewrite_urls_in_phrasing_content(&mut p.children, path_map);
-            }
-            FlowContent::Section(section) => {
-                rewrite_urls_in_flow_content(&mut section.children, path_map);
-            }
-            FlowContent::Article(article) => {
-                rewrite_urls_in_flow_content(&mut article.children, path_map);
-            }
-            FlowContent::Nav(nav) => {
-                rewrite_urls_in_flow_content(&mut nav.children, path_map);
-            }
-            FlowContent::Header(header) => {
-                rewrite_urls_in_flow_content(&mut header.children, path_map);
-            }
-            FlowContent::Footer(footer) => {
-                rewrite_urls_in_flow_content(&mut footer.children, path_map);
-            }
-            FlowContent::Main(main) => {
-                rewrite_urls_in_flow_content(&mut main.children, path_map);
-            }
-            FlowContent::Aside(aside) => {
-                rewrite_urls_in_flow_content(&mut aside.children, path_map);
-            }
-            FlowContent::H1(h) => rewrite_urls_in_phrasing_content(&mut h.children, path_map),
-            FlowContent::H2(h) => rewrite_urls_in_phrasing_content(&mut h.children, path_map),
-            FlowContent::H3(h) => rewrite_urls_in_phrasing_content(&mut h.children, path_map),
-            FlowContent::H4(h) => rewrite_urls_in_phrasing_content(&mut h.children, path_map),
-            FlowContent::H5(h) => rewrite_urls_in_phrasing_content(&mut h.children, path_map),
-            FlowContent::H6(h) => rewrite_urls_in_phrasing_content(&mut h.children, path_map),
-            FlowContent::Ul(ul) => {
-                for li in &mut ul.li {
-                    rewrite_urls_in_flow_content(&mut li.children, path_map);
-                }
-            }
-            FlowContent::Ol(ol) => {
-                for li in &mut ol.li {
-                    rewrite_urls_in_flow_content(&mut li.children, path_map);
-                }
-            }
-            FlowContent::Blockquote(bq) => {
-                rewrite_urls_in_flow_content(&mut bq.children, path_map);
-            }
-            FlowContent::Pre(pre) => {
-                rewrite_urls_in_phrasing_content(&mut pre.children, path_map);
-            }
-            FlowContent::Figure(fig) => {
-                rewrite_urls_in_flow_content(&mut fig.children, path_map);
-            }
-            FlowContent::Table(table) => {
-                // TODO: Handle table structure
-                let _ = table;
-            }
-            FlowContent::Form(form) => {
-                rewrite_urls_in_flow_content(&mut form.children, path_map);
-            }
-            FlowContent::Details(details) => {
-                rewrite_urls_in_flow_content(&mut details.children, path_map);
-            }
-            FlowContent::Iframe(iframe) => {
-                if let Some(src) = &iframe.src
-                    && let Some(new_url) = path_map.get(src)
-                {
-                    iframe.src = Some(new_url.clone());
-                }
-            }
-            FlowContent::Video(video) => {
-                if let Some(src) = &video.src
-                    && let Some(new_url) = path_map.get(src)
-                {
-                    video.src = Some(new_url.clone());
-                }
-            }
-            FlowContent::Audio(audio) => {
-                if let Some(src) = &audio.src
-                    && let Some(new_url) = path_map.get(src)
-                {
-                    audio.src = Some(new_url.clone());
-                }
-            }
-            FlowContent::Picture(picture) => {
-                for source in &mut picture.source {
-                    if let Some(srcset) = &source.srcset {
-                        source.srcset = Some(rewrite_srcset(srcset, path_map));
-                    }
-                }
-                if let Some(img) = &mut picture.img
-                    && let Some(src) = &img.src
-                    && let Some(new_url) = path_map.get(src)
-                {
-                    img.src = Some(new_url.clone());
-                }
-            }
-            FlowContent::Custom(custom) => {
-                rewrite_urls_in_flow_content(&mut custom.children, path_map);
-            }
-            FlowContent::Script(script) => {
-                if let Some(src) = &script.src
-                    && let Some(new_url) = path_map.get(src)
-                {
-                    script.src = Some(new_url.clone());
-                }
-            }
-            _ => {}
-        }
-    }
-}
-
-fn rewrite_urls_in_phrasing_content(
-    children: &mut [PhrasingContent],
+fn rewrite_urls_in_subtree(
+    doc: &mut Document,
+    node_id: NodeId,
     path_map: &HashMap<String, String>,
 ) {
-    for child in children {
-        match child {
-            PhrasingContent::A(a) => {
-                if let Some(href) = &a.href
-                    && let Some(new_url) = path_map.get(href)
-                {
-                    a.href = Some(new_url.clone());
-                }
-                rewrite_urls_in_phrasing_content(&mut a.children, path_map);
-            }
-            PhrasingContent::Img(img) => {
-                if let Some(src) = &img.src
-                    && let Some(new_url) = path_map.get(src)
-                {
-                    img.src = Some(new_url.clone());
+    // Collect children first to avoid borrow issues
+    let children: Vec<NodeId> = doc.children(node_id).collect();
+
+    // Process this node
+    if let Some(tag) = tag_name(doc, node_id) {
+        match tag {
+            "a" | "link" => {
+                if let Some(href) = get_attr(doc, node_id, "href") {
+                    if let Some(new_url) = path_map.get(&href) {
+                        set_attr(doc, node_id, "href", new_url);
+                    }
                 }
             }
-            PhrasingContent::Span(span) => {
-                rewrite_urls_in_phrasing_content(&mut span.children, path_map);
+            "script" => {
+                if let Some(src) = get_attr(doc, node_id, "src") {
+                    if let Some(new_url) = path_map.get(&src) {
+                        set_attr(doc, node_id, "src", new_url);
+                    }
+                }
             }
-            PhrasingContent::Strong(strong) => {
-                rewrite_urls_in_phrasing_content(&mut strong.children, path_map);
+            "img" => {
+                if let Some(src) = get_attr(doc, node_id, "src") {
+                    if let Some(new_url) = path_map.get(&src) {
+                        set_attr(doc, node_id, "src", new_url);
+                    }
+                }
+                // Handle srcset
+                if let Some(srcset) = get_attr(doc, node_id, "srcset") {
+                    let new_srcset = rewrite_srcset(&srcset, path_map);
+                    set_attr(doc, node_id, "srcset", &new_srcset);
+                }
             }
-            PhrasingContent::Em(em) => {
-                rewrite_urls_in_phrasing_content(&mut em.children, path_map);
+            "source" => {
+                if let Some(srcset) = get_attr(doc, node_id, "srcset") {
+                    let new_srcset = rewrite_srcset(&srcset, path_map);
+                    set_attr(doc, node_id, "srcset", &new_srcset);
+                }
             }
-            PhrasingContent::Code(code) => {
-                rewrite_urls_in_phrasing_content(&mut code.children, path_map);
-            }
-            PhrasingContent::Custom(custom) => {
-                rewrite_urls_in_phrasing_content(&mut custom.children, path_map);
+            "video" | "audio" | "iframe" => {
+                if let Some(src) = get_attr(doc, node_id, "src") {
+                    if let Some(new_url) = path_map.get(&src) {
+                        set_attr(doc, node_id, "src", new_url);
+                    }
+                }
             }
             _ => {}
         }
+    }
+
+    // Recurse into children
+    for child_id in children {
+        rewrite_urls_in_subtree(doc, child_id, path_map);
     }
 }
 
@@ -597,214 +484,34 @@ fn rewrite_srcset(srcset: &str, path_map: &HashMap<String, String>) -> String {
 // Dead Link Marking
 // ============================================================================
 
-fn mark_dead_links_in_doc(doc: &mut Html, known_routes: &HashSet<String>) -> bool {
+fn mark_dead_links_in_doc(doc: &mut Document, known_routes: &HashSet<String>) -> bool {
     let mut had_dead = false;
 
-    if let Some(body) = &mut doc.body {
-        had_dead = mark_dead_links_in_flow_content(&mut body.children, known_routes);
-    }
+    if let Some(body_id) = doc.body() {
+        // Collect all <a> elements first
+        let mut anchors = Vec::new();
+        collect_anchors(doc, body_id, &mut anchors);
 
-    had_dead
-}
-
-fn mark_dead_links_in_flow_content(
-    children: &mut [FlowContent],
-    known_routes: &HashSet<String>,
-) -> bool {
-    let mut had_dead = false;
-
-    for child in children {
-        match child {
-            FlowContent::A(a) => {
-                if let Some(href) = &a.href
-                    && is_dead_link(href, known_routes)
-                {
-                    // Add data-dead attribute
-                    // Note: GlobalAttrs doesn't have data-* support directly,
-                    // we'd need to extend it or use a different approach
-                    // For now, we'll track that we found dead links
-                    had_dead = true;
-                    // TODO: Add data-dead attribute when facet-html supports it
-                }
-                if mark_dead_links_in_phrasing_content(&mut a.children, known_routes) {
+        for node_id in anchors {
+            if let Some(href) = get_attr(doc, node_id, "href") {
+                if is_dead_link(&href, known_routes) {
+                    set_attr(doc, node_id, "data-dead", "true");
                     had_dead = true;
                 }
             }
-            FlowContent::Div(div) => {
-                if mark_dead_links_in_flow_content(&mut div.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::P(p) => {
-                if mark_dead_links_in_phrasing_content(&mut p.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::Section(section) => {
-                if mark_dead_links_in_flow_content(&mut section.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::Article(article) => {
-                if mark_dead_links_in_flow_content(&mut article.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::Nav(nav) => {
-                if mark_dead_links_in_flow_content(&mut nav.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::Header(header) => {
-                if mark_dead_links_in_flow_content(&mut header.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::Footer(footer) => {
-                if mark_dead_links_in_flow_content(&mut footer.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::Main(main) => {
-                if mark_dead_links_in_flow_content(&mut main.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::Aside(aside) => {
-                if mark_dead_links_in_flow_content(&mut aside.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::H1(h) => {
-                if mark_dead_links_in_phrasing_content(&mut h.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::H2(h) => {
-                if mark_dead_links_in_phrasing_content(&mut h.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::H3(h) => {
-                if mark_dead_links_in_phrasing_content(&mut h.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::H4(h) => {
-                if mark_dead_links_in_phrasing_content(&mut h.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::H5(h) => {
-                if mark_dead_links_in_phrasing_content(&mut h.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::H6(h) => {
-                if mark_dead_links_in_phrasing_content(&mut h.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::Ul(ul) => {
-                for li in &mut ul.li {
-                    if mark_dead_links_in_flow_content(&mut li.children, known_routes) {
-                        had_dead = true;
-                    }
-                }
-            }
-            FlowContent::Ol(ol) => {
-                for li in &mut ol.li {
-                    if mark_dead_links_in_flow_content(&mut li.children, known_routes) {
-                        had_dead = true;
-                    }
-                }
-            }
-            FlowContent::Blockquote(bq) => {
-                if mark_dead_links_in_flow_content(&mut bq.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::Pre(pre) => {
-                if mark_dead_links_in_phrasing_content(&mut pre.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::Figure(fig) => {
-                if mark_dead_links_in_flow_content(&mut fig.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::Form(form) => {
-                if mark_dead_links_in_flow_content(&mut form.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::Details(details) => {
-                if mark_dead_links_in_flow_content(&mut details.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            FlowContent::Custom(custom) => {
-                if mark_dead_links_in_flow_content(&mut custom.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            _ => {}
         }
     }
 
     had_dead
 }
 
-fn mark_dead_links_in_phrasing_content(
-    children: &mut [PhrasingContent],
-    known_routes: &HashSet<String>,
-) -> bool {
-    let mut had_dead = false;
-
-    for child in children {
-        match child {
-            PhrasingContent::A(a) => {
-                if let Some(href) = &a.href
-                    && is_dead_link(href, known_routes)
-                {
-                    had_dead = true;
-                    // TODO: Add data-dead attribute
-                }
-                if mark_dead_links_in_phrasing_content(&mut a.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            PhrasingContent::Span(span) => {
-                if mark_dead_links_in_phrasing_content(&mut span.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            PhrasingContent::Strong(strong) => {
-                if mark_dead_links_in_phrasing_content(&mut strong.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            PhrasingContent::Em(em) => {
-                if mark_dead_links_in_phrasing_content(&mut em.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            PhrasingContent::Code(code) => {
-                if mark_dead_links_in_phrasing_content(&mut code.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            PhrasingContent::Custom(custom) => {
-                if mark_dead_links_in_phrasing_content(&mut custom.children, known_routes) {
-                    had_dead = true;
-                }
-            }
-            _ => {}
-        }
+fn collect_anchors(doc: &Document, node_id: NodeId, anchors: &mut Vec<NodeId>) {
+    if is_element(doc, node_id, "a") {
+        anchors.push(node_id);
     }
-
-    had_dead
+    for child_id in doc.children(node_id) {
+        collect_anchors(doc, child_id, anchors);
+    }
 }
 
 fn is_dead_link(href: &str, known_routes: &HashSet<String>) -> bool {
@@ -867,67 +574,49 @@ fn normalize_route(path: &str) -> String {
 // ============================================================================
 
 fn inject_code_buttons_in_doc(
-    doc: &mut Html,
+    doc: &mut Document,
     code_metadata: &HashMap<String, CodeExecutionMetadata>,
 ) -> bool {
     let mut had_buttons = false;
 
-    if let Some(body) = &mut doc.body {
-        had_buttons = inject_code_buttons_in_flow_content(&mut body.children, code_metadata);
-    }
+    if let Some(body_id) = doc.body() {
+        // Collect all <pre> elements and .code-block divs
+        let mut targets = Vec::new();
+        collect_code_targets(doc, body_id, &mut targets);
 
-    had_buttons
-}
+        for target in targets {
+            match target {
+                CodeTarget::Pre(node_id) => {
+                    let code_text = get_text_content(doc, node_id);
+                    let normalized = normalize_code_for_matching(&code_text);
 
-fn inject_code_buttons_in_flow_content(
-    children: &mut [FlowContent],
-    code_metadata: &HashMap<String, CodeExecutionMetadata>,
-) -> bool {
-    let mut had_buttons = false;
+                    // Add position:relative to pre element
+                    let existing_style = get_attr(doc, node_id, "style").unwrap_or_default();
+                    if !existing_style.contains("position") {
+                        set_attr(
+                            doc,
+                            node_id,
+                            "style",
+                            &format!("position:relative;{}", existing_style),
+                        );
+                    }
 
-    for child in children.iter_mut() {
-        match child {
-            FlowContent::Pre(pre) => {
-                // Extract text content from the pre element
-                let code_text = extract_text_from_phrasing(&pre.children);
-                let normalized = normalize_code_for_matching(&code_text);
+                    // Create and append buttons
+                    if let Some(meta) = code_metadata.get(&normalized) {
+                        let btn = create_build_info_button(doc, meta);
+                        doc.append_child(node_id, btn);
+                    }
+                    let copy_btn = create_copy_button(doc);
+                    doc.append_child(node_id, copy_btn);
 
-                // Add position:relative to pre element
-                let existing_style = pre.attrs.style.clone().unwrap_or_default();
-                if !existing_style.contains("position") {
-                    pre.attrs.style = Some(format!("position:relative;{}", existing_style));
+                    had_buttons = true;
                 }
-
-                // Create copy button
-                let copy_button = create_copy_button();
-
-                // Check if we have build info for this code
-                let build_info_button =
-                    code_metadata.get(&normalized).map(create_build_info_button);
-
-                // Add buttons as children at the end
-                // Note: This adds them as phrasing content inside pre
-                if let Some(btn) = build_info_button {
-                    pre.children.push(btn);
-                }
-                pre.children.push(copy_button);
-
-                had_buttons = true;
-            }
-            FlowContent::Div(div) => {
-                // Check if this is a .code-block wrapper containing a pre
-                let is_code_block = div
-                    .attrs
-                    .class
-                    .as_ref()
-                    .is_some_and(|c| c.contains("code-block"));
-
-                if is_code_block {
-                    // Find the pre element inside and extract code text
+                CodeTarget::CodeBlockDiv(node_id) => {
+                    // Find the pre inside and get its code text
                     let mut code_text = String::new();
-                    for child in div.children.iter() {
-                        if let FlowContent::Pre(pre) = child {
-                            code_text = extract_text_from_phrasing(&pre.children);
+                    for child_id in doc.children(node_id) {
+                        if is_element(doc, child_id, "pre") {
+                            code_text = get_text_content(doc, child_id);
                             break;
                         }
                     }
@@ -935,113 +624,48 @@ fn inject_code_buttons_in_flow_content(
                     if !code_text.is_empty() {
                         let normalized = normalize_code_for_matching(&code_text);
 
-                        // Create buttons as FlowContent for the div
-                        let copy_button = create_copy_button_flow();
-                        let build_info_button = code_metadata
-                            .get(&normalized)
-                            .map(create_build_info_button_flow);
-
-                        // Add buttons to the div (not the pre)
-                        if let Some(btn) = build_info_button {
-                            div.children.push(btn);
+                        // Add buttons to the div
+                        if let Some(meta) = code_metadata.get(&normalized) {
+                            let btn = create_build_info_button(doc, meta);
+                            doc.append_child(node_id, btn);
                         }
-                        div.children.push(copy_button);
+                        let copy_btn = create_copy_button(doc);
+                        doc.append_child(node_id, copy_btn);
 
                         had_buttons = true;
                     }
-                } else {
-                    // Regular div - recurse into children
-                    if inject_code_buttons_in_flow_content(&mut div.children, code_metadata) {
-                        had_buttons = true;
-                    }
                 }
             }
-            FlowContent::Section(section) => {
-                if inject_code_buttons_in_flow_content(&mut section.children, code_metadata) {
-                    had_buttons = true;
-                }
-            }
-            FlowContent::Article(article) => {
-                if inject_code_buttons_in_flow_content(&mut article.children, code_metadata) {
-                    had_buttons = true;
-                }
-            }
-            FlowContent::Main(main) => {
-                if inject_code_buttons_in_flow_content(&mut main.children, code_metadata) {
-                    had_buttons = true;
-                }
-            }
-            FlowContent::Aside(aside) => {
-                if inject_code_buttons_in_flow_content(&mut aside.children, code_metadata) {
-                    had_buttons = true;
-                }
-            }
-            FlowContent::Header(header) => {
-                if inject_code_buttons_in_flow_content(&mut header.children, code_metadata) {
-                    had_buttons = true;
-                }
-            }
-            FlowContent::Footer(footer) => {
-                if inject_code_buttons_in_flow_content(&mut footer.children, code_metadata) {
-                    had_buttons = true;
-                }
-            }
-            FlowContent::Nav(nav) => {
-                if inject_code_buttons_in_flow_content(&mut nav.children, code_metadata) {
-                    had_buttons = true;
-                }
-            }
-            FlowContent::Blockquote(bq) => {
-                if inject_code_buttons_in_flow_content(&mut bq.children, code_metadata) {
-                    had_buttons = true;
-                }
-            }
-            FlowContent::Figure(fig) => {
-                if inject_code_buttons_in_flow_content(&mut fig.children, code_metadata) {
-                    had_buttons = true;
-                }
-            }
-            FlowContent::Details(details) => {
-                if inject_code_buttons_in_flow_content(&mut details.children, code_metadata) {
-                    had_buttons = true;
-                }
-            }
-            FlowContent::Custom(custom) => {
-                if inject_code_buttons_in_flow_content(&mut custom.children, code_metadata) {
-                    had_buttons = true;
-                }
-            }
-            _ => {}
         }
     }
 
     had_buttons
 }
 
-fn extract_text_from_phrasing(children: &[PhrasingContent]) -> String {
-    let mut text = String::new();
-    for child in children {
-        match child {
-            PhrasingContent::Text(t) => text.push_str(t),
-            PhrasingContent::Code(code) => {
-                text.push_str(&extract_text_from_phrasing(&code.children));
+enum CodeTarget {
+    Pre(NodeId),
+    CodeBlockDiv(NodeId),
+}
+
+fn collect_code_targets(doc: &Document, node_id: NodeId, targets: &mut Vec<CodeTarget>) {
+    if let Some(tag) = tag_name(doc, node_id) {
+        if tag == "pre" {
+            targets.push(CodeTarget::Pre(node_id));
+            return; // Don't recurse into pre
+        }
+        if tag == "div" {
+            if let Some(class) = get_attr(doc, node_id, "class") {
+                if class.contains("code-block") {
+                    targets.push(CodeTarget::CodeBlockDiv(node_id));
+                    return; // Don't recurse into code-block
+                }
             }
-            PhrasingContent::Span(span) => {
-                text.push_str(&extract_text_from_phrasing(&span.children));
-            }
-            PhrasingContent::Strong(strong) => {
-                text.push_str(&extract_text_from_phrasing(&strong.children));
-            }
-            PhrasingContent::Em(em) => {
-                text.push_str(&extract_text_from_phrasing(&em.children));
-            }
-            PhrasingContent::Custom(custom) => {
-                text.push_str(&extract_text_from_phrasing(&custom.children));
-            }
-            _ => {}
         }
     }
-    text
+
+    for child_id in doc.children(node_id) {
+        collect_code_targets(doc, child_id, targets);
+    }
 }
 
 fn normalize_code_for_matching(code: &str) -> String {
@@ -1052,80 +676,40 @@ fn normalize_code_for_matching(code: &str) -> String {
         .join("\n")
 }
 
-fn create_copy_button() -> PhrasingContent {
-    PhrasingContent::Button(Button {
-        attrs: GlobalAttrs {
-            class: Some("copy-btn".to_string()),
-            ..Default::default()
-        },
-        children: vec![PhrasingContent::Text("Copy".to_string())],
-        ..Default::default()
-    })
+fn create_copy_button(doc: &mut Document) -> NodeId {
+    let btn = doc.create_element("button");
+    set_attr(doc, btn, "class", "copy-btn");
+    let text = doc.create_text("Copy".to_string());
+    doc.append_child(btn, text);
+    btn
 }
 
-fn create_build_info_button(meta: &CodeExecutionMetadata) -> PhrasingContent {
-    // TODO: facet-html doesn't support onclick or data-* attributes yet.
-    // The build info popup functionality needs one of:
-    // 1. facet-format-html to support arbitrary attributes
-    // 2. Post-processing to add onclick handler
-    // For now, we create the button without the onclick.
-    let _json = metadata_to_json(meta);
+fn create_build_info_button(doc: &mut Document, meta: &CodeExecutionMetadata) -> NodeId {
     let rustc_short = meta
         .rustc_version
         .lines()
         .next()
         .unwrap_or(&meta.rustc_version);
 
-    PhrasingContent::Button(Button {
-        attrs: GlobalAttrs {
-            class: Some("build-info-btn verified".to_string()),
-            tooltip: Some(format!(
-                "Verified: {}",
-                html_escape::encode_text(rustc_short)
-            )),
-            ..Default::default()
-        },
-        children: vec![PhrasingContent::Text("\u{2139}".to_string())], // Unicode info symbol
-        ..Default::default()
-    })
-}
+    let btn = doc.create_element("button");
+    set_attr(doc, btn, "class", "build-info-btn verified");
+    set_attr(
+        doc,
+        btn,
+        "title",
+        &format!("Verified: {}", html_escape::encode_text(rustc_short)),
+    );
 
-fn create_copy_button_flow() -> FlowContent {
-    FlowContent::Button(Button {
-        attrs: GlobalAttrs {
-            class: Some("copy-btn".to_string()),
-            ..Default::default()
-        },
-        children: vec![PhrasingContent::Text("Copy".to_string())],
-        ..Default::default()
-    })
-}
+    // Store metadata as data attribute for JS to use
+    let json = metadata_to_json(meta);
+    set_attr(doc, btn, "data-build-info", &json);
 
-fn create_build_info_button_flow(meta: &CodeExecutionMetadata) -> FlowContent {
-    let _json = metadata_to_json(meta);
-    let rustc_short = meta
-        .rustc_version
-        .lines()
-        .next()
-        .unwrap_or(&meta.rustc_version);
-
-    FlowContent::Button(Button {
-        attrs: GlobalAttrs {
-            class: Some("build-info-btn verified".to_string()),
-            tooltip: Some(format!(
-                "Verified: {}",
-                html_escape::encode_text(rustc_short)
-            )),
-            ..Default::default()
-        },
-        children: vec![PhrasingContent::Text("\u{2139}".to_string())],
-        ..Default::default()
-    })
+    let text = doc.create_text("\u{2139}".to_string()); // Unicode info symbol
+    doc.append_child(btn, text);
+    btn
 }
 
 fn metadata_to_json(meta: &CodeExecutionMetadata) -> String {
-    // Use facet-json for proper JSON serialization
-    // For now, manual construction to avoid adding another dependency
     let deps_json: Vec<String> = meta
         .dependencies
         .iter()
@@ -1172,39 +756,37 @@ fn json_escape(s: &str) -> String {
 // ============================================================================
 
 /// Apply a typed injection to the HTML document tree
-fn apply_injection(doc: &mut Html, injection: &Injection) {
+fn apply_injection(doc: &mut Document, injection: &Injection) {
     match injection {
         Injection::HeadStyle { css } => {
-            let head = doc.head.get_or_insert_with(Default::default);
-            head.children.push(MetadataContent::Style(Style {
-                text: css.clone(),
-                ..Default::default()
-            }));
+            if let Some(head_id) = doc.head() {
+                let style = doc.create_element("style");
+                let text = doc.create_text(css.clone());
+                doc.append_child(style, text);
+                doc.append_child(head_id, style);
+            }
         }
         Injection::HeadScript { js, module } => {
-            let head = doc.head.get_or_insert_with(Default::default);
-            head.children.push(MetadataContent::Script(Script {
-                text: js.clone(),
-                type_: if *module {
-                    Some("module".to_string())
-                } else {
-                    None
-                },
-                ..Default::default()
-            }));
+            if let Some(head_id) = doc.head() {
+                let script = doc.create_element("script");
+                if *module {
+                    set_attr(doc, script, "type", "module");
+                }
+                let text = doc.create_text(js.clone());
+                doc.append_child(script, text);
+                doc.append_child(head_id, script);
+            }
         }
         Injection::BodyScript { js, module } => {
-            let body = doc.body.get_or_insert_with(Default::default);
-            // Add script as a flow content element at the end of body
-            body.children.push(FlowContent::Script(Script {
-                text: js.clone(),
-                type_: if *module {
-                    Some("module".to_string())
-                } else {
-                    None
-                },
-                ..Default::default()
-            }));
+            if let Some(body_id) = doc.body() {
+                let script = doc.create_element("script");
+                if *module {
+                    set_attr(doc, script, "type", "module");
+                }
+                let text = doc.create_text(js.clone());
+                doc.append_child(script, text);
+                doc.append_child(body_id, script);
+            }
         }
     }
 }
@@ -1218,53 +800,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let processor = HtmlProcessorImpl::new(handle);
         HtmlProcessorDispatcher::new(processor)
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_data_attributes_preserved() {
-        let html = r#"<!DOCTYPE html><html><head></head><body><div class="test" data-icon="book" data-custom="42">Hello</div></body></html>"#;
-
-        // Parse with facet-html
-        let doc: Html = fhtml::from_str(html).expect("parse");
-
-        // Check that data-* attributes are captured
-        if let Some(body) = &doc.body {
-            for child in &body.children {
-                if let FlowContent::Div(div) = child {
-                    eprintln!("div.attrs.class = {:?}", div.attrs.class);
-                    eprintln!("div.attrs.extra = {:?}", div.attrs.extra);
-                    assert!(
-                        div.attrs.extra.contains_key("data-icon"),
-                        "data-icon should be in extra"
-                    );
-                    assert_eq!(div.attrs.extra.get("data-icon").unwrap(), "book");
-                    assert!(
-                        div.attrs.extra.contains_key("data-custom"),
-                        "data-custom should be in extra"
-                    );
-                    assert_eq!(div.attrs.extra.get("data-custom").unwrap(), "42");
-                }
-            }
-        }
-
-        // Serialize back
-        let output = fhtml::to_string_pretty(&doc).expect("serialize");
-        eprintln!("Output HTML:\n{}", output);
-
-        // Check that data-* attributes are preserved
-        assert!(
-            output.contains("data-icon"),
-            "data-icon should be in output"
-        );
-        assert!(output.contains("book"), "book value should be in output");
-        assert!(
-            output.contains("data-custom"),
-            "data-custom should be in output"
-        );
-        assert!(output.contains("42"), "42 value should be in output");
-    }
 }

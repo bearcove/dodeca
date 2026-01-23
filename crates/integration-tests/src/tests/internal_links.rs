@@ -1,5 +1,5 @@
 use super::*;
-use hotmeal::{Document, NodeId, NodeKind};
+use hotmeal::{Document, NodeId, NodeKind, StrTendril};
 
 /// Extract all href values from an HTML document
 fn extract_hrefs(doc: &Document) -> Vec<String> {
@@ -52,7 +52,8 @@ title: Link Test
     let html = site.get("/link-test/");
     html.assert_ok();
 
-    let doc = hotmeal::parse(html.text());
+    let tendril = StrTendril::from(html.text());
+    let doc = hotmeal::parse(&tendril);
     let hrefs = extract_hrefs(&doc);
 
     // Check that no links have @/ in their href (should be resolved)
@@ -93,7 +94,8 @@ See also [getting started](@/guide/_index.md#getting-started) for quick setup.
     let html = site.get("/para-link-test/");
     html.assert_ok();
 
-    let doc = hotmeal::parse(html.text());
+    let tendril = StrTendril::from(html.text());
+    let doc = hotmeal::parse(&tendril);
     let hrefs = extract_hrefs(&doc);
 
     // Check no @/ links remain
@@ -149,7 +151,8 @@ This is page B.
     let html = site.get("/guide/page-a/");
     html.assert_ok();
 
-    let doc = hotmeal::parse(html.text());
+    let tendril = StrTendril::from(html.text());
+    let doc = hotmeal::parse(&tendril);
     let hrefs = extract_hrefs(&doc);
 
     // The .md should be stripped and resolved to proper route

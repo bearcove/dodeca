@@ -190,9 +190,9 @@ pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 # facet-xml = { path = "../facet/facet-xml" }
 # facet-yaml = { path = "../facet/facet-yaml" }
 
-# [patch."https://github.com/bearcove/hotmeal"]
-# cinereus = { path = "../hotmeal/cinereus" }
-# hotmeal = { path = "../hotmeal/hotmeal" }
+[patch."https://github.com/bearcove/hotmeal"]
+cinereus = { path = "../hotmeal/cinereus" }
+hotmeal = { path = "../hotmeal/hotmeal" }
 
 # [patch."https://github.com/facet-rs/facet-xml"]
 # facet-dom = { path = "../facet-xml/facet-dom" }
