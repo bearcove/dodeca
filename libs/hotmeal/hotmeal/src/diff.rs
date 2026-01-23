@@ -8,13 +8,14 @@ use crate::{
     dom::{self, Document, Namespace, NodeKind},
 };
 use cinereus::{
-    EditOp, Matching, MatchingConfig, NodeData, NodeHash, PropValue, Properties,
+    DiffTree, EditOp, Matching, MatchingConfig, NodeData, NodeHash, PropValue, Properties,
     PropertyInFinalState, Tree, TreeTypes,
     indextree::{self, NodeId},
 };
 use facet::Facet;
 use html5ever::{LocalName, QualName};
 use rapidhash::RapidHasher;
+use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
@@ -143,9 +144,13 @@ pub enum DiffError {
 }
 
 /// A path to a node in the DOM tree.
+///
+/// Uses SmallVec<[u32; 16]> to avoid heap allocations for typical DOM depths.
+/// Most HTML documents have paths shorter than 16 elements, and u32 is plenty
+/// for child indices (no element has billions of children).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, facet::Facet)]
 #[facet(transparent)]
-pub struct NodePath(pub Vec<usize>);
+pub struct NodePath(pub SmallVec<[u32; 16]>);
 
 impl std::fmt::Display for NodePath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -374,6 +379,229 @@ impl TreeTypes for HtmlTreeTypes {
     type Props = HtmlProps;
 }
 
+/// Pre-computed diff data for a node.
+struct DiffNodeData {
+    hash: NodeHash,
+    kind: HtmlNodeKind,
+    props: HtmlProps,
+    height: usize,
+}
+
+/// A wrapper around Document that implements DiffTree.
+///
+/// This allows diffing Documents directly without building a separate cinereus Tree.
+/// The wrapper pre-computes hashes and caches kind/props for each node.
+pub struct DiffableDocument<'a> {
+    doc: &'a Document,
+    /// The root for diffing (body element)
+    body_id: NodeId,
+    /// Pre-computed diff data indexed by NodeId
+    nodes: HashMap<NodeId, DiffNodeData>,
+}
+
+impl<'a> DiffableDocument<'a> {
+    /// Create a new DiffableDocument from a Document.
+    ///
+    /// Pre-computes hashes and caches kind/props for all body descendants.
+    pub fn new(doc: &'a Document) -> Self {
+        let body_id = doc.body().expect("document must have body");
+        let mut nodes = HashMap::new();
+
+        // First pass: compute kind, props for all nodes
+        for node_id in body_id.descendants(&doc.arena) {
+            let node = doc.get(node_id);
+            let (kind, props) = match &node.kind {
+                NodeKind::Element(elem) => {
+                    let kind = HtmlNodeKind::Element(elem.tag.clone(), node.ns);
+                    let props = HtmlProps {
+                        attrs: elem
+                            .attrs
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect(),
+                        text: None,
+                    };
+                    (kind, props)
+                }
+                NodeKind::Text(text) => {
+                    let kind = HtmlNodeKind::Text;
+                    let props = HtmlProps {
+                        attrs: Vec::new(),
+                        text: Some(text.clone().into_send().into()),
+                    };
+                    (kind, props)
+                }
+                NodeKind::Comment(text) => {
+                    let kind = HtmlNodeKind::Comment;
+                    let props = HtmlProps {
+                        attrs: Vec::new(),
+                        text: Some(text.clone().into_send().into()),
+                    };
+                    (kind, props)
+                }
+                NodeKind::Document => continue, // Skip document nodes
+            };
+
+            nodes.insert(
+                node_id,
+                DiffNodeData {
+                    hash: NodeHash(0), // Will be computed in second pass
+                    kind,
+                    props,
+                    height: 0, // Will be computed in second pass
+                },
+            );
+        }
+
+        // Second pass: compute heights and hashes bottom-up (post-order)
+        // We collect updates separately to avoid borrow conflicts
+        let post_order: Vec<_> = PostOrderIterator::new(body_id, &doc.arena).collect();
+        for node_id in post_order {
+            let children: Vec<_> = node_id.children(&doc.arena).collect();
+
+            // Compute height from children (already processed in post-order)
+            let height = if children.is_empty() {
+                0
+            } else {
+                1 + children
+                    .iter()
+                    .filter_map(|&c| nodes.get(&c))
+                    .map(|d| d.height)
+                    .max()
+                    .unwrap_or(0)
+            };
+
+            // Compute hash (Merkle-tree style)
+            let hash = if let Some(data) = nodes.get(&node_id) {
+                let mut hasher = RapidHasher::default();
+                data.kind.hash(&mut hasher);
+                for child_id in &children {
+                    if let Some(child_data) = nodes.get(child_id) {
+                        child_data.hash.0.hash(&mut hasher);
+                    }
+                }
+                NodeHash(hasher.finish())
+            } else {
+                NodeHash(0)
+            };
+
+            // Now update
+            if let Some(data) = nodes.get_mut(&node_id) {
+                data.height = height;
+                data.hash = hash;
+            }
+        }
+
+        Self {
+            doc,
+            body_id,
+            nodes,
+        }
+    }
+}
+
+impl DiffTree for DiffableDocument<'_> {
+    type Types = HtmlTreeTypes;
+
+    fn root(&self) -> NodeId {
+        self.body_id
+    }
+
+    fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    fn hash(&self, id: NodeId) -> NodeHash {
+        self.nodes.get(&id).map(|d| d.hash).unwrap_or_default()
+    }
+
+    fn kind(&self, id: NodeId) -> &HtmlNodeKind {
+        self.nodes
+            .get(&id)
+            .map(|d| &d.kind)
+            .expect("node must exist")
+    }
+
+    fn properties(&self, id: NodeId) -> &HtmlProps {
+        self.nodes
+            .get(&id)
+            .map(|d| &d.props)
+            .expect("node must exist")
+    }
+
+    fn parent(&self, id: NodeId) -> Option<NodeId> {
+        self.doc.arena.get(id).and_then(|n| n.parent())
+    }
+
+    fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        id.children(&self.doc.arena)
+    }
+
+    fn child_count(&self, id: NodeId) -> usize {
+        id.children(&self.doc.arena).count()
+    }
+
+    fn position(&self, id: NodeId) -> usize {
+        if let Some(parent) = self.parent(id) {
+            parent
+                .children(&self.doc.arena)
+                .position(|c| c == id)
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
+    fn height(&self, id: NodeId) -> usize {
+        self.nodes.get(&id).map(|d| d.height).unwrap_or(0)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = NodeId> + '_ {
+        self.body_id.descendants(&self.doc.arena)
+    }
+
+    fn post_order(&self) -> impl Iterator<Item = NodeId> + '_ {
+        PostOrderIterator::new(self.body_id, &self.doc.arena)
+    }
+
+    fn descendants(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        id.descendants(&self.doc.arena)
+    }
+}
+
+/// Post-order iterator over tree nodes.
+struct PostOrderIterator<'a> {
+    arena: &'a indextree::Arena<dom::NodeData>,
+    stack: Vec<(NodeId, bool)>,
+}
+
+impl<'a> PostOrderIterator<'a> {
+    fn new(root: NodeId, arena: &'a indextree::Arena<dom::NodeData>) -> Self {
+        Self {
+            arena,
+            stack: vec![(root, false)],
+        }
+    }
+}
+
+impl Iterator for PostOrderIterator<'_> {
+    type Item = NodeId;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some((id, children_visited)) = self.stack.pop() {
+            if children_visited {
+                return Some(id);
+            }
+            self.stack.push((id, true));
+            let children: Vec<_> = id.children(self.arena).collect();
+            for child in children.into_iter().rev() {
+                self.stack.push((child, false));
+            }
+        }
+        None
+    }
+}
+
 /// Build a cinereus tree from an arena_dom::Document (body content only).
 pub fn build_tree_from_arena(doc: &Document) -> Tree<HtmlTreeTypes> {
     // Find body element
@@ -516,8 +744,10 @@ pub fn diff_html(old_html: &str, new_html: &str) -> Result<Vec<Patch>, DiffError
 ///
 /// This is the primary diffing API for arena_dom documents.
 pub fn diff(old: &Document, new: &Document) -> Result<Vec<Patch>, DiffError> {
+    // Build cinereus Tree for old (needed for shadow tree mutation)
     let tree_a = build_tree_from_arena(old);
-    let tree_b = build_tree_from_arena(new);
+    // Use DiffableDocument for new (avoids second tree allocation)
+    let diff_b = DiffableDocument::new(new);
 
     #[cfg(test)]
     {
@@ -527,9 +757,9 @@ pub fn diff(old: &Document, new: &Document) -> Result<Vec<Patch>, DiffError> {
             tree_a.get(tree_a.root).kind
         );
         trace!(
-            "tree_b: root hash={:?}, kind={:?}",
-            tree_b.get(tree_b.root).hash,
-            tree_b.get(tree_b.root).kind
+            "diff_b: root hash={:?}, kind={:?}",
+            diff_b.hash(diff_b.root()),
+            diff_b.kind(diff_b.root())
         );
     }
 
@@ -538,16 +768,16 @@ pub fn diff(old: &Document, new: &Document) -> Result<Vec<Patch>, DiffError> {
         ..MatchingConfig::default()
     };
 
-    let mut matching = cinereus::compute_matching(&tree_a, &tree_b, &config);
+    let mut matching = cinereus::compute_matching(&tree_a, &diff_b, &config);
 
     // Force root match if same tag
-    let root_a = tree_a.get(tree_a.root);
-    let root_b = tree_b.get(tree_b.root);
-    if root_a.kind == root_b.kind && !matching.contains_a(tree_a.root) {
-        matching.add(tree_a.root, tree_b.root);
+    let root_a_kind = tree_a.get(tree_a.root).kind.clone();
+    let root_b_kind = diff_b.kind(diff_b.root()).clone();
+    if root_a_kind == root_b_kind && !matching.contains_a(tree_a.root) {
+        matching.add(tree_a.root, diff_b.root());
     }
 
-    let edit_ops = cinereus::generate_edit_script(&tree_a, &tree_b, &matching);
+    let edit_ops = cinereus::generate_edit_script(&tree_a, &diff_b, &matching);
 
     #[cfg(test)]
     {
@@ -564,7 +794,7 @@ pub fn diff(old: &Document, new: &Document) -> Result<Vec<Patch>, DiffError> {
         "arena_dom cinereus diff complete"
     );
 
-    convert_ops_with_shadow(edit_ops, &tree_a, &tree_b, &matching)
+    convert_ops_with_shadow(edit_ops, &tree_a, &diff_b, &matching)
 }
 
 /// Encapsulates the shadow tree with slot-based path computation.
@@ -633,8 +863,8 @@ impl ShadowTree {
     /// - text is child 0 of div
     ///
     /// Note: The slot content root's position within the slot node is NOT included.
-    fn compute_path(&self, node: NodeId) -> Vec<usize> {
-        let mut path = Vec::new();
+    fn compute_path(&self, node: NodeId) -> SmallVec<[u32; 16]> {
+        let mut path = SmallVec::new();
         let mut current = node;
 
         while let Some(parent_id) = self.arena.get(current).and_then(|n| n.parent()) {
@@ -647,7 +877,7 @@ impl ShadowTree {
                     .super_root
                     .children(&self.arena)
                     .position(|c| c == parent_id)
-                    .unwrap_or(0);
+                    .unwrap_or(0) as u32;
                 path.push(slot);
                 break;
             }
@@ -656,7 +886,7 @@ impl ShadowTree {
             let position = parent_id
                 .children(&self.arena)
                 .position(|c| c == current)
-                .unwrap_or(0);
+                .unwrap_or(0) as u32;
             path.push(position);
             current = parent_id;
         }
@@ -675,7 +905,7 @@ impl ShadowTree {
     /// Get a NodeRef with a specific position appended (for insert/move targets).
     fn get_node_ref_with_position(&self, parent: NodeId, position: usize) -> NodeRef {
         let mut path = self.compute_path(parent);
-        path.push(position);
+        path.push(position as u32);
         NodeRef(NodePath(path))
     }
 
@@ -888,10 +1118,10 @@ impl ShadowTree {
 ///
 /// Key insight from Chawathe semantics: INSERT and MOVE do NOT shift siblings.
 /// They DISPLACE whatever is at the target position into a slot for later use.
-fn convert_ops_with_shadow(
+fn convert_ops_with_shadow<T: DiffTree<Types = HtmlTreeTypes>>(
     ops: Vec<EditOp<HtmlTreeTypes>>,
     tree_a: &Tree<HtmlTreeTypes>,
-    tree_b: &Tree<HtmlTreeTypes>,
+    tree_b: &T,
     matching: &Matching,
 ) -> Result<Vec<Patch>, DiffError> {
     // Create shadow tree with encapsulated state
@@ -971,7 +1201,7 @@ fn convert_ops_with_shadow(
                 let new_data: NodeData<HtmlTreeTypes> = NodeData {
                     hash: NodeHash(0),
                     kind: kind.clone(),
-                    properties: tree_b.get(node_b).properties.clone(),
+                    properties: tree_b.properties(node_b).clone(),
                 };
                 let new_node = shadow.arena.new_node(new_data);
 
@@ -1001,12 +1231,7 @@ fn convert_ops_with_shadow(
                         });
                     }
                     HtmlNodeKind::Text => {
-                        let text = tree_b
-                            .get(node_b)
-                            .properties
-                            .text
-                            .clone()
-                            .unwrap_or_default();
+                        let text = tree_b.properties(node_b).text.clone().unwrap_or_default();
                         result.push(Patch::InsertText {
                             at,
                             text,
@@ -1014,12 +1239,7 @@ fn convert_ops_with_shadow(
                         });
                     }
                     HtmlNodeKind::Comment => {
-                        let text = tree_b
-                            .get(node_b)
-                            .properties
-                            .text
-                            .clone()
-                            .unwrap_or_default();
+                        let text = tree_b.properties(node_b).text.clone().unwrap_or_default();
                         result.push(Patch::InsertComment {
                             at,
                             text,
@@ -1136,15 +1356,14 @@ fn convert_ops_with_shadow(
 }
 
 /// Extract attributes and children from a node in tree_b.
-fn extract_content_from_tree_b(
+fn extract_content_from_tree_b<T: DiffTree<Types = HtmlTreeTypes>>(
     node_b: NodeId,
-    tree_b: &Tree<HtmlTreeTypes>,
+    tree_b: &T,
     b_to_shadow: &HashMap<NodeId, NodeId>,
     nodes_with_insert_ops: &HashSet<NodeId>,
 ) -> (Vec<AttrPair>, Vec<InsertContent>) {
-    let data = tree_b.get(node_b);
-    let attrs: Vec<_> = data
-        .properties
+    let props = tree_b.properties(node_b);
+    let attrs: Vec<_> = props
         .attrs
         .iter()
         .map(|(k, v)| AttrPair {
@@ -1163,8 +1382,9 @@ fn extract_content_from_tree_b(
             continue;
         }
 
-        let child_data = tree_b.get(child_id);
-        match &child_data.kind {
+        let child_kind = tree_b.kind(child_id);
+        let child_props = tree_b.properties(child_id);
+        match child_kind {
             HtmlNodeKind::Element(tag, _ns) => {
                 let (child_attrs, child_children) = extract_content_from_tree_b(
                     child_id,
@@ -1179,11 +1399,11 @@ fn extract_content_from_tree_b(
                 });
             }
             HtmlNodeKind::Text => {
-                let text = child_data.properties.text.clone().unwrap_or_default();
+                let text = child_props.text.clone().unwrap_or_default();
                 children.push(InsertContent::Text(text));
             }
             HtmlNodeKind::Comment => {
-                let text = child_data.properties.text.clone().unwrap_or_default();
+                let text = child_props.text.clone().unwrap_or_default();
                 children.push(InsertContent::Comment(text));
             }
         }
@@ -1492,7 +1712,7 @@ mod tests {
         match &patches[0] {
             Patch::UpdateProps { path, changes } => {
                 // Path: [slot=0, div=0, text=0] - slot 0, first child of body (div), first child of div (text)
-                assert_eq!(path.0, vec![0, 0, 0]);
+                assert_eq!(path.0.as_slice(), &[0, 0, 0]);
                 assert_eq!(changes.len(), 1);
                 assert!(matches!(changes[0].name, PropKey::Text));
                 assert_eq!(changes[0].value, Some(Stem::from("New content")));

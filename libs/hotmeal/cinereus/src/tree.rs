@@ -33,6 +33,63 @@ pub trait TreeTypes {
     type Props: Properties;
 }
 
+/// Trait for types that can be diffed as trees.
+///
+/// This abstracts over the tree storage, allowing different implementations
+/// (e.g., `Tree<T>` or a wrapper around `Document`) to be used with the
+/// matching and edit script algorithms.
+pub trait DiffTree {
+    /// The tree types (kind and properties).
+    type Types: TreeTypes;
+
+    /// Get the root node ID.
+    fn root(&self) -> NodeId;
+
+    /// Get the total number of nodes.
+    fn node_count(&self) -> usize;
+
+    /// Get the hash of a node.
+    fn hash(&self, id: NodeId) -> NodeHash;
+
+    /// Get the kind of a node.
+    fn kind(&self, id: NodeId) -> &<Self::Types as TreeTypes>::Kind;
+
+    /// Get the properties of a node.
+    fn properties(&self, id: NodeId) -> &<Self::Types as TreeTypes>::Props;
+
+    /// Get the parent of a node.
+    fn parent(&self, id: NodeId) -> Option<NodeId>;
+
+    /// Get an iterator over the children of a node.
+    fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_;
+
+    /// Get the number of children of a node.
+    fn child_count(&self, id: NodeId) -> usize {
+        self.children(id).count()
+    }
+
+    /// Get the position of a node among its siblings (0-indexed).
+    fn position(&self, id: NodeId) -> usize {
+        if let Some(parent) = self.parent(id) {
+            self.children(parent).position(|c| c == id).unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
+    /// Get the height of a node (distance to furthest leaf).
+    fn height(&self, id: NodeId) -> usize;
+
+    /// Iterate all nodes in the tree (breadth-first/pre-order).
+    fn iter(&self) -> impl Iterator<Item = NodeId> + '_;
+
+    /// Iterate nodes in post-order (children before parents).
+    fn post_order(&self) -> impl Iterator<Item = NodeId> + '_;
+
+    /// Get all descendants of a node (including the node itself).
+    fn descendants(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_;
+}
+
 /// A structural hash of a node and all its descendants (Merkle-tree style).
 /// Two nodes with the same hash are structurally identical.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -328,6 +385,62 @@ impl<T: TreeTypes> Tree<T> {
         } else {
             1 + children.iter().map(|&c| self.height(c)).max().unwrap_or(0)
         }
+    }
+}
+
+impl<T: TreeTypes> DiffTree for Tree<T> {
+    type Types = T;
+
+    fn root(&self) -> NodeId {
+        self.root
+    }
+
+    fn node_count(&self) -> usize {
+        self.arena.count()
+    }
+
+    fn hash(&self, id: NodeId) -> NodeHash {
+        self.get(id).hash
+    }
+
+    fn kind(&self, id: NodeId) -> &T::Kind {
+        &self.get(id).kind
+    }
+
+    fn properties(&self, id: NodeId) -> &T::Props {
+        &self.get(id).properties
+    }
+
+    fn parent(&self, id: NodeId) -> Option<NodeId> {
+        Tree::parent(self, id)
+    }
+
+    fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        Tree::children(self, id)
+    }
+
+    fn child_count(&self, id: NodeId) -> usize {
+        Tree::child_count(self, id)
+    }
+
+    fn position(&self, id: NodeId) -> usize {
+        Tree::position(self, id)
+    }
+
+    fn height(&self, id: NodeId) -> usize {
+        Tree::height(self, id)
+    }
+
+    fn iter(&self) -> impl Iterator<Item = NodeId> + '_ {
+        Tree::iter(self)
+    }
+
+    fn post_order(&self) -> impl Iterator<Item = NodeId> + '_ {
+        Tree::post_order(self)
+    }
+
+    fn descendants(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
+        Tree::descendants(self, id)
     }
 }
 

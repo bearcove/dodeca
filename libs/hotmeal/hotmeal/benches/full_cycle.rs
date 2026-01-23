@@ -12,6 +12,7 @@ const MEDIUM_HTML: &str =
 const LARGE_HTML: &str =
     include_str!("../tests/fixtures/https_developer.mozilla.org_en-US_docs_Web_HTML.html"); // 172KB
 const XLARGE_HTML: &str = include_str!("../tests/fixtures/https_fasterthanli.me.html"); // 340KB
+const XXLARGE_HTML: &str = include_str!("../tests/fixtures/xxl.html"); // 492KB
 
 /// Helper to make a small change to HTML
 fn modify_html(html: &str) -> String {
@@ -60,6 +61,18 @@ fn hot_reload_xlarge(bencher: Bencher) {
     let modified = modify_html(XLARGE_HTML);
     bencher.bench_local(|| {
         let mut old = hotmeal::parse(black_box(XLARGE_HTML));
+        let new = hotmeal::parse(black_box(&modified));
+        let patches = hotmeal::diff(&old, &new).unwrap();
+        old.apply_patches(patches).unwrap();
+        black_box(old);
+    });
+}
+
+#[divan::bench]
+fn hot_reload_xxlarge(bencher: Bencher) {
+    let modified = modify_html(XXLARGE_HTML);
+    bencher.bench_local(|| {
+        let mut old = hotmeal::parse(black_box(XXLARGE_HTML));
         let new = hotmeal::parse(black_box(&modified));
         let patches = hotmeal::diff(&old, &new).unwrap();
         old.apply_patches(patches).unwrap();

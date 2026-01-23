@@ -29,6 +29,7 @@ hotmeal = { path = "hotmeal", version = "0.1.0" }
 
 # Data structures
 indextree = "4.7"
+smallvec = "1"
 
 # HTML parsing
 html5ever = "0.38"

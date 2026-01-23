@@ -12,6 +12,7 @@
 //! provides atomic displacement, returning the removed node for storage.
 
 use hotmeal::{InsertContent, NodeId, PropKey, parse};
+use smallvec::SmallVec;
 use tracing::{debug, trace};
 use wasm_bindgen::prelude::*;
 use web_sys::{Document, Element, Node};
@@ -146,7 +147,7 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
             let slot = path.0[0];
             if slot == 0 {
                 // Main tree - replace with empty text node (no shifting - Chawathe semantics)
-                let rel_path = NodePath(path.0[1..].to_vec());
+                let rel_path = NodePath(SmallVec::from_slice(&path.0[1..]));
                 let body: Node = doc
                     .body()
                     .ok_or_else(|| JsValue::from_str("no body"))?
@@ -160,14 +161,14 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
                 // Slot - just remove from slots if it's the root, otherwise navigate within
                 if path.0.len() == 1 {
                     // Removing the slot root itself
-                    slots.take(slot as u32);
+                    slots.take(slot);
                 } else {
                     // Removing a child within the slot
                     let slot_root = slots
-                        .get(slot as u32)
+                        .get(slot)
                         .cloned()
                         .ok_or_else(|| JsValue::from_str(&format!("slot {} is empty", slot)))?;
-                    let rel_path = NodePath(path.0[1..].to_vec());
+                    let rel_path = NodePath(SmallVec::from_slice(&path.0[1..]));
                     let target = navigate_within_node(&slot_root, &rel_path)?;
                     if let Some(parent) = target.parent_node() {
                         let empty_text = doc.create_text_node("");
@@ -200,13 +201,13 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
                     .into()
             } else {
                 slots
-                    .get(slot as u32)
+                    .get(slot)
                     .cloned()
                     .ok_or_else(|| JsValue::from_str(&format!("slot {} is empty", slot)))?
             };
 
             // Navigate to parent (path minus first element [slot] and last element [position])
-            let parent_path = NodePath(path.0[1..path.0.len() - 1].to_vec());
+            let parent_path = NodePath(SmallVec::from_slice(&path.0[1..path.0.len() - 1]));
             let parent_node = if parent_path.0.is_empty() {
                 slot_root
             } else {
@@ -243,7 +244,7 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
                 doc,
                 &parent_el,
                 &new_el.into(),
-                position,
+                position as usize,
                 *detach_to_slot,
                 slots,
             )?;
@@ -270,13 +271,13 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
                     .into()
             } else {
                 slots
-                    .get(slot as u32)
+                    .get(slot)
                     .cloned()
                     .ok_or_else(|| JsValue::from_str(&format!("slot {} is empty", slot)))?
             };
 
             // Navigate to parent (path minus first element [slot] and last element [position])
-            let parent_path = NodePath(path.0[1..path.0.len() - 1].to_vec());
+            let parent_path = NodePath(SmallVec::from_slice(&path.0[1..path.0.len() - 1]));
             let parent_node = if parent_path.0.is_empty() {
                 slot_root
             } else {
@@ -296,7 +297,7 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
                 doc,
                 &parent_el,
                 &text_node.into(),
-                position,
+                position as usize,
                 *detach_to_slot,
                 slots,
             )?;
@@ -323,13 +324,13 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
                     .into()
             } else {
                 slots
-                    .get(slot as u32)
+                    .get(slot)
                     .cloned()
                     .ok_or_else(|| JsValue::from_str(&format!("slot {} is empty", slot)))?
             };
 
             // Navigate to parent (path minus first element [slot] and last element [position])
-            let parent_path = NodePath(path.0[1..path.0.len() - 1].to_vec());
+            let parent_path = NodePath(SmallVec::from_slice(&path.0[1..path.0.len() - 1]));
             let parent_node = if parent_path.0.is_empty() {
                 slot_root
             } else {
@@ -349,7 +350,7 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
                 doc,
                 &parent_el,
                 &comment_node.into(),
-                position,
+                position as usize,
                 *detach_to_slot,
                 slots,
             )?;
@@ -410,7 +411,7 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
             // Get the node to move
             let node = if from_path.0.len() == 1 {
                 // Path of length 1 means [slot] - moving the entire slot root
-                let slot = from_path.0[0] as u32;
+                let slot = from_path.0[0];
                 slots
                     .take(slot)
                     .ok_or_else(|| JsValue::from_str(&format!("slot {} is empty", slot)))?
@@ -428,7 +429,7 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
             if to_path.0.len() < 2 {
                 return Err(JsValue::from_str("Move: target path too short"));
             }
-            let parent_path = NodePath(to_path.0[..to_path.0.len() - 1].to_vec());
+            let parent_path = NodePath(SmallVec::from_slice(&to_path.0[..to_path.0.len() - 1]));
             let target_idx = to_path.0[to_path.0.len() - 1];
 
             let parent_node = find_node(doc, &parent_path, slots)?;
@@ -437,7 +438,14 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
                 .ok_or_else(|| JsValue::from_str("Move: parent is not an element"))?;
 
             // Insert at the target position with Chawathe displacement
-            insert_at_position(doc, parent_el, &node, target_idx, *detach_to_slot, slots)?;
+            insert_at_position(
+                doc,
+                parent_el,
+                &node,
+                target_idx as usize,
+                *detach_to_slot,
+                slots,
+            )?;
         }
     }
 
@@ -531,7 +539,7 @@ fn navigate_within_node(root: &Node, path: &NodePath) -> Result<Node, JsValue> {
     for &idx in &path.0 {
         let children = current.child_nodes();
         current = children
-            .item(idx as u32)
+            .item(idx)
             .ok_or_else(|| JsValue::from_str(&format!("relative path child {} not found", idx)))?;
     }
     Ok(current)
@@ -544,7 +552,7 @@ fn find_node(doc: &Document, path: &NodePath, slots: &Slots) -> Result<Node, JsV
         return Err(JsValue::from_str("empty path"));
     }
 
-    let slot = path.0[0] as u32;
+    let slot = path.0[0];
     trace!(?path, slot, "find_node");
 
     // Get the slot root
@@ -565,7 +573,7 @@ fn find_node(doc: &Document, path: &NodePath, slots: &Slots) -> Result<Node, JsV
         let children = current.child_nodes();
         let num_children = children.length();
         trace!(idx, num_children, "navigating to child");
-        current = children.item(idx as u32).ok_or_else(|| {
+        current = children.item(idx).ok_or_else(|| {
             JsValue::from_str(&format!(
                 "child {} not found (parent has {} children)",
                 idx, num_children

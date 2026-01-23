@@ -6,7 +6,7 @@
 
 use crate::{debug, trace};
 
-use crate::tree::{Properties, Tree, TreeTypes};
+use crate::tree::{DiffTree, Properties, TreeTypes};
 use core::cell::RefCell;
 use indextree::NodeId;
 use rapidhash::{RapidHashMap as HashMap, RapidHashSet as HashSet};
@@ -157,14 +157,18 @@ impl Default for MatchingConfig {
 }
 
 /// Compute the matching between two trees using the GumTree algorithm.
-pub fn compute_matching<T: TreeTypes>(
-    tree_a: &Tree<T>,
-    tree_b: &Tree<T>,
-    config: &MatchingConfig,
-) -> Matching {
+///
+/// The two trees can have different concrete types as long as they share the same
+/// TreeTypes (Kind and Props). This allows mixing different tree representations
+/// (e.g., a cinereus Tree and a DiffableDocument wrapper).
+pub fn compute_matching<TA, TB>(tree_a: &TA, tree_b: &TB, config: &MatchingConfig) -> Matching
+where
+    TA: DiffTree,
+    TB: DiffTree<Types = TA::Types>,
+{
     debug!(
-        nodes_a = tree_a.arena.count(),
-        nodes_b = tree_b.arena.count(),
+        nodes_a = tree_a.node_count(),
+        nodes_b = tree_b.node_count(),
         "compute_matching start"
     );
     let mut matching = Matching::new();
@@ -185,17 +189,20 @@ pub fn compute_matching<T: TreeTypes>(
 /// Greedily matches nodes with identical subtree hashes, starting from the roots
 /// and working down. When two nodes have the same hash, their entire subtrees
 /// are identical and can be matched recursively.
-fn top_down_phase<T: TreeTypes>(
-    tree_a: &Tree<T>,
-    tree_b: &Tree<T>,
+fn top_down_phase<TA, TB>(
+    tree_a: &TA,
+    tree_b: &TB,
     matching: &mut Matching,
     config: &MatchingConfig,
-) {
+) where
+    TA: DiffTree,
+    TB: DiffTree<Types = TA::Types>,
+{
     trace!("top_down_phase start");
 
     // Priority queue: process nodes by height (descending)
     // Higher nodes = larger subtrees = more valuable to match first
-    let mut candidates: Vec<(NodeId, NodeId)> = vec![(tree_a.root, tree_b.root)];
+    let mut candidates: Vec<(NodeId, NodeId)> = vec![(tree_a.root(), tree_b.root())];
 
     // Sort by height descending
     candidates.sort_by(|a, b| {
@@ -210,8 +217,10 @@ fn top_down_phase<T: TreeTypes>(
             continue;
         }
 
-        let a_data = tree_a.get(a_id);
-        let b_data = tree_b.get(b_id);
+        let a_hash = tree_a.hash(a_id);
+        let a_kind = tree_a.kind(a_id);
+        let b_hash = tree_b.hash(b_id);
+        let b_kind = tree_b.kind(b_id);
 
         // Skip small subtrees (leave for bottom-up)
         if tree_a.height(a_id) < config.min_height {
@@ -219,24 +228,24 @@ fn top_down_phase<T: TreeTypes>(
         }
 
         // If hashes match, these subtrees are identical
-        if a_data.hash == b_data.hash && a_data.kind == b_data.kind {
-            trace!(a = usize::from(a_id), a_kind = %a_data.kind, b = usize::from(b_id), "top_down: hash match");
+        if a_hash == b_hash && a_kind == b_kind {
+            trace!(a = usize::from(a_id), a_kind = %a_kind, b = usize::from(b_id), "top_down: hash match");
             match_subtrees(tree_a, tree_b, a_id, b_id, matching);
         } else {
-            trace!(a = usize::from(a_id), a_kind = %a_data.kind, b = usize::from(b_id), b_kind = %b_data.kind, "top_down: no hash match");
+            trace!(a = usize::from(a_id), a_kind = %a_kind, b = usize::from(b_id), b_kind = %b_kind, "top_down: no hash match");
             // Hashes differ - try to match children
             // IMPORTANT: Only consider children of b_id, NOT arbitrary nodes from tree B
             // This prevents cross-level matching that causes spurious operations
             for a_child in tree_a.children(a_id) {
-                let a_child_data = tree_a.get(a_child);
+                let a_child_hash = tree_a.hash(a_child);
+                let a_child_kind = tree_a.kind(a_child);
 
                 for b_child in tree_b.children(b_id) {
                     if !matching.contains_b(b_child) {
-                        let b_child_data = tree_b.get(b_child);
+                        let b_child_hash = tree_b.hash(b_child);
+                        let b_child_kind = tree_b.kind(b_child);
                         // Match by hash (exact isomorphism) or kind (structural match)
-                        if a_child_data.hash == b_child_data.hash
-                            || a_child_data.kind == b_child_data.kind
-                        {
+                        if a_child_hash == b_child_hash || a_child_kind == b_child_kind {
                             candidates.push((a_child, b_child));
                         }
                     }
@@ -247,13 +256,16 @@ fn top_down_phase<T: TreeTypes>(
 }
 
 /// Match two subtrees recursively (when their hashes match).
-fn match_subtrees<T: TreeTypes>(
-    tree_a: &Tree<T>,
-    tree_b: &Tree<T>,
+fn match_subtrees<TA, TB>(
+    tree_a: &TA,
+    tree_b: &TB,
     a_id: NodeId,
     b_id: NodeId,
     matching: &mut Matching,
-) {
+) where
+    TA: DiffTree,
+    TB: DiffTree<Types = TA::Types>,
+{
     // Skip if either node is already matched (can happen if a descendant was
     // matched earlier due to candidate processing order)
     if matching.contains_a(a_id) || matching.contains_b(b_id) {
@@ -273,13 +285,13 @@ fn match_subtrees<T: TreeTypes>(
 
 /// Lazily computed descendant sets for nodes in a tree.
 /// Only computes descendants for nodes that are actually queried.
-struct LazyDescendantMap<'a, T: TreeTypes> {
-    tree: &'a Tree<T>,
+struct LazyDescendantMap<'a, T: DiffTree> {
+    tree: &'a T,
     cache: RefCell<HashMap<NodeId, HashSet<NodeId>>>,
 }
 
-impl<'a, T: TreeTypes> LazyDescendantMap<'a, T> {
-    fn new(tree: &'a Tree<T>) -> Self {
+impl<'a, T: DiffTree> LazyDescendantMap<'a, T> {
+    fn new(tree: &'a T) -> Self {
         Self {
             tree,
             cache: RefCell::new(HashMap::default()),
@@ -304,13 +316,17 @@ impl<'a, T: TreeTypes> LazyDescendantMap<'a, T> {
 ///
 /// If A's parent is matched to some node P_b, then B must be a descendant of P_b.
 /// This prevents matching nodes across incompatible tree locations.
-fn ancestry_compatible<T: TreeTypes>(
+fn ancestry_compatible<TA, TB>(
     a_id: NodeId,
     b_id: NodeId,
-    tree_a: &Tree<T>,
-    tree_b: &Tree<T>,
+    tree_a: &TA,
+    tree_b: &TB,
     matching: &Matching,
-) -> bool {
+) -> bool
+where
+    TA: DiffTree,
+    TB: DiffTree<Types = TA::Types>,
+{
     // Check if A's parent is matched
     if let Some(a_parent) = tree_a.parent(a_id)
         && let Some(matched_b_parent) = matching.get_b(a_parent)
@@ -363,18 +379,23 @@ fn ancestry_compatible<T: TreeTypes>(
 /// 2. Second pass: Match leaf nodes (now ancestry constraints are established)
 ///
 /// This prevents cross-level matching of leaves that happen to have the same hash.
-fn bottom_up_phase<T: TreeTypes>(
-    tree_a: &Tree<T>,
-    tree_b: &Tree<T>,
+fn bottom_up_phase<TA, TB>(
+    tree_a: &TA,
+    tree_b: &TB,
     matching: &mut Matching,
     config: &MatchingConfig,
-) {
+) where
+    TA: DiffTree,
+    TB: DiffTree<Types = TA::Types>,
+{
     // Build index for tree B by kind
-    let mut b_by_kind: HashMap<T::Kind, Vec<NodeId>> = HashMap::default();
+    let mut b_by_kind: HashMap<<TA::Types as TreeTypes>::Kind, Vec<NodeId>> = HashMap::default();
     for b_id in tree_b.iter() {
         if !matching.contains_b(b_id) {
-            let b_data = tree_b.get(b_id);
-            b_by_kind.entry(b_data.kind.clone()).or_default().push(b_id);
+            b_by_kind
+                .entry(tree_b.kind(b_id).clone())
+                .or_default()
+                .push(b_id);
         }
     }
 
@@ -389,7 +410,8 @@ fn bottom_up_phase<T: TreeTypes>(
             continue;
         }
 
-        let a_data = tree_a.get(a_id);
+        let a_kind = tree_a.kind(a_id);
+        let a_props = tree_a.properties(a_id);
         let a_pos = tree_a.position(a_id);
 
         // Check if parent is matched - enables position-based matching
@@ -402,7 +424,7 @@ fn bottom_up_phase<T: TreeTypes>(
             // Note: We don't require b to have children - a node can go from having children to empty
             let candidates: Vec<NodeId> = tree_b
                 .children(parent_b)
-                .filter(|&b_id| !matching.contains_b(b_id) && tree_b.get(b_id).kind == a_data.kind)
+                .filter(|&b_id| !matching.contains_b(b_id) && tree_b.kind(b_id) == a_kind)
                 .collect();
 
             // Match by position - don't fall back to first candidate as that can cause
@@ -413,7 +435,7 @@ fn bottom_up_phase<T: TreeTypes>(
                 .iter()
                 .find(|&&b_id| {
                     tree_b.position(b_id) == a_pos
-                        && a_data.properties.similarity(&tree_b.get(b_id).properties)
+                        && a_props.similarity(tree_b.properties(b_id))
                             >= config.similarity_threshold
                 })
                 .copied();
@@ -421,7 +443,7 @@ fn bottom_up_phase<T: TreeTypes>(
             if let Some(b_id) = best {
                 trace!(
                     a = usize::from(a_id),
-                    a_kind = %a_data.kind,
+                    a_kind = %a_kind,
                     b = usize::from(b_id),
                     pos = a_pos,
                     "bottom_up pass1: position+kind match"
@@ -432,7 +454,7 @@ fn bottom_up_phase<T: TreeTypes>(
         }
 
         // No parent match or no position match - fall back to Dice coefficient
-        let candidates = b_by_kind.get(&a_data.kind).cloned().unwrap_or_default();
+        let candidates = b_by_kind.get(a_kind).cloned().unwrap_or_default();
 
         let mut best: Option<(NodeId, f64)> = None;
         for b_id in candidates {
@@ -451,7 +473,7 @@ fn bottom_up_phase<T: TreeTypes>(
             }
 
             // Check property compatibility (e.g., elements with different tags shouldn't match)
-            let prop_sim = a_data.properties.similarity(&tree_b.get(b_id).properties);
+            let prop_sim = a_props.similarity(tree_b.properties(b_id));
             if prop_sim < config.similarity_threshold {
                 continue;
             }
@@ -459,9 +481,9 @@ fn bottom_up_phase<T: TreeTypes>(
             let score = dice_coefficient(a_id, b_id, matching, &desc_a, &desc_b);
             trace!(
                 a = usize::from(a_id),
-                a_kind = %a_data.kind,
+                a_kind = %a_kind,
                 b = usize::from(b_id),
-                b_kind = %tree_b.get(b_id).kind,
+                b_kind = %tree_b.kind(b_id),
                 score,
                 "bottom_up pass1: dice score"
             );
@@ -473,7 +495,7 @@ fn bottom_up_phase<T: TreeTypes>(
         if let Some((b_id, _score)) = best {
             trace!(
                 a = usize::from(a_id),
-                a_kind = %a_data.kind,
+                a_kind = %a_kind,
                 b = usize::from(b_id),
                 _score,
                 "bottom_up pass1: dice match"
@@ -483,7 +505,7 @@ fn bottom_up_phase<T: TreeTypes>(
             // Root node with no Dice match - match by kind alone if there's a unique candidate
             // This handles the case where trees are structurally different but have same root type
             let root_candidates: Vec<_> = b_by_kind
-                .get(&a_data.kind)
+                .get(a_kind)
                 .cloned()
                 .unwrap_or_default()
                 .into_iter()
@@ -491,15 +513,14 @@ fn bottom_up_phase<T: TreeTypes>(
                     !matching.contains_b(b_id)
                         && tree_b.child_count(b_id) > 0
                         && tree_b.parent(b_id).is_none() // Must also be a root
-                        && a_data.properties.similarity(&tree_b.get(b_id).properties)
-                            >= config.similarity_threshold
+                        && a_props.similarity(tree_b.properties(b_id)) >= config.similarity_threshold
                 })
                 .collect();
 
             if let Some(&b_id) = root_candidates.first() {
                 trace!(
                     a = usize::from(a_id),
-                    a_kind = %a_data.kind,
+                    a_kind = %a_kind,
                     b = usize::from(b_id),
                     "bottom_up pass1: root kind match (fallback)"
                 );
@@ -520,7 +541,9 @@ fn bottom_up_phase<T: TreeTypes>(
             continue;
         }
 
-        let a_data = tree_a.get(a_id);
+        let a_kind = tree_a.kind(a_id);
+        let a_hash = tree_a.hash(a_id);
+        let a_props = tree_a.properties(a_id);
         let a_pos = tree_a.position(a_id);
 
         // Get the parent's matched counterpart to constrain the search
@@ -535,26 +558,20 @@ fn bottom_up_phase<T: TreeTypes>(
                 .filter(|&b_id| {
                     !matching.contains_b(b_id)
                         && tree_b.child_count(b_id) == 0
-                        && tree_b.get(b_id).kind == a_data.kind
+                        && tree_b.kind(b_id) == a_kind
                 })
                 .collect();
 
             // Prefer same position with same hash, then same hash, then same kind+position+compatible props
             let best = candidates
                 .iter()
-                .find(|&&b_id| {
-                    tree_b.position(b_id) == a_pos && tree_b.get(b_id).hash == a_data.hash
-                })
-                .or_else(|| {
-                    candidates
-                        .iter()
-                        .find(|&&b_id| tree_b.get(b_id).hash == a_data.hash)
-                })
+                .find(|&&b_id| tree_b.position(b_id) == a_pos && tree_b.hash(b_id) == a_hash)
+                .or_else(|| candidates.iter().find(|&&b_id| tree_b.hash(b_id) == a_hash))
                 .or_else(|| {
                     // Position-only match requires compatible properties
                     candidates.iter().find(|&&b_id| {
                         tree_b.position(b_id) == a_pos
-                            && a_data.properties.similarity(&tree_b.get(b_id).properties)
+                            && a_props.similarity(tree_b.properties(b_id))
                                 >= config.similarity_threshold
                     })
                 })
@@ -563,7 +580,7 @@ fn bottom_up_phase<T: TreeTypes>(
             if let Some(b_id) = best {
                 trace!(
                     a = usize::from(a_id),
-                    a_kind = %a_data.kind,
+                    a_kind = %a_kind,
                     b = usize::from(b_id),
                     "bottom_up pass2: leaf match (parent matched)"
                 );
@@ -572,7 +589,7 @@ fn bottom_up_phase<T: TreeTypes>(
         } else {
             // Parent is unmatched (will be deleted) - do global search
             // This allows nodes from deleted subtrees to move elsewhere
-            let candidates = b_by_kind.get(&a_data.kind).cloned().unwrap_or_default();
+            let candidates = b_by_kind.get(a_kind).cloned().unwrap_or_default();
 
             let mut best: Option<NodeId> = None;
             for b_id in candidates {
@@ -590,15 +607,15 @@ fn bottom_up_phase<T: TreeTypes>(
                     continue;
                 }
 
-                let b_data = tree_b.get(b_id);
+                let b_hash = tree_b.hash(b_id);
+                let b_props = tree_b.properties(b_id);
 
                 // Prefer hash match, then property match
-                if b_data.hash == a_data.hash {
+                if b_hash == a_hash {
                     best = Some(b_id);
                     break;
                 } else if best.is_none()
-                    && a_data.properties.similarity(&b_data.properties)
-                        >= config.similarity_threshold
+                    && a_props.similarity(b_props) >= config.similarity_threshold
                 {
                     best = Some(b_id);
                 }
@@ -607,7 +624,7 @@ fn bottom_up_phase<T: TreeTypes>(
             if let Some(b_id) = best {
                 trace!(
                     a = usize::from(a_id),
-                    a_kind = %a_data.kind,
+                    a_kind = %a_kind,
                     b = usize::from(b_id),
                     "bottom_up pass2: leaf match (parent unmatched, global search)"
                 );
@@ -620,13 +637,17 @@ fn bottom_up_phase<T: TreeTypes>(
 /// Compute the Dice coefficient between two nodes based on matched descendants.
 ///
 /// dice(A, B) = 2 × |matched_descendants| / (|descendants_A| + |descendants_B|)
-fn dice_coefficient<T: TreeTypes>(
+fn dice_coefficient<TA, TB>(
     a_id: NodeId,
     b_id: NodeId,
     matching: &Matching,
-    desc_a_map: &LazyDescendantMap<T>,
-    desc_b_map: &LazyDescendantMap<T>,
-) -> f64 {
+    desc_a_map: &LazyDescendantMap<TA>,
+    desc_b_map: &LazyDescendantMap<TB>,
+) -> f64
+where
+    TA: DiffTree,
+    TB: DiffTree<Types = TA::Types>,
+{
     #[cfg(feature = "matching-stats")]
     {
         DICE_CALLS.with(|c| *c.borrow_mut() += 1);
@@ -661,7 +682,7 @@ fn dice_coefficient<T: TreeTypes>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tree::{NodeData, SimpleTypes};
+    use crate::tree::{NodeData, SimpleTypes, Tree};
 
     type TestTypes = SimpleTypes<&'static str>;
 

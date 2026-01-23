@@ -247,22 +247,24 @@ impl Document {
     /// Path `[slot, a, b, c]` means: get slot root, then navigate a → b → c.
     fn navigate_slot_path(
         &self,
-        path: &[usize],
+        path: &[u32],
         slots: &HashMap<u32, NodeId>,
     ) -> Result<NodeId, DiffError> {
         if path.is_empty() {
             return Err(DiffError::EmptyPath);
         }
 
-        let slot = path[0] as u32;
+        let slot = path[0];
         let slot_root = *slots.get(&slot).ok_or(DiffError::SlotNotFound { slot })?;
 
         let mut current = slot_root;
         for &idx in &path[1..] {
             let mut children = current.children(&self.arena);
             current = children
-                .nth(idx)
-                .ok_or(DiffError::PathOutOfBounds { index: idx })?;
+                .nth(idx as usize)
+                .ok_or(DiffError::PathOutOfBounds {
+                    index: idx as usize,
+                })?;
         }
 
         Ok(current)
@@ -272,14 +274,14 @@ impl Document {
     /// Path `[slot, a, b, c]` returns (node at [slot, a, b], position c).
     fn get_slot_parent(
         &self,
-        path: &[usize],
+        path: &[u32],
         slots: &HashMap<u32, NodeId>,
     ) -> Result<(NodeId, usize), DiffError> {
         if path.len() < 2 {
             return Err(DiffError::EmptyPath);
         }
 
-        let position = path[path.len() - 1];
+        let position = path[path.len() - 1] as usize;
         let parent_path = &path[..path.len() - 1];
         let parent_id = self.navigate_slot_path(parent_path, slots)?;
 

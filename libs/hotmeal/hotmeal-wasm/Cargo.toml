@@ -20,6 +20,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 hotmeal = { workspace = true }
 facet-json = { workspace = true }
+smallvec = { workspace = true }
 tracing = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-tracing = { workspace = true }

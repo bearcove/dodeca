@@ -13,7 +13,7 @@ use crate::{debug, trace};
 use core::fmt;
 
 use crate::matching::Matching;
-use crate::tree::{Properties, PropertyInFinalState, Tree, TreeTypes};
+use crate::tree::{DiffTree, Properties, PropertyInFinalState, TreeTypes};
 use indextree::NodeId;
 
 /// Type alias for final property states to satisfy clippy::type_complexity
@@ -153,24 +153,31 @@ impl<T: TreeTypes> Ops<T> {
 ///
 /// The edit script transforms tree A into tree B using INSERT, DELETE, MOVE,
 /// and UpdateProperty operations.
-pub fn generate_edit_script<T: TreeTypes>(
-    tree_a: &Tree<T>,
-    tree_b: &Tree<T>,
+///
+/// The two trees can have different concrete types as long as they share the same
+/// TreeTypes (Kind and Props). This allows mixing different tree representations.
+pub fn generate_edit_script<TA, TB>(
+    tree_a: &TA,
+    tree_b: &TB,
     matching: &Matching,
-) -> Vec<EditOp<T>> {
+) -> Vec<EditOp<TA::Types>>
+where
+    TA: DiffTree,
+    TB: DiffTree<Types = TA::Types>,
+{
     trace!(matched_pairs = matching.len(), "generate_edit_script start");
     let mut ops = Ops::new();
 
     // Phase 1: Property changes - diff properties for matched nodes
     for (a_id, b_id) in matching.pairs() {
-        let a_data = tree_a.get(a_id);
-        let b_data = tree_b.get(b_id);
+        let a_props = tree_a.properties(a_id);
+        let b_props = tree_b.properties(b_id);
 
-        let changes: Vec<_> = a_data.properties.diff(&b_data.properties);
+        let changes: Vec<_> = a_props.diff(b_props);
         // Generate UpdateProperties if:
         // 1. There are changes in the final state, OR
         // 2. The old node had properties but now has none (removal case)
-        if !changes.is_empty() || !a_data.properties.is_empty() {
+        if !changes.is_empty() || !a_props.is_empty() {
             ops.push(EditOp::UpdateProperties {
                 node_a: a_id,
                 node_b: b_id,
@@ -183,7 +190,6 @@ pub fn generate_edit_script<T: TreeTypes>(
     // Process in breadth-first order so parents are inserted before children
     for b_id in tree_b.iter() {
         if !matching.contains_b(b_id) {
-            let b_data = tree_b.get(b_id);
             let parent_b = tree_b.parent(b_id);
 
             if let Some(parent_b) = parent_b {
@@ -192,7 +198,7 @@ pub fn generate_edit_script<T: TreeTypes>(
                     node_b: b_id,
                     parent_b,
                     position: pos,
-                    kind: b_data.kind.clone(),
+                    kind: tree_b.kind(b_id).clone(),
                 });
             }
             // Root insertion is a special case - usually trees have matching roots
@@ -279,7 +285,7 @@ mod tests {
     use super::*;
     use crate::matching::MatchingConfig;
     use crate::matching::compute_matching;
-    use crate::tree::{NodeData, PropValue, PropertyInFinalState, SimpleTypes};
+    use crate::tree::{NodeData, PropValue, PropertyInFinalState, SimpleTypes, Tree};
     use facet::Facet;
     use facet_testhelpers::test;
 

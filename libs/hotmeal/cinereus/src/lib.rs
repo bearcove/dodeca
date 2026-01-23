@@ -48,7 +48,10 @@ pub mod tree;
 
 pub use chawathe::*;
 pub use matching::*;
-pub use tree::*;
+pub use tree::{
+    DiffTree, NoKey, NoProps, NoVal, NodeData, NodeHash, PropValue, Properties,
+    PropertyInFinalState, SimpleTypes, Tree, TreeTypes,
+};
 
 /// Compute a diff between two trees.
 ///
@@ -72,11 +75,11 @@ pub use tree::*;
 /// let ops = diff_trees(&tree_a, &tree_b, &MatchingConfig::default());
 /// // ops contains the edit operations to transform tree_a into tree_b
 /// ```
-pub fn diff_trees<T: TreeTypes>(
-    tree_a: &Tree<T>,
-    tree_b: &Tree<T>,
+pub fn diff_trees<T: DiffTree>(
+    tree_a: &T,
+    tree_b: &T,
     config: &MatchingConfig,
-) -> Vec<EditOp<T>> {
+) -> Vec<EditOp<T::Types>> {
     let (ops, _matching) = diff_trees_with_matching(tree_a, tree_b, config);
     ops
 }
@@ -86,11 +89,11 @@ pub fn diff_trees<T: TreeTypes>(
 /// This is useful when you need to translate NodeId-based operations
 /// into path-based operations, as you need to track which nodes in
 /// tree_a correspond to nodes in tree_b.
-pub fn diff_trees_with_matching<T: TreeTypes>(
-    tree_a: &Tree<T>,
-    tree_b: &Tree<T>,
+pub fn diff_trees_with_matching<T: DiffTree>(
+    tree_a: &T,
+    tree_b: &T,
     config: &MatchingConfig,
-) -> (Vec<EditOp<T>>, Matching) {
+) -> (Vec<EditOp<T::Types>>, Matching) {
     let matching = compute_matching(tree_a, tree_b, config);
     let ops = generate_edit_script(tree_a, tree_b, &matching);
     (ops, matching)
