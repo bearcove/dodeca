@@ -408,24 +408,24 @@ fn rewrite_urls_in_subtree(
     if let Some(tag) = tag_name(doc, node_id) {
         match tag {
             "a" | "link" => {
-                if let Some(href) = get_attr(doc, node_id, "href") {
-                    if let Some(new_url) = path_map.get(&href) {
-                        set_attr(doc, node_id, "href", new_url);
-                    }
+                if let Some(href) = get_attr(doc, node_id, "href")
+                    && let Some(new_url) = path_map.get(&href)
+                {
+                    set_attr(doc, node_id, "href", new_url);
                 }
             }
             "script" => {
-                if let Some(src) = get_attr(doc, node_id, "src") {
-                    if let Some(new_url) = path_map.get(&src) {
-                        set_attr(doc, node_id, "src", new_url);
-                    }
+                if let Some(src) = get_attr(doc, node_id, "src")
+                    && let Some(new_url) = path_map.get(&src)
+                {
+                    set_attr(doc, node_id, "src", new_url);
                 }
             }
             "img" => {
-                if let Some(src) = get_attr(doc, node_id, "src") {
-                    if let Some(new_url) = path_map.get(&src) {
-                        set_attr(doc, node_id, "src", new_url);
-                    }
+                if let Some(src) = get_attr(doc, node_id, "src")
+                    && let Some(new_url) = path_map.get(&src)
+                {
+                    set_attr(doc, node_id, "src", new_url);
                 }
                 // Handle srcset
                 if let Some(srcset) = get_attr(doc, node_id, "srcset") {
@@ -440,10 +440,10 @@ fn rewrite_urls_in_subtree(
                 }
             }
             "video" | "audio" | "iframe" => {
-                if let Some(src) = get_attr(doc, node_id, "src") {
-                    if let Some(new_url) = path_map.get(&src) {
-                        set_attr(doc, node_id, "src", new_url);
-                    }
+                if let Some(src) = get_attr(doc, node_id, "src")
+                    && let Some(new_url) = path_map.get(&src)
+                {
+                    set_attr(doc, node_id, "src", new_url);
                 }
             }
             _ => {}
@@ -493,11 +493,11 @@ fn mark_dead_links_in_doc(doc: &mut Document, known_routes: &HashSet<String>) ->
         collect_anchors(doc, body_id, &mut anchors);
 
         for node_id in anchors {
-            if let Some(href) = get_attr(doc, node_id, "href") {
-                if is_dead_link(&href, known_routes) {
-                    set_attr(doc, node_id, "data-dead", "true");
-                    had_dead = true;
-                }
+            if let Some(href) = get_attr(doc, node_id, "href")
+                && is_dead_link(&href, known_routes)
+            {
+                set_attr(doc, node_id, "data-dead", "true");
+                had_dead = true;
             }
         }
     }
@@ -653,13 +653,12 @@ fn collect_code_targets(doc: &Document, node_id: NodeId, targets: &mut Vec<CodeT
             targets.push(CodeTarget::Pre(node_id));
             return; // Don't recurse into pre
         }
-        if tag == "div" {
-            if let Some(class) = get_attr(doc, node_id, "class") {
-                if class.contains("code-block") {
-                    targets.push(CodeTarget::CodeBlockDiv(node_id));
-                    return; // Don't recurse into code-block
-                }
-            }
+        if tag == "div"
+            && let Some(class) = get_attr(doc, node_id, "class")
+            && class.contains("code-block")
+        {
+            targets.push(CodeTarget::CodeBlockDiv(node_id));
+            return; // Don't recurse into code-block
         }
     }
 
