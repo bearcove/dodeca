@@ -154,23 +154,18 @@ arborium = { version = "2", default-features = false }
 
 # Force all transitive facet dependencies to use git version
 [patch.crates-io]
+facet-xml = { git = "https://github.com/facet-rs/facet-xml", branch = "main" }
+facet-svg = { git = "https://github.com/facet-rs/facet-xml", branch = "main" }
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-core = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-diff = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-html = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-json = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macro-parse = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macro-types = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macros = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-macros-impl = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-postcard = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-pretty = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-reflect = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-solver = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-svg = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-toml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-value = { git = "https://github.com/facet-rs/facet", branch = "main" }
-facet-xml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-yaml = { git = "https://github.com/facet-rs/facet", branch = "main" }
 pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
