@@ -3244,9 +3244,9 @@ checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
 name = "woofwoof"
-version = "1.0.1"
+version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2d1f98d082af287cb121f931ccd30248fb665485bbb11a03bc686d2454a2bb4"
+checksum = "6b724d1c19ed8a369027b646cedc4542cb9f6237190d400f75106c06627507a0"
 dependencies = [
  "brotli",
  "cc",
