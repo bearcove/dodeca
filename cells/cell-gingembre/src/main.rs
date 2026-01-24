@@ -123,8 +123,8 @@ fn make_rpc_function(
         Box::pin(async move {
             match client.call_function(context_id, name, args, kwargs).await {
                 Ok(CallFunctionResult::Success { value }) => Ok(value),
-                Ok(CallFunctionResult::Error { message }) => Err(eyre::eyre!(message)),
-                Err(e) => Err(eyre::eyre!("RPC error calling function: {:?}", e)),
+                Ok(CallFunctionResult::Error { message }) => Err(message.into()),
+                Err(e) => Err(format!("RPC error calling function: {:?}", e).into()),
             }
         })
     })
@@ -221,8 +221,8 @@ impl TemplateRenderer for TemplateRendererImpl {
         match engine.render(&template_name, &ctx).await {
             Ok(html) => RenderResult::Success { html },
             Err(e) => {
-                // Format the error with rich diagnostics
-                let message = format!("{:?}", e);
+                // Format with ariadne for pretty source context
+                let message = e.format_pretty();
                 RenderResult::Error { message }
             }
         }

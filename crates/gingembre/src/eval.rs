@@ -4,10 +4,9 @@
 
 use super::ast::*;
 use super::error::{
-    TemplateSource, TypeError, UndefinedError, UnknownFieldError, UnknownFilterError,
-    UnknownTestError,
+    SourceLocation, TemplateError, TemplateSource, TypeError, UndefinedError, UnknownFieldError,
+    UnknownFilterError, UnknownTestError,
 };
-use eyre::Result;
 use facet_value::{DestructuredRef, VArray, VObject, VString};
 use futures::future::BoxFuture;
 use std::collections::HashMap;
@@ -107,11 +106,17 @@ impl ValueExt for Value {
 
 use crate::lazy::{DataPath, DataResolver, LazyValue};
 
+/// Error type for global function calls
+pub type GlobalFnError = Box<dyn std::error::Error + Send + Sync>;
+
 /// A global function that can be called from templates.
 /// Functions receive resolved (concrete) values and return a future that resolves to a value.
 /// This allows functions to make async calls (like RPC to the host).
-pub type GlobalFn =
-    Box<dyn Fn(&[Value], &[(String, Value)]) -> BoxFuture<'static, Result<Value>> + Send + Sync>;
+pub type GlobalFn = Box<
+    dyn Fn(&[Value], &[(String, Value)]) -> BoxFuture<'static, Result<Value, GlobalFnError>>
+        + Send
+        + Sync,
+>;
 
 /// Evaluation context (variables in scope)
 ///
@@ -158,7 +163,7 @@ impl Context {
         name: &str,
         args: &[Value],
         kwargs: &[(String, Value)],
-    ) -> Option<BoxFuture<'static, Result<Value>>> {
+    ) -> Option<BoxFuture<'static, Result<Value, GlobalFnError>>> {
         self.global_fns.get(name).map(|f| f(args, kwargs))
     }
 
@@ -252,7 +257,7 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Evaluate an expression to a (possibly lazy) value
-    pub fn eval<'b>(&'b self, expr: &'b Expr) -> BoxFuture<'b, Result<LazyValue>> {
+    pub fn eval<'b>(&'b self, expr: &'b Expr) -> BoxFuture<'b, Result<LazyValue, TemplateError>> {
         Box::pin(async move {
             match expr {
                 Expr::Literal(lit) => self.eval_literal(lit).await,
@@ -274,11 +279,11 @@ impl<'a> Evaluator<'a> {
     }
 
     /// Evaluate and resolve to a concrete value (forces lazy resolution)
-    pub async fn eval_concrete(&self, expr: &Expr) -> Result<Value> {
+    pub async fn eval_concrete(&self, expr: &Expr) -> Result<Value, TemplateError> {
         self.eval(expr).await?.resolve().await
     }
 
-    async fn eval_literal(&self, lit: &Literal) -> Result<LazyValue> {
+    async fn eval_literal(&self, lit: &Literal) -> Result<LazyValue, TemplateError> {
         Ok(LazyValue::concrete(match lit {
             Literal::None(_) => Value::NULL,
             Literal::Bool(b) => Value::from(b.value),
@@ -308,27 +313,26 @@ impl<'a> Evaluator<'a> {
     }
 
     // r[impl expr.var.lookup]
-    fn eval_var(&self, ident: &Ident) -> Result<LazyValue> {
+    fn eval_var(&self, ident: &Ident) -> Result<LazyValue, TemplateError> {
         // r[impl expr.var.undefined]
         self.ctx.get(&ident.name).cloned().ok_or_else(|| {
             UndefinedError {
                 name: ident.name.clone(),
                 available: self.ctx.available_vars(),
-                span: ident.span,
-                src: self.source.named_source(),
+                loc: SourceLocation::new(ident.span, self.source.named_source()),
             }
             .into()
         })
     }
 
     // r[impl expr.field.missing]
-    async fn eval_field(&self, field: &FieldExpr) -> Result<LazyValue> {
+    async fn eval_field(&self, field: &FieldExpr) -> Result<LazyValue, TemplateError> {
         let base = self.eval(&field.base).await?;
         // Use LazyValue's field method - extends path for lazy, normal access for concrete
         base.field(&field.field.name, field.field.span, self.source)
     }
 
-    async fn eval_index(&self, index: &IndexExpr) -> Result<LazyValue> {
+    async fn eval_index(&self, index: &IndexExpr) -> Result<LazyValue, TemplateError> {
         let base = self.eval(&index.base).await?;
         let idx = self.eval(&index.index).await?;
 
@@ -349,8 +353,7 @@ impl<'a> Evaluator<'a> {
                         expected: "number or string".to_string(),
                         found: idx.type_name().to_string(),
                         context: "index".to_string(),
-                        span: index.index.span(),
-                        src: self.source.named_source(),
+                        loc: SourceLocation::new(index.index.span(), self.source.named_source()),
                     }
                     .into()),
                 }
@@ -372,8 +375,10 @@ impl<'a> Evaluator<'a> {
                                 expected: format!("index < {}", arr.len()),
                                 found: format!("index {i}"),
                                 context: "list index".to_string(),
-                                span: index.index.span(),
-                                src: self.source.named_source(),
+                                loc: SourceLocation::new(
+                                    index.index.span(),
+                                    self.source.named_source(),
+                                ),
                             }
                             .into()
                         })
@@ -388,8 +393,10 @@ impl<'a> Evaluator<'a> {
                                 base_type: "dict".to_string(),
                                 field: key.to_string(),
                                 known_fields: obj.keys().map(|k| k.to_string()).collect(),
-                                span: index.index.span(),
-                                src: self.source.named_source(),
+                                loc: SourceLocation::new(
+                                    index.index.span(),
+                                    self.source.named_source(),
+                                ),
                             }
                             .into()
                         }),
@@ -410,8 +417,10 @@ impl<'a> Evaluator<'a> {
                                     expected: format!("index < {}", len),
                                     found: format!("index {i}"),
                                     context: "string index".to_string(),
-                                    span: index.index.span(),
-                                    src: self.source.named_source(),
+                                    loc: SourceLocation::new(
+                                        index.index.span(),
+                                        self.source.named_source(),
+                                    ),
                                 }
                                 .into()
                             })
@@ -420,15 +429,14 @@ impl<'a> Evaluator<'a> {
                         expected: "list, dict, or string".to_string(),
                         found: base.type_name().to_string(),
                         context: "index access".to_string(),
-                        span: index.base.span(),
-                        src: self.source.named_source(),
+                        loc: SourceLocation::new(index.base.span(), self.source.named_source()),
                     })?,
                 }
             }
         }
     }
 
-    async fn eval_filter(&self, filter: &FilterExpr) -> Result<LazyValue> {
+    async fn eval_filter(&self, filter: &FilterExpr) -> Result<LazyValue, TemplateError> {
         // Filters always work on concrete values
         let value = self.eval_concrete(&filter.expr).await?;
         let mut args = Vec::with_capacity(filter.args.len());
@@ -452,7 +460,7 @@ impl<'a> Evaluator<'a> {
         .map(LazyValue::concrete)
     }
 
-    async fn eval_binary(&self, binary: &BinaryExpr) -> Result<LazyValue> {
+    async fn eval_binary(&self, binary: &BinaryExpr) -> Result<LazyValue, TemplateError> {
         // Short-circuit for and/or - these can stay lazy
         match binary.op {
             BinaryOp::And => {
@@ -515,7 +523,7 @@ impl<'a> Evaluator<'a> {
         }))
     }
 
-    async fn eval_unary(&self, unary: &UnaryExpr) -> Result<LazyValue> {
+    async fn eval_unary(&self, unary: &UnaryExpr) -> Result<LazyValue, TemplateError> {
         // Unary ops need concrete values
         let value = self.eval_concrete(&unary.expr).await?;
 
@@ -540,7 +548,7 @@ impl<'a> Evaluator<'a> {
         }))
     }
 
-    async fn eval_call(&self, call: &CallExpr) -> Result<LazyValue> {
+    async fn eval_call(&self, call: &CallExpr) -> Result<LazyValue, TemplateError> {
         // Function calls require concrete argument values
         let mut args = Vec::with_capacity(call.args.len());
         for a in &call.args {
@@ -556,7 +564,10 @@ impl<'a> Evaluator<'a> {
         if let Expr::Var(ident) = &*call.func
             && let Some(result_fut) = self.ctx.call_fn(&ident.name, &args, &kwargs)
         {
-            return result_fut.await.map(LazyValue::concrete);
+            return result_fut
+                .await
+                .map(LazyValue::concrete)
+                .map_err(|e| TemplateError::GlobalFn(e.to_string()));
         }
 
         // Check for method calls on special objects: obj.method()
@@ -573,7 +584,10 @@ impl<'a> Evaluator<'a> {
             full_args.extend(args);
 
             if let Some(result_fut) = self.ctx.call_fn(func_name, &full_args, &kwargs) {
-                return result_fut.await.map(LazyValue::concrete);
+                return result_fut
+                    .await
+                    .map(LazyValue::concrete)
+                    .map_err(|e| TemplateError::GlobalFn(e.to_string()));
             }
         }
 
@@ -581,7 +595,7 @@ impl<'a> Evaluator<'a> {
         Ok(LazyValue::concrete(Value::NULL))
     }
 
-    async fn eval_ternary(&self, ternary: &TernaryExpr) -> Result<LazyValue> {
+    async fn eval_ternary(&self, ternary: &TernaryExpr) -> Result<LazyValue, TemplateError> {
         let condition = self.eval(&ternary.condition).await?;
         if condition.is_truthy().await {
             self.eval(&ternary.value).await
@@ -590,7 +604,7 @@ impl<'a> Evaluator<'a> {
         }
     }
 
-    async fn eval_test(&self, test: &TestExpr) -> Result<LazyValue> {
+    async fn eval_test(&self, test: &TestExpr) -> Result<LazyValue, TemplateError> {
         // Tests require concrete values
         let value = self.eval_concrete(&test.expr).await?;
         let mut args = Vec::with_capacity(test.args.len());
@@ -747,8 +761,7 @@ impl<'a> Evaluator<'a> {
             other => {
                 return Err(UnknownTestError {
                     name: other.to_string(),
-                    span: test.test_name.span,
-                    src: self.source.named_source(),
+                    loc: SourceLocation::new(test.test_name.span, self.source.named_source()),
                 })?;
             }
         };
@@ -1041,7 +1054,7 @@ fn apply_filter(
     kwargs: &[(String, Value)],
     span: Span,
     source: &TemplateSource,
-) -> Result<Value> {
+) -> Result<Value, TemplateError> {
     let known_filters = vec![
         "upper",
         "lower",
@@ -1414,8 +1427,7 @@ fn apply_filter(
             return Err(UnknownFilterError {
                 name: name.to_string(),
                 known_filters: known_filters.into_iter().map(String::from).collect(),
-                span,
-                src: source.named_source(),
+                loc: SourceLocation::new(span, source.named_source()),
             }
             .into());
         }

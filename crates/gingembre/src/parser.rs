@@ -3,9 +3,8 @@
 //! Transforms token stream into AST with full span information.
 
 use super::ast::*;
-use super::error::{SyntaxError, TemplateSource};
+use super::error::{SourceLocation, SyntaxError, TemplateError, TemplateSource};
 use super::lexer::{Lexer, Token, TokenKind};
-use eyre::Result;
 use std::sync::Arc;
 
 /// Parsed call arguments: (positional args, keyword args)
@@ -58,7 +57,7 @@ impl Parser {
     }
 
     /// Parse the full template
-    pub fn parse(mut self) -> Result<Template> {
+    pub fn parse(mut self) -> Result<Template, TemplateError> {
         let start = self.current.span;
         let body = self.parse_body(&[])?;
         let end = self.previous.span;
@@ -70,7 +69,7 @@ impl Parser {
     }
 
     /// Parse a standalone expression (for REPL evaluation)
-    pub fn parse_expression(mut self) -> Result<Expr> {
+    pub fn parse_expression(mut self) -> Result<Expr, TemplateError> {
         self.parse_expr()
     }
 
@@ -80,7 +79,7 @@ impl Parser {
     }
 
     /// Parse template body until we hit a terminator
-    fn parse_body(&mut self, terminators: &[TokenKind]) -> Result<Vec<Node>> {
+    fn parse_body(&mut self, terminators: &[TokenKind]) -> Result<Vec<Node>, TemplateError> {
         let mut nodes = Vec::new();
 
         loop {
@@ -123,7 +122,7 @@ impl Parser {
     }
 
     /// Parse tag body after we've seen {% and consumed the keyword
-    fn parse_tag_body(&mut self) -> Result<Node> {
+    fn parse_tag_body(&mut self) -> Result<Node, TemplateError> {
         let start = self.previous.span; // The {% token
 
         match &self.current.kind {
@@ -145,15 +144,14 @@ impl Parser {
                     expected:
                         "if, for, block, extends, include, import, macro, set, continue, or break"
                             .to_string(),
-                    span,
-                    src: self.source.named_source(),
+                    loc: SourceLocation::new(span, self.source.named_source()),
                 })?
             }
         }
     }
 
     /// Parse a single node
-    fn parse_node(&mut self) -> Result<Node> {
+    fn parse_node(&mut self) -> Result<Node, TemplateError> {
         match &self.current.kind {
             TokenKind::Text(text) => {
                 let text = text.clone();
@@ -169,15 +167,14 @@ impl Parser {
                 Err(SyntaxError {
                     found,
                     expected: "text, {{ or {%".to_string(),
-                    span,
-                    src: self.source.named_source(),
+                    loc: SourceLocation::new(span, self.source.named_source()),
                 })?
             }
         }
     }
 
     /// Parse expression print: {{ expr }}
-    fn parse_print(&mut self) -> Result<Node> {
+    fn parse_print(&mut self) -> Result<Node, TemplateError> {
         let start = self.current.span;
         self.expect(&TokenKind::ExprOpen)?;
 
@@ -193,7 +190,7 @@ impl Parser {
     }
 
     /// Parse a tag: {% ... %}
-    fn parse_tag(&mut self) -> Result<Node> {
+    fn parse_tag(&mut self) -> Result<Node, TemplateError> {
         let start = self.current.span;
         self.expect(&TokenKind::TagOpen)?;
 
@@ -216,8 +213,7 @@ impl Parser {
                     expected:
                         "if, for, block, extends, include, import, macro, set, continue, or break"
                             .to_string(),
-                    span,
-                    src: self.source.named_source(),
+                    loc: SourceLocation::new(span, self.source.named_source()),
                 })?;
             }
         };
@@ -229,7 +225,7 @@ impl Parser {
     // r[impl stmt.if.elif]
     // r[impl stmt.if.else]
     /// Parse if statement
-    fn parse_if(&mut self, start: Span) -> Result<Node> {
+    fn parse_if(&mut self, start: Span) -> Result<Node, TemplateError> {
         self.expect(&TokenKind::If)?;
 
         let condition = self.parse_expr()?;
@@ -299,7 +295,7 @@ impl Parser {
     // r[impl stmt.for.syntax]
     // r[impl stmt.for.else]
     /// Parse for loop
-    fn parse_for(&mut self, start: Span) -> Result<Node> {
+    fn parse_for(&mut self, start: Span) -> Result<Node, TemplateError> {
         self.expect(&TokenKind::For)?;
 
         let target = self.parse_target()?;
@@ -347,7 +343,7 @@ impl Parser {
 
     // r[impl stmt.for.tuple-unpacking]
     /// Parse loop target
-    fn parse_target(&mut self) -> Result<Target> {
+    fn parse_target(&mut self) -> Result<Target, TemplateError> {
         let start = self.current.span;
 
         let first_name = self.expect_ident()?;
@@ -375,7 +371,7 @@ impl Parser {
 
     // r[impl inherit.block.syntax]
     /// Parse block definition
-    fn parse_block(&mut self, start: Span) -> Result<Node> {
+    fn parse_block(&mut self, start: Span) -> Result<Node, TemplateError> {
         self.expect(&TokenKind::Block)?;
 
         let name = self.expect_ident()?;
@@ -402,7 +398,7 @@ impl Parser {
 
     // r[impl inherit.extends.syntax]
     /// Parse extends
-    fn parse_extends(&mut self, start: Span) -> Result<Node> {
+    fn parse_extends(&mut self, start: Span) -> Result<Node, TemplateError> {
         self.expect(&TokenKind::Extends)?;
 
         let path = self.expect_string()?;
@@ -418,7 +414,7 @@ impl Parser {
 
     // r[impl inherit.include.syntax]
     /// Parse include
-    fn parse_include(&mut self, start: Span) -> Result<Node> {
+    fn parse_include(&mut self, start: Span) -> Result<Node, TemplateError> {
         self.expect(&TokenKind::Include)?;
 
         let path = self.expect_string()?;
@@ -435,7 +431,7 @@ impl Parser {
 
     // r[impl stmt.set.syntax]
     /// Parse set statement: {% set var = expr %}
-    fn parse_set(&mut self, start: Span) -> Result<Node> {
+    fn parse_set(&mut self, start: Span) -> Result<Node, TemplateError> {
         self.expect(&TokenKind::Set)?;
 
         let name = self.expect_ident()?;
@@ -454,7 +450,7 @@ impl Parser {
 
     // r[impl macro.import.syntax]
     /// Parse import statement: {% import "path" as name %}
-    fn parse_import(&mut self, start: Span) -> Result<Node> {
+    fn parse_import(&mut self, start: Span) -> Result<Node, TemplateError> {
         self.expect(&TokenKind::Import)?;
 
         let path = self.expect_string()?;
@@ -473,7 +469,7 @@ impl Parser {
 
     // r[impl macro.def.syntax]
     /// Parse macro definition: {% macro name(args) %}...{% endmacro %}
-    fn parse_macro(&mut self, start: Span) -> Result<Node> {
+    fn parse_macro(&mut self, start: Span) -> Result<Node, TemplateError> {
         self.expect(&TokenKind::Macro)?;
 
         let name = self.expect_ident()?;
@@ -504,7 +500,7 @@ impl Parser {
 
     // r[impl stmt.continue]
     /// Parse continue statement: {% continue %}
-    fn parse_continue(&mut self, start: Span) -> Result<Node> {
+    fn parse_continue(&mut self, start: Span) -> Result<Node, TemplateError> {
         self.expect(&TokenKind::Continue)?;
         self.expect(&TokenKind::TagClose)?;
 
@@ -517,7 +513,7 @@ impl Parser {
 
     // r[impl stmt.break]
     /// Parse break statement: {% break %}
-    fn parse_break(&mut self, start: Span) -> Result<Node> {
+    fn parse_break(&mut self, start: Span) -> Result<Node, TemplateError> {
         self.expect(&TokenKind::Break)?;
         self.expect(&TokenKind::TagClose)?;
 
@@ -530,7 +526,7 @@ impl Parser {
 
     // r[impl macro.def.params]
     /// Parse macro parameters with optional defaults
-    fn parse_macro_params(&mut self) -> Result<Vec<MacroParam>> {
+    fn parse_macro_params(&mut self) -> Result<Vec<MacroParam>, TemplateError> {
         let mut params = Vec::new();
 
         if !self.check(&TokenKind::RParen) {
@@ -561,12 +557,12 @@ impl Parser {
     // Expression parsing (precedence climbing)
     // ========================================================================
 
-    fn parse_expr(&mut self) -> Result<Expr> {
+    fn parse_expr(&mut self) -> Result<Expr, TemplateError> {
         self.parse_ternary()
     }
 
     // r[impl expr.ternary]
-    fn parse_ternary(&mut self) -> Result<Expr> {
+    fn parse_ternary(&mut self) -> Result<Expr, TemplateError> {
         let value = self.parse_or()?;
 
         if self.check(&TokenKind::If) {
@@ -592,7 +588,7 @@ impl Parser {
     }
 
     // r[impl expr.op.or]
-    fn parse_or(&mut self) -> Result<Expr> {
+    fn parse_or(&mut self) -> Result<Expr, TemplateError> {
         let mut left = self.parse_and()?;
 
         while self.check(&TokenKind::Or) {
@@ -614,7 +610,7 @@ impl Parser {
     }
 
     // r[impl expr.op.and]
-    fn parse_and(&mut self) -> Result<Expr> {
+    fn parse_and(&mut self) -> Result<Expr, TemplateError> {
         let mut left = self.parse_not()?;
 
         while self.check(&TokenKind::And) {
@@ -636,7 +632,7 @@ impl Parser {
     }
 
     // r[impl expr.op.not]
-    fn parse_not(&mut self) -> Result<Expr> {
+    fn parse_not(&mut self) -> Result<Expr, TemplateError> {
         if self.check(&TokenKind::Not) {
             let start = self.current.span;
             self.advance();
@@ -665,7 +661,7 @@ impl Parser {
     // r[impl expr.op.ge]
     // r[impl expr.op.in]
     // r[impl expr.op.not-in]
-    fn parse_comparison(&mut self) -> Result<Expr> {
+    fn parse_comparison(&mut self) -> Result<Expr, TemplateError> {
         let mut left = self.parse_add()?;
 
         loop {
@@ -770,7 +766,7 @@ impl Parser {
     // r[impl expr.op.add]
     // r[impl expr.op.sub]
     // r[impl expr.op.concat]
-    fn parse_add(&mut self) -> Result<Expr> {
+    fn parse_add(&mut self) -> Result<Expr, TemplateError> {
         let mut left = self.parse_mul()?;
 
         loop {
@@ -806,7 +802,7 @@ impl Parser {
     // r[impl expr.op.div]
     // r[impl expr.op.floordiv]
     // r[impl expr.op.mod]
-    fn parse_mul(&mut self) -> Result<Expr> {
+    fn parse_mul(&mut self) -> Result<Expr, TemplateError> {
         let mut left = self.parse_unary()?;
 
         loop {
@@ -839,7 +835,7 @@ impl Parser {
         Ok(left)
     }
 
-    fn parse_unary(&mut self) -> Result<Expr> {
+    fn parse_unary(&mut self) -> Result<Expr, TemplateError> {
         let start = self.current.span;
 
         if self.check(&TokenKind::Minus) {
@@ -872,7 +868,7 @@ impl Parser {
     }
 
     // r[impl expr.op.pow]
-    fn parse_power(&mut self) -> Result<Expr> {
+    fn parse_power(&mut self) -> Result<Expr, TemplateError> {
         let base = self.parse_filter()?;
 
         if self.check(&TokenKind::DoubleStar) {
@@ -896,7 +892,7 @@ impl Parser {
     // r[impl filter.syntax]
     // r[impl filter.chaining]
     // r[impl filter.args]
-    fn parse_filter(&mut self) -> Result<Expr> {
+    fn parse_filter(&mut self) -> Result<Expr, TemplateError> {
         let mut expr = self.parse_postfix()?;
 
         while self.check(&TokenKind::Pipe) {
@@ -934,7 +930,7 @@ impl Parser {
     // r[impl expr.index.bracket]
     // r[impl expr.call.syntax]
     // r[impl expr.call.kwargs]
-    fn parse_postfix(&mut self) -> Result<Expr> {
+    fn parse_postfix(&mut self) -> Result<Expr, TemplateError> {
         let mut expr = self.parse_primary()?;
 
         loop {
@@ -985,7 +981,7 @@ impl Parser {
         Ok(expr)
     }
 
-    fn parse_primary(&mut self) -> Result<Expr> {
+    fn parse_primary(&mut self) -> Result<Expr, TemplateError> {
         let token = self.current.clone();
 
         match &token.kind {
@@ -1094,13 +1090,12 @@ impl Parser {
             _ => Err(SyntaxError {
                 found: format!("{:?}", token.kind),
                 expected: "expression".to_string(),
-                span: token.span,
-                src: self.source.named_source(),
+                loc: SourceLocation::new(token.span, self.source.named_source()),
             })?,
         }
     }
 
-    fn parse_args(&mut self) -> Result<Vec<Expr>> {
+    fn parse_args(&mut self) -> Result<Vec<Expr>, TemplateError> {
         let mut args = Vec::new();
 
         if !self.check(&TokenKind::RParen) {
@@ -1117,7 +1112,7 @@ impl Parser {
         Ok(args)
     }
 
-    fn parse_call_args(&mut self) -> Result<CallArgs> {
+    fn parse_call_args(&mut self) -> Result<CallArgs, TemplateError> {
         let mut args = Vec::new();
         let mut kwargs = Vec::new();
 
@@ -1165,7 +1160,7 @@ impl Parser {
         Ok((args, kwargs))
     }
 
-    fn parse_list_elements(&mut self) -> Result<Vec<Expr>> {
+    fn parse_list_elements(&mut self) -> Result<Vec<Expr>, TemplateError> {
         let mut elements = Vec::new();
 
         if !self.check(&TokenKind::RBracket) {
@@ -1182,7 +1177,7 @@ impl Parser {
         Ok(elements)
     }
 
-    fn parse_dict_entries(&mut self) -> Result<Vec<(Expr, Expr)>> {
+    fn parse_dict_entries(&mut self) -> Result<Vec<(Expr, Expr)>, TemplateError> {
         let mut entries = Vec::new();
 
         if !self.check(&TokenKind::RBrace) {
@@ -1226,7 +1221,7 @@ impl Parser {
         matches!(self.current.kind, TokenKind::Eof)
     }
 
-    fn expect(&mut self, kind: &TokenKind) -> Result<()> {
+    fn expect(&mut self, kind: &TokenKind) -> Result<(), TemplateError> {
         if self.check(kind) {
             self.advance();
             Ok(())
@@ -1234,13 +1229,12 @@ impl Parser {
             Err(SyntaxError {
                 found: format!("{:?}", self.current.kind),
                 expected: format!("{kind:?}"),
-                span: self.current.span,
-                src: self.source.named_source(),
+                loc: SourceLocation::new(self.current.span, self.source.named_source()),
             })?
         }
     }
 
-    fn expect_ident(&mut self) -> Result<Ident> {
+    fn expect_ident(&mut self) -> Result<Ident, TemplateError> {
         if let TokenKind::Ident(name) = &self.current.kind {
             let name = name.clone();
             let span = self.current.span;
@@ -1250,15 +1244,14 @@ impl Parser {
             Err(SyntaxError {
                 found: format!("{:?}", self.current.kind),
                 expected: "identifier".to_string(),
-                span: self.current.span,
-                src: self.source.named_source(),
+                loc: SourceLocation::new(self.current.span, self.source.named_source()),
             })?
         }
     }
 
     /// Expect an identifier or a keyword that can be used as a test name.
     /// This allows `x is none` to work since `none` is lexed as a keyword.
-    fn expect_test_name(&mut self) -> Result<Ident> {
+    fn expect_test_name(&mut self) -> Result<Ident, TemplateError> {
         match &self.current.kind {
             TokenKind::Ident(name) => {
                 let name = name.clone();
@@ -1277,13 +1270,12 @@ impl Parser {
             _ => Err(SyntaxError {
                 found: format!("{:?}", self.current.kind),
                 expected: "test name".to_string(),
-                span: self.current.span,
-                src: self.source.named_source(),
+                loc: SourceLocation::new(self.current.span, self.source.named_source()),
             })?,
         }
     }
 
-    fn expect_string(&mut self) -> Result<StringLit> {
+    fn expect_string(&mut self) -> Result<StringLit, TemplateError> {
         if let TokenKind::String(value) = &self.current.kind {
             let value = value.clone();
             let span = self.current.span;
@@ -1293,8 +1285,7 @@ impl Parser {
             Err(SyntaxError {
                 found: format!("{:?}", self.current.kind),
                 expected: "string".to_string(),
-                span: self.current.span,
-                src: self.source.named_source(),
+                loc: SourceLocation::new(self.current.span, self.source.named_source()),
             })?
         }
     }
@@ -1304,7 +1295,7 @@ impl Parser {
 mod tests {
     use super::*;
 
-    fn parse(s: &str) -> Result<Template> {
+    fn parse(s: &str) -> Result<Template, TemplateError> {
         Parser::new("test", s).parse()
     }
 

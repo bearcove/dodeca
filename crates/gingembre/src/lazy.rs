@@ -21,8 +21,10 @@
 //! resolver.resolve(path).await → concrete value + dependency tracked
 //! ```
 
-use crate::error::{TemplateSource, TypeError, UnknownFieldError};
-use eyre::Result;
+use crate::error::{
+    DataPathNotFoundError, SourceLocation, SourceSpan, TemplateError, TemplateSource, TypeError,
+    UnknownFieldError,
+};
 use facet_value::DestructuredRef;
 use std::future::Future;
 use std::pin::Pin;
@@ -182,13 +184,38 @@ impl LazyValue {
     /// # Errors
     ///
     /// Returns an error if the path doesn't exist in the data tree.
-    pub async fn resolve(&self) -> Result<facet_value::Value> {
+    /// Uses a default location for error reporting; use `resolve_at` for precise locations.
+    pub async fn resolve(&self) -> Result<facet_value::Value, TemplateError> {
         match self {
             Self::Concrete(value) => Ok(value.clone()),
-            Self::Lazy { resolver, path } => resolver
-                .resolve(path)
-                .await
-                .ok_or_else(|| eyre::eyre!("Data path not found: {}", path)),
+            Self::Lazy { resolver, path } => resolver.resolve(path).await.ok_or_else(|| {
+                DataPathNotFoundError {
+                    path: path.to_string(),
+                    loc: SourceLocation::new(
+                        SourceSpan::default(),
+                        crate::error::NamedSource::new("<unknown>", ""),
+                    ),
+                }
+                .into()
+            }),
+        }
+    }
+
+    /// Force resolution with source location for error reporting.
+    pub async fn resolve_at(
+        &self,
+        span: crate::ast::Span,
+        source: &TemplateSource,
+    ) -> Result<facet_value::Value, TemplateError> {
+        match self {
+            Self::Concrete(value) => Ok(value.clone()),
+            Self::Lazy { resolver, path } => resolver.resolve(path).await.ok_or_else(|| {
+                DataPathNotFoundError {
+                    path: path.to_string(),
+                    loc: SourceLocation::new(span, source.named_source()),
+                }
+                .into()
+            }),
         }
     }
 
@@ -209,7 +236,7 @@ impl LazyValue {
         name: &str,
         span: crate::ast::Span,
         source: &TemplateSource,
-    ) -> Result<LazyValue> {
+    ) -> Result<LazyValue, TemplateError> {
         match self {
             Self::Lazy { resolver, path } => {
                 // Extend the path - don't resolve yet!
@@ -227,8 +254,7 @@ impl LazyValue {
                                 base_type: "dict".to_string(),
                                 field: name.to_string(),
                                 known_fields: obj.keys().map(|k| k.to_string()).collect(),
-                                span,
-                                src: source.named_source(),
+                                loc: SourceLocation::new(span, source.named_source()),
                             }
                             .into()
                         })
@@ -242,9 +268,8 @@ impl LazyValue {
                         Err(TypeError {
                             expected: "object or dict".to_string(),
                             found: self.type_name().to_string(),
-                            context: "field access".to_string(),
-                            span,
-                            src: source.named_source(),
+                            context: format!("accessing field `{}`", name),
+                            loc: SourceLocation::new(span, source.named_source()),
                         }
                         .into())
                     }
@@ -262,7 +287,7 @@ impl LazyValue {
         idx: i64,
         span: crate::ast::Span,
         source: &TemplateSource,
-    ) -> Result<LazyValue> {
+    ) -> Result<LazyValue, TemplateError> {
         match self {
             Self::Lazy { resolver, path } => {
                 // Extend the path with the index
@@ -283,8 +308,7 @@ impl LazyValue {
                             expected: format!("index < {}", arr.len()),
                             found: format!("index {i}"),
                             context: "list index".to_string(),
-                            span,
-                            src: source.named_source(),
+                            loc: SourceLocation::new(span, source.named_source()),
                         }
                         .into()
                     })
@@ -293,8 +317,7 @@ impl LazyValue {
                     expected: "list".to_string(),
                     found: self.type_name().to_string(),
                     context: "index access".to_string(),
-                    span,
-                    src: source.named_source(),
+                    loc: SourceLocation::new(span, source.named_source()),
                 }
                 .into()),
             },
@@ -307,7 +330,7 @@ impl LazyValue {
         key: &str,
         span: crate::ast::Span,
         source: &TemplateSource,
-    ) -> Result<LazyValue> {
+    ) -> Result<LazyValue, TemplateError> {
         match self {
             Self::Lazy { resolver, path } => Ok(Self::Lazy {
                 resolver: resolver.clone(),
@@ -320,8 +343,7 @@ impl LazyValue {
                             base_type: "dict".to_string(),
                             field: key.to_string(),
                             known_fields: obj.keys().map(|k| k.to_string()).collect(),
-                            span,
-                            src: source.named_source(),
+                            loc: SourceLocation::new(span, source.named_source()),
                         }
                         .into()
                     })
@@ -330,8 +352,7 @@ impl LazyValue {
                     expected: "dict".to_string(),
                     found: self.type_name().to_string(),
                     context: "string index access".to_string(),
-                    span,
-                    src: source.named_source(),
+                    loc: SourceLocation::new(span, source.named_source()),
                 }
                 .into()),
             },

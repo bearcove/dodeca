@@ -4,12 +4,13 @@
 //! This is the main public API for the template engine.
 
 use super::ast::{self, Expr, Node, Target};
-use super::error::TemplateSource;
+use super::error::{
+    MacroNotFoundError, RenderError, SourceLocation, TemplateError, TemplateSource,
+};
 use super::eval::{Context, Evaluator, Value};
 use super::lazy::LazyValue;
 use super::parser::Parser;
 use camino::{Utf8Path, Utf8PathBuf};
-use eyre::Result;
 use facet_value::{DestructuredRef, VObject, VString};
 use futures::future::BoxFuture;
 use std::collections::HashMap;
@@ -122,7 +123,10 @@ pub struct Template {
 
 impl Template {
     /// Parse a template from source
-    pub fn parse(name: impl Into<String>, source: impl Into<String>) -> Result<Self> {
+    pub fn parse(
+        name: impl Into<String>,
+        source: impl Into<String>,
+    ) -> Result<Self, TemplateError> {
         let name = name.into();
         let source_str: String = source.into();
         let template_source = TemplateSource::new(&name, &source_str);
@@ -179,7 +183,7 @@ impl Template {
     }
 
     /// Render the template with the given context (no inheritance support)
-    pub async fn render(&self, ctx: &Context) -> Result<String> {
+    pub async fn render(&self, ctx: &Context) -> Result<String, TemplateError> {
         let mut output = String::new();
         let null_loader = NullLoader;
         let mut renderer = Renderer {
@@ -196,7 +200,7 @@ impl Template {
     }
 
     /// Render the template with a simple key-value context
-    pub async fn render_with<I, K, V>(&self, vars: I) -> Result<String>
+    pub async fn render_with<I, K, V>(&self, vars: I) -> Result<String, TemplateError>
     where
         I: IntoIterator<Item = (K, V)>,
         K: Into<String>,
@@ -221,18 +225,17 @@ impl<L: TemplateLoader> Engine<L> {
         Self { loader }
     }
 
-    /// Load a template (no caching - that's picante's job)
-    pub async fn load(&self, name: &str) -> Result<Template> {
-        let source = self
-            .loader
-            .load(name)
-            .await
-            .ok_or_else(|| eyre::eyre!("Template not found: {}", name))?;
-        Template::parse(name, source)
+    /// Load a template, returning a RenderError on failure
+    pub async fn load(&self, name: &str) -> Result<Template, RenderError> {
+        let source = self.loader.load(name).await;
+        match source {
+            None => Err(RenderError::NotFound(name.to_string())),
+            Some(source) => Ok(Template::parse(name, source)?),
+        }
     }
 
     /// Render a template by name with inheritance support
-    pub async fn render(&mut self, name: &str, ctx: &Context) -> Result<String> {
+    pub async fn render(&mut self, name: &str, ctx: &Context) -> Result<String, RenderError> {
         // Load the template
         let template = self.load(name).await?;
 
@@ -290,7 +293,7 @@ impl<L: TemplateLoader> Engine<L> {
         ctx: &'a Context,
         child_blocks: HashMap<String, BlockDef>,
         child_imports: Vec<(String, String)>,
-    ) -> BoxFuture<'a, Result<String>> {
+    ) -> BoxFuture<'a, Result<String, RenderError>> {
         Box::pin(async move {
             let template = self.load(name).await?;
 
@@ -366,7 +369,10 @@ struct Renderer<'a, L: TemplateLoader> {
 }
 
 impl<'a, L: TemplateLoader> Renderer<'a, L> {
-    fn render_nodes<'b>(&'b mut self, nodes: &'b [Node]) -> BoxFuture<'b, Result<LoopControl>> {
+    fn render_nodes<'b>(
+        &'b mut self,
+        nodes: &'b [Node],
+    ) -> BoxFuture<'b, Result<LoopControl, TemplateError>> {
         Box::pin(async move {
             for node in nodes {
                 let control = self.render_node(node).await?;
@@ -383,7 +389,7 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
         &'b mut self,
         nodes: &'b [Node],
         source: TemplateSource,
-    ) -> BoxFuture<'b, Result<LoopControl>> {
+    ) -> BoxFuture<'b, Result<LoopControl, TemplateError>> {
         Box::pin(async move {
             let original_source = std::mem::replace(&mut self.source, source);
             let result = self.render_nodes(nodes).await;
@@ -392,7 +398,10 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
         })
     }
 
-    fn render_node<'b>(&'b mut self, node: &'b Node) -> BoxFuture<'b, Result<LoopControl>> {
+    fn render_node<'b>(
+        &'b mut self,
+        node: &'b Node,
+    ) -> BoxFuture<'b, Result<LoopControl, TemplateError>> {
         Box::pin(async move {
             match node {
                 Node::Text(text) => {
@@ -419,6 +428,7 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                                 &macro_call.macro_name.name,
                                 &args,
                                 &kwargs,
+                                macro_call.span,
                             )
                             .await?;
                         // Macro output is already HTML, don't escape it
@@ -664,7 +674,7 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
     }
 
     /// Load macros from an imported template file into the given namespace
-    async fn load_macros_from(&mut self, path: &str, alias: &str) -> Result<()> {
+    async fn load_macros_from(&mut self, path: &str, alias: &str) -> Result<(), TemplateError> {
         if let Some(loader) = &self.loader
             && let Some(source) = loader.load(path).await
         {
@@ -695,7 +705,8 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
         macro_name: &'b str,
         args: &'b [Value],
         kwargs: &'b [(String, Value)],
-    ) -> BoxFuture<'b, Result<String>> {
+        span: ast::Span,
+    ) -> BoxFuture<'b, Result<String, TemplateError>> {
         Box::pin(async move {
             // Find the macro
             let macro_def = self
@@ -703,7 +714,11 @@ impl<'a, L: TemplateLoader> Renderer<'a, L> {
                 .get(namespace)
                 .and_then(|ns| ns.get(macro_name))
                 .cloned()
-                .ok_or_else(|| eyre::eyre!("Macro not found: {}::{}", namespace, macro_name))?;
+                .ok_or_else(|| MacroNotFoundError {
+                    namespace: namespace.to_string(),
+                    name: macro_name.to_string(),
+                    loc: SourceLocation::new(span, self.source.named_source()),
+                })?;
 
             // Save output and create new buffer for macro
             let mut macro_output = String::new();
