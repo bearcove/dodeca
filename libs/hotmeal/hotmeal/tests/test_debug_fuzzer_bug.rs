@@ -82,3 +82,45 @@ fn test_img_alt_attribute_preservation() {
         result
     );
 }
+
+/// Regression test for fuzzer crash with minimal input
+/// crash-9d5bce5f90d295276df5f9cfa00700d855d43ad8, minimized to 4 bytes
+/// html_a: "<!" (bytes [60, 33])
+/// html_b: "" (empty)
+///
+/// The issue: "<!" parses to just a comment (no body), but diff() crashed.
+/// Now diff() handles missing bodies gracefully.
+#[test]
+fn test_diff_incomplete_doctype_vs_empty() {
+    let a = t("<!");
+    let b = t("");
+
+    println!("Parsing a: {:?}", a);
+    let doc_a = hotmeal::parse(&a);
+    println!("doc_a HTML: {:?}", doc_a.to_html());
+    println!("doc_a.body(): {:?}", doc_a.body());
+
+    println!("Parsing b: {:?}", b);
+    let doc_b = hotmeal::parse(&b);
+    println!("doc_b HTML: {:?}", doc_b.to_html());
+    println!("doc_b.body(): {:?}", doc_b.body());
+
+    // Both docs may have no body, but diff should still work
+    println!("Computing diff...");
+    let patches = hotmeal::diff(&doc_a, &doc_b).expect("diff should succeed");
+    println!("Patches: {:?}", patches);
+
+    // Apply patches
+    let mut patched = doc_a.clone();
+    patched
+        .apply_patches(patches)
+        .expect("apply should succeed");
+
+    // Compare body contents - the diff system only operates on body content.
+    // Both "no body" and "empty body" produce empty body content.
+    assert_eq!(
+        patched.to_body_html(),
+        doc_b.to_body_html(),
+        "Patched body content should match target body content"
+    );
+}

@@ -15,7 +15,7 @@ use cinereus::{
 use facet::Facet;
 use html5ever::{LocalName, QualName};
 use rapidhash::RapidHasher;
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -338,12 +338,43 @@ impl<'a> Properties for HtmlProps<'a> {
     fn diff(&self, other: &Self) -> Vec<PropertyInFinalState<Self::Key, Self::Value>> {
         let mut result = Vec::new();
 
+        // Check if attribute ORDER differs (even if values are the same).
+        // Build a list of common keys in the order they appear in self.
+        let self_keys: Vec<_> = self.attrs.iter().map(|(k, _)| k).collect();
+        let other_keys: Vec<_> = other.attrs.iter().map(|(k, _)| k).collect();
+
+        // Find common keys in the order they appear in self
+        let self_common: Vec<_> = self_keys
+            .iter()
+            .filter(|k| other_keys.contains(k))
+            .copied()
+            .collect();
+        // Find common keys in the order they appear in other
+        let other_common: Vec<_> = other_keys
+            .iter()
+            .filter(|k| self_keys.contains(k))
+            .copied()
+            .collect();
+
+        // If common keys are in different order, we need to force an update
+        let order_differs = self_common != other_common;
+
         // Include all attributes from the final state in order
+        let mut forced_one = false;
         for (key, new_val) in &other.attrs {
             let old_val = self.attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v);
+            let value_same = old_val == Some(new_val);
+
+            // If order differs and values are the same, force at least one to be Different
+            // to trigger the UpdateProperties operation
+            let force_different = order_differs && value_same && !forced_one;
+            if force_different {
+                forced_one = true;
+            }
+
             result.push(PropertyInFinalState {
                 key: PropKey::Attr(key.clone()),
-                value: if old_val == Some(new_val) {
+                value: if value_same && !force_different {
                     PropValue::Same
                 } else {
                     PropValue::Different(new_val.clone())
@@ -404,8 +435,8 @@ impl<'b, 'a> DiffableDocument<'b, 'a> {
     /// Create a new DiffableDocument from a Document.
     ///
     /// Pre-computes hashes and caches kind/props for all body descendants.
-    pub fn new(doc: &'b Document<'a>) -> Self {
-        let body_id = doc.body().expect("document must have body");
+    pub fn new(doc: &'b Document<'a>) -> Result<Self, DiffError> {
+        let body_id = doc.body().ok_or(DiffError::NoBody)?;
         // Pre-allocate based on arena size (upper bound for descendants)
         let mut nodes = HashMap::with_capacity(doc.arena.count());
 
@@ -493,11 +524,11 @@ impl<'b, 'a> DiffableDocument<'b, 'a> {
             }
         }
 
-        Self {
+        Ok(Self {
             doc,
             body_id,
             nodes,
-        }
+        })
     }
 }
 
@@ -619,16 +650,18 @@ impl Iterator for PostOrderIterator<'_, '_> {
 }
 
 /// Build a cinereus tree from an arena_dom::Document (body content only).
+/// If the document has no body, returns an empty body tree.
 pub fn build_tree_from_arena<'a>(doc: &Document<'a>) -> Tree<HtmlTreeTypes<'a>> {
-    // Find body element
-    let body_id = doc.body().expect("document must have body");
-    let body_node = doc.get(body_id);
-
-    // Create root as body element
-    let (body_tag, body_ns) = if let NodeKind::Element(elem) = &body_node.kind {
-        (elem.tag.clone(), body_node.ns)
+    // Find body element, or create an empty body tree if none exists
+    let (body_tag, body_ns, body_id) = if let Some(body_id) = doc.body() {
+        let body_node = doc.get(body_id);
+        if let NodeKind::Element(elem) = &body_node.kind {
+            (elem.tag.clone(), body_node.ns, Some(body_id))
+        } else {
+            (LocalName::from("body"), Namespace::Html, None)
+        }
     } else {
-        panic!("body must be an element");
+        (LocalName::from("body"), Namespace::Html, None)
     };
 
     let root_data = NodeData {
@@ -641,8 +674,10 @@ pub fn build_tree_from_arena<'a>(doc: &Document<'a>) -> Tree<HtmlTreeTypes<'a>> 
     let mut tree = Tree::new(root_data);
     let tree_root = tree.root;
 
-    // Add children from body
-    add_arena_children(&mut tree, tree_root, doc, body_id);
+    // Add children from body (only if we have a body)
+    if let Some(body_id) = body_id {
+        add_arena_children(&mut tree, tree_root, doc, body_id);
+    }
 
     // Recompute hashes bottom-up
     recompute_hashes(&mut tree);
@@ -744,6 +779,85 @@ fn recompute_hashes(tree: &mut Tree<HtmlTreeTypes<'_>>) {
     }
 }
 
+/// Create an insert patch for a node and all its descendants.
+/// Used when we need to insert entire subtrees (e.g., when old doc has no body).
+fn create_insert_patch<'a>(
+    doc: &Document<'a>,
+    node_id: NodeId,
+    position: usize,
+) -> Result<Patch<'a>, DiffError> {
+    let node = doc.get(node_id);
+
+    match &node.kind {
+        NodeKind::Element(elem) => {
+            let attrs: Vec<AttrPair<'a>> = elem
+                .attrs
+                .iter()
+                .map(|(name, value)| AttrPair {
+                    name: name.clone(),
+                    value: value.clone(),
+                })
+                .collect();
+
+            let children: Vec<InsertContent<'a>> = node_id
+                .children(&doc.arena)
+                .filter_map(|child_id| create_insert_content(doc, child_id))
+                .collect();
+
+            Ok(Patch::InsertElement {
+                at: NodeRef(NodePath(smallvec![0, position as u32])),
+                tag: elem.tag.clone(),
+                attrs,
+                children,
+                detach_to_slot: None,
+            })
+        }
+        NodeKind::Text(text) => Ok(Patch::InsertText {
+            at: NodeRef(NodePath(smallvec![0, position as u32])),
+            text: text.clone(),
+            detach_to_slot: None,
+        }),
+        NodeKind::Comment(text) => Ok(Patch::InsertComment {
+            at: NodeRef(NodePath(smallvec![0, position as u32])),
+            text: text.clone(),
+            detach_to_slot: None,
+        }),
+        NodeKind::Document => Err(DiffError::NoBody), // Shouldn't happen
+    }
+}
+
+/// Create InsertContent for a node and its descendants (recursive).
+fn create_insert_content<'a>(doc: &Document<'a>, node_id: NodeId) -> Option<InsertContent<'a>> {
+    let node = doc.get(node_id);
+
+    match &node.kind {
+        NodeKind::Element(elem) => {
+            let attrs: Vec<AttrPair<'a>> = elem
+                .attrs
+                .iter()
+                .map(|(name, value)| AttrPair {
+                    name: name.clone(),
+                    value: value.clone(),
+                })
+                .collect();
+
+            let children: Vec<InsertContent<'a>> = node_id
+                .children(&doc.arena)
+                .filter_map(|child_id| create_insert_content(doc, child_id))
+                .collect();
+
+            Some(InsertContent::Element {
+                tag: elem.tag.clone(),
+                attrs,
+                children,
+            })
+        }
+        NodeKind::Text(text) => Some(InsertContent::Text(text.clone())),
+        NodeKind::Comment(text) => Some(InsertContent::Comment(text.clone())),
+        NodeKind::Document => None,
+    }
+}
+
 /// Diff two HTML tendrils and return DOM patches.
 ///
 /// Parses both HTML inputs and diffs them.
@@ -761,10 +875,46 @@ pub fn diff_html<'a>(
 ///
 /// This is the primary diffing API for arena_dom documents.
 pub fn diff<'a>(old: &Document<'a>, new: &Document<'a>) -> Result<Vec<Patch<'a>>, DiffError> {
+    let old_has_body = old.body().is_some();
+    let new_has_body = new.body().is_some();
+
+    // Handle cases where one or both documents have no body
+    match (old_has_body, new_has_body) {
+        (false, false) => {
+            // Neither has body - nothing to diff
+            return Ok(vec![]);
+        }
+        (false, true) => {
+            // Old has no body, new has body - insert all new body children
+            let new_body_id = new.body().unwrap();
+            let mut patches = Vec::new();
+            for (pos, child_id) in new_body_id.children(&new.arena).enumerate() {
+                patches.push(create_insert_patch(new, child_id, pos)?);
+            }
+            return Ok(patches);
+        }
+        (true, false) => {
+            // Old has body, new has no body - remove all old body children
+            let old_body_id = old.body().unwrap();
+            let mut patches = Vec::new();
+            // Remove children in reverse order to keep indices stable
+            let children: Vec<_> = old_body_id.children(&old.arena).collect();
+            for (pos, _child_id) in children.iter().enumerate().rev() {
+                patches.push(Patch::Remove {
+                    node: NodeRef(NodePath(smallvec![0, pos as u32])),
+                });
+            }
+            return Ok(patches);
+        }
+        (true, true) => {
+            // Both have bodies - proceed with normal diffing
+        }
+    }
+
     // Build cinereus Tree for old (needed for shadow tree mutation)
     let tree_a = build_tree_from_arena(old);
     // Use DiffableDocument for new (avoids second tree allocation)
-    let diff_b = DiffableDocument::new(new);
+    let diff_b = DiffableDocument::new(new)?;
 
     #[cfg(test)]
     {

@@ -27,11 +27,14 @@ fuzz_target!(|input: Input| {
         .apply_patches(patches)
         .expect("apply_patches must always succeed");
 
-    let patched_html = patched.to_html();
-    let expected_html = doc_b.to_html();
+    // Compare body contents - the diff system only operates on body content,
+    // so structural differences (one doc has body, other doesn't) won't be patched.
+    // Both "no body" and "empty body" should produce empty body content.
+    let patched_body = patched.to_body_html();
+    let expected_body = doc_b.to_body_html();
 
     assert_eq!(
-        patched_html, expected_html,
-        "Patched document should match target document"
+        patched_body, expected_body,
+        "Patched body content should match target body content"
     );
 });

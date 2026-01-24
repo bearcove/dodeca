@@ -109,6 +109,26 @@ impl<'a> Document<'a> {
         })
     }
 
+    /// Ensure the document has a body element, creating one if needed.
+    /// Returns the body NodeId.
+    fn ensure_body(&mut self) -> NodeId {
+        // If body exists, return it
+        if let Some(body_id) = self.body() {
+            return body_id;
+        }
+
+        // Create body element and attach to root (html element)
+        let body_id = self.arena.new_node(NodeData {
+            kind: NodeKind::Element(ElementData {
+                tag: LocalName::from("body"),
+                attrs: Vec::new(),
+            }),
+            ns: Namespace::Html,
+        });
+        self.root.append(body_id, &mut self.arena);
+        body_id
+    }
+
     // ==================== DOM Manipulation API ====================
 
     /// Create an element node (not yet attached to the tree)
@@ -243,6 +263,19 @@ impl<'a> Document<'a> {
         output
     }
 
+    /// Serialize just the body's inner content.
+    /// Returns empty string if there's no body.
+    pub fn to_body_html(&self) -> String {
+        let Some(body_id) = self.body() else {
+            return String::new();
+        };
+        let mut output = String::new();
+        for child_id in body_id.children(&self.arena) {
+            self.serialize_node(&mut output, child_id);
+        }
+        output
+    }
+
     /// Navigate to a node using the new unified path format.
     /// Path `[slot, a, b, c]` means: get slot root, then navigate a → b → c.
     fn navigate_slot_path(
@@ -290,9 +323,14 @@ impl<'a> Document<'a> {
 
     /// Apply patches to this document (modifying it in place).
     pub fn apply_patches(&mut self, patches: Vec<Patch<'a>>) -> Result<(), DiffError> {
+        // Empty patches is a no-op (even if document has no body)
+        if patches.is_empty() {
+            return Ok(());
+        }
+
         // Slots hold NodeIds - slot 0 is always the body (main tree)
         let mut slots: HashMap<u32, NodeId> = HashMap::new();
-        let body_id = self.body().ok_or(DiffError::NoBody)?;
+        let body_id = self.body().unwrap_or_else(|| self.ensure_body());
         slots.insert(0, body_id);
 
         for patch in patches {
