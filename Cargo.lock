@@ -931,11 +931,21 @@ dependencies = [
 
 [[package]]
 name = "ariadne"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "36f5e3dca4e09a6f340a61a0e9c7b61e030c69fc27bf29d73218f7e5e3b7638f"
+dependencies = [
+ "unicode-width 0.1.14",
+ "yansi",
+]
+
+[[package]]
+name = "ariadne"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8454c8a44ce2cb9cc7e7fae67fc6128465b343b92c6631e94beca3c8d1524ea5"
 dependencies = [
- "unicode-width",
+ "unicode-width 0.2.2",
  "yansi",
 ]
 
@@ -1495,6 +1505,7 @@ version = "0.6.1"
 dependencies = [
  "cell-gingembre-proto",
  "cell-host-proto",
+ "dashmap 6.1.0",
  "dodeca-cell-runtime",
  "facet-value",
  "futures",
@@ -2039,7 +2050,7 @@ dependencies = [
  "encode_unicode",
  "libc",
  "once_cell",
- "unicode-width",
+ "unicode-width 0.2.2",
  "windows-sys 0.61.2",
 ]
 
@@ -2538,6 +2549,7 @@ version = "0.6.1"
 dependencies = [
  "arboard",
  "arborium-theme",
+ "ariadne 0.5.1",
  "camino",
  "cell-code-execution-proto",
  "cell-css-proto",
@@ -3077,7 +3089,7 @@ name = "facet-styx"
 version = "1.0.1"
 source = "git+https://github.com/bearcove/styx?branch=main#28a48449b4cd8c2aadc00829da5d23b46d4e4874"
 dependencies = [
- "ariadne",
+ "ariadne 0.6.0",
  "facet",
  "facet-core",
  "facet-format",
@@ -3485,7 +3497,7 @@ version = "0.2.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfe4fbac503b8d1f88e6676011885f34b7174f46e59956bba534ba83abded4df"
 dependencies = [
- "unicode-width",
+ "unicode-width 0.2.2",
 ]
 
 [[package]]
@@ -3535,7 +3547,7 @@ checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 name = "gingembre"
 version = "0.6.1"
 dependencies = [
- "ariadne",
+ "ariadne 0.6.0",
  "camino",
  "facet-value",
  "futures",
@@ -5258,7 +5270,7 @@ dependencies = [
  "textwrap",
  "thiserror 2.0.18",
  "unicode-segmentation",
- "unicode-width",
+ "unicode-width 0.2.2",
 ]
 
 [[package]]
@@ -5919,7 +5931,7 @@ name = "pikru"
 version = "1.0.1"
 source = "git+https://github.com/bearcove/pikru?branch=main#dd41a7a4c16afea18eb97cbfc04a0f214f725a69"
 dependencies = [
- "ariadne",
+ "ariadne 0.6.0",
  "enum_dispatch",
  "facet-svg",
  "glam",
@@ -6359,7 +6371,7 @@ dependencies = [
  "thiserror 2.0.18",
  "unicode-segmentation",
  "unicode-truncate",
- "unicode-width",
+ "unicode-width 0.2.2",
 ]
 
 [[package]]
@@ -6410,7 +6422,7 @@ dependencies = [
  "strum",
  "time",
  "unicode-segmentation",
- "unicode-width",
+ "unicode-width 0.2.2",
 ]
 
 [[package]]
@@ -7548,7 +7560,7 @@ name = "styx-tree"
 version = "1.0.1"
 source = "git+https://github.com/bearcove/styx?branch=main#28a48449b4cd8c2aadc00829da5d23b46d4e4874"
 dependencies = [
- "ariadne",
+ "ariadne 0.6.0",
  "styx-parse",
 ]
 
@@ -7861,7 +7873,7 @@ checksum = "c13547615a44dc9c452a8a534638acdf07120d4b6847c8178705da06306a3057"
 dependencies = [
  "smawk",
  "unicode-linebreak",
- "unicode-width",
+ "unicode-width 0.2.2",
 ]
 
 [[package]]
@@ -8307,8 +8319,14 @@ checksum = "16b380a1238663e5f8a691f9039c73e1cdae598a30e9855f541d29b08b53e9a5"
 dependencies = [
  "itertools 0.14.0",
  "unicode-segmentation",
- "unicode-width",
+ "unicode-width 0.2.2",
 ]
+
+[[package]]
+name = "unicode-width"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7dd6e30e90baa6f72411720665d41d89b9a3d039dc45b8faea1ddd07f617f6af"
 
 [[package]]
 name = "unicode-width"

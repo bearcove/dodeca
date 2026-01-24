@@ -133,14 +133,29 @@ impl TemplateHost for TemplateHostImpl {
 
         match context.templates.get(&name) {
             Some(source) => {
+                // Build absolute path for error reporting
+                // Templates directory is a sibling of content_dir
+                let absolute_path = crate::config::global_config()
+                    .map(|c| {
+                        c.content_dir
+                            .parent()
+                            .unwrap_or(&c.content_dir)
+                            .join("templates")
+                            .join(&name)
+                            .to_string()
+                    })
+                    .unwrap_or_else(|| name.clone());
+
                 tracing::debug!(
                     context_id = context_id.0,
                     name = %name,
+                    absolute_path = %absolute_path,
                     source_len = source.len(),
                     "load_template: found"
                 );
                 LoadTemplateResult::Found {
                     source: source.clone(),
+                    absolute_path,
                 }
             }
             None => {

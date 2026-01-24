@@ -47,6 +47,10 @@ pub mod lexer;
 pub mod parser;
 mod render;
 
+pub use error::{
+    NamedSource, PrettyError, RenderError, SourceLocation, SourceSpan, TemplateError,
+    format_template_error_pretty,
+};
 pub use eval::{Context, GlobalFn, Value, ValueExt};
 pub use lazy::{DataPath, DataResolver, LazyValue};
 pub use render::{Engine, InMemoryLoader, TemplateLoader};
@@ -56,7 +60,7 @@ pub use facet_value::{VArray, VObject, VSafeString, VString};
 
 /// Evaluate a standalone expression string against a context.
 /// Useful for REPL-style evaluation.
-pub async fn eval_expression(expr: &str, ctx: &Context) -> eyre::Result<Value> {
+pub async fn eval_expression(expr: &str, ctx: &Context) -> Result<Value, TemplateError> {
     use error::TemplateSource;
 
     // Use expression parser (starts in code mode, not template mode)

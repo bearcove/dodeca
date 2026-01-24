@@ -11,6 +11,38 @@ use facet::Facet;
 use facet_value::Value;
 
 // ============================================================================
+// Error types
+// ============================================================================
+
+/// Source location for error reporting.
+///
+/// Contains all the information needed to render a pretty error with source context.
+#[derive(Facet, Debug, Clone)]
+pub struct ErrorLocation {
+    /// Name of the source file (template name)
+    pub filename: String,
+    /// The full source text
+    pub source: String,
+    /// Byte offset where error starts
+    pub offset: usize,
+    /// Length of the error span in bytes
+    pub length: usize,
+}
+
+/// A structured template error with source location.
+///
+/// This can be formatted to ANSI (for CLI) or HTML (for web) by the receiver.
+#[derive(Facet, Debug, Clone)]
+pub struct TemplateRenderError {
+    /// Primary error message (without location prefix)
+    pub message: String,
+    /// Location in source (if applicable)
+    pub location: Option<ErrorLocation>,
+    /// Help text (if any)
+    pub help: Option<String>,
+}
+
+// ============================================================================
 // Result types
 // ============================================================================
 
@@ -20,8 +52,8 @@ use facet_value::Value;
 pub enum RenderResult {
     /// Successfully rendered HTML output
     Success { html: String },
-    /// Render failed with an error message (may contain ANSI formatting)
-    Error { message: String },
+    /// Render failed with a structured error
+    Error { error: TemplateRenderError },
 }
 
 /// Result of loading a template
@@ -29,7 +61,12 @@ pub enum RenderResult {
 #[repr(u8)]
 pub enum LoadTemplateResult {
     /// Template found and loaded
-    Found { source: String },
+    Found {
+        /// The template source code
+        source: String,
+        /// Absolute path to the template file (for error reporting)
+        absolute_path: String,
+    },
     /// Template not found
     NotFound,
 }

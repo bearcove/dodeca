@@ -89,6 +89,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 ur-taking-me-with-you.workspace = true
 html-escape.workspace = true
+ariadne.workspace = true
 
 [build-dependencies]
 dodeca-config = { path = "../dodeca-config" }

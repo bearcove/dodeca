@@ -1349,8 +1349,30 @@ pub async fn build(
         .await?
     {
         Ok(output) => output,
-        Err(build_error) => {
-            eprintln!("{}", build_error);
+        Err(site_error) => {
+            // Format the error appropriately for CLI
+            match site_error {
+                queries::SiteError::Parse(build_error) => {
+                    eprintln!(
+                        "{} Failed to parse {} file(s):",
+                        "✗".red(),
+                        build_error.errors.len()
+                    );
+                    for err in &build_error.errors {
+                        eprintln!("  {} {}: {}", "→".red(), err.path, err.error);
+                    }
+                }
+                queries::SiteError::Render(render_error) => {
+                    // Use ariadne for pretty ANSI formatting
+                    let formatted = crate::error_pages::format_error_ansi(&render_error.error);
+                    eprintln!(
+                        "{} Error rendering {}:\n{}",
+                        "✗".red(),
+                        render_error.route,
+                        formatted
+                    );
+                }
+            }
             std::process::exit(1);
         }
     };
@@ -1433,18 +1455,6 @@ pub async fn build(
     for output in &site_output.files {
         match output {
             OutputFile::Html { route, content } => {
-                // Check for render errors in production mode
-                if !render_options.dev_mode && content.contains(render::RENDER_ERROR_MARKER) {
-                    let error_start = content.find("<pre>").map(|i| i + 5).unwrap_or(0);
-                    let error_end = content.find("</pre>").unwrap_or(content.len());
-                    let error_msg = &content[error_start..error_end];
-                    return Err(eyre!(
-                        "Template error rendering {}: {}",
-                        route.as_str(),
-                        error_msg
-                    ));
-                }
-
                 // Apply livereload injection with build info (no dead link checking in build mode)
                 let final_html = inject_livereload_with_build_info(
                     content,

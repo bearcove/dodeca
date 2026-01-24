@@ -3,7 +3,6 @@ use crate::db::{
     CodeExecutionMetadata, CodeExecutionResult, DependencySourceInfo, Heading, Page, Section,
     SiteTree,
 };
-use crate::error_pages::render_error_page;
 use crate::template_host::{RenderContext, RenderContextGuard};
 use crate::types::Route;
 use crate::url_rewrite::mark_dead_links;
@@ -622,17 +621,19 @@ pub async fn try_render_via_cell(
     renderable: Renderable<'_>,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
-) -> std::result::Result<String, String> {
+) -> std::result::Result<String, cell_gingembre_proto::TemplateRenderError> {
     let template_name = renderable.template_name();
     let route = renderable.route().clone();
 
     // Get database from task-local
-    let db = crate::db::TASK_DB
-        .try_with(|db| db.clone())
-        .map_err(|_| {
-            let bt = std::backtrace::Backtrace::force_capture();
-            format!("Database not available in task-local context\n\nBacktrace:\n{bt}")
-        })?;
+    let db = crate::db::TASK_DB.try_with(|db| db.clone()).map_err(|_| {
+        let bt = std::backtrace::Backtrace::force_capture();
+        cell_gingembre_proto::TemplateRenderError {
+            message: format!("Database not available in task-local context\n\nBacktrace:\n{bt}"),
+            location: None,
+            help: None,
+        }
+    })?;
 
     // Create render context with templates and site_tree
     let context = RenderContext::new(templates, db, Arc::new(site_tree.clone()));
@@ -644,8 +645,12 @@ pub async fn try_render_via_cell(
     // Render via cell
     let result = match render_template_cell(guard.id(), template_name, initial_context).await {
         Ok(cell_gingembre_proto::RenderResult::Success { html }) => Ok(html),
-        Ok(cell_gingembre_proto::RenderResult::Error { message }) => Err(message),
-        Err(e) => Err(format!("Gingembre cell error: {}", e)),
+        Ok(cell_gingembre_proto::RenderResult::Error { error }) => Err(error),
+        Err(e) => Err(cell_gingembre_proto::TemplateRenderError {
+            message: format!("Gingembre cell error: {}", e),
+            location: None,
+            help: None,
+        }),
     };
 
     // Debug check for missing doctype
@@ -664,33 +669,22 @@ pub async fn try_render_via_cell(
     result
 }
 
-/// Render via cell - development mode (shows error page on failure)
-pub async fn render_via_cell(
-    renderable: Renderable<'_>,
-    site_tree: &SiteTree,
-    templates: HashMap<String, String>,
-) -> String {
-    try_render_via_cell(renderable, site_tree, templates)
-        .await
-        .unwrap_or_else(|e| render_error_page(&e))
-}
-
-/// Render page via cell - development mode (shows error page on failure)
+/// Render page via cell - returns Result with structured error
 pub async fn render_page_via_cell(
     page: &Page,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
-) -> String {
-    render_via_cell(Renderable::Page(page), site_tree, templates).await
+) -> Result<String, cell_gingembre_proto::TemplateRenderError> {
+    try_render_via_cell(Renderable::Page(page), site_tree, templates).await
 }
 
-/// Render section via cell - development mode (shows error page on failure)
+/// Render section via cell - returns Result with structured error
 pub async fn render_section_via_cell(
     section: &Section,
     site_tree: &SiteTree,
     templates: HashMap<String, String>,
-) -> String {
-    render_via_cell(Renderable::Section(section), site_tree, templates).await
+) -> Result<String, cell_gingembre_proto::TemplateRenderError> {
+    try_render_via_cell(Renderable::Section(section), site_tree, templates).await
 }
 
 /// Convert a heading to a Value dict with children field
@@ -796,6 +790,8 @@ fn build_ancestors(section_route: &Route, site_tree: &SiteTree) -> Vec<Value> {
 
 /// Convert a Page to a Value for template context
 pub fn page_to_value(page: &Page, site_tree: &SiteTree) -> Value {
+    use facet_value::DestructuredRef;
+
     let base_url = get_base_url();
     let mut map = VObject::new();
     map.insert(VString::from("title"), Value::from(page.title.as_str()));
@@ -830,6 +826,16 @@ pub fn page_to_value(page: &Page, site_tree: &SiteTree) -> Value {
         VString::from("last_updated"),
         Value::from(page.last_updated),
     );
+
+    // Extract description from extra.description for Zola compatibility
+    let description = match page.extra.destructure_ref() {
+        DestructuredRef::Object(obj) => obj.get("description").cloned(),
+        _ => None,
+    };
+    if let Some(desc) = description {
+        map.insert(VString::from("description"), desc);
+    }
+
     map.insert(VString::from("extra"), page.extra.clone());
     map.into()
 }
@@ -867,6 +873,7 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree, base_url: &str)
     let section_pages: Vec<Value> = pages
         .into_iter()
         .map(|p| {
+            use facet_value::DestructuredRef;
             let mut page_map = VObject::new();
             page_map.insert(VString::from("title"), Value::from(p.title.as_str()));
             page_map.insert(
@@ -876,6 +883,12 @@ pub fn section_to_value(section: &Section, site_tree: &SiteTree, base_url: &str)
             page_map.insert(VString::from("path"), Value::from(p.route.as_str()));
             page_map.insert(VString::from("weight"), Value::from(p.weight as i64));
             page_map.insert(VString::from("toc"), headings_to_value(&p.headings));
+            // Extract description from extra.description for Zola compatibility
+            if let DestructuredRef::Object(obj) = p.extra.destructure_ref() {
+                if let Some(desc) = obj.get("description") {
+                    page_map.insert(VString::from("description"), desc.clone());
+                }
+            }
             page_map.insert(VString::from("extra"), p.extra.clone());
             page_map.into()
         })

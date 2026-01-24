@@ -5,16 +5,25 @@
 //! - Calls back to host for template loading, data resolution, and function calls
 
 use cell_gingembre_proto::{
-    ContextId, EvalResult, RenderResult, TemplateRenderer, TemplateRendererDispatcher,
+    ContextId, ErrorLocation, EvalResult, RenderResult, TemplateRenderError, TemplateRenderer,
+    TemplateRendererDispatcher,
 };
 use cell_host_proto::{
     CallFunctionResult, HostServiceClient, KeysAtResult, LoadTemplateResult, ResolveDataResult,
 };
+use dashmap::DashMap;
 use dodeca_cell_runtime::{ConnectionHandle, run_cell};
 use facet_value::DestructuredRef;
 use futures::future::BoxFuture;
-use gingembre::{Context, DataPath, DataResolver, Engine, TemplateLoader, Value};
+use gingembre::{
+    Context, DataPath, DataResolver, Engine, PrettyError, RenderError, TemplateError,
+    TemplateLoader, Value,
+};
 use std::sync::Arc;
+
+/// Shared mapping from template name to absolute path.
+/// Used to convert relative template names to absolute paths in error messages.
+type PathMap = Arc<DashMap<String, String>>;
 
 // ============================================================================
 // RPC-backed TemplateLoader
@@ -24,11 +33,17 @@ use std::sync::Arc;
 struct RpcTemplateLoader {
     client: HostServiceClient,
     context_id: ContextId,
+    /// Shared map from template name to absolute path
+    path_map: PathMap,
 }
 
 impl RpcTemplateLoader {
-    fn new(client: HostServiceClient, context_id: ContextId) -> Self {
-        Self { client, context_id }
+    fn new(client: HostServiceClient, context_id: ContextId, path_map: PathMap) -> Self {
+        Self {
+            client,
+            context_id,
+            path_map,
+        }
     }
 }
 
@@ -36,8 +51,19 @@ impl TemplateLoader for RpcTemplateLoader {
     fn load(&self, name: &str) -> BoxFuture<'_, Option<String>> {
         let name = name.to_string();
         Box::pin(async move {
-            match self.client.load_template(self.context_id, name).await {
-                Ok(LoadTemplateResult::Found { source }) => Some(source),
+            match self
+                .client
+                .load_template(self.context_id, name.clone())
+                .await
+            {
+                Ok(LoadTemplateResult::Found {
+                    source,
+                    absolute_path,
+                }) => {
+                    // Store the mapping for error reporting
+                    self.path_map.insert(name, absolute_path);
+                    Some(source)
+                }
                 Ok(LoadTemplateResult::NotFound) => None,
                 Err(e) => {
                     tracing::warn!("RPC error loading template: {:?}", e);
@@ -131,6 +157,66 @@ fn make_rpc_function(
 }
 
 // ============================================================================
+// Error conversion
+// ============================================================================
+
+/// Convert a gingembre RenderError to a protocol TemplateRenderError
+fn to_protocol_error(err: &RenderError, path_map: &PathMap) -> TemplateRenderError {
+    match err {
+        RenderError::NotFound(name) => TemplateRenderError {
+            message: format!("Template not found: {}", name),
+            location: None,
+            help: None,
+        },
+        RenderError::Template(template_err) => to_protocol_template_error(template_err, path_map),
+        RenderError::Other(msg) => TemplateRenderError {
+            message: msg.clone(),
+            location: None,
+            help: None,
+        },
+    }
+}
+
+/// Convert a TemplateError to a protocol TemplateRenderError
+fn to_protocol_template_error(err: &TemplateError, path_map: &PathMap) -> TemplateRenderError {
+    // Helper to extract structured info from an error implementing PrettyError
+    fn from_pretty<E: PrettyError>(e: &E, path_map: &PathMap) -> TemplateRenderError {
+        let loc = e.source_loc();
+        // Look up absolute path from our mapping, fall back to the name if not found
+        let filename = path_map
+            .get(&loc.src.name)
+            .map(|r| r.value().clone())
+            .unwrap_or_else(|| loc.src.name.clone());
+        TemplateRenderError {
+            message: e.message(),
+            location: Some(ErrorLocation {
+                filename,
+                source: loc.src.source.clone(),
+                offset: loc.span.offset(),
+                length: loc.span.len(),
+            }),
+            help: e.help(),
+        }
+    }
+
+    match err {
+        TemplateError::Syntax(e) => from_pretty(e.as_ref(), path_map),
+        TemplateError::UnknownField(e) => from_pretty(e.as_ref(), path_map),
+        TemplateError::Type(e) => from_pretty(e.as_ref(), path_map),
+        TemplateError::Undefined(e) => from_pretty(e.as_ref(), path_map),
+        TemplateError::UnknownFilter(e) => from_pretty(e.as_ref(), path_map),
+        TemplateError::UnknownTest(e) => from_pretty(e.as_ref(), path_map),
+        TemplateError::MacroNotFound(e) => from_pretty(e.as_ref(), path_map),
+        TemplateError::DataPathNotFound(e) => from_pretty(e.as_ref(), path_map),
+        TemplateError::GlobalFn(msg) => TemplateRenderError {
+            message: format!("Function error: {}", msg),
+            location: None,
+            help: None,
+        },
+    }
+}
+
+// ============================================================================
 // Template renderer implementation
 // ============================================================================
 
@@ -209,8 +295,11 @@ impl TemplateRenderer for TemplateRendererImpl {
         template_name: String,
         initial_context: Value,
     ) -> RenderResult {
+        // Create shared path map for tracking template name -> absolute path
+        let path_map: PathMap = Arc::new(DashMap::new());
+
         // Create RPC-backed loader and resolver
-        let loader = RpcTemplateLoader::new(self.host_client(), context_id);
+        let loader = RpcTemplateLoader::new(self.host_client(), context_id, path_map.clone());
         let resolver = Arc::new(RpcDataResolver::new(self.host_client(), context_id));
 
         // Build the render context
@@ -220,11 +309,9 @@ impl TemplateRenderer for TemplateRendererImpl {
         let mut engine = Engine::new(loader);
         match engine.render(&template_name, &ctx).await {
             Ok(html) => RenderResult::Success { html },
-            Err(e) => {
-                // Format with ariadne for pretty source context
-                let message = e.format_pretty();
-                RenderResult::Error { message }
-            }
+            Err(e) => RenderResult::Error {
+                error: to_protocol_error(&e, &path_map),
+            },
         }
     }
 

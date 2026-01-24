@@ -594,6 +594,12 @@ fn collect_tests() -> Vec<Test> {
             func: error_detection::missing_template_shows_error_page,
             ignored: false,
         },
+        Test {
+            name: "type_error_shows_ariadne_formatted_source",
+            module: "error_detection",
+            func: error_detection::type_error_shows_ariadne_formatted_source,
+            ignored: false,
+        },
         // dead_links tests
         Test {
             name: "dead_links_marked_in_html",

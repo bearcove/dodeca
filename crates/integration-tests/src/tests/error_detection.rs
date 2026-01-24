@@ -59,4 +59,40 @@ pub fn missing_template_shows_error_page() {
     html.assert_contains(RENDER_ERROR_MARKER);
 }
 
+pub fn type_error_shows_ariadne_formatted_source() {
+    let site = TestSite::new("sample-site");
+
+    // Introduce a type error by accessing a field on a potentially-none value
+    site.modify_file("templates/section.html", |content| {
+        // Add a line that will cause a TypeError when extra is none
+        content.replace(
+            "{{ section.title }}",
+            "{{ section.extra.nonexistent_field }}",
+        )
+    });
+
+    std::thread::sleep(Duration::from_millis(500));
+
+    let html = site.get("/guide/");
+    html.assert_ok();
+    html.assert_contains(RENDER_ERROR_MARKER);
+
+    // Verify ariadne formatting is present in the error output
+    // Ariadne uses box-drawing characters like │ (U+2502) and ─ (U+2500)
+    // and shows source context with line numbers
+    let body = &html.body;
+    let has_ariadne_chars = body.contains('│') || body.contains("───");
+    let has_line_indicator = body.contains(":1:") || body.contains(":2:");
+
+    assert!(
+        has_ariadne_chars || has_line_indicator,
+        "Expected ariadne-formatted error with source context.\nActual body contains: {}",
+        if body.len() > 500 {
+            format!("{}...", &body[..500])
+        } else {
+            body.clone()
+        }
+    );
+}
+
 const RENDER_ERROR_MARKER: &str = "data-dodeca-error";

@@ -406,6 +406,54 @@ impl std::fmt::Display for BuildError {
 
 impl std::error::Error for BuildError {}
 
+/// Error during template rendering
+#[derive(Debug, Clone, facet::Facet)]
+pub struct RenderError {
+    pub route: crate::types::Route,
+    pub error: cell_gingembre_proto::TemplateRenderError,
+}
+
+impl std::fmt::Display for RenderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Error rendering {}: {}", self.route, self.error.message)
+    }
+}
+
+impl std::error::Error for RenderError {}
+
+/// Errors that can occur during site generation
+#[derive(Debug, Clone, facet::Facet)]
+#[repr(u8)]
+pub enum SiteError {
+    /// Errors during markdown parsing
+    Parse(BuildError),
+    /// Error during template rendering
+    Render(RenderError),
+}
+
+impl std::fmt::Display for SiteError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SiteError::Parse(e) => write!(f, "{}", e),
+            SiteError::Render(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl std::error::Error for SiteError {}
+
+impl From<BuildError> for SiteError {
+    fn from(e: BuildError) -> Self {
+        SiteError::Parse(e)
+    }
+}
+
+impl From<RenderError> for SiteError {
+    fn from(e: RenderError) -> Self {
+        SiteError::Render(e)
+    }
+}
+
 /// Result of building the site tree
 pub type BuildTreeResult = Result<SiteTree, Vec<SourceParseError>>;
 
@@ -542,7 +590,7 @@ fn find_parent_section(route: &Route, sections: &BTreeMap<Route, Section>) -> Ro
 pub async fn render_page<DB: Db>(
     db: &DB,
     route: Route,
-) -> PicanteResult<Result<RenderedHtml, BuildError>> {
+) -> PicanteResult<Result<RenderedHtml, SiteError>> {
     use crate::render::render_page_via_cell;
 
     tracing::debug!(route = %route, "Rendering page");
@@ -550,7 +598,7 @@ pub async fn render_page<DB: Db>(
     // Build tree (cached)
     let site_tree = match build_tree(db).await? {
         Ok(tree) => tree,
-        Err(errors) => return Ok(Err(BuildError { errors })),
+        Err(errors) => return Ok(Err(BuildError { errors }.into())),
     };
 
     // Pre-load all templates for sync access during rendering
@@ -563,8 +611,14 @@ pub async fn render_page<DB: Db>(
         .expect("Page not found for route");
 
     // Render via gingembre cell
-    let html = render_page_via_cell(page, &site_tree, templates).await;
-    Ok(Ok(RenderedHtml(html)))
+    match render_page_via_cell(page, &site_tree, templates).await {
+        Ok(html) => Ok(Ok(RenderedHtml(html))),
+        Err(error) => Ok(Err(RenderError {
+            route: route.clone(),
+            error,
+        }
+        .into())),
+    }
 }
 
 /// Render a single section to HTML
@@ -576,7 +630,7 @@ pub async fn render_page<DB: Db>(
 pub async fn render_section<DB: Db>(
     db: &DB,
     route: Route,
-) -> PicanteResult<Result<RenderedHtml, BuildError>> {
+) -> PicanteResult<Result<RenderedHtml, SiteError>> {
     use crate::render::render_section_via_cell;
 
     tracing::debug!(route = %route, "Rendering section");
@@ -584,7 +638,7 @@ pub async fn render_section<DB: Db>(
     // Build tree (cached)
     let site_tree = match build_tree(db).await? {
         Ok(tree) => tree,
-        Err(errors) => return Ok(Err(BuildError { errors })),
+        Err(errors) => return Ok(Err(BuildError { errors }.into())),
     };
 
     // Pre-load all templates for sync access during rendering
@@ -597,8 +651,14 @@ pub async fn render_section<DB: Db>(
         .expect("Section not found for route");
 
     // Render via gingembre cell
-    let html = render_section_via_cell(section, &site_tree, templates).await;
-    Ok(Ok(RenderedHtml(html)))
+    match render_section_via_cell(section, &site_tree, templates).await {
+        Ok(html) => Ok(Ok(RenderedHtml(html))),
+        Err(error) => Ok(Err(RenderError {
+            route: route.clone(),
+            error,
+        }
+        .into())),
+    }
 }
 
 /// Load a single static file's content - tracked
@@ -1090,14 +1150,14 @@ pub async fn process_image<DB: Db>(
 /// This reuses the same queries as the serve pipeline (serve_html, css_output,
 /// static_file_output) to ensure consistency between `ddc build` and `ddc serve`.
 #[picante::tracked]
-pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, BuildError>> {
+pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, SiteError>> {
     tracing::debug!("build_site: starting");
     let mut files = Vec::new();
 
     // Build the site tree to get all routes
     let site_tree = match build_tree(db).await? {
         Ok(tree) => tree,
-        Err(errors) => return Ok(Err(BuildError { errors })),
+        Err(errors) => return Ok(Err(BuildError { errors }.into())),
     };
 
     // --- Phase 1: Render all HTML pages using serve_html ---
@@ -1238,13 +1298,13 @@ pub async fn build_site<DB: Db>(db: &DB) -> PicanteResult<Result<SiteOutput, Bui
 #[picante::tracked]
 pub async fn all_rendered_html<DB: Db>(
     db: &DB,
-) -> PicanteResult<Result<AllRenderedHtml, BuildError>> {
+) -> PicanteResult<Result<AllRenderedHtml, SiteError>> {
     use crate::render::{render_page_via_cell, render_section_via_cell};
     use crate::url_rewrite::{resolve_internal_links, resolve_relative_links};
 
     let site_tree = match build_tree(db).await? {
         Ok(tree) => tree,
-        Err(errors) => return Ok(Err(BuildError { errors })),
+        Err(errors) => return Ok(Err(BuildError { errors }.into())),
     };
     let template_map = load_all_templates(db).await?;
 
@@ -1255,7 +1315,16 @@ pub async fn all_rendered_html<DB: Db>(
     let mut pages = HashMap::new();
 
     for (route, section) in &site_tree.sections {
-        let html = render_section_via_cell(section, &site_tree, template_map.clone()).await;
+        let html = match render_section_via_cell(section, &site_tree, template_map.clone()).await {
+            Ok(html) => html,
+            Err(error) => {
+                return Ok(Err(RenderError {
+                    route: route.clone(),
+                    error,
+                }
+                .into()));
+            }
+        };
         // Resolve relative links based on section route, then @/ links
         let html = resolve_relative_links(&html, route.as_str());
         let html = resolve_internal_links(&html, &source_route_map);
@@ -1263,7 +1332,16 @@ pub async fn all_rendered_html<DB: Db>(
     }
 
     for (route, page) in &site_tree.pages {
-        let html = render_page_via_cell(page, &site_tree, template_map.clone()).await;
+        let html = match render_page_via_cell(page, &site_tree, template_map.clone()).await {
+            Ok(html) => html,
+            Err(error) => {
+                return Ok(Err(RenderError {
+                    route: route.clone(),
+                    error,
+                }
+                .into()));
+            }
+        };
         // Resolve relative links based on the page's section route, then @/ links
         let html = resolve_relative_links(&html, page.section_route.as_str());
         let html = resolve_internal_links(&html, &source_route_map);
@@ -1565,7 +1643,7 @@ pub async fn static_url_map<DB: Db>(db: &DB) -> PicanteResult<HashMap<String, St
 pub async fn serve_html<DB: Db>(
     db: &DB,
     route: Route,
-) -> PicanteResult<Result<Option<String>, BuildError>> {
+) -> PicanteResult<Result<Option<String>, SiteError>> {
     tracing::debug!(route = %route.as_str(), "serve_html: rendering");
     use crate::url_rewrite::{
         ResponsiveImageInfo, rewrite_urls_in_html, transform_images_to_picture,
@@ -1573,7 +1651,7 @@ pub async fn serve_html<DB: Db>(
 
     let site_tree = match build_tree(db).await? {
         Ok(tree) => tree,
-        Err(errors) => return Ok(Err(BuildError { errors })),
+        Err(errors) => return Ok(Err(BuildError { errors }.into())),
     };
 
     // Check if route exists in site tree

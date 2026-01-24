@@ -829,67 +829,99 @@ impl SiteServer {
         let serve_html_result = serve_html(&snapshot, route).await;
         tracing::debug!(route = %route_path, has_result = serve_html_result.is_ok(), "find_content: serve_html returned");
 
-        if let Some(html) = match serve_html_result {
-            Ok(Ok(Some(html))) => Some(html),
-            Ok(Ok(None)) => None,
-            Ok(Err(build_error)) => {
-                // Format parse errors as an HTML error page for the browser
-                let error_list: Vec<String> = build_error
-                    .errors
-                    .iter()
-                    .map(|e| {
-                        format!(
-                            "<li><strong>{}</strong>: {}</li>",
-                            html_escape::encode_text(&e.path),
-                            html_escape::encode_text(&e.error.to_string())
+        // Process the result, tracking if we got an error for devtools notification
+        let (html, maybe_render_error) = match serve_html_result {
+            Ok(Ok(Some(html))) => (Some(html), None),
+            Ok(Ok(None)) => (None, None),
+            Ok(Err(site_error)) => {
+                use crate::queries::SiteError;
+                match site_error {
+                    SiteError::Parse(build_error) => {
+                        // Format parse errors using the standard error page
+                        let error_text = build_error
+                            .errors
+                            .iter()
+                            .map(|e| format!("{}: {}", e.path, e.error))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        (
+                            Some(crate::error_pages::render_generic_error_page(
+                                &format!("Failed to parse {} file(s)", build_error.errors.len()),
+                                &error_text,
+                            )),
+                            None, // Parse errors don't have structured ErrorInfo yet
                         )
-                    })
-                    .collect();
-                Some(format!(
-                    r#"<!DOCTYPE html>
-<html><head><title>Parse Errors</title></head>
-<body style="font-family: monospace; padding: 2rem; background: #1e1e1e; color: #d4d4d4;">
-<h1 style="color: #f48771;">Failed to parse {} file(s)</h1>
-<ul style="line-height: 1.8;">{}</ul>
-</body></html>"#,
-                    build_error.errors.len(),
-                    error_list.join("\n")
-                ))
+                    }
+                    SiteError::Render(render_error) => {
+                        // Build ErrorInfo from the structured error
+                        let loc = render_error.error.location.as_ref();
+                        let (line, column) = loc
+                            .map(|l| {
+                                let (line, col) =
+                                    crate::error_pages::offset_to_line_col(&l.source, l.offset);
+                                (Some(line as u32), Some(col as u32))
+                            })
+                            .unwrap_or((None, None));
+
+                        // Build source snippet from location
+                        let source_snippet = loc.and_then(|l| {
+                            let error_line = line? as usize;
+                            let lines: Vec<&str> = l.source.lines().collect();
+                            let start = error_line.saturating_sub(3).max(1);
+                            let end = (error_line + 2).min(lines.len());
+
+                            let snippet_lines: Vec<dodeca_protocol::SourceLine> = lines
+                                .iter()
+                                .enumerate()
+                                .skip(start - 1)
+                                .take(end - start + 1)
+                                .map(|(i, content)| dodeca_protocol::SourceLine {
+                                    number: (i + 1) as u32,
+                                    content: content.to_string(),
+                                })
+                                .collect();
+
+                            Some(dodeca_protocol::SourceSnippet {
+                                lines: snippet_lines,
+                                error_line: error_line as u32,
+                            })
+                        });
+
+                        let error_info = dodeca_protocol::ErrorInfo {
+                            route: path.to_string(),
+                            message: render_error.error.message.clone(),
+                            template: loc.map(|l| l.filename.clone()),
+                            line,
+                            column,
+                            source_snippet,
+                            snapshot_id: format!(
+                                "error-{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis()
+                            ),
+                            available_variables: vec![],
+                        };
+
+                        // Format as HTML error page for the browser
+                        let html =
+                            crate::error_pages::render_structured_error_page(&render_error.error);
+                        (Some(html), Some(error_info))
+                    }
+                }
             }
             Err(e) => {
                 tracing::error!(error = ?e, "serve_html returned PicanteError");
                 return None;
             }
-        } {
-            // Check if this is an error page and notify devtools
-            let is_error_page = html.contains(crate::render::RENDER_ERROR_MARKER);
-            if is_error_page {
-                // Extract error message HTML from between <pre> tags
-                // Keep the HTML spans for color - they'll be displayed with dangerous_inner_html
-                let error_msg = html
-                    .split("<pre>")
-                    .nth(1)
-                    .and_then(|s| s.split("</pre>").next())
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "Unknown template error".to_string());
+        };
 
-                let error_info = dodeca_protocol::ErrorInfo {
-                    route: path.to_string(),
-                    message: error_msg,
-                    template: None, // TODO: extract from error message
-                    line: None,     // TODO: extract from error message
-                    column: None,
-                    source_snippet: None,
-                    snapshot_id: format!(
-                        "error-{}",
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis()
-                    ),
-                    available_variables: vec![],
-                };
+        if let Some(html) = html {
+            let is_error_page = maybe_render_error.is_some();
 
+            // Handle error notification to devtools
+            if let Some(error_info) = maybe_render_error {
                 tracing::info!(
                     "🔴 find_content: error detected for {}, sending LiveReloadMsg::Error",
                     path

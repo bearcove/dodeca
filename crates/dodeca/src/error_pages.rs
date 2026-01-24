@@ -1,13 +1,56 @@
 //! Error page rendering utilities
 //!
-//! Provides consistent error page styling for:
-//! - Template render errors (development mode)
-//! - 404 pages (development mode)
+//! Provides two formatting paths for template errors:
+//! - ANSI output for CLI (build mode)
+//! - HTML output for web (dev server mode)
+
+use ariadne::{Color, Label, Report, ReportKind, Source};
+use cell_gingembre_proto::TemplateRenderError;
 
 pub use dodeca_protocol::ansi_to_html;
 
 /// Marker for render errors (data attribute survives HTML minification)
 pub const RENDER_ERROR_MARKER: &str = "data-dodeca-error";
+
+/// Format a structured template error to ANSI for CLI output.
+/// Uses ariadne for pretty source context display.
+pub fn format_error_ansi(error: &TemplateRenderError) -> String {
+    if let Some(ref loc) = error.location {
+        // Build ariadne report with source context
+        let start = loc.offset;
+        let end = start + loc.length.max(1);
+
+        let mut report = Report::build(ReportKind::Error, (&loc.filename, start..end))
+            .with_message(&error.message);
+
+        // Add the primary label
+        let label = Label::new((&loc.filename, start..end))
+            .with_message(&error.message)
+            .with_color(Color::Red);
+        report = report.with_label(label);
+
+        // Add help if available
+        if let Some(ref help) = error.help {
+            report = report.with_help(help);
+        }
+
+        // Render to string
+        let mut output = Vec::new();
+        report
+            .finish()
+            .write((&loc.filename, Source::from(&loc.source)), &mut output)
+            .expect("failed to write error report");
+
+        String::from_utf8(output).expect("ariadne produced invalid UTF-8")
+    } else {
+        // No source location, just return the message
+        if let Some(ref help) = error.help {
+            format!("Error: {}\n\nHelp: {}", error.message, help)
+        } else {
+            format!("Error: {}", error.message)
+        }
+    }
+}
 
 /// Dodeca logo SVG for error pages
 const DODECA_LOGO_SVG: &str = include_str!("../logo.svg");
@@ -173,9 +216,34 @@ pre {
 }
 "#;
 
-/// Render a template error page for development mode
-pub fn render_error_page(error: &str) -> String {
-    let error_html = ansi_to_html(error);
+/// Render a generic error page (for parse errors, etc.)
+pub fn render_generic_error_page(title: &str, message: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en" {RENDER_ERROR_MARKER}>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{title} - dodeca</title>
+    <style>{ERROR_PAGE_STYLES}</style>
+</head>
+<body>
+    <div class="dev-badge">dev</div>
+    <div class="container">
+        <div class="logo">{DODECA_LOGO_SVG}</div>
+        <h1>{title}</h1>
+        <pre>{message}</pre>
+    </div>
+</body>
+</html>"#,
+        title = html_escape::encode_text(title),
+        message = html_escape::encode_text(message),
+    )
+}
+
+/// Render a structured template error to an HTML error page
+pub fn render_structured_error_page(error: &TemplateRenderError) -> String {
+    let error_html = format_error_html(error);
     format!(
         r#"<!DOCTYPE html>
 <html lang="en" {RENDER_ERROR_MARKER}>
@@ -183,21 +251,224 @@ pub fn render_error_page(error: &str) -> String {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Template Error - dodeca</title>
-    <style>{ERROR_PAGE_STYLES}</style>
+    <style>{ERROR_PAGE_STYLES}{ERROR_SOURCE_STYLES}</style>
 </head>
 <body>
     <div class="dev-badge">dev</div>
-    <div class="container">
+    <div class="container error-container">
         <div class="logo">{DODECA_LOGO_SVG}</div>
         <h1>Template Render Error</h1>
-        <pre>{error_html}</pre>
-        <div class="hint">
-            <strong>Hint:</strong> Check your template syntax and ensure all referenced variables exist.
-        </div>
+        {error_html}
     </div>
 </body>
 </html>"#
     )
+}
+
+/// Additional CSS for source code display
+const ERROR_SOURCE_STYLES: &str = r#"
+.container.error-container {
+    max-width: 1200px;
+}
+.error-message {
+    color: #f87171;
+    font-weight: 500;
+    margin: 0.5rem 0;
+    font-size: 0.95rem;
+}
+.source-context {
+    background: #0d0d0d;
+    border: 1px solid #333;
+    border-radius: 8px;
+    padding: 1rem;
+    overflow-x: auto;
+    font-family: 'SF Mono', Consolas, 'Liberation Mono', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+}
+.source-line {
+    display: flex;
+    white-space: pre;
+}
+.line-number {
+    color: #525252;
+    min-width: 3ch;
+    text-align: right;
+    padding-right: 1rem;
+    user-select: none;
+}
+.line-content {
+    color: #ccc;
+}
+.error-line .line-content {
+    background: rgba(248, 113, 113, 0.1);
+}
+.error-indicator-row {
+    display: flex;
+    padding-left: calc(3ch + 1rem);
+    white-space: pre;
+    font-family: 'SF Mono', Consolas, 'Liberation Mono', monospace;
+}
+.error-marker {
+    color: #f87171;
+    font-weight: bold;
+}
+.error-location-link {
+    display: inline-block;
+    background: #262626;
+    padding: 0.25rem 0.75rem;
+    border-radius: 4px;
+    font-family: 'SF Mono', Consolas, monospace;
+    font-size: 0.85rem;
+    color: #6a8a6a;
+    text-decoration: none;
+    border: 1px solid #333;
+    margin-bottom: 0.5rem;
+}
+.error-location-link:hover {
+    background: #333;
+    color: #8fbc8f;
+}
+"#;
+
+/// Format a structured error to HTML with source context
+fn format_error_html(error: &TemplateRenderError) -> String {
+    let mut html = String::new();
+
+    // Source context if available (error message shown inline)
+    if let Some(ref loc) = error.location {
+        html.push_str(&format_source_context(
+            loc,
+            &error.message,
+            error.help.as_deref(),
+        ));
+    } else {
+        // No location - just show message
+        html.push_str(&format!(
+            r#"<div class="error-message">{}</div>"#,
+            html_escape::encode_text(&error.message)
+        ));
+        if let Some(ref help) = error.help {
+            html.push_str(&format!(
+                r#"<div class="hint"><strong>Hint:</strong> {}</div>"#,
+                html_escape::encode_text(help)
+            ));
+        }
+    }
+
+    html
+}
+
+/// Format source context with line numbers and error highlighting
+fn format_source_context(
+    loc: &cell_gingembre_proto::ErrorLocation,
+    message: &str,
+    help: Option<&str>,
+) -> String {
+    // Assert that we have an absolute path for proper editor linking
+    assert!(
+        loc.filename.starts_with('/'),
+        "Template error location must be an absolute path, got: {:?}",
+        loc.filename
+    );
+
+    let mut html = String::new();
+
+    // Calculate line/column from offset
+    let (error_line, error_col) = offset_to_line_col(&loc.source, loc.offset);
+
+    html.push_str(r#"<div class="source-context">"#);
+
+    // Get lines around the error
+    let lines: Vec<&str> = loc.source.lines().collect();
+    let start_line = error_line.saturating_sub(3).max(1);
+    let end_line = (error_line + 2).min(lines.len());
+
+    for (i, line) in lines.iter().enumerate().take(end_line).skip(start_line - 1) {
+        let line_num = i + 1;
+        let is_error_line = line_num == error_line;
+        let class = if is_error_line {
+            "source-line error-line"
+        } else {
+            "source-line"
+        };
+
+        html.push_str(&format!(
+            r#"<div class="{}"><span class="line-number">{}</span><span class="line-content">{}</span></div>"#,
+            class,
+            line_num,
+            html_escape::encode_text(line)
+        ));
+
+        // Add error indicator and message under the error line
+        if is_error_line {
+            let indicator_offset = error_col.saturating_sub(1);
+            let indicator_len = loc.length.max(1);
+            let spaces = " ".repeat(indicator_offset);
+            let markers = "^".repeat(indicator_len);
+
+            html.push_str(&format!(
+                r#"<div class="error-indicator-row"><span class="error-marker">{}{} {}</span></div>"#,
+                spaces,
+                markers,
+                html_escape::encode_text(message)
+            ));
+        }
+    }
+
+    html.push_str("</div>");
+
+    // Show filename/location - clickable if it's an absolute path
+    let location_text = format!(
+        "{}:{}:{}",
+        html_escape::encode_text(&loc.filename),
+        error_line,
+        error_col
+    );
+    if loc.filename.starts_with('/') {
+        // Absolute path - make it a zed:// link
+        // Note: zed://file/ expects path without leading slash
+        let zed_url = format!("zed://file{}:{}:{}", &loc.filename, error_line, error_col);
+        html.push_str(&format!(
+            r#"<a class="error-location-link" href="{}">{}</a>"#,
+            html_escape::encode_text(&zed_url),
+            location_text
+        ));
+    } else {
+        // Relative path - just show as text (styled like a link but not clickable)
+        html.push_str(&format!(
+            r#"<span class="error-location-link">{}</span>"#,
+            location_text
+        ));
+    }
+
+    // Add help if present
+    if let Some(help_text) = help {
+        html.push_str(&format!(
+            r#"<div class="hint"><strong>Hint:</strong> {}</div>"#,
+            html_escape::encode_text(help_text)
+        ));
+    }
+
+    html
+}
+
+/// Calculate line and column from byte offset (1-indexed)
+pub fn offset_to_line_col(source: &str, offset: usize) -> (usize, usize) {
+    let mut line = 1;
+    let mut col = 1;
+    for (i, ch) in source.char_indices() {
+        if i >= offset {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
 }
 
 /// Render a helpful 404 page for development mode
@@ -254,8 +525,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_render_error_page_contains_marker() {
-        let html = render_error_page("test error");
+    fn test_render_structured_error_page_contains_marker() {
+        let error = TemplateRenderError {
+            message: "test error".to_string(),
+            location: None,
+            help: None,
+        };
+        let html = render_structured_error_page(&error);
+        assert!(html.contains(RENDER_ERROR_MARKER));
+        assert!(html.contains("test error"));
+    }
+
+    #[test]
+    fn test_render_generic_error_page_contains_marker() {
+        let html = render_generic_error_page("Parse Error", "test error");
         assert!(html.contains(RENDER_ERROR_MARKER));
         assert!(html.contains("test error"));
     }
