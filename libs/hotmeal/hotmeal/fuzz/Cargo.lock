@@ -30,10 +30,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3"
 
 [[package]]
-name = "cc"
-version = "1.2.53"
+name = "castaway"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "755d2fce177175ffca841e9a06afdb2c4ab0f593d53b4dee48147dfaade85932"
+checksum = "dec551ab6e7578819132c713a93c022a05d60159dc86e7a7050223577484c55a"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
+name = "cc"
+version = "1.2.54"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6354c81bbfd62d9cfa9cb3c773c2b7b2a3a482d569de977fd0e961f6e7c00583"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -53,6 +62,20 @@ version = "0.42.0"
 dependencies = [
  "indextree",
  "rapidhash",
+]
+
+[[package]]
+name = "compact_str"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fdb1325a1cece981e8a296ab8f0f9b63ae357bd0784a9faaf548cc7b480707a"
+dependencies = [
+ "castaway",
+ "cfg-if",
+ "itoa",
+ "rustversion",
+ "ryu",
+ "static_assertions",
 ]
 
 [[package]]
@@ -86,8 +109,8 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "facet"
-version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
+version = "0.43.2"
+source = "git+https://github.com/facet-rs/facet?branch=main#514bdaf899ad7546d24594a054c770fa52325cf7"
 dependencies = [
  "autocfg",
  "facet-core",
@@ -96,10 +119,11 @@ dependencies = [
 
 [[package]]
 name = "facet-core"
-version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
+version = "0.43.2"
+source = "git+https://github.com/facet-rs/facet?branch=main#514bdaf899ad7546d24594a054c770fa52325cf7"
 dependencies = [
  "autocfg",
+ "compact_str",
  "const-fnv1a-hash",
  "iddqd",
  "impls",
@@ -110,16 +134,16 @@ dependencies = [
 
 [[package]]
 name = "facet-error"
-version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
+version = "0.43.2"
+source = "git+https://github.com/facet-rs/facet?branch=main#514bdaf899ad7546d24594a054c770fa52325cf7"
 dependencies = [
  "facet",
 ]
 
 [[package]]
 name = "facet-macro-parse"
-version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
+version = "0.43.2"
+source = "git+https://github.com/facet-rs/facet?branch=main#514bdaf899ad7546d24594a054c770fa52325cf7"
 dependencies = [
  "facet-macro-types",
  "proc-macro2",
@@ -128,8 +152,8 @@ dependencies = [
 
 [[package]]
 name = "facet-macro-types"
-version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
+version = "0.43.2"
+source = "git+https://github.com/facet-rs/facet?branch=main#514bdaf899ad7546d24594a054c770fa52325cf7"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -138,16 +162,16 @@ dependencies = [
 
 [[package]]
 name = "facet-macros"
-version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
+version = "0.43.2"
+source = "git+https://github.com/facet-rs/facet?branch=main#514bdaf899ad7546d24594a054c770fa52325cf7"
 dependencies = [
  "facet-macros-impl",
 ]
 
 [[package]]
 name = "facet-macros-impl"
-version = "0.43.1"
-source = "git+https://github.com/facet-rs/facet?branch=main#57f174c5582c2904fb499ae2aa4338493feca34e"
+version = "0.43.2"
+source = "git+https://github.com/facet-rs/facet?branch=main#514bdaf899ad7546d24594a054c770fa52325cf7"
 dependencies = [
  "facet-macro-parse",
  "facet-macro-types",
@@ -207,6 +231,7 @@ name = "hotmeal"
 version = "0.1.0"
 dependencies = [
  "cinereus",
+ "compact_str",
  "facet",
  "facet-error",
  "html5ever",
@@ -222,6 +247,7 @@ dependencies = [
  "arbitrary",
  "hotmeal",
  "libfuzzer-sys",
+ "tendril",
 ]
 
 [[package]]
@@ -295,6 +321,12 @@ checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
 dependencies = [
  "either",
 ]
+
+[[package]]
+name = "itoa"
+version = "1.0.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jobserver"
@@ -439,9 +471,9 @@ dependencies = [
 
 [[package]]
 name = "quote"
-version = "1.0.43"
+version = "1.0.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc74d9a594b72ae6656596548f56f667211f8a97b3d4c3d467150794690dc40a"
+checksum = "21b2ebcf727b7760c461f091f9f0f539b77b8e87f2fd88131e7f1b433b3cece4"
 dependencies = [
  "proc-macro2",
 ]
@@ -472,6 +504,18 @@ name = "rustc-hash"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
+
+[[package]]
+name = "rustversion"
+version = "1.0.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
+
+[[package]]
+name = "ryu"
+version = "1.0.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a50f4cf475b65d88e057964e0e9bb1f0aa9bbb2036dc65c64596b42932536984"
 
 [[package]]
 name = "scopeguard"
@@ -525,6 +569,12 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+
+[[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "string_cache"
@@ -652,9 +702,9 @@ dependencies = [
 
 [[package]]
 name = "web_atoms"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7fa72497c57079de16225d9a886d6c9a80c34f8e5a9cd5c64b71a449cbba195"
+checksum = "57a9779e9f04d2ac1ce317aee707aa2f6b773afba7b931222bff6983843b1576"
 dependencies = [
  "phf",
  "phf_codegen",
