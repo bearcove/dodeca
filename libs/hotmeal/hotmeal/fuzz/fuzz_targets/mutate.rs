@@ -1,80 +1,37 @@
 #![no_main]
 
+use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
 use tendril::StrTendril;
 
-static BASE_HTML: &str = include_str!("../corpus/mutate/dibs-homepage.html");
-
-fuzz_target!(|data: &[u8]| {
-    if data.is_empty() {
-        return;
-    }
-
-    let mutated = apply_mutations(BASE_HTML, data);
-    let tendril = StrTendril::from(mutated);
-    let _ = hotmeal::parse(&tendril);
-});
-
-fn apply_mutations(base: &str, mutations: &[u8]) -> String {
-    let base_bytes = base.as_bytes();
-    let mut result = base_bytes.to_vec();
-
-    let mut i = 0;
-    while i + 2 < mutations.len() {
-        let op = mutations[i] % 4;
-        let pos_byte = mutations[i + 1];
-        let val = mutations[i + 2];
-
-        if result.is_empty() {
-            break;
-        }
-
-        let pos = (pos_byte as usize * result.len()) / 256;
-        let pos = pos.min(result.len().saturating_sub(1));
-
-        match op {
-            0 => {
-                // Insert byte
-                if result.len() < 1_000_000 {
-                    result.insert(pos, val);
-                }
-            }
-            1 => {
-                // Delete byte
-                if !result.is_empty() {
-                    result.remove(pos);
-                }
-            }
-            2 => {
-                // Replace byte
-                result[pos] = val;
-            }
-            3 => {
-                // Insert interesting HTML chars
-                let chars: &[u8] = match val % 8 {
-                    0 => b"<",
-                    1 => b">",
-                    2 => b"</",
-                    3 => b"/>",
-                    4 => b"=\"",
-                    5 => b"\"",
-                    6 => b"&amp;",
-                    7 => b"<!--",
-                    _ => b"",
-                };
-                if result.len() + chars.len() < 1_000_000 {
-                    for (j, &c) in chars.iter().enumerate() {
-                        if pos + j <= result.len() {
-                            result.insert(pos + j, c);
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-
-        i += 3;
-    }
-
-    String::from_utf8_lossy(&result).into_owned()
+#[derive(Arbitrary, Debug)]
+struct Input {
+    html_a: Vec<u8>,
+    html_b: Vec<u8>,
 }
+
+fuzz_target!(|input: Input| {
+    let a = String::from_utf8_lossy(&input.html_a);
+    let b = String::from_utf8_lossy(&input.html_b);
+
+    let a_tendril = StrTendril::from(a.as_ref());
+    let b_tendril = StrTendril::from(b.as_ref());
+
+    let doc_a = hotmeal::parse(&a_tendril);
+    let doc_b = hotmeal::parse(&b_tendril);
+
+    let patches = hotmeal::diff(&doc_a, &doc_b).expect("diff must always succeed");
+
+    let mut patched = doc_a.clone();
+    patched
+        .apply_patches(patches)
+        .expect("apply_patches must always succeed");
+
+    let patched_html = patched.to_html();
+    let expected_html = doc_b.to_html();
+
+    assert_eq!(
+        patched_html, expected_html,
+        "Patched document should match target document"
+    );
+});

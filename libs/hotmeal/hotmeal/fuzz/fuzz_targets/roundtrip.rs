@@ -2938,12 +2938,15 @@ fuzz_target!(|input: FuzzInput| {
         ),
     };
 
-    let patches = hotmeal::diff_html(&old_html, &new_html).expect("diff failed");
-    let mut doc = hotmeal::parse(&old_html);
+    let old_tendril = hotmeal::StrTendril::from(old_html.clone());
+    let new_tendril = hotmeal::StrTendril::from(new_html.clone());
+
+    let patches = hotmeal::diff_html(&old_tendril, &new_tendril).expect("diff failed");
+    let mut doc = hotmeal::parse(&old_tendril);
     doc.apply_patches(patches.clone()).expect("apply failed");
 
     let result = doc.to_html_without_doctype();
-    let expected_doc = hotmeal::parse(&new_html);
+    let expected_doc = hotmeal::parse(&new_tendril);
     let expected = expected_doc.to_html_without_doctype();
 
     assert_eq!(
