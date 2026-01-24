@@ -1082,7 +1082,7 @@ fn ci_linux_runner(platform: CiPlatform) -> CiRunner {
             "true"
         } else {
             // Install wasm-bindgen-cli (not wasm-pack - we call cargo directly for caching)
-            "cargo install wasm-bindgen-cli@0.2.106 --locked"
+            "cargo install wasm-bindgen-cli@0.2.108 --locked"
         },
     }
 }

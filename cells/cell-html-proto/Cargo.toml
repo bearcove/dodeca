@@ -9,6 +9,5 @@ edition = "2024"
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-dodeca-protocol = { path = "../../crates/dodeca-protocol" }
 facet.workspace = true
 roam.workspace = true

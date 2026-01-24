@@ -14,7 +14,8 @@ resolver = "3"
 # but cargo-shear doesn't detect it since it's feature-activated, not imported
 [workspace.metadata.cargo-shear]
 # getrandom: required for wasm32 targets (feature-activated)
-ignored = ["getrandom"]
+# facet-default: required by Facet derive macro (transitive)
+ignored = ["getrandom", "facet-default"]
 
 [workspace.dependencies]
 # Core utilities
@@ -27,6 +28,7 @@ serde_yaml = "0.9"
 url = "2"
 
 # Error handling
+ariadne = "0.5"
 color-eyre = "0.6"
 eyre = "0.6"
 thiserror = "2.0"
@@ -52,7 +54,6 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["a
 # Serialization - Facet ecosystem (git)
 hotmeal = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
 hotmeal-wasm = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
-cinereus = { git = "https://github.com/bearcove/hotmeal", branch = "main" }
 facet = { git = "https://github.com/facet-rs/facet", branch = "main" }
 facet-styx = { git = "https://github.com/bearcove/styx", branch = "main" }
 facet-args = { git = "https://github.com/facet-rs/facet", branch = "main" }
@@ -118,19 +119,14 @@ arborium-theme = "2"
 # SVG optimization (git)
 svag = { git = "https://github.com/bearcove/svag" }
 getrandom = { version = "0.3", features = ["wasm_js"] }
-js-sys = "0.3"
 tracing-wasm = "0.2"
-wasm-bindgen = "=0.2.106"
+wasm-bindgen = "=0.2.108"
 web-sys = { version = "0.3", features = [
     "BinaryType", "CloseEvent", "Document", "Element", "ErrorEvent",
     "HtmlElement", "HtmlLinkElement", "Location", "MessageEvent", "Node",
     "NodeList", "Text", "WebSocket", "Window", "console"
 ] }
-
-# System/low-level
-backtrace = "0.3"
 libc = "0.2"
-passfd = "0.1"
 rapidhash = "4"
 strid = "8.0"
 # strid = { path = "../strid/crates/strid" }
@@ -140,10 +136,6 @@ open = "5"
 
 # Linux-only
 hakoniwa = "1.2"
-
-# Dev/testing
-divan = "0.1"
-minijinja = "2"
 
 [workspace.package]
 rust-version = "1.91"
@@ -192,10 +184,10 @@ pikru = { git = "https://github.com/bearcove/pikru", branch = "main" }
 # facet-yaml = { path = "../facet/facet-yaml" }
 
 # Uncomment to use local hotmeal for development
-# [patch."https://github.com/bearcove/hotmeal"]
-# cinereus = { path = "../hotmeal/cinereus" }
-# hotmeal = { path = "../hotmeal/hotmeal" }
-# hotmeal-wasm = { path = "../hotmeal/hotmeal-wasm" }
+[patch."https://github.com/bearcove/hotmeal"]
+cinereus = { path = "../hotmeal/cinereus" }
+hotmeal = { path = "../hotmeal/hotmeal" }
+hotmeal-wasm = { path = "../hotmeal/hotmeal-wasm" }
 
 # [patch."https://github.com/facet-rs/facet-xml"]
 # facet-dom = { path = "../facet-xml/facet-dom" }

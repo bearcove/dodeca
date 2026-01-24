@@ -30,7 +30,6 @@ sycamore = "0.9"
 
 # Utilities
 getrandom.workspace = true
-js-sys.workspace = true
 tracing.workspace = true
 tracing-wasm.workspace = true
 wasm-bindgen.workspace = true

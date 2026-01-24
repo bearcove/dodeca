@@ -26,4 +26,3 @@ ureq.workspace = true
 ur-taking-me-with-you.workspace = true
 
 [dev-dependencies]
-libc.workspace = true

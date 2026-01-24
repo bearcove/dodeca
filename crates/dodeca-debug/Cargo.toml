@@ -9,5 +9,4 @@ edition = "2024"
 rustdoc-args = ["--html-in-header", "arborium-header.html"]
 
 [dependencies]
-backtrace.workspace = true
 libc.workspace = true
