@@ -3,7 +3,9 @@
 //! Apply parity fuzzer.
 //!
 //! Compares native hotmeal patch application against browser hotmeal-wasm.
-//! Both apply the SAME patches, and we compare DOM trees at each step.
+//! Both apply the SAME patches to the SAME initial tree, and we compare DOM trees at each step.
+//!
+//! If html5ever and browser parse the input differently, we skip (that's a parse parity issue).
 
 use browser_proto::OwnedPatches;
 use hotmeal::StrTendril;
@@ -29,10 +31,17 @@ fn target(data: &[u8]) {
         return;
     };
 
-    // Compute patches using hotmeal
+    // Parse A with html5ever
     let full_a = StrTendril::from(full_a.clone());
     let full_b = StrTendril::from(full_b.clone());
+    let mut native_doc = hotmeal::parse(&full_a);
 
+    // Get html5ever's initial tree
+    let Some(native_initial_tree) = common::document_body_to_dom_node(&native_doc) else {
+        return; // Skip documents without a body
+    };
+
+    // Compute patches using hotmeal
     let patches = match hotmeal::diff_html(&full_a, &full_b) {
         Ok(p) => p,
         Err(err) => panic!("hotmeal failed to diff {err}"),
@@ -54,11 +63,15 @@ fn target(data: &[u8]) {
         return;
     }
 
-    // Apply patches natively, capturing the full trace
-    let normalized_old_tendril = StrTendril::from(browser_result.normalized_old_html.clone());
-    let mut native_doc = hotmeal::parse(&normalized_old_tendril);
+    // Compare initial trees - if they differ, html5ever and browser parsed differently
+    // That's a parse parity issue, not an apply parity issue - skip it
+    if native_initial_tree != browser_result.initial_dom_tree {
+        return;
+    }
+
+    // Apply patches natively to html5ever's parse (same tree we computed patches from)
     let Some(native_trace) = common::PatchTrace::capture(&mut native_doc, &patches) else {
-        return; // Skip documents without a body
+        return;
     };
 
     // Convert browser result to our trace format
