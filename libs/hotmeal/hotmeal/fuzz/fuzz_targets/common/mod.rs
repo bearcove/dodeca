@@ -35,18 +35,60 @@ fn split_input(data: &[u8]) -> Option<(String, String)> {
     Some((html_a, html_b))
 }
 
+/// Check if an HTML string should be skipped due to known browser bugs.
+/// Returns true if the string is valid for browser parity testing.
+fn is_valid_for_browser_parity(html: &str) -> bool {
+    // Skip empty inputs
+    if html.is_empty() {
+        return false;
+    }
+
+    // Skip inputs with null bytes
+    if html.contains('\0') {
+        return false;
+    }
+
+    // Skip inputs containing CR (\r) - Chrome has numerous bugs with CR normalization
+    // in various contexts (LF-CR, CR-CR, /\r, space-CR, etc.). Per INFRA spec, CR should
+    // be normalized to LF, but Chrome handles it incorrectly in many edge cases.
+    // Firefox and Safari are spec-compliant, html5ever is spec-compliant.
+    // See: https://infra.spec.whatwg.org/#normalize-newlines
+    if html.contains('\r') {
+        return false;
+    }
+
+    // Skip inputs containing C0 control characters (0x01-0x1F except tab, LF, FF)
+    // There are complex structural differences between html5ever and Chrome involving
+    // control characters in edge cases. Needs further investigation.
+    if html
+        .bytes()
+        .any(|b| matches!(b, 0x01..=0x08 | 0x0B | 0x0E..=0x1F))
+    {
+        return false;
+    }
+
+    true
+}
+
+/// Prepare a single HTML string for browser parity testing.
+/// Returns None if the input should be skipped.
+pub fn prepare_single_html_input(data: &[u8]) -> Option<String> {
+    let html = std::str::from_utf8(data).ok()?;
+
+    if !is_valid_for_browser_parity(html) {
+        return None;
+    }
+
+    // Wrap in full HTML document with DOCTYPE for no-quirks mode
+    Some(format!("<!DOCTYPE html><html><body>{}</body></html>", html))
+}
+
 /// Splits the input data into two sanitized HTML documents wrapped in a standard template.
 pub fn prepare_html_inputs(data: &[u8]) -> Option<(String, String)> {
     // Split at 0xFF delimiter
     let (html_a, html_b) = split_input(data)?;
 
-    // Skip empty inputs
-    if html_a.is_empty() || html_b.is_empty() {
-        return None;
-    }
-
-    // Skip inputs with null bytes
-    if html_a.contains('\0') || html_b.contains('\0') {
+    if !is_valid_for_browser_parity(&html_a) || !is_valid_for_browser_parity(&html_b) {
         return None;
     }
 

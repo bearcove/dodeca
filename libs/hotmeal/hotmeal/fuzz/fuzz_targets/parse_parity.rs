@@ -23,36 +23,10 @@ fuzz_target!(|data: &[u8]| {
         common::init_thrall_quiet();
     });
 
-    let Ok(html) = std::str::from_utf8(data) else {
+    let Some(full_html) = common::prepare_single_html_input(data) else {
         return;
     };
 
-    // Skip empty or null-containing inputs
-    if html.is_empty() || html.contains('\0') {
-        return;
-    }
-
-    // Skip inputs containing CR (\r) - Chrome has numerous bugs with CR normalization
-    // in various contexts (LF-CR, CR-CR, /\r, space-CR, etc.). Per INFRA spec, CR should
-    // be normalized to LF, but Chrome handles it incorrectly in many edge cases.
-    // Firefox and Safari are spec-compliant, html5ever is spec-compliant.
-    // See: https://infra.spec.whatwg.org/#normalize-newlines
-    if html.contains('\r') {
-        return;
-    }
-
-    // Skip inputs containing C0 control characters (0x01-0x1F except tab, LF, FF)
-    // There are complex structural differences between html5ever and Chrome involving
-    // control characters in edge cases. Needs further investigation.
-    if html
-        .bytes()
-        .any(|b| matches!(b, 0x01..=0x08 | 0x0B | 0x0E..=0x1F))
-    {
-        return;
-    }
-
-    // Wrap in full HTML document with DOCTYPE for no-quirks mode
-    let full_html = format!("<!DOCTYPE html><html><body>{}</body></html>", html);
     let tendril = StrTendril::from(full_html.as_str());
 
     // Parse with html5ever
@@ -62,14 +36,14 @@ fuzz_target!(|data: &[u8]| {
     };
 
     // Parse with browser
-    let Some(browser_tree) = common::parse_to_dom(full_html) else {
+    let Some(browser_tree) = common::parse_to_dom(full_html.clone()) else {
         return;
     };
 
     // Compare
     if html5ever_tree != browser_tree {
         eprintln!("\n========== PARSER MISMATCH ==========");
-        eprintln!("Input: {:?}", html);
+        eprintln!("Input: {:?}", full_html);
         eprintln!("\n--- html5ever tree ---");
         eprintln!("{}", html5ever_tree);
         eprintln!("\n--- browser tree ---");
