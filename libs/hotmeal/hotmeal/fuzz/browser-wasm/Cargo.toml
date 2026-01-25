@@ -1,0 +1,29 @@
+[package]
+name = "browser-wasm"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+browser-proto = { path = "../browser-proto" }
+hotmeal-wasm = { path = "../../../hotmeal-wasm" }
+roam = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-session = { git = "https://github.com/bearcove/roam", branch = "main" }
+roam-websocket = { git = "https://github.com/bearcove/roam", branch = "main" }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "console",
+    "Window",
+    "Location",
+    "UrlSearchParams",
+    "DomParser",
+    "SupportedType",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "Node",
+] }

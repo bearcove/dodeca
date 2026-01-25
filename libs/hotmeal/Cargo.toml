@@ -31,11 +31,14 @@ hotmeal = { path = "hotmeal", version = "0.1.0" }
 indextree = "4.7"
 smallvec = "1"
 
-# HTML parsing
-html5ever = "0.38"
-tendril = "0.5"
+# HTML parsing (vendored)
+html5ever = { path = "vendor/html5ever/html5ever" }
+markup5ever = { path = "vendor/html5ever/markup5ever" }
+tendril = { path = "vendor/html5ever/tendril" }
+web_atoms = { path = "vendor/html5ever/web_atoms" }
 
 # Other
+js-sys = "0.3"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 wasm-bindgen = "=0.2.108"
 wasm-tracing = "2.1"
@@ -47,3 +50,9 @@ unexpected_cfgs = { level = "warn", check-cfg = ["cfg(facet_no_doc)"] }
 
 [workspace.metadata.cargo-shear]
 ignored = ["facet-error"]
+
+[patch.crates-io]
+html5ever = { path = "vendor/html5ever/html5ever" }
+markup5ever = { path = "vendor/html5ever/markup5ever" }
+tendril = { path = "vendor/html5ever/tendril" }
+web_atoms = { path = "vendor/html5ever/web_atoms" }

@@ -8,7 +8,7 @@ pre-commit {
     // rustfmt false
     // cargo-lock false
     // arborium false
-    // edition-2024 false
+    edition-2024 false
 }
 
 pre-push {
@@ -16,7 +16,7 @@ pre-push {
     // nextest false
     doc-tests false
     // docs false
-    // cargo-shear false
+    cargo-shear false
 
     // Feature configuration (uncomment and customize as needed)
     // clippy-features (feature1 feature2)

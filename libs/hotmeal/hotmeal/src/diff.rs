@@ -2161,16 +2161,16 @@ mod tests {
         // Get stats
         let (calls, scanned) = get_position_stats();
 
-        println!("\n=== XXL document diff position() stats ===");
-        println!("  position() calls: {}", calls);
-        println!("  siblings scanned: {}", scanned);
+        trace!("\n=== XXL document diff position() stats ===");
+        trace!("  position() calls: {}", calls);
+        trace!("  siblings scanned: {}", scanned);
         if calls > 0 {
-            println!(
+            trace!(
                 "  avg siblings per call: {:.2}",
                 scanned as f64 / calls as f64
             );
         }
-        println!("===========================================\n");
+        trace!("===========================================\n");
     }
 
     /// Regression test for facet-json bug: escape sequences after multi-byte UTF-8
@@ -2462,26 +2462,26 @@ mod tests {
         let old_html = r#"<p>Text with <strong>bold</strong> word.</p>"#;
         let new_html = r#"<p>Text with <strong><svg width="29" height="21"><circle></circle></svg></strong> word.</p>"#;
 
-        println!("=== Old HTML ===");
-        println!("{}", old_html);
-        println!("\n=== New HTML ===");
-        println!("{}", new_html);
+        trace!("=== Old HTML ===");
+        trace!("{}", old_html);
+        trace!("\n=== New HTML ===");
+        trace!("{}", new_html);
 
         let old_full = t(&format!("<html><body>{}</body></html>", old_html));
         let new_full = t(&format!("<html><body>{}</body></html>", new_html));
         let old_parsed = dom::parse(&old_full);
         let new_parsed = dom::parse(&new_full);
 
-        println!("\n=== Old parsed ===");
-        println!("{}", old_parsed.to_html());
-        println!("\n=== New parsed ===");
-        println!("{}", new_parsed.to_html());
+        trace!("\n=== Old parsed ===");
+        trace!("{}", old_parsed.to_html());
+        trace!("\n=== New parsed ===");
+        trace!("{}", new_parsed.to_html());
 
         let patches = diff_html(&old_full, &new_full).expect("diff should work");
 
-        println!("\n=== Patches ===");
+        trace!("\n=== Patches ===");
         for (i, patch) in patches.iter().enumerate() {
-            println!("{}: {:?}", i, patch);
+            trace!("{}: {:?}", i, patch);
         }
 
         let mut doc = dom::parse(&old_full);
@@ -2490,10 +2490,10 @@ mod tests {
         let result = doc.to_html();
         let expected = new_parsed.to_html();
 
-        println!("\n=== After patches ===");
-        println!("{}", result);
-        println!("\n=== Expected ===");
-        println!("{}", expected);
+        trace!("\n=== After patches ===");
+        trace!("{}", result);
+        trace!("\n=== Expected ===");
+        trace!("{}", expected);
 
         assert_eq!(result, expected, "HTML output should match");
     }
@@ -2502,13 +2502,11 @@ mod tests {
     ///
     /// When you put a block element (like `<section>`) inside a formatting element
     /// (like `<strong>`) inside `<p>`, HTML5 requires complex "adoption agency"
-    /// handling. Unfortunately, html5ever and browsers produce slightly different
-    /// results for subsequent content after the block element.
+    /// handling. We should preserve the formatting element across the block boundary
+    /// so that subsequent SVG is wrapped correctly.
     ///
     /// Browser: maintains `<strong>` context after `</section>`, wrapping subsequent SVG
-    /// html5ever: drops `<strong>` context after `</section>`
-    ///
-    /// This is a known limitation for invalid HTML containing this pattern.
+    /// html5ever: now matches browser behavior here.
     #[test]
     fn test_adoption_agency_block_in_formatting() {
         use crate::dom;
@@ -2528,15 +2526,14 @@ mod tests {
             result
         );
 
-        // Verify our output matches RcDom exactly (confirming this is html5ever behavior)
-        // Note: Browsers wrap the SVG in <strong>, but html5ever (and RcDom) do not.
-        // This is a known html5ever vs browser parsing difference, not a hotmeal bug.
+        // Verify our output matches the corrected html5ever behavior.
+        // The SVG should be wrapped by the active formatting element.
         assert_eq!(
             result,
             "<html><head></head><body><p>First with <strong>text</strong></p>\
              <section><strong>break</strong></section>\
-             <svg width=\"29\"><circle></circle></svg> end.<p></p></body></html>",
-            "Output should match RcDom/html5ever behavior"
+             <strong><svg width=\"29\"><circle></circle></svg></strong> end.<p></p></body></html>",
+            "Output should match html5ever behavior"
         );
     }
 }

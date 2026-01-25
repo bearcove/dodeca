@@ -18,6 +18,18 @@ use tendril::StrTendril;
 use crate::diff::{DiffError, InsertContent, NodeRef, Patch, PropKey};
 use crate::{Stem, debug};
 
+#[cfg(feature = "tracing")]
+macro_rules! trace {
+    ($($arg:tt)*) => {
+        tracing::trace!($($arg)*)
+    };
+}
+
+#[cfg(not(feature = "tracing"))]
+macro_rules! trace {
+    ($($arg:tt)*) => {};
+}
+
 /// Arena-based DOM document.
 #[derive(Debug, Clone)]
 pub struct Document<'a> {
@@ -85,6 +97,59 @@ impl<'a> Document<'a> {
     /// Iterate children of a node
     pub fn children(&self, id: NodeId) -> impl Iterator<Item = NodeId> + '_ {
         id.children(&self.arena)
+    }
+
+    /// Pretty-print a subtree for debugging.
+    pub fn dump_subtree(&self, node_id: NodeId) -> String {
+        let mut out = String::new();
+        self.dump_node(node_id, 0, &mut out);
+        out
+    }
+
+    /// Pretty-print the body subtree, if present.
+    pub fn dump_body(&self) -> Option<String> {
+        self.body().map(|body_id| self.dump_subtree(body_id))
+    }
+
+    fn dump_node(&self, node_id: NodeId, indent: usize, out: &mut String) {
+        let prefix = "  ".repeat(indent);
+        let node = &self.arena[node_id].get().kind;
+
+        match node {
+            NodeKind::Element(elem) => {
+                let tag = elem.tag.to_string().to_ascii_lowercase();
+                let mut attrs: Vec<(String, String)> = elem
+                    .attrs
+                    .iter()
+                    .map(|(qname, value)| (qname.local.to_string(), value.as_ref().to_string()))
+                    .collect();
+                attrs.sort_by(|a, b| a.0.cmp(&b.0));
+
+                out.push_str(&format!("{prefix}<{tag}"));
+                for (name, value) in attrs {
+                    out.push_str(&format!(" {}={:?}", name, value));
+                }
+                out.push_str(">\n");
+
+                for child in self.children(node_id) {
+                    self.dump_node(child, indent + 1, out);
+                }
+
+                out.push_str(&format!("{prefix}</{tag}>\n"));
+            }
+            NodeKind::Text(text) => {
+                out.push_str(&format!("{prefix}TEXT: {:?}\n", text.as_ref()));
+            }
+            NodeKind::Comment(text) => {
+                out.push_str(&format!("{prefix}COMMENT: {:?}\n", text.as_ref()));
+            }
+            NodeKind::Document => {
+                out.push_str(&format!("{prefix}#document\n"));
+                for child in self.children(node_id) {
+                    self.dump_node(child, indent + 1, out);
+                }
+            }
+        }
     }
 
     /// Get the `<body>` element if present
@@ -828,6 +893,20 @@ impl Namespace {
     }
 }
 
+fn has_doctype_prefix(input: &str) -> bool {
+    let bytes = input.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    let doctype = b"<!doctype";
+    i + doctype.len() <= bytes.len()
+        && bytes[i..i + doctype.len()]
+            .iter()
+            .zip(doctype)
+            .all(|(b, d)| b.to_ascii_lowercase() == *d)
+}
+
 /// Parse HTML from a StrTendril with zero-copy borrowing.
 ///
 /// The returned Document borrows from the tendril's buffer, so substrings
@@ -845,7 +924,25 @@ pub fn parse(tendril: &StrTendril) -> Document<'_> {
 
     let input_ref: &str = tendril.as_ref();
     let sink = ArenaSink::new(input_ref);
-    parse_document(sink, Default::default()).one(tendril.clone())
+
+    // Prepend DOCTYPE if not present to ensure no-quirks mode parsing.
+    // This matches browser behavior for innerHTML which always uses no-quirks.
+    let has_doctype = has_doctype_prefix(input_ref);
+
+    let input = if has_doctype {
+        tendril.clone()
+    } else {
+        let mut with_doctype = StrTendril::from("<!DOCTYPE html>");
+        with_doctype.push_tendril(tendril);
+        with_doctype
+    };
+
+    let mut doc = parse_document(sink, Default::default()).one(input);
+    if !has_doctype {
+        // Don't store the artificially added DOCTYPE - preserve original input behavior
+        doc.doctype = None;
+    }
+    doc
 }
 
 /// Owned element name wrapper
@@ -893,6 +990,134 @@ fn tendril_to_stem_with_input<'a>(input: &'a str, t: StrTendril) -> Stem<'a> {
         Stem::Borrowed(&input[offset..offset + t.len()])
     } else {
         Stem::from(t)
+    }
+}
+
+fn node_id_short(node_id: NodeId) -> String {
+    let debug = format!("{:?}", node_id);
+    let Some(start) = debug.find("index1: ") else {
+        return debug;
+    };
+    let digits = &debug[start + "index1: ".len()..];
+    let value: String = digits.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if value.is_empty() {
+        debug
+    } else {
+        format!("n{}", value)
+    }
+}
+
+fn dump_arena_subtree<'a>(
+    arena: &Arena<NodeData<'a>>,
+    node_id: NodeId,
+    highlights: &[(NodeId, &'static str, &'static str)],
+) -> String {
+    fn highlight_for(
+        node_id: NodeId,
+        highlights: &[(NodeId, &'static str, &'static str)],
+    ) -> Option<(&'static str, &'static str)> {
+        highlights
+            .iter()
+            .find(|(id, _, _)| *id == node_id)
+            .map(|(_, color, label)| (*color, *label))
+    }
+
+    fn dump_node<'b>(
+        arena: &Arena<NodeData<'b>>,
+        node_id: NodeId,
+        indent: usize,
+        out: &mut String,
+        highlights: &[(NodeId, &'static str, &'static str)],
+    ) {
+        let indent_prefix = "  ".repeat(indent);
+        let node_label = node_id_short(node_id);
+        let prefix = format!("{indent_prefix}[{node_label}] ");
+        let highlight = highlight_for(node_id, highlights);
+        let (hl_start, hl_end, hl_label) = if let Some((color, label)) = highlight {
+            (color, "\x1b[0m", label)
+        } else {
+            ("", "", "")
+        };
+        let badge = if hl_label.is_empty() {
+            String::new()
+        } else {
+            format!(" {hl_start}<{hl_label}>{hl_end}")
+        };
+        let node = &arena[node_id].get().kind;
+
+        match node {
+            NodeKind::Element(elem) => {
+                let tag = elem.tag.to_string().to_ascii_lowercase();
+                let tag_display = if hl_start.is_empty() {
+                    tag
+                } else {
+                    format!("{hl_start}{tag}{hl_end}")
+                };
+                let mut attrs: Vec<(String, String)> = elem
+                    .attrs
+                    .iter()
+                    .map(|(qname, value)| (qname.local.to_string(), value.as_ref().to_string()))
+                    .collect();
+                attrs.sort_by(|a, b| a.0.cmp(&b.0));
+
+                out.push_str(&format!("{prefix}<{tag_display}"));
+                for (name, value) in attrs {
+                    out.push_str(&format!(" {}={:?}", name, value));
+                }
+                out.push_str(&format!(">{badge}\n"));
+
+                for child in node_id.children(arena) {
+                    dump_node(arena, child, indent + 1, out, highlights);
+                }
+
+                out.push_str(&format!("{prefix}</{tag_display}>\n"));
+            }
+            NodeKind::Text(text) => {
+                out.push_str(&format!("{prefix}TEXT: {:?}{badge}\n", text.as_ref()));
+            }
+            NodeKind::Comment(text) => {
+                out.push_str(&format!("{prefix}COMMENT: {:?}{badge}\n", text.as_ref()));
+            }
+            NodeKind::Document => {
+                out.push_str(&format!("{prefix}#document{badge}\n"));
+                for child in node_id.children(arena) {
+                    dump_node(arena, child, indent + 1, out, highlights);
+                }
+            }
+        }
+    }
+
+    let mut out = String::new();
+    dump_node(arena, node_id, 0, &mut out, highlights);
+    out
+}
+
+#[allow(dead_code)]
+struct LazyTreeDump<'a> {
+    arena: &'a Arena<NodeData<'a>>,
+    node_id: NodeId,
+    highlights: &'a [(NodeId, &'static str, &'static str)],
+}
+
+impl<'a> LazyTreeDump<'a> {
+    #[allow(dead_code)]
+    fn new(
+        arena: &'a Arena<NodeData<'a>>,
+        node_id: NodeId,
+        highlights: &'a [(NodeId, &'static str, &'static str)],
+    ) -> Self {
+        Self {
+            arena,
+            node_id,
+            highlights,
+        }
+    }
+}
+
+impl<'a> std::fmt::Display for LazyTreeDump<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let tree = dump_arena_subtree(self.arena, self.node_id, self.highlights);
+        write!(f, "\n{tree}")
     }
 }
 
@@ -1024,19 +1249,88 @@ impl<'a> TreeSink for ArenaSink<'a> {
         })
     }
 
+    #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
     fn append(&self, parent: &Self::Handle, child: NodeOrText<Self::Handle>) {
         let mut arena = self.arena.borrow_mut();
         match child {
             NodeOrText::AppendNode(node) => {
+                trace!(
+                    parent_id = %node_id_short(*parent),
+                    node_id = %node_id_short(node),
+                    "append: node"
+                );
+                let highlights = [
+                    (*parent, "\x1b[32m", "PARENT"),
+                    (node, "\x1b[36m", "INSERTED"),
+                ];
+                if let Some(grandparent) = arena[*parent].parent() {
+                    let gp_highlights = [
+                        (grandparent, "\x1b[35m", "GRANDPARENT"),
+                        (*parent, "\x1b[32m", "PARENT"),
+                        (node, "\x1b[36m", "INSERTED"),
+                    ];
+                    trace!(
+                        parent_id = %node_id_short(*parent),
+                        node_id = %node_id_short(node),
+                        grandparent_id = %node_id_short(grandparent),
+                        tree = %LazyTreeDump::new(&arena, grandparent, &gp_highlights),
+                        "append: before insert (grandparent)"
+                    );
+                } else {
+                    trace!(
+                        parent_id = %node_id_short(*parent),
+                        node_id = %node_id_short(node),
+                        tree = %LazyTreeDump::new(&arena, *parent, &highlights),
+                        "append: before insert"
+                    );
+                }
                 parent.append(node, &mut *arena);
+                if let Some(grandparent) = arena[*parent].parent() {
+                    let gp_highlights = [
+                        (grandparent, "\x1b[35m", "GRANDPARENT"),
+                        (*parent, "\x1b[32m", "PARENT"),
+                        (node, "\x1b[36m", "INSERTED"),
+                    ];
+                    trace!(
+                        parent_id = %node_id_short(*parent),
+                        node_id = %node_id_short(node),
+                        grandparent_id = %node_id_short(grandparent),
+                        tree = %LazyTreeDump::new(&arena, grandparent, &gp_highlights),
+                        "append: after insert (grandparent)"
+                    );
+                } else {
+                    trace!(
+                        parent_id = %node_id_short(*parent),
+                        node_id = %node_id_short(node),
+                        tree = %LazyTreeDump::new(&arena, *parent, &highlights),
+                        "append: after insert"
+                    );
+                }
             }
             NodeOrText::AppendText(text) => {
+                let text_len = text.len();
+                let text_preview = text.as_ref().to_string();
+                trace!(
+                    parent_id = %node_id_short(*parent),
+                    text_len,
+                    text = text_preview.as_str(),
+                    "append: text"
+                );
                 // Try to merge with previous text node (html5ever behavior)
                 let last_child_id = parent.children(&arena).next_back();
 
                 if let Some(last_child) = last_child_id
                     && let NodeKind::Text(existing) = &mut arena[last_child].get_mut().kind
                 {
+                    let existing_preview = existing.as_ref();
+                    trace!(
+                        parent_id = %node_id_short(*parent),
+                        last_child_id = %node_id_short(last_child),
+                        text_len,
+                        text = text_preview,
+                        existing = existing_preview,
+                        "append: merged text"
+                    );
                     existing.push_tendril(&text);
                     return;
                 }
@@ -1048,24 +1342,152 @@ impl<'a> TreeSink for ArenaSink<'a> {
                     kind: NodeKind::Text(stem),
                     ns: Namespace::Html,
                 });
+                trace!(
+                    parent_id = %node_id_short(*parent),
+                    text_node_id = %node_id_short(text_node),
+                    text_len,
+                    text = text_preview.as_str(),
+                    "append: new text node"
+                );
                 parent.append(text_node, &mut arena);
             }
         }
     }
 
+    #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
     fn append_before_sibling(&self, sibling: &Self::Handle, new_node: NodeOrText<Self::Handle>) {
         let mut arena = self.arena.borrow_mut();
+
         match new_node {
             NodeOrText::AppendNode(node) => {
+                let parent = arena[*sibling].parent();
+                trace!(
+                    sibling_id = %node_id_short(*sibling),
+                    node_id = %node_id_short(node),
+                    "append_before_sibling: node"
+                );
+                if let Some(parent) = parent {
+                    if let Some(grandparent) = arena[parent].parent() {
+                        let gp_highlights = [
+                            (grandparent, "\x1b[35m", "GRANDPARENT"),
+                            (parent, "\x1b[32m", "PARENT"),
+                            (*sibling, "\x1b[33m", "SIBLING"),
+                        ];
+                        trace!(
+                            sibling_id = %node_id_short(*sibling),
+                            parent_id = %node_id_short(parent),
+                            grandparent_id = %node_id_short(grandparent),
+                            tree = %LazyTreeDump::new(&arena, grandparent, &gp_highlights),
+                            "append_before_sibling: before insert (grandparent)"
+                        );
+                    } else {
+                        let highlights = [
+                            (parent, "\x1b[32m", "PARENT"),
+                            (*sibling, "\x1b[33m", "SIBLING"),
+                        ];
+                        trace!(
+                            sibling_id = %node_id_short(*sibling),
+                            parent_id = %node_id_short(parent),
+                            tree = %LazyTreeDump::new(&arena, parent, &highlights),
+                            "append_before_sibling: before insert"
+                        );
+                    }
+                }
                 sibling.insert_before(node, &mut *arena);
+                if let Some(parent) = parent {
+                    if let Some(grandparent) = arena[parent].parent() {
+                        let gp_highlights = [
+                            (grandparent, "\x1b[35m", "GRANDPARENT"),
+                            (parent, "\x1b[32m", "PARENT"),
+                            (*sibling, "\x1b[33m", "SIBLING"),
+                            (node, "\x1b[36m", "INSERTED"),
+                        ];
+                        trace!(
+                            sibling_id = %node_id_short(*sibling),
+                            parent_id = %node_id_short(parent),
+                            inserted_id = %node_id_short(node),
+                            grandparent_id = %node_id_short(grandparent),
+                            tree = %LazyTreeDump::new(&arena, grandparent, &gp_highlights),
+                            "append_before_sibling: after insert (grandparent)"
+                        );
+                    } else {
+                        let highlights = [
+                            (parent, "\x1b[32m", "PARENT"),
+                            (*sibling, "\x1b[33m", "SIBLING"),
+                            (node, "\x1b[36m", "INSERTED"),
+                        ];
+                        trace!(
+                            sibling_id = %node_id_short(*sibling),
+                            parent_id = %node_id_short(parent),
+                            inserted_id = %node_id_short(node),
+                            tree = %LazyTreeDump::new(&arena, parent, &highlights),
+                            "append_before_sibling: after insert"
+                        );
+                    }
+                }
             }
             NodeOrText::AppendText(text) => {
+                let text_len = text.len();
+                let text_preview = text.as_ref().to_string();
+                let parent = arena[*sibling].parent();
+                trace!(
+                    sibling_id = %node_id_short(*sibling),
+                    text_len,
+                    text = text_preview.as_str(),
+                    "append_before_sibling: text"
+                );
+                if let Some(parent) = parent {
+                    let highlights = [
+                        (parent, "\x1b[32m", "PARENT"),
+                        (*sibling, "\x1b[33m", "SIBLING"),
+                    ];
+                    let tree_dump = dump_arena_subtree(&arena, parent, &highlights);
+                    trace!(
+                        sibling_id = %node_id_short(*sibling),
+                        parent_id = %node_id_short(parent),
+                        tree = %tree_dump,
+                        "append_before_sibling: before text insert"
+                    );
+                }
                 // Try to merge with the previous sibling if it's a text node
-                if let Some(prev_sibling) = sibling.preceding_siblings(&*arena).next()
-                    && let NodeKind::Text(existing) = &mut arena[prev_sibling].get_mut().kind
-                {
-                    existing.push_tendril(&text);
-                    return;
+                let prev_sibling = arena[*sibling].previous_sibling();
+                if let Some(prev_sibling) = prev_sibling {
+                    let prev_kind = &arena[prev_sibling].get().kind;
+                    trace!(
+                        sibling_id = %node_id_short(*sibling),
+                        prev_sibling_id = %node_id_short(prev_sibling),
+                        prev_kind = ?prev_kind,
+                        "append_before_sibling: prev sibling kind"
+                    );
+
+                    if let NodeKind::Text(existing) = &mut arena[prev_sibling].get_mut().kind {
+                        let existing_preview = existing.as_ref();
+                        trace!(
+                            sibling_id = %node_id_short(*sibling),
+                            prev_sibling_id = %node_id_short(prev_sibling),
+                            text_len,
+                            text = text_preview.as_str(),
+                            existing = existing_preview,
+                            "append_before_sibling: merged text"
+                        );
+                        existing.push_tendril(&text);
+                        if let Some(parent) = parent {
+                            let highlights = [
+                                (parent, "\x1b[32m", "PARENT"),
+                                (prev_sibling, "\x1b[35m", "MERGED"),
+                                (*sibling, "\x1b[33m", "SIBLING"),
+                            ];
+                            let tree_dump = dump_arena_subtree(&arena, parent, &highlights);
+                            trace!(
+                                sibling_id = %node_id_short(*sibling),
+                                parent_id = %node_id_short(parent),
+                                merged_into_id = %node_id_short(prev_sibling),
+                                tree = %tree_dump,
+                                "append_before_sibling: after merge"
+                            );
+                        }
+                        return;
+                    }
                 }
 
                 let stem = tendril_to_stem_with_input(self.input, text);
@@ -1073,7 +1495,29 @@ impl<'a> TreeSink for ArenaSink<'a> {
                     kind: NodeKind::Text(stem),
                     ns: Namespace::Html,
                 });
+                trace!(
+                    sibling_id = %node_id_short(*sibling),
+                    text_node_id = %node_id_short(text_node),
+                    text_len,
+                    text = text_preview.as_str(),
+                    "append_before_sibling: new text node"
+                );
                 sibling.insert_before(text_node, &mut *arena);
+                if let Some(parent) = parent {
+                    let highlights = [
+                        (parent, "\x1b[32m", "PARENT"),
+                        (*sibling, "\x1b[33m", "SIBLING"),
+                        (text_node, "\x1b[36m", "INSERTED"),
+                    ];
+                    let tree_dump = dump_arena_subtree(&arena, parent, &highlights);
+                    trace!(
+                        sibling_id = %node_id_short(*sibling),
+                        parent_id = %node_id_short(parent),
+                        inserted_id = %node_id_short(text_node),
+                        tree = %tree_dump,
+                        "append_before_sibling: after text insert"
+                    );
+                }
             }
         }
     }
@@ -1126,7 +1570,23 @@ impl<'a> TreeSink for ArenaSink<'a> {
             for (name, value) in converted_attrs {
                 // Only add if not already present
                 if !elem.attrs.iter().any(|(k, _)| k == &name) {
+                    trace!(
+                        target_id = %node_id_short(*target),
+                        tag = %elem.tag.as_ref(),
+                        attr_ns = %name.ns,
+                        attr_name = %name.local.as_ref(),
+                        attr_value = %value.as_ref(),
+                        "add_attrs_if_missing: adding attribute"
+                    );
                     elem.attrs.push((name, value));
+                } else {
+                    trace!(
+                        target_id = %node_id_short(*target),
+                        tag = %elem.tag.as_ref(),
+                        attr_ns = %name.ns,
+                        attr_name = %name.local.as_ref(),
+                        "add_attrs_if_missing: attribute already present"
+                    );
                 }
             }
         }
@@ -1149,6 +1609,7 @@ impl<'a> TreeSink for ArenaSink<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use facet_testhelpers::test;
 
     /// Helper to create a StrTendril from a string
     fn t(s: &str) -> StrTendril {
@@ -1238,12 +1699,21 @@ mod tests {
     }
 
     #[test]
+    fn test_has_doctype_prefix() {
+        assert!(has_doctype_prefix("<!DOCTYPE html>"));
+        assert!(has_doctype_prefix("   <!DoCtYpE html>"));
+        assert!(!has_doctype_prefix("<html><body></body></html>"));
+        assert!(!has_doctype_prefix("<!-- <!doctype html> -->"));
+    }
+
+    #[test]
     fn test_zero_copy_parsing() {
         // Verify that parsed strings borrow from the original input when possible
-        let html = t("<html><body><p>Hello World</p></body></html>");
+        // Note: DOCTYPE is required for zero-copy since parse() prepends it otherwise
+        let html = t("<!DOCTYPE html><html><body><p>Hello World</p></body></html>");
         let html_start = html.as_ref().as_ptr() as usize;
         let html_end = html_start + html.len();
-        println!("Input range: {:#x}..{:#x}", html_start, html_end);
+        trace!("Input range: {:#x}..{:#x}", html_start, html_end);
 
         let doc = parse(&html);
 
@@ -1259,8 +1729,8 @@ mod tests {
             let stem_str = stem.as_str();
             let stem_start = stem_str.as_ptr() as usize;
             let stem_end = stem_start + stem_str.len();
-            println!("Stem range: {:#x}..{:#x}", stem_start, stem_end);
-            println!("Stem variant: {:?}", matches!(stem, Stem::Borrowed(_)));
+            trace!("Stem range: {:#x}..{:#x}", stem_start, stem_end);
+            trace!("Stem variant: {:?}", matches!(stem, Stem::Borrowed(_)));
 
             // The text content should be the Borrowed variant
             assert!(
@@ -1472,5 +1942,173 @@ mod tests {
             "Normal text should be escaped. Got: {}",
             output
         );
+    }
+
+    #[test]
+    fn test_incomplete_tag_at_eof() {
+        // Test how html5ever handles "incomplete" tags like `<b</body>`
+        //
+        // Per the HTML spec, in TagName state, characters like '<' fall through to
+        // "anything else" and are appended to the tag name. So `<b</body>` parses as:
+        // - '<' -> TagOpen
+        // - 'b' -> create tag 'b', TagName state
+        // - '<' -> append '<' to tag name -> "b<"
+        // - '/' -> SelfClosingStartTag state
+        // - 'b' -> not '>', reconsume in BeforeAttributeName
+        // - 'o','d','y' -> attribute name "body"
+        // - '>' -> emit tag
+        //
+        // Both html5ever and Chrome produce: <b< body="">
+        // This is correct spec-compliant behavior.
+        let html = t("<!DOCTYPE html><html><body>hr<b</body></html>");
+        let doc = parse(&html);
+
+        let body = doc.body().expect("should have body");
+        let children: Vec<_> = body.children(&doc.arena).collect();
+
+        // We get 2 children: Text("hr") and Element("b<" with attr body="")
+        assert_eq!(children.len(), 2);
+
+        // First child is text "hr"
+        match &doc.get(children[0]).kind {
+            NodeKind::Text(t) => assert_eq!(t.as_ref(), "hr"),
+            other => panic!("Expected Text node, got {:?}", other),
+        }
+
+        // Second child is element "b<" with attribute "body"
+        match &doc.get(children[1]).kind {
+            NodeKind::Element(elem) => {
+                assert_eq!(elem.tag.as_ref(), "b<");
+                assert_eq!(elem.attrs.len(), 1);
+                assert_eq!(elem.attrs[0].0.local.as_ref(), "body");
+                assert_eq!(elem.attrs[0].1.as_ref(), "");
+            }
+            other => panic!("Expected Element node, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_foster_parented_text_merging() {
+        // Test that foster-parented text nodes get merged
+        // Input: <table>+<tr>more</table>
+        // The "+" and "more" should be foster-parented before the table
+        // and merged into a single text node
+        let html = t("<!DOCTYPE html><html><body><table>+<tr>more</table></body></html>");
+        let doc = parse(&html);
+
+        let body = doc.body().expect("should have body");
+        let children: Vec<_> = body.children(&doc.arena).collect();
+
+        trace!("Body has {} children", children.len());
+        for (i, child_id) in children.iter().enumerate() {
+            let node = doc.get(*child_id);
+            trace!("  Child {}: {:?}", i, node.kind);
+        }
+
+        // Should have 2 children: merged text node + table
+        // Browser produces: TEXT "+more" then TABLE
+        assert_eq!(children.len(), 2, "Should have text + table");
+
+        match &doc.get(children[0]).kind {
+            NodeKind::Text(t) => assert_eq!(t.as_ref(), "+more", "Text should be merged"),
+            other => panic!("Expected Text node, got {:?}", other),
+        }
+
+        match &doc.get(children[1]).kind {
+            NodeKind::Element(elem) => assert_eq!(elem.tag.as_ref(), "table"),
+            other => panic!("Expected table element, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parser_mismatch_body_attrs_from_stray_body_tags() {
+        // Regression test for stray <body> tokens turning into attributes on <body>
+        // Input observed from browser fuzzer:
+        // "t-Eh<body>g>selectedt-Eh<body hrselectedt"
+        let html =
+            t("<!DOCTYPE html><html><body>t-Eh<body>g>selectedt-Eh<body hrselectedt</body></html>");
+        trace!(%html, "Input");
+        let doc = parse(&html);
+
+        let body = doc.body().expect("should have body");
+        let body_data = doc.get(body);
+        match &body_data.kind {
+            NodeKind::Element(elem) => {
+                trace!(attrs = ?elem.attrs, "Body attrs");
+                assert!(
+                    elem.attrs.is_empty(),
+                    "Body should not receive attributes from stray <body> tokens: {:?}",
+                    elem.attrs
+                );
+            }
+            other => panic!("Expected body element, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parser_mismatch_li_u_svg() {
+        // Regression test for <li><u><li><svg> mismatch
+        // Browser: second <li> contains an implied <u> wrapping <svg>
+        // html5ever should match browser output here
+        let html = t("<!DOCTYPE html><html><body><li><u><li><svg></body></html>");
+        let doc = parse(&html);
+
+        let body = doc.body().expect("should have body");
+        let children: Vec<_> = body.children(&doc.arena).collect();
+
+        // Expect two <li> elements
+        assert_eq!(children.len(), 2, "Should have two <li> siblings");
+
+        let first_li = children[0];
+        let second_li = children[1];
+
+        match &doc.get(first_li).kind {
+            NodeKind::Element(elem) => assert_eq!(elem.tag.as_ref(), "li"),
+            other => panic!("Expected first child to be <li>, got {:?}", other),
+        }
+
+        match &doc.get(second_li).kind {
+            NodeKind::Element(elem) => assert_eq!(elem.tag.as_ref(), "li"),
+            other => panic!("Expected second child to be <li>, got {:?}", other),
+        }
+
+        // First <li> should contain a <u>
+        let first_li_children: Vec<_> = first_li.children(&doc.arena).collect();
+        assert_eq!(
+            first_li_children.len(),
+            1,
+            "First <li> should have one child"
+        );
+
+        match &doc.get(first_li_children[0]).kind {
+            NodeKind::Element(elem) => assert_eq!(elem.tag.as_ref(), "u"),
+            other => panic!("Expected first <li> child to be <u>, got {:?}", other),
+        }
+
+        // Second <li> should contain a <u>, which contains <svg>
+        let second_li_children: Vec<_> = second_li.children(&doc.arena).collect();
+        assert_eq!(
+            second_li_children.len(),
+            1,
+            "Second <li> should have one child"
+        );
+
+        let second_u = second_li_children[0];
+        match &doc.get(second_u).kind {
+            NodeKind::Element(elem) => assert_eq!(elem.tag.as_ref(), "u"),
+            other => panic!("Expected second <li> child to be <u>, got {:?}", other),
+        }
+
+        let second_u_children: Vec<_> = second_u.children(&doc.arena).collect();
+        assert_eq!(
+            second_u_children.len(),
+            1,
+            "Second <u> should have one child"
+        );
+
+        match &doc.get(second_u_children[0]).kind {
+            NodeKind::Element(elem) => assert_eq!(elem.tag.as_ref(), "svg"),
+            other => panic!("Expected <u> to wrap <svg>, got {:?}", other),
+        }
     }
 }

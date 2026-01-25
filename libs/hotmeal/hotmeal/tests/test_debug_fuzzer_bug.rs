@@ -2,6 +2,8 @@
 
 use facet_testhelpers::test;
 use hotmeal::{NodePath, NodeRef, Patch, StrTendril};
+#[allow(unused_imports)]
+use hotmeal::{debug, trace};
 use html5ever::LocalName;
 use smallvec::smallvec;
 
@@ -27,7 +29,7 @@ fn test_minimal_repro() {
     }];
 
     let result = doc.apply_patches(patches);
-    println!("Result: {:?}", result);
+    trace!(?result, "Result");
     assert!(result.is_ok(), "should be able to insert at end");
 }
 
@@ -46,8 +48,8 @@ fn test_move_within_same_parent() {
     }];
 
     let result = doc.apply_patches(patches);
-    println!("Result: {:?}", result);
-    println!("HTML: {}", doc.to_html());
+    trace!(?result, "Result");
+    trace!(html = %doc.to_html(), "HTML");
 }
 
 /// Regression test for fuzzer crash-f9f4d0f90a4824d024b1aedd19e5ac64afefed5f
@@ -64,11 +66,11 @@ fn test_img_alt_attribute_preservation() {
     let new = hotmeal::parse(&new_html);
 
     let patches = hotmeal::diff(&old, &new).expect("diff failed");
-    println!("Patches: {:#?}", patches);
+    trace!(?patches, "Patches");
 
     old.apply_patches(patches).expect("apply failed");
     let result = old.to_html();
-    println!("Result: {}", result);
+    trace!(result = %result, "Result");
 
     // The second img should have src="" but NOT alt=""
     assert!(
@@ -80,6 +82,81 @@ fn test_img_alt_attribute_preservation() {
         result.contains(r#"<img src="" alt=""><img src="">"#),
         "Expected <img src=\"\" alt=\"\"><img src=\"\">, got: {}",
         result
+    );
+}
+
+/// Regression test for textarea content corruption
+/// html_a: "\n$"
+/// html_b: "<textarea>\n\n\n\n" (unclosed - browser captures </body></html> as content)
+#[test]
+fn test_textarea_content() {
+    // Simulate what the browser does: unclosed textarea captures the closing tags
+    let a = t("<html><body>\n$</body></html>");
+    // Browser normalizes unclosed <textarea>\n\n\n\n</body></html> to this:
+    // (the </body></html> become escaped text inside textarea)
+    let b = t("<html><body><textarea>\n\n\n\n&lt;/body&gt;&lt;/html&gt;</textarea></body></html>");
+
+    trace!(?a, "Parsing a");
+    let doc_a = hotmeal::parse(&a);
+    trace!(doc_a_html = %doc_a.to_html(), "doc_a HTML");
+
+    trace!(?b, "Parsing b");
+    let doc_b = hotmeal::parse(&b);
+    trace!(doc_b_html = %doc_b.to_html(), "doc_b HTML");
+
+    trace!("Computing diff...");
+    let patches = hotmeal::diff(&doc_a, &doc_b).expect("diff should succeed");
+    trace!(?patches, "Patches");
+
+    // Apply patches
+    let mut patched = doc_a.clone();
+    patched
+        .apply_patches(patches)
+        .expect("apply should succeed");
+
+    trace!(patched = %patched.to_html(), "Patched");
+    trace!(expected = %doc_b.to_html(), "Expected");
+
+    assert_eq!(
+        patched.to_html(),
+        doc_b.to_html(),
+        "Patched HTML should match target"
+    );
+}
+
+/// Regression test for fuzzer crash with <s = input
+/// html_a: "'" (single quote)
+/// html_b: "<s ="
+#[test]
+fn test_text_to_s_element() {
+    let a = t("<html><body>'</body></html>");
+    let b = t("<html><body><s =</body></html>");
+
+    trace!(?a, "Parsing a");
+    let doc_a = hotmeal::parse(&a);
+    trace!(doc_a_html = %doc_a.to_html(), "doc_a HTML");
+
+    trace!(?b, "Parsing b");
+    let doc_b = hotmeal::parse(&b);
+    trace!(doc_b_html = %doc_b.to_html(), "doc_b HTML");
+
+    trace!("Computing diff...");
+    let patches = hotmeal::diff(&doc_a, &doc_b).expect("diff should succeed");
+    trace!(?patches, "Patches");
+
+    // Apply patches
+    let mut patched = doc_a.clone();
+    patched
+        .apply_patches(patches)
+        .expect("apply should succeed");
+
+    trace!(patched = %patched.to_html(), "Patched");
+    trace!(expected = %doc_b.to_html(), "Expected");
+
+    assert_eq!(
+        patched.to_html(),
+        doc_b.to_html(),
+        "Patched HTML should match target"
     );
 }
 
@@ -95,20 +172,20 @@ fn test_diff_incomplete_doctype_vs_empty() {
     let a = t("<!");
     let b = t("");
 
-    println!("Parsing a: {:?}", a);
+    trace!(?a, "Parsing a");
     let doc_a = hotmeal::parse(&a);
-    println!("doc_a HTML: {:?}", doc_a.to_html());
-    println!("doc_a.body(): {:?}", doc_a.body());
+    trace!(doc_a_html = %doc_a.to_html(), "doc_a HTML");
+    trace!(doc_a_body = ?doc_a.body(), "doc_a.body()");
 
-    println!("Parsing b: {:?}", b);
+    trace!(?b, "Parsing b");
     let doc_b = hotmeal::parse(&b);
-    println!("doc_b HTML: {:?}", doc_b.to_html());
-    println!("doc_b.body(): {:?}", doc_b.body());
+    trace!(doc_b_html = %doc_b.to_html(), "doc_b HTML");
+    trace!(doc_b_body = ?doc_b.body(), "doc_b.body()");
 
     // Both docs may have no body, but diff should still work
-    println!("Computing diff...");
+    trace!("Computing diff...");
     let patches = hotmeal::diff(&doc_a, &doc_b).expect("diff should succeed");
-    println!("Patches: {:?}", patches);
+    trace!(?patches, "Patches");
 
     // Apply patches
     let mut patched = doc_a.clone();

@@ -1,8 +1,8 @@
 #![no_main]
 
 use arbitrary::Arbitrary;
+use hotmeal::StrTendril;
 use libfuzzer_sys::fuzz_target;
-use tendril::StrTendril;
 
 #[derive(Arbitrary, Debug)]
 struct Input {

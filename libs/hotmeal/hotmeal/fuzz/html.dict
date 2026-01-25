@@ -1,3 +1,6 @@
+# Delimiter for splitting input into two HTML strings
+"\xff"
+
 # HTML elements
 "<html>"
 "</html>"

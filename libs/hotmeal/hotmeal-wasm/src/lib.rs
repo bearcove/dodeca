@@ -11,7 +11,7 @@
 //! target position into a numbered slot. The DOM's `replaceChild` method
 //! provides atomic displacement, returning the removed node for storage.
 
-use hotmeal::{InsertContent, NodeId, PropKey, StrTendril, parse};
+use hotmeal::{InsertContent, NodeId, StrTendril, parse};
 use smallvec::SmallVec;
 use tracing::{debug, trace};
 use wasm_bindgen::prelude::*;
@@ -27,7 +27,7 @@ pub fn init_tracing() {
 }
 
 // Re-export patch types for reference
-pub use hotmeal::{NodePath, NodeRef, Patch, PropChange};
+pub use hotmeal::{NodePath, NodeRef, Patch, PropChange, PropKey};
 
 /// Compute diff between two HTML documents and return patches as JSON.
 /// This allows computing diffs in the browser for fuzzing tests.
@@ -44,18 +44,31 @@ pub fn diff_html(old_html: &str, new_html: &str) -> Result<String, JsValue> {
     Ok(json)
 }
 
+/// Compute diff between two HTML documents and return patches directly.
+/// Returns owned patches for use with apply_patches.
+pub fn diff_html_patches(old_html: &str, new_html: &str) -> Result<Vec<Patch<'static>>, JsValue> {
+    let old_tendril = StrTendril::from(old_html);
+    let new_tendril = StrTendril::from(new_html);
+    let patches = hotmeal::diff_html(&old_tendril, &new_tendril)
+        .map_err(|e| JsValue::from_str(&format!("diff failed: {e}")))?;
+
+    Ok(patches.into_iter().map(|p| p.into_owned()).collect())
+}
+
 /// Slots for detached nodes during patch application.
 /// In Chawathe's model, INSERT doesn't shift - it displaces the occupant to a slot.
-struct Slots {
+///
+/// Use this with `apply_patches_with_slots` when applying patches incrementally.
+pub struct Slots {
     nodes: Vec<Option<Node>>,
 }
 
 impl Slots {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self { nodes: Vec::new() }
     }
 
-    fn store(&mut self, slot: u32, node: Node) {
+    pub fn store(&mut self, slot: u32, node: Node) {
         let idx = slot as usize;
         if idx >= self.nodes.len() {
             self.nodes.resize(idx + 1, None);
@@ -63,7 +76,7 @@ impl Slots {
         self.nodes[idx] = Some(node);
     }
 
-    fn take(&mut self, slot: u32) -> Option<Node> {
+    pub fn take(&mut self, slot: u32) -> Option<Node> {
         let idx = slot as usize;
         if idx < self.nodes.len() {
             self.nodes[idx].take()
@@ -72,9 +85,15 @@ impl Slots {
         }
     }
 
-    fn get(&self, slot: u32) -> Option<&Node> {
+    pub fn get(&self, slot: u32) -> Option<&Node> {
         let idx = slot as usize;
         self.nodes.get(idx).and_then(|n| n.as_ref())
+    }
+}
+
+impl Default for Slots {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -88,8 +107,15 @@ pub fn apply_patches_json(patches_json: &str) -> Result<usize, JsValue> {
     apply_patches(&patches)
 }
 
-/// Apply patches to the document.
+/// Apply patches to the document (high-level API with internal slots).
 pub fn apply_patches(patches: &[Patch]) -> Result<usize, JsValue> {
+    let mut slots = Slots::new();
+    apply_patches_with_slots(patches, &mut slots)
+}
+
+/// Apply patches to the document with external slot storage.
+/// Use this when applying patches incrementally and need to preserve slot state.
+pub fn apply_patches_with_slots(patches: &[Patch], slots: &mut Slots) -> Result<usize, JsValue> {
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
     let document = window
         .document()
@@ -98,16 +124,24 @@ pub fn apply_patches(patches: &[Patch]) -> Result<usize, JsValue> {
     let count = patches.len();
     log(&format!("[hotmeal-wasm] applying {} patches", count));
 
-    let mut slots = Slots::new();
-
     for (i, patch) in patches.iter().enumerate() {
         log(&format!("[hotmeal-wasm] patch {}: {:?}", i, patch));
-        apply_patch(&document, patch, &mut slots).map_err(|e| {
-            JsValue::from_str(&format!(
-                "patch {}: {}",
-                i,
-                e.as_string().unwrap_or_default()
-            ))
+        apply_patch(&document, patch, slots).map_err(|e| {
+            // Try to extract error message from JsValue
+            let msg = e
+                .as_string()
+                .or_else(|| {
+                    // Try to get .message property (for Error objects)
+                    js_sys::Reflect::get(&e, &JsValue::from_str("message"))
+                        .ok()
+                        .and_then(|v| v.as_string())
+                })
+                .or_else(|| {
+                    // Try JSON.stringify as last resort
+                    js_sys::JSON::stringify(&e).ok().and_then(|v| v.as_string())
+                })
+                .unwrap_or_else(|| format!("{:?}", e));
+            JsValue::from_str(&format!("patch {}: {}", i, msg))
         })?;
     }
 
@@ -221,31 +255,28 @@ fn apply_patch(doc: &Document, patch: &Patch, slots: &mut Slots) -> Result<(), J
                 .ok_or_else(|| JsValue::from_str("parent is not an element"))?
                 .clone();
 
-            // Create the new element
-            let new_el = doc.create_element(tag)?;
-
-            // Set attributes
-            for attr in attrs {
-                // Convert QualName to attribute name string
-                // Filter out empty prefixes - they should not produce ":local"
-                let attr_name = match attr.name.prefix.as_ref().filter(|p| !p.is_empty()) {
-                    Some(prefix) => format!("{}:{}", prefix, attr.name.local),
-                    None => attr.name.local.to_string(),
-                };
-                new_el.set_attribute(&attr_name, &attr.value)?;
-            }
-
-            // Add children
-            for child in children {
-                let child_node = create_insert_content(doc, child)?;
-                new_el.append_child(&child_node)?;
-            }
+            // Create the new element - try programmatic creation first, fall back to innerHTML
+            // for exotic attributes that can't be set via setAttribute
+            let new_node: Node = match create_element_with_attrs(doc, tag, attrs) {
+                Ok(el) => {
+                    // Add children
+                    for child in children {
+                        let child_node = create_insert_content(doc, child)?;
+                        el.append_child(&child_node)?;
+                    }
+                    el.into()
+                }
+                Err(_) => {
+                    // Fall back to creating via innerHTML for exotic attributes
+                    create_element_via_html(doc, tag, attrs, children)?
+                }
+            };
 
             // Insert at position with Chawathe displacement semantics
             insert_at_position(
                 doc,
                 &parent_el,
-                &new_el.into(),
+                &new_node,
                 position as usize,
                 *detach_to_slot,
                 slots,
@@ -506,6 +537,122 @@ fn insert_at_position(
     Ok(())
 }
 
+/// Try to create an element with attributes using the DOM API.
+/// Returns Err if any attribute name is invalid for setAttribute.
+fn create_element_with_attrs(
+    doc: &Document,
+    tag: &str,
+    attrs: &[hotmeal::AttrPair],
+) -> Result<Element, JsValue> {
+    let el = doc.create_element(tag)?;
+    for attr in attrs {
+        let attr_name = match attr.name.prefix.as_ref().filter(|p| !p.is_empty()) {
+            Some(prefix) => format!("{}:{}", prefix, attr.name.local),
+            None => attr.name.local.to_string(),
+        };
+        el.set_attribute(&attr_name, &attr.value)?;
+    }
+    Ok(el)
+}
+
+/// Create an element via innerHTML when setAttribute fails.
+/// This handles exotic attribute names that the HTML parser accepts but the DOM API rejects.
+fn create_element_via_html(
+    doc: &Document,
+    tag: &str,
+    attrs: &[hotmeal::AttrPair],
+    children: &[InsertContent],
+) -> Result<Node, JsValue> {
+    use web_sys::HtmlTemplateElement;
+
+    // Serialize the element to HTML
+    let mut html = format!("<{}", tag);
+    for attr in attrs {
+        let attr_name = match attr.name.prefix.as_ref().filter(|p| !p.is_empty()) {
+            Some(prefix) => format!("{}:{}", prefix, attr.name.local),
+            None => attr.name.local.to_string(),
+        };
+        // Escape attribute value for HTML
+        let escaped_value = attr
+            .value
+            .replace('&', "&amp;")
+            .replace('"', "&quot;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        html.push_str(&format!(" {}=\"{}\"", attr_name, escaped_value));
+    }
+    html.push('>');
+
+    // Serialize children
+    for child in children {
+        serialize_insert_content(&mut html, child);
+    }
+
+    // Close tag
+    html.push_str(&format!("</{}>", tag));
+
+    // Parse via template element
+    let template = doc
+        .create_element("template")?
+        .dyn_into::<HtmlTemplateElement>()
+        .map_err(|_| JsValue::from_str("failed to create template element"))?;
+    template.set_inner_html(&html);
+
+    // Extract the first child from the template content
+    template
+        .content()
+        .first_child()
+        .ok_or_else(|| JsValue::from_str("template content is empty"))
+}
+
+/// Serialize InsertContent to HTML string
+fn serialize_insert_content(out: &mut String, content: &InsertContent) {
+    match content {
+        InsertContent::Element {
+            tag,
+            attrs,
+            children,
+        } => {
+            out.push('<');
+            out.push_str(tag);
+            for attr in attrs {
+                let attr_name = match attr.name.prefix.as_ref().filter(|p| !p.is_empty()) {
+                    Some(prefix) => format!("{}:{}", prefix, attr.name.local),
+                    None => attr.name.local.to_string(),
+                };
+                let escaped_value = attr
+                    .value
+                    .replace('&', "&amp;")
+                    .replace('"', "&quot;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;");
+                out.push_str(&format!(" {}=\"{}\"", attr_name, escaped_value));
+            }
+            out.push('>');
+            for child in children {
+                serialize_insert_content(out, child);
+            }
+            out.push_str("</");
+            out.push_str(tag);
+            out.push('>');
+        }
+        InsertContent::Text(text) => {
+            // Escape text content
+            out.push_str(
+                &text
+                    .replace('&', "&amp;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;"),
+            );
+        }
+        InsertContent::Comment(text) => {
+            out.push_str("<!--");
+            out.push_str(text);
+            out.push_str("-->");
+        }
+    }
+}
+
 /// Create a DOM node from InsertContent.
 fn create_insert_content(doc: &Document, content: &InsertContent) -> Result<Node, JsValue> {
     match content {
@@ -514,21 +661,20 @@ fn create_insert_content(doc: &Document, content: &InsertContent) -> Result<Node
             attrs,
             children,
         } => {
-            let el = doc.create_element(tag)?;
-            for attr in attrs {
-                // Convert QualName to attribute name string
-                let attr_name = if let Some(ref prefix) = attr.name.prefix {
-                    format!("{}:{}", prefix, attr.name.local)
-                } else {
-                    attr.name.local.to_string()
-                };
-                el.set_attribute(&attr_name, &attr.value)?;
+            // Try programmatic creation first, fall back to innerHTML for exotic attributes
+            match create_element_with_attrs(doc, tag, attrs) {
+                Ok(el) => {
+                    for child in children {
+                        let child_node = create_insert_content(doc, child)?;
+                        el.append_child(&child_node)?;
+                    }
+                    Ok(el.into())
+                }
+                Err(_) => {
+                    // Fall back to innerHTML
+                    create_element_via_html(doc, tag, attrs, children)
+                }
             }
-            for child in children {
-                let child_node = create_insert_content(doc, child)?;
-                el.append_child(&child_node)?;
-            }
-            Ok(el.into())
         }
         InsertContent::Text(text) => Ok(doc.create_text_node(text).into()),
         InsertContent::Comment(text) => Ok(doc.create_comment(text).into()),
