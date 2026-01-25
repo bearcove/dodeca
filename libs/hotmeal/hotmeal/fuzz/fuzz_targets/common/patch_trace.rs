@@ -194,6 +194,63 @@ impl From<&ApplyPatchesResult> for PatchTrace {
     }
 }
 
+/// Print two traces interleaved, showing native and browser side-by-side for each step.
+pub fn print_interleaved_traces(native: &PatchTrace, browser: &PatchTrace) {
+    eprintln!("Initial tree (Native):");
+    eprintln!("{}", native.initial_tree);
+    eprintln!("Initial tree (Browser):");
+    eprintln!("{}", browser.initial_tree);
+
+    let max_steps = native.steps.len().max(browser.steps.len());
+    for i in 0..max_steps {
+        eprintln!("\n========== Step {} ==========", i);
+
+        let native_step = native.steps.get(i);
+        let browser_step = browser.steps.get(i);
+
+        // Print patch (should be the same for both)
+        if let Some(step) = native_step.or(browser_step) {
+            eprintln!("Patch: {}", step.patch_debug);
+        }
+
+        eprintln!("\n--- Native ---");
+        if let Some(step) = native_step {
+            match &step.result {
+                PatchStepResult::Success { dom_tree } => {
+                    eprintln!("Result: SUCCESS");
+                    eprintln!("{}", dom_tree);
+                }
+                PatchStepResult::Failure { error, dom_tree } => {
+                    eprintln!("Result: FAILURE");
+                    eprintln!("Error: {}", error);
+                    eprintln!("Tree at failure:");
+                    eprintln!("{}", dom_tree);
+                }
+            }
+        } else {
+            eprintln!("(no step)");
+        }
+
+        eprintln!("--- Browser ---");
+        if let Some(step) = browser_step {
+            match &step.result {
+                PatchStepResult::Success { dom_tree } => {
+                    eprintln!("Result: SUCCESS");
+                    eprintln!("{}", dom_tree);
+                }
+                PatchStepResult::Failure { error, dom_tree } => {
+                    eprintln!("Result: FAILURE");
+                    eprintln!("Error: {}", error);
+                    eprintln!("Tree at failure:");
+                    eprintln!("{}", dom_tree);
+                }
+            }
+        } else {
+            eprintln!("(no step)");
+        }
+    }
+}
+
 /// Compare two traces and format the differences.
 pub fn compare_traces(native: &PatchTrace, browser: &PatchTrace) -> Option<String> {
     use similar::{ChangeTag, TextDiff};

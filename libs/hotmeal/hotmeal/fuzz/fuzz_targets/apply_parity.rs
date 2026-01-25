@@ -89,10 +89,8 @@ fn target(data: &[u8]) {
         eprintln!("Input A: {:?}", full_a);
         eprintln!("Input B: {:?}", full_b);
         eprintln!("\n{}", mismatch);
-        eprintln!("\n--- Full Native Trace ---");
-        eprintln!("{}", native_trace);
-        eprintln!("\n--- Full Browser Trace ---");
-        eprintln!("{}", browser_trace);
+        eprintln!("\n--- Interleaved Trace ---");
+        common::print_interleaved_traces(&native_trace, &browser_trace);
         eprintln!("============================================\n");
         panic!("Apply parity mismatch!");
     }
