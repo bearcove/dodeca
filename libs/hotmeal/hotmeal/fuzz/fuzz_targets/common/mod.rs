@@ -343,28 +343,30 @@ pub fn setup_tracing() {
             termcolor::ColorChoice::AlwaysAnsi,
         )));
 
-    let filter = std::env::var("FUZZ_LOG")
+    // Only install tracing if FUZZ_LOG is explicitly set
+    match std::env::var("FUZZ_LOG")
         .ok()
         .and_then(|s| s.parse::<Targets>().ok())
-        .unwrap_or_else(|| {
-            eprintln!("Assuming FUZZ_LOG=error (feel free to set the $FUZZ_LOG env var to override tracing filters) (note: $RUST_LOG doesn't do anything)");
-            Targets::new().with_default(tracing::Level::ERROR)
-        });
-
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_ansi(true)
-                .with_timer(Uptime::default())
-                .with_target(false)
-                .with_level(true)
-                // .with_file(true)
-                // .with_line_number(true)
-                .with_file(false)
-                .with_line_number(false)
-                .compact(),
-        )
-        .with(filter)
-        .try_init()
-        .ok();
+    {
+        Some(filter) => {
+            eprintln!("Tracing enabled via FUZZ_LOG");
+            tracing_subscriber::registry()
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_ansi(true)
+                        .with_timer(Uptime::default())
+                        .with_target(false)
+                        .with_level(true)
+                        .with_file(false)
+                        .with_line_number(false)
+                        .compact(),
+                )
+                .with(filter)
+                .try_init()
+                .ok();
+        }
+        None => {
+            eprintln!("Tracing disabled (set FUZZ_LOG=debug to enable)");
+        }
+    }
 }
