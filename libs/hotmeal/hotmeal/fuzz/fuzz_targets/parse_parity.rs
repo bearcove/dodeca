@@ -37,6 +37,13 @@ fuzz_target!(|data: &[u8]| {
         return;
     }
 
+    // Skip inputs with consecutive CRs (\r\r) - Chrome has another bug where
+    // CR-CR is not normalized the same as LF-LF in attribute parsing contexts.
+    // E.g., "& CR CR \ LF &" produces "\&" in Chrome but should produce "\" and "&" separately.
+    if html.contains("\r\r") {
+        return;
+    }
+
     // Wrap in full HTML document with DOCTYPE for no-quirks mode
     let full_html = format!("<!DOCTYPE html><html><body>{}</body></html>", html);
     let tendril = StrTendril::from(full_html.as_str());
