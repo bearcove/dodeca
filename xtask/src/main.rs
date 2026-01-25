@@ -10,7 +10,7 @@ use std::time::SystemTime;
 
 use camino::Utf8PathBuf;
 use facet::Facet;
-use facet_args as args;
+use figue as args;
 use owo_colors::OwoColorize;
 
 /// Build command - build WASM + plugins + dodeca
@@ -108,7 +108,7 @@ fn parse_args() -> Result<XtaskCommand, String> {
     let args: Vec<String> = env::args().skip(1).collect();
     let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
 
-    let parsed: XtaskArgs = facet_args::from_slice(&args_refs).map_err(|e| {
+    let parsed: XtaskArgs = figue::from_slice(&args_refs).map_err(|e| {
         eprintln!("{e}");
         "Failed to parse arguments".to_string()
     })?;

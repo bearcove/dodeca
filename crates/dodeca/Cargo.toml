@@ -55,7 +55,7 @@ chrono.workspace = true
 dashmap.workspace = true
 eyre.workspace = true
 facet.workspace = true
-facet-args.workspace = true
+figue.workspace = true
 
 facet-json.workspace = true
 facet-postcard.workspace = true

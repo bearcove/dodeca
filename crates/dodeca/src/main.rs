@@ -47,7 +47,7 @@ use crate::types::{
 use camino::{Utf8Path, Utf8PathBuf};
 use eyre::{Result, eyre};
 use facet::Facet;
-use facet_args as args;
+use figue as args;
 use ignore::WalkBuilder;
 use owo_colors::OwoColorize;
 use std::collections::BTreeMap;
@@ -278,42 +278,42 @@ fn parse_args() -> Result<Command> {
 
     match cmd.as_str() {
         "build" => {
-            let build_args: BuildArgs = facet_args::from_slice(&rest).map_err(|e| {
+            let build_args: BuildArgs = figue::from_slice(&rest).map_err(|e| {
                 eprintln!("{e}");
                 eyre!("Failed to parse build arguments")
             })?;
             Ok(Command::Build(build_args))
         }
         "serve" => {
-            let serve_args: ServeArgs = facet_args::from_slice(&rest).map_err(|e| {
+            let serve_args: ServeArgs = figue::from_slice(&rest).map_err(|e| {
                 eprintln!("{e}");
                 eyre!("Failed to parse serve arguments")
             })?;
             Ok(Command::Serve(serve_args))
         }
         "clean" => {
-            let clean_args: CleanArgs = facet_args::from_slice(&rest).map_err(|e| {
+            let clean_args: CleanArgs = figue::from_slice(&rest).map_err(|e| {
                 eprintln!("{e}");
                 eyre!("Failed to parse clean arguments")
             })?;
             Ok(Command::Clean(clean_args))
         }
         "static" => {
-            let static_args: StaticArgs = facet_args::from_slice(&rest).map_err(|e| {
+            let static_args: StaticArgs = figue::from_slice(&rest).map_err(|e| {
                 eprintln!("{e}");
                 eyre!("Failed to parse static arguments")
             })?;
             Ok(Command::Static(static_args))
         }
         "init" => {
-            let init_args: InitArgs = facet_args::from_slice(&rest).map_err(|e| {
+            let init_args: InitArgs = figue::from_slice(&rest).map_err(|e| {
                 eprintln!("{e}");
                 eyre!("Failed to parse init arguments")
             })?;
             Ok(Command::Init(init_args))
         }
         "term" => {
-            let term_args: TermArgs = facet_args::from_slice(&rest).map_err(|e| {
+            let term_args: TermArgs = figue::from_slice(&rest).map_err(|e| {
                 eprintln!("{e}");
                 eyre!("Failed to parse term arguments")
             })?;
