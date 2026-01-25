@@ -167,6 +167,21 @@ fn is_valid_for_browser_parity(html: &str) -> bool {
     // [UNCLEAR] - Needs investigation
     // =========================================================================
 
+    // Skip inputs containing <html with attributes - browsers have complex normalization
+    // rules for <html> attributes (stripping invalid values, certain characters, etc.)
+    // that differ from html5ever's permissive parsing.
+    {
+        let lower = html.to_ascii_lowercase();
+        if let Some(pos) = lower.find("<html") {
+            let after = &lower[pos + 5..];
+            // If there's anything other than > or whitespace+> immediately after <html,
+            // it likely has attributes which cause divergent behavior
+            if !after.starts_with('>') && !after.trim_start().starts_with('>') {
+                return false;
+            }
+        }
+    }
+
     // Skip inputs containing <template> - template content lives in a DocumentFragment
     // which isn't visible via innerHTML, causing tree structure mismatches
     if html.to_ascii_lowercase().contains("<template") {
