@@ -29,6 +29,14 @@ fuzz_target!(|data: &[u8]| {
         return;
     }
 
+    // Skip inputs with LF-CR (\n\r) sequence - Chrome has a bug where it normalizes
+    // LF-CR to a single newline, but per INFRA spec it should become LF-LF.
+    // Firefox and Safari are spec-compliant, html5ever is spec-compliant.
+    // See: https://infra.spec.whatwg.org/#normalize-newlines
+    if html.contains("\n\r") {
+        return;
+    }
+
     // Wrap in full HTML document with DOCTYPE for no-quirks mode
     let full_html = format!("<!DOCTYPE html><html><body>{}</body></html>", html);
     let tendril = StrTendril::from(full_html.as_str());

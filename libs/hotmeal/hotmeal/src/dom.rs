@@ -2164,4 +2164,56 @@ mod tests {
             other => panic!("Expected <u> to wrap <svg>, got {:?}", other),
         }
     }
+
+    #[test]
+    fn test_parser_lf_cr_attribute_handling() {
+        // Test for LF-CR (\n\r) in tag attribute parsing
+        // Input: "p<H\nz\n\rH\nt"
+        //
+        // Per INFRA spec "normalize newlines":
+        // 1. Replace CR-LF pairs with LF
+        // 2. Replace remaining CR with LF
+        //
+        // So \n\r becomes \n\n (LF stays, CR becomes LF) = two whitespace chars
+        // This means z and h are separate attributes.
+        //
+        // Browser behavior:
+        // - Firefox: z, h, t<, body (4 attrs) ✓ spec-compliant
+        // - Safari:  z, h, t<, body (4 attrs) ✓ spec-compliant
+        // - Chrome:  z, ht<, body (3 attrs) ✗ Chrome bug
+        let html = t("<!DOCTYPE html><html><body>p<H\nz\n\rH\nt</body></html>");
+        trace!(%html, "Input");
+        let doc = parse(&html);
+
+        let body = doc.body().expect("should have body");
+        let children: Vec<_> = body.children(&doc.arena).collect();
+
+        // Find the <h> element
+        let h_elem = children.iter().find(
+            |&&id| matches!(&doc.get(id).kind, NodeKind::Element(e) if e.tag.as_ref() == "h"),
+        );
+
+        let h_id = h_elem.expect("should have <h> element");
+        let h_data = doc.get(*h_id);
+
+        match &h_data.kind {
+            NodeKind::Element(elem) => {
+                trace!(attrs = ?elem.attrs, "H element attrs");
+                // Per INFRA spec, \n\r → \n\n, creating 4 separate attributes
+                assert_eq!(
+                    elem.attrs.len(),
+                    4,
+                    "Should have 4 attributes (z, h, t<, body) per INFRA spec. Got: {:?}",
+                    elem.attrs
+                );
+
+                // Verify the separate h and t< attributes exist (not combined as ht<)
+                let has_h = elem.attrs.iter().any(|(k, _)| k.local.as_ref() == "h");
+                let has_t = elem.attrs.iter().any(|(k, _)| k.local.as_ref() == "t<");
+                assert!(has_h, "Should have 'h' attribute, got: {:?}", elem.attrs);
+                assert!(has_t, "Should have 't<' attribute, got: {:?}", elem.attrs);
+            }
+            other => panic!("Expected Element, got {:?}", other),
+        }
+    }
 }

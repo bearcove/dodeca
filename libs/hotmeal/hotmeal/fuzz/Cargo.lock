@@ -1045,7 +1045,7 @@ dependencies = [
  "html5ever",
  "rapidhash",
  "smallvec",
- "tendril 0.5.0 (git+https://github.com/servo/html5ever?branch=main)",
+ "tendril 0.5.0 (git+https://github.com/fasterthanlime/html5ever?branch=hotmeal)",
  "tracing",
 ]
 
@@ -1065,7 +1065,7 @@ dependencies = [
  "roam-stream",
  "roam-websocket",
  "similar",
- "tendril 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tendril 0.5.0 (git+https://github.com/fasterthanlime/html5ever?branch=hotmeal)",
  "thrall",
  "tokio",
  "tokio-tungstenite",
@@ -1088,7 +1088,7 @@ dependencies = [
 [[package]]
 name = "html5ever"
 version = "0.38.0"
-source = "git+https://github.com/servo/html5ever?branch=main#abf850e8730f5b67f5f4bd320c05907066b0e029"
+source = "git+https://github.com/fasterthanlime/html5ever?branch=hotmeal#abf850e8730f5b67f5f4bd320c05907066b0e029"
 dependencies = [
  "log",
  "markup5ever",
@@ -1486,10 +1486,10 @@ checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 [[package]]
 name = "markup5ever"
 version = "0.38.0"
-source = "git+https://github.com/servo/html5ever?branch=main#abf850e8730f5b67f5f4bd320c05907066b0e029"
+source = "git+https://github.com/fasterthanlime/html5ever?branch=hotmeal#abf850e8730f5b67f5f4bd320c05907066b0e029"
 dependencies = [
  "log",
- "tendril 0.5.0 (git+https://github.com/servo/html5ever?branch=main)",
+ "tendril 0.5.0 (git+https://github.com/fasterthanlime/html5ever?branch=hotmeal)",
  "web_atoms",
 ]
 
@@ -2621,7 +2621,7 @@ dependencies = [
 [[package]]
 name = "tendril"
 version = "0.5.0"
-source = "git+https://github.com/servo/html5ever?branch=main#abf850e8730f5b67f5f4bd320c05907066b0e029"
+source = "git+https://github.com/fasterthanlime/html5ever?branch=hotmeal#abf850e8730f5b67f5f4bd320c05907066b0e029"
 dependencies = [
  "new_debug_unreachable",
  "utf-8",
@@ -3137,7 +3137,7 @@ dependencies = [
 [[package]]
 name = "web_atoms"
 version = "0.2.3"
-source = "git+https://github.com/servo/html5ever?branch=main#abf850e8730f5b67f5f4bd320c05907066b0e029"
+source = "git+https://github.com/fasterthanlime/html5ever?branch=hotmeal#abf850e8730f5b67f5f4bd320c05907066b0e029"
 dependencies = [
  "phf",
  "phf_codegen",
